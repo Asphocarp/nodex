@@ -5,7 +5,10 @@ import {
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from "y-protocols/awareness.js";
-import type { BlockId, DocumentId } from "../../shared/block-documents/contracts";
+import type {
+  BlockId,
+  DocumentId,
+} from "../../shared/block-documents/contracts";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -84,9 +87,7 @@ export interface NodexYProviderOptions {
     sequence: number,
   ) => string;
   /** touchedBlockIds are diagnostics until the writer derives them itself. */
-  readonly resolveTouchedBlockIds?: (
-    update: Uint8Array,
-  ) => readonly BlockId[];
+  readonly resolveTouchedBlockIds?: (update: Uint8Array) => readonly BlockId[];
   readonly scheduleRetry?: NodexYProviderRetryScheduler;
   /** Disposable local recovery state. SQLite remains the durable authority. */
   readonly localCheckpointStore?: DocumentLocalCheckpointStore | null;
@@ -128,10 +129,8 @@ const makeClientSessionId = (): string => {
   return `document-client:${Date.now().toString(36)}:${fallbackSessionSequence.toString(36)}`;
 };
 
-const defaultUpdateId = (
-  clientSessionId: string,
-  sequence: number,
-): string => `${clientSessionId}:update:${sequence.toString(36)}`;
+const defaultUpdateId = (clientSessionId: string, sequence: number): string =>
+  `${clientSessionId}:update:${sequence.toString(36)}`;
 
 const defaultRetryScheduler: NodexYProviderRetryScheduler = (
   callback,
@@ -163,7 +162,9 @@ const resetBoundaryError = (message: string): DocumentSyncCommandError => ({
   resetRequired: true,
 });
 
-const generationBoundaryError = (message: string): DocumentSyncCommandError => ({
+const generationBoundaryError = (
+  message: string,
+): DocumentSyncCommandError => ({
   code: "document_generation_mismatch",
   message,
   retryable: false,
@@ -190,7 +191,9 @@ const sameError = (
   left?.code === right?.code &&
   left?.message === right?.message &&
   left?.retryable === right?.retryable &&
-  left?.resetRequired === right?.resetRequired;
+  left?.resetRequired === right?.resetRequired &&
+  left?.relocationId === right?.relocationId &&
+  left?.recoveryArtifactId === right?.recoveryArtifactId;
 
 export class NodexYProvider {
   readonly documentId: DocumentId;
@@ -308,9 +311,10 @@ export class NodexYProvider {
     this.createUpdateId = options.createUpdateId ?? defaultUpdateId;
     this.resolveTouchedBlockIds = options.resolveTouchedBlockIds ?? (() => []);
     this.scheduleRetry = options.scheduleRetry ?? defaultRetryScheduler;
-    this.localCheckpointStore = options.localCheckpointStore === undefined
-      ? createDefaultDocumentLocalCheckpointStore()
-      : options.localCheckpointStore;
+    this.localCheckpointStore =
+      options.localCheckpointStore === undefined
+        ? createDefaultDocumentLocalCheckpointStore()
+        : options.localCheckpointStore;
     this.awareness = new Awareness(this.document);
     this.status = this.buildStatus();
 
@@ -646,7 +650,9 @@ export class NodexYProvider {
       !Number.isInteger(response.generation) ||
       response.generation < 1
     ) {
-      this.enterFatal(invalidResponseError("Sync response has an invalid head"));
+      this.enterFatal(
+        invalidResponseError("Sync response has an invalid head"),
+      );
       return false;
     }
     return true;
@@ -664,10 +670,7 @@ export class NodexYProvider {
     }
 
     const expectedGeneration = this.generation ?? this.expectedGeneration;
-    if (
-      expectedGeneration !== undefined &&
-      expectedGeneration !== generation
-    ) {
+    if (expectedGeneration !== undefined && expectedGeneration !== generation) {
       this.enterReset(
         generationBoundaryError(
           `Document ${this.documentId} moved from generation ${expectedGeneration} to ${generation}`,
@@ -804,9 +807,7 @@ export class NodexYProvider {
     let updateId: string;
     try {
       mergedUpdate = copyBytes(Y.mergeUpdates(updates));
-      touchedBlockIds = [
-        ...new Set(this.resolveTouchedBlockIds(mergedUpdate)),
-      ];
+      touchedBlockIds = [...new Set(this.resolveTouchedBlockIds(mergedUpdate))];
       updateId = this.createUpdateId(
         this.clientSessionId,
         this.updateSequence + 1,
@@ -932,7 +933,9 @@ export class NodexYProvider {
       ack.committedSeq < request.baseHeadSeq + 1 ||
       ack.committedSeq > ack.headSeq
     ) {
-      this.enterFatal(invalidResponseError("Document update ACK has an invalid head"));
+      this.enterFatal(
+        invalidResponseError("Document update ACK has an invalid head"),
+      );
       return false;
     }
     return true;
@@ -956,10 +959,7 @@ export class NodexYProvider {
         storeEpoch: response.storeEpoch,
         generation: response.generation,
       });
-      if (
-        this.destroyed ||
-        this.terminalError
-      ) {
+      if (this.destroyed || this.terminalError) {
         return;
       }
       if (!this.connected) {
@@ -1038,7 +1038,9 @@ export class NodexYProvider {
     if (
       error.resetRequired ||
       error.code === "store_epoch_mismatch" ||
-      error.code === "document_generation_mismatch"
+      error.code === "document_generation_mismatch" ||
+      error.code === "block_relocated" ||
+      error.code === "recovery_required"
     ) {
       this.enterReset({
         ...error,
@@ -1208,7 +1210,11 @@ export class NodexYProvider {
       phase = "idle";
     } else if (!this.connected) {
       phase = "offline";
-    } else if (this.syncing || !this.storeEpoch || this.generation === undefined) {
+    } else if (
+      this.syncing ||
+      !this.storeEpoch ||
+      this.generation === undefined
+    ) {
       phase = "connecting";
     } else if (pendingUpdateCount > 0 || this.retryKind !== null) {
       phase = "saving";

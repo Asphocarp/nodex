@@ -22,6 +22,8 @@ export type DocumentSyncErrorCode =
   | "invalid_awareness_update"
   | "document_update_missing_dependencies"
   | "update_id_collision"
+  | "block_relocated"
+  | "recovery_required"
   | "document_state_corrupt"
   | "invalid_response"
   | "unknown";
@@ -36,6 +38,10 @@ export interface DocumentSyncCommandError {
    * This is required after restore/store replacement or document regeneration.
    */
   readonly resetRequired: boolean;
+  /** The committed relocation that made this stale update unsafe. */
+  readonly relocationId?: string;
+  /** Durable copy of an update that requires explicit recovery/merge. */
+  readonly recoveryArtifactId?: string;
 }
 
 export type DocumentSyncCommandResult<T> =
@@ -128,5 +134,6 @@ export type DocumentSyncRealtimeEvent =
       readonly storeEpoch: string;
       readonly generation: number;
       readonly headSeq: number;
-      readonly reason: "event-gap" | "history-compacted" | "transport-reconnected";
+      readonly reason:
+        "event-gap" | "history-compacted" | "transport-reconnected";
     };

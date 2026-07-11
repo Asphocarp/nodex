@@ -125,11 +125,13 @@ const getChildBlockGroup = (block: Y.XmlElement): Y.XmlElement | null =>
     ) ?? null;
 
 const deleteDirectBlock = (group: Y.XmlElement, blockId: string): void => {
-  const index = group.toArray().findIndex(
-    (node) =>
-      node instanceof Y.XmlElement &&
-      node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId,
-  );
+  const index = group
+    .toArray()
+    .findIndex(
+      (node) =>
+        node instanceof Y.XmlElement &&
+        node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId,
+    );
   if (index < 0) throw new Error(`Could not delete Block ${blockId}`);
   deleteXmlSubtreeAt(group, index);
 };
@@ -141,8 +143,7 @@ const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
     boundary.generation,
   ]);
 
-class MemoryDocumentLocalCheckpointStore
-implements DocumentLocalCheckpointStore {
+class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore {
   private readonly checkpoints = new Map<string, DocumentLocalCheckpoint>();
   writeGate: Promise<void> | null = null;
 
@@ -209,9 +210,11 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
   activeApplyCalls = 0;
   maxActiveApplyCalls = 0;
   emitApplyEcho = true;
-  applyHandler: ((
-    request: DocumentSyncApplyRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>) | null = null;
+  applyHandler:
+    | ((
+        request: DocumentSyncApplyRequest,
+      ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>)
+    | null = null;
 
   sync = async (
     request: DocumentSyncRequest,
@@ -356,8 +359,7 @@ describe("NodexYProvider", () => {
       await Promise.all([first.flush(), second.flush()]);
       await waitUntil(
         () =>
-          first.getStatus().headSeq === 2 &&
-          second.getStatus().headSeq === 2,
+          first.getStatus().headSeq === 2 && second.getStatus().headSeq === 2,
       );
 
       const serverText = adapter.serverDocument.getText("title").toString();
@@ -447,8 +449,7 @@ describe("NodexYProvider", () => {
       await Promise.all([first.flush(), second.flush()]);
       await waitUntil(
         () =>
-          first.getStatus().headSeq === 3 &&
-          second.getStatus().headSeq === 3,
+          first.getStatus().headSeq === 3 && second.getStatus().headSeq === 3,
       );
       const concurrentMaterialization = materializeCardDocument(firstDocument);
       expect(concurrentMaterialization.title.includes(" / Alpha")).toBeTrue();
@@ -459,9 +460,9 @@ describe("NodexYProvider", () => {
       expect(
         concurrentMaterialization.nfm.includes("*Root* edited by Alpha"),
       ).toBeTrue();
-      expect(
-        JSON.stringify(materializeCardDocument(secondDocument)),
-      ).toBe(JSON.stringify(concurrentMaterialization));
+      expect(JSON.stringify(materializeCardDocument(secondDocument))).toBe(
+        JSON.stringify(concurrentMaterialization),
+      );
 
       firstDocument.transact(() => {
         const sourceBlock = findBlockElement(firstDocument, "block-root");
@@ -481,17 +482,13 @@ describe("NodexYProvider", () => {
         insertPortableXmlSubtree(targetGroup, 0, movedPortable);
       }, "window-alpha-nested-move");
       secondDocument.transact(() => {
-        deleteDirectBlock(
-          getRootBlockGroup(secondDocument),
-          "block-sibling",
-        );
+        deleteDirectBlock(getRootBlockGroup(secondDocument), "block-sibling");
       }, "window-beta-delete");
 
       await Promise.all([first.flush(), second.flush()]);
       await waitUntil(
         () =>
-          first.getStatus().headSeq === 5 &&
-          second.getStatus().headSeq === 5,
+          first.getStatus().headSeq === 5 && second.getStatus().headSeq === 5,
       );
       const beforeRestart = materializeCardDocument(adapter.serverDocument);
       expect(JSON.stringify(materializeCardDocument(firstDocument))).toBe(
@@ -546,10 +543,7 @@ describe("NodexYProvider", () => {
         "block-child",
       );
       const survivingIds = restartedMaterialization.blockTree.flatMap(
-        (block) => [
-          block.id,
-          ...block.children.map((child) => child.id),
-        ],
+        (block) => [block.id, ...block.children.map((child) => child.id)],
       );
       expect(survivingIds.join(",")).toBe(
         "block-root,block-inserted,block-child",
@@ -720,7 +714,9 @@ describe("NodexYProvider", () => {
       expect(firstRequest?.update === secondRequest?.update).toBeTrue();
       expect(adapter.syncCalls.length).toBe(2);
       expect(adapter.headSeq).toBe(1);
-      expect(adapter.serverDocument.getText("title").toString()).toBe("retry me");
+      expect(adapter.serverDocument.getText("title").toString()).toBe(
+        "retry me",
+      );
     } finally {
       provider.destroy();
       document.destroy();
@@ -757,8 +753,7 @@ describe("NodexYProvider", () => {
 
       await waitUntil(
         () =>
-          adapter.syncCalls.length === 2 &&
-          provider.getStatus().headSeq === 2,
+          adapter.syncCalls.length === 2 && provider.getStatus().headSeq === 2,
       );
       expect(document.getText("title").toString()).toBe("ab");
       expect(provider.getStatus().phase).toBe("synced");
@@ -796,14 +791,17 @@ describe("NodexYProvider", () => {
 
       const remoteState = second.awareness
         .getStates()
-        .get(firstDocument.clientID) as { user?: { name?: string } } | undefined;
+        .get(firstDocument.clientID) as
+        { user?: { name?: string } } | undefined;
       expect(remoteState?.user?.name).toBe("Ada");
       expect(adapter.applyCalls.length).toBe(0);
       first.destroy();
       await waitUntil(
         () => !second.awareness.getStates().has(firstDocument.clientID),
       );
-      expect(second.awareness.getStates().has(firstDocument.clientID)).toBeFalse();
+      expect(
+        second.awareness.getStates().has(firstDocument.clientID),
+      ).toBeFalse();
     } finally {
       first.destroy();
       second.destroy();
@@ -828,7 +826,9 @@ describe("NodexYProvider", () => {
     try {
       await epochProvider.connect();
       expect(epochProvider.getStatus().phase).toBe("reset-required");
-      expect(epochProvider.getStatus().error?.code).toBe("store_epoch_mismatch");
+      expect(epochProvider.getStatus().error?.code).toBe(
+        "store_epoch_mismatch",
+      );
       epochDocument.getText("title").insert(0, "must not replay");
       await Promise.resolve();
       expect(epochProvider.getStatus().pendingUpdateCount).toBe(0);
@@ -866,6 +866,51 @@ describe("NodexYProvider", () => {
       generationProvider.destroy();
       generationDocument.destroy();
       generationAdapter.destroy();
+    }
+  });
+
+  test("stops retrying and requires reload when a durable update crosses relocation", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const retryCallbacks: Array<() => void> = [];
+    adapter.applyHandler = async () => ({
+      ok: false,
+      error: {
+        code: "block_relocated",
+        message: "Block moved",
+        retryable: true,
+        resetRequired: false,
+        relocationId: "relocation-1",
+        recoveryArtifactId: "artifact-1",
+      },
+    });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "stale-window",
+      autoConnect: false,
+      scheduleRetry: (callback) => {
+        retryCallbacks.push(callback);
+        return () => undefined;
+      },
+    });
+    try {
+      await provider.connect();
+      document.getText("title").insert(0, "offline edit");
+      await waitUntil(() => provider.getStatus().phase === "reset-required");
+      const status = provider.getStatus();
+      expect(status.error?.code).toBe("block_relocated");
+      expect(status.error?.relocationId).toBe("relocation-1");
+      expect(status.error?.recoveryArtifactId).toBe("artifact-1");
+      expect(status.error?.retryable).toBeFalse();
+      expect(status.error?.resetRequired).toBeTrue();
+      expect(retryCallbacks.length).toBe(0);
+      expect(adapter.applyCalls.length).toBe(1);
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
     }
   });
 

@@ -20,12 +20,15 @@ import {
   syncBlockDocument,
   toDocumentSyncCommandError,
 } from "./block-document-store";
+import { relocateBlocksAtomically } from "./block-relocations";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
 
 const isUnsupportedSqliteError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("better-sqlite3") && message.includes("not yet supported");
+  return (
+    message.includes("better-sqlite3") && message.includes("not yet supported")
+  );
 };
 
 const supportsBetterSqlite = (() => {
@@ -61,35 +64,51 @@ const expectThrowsCode = (
 
 const seedPendingCardDocument = (
   database: Database.Database,
+  blockId = "block-document-store-card",
 ): { documentId: string; projectId: string; storeEpoch: string } => {
   const project = database
     .prepare("SELECT id FROM projects ORDER BY created LIMIT 1")
     .get() as { id: string };
   const now = new Date().toISOString();
-  const blockId = "block-document-store-card";
   const documentId = `document:${blockId}`;
 
-  database.prepare(`
+  database
+    .prepare(
+      `
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
     ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
-  `).run(blockId, project.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(blockId, project.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO top_level_block_placements (
       block_id, project_id, rank_key, created_at, updated_at
     ) VALUES (?, ?, 'document-store-test', ?, ?)
-  `).run(blockId, project.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(blockId, project.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, readiness, authority, created_at, updated_at
     ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', 'pending_genesis', 'legacy_shadow', ?, ?)
-  `).run(documentId, project.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(documentId, project.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO block_documents (block_id, document_id, project_id, created_at)
     VALUES (?, ?, ?, ?)
-  `).run(blockId, documentId, project.id, now);
+  `,
+    )
+    .run(blockId, documentId, project.id, now);
 
   const metadata = database
     .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
@@ -101,10 +120,45 @@ const seedPendingCardDocument = (
   };
 };
 
-const captureOneUpdate = (
-  document: Y.Doc,
-  mutate: () => void,
-): Uint8Array => {
+const createParagraphBlock = (blockId: string, value: string): Y.XmlElement => {
+  const container = new Y.XmlElement("blockContainer");
+  container.setAttribute("id", blockId);
+  const paragraph = new Y.XmlElement("paragraph");
+  const text = new Y.XmlText();
+  text.insert(0, value);
+  paragraph.insert(0, [text]);
+  container.insert(0, [paragraph]);
+  return container;
+};
+
+const rootBlockGroup = (document: Y.Doc): Y.XmlElement => {
+  const root = openCardDocument(document).body.get(0);
+  if (root instanceof Y.XmlElement && root.nodeName === "blockGroup")
+    return root;
+  throw new TypeError("Expected the canonical Card root blockGroup");
+};
+
+const findBlockContainer = (document: Y.Doc, blockId: string): Y.XmlElement => {
+  for (const node of rootBlockGroup(document).createTreeWalker(() => true)) {
+    if (
+      node instanceof Y.XmlElement &&
+      node.nodeName === "blockContainer" &&
+      node.getAttribute("id") === blockId
+    ) {
+      return node;
+    }
+  }
+  throw new TypeError(`Expected Block ${blockId}`);
+};
+
+const firstBlockText = (container: Y.XmlElement): Y.XmlText => {
+  for (const node of container.createTreeWalker(() => true)) {
+    if (node instanceof Y.XmlText) return node;
+  }
+  throw new TypeError("Expected Block text");
+};
+
+const captureOneUpdate = (document: Y.Doc, mutate: () => void): Uint8Array => {
   let captured: Uint8Array | undefined;
   const listener = (update: Uint8Array): void => {
     captured = update.slice();
@@ -165,18 +219,23 @@ describe("BlockDocumentStore", () => {
     expect(infrastructure.resetRequired).toBeFalse();
   });
 
-  sqliteTest("durably converges concurrent updates and dependency retries across restart", async () => {
-    closeDatabase();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-document-store-"));
-    process.env.NODEX_DIR = tempDir;
+  sqliteTest(
+    "durably converges concurrent updates and dependency retries across restart",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-document-store-"),
+      );
+      process.env.NODEX_DIR = tempDir;
 
-    try {
+      try {
         await initializeDatabase();
         closeDatabase();
 
         let database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
-        const { documentId, projectId, storeEpoch } = seedPendingCardDocument(database);
+        const { documentId, projectId, storeEpoch } =
+          seedPendingCardDocument(database);
         expect(getBlockDocumentProjectId(database, documentId)).toBe(projectId);
         expectThrowsCode(
           () => getBlockDocumentRuntimeIdentity(database, documentId),
@@ -223,18 +282,23 @@ describe("BlockDocumentStore", () => {
         );
         const shadowReplica = new Y.Doc({ guid: documentId });
         expectThrowsCode(
-          () => syncBlockDocument(database, {
-            documentId,
-            clientSessionId: "window-before-cutover",
-            stateVector: Y.encodeStateVector(shadowReplica),
-          }),
+          () =>
+            syncBlockDocument(database, {
+              documentId,
+              clientSessionId: "window-before-cutover",
+              stateVector: Y.encodeStateVector(shadowReplica),
+            }),
           "document_authority_mismatch",
         );
         shadowReplica.destroy();
 
-        database.prepare(`
+        database
+          .prepare(
+            `
           UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?
-        `).run(documentId);
+        `,
+          )
+          .run(documentId);
         const genesisIdentity = getBlockDocumentRuntimeIdentity(
           database,
           documentId,
@@ -292,12 +356,16 @@ describe("BlockDocumentStore", () => {
         expect(ackA.storeEpoch).toBe(storeEpoch);
         expect(ackB.headSeq).toBe(3);
         expect(ackB.committedSeq).toBe(3);
-        const derivedTitleReceipt = database.prepare(`
+        const derivedTitleReceipt = database
+          .prepare(
+            `
           SELECT client_touched_block_ids_json, derived_touched_block_ids_json,
                  derivation_version
           FROM document_update_receipts
           WHERE document_id = ? AND update_id = 'client-a-1'
-        `).get(documentId) as {
+        `,
+          )
+          .get(documentId) as {
           client_touched_block_ids_json: string;
           derived_touched_block_ids_json: string;
           derivation_version: number;
@@ -347,14 +415,18 @@ describe("BlockDocumentStore", () => {
             update: rejectedUpdate,
           });
         } catch (error) {
-          rejected = (error as Error).message.includes("injected durable write failure");
+          rejected = (error as Error).message.includes(
+            "injected durable write failure",
+          );
         }
         database.exec("DROP TRIGGER reject_test_document_update");
         expect(rejected).toBeTrue();
 
         const afterConcurrent = loadBlockDocument(database, documentId);
         expect(afterConcurrent.head.headSeq).toBe(3);
-        const concurrentTitle = openCardDocument(afterConcurrent.document).title.toString();
+        const concurrentTitle = openCardDocument(
+          afterConcurrent.document,
+        ).title.toString();
         expect(concurrentTitle.includes(" A")).toBeTrue();
         expect(concurrentTitle.includes(" B")).toBeTrue();
 
@@ -374,16 +446,17 @@ describe("BlockDocumentStore", () => {
         afterConcurrent.document.destroy();
 
         expectThrowsCode(
-          () => applyBlockDocumentUpdate(database, {
-            documentId,
-            storeEpoch,
-            generation: 1,
-            updateId: "dependent-2",
-            clientSessionId: "window-c",
-            baseHeadSeq: 3,
-            touchedBlockIds: [],
-            update: secondDependentUpdate,
-          }),
+          () =>
+            applyBlockDocumentUpdate(database, {
+              documentId,
+              storeEpoch,
+              generation: 1,
+              updateId: "dependent-2",
+              clientSessionId: "window-c",
+              baseHeadSeq: 3,
+              touchedBlockIds: [],
+              update: secondDependentUpdate,
+            }),
           "document_update_missing_dependencies",
         );
         const headAfterDependencyRejection = database
@@ -425,9 +498,9 @@ describe("BlockDocumentStore", () => {
         );
         expect(syncStep.head.headSeq).toBe(5);
         Y.applyUpdate(clientWithOnlyFirstThreeHeads, syncStep.update);
-        expect(openCardDocument(clientWithOnlyFirstThreeHeads).title.toString()).toBe(
-          openCardDocument(dependentClient).title.toString(),
-        );
+        expect(
+          openCardDocument(clientWithOnlyFirstThreeHeads).title.toString(),
+        ).toBe(openCardDocument(dependentClient).title.toString());
 
         genesis.document.destroy();
         clientA.destroy();
@@ -440,7 +513,9 @@ describe("BlockDocumentStore", () => {
         database.pragma("foreign_keys = ON");
         const reloaded = loadBlockDocument(database, documentId);
         expect(reloaded.head.headSeq).toBe(5);
-        expect(openCardDocument(reloaded.document).title.toString().includes(" 1 2")).toBeTrue();
+        expect(
+          openCardDocument(reloaded.document).title.toString().includes(" 1 2"),
+        ).toBeTrue();
 
         database.exec(`
           CREATE TRIGGER corrupt_test_document_compaction_snapshot
@@ -455,19 +530,24 @@ describe("BlockDocumentStore", () => {
           END;
         `);
         expectThrowsCode(
-          () => compactBlockDocument(database, {
-            documentId,
-            expectedGeneration: 1,
-            expectedHeadSeq: 5,
-          }),
+          () =>
+            compactBlockDocument(database, {
+              documentId,
+              expectedGeneration: 1,
+              expectedHeadSeq: 5,
+            }),
           "document_state_corrupt",
         );
         database.exec("DROP TRIGGER corrupt_test_document_compaction_snapshot");
-        const snapshotAfterVerificationFailure = database.prepare(`
+        const snapshotAfterVerificationFailure = database
+          .prepare(
+            `
           SELECT MAX(snapshot_seq) AS snapshot_seq
           FROM document_snapshots
           WHERE document_id = ?
-        `).get(documentId) as { snapshot_seq: number };
+        `,
+          )
+          .get(documentId) as { snapshot_seq: number };
         expect(snapshotAfterVerificationFailure.snapshot_seq).toBe(1);
 
         database.exec(`
@@ -491,11 +571,15 @@ describe("BlockDocumentStore", () => {
         }
         database.exec("DROP TRIGGER reject_test_document_compaction");
         expect(compactionRejected).toBeTrue();
-        const rolledBackSnapshot = database.prepare(`
+        const rolledBackSnapshot = database
+          .prepare(
+            `
           SELECT MAX(snapshot_seq) AS snapshot_seq
           FROM document_snapshots
           WHERE document_id = ?
-        `).get(documentId) as { snapshot_seq: number };
+        `,
+          )
+          .get(documentId) as { snapshot_seq: number };
         expect(rolledBackSnapshot.snapshot_seq).toBe(1);
 
         const compacted = compactBlockDocument(database, {
@@ -523,64 +607,446 @@ describe("BlockDocumentStore", () => {
         expect(lateDuplicateB.duplicate).toBeTrue();
 
         expectThrowsCode(
-          () => applyBlockDocumentUpdate(database, {
-            documentId,
-            storeEpoch,
-            generation: 1,
-            updateId: "client-b-1",
-            clientSessionId: "window-b",
-            baseHeadSeq: 1,
-            touchedBlockIds: [],
-            update: updateA,
-          }),
+          () =>
+            applyBlockDocumentUpdate(database, {
+              documentId,
+              storeEpoch,
+              generation: 1,
+              updateId: "client-b-1",
+              clientSessionId: "window-b",
+              baseHeadSeq: 1,
+              touchedBlockIds: [],
+              update: updateA,
+            }),
           "update_id_collision",
         );
 
         expectThrowsCode(
-          () => applyBlockDocumentUpdate(database, {
-            documentId,
-            storeEpoch: "stale-store-epoch",
-            generation: 1,
-            updateId: "stale-epoch-update",
-            clientSessionId: "stale-window",
-            baseHeadSeq: 5,
-            touchedBlockIds: [],
-            update: updateA,
-          }),
+          () =>
+            applyBlockDocumentUpdate(database, {
+              documentId,
+              storeEpoch: "stale-store-epoch",
+              generation: 1,
+              updateId: "stale-epoch-update",
+              clientSessionId: "stale-window",
+              baseHeadSeq: 5,
+              touchedBlockIds: [],
+              update: updateA,
+            }),
           "store_epoch_mismatch",
         );
         expectThrowsCode(
-          () => applyBlockDocumentUpdate(database, {
-            documentId,
-            storeEpoch,
-            generation: 2,
-            updateId: "stale-generation-update",
-            clientSessionId: "stale-window",
-            baseHeadSeq: 5,
-            touchedBlockIds: [],
-            update: updateA,
-          }),
+          () =>
+            applyBlockDocumentUpdate(database, {
+              documentId,
+              storeEpoch,
+              generation: 2,
+              updateId: "stale-generation-update",
+              clientSessionId: "stale-window",
+              baseHeadSeq: 5,
+              touchedBlockIds: [],
+              update: updateA,
+            }),
           "document_generation_mismatch",
         );
 
         const updateCount = database
-          .prepare("SELECT COUNT(*) AS count FROM document_updates WHERE document_id = ?")
+          .prepare(
+            "SELECT COUNT(*) AS count FROM document_updates WHERE document_id = ?",
+          )
           .get(documentId) as { count: number };
         expect(updateCount.count).toBe(0);
         const receiptCount = database
-          .prepare("SELECT COUNT(*) AS count FROM document_update_receipts WHERE document_id = ?")
+          .prepare(
+            "SELECT COUNT(*) AS count FROM document_update_receipts WHERE document_id = ?",
+          )
           .get(documentId) as { count: number };
         expect(receiptCount.count).toBe(5);
         const snapshotCount = database
-          .prepare("SELECT COUNT(*) AS count FROM document_snapshots WHERE document_id = ?")
+          .prepare(
+            "SELECT COUNT(*) AS count FROM document_snapshots WHERE document_id = ?",
+          )
           .get(documentId) as { count: number };
         expect(snapshotCount.count).toBe(1);
         reloaded.document.destroy();
         database.close();
-    } finally {
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        delete process.env.NODEX_DIR;
+      }
+    },
+  );
+
+  sqliteTest(
+    "preserves stale updates that cross a Block relocation and only accepts structurally visible edits",
+    async () => {
       closeDatabase();
-      fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
-    }
-  });
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-document-recovery-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+
+      try {
+        await initializeDatabase();
+        closeDatabase();
+        const database = new Database(getDatabasePath(), { readonly: false });
+        database.pragma("foreign_keys = ON");
+        try {
+          const source = seedPendingCardDocument(
+            database,
+            "recovery-source-card",
+          );
+          const target = seedPendingCardDocument(
+            database,
+            "recovery-target-card",
+          );
+          expect(source.projectId).toBe(target.projectId);
+          expect(source.storeEpoch).toBe(target.storeEpoch);
+
+          const sourceGenesis = createCardDocument({
+            documentId: source.documentId,
+            initialTitle: "Source",
+          });
+          rootBlockGroup(sourceGenesis.document).insert(0, [
+            createParagraphBlock("moving-root", "Move me"),
+            createParagraphBlock("later-deleted", "Delete me later"),
+            createParagraphBlock("remaining-root", "Remain"),
+          ]);
+          const sourceGenesisUpdate = Y.encodeStateAsUpdate(
+            sourceGenesis.document,
+          );
+          const targetGenesis = createCardDocument({
+            documentId: target.documentId,
+            initialTitle: "Target",
+          });
+          const targetGenesisUpdate = Y.encodeStateAsUpdate(
+            targetGenesis.document,
+          );
+          initializeCardDocumentGenesis(database, {
+            documentId: source.documentId,
+            storeEpoch: source.storeEpoch,
+            generation: 1,
+            updateId: "source-genesis",
+            clientSessionId: "migration",
+            update: sourceGenesisUpdate,
+          });
+          initializeCardDocumentGenesis(database, {
+            documentId: target.documentId,
+            storeEpoch: target.storeEpoch,
+            generation: 1,
+            updateId: "target-genesis",
+            clientSessionId: "migration",
+            update: targetGenesisUpdate,
+          });
+          database
+            .prepare(
+              `
+          UPDATE documents SET authority = 'ydoc_primary'
+          WHERE id IN (?, ?)
+        `,
+            )
+            .run(source.documentId, target.documentId);
+
+          const relocation = relocateBlocksAtomically(database, {
+            relocationId: "recovery-relocation",
+            projectId: source.projectId,
+            storeEpoch: source.storeEpoch,
+            rootBlockIds: ["moving-root"],
+            sourceDocumentId: source.documentId,
+            sourceGeneration: 1,
+            expectedSourceHeadSeq: 1,
+            expectedLocationRevisions: { "moving-root": 1 },
+            target: {
+              kind: "document",
+              documentId: target.documentId,
+              generation: 1,
+              expectedHeadSeq: 1,
+            },
+          });
+          expect(relocation.sourceCommit.headSeq).toBe(2);
+          expect(relocation.targetCommit?.headSeq).toBe(2);
+
+          const makeStaleReplica = (): Y.Doc => {
+            const replica = new Y.Doc({ guid: source.documentId });
+            Y.applyUpdate(replica, sourceGenesisUpdate);
+            return replica;
+          };
+          const captureStoreError = (
+            operation: () => unknown,
+          ): BlockDocumentStoreError => {
+            let caught: unknown;
+            try {
+              operation();
+            } catch (error) {
+              caught = error;
+            }
+            expect(caught instanceof BlockDocumentStoreError).toBeTrue();
+            return caught as BlockDocumentStoreError;
+          };
+
+          const derivedHitReplica = makeStaleReplica();
+          const derivedHitUpdate = captureOneUpdate(derivedHitReplica, () => {
+            const text = firstBlockText(
+              findBlockContainer(derivedHitReplica, "moving-root"),
+            );
+            text.insert(text.length, " while offline");
+          });
+          const derivedHitInput = {
+            documentId: source.documentId,
+            storeEpoch: source.storeEpoch,
+            generation: 1,
+            updateId: "stale-derived-relocated",
+            clientSessionId: "offline-derived",
+            baseHeadSeq: 1,
+            touchedBlockIds: [] as readonly string[],
+            update: derivedHitUpdate,
+          };
+          const derivedHit = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, derivedHitInput),
+          );
+          expect(derivedHit.code).toBe("block_relocated");
+          expect(derivedHit.relocationId).toBe("recovery-relocation");
+          expect(typeof derivedHit.recoveryArtifactId).toBe("string");
+          const derivedArtifact = database
+            .prepare(
+              `
+          SELECT reason, derived_touched_block_ids_json, relocation_ids_json,
+                 update_hash, update_byte_length
+          FROM document_recovery_artifacts
+          WHERE id = ?
+        `,
+            )
+            .get(derivedHit.recoveryArtifactId) as {
+            reason: string;
+            derived_touched_block_ids_json: string | null;
+            relocation_ids_json: string;
+            update_hash: string;
+            update_byte_length: number;
+          };
+          expect(derivedArtifact.reason).toBe("block_relocated");
+          expect(
+            JSON.parse(
+              derivedArtifact.derived_touched_block_ids_json ?? "[]",
+            ).includes("moving-root"),
+          ).toBeTrue();
+          expect(derivedArtifact.relocation_ids_json).toBe(
+            '["recovery-relocation"]',
+          );
+          expect(derivedArtifact.update_hash.length).toBe(64);
+          expect(derivedArtifact.update_byte_length).toBe(
+            derivedHitUpdate.byteLength,
+          );
+
+          const exactRetry = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, derivedHitInput),
+          );
+          expect(exactRetry.code).toBe("block_relocated");
+          expect(exactRetry.recoveryArtifactId).toBe(
+            derivedHit.recoveryArtifactId,
+          );
+          const collision = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, {
+              ...derivedHitInput,
+              touchedBlockIds: ["remaining-root"],
+            }),
+          );
+          expect(collision.code).toBe("update_id_collision");
+
+          database
+            .prepare(
+              `
+          UPDATE document_recovery_artifacts
+          SET status = 'resolved', resolved_at = ?
+          WHERE id = ?
+        `,
+            )
+            .run(new Date().toISOString(), derivedHit.recoveryArtifactId);
+          const resolvedRetry = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, derivedHitInput),
+          );
+          expect(resolvedRetry.code).toBe("block_relocated");
+          expect(resolvedRetry.recoveryArtifactId).toBe(
+            derivedHit.recoveryArtifactId,
+          );
+
+          const declaredHitReplica = makeStaleReplica();
+          const declaredHitUpdate = captureOneUpdate(declaredHitReplica, () => {
+            openCardDocument(declaredHitReplica).title.insert(6, " declared");
+          });
+          const declaredHit = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, {
+              documentId: source.documentId,
+              storeEpoch: source.storeEpoch,
+              generation: 1,
+              updateId: "stale-declared-relocated",
+              clientSessionId: "offline-declared",
+              baseHeadSeq: 1,
+              touchedBlockIds: ["moving-root"],
+              update: declaredHitUpdate,
+            }),
+          );
+          expect(declaredHit.code).toBe("block_relocated");
+          const declaredArtifact = database
+            .prepare(
+              `
+          SELECT derived_touched_block_ids_json
+          FROM document_recovery_artifacts WHERE id = ?
+        `,
+            )
+            .get(declaredHit.recoveryArtifactId) as {
+            derived_touched_block_ids_json: string | null;
+          };
+          expect(declaredArtifact.derived_touched_block_ids_json).toBe(null);
+
+          const currentSource = loadBlockDocument(database, source.documentId);
+          const deleteUpdate = captureOneUpdate(currentSource.document, () => {
+            const group = rootBlockGroup(currentSource.document);
+            const index = group
+              .toArray()
+              .findIndex(
+                (node) =>
+                  node instanceof Y.XmlElement &&
+                  node.getAttribute("id") === "later-deleted",
+              );
+            if (index < 0) throw new Error("Expected later-deleted Block");
+            group.delete(index, 1);
+          });
+          currentSource.document.destroy();
+          const deleteAck = applyBlockDocumentUpdate(database, {
+            documentId: source.documentId,
+            storeEpoch: source.storeEpoch,
+            generation: 1,
+            updateId: "delete-after-relocation",
+            clientSessionId: "online-source",
+            baseHeadSeq: 2,
+            touchedBlockIds: ["later-deleted"],
+            update: deleteUpdate,
+          });
+          expect(deleteAck.headSeq).toBe(3);
+
+          const opaqueReplica = makeStaleReplica();
+          const opaqueUpdate = captureOneUpdate(opaqueReplica, () => {
+            const text = firstBlockText(
+              findBlockContainer(opaqueReplica, "later-deleted"),
+            );
+            text.insert(text.length, " invisible offline edit");
+          });
+          const opaque = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, {
+              documentId: source.documentId,
+              storeEpoch: source.storeEpoch,
+              generation: 1,
+              updateId: "stale-opaque-update",
+              clientSessionId: "offline-opaque",
+              baseHeadSeq: 1,
+              touchedBlockIds: [],
+              update: opaqueUpdate,
+            }),
+          );
+          expect(opaque.code).toBe("recovery_required");
+          const opaqueArtifact = database
+            .prepare(
+              `
+          SELECT reason FROM document_recovery_artifacts WHERE id = ?
+        `,
+            )
+            .get(opaque.recoveryArtifactId) as { reason: string };
+          expect(opaqueArtifact.reason).toBe("unsafe_stale_update");
+
+          const safeReplica = makeStaleReplica();
+          const safeUpdate = captureOneUpdate(safeReplica, () => {
+            const title = openCardDocument(safeReplica).title;
+            title.insert(title.length, " safe offline title");
+          });
+          const safeAck = applyBlockDocumentUpdate(database, {
+            documentId: source.documentId,
+            storeEpoch: source.storeEpoch,
+            generation: 1,
+            updateId: "stale-safe-title",
+            clientSessionId: "offline-safe",
+            baseHeadSeq: 1,
+            touchedBlockIds: [],
+            update: safeUpdate,
+          });
+          expect(safeAck.headSeq).toBe(4);
+          const safeReload = loadBlockDocument(database, source.documentId);
+          expect(
+            openCardDocument(safeReload.document)
+              .title.toString()
+              .includes("safe offline title"),
+          ).toBeTrue();
+          safeReload.document.destroy();
+
+          const targetCurrent = loadBlockDocument(database, target.documentId);
+          const reservedUpdate = captureOneUpdate(
+            targetCurrent.document,
+            () => {
+              const title = openCardDocument(targetCurrent.document).title;
+              title.insert(title.length, " reserved");
+            },
+          );
+          targetCurrent.document.destroy();
+          const reserved = captureStoreError(() =>
+            applyBlockDocumentUpdate(database, {
+              documentId: target.documentId,
+              storeEpoch: target.storeEpoch,
+              generation: 1,
+              updateId: "relocation:user-preallocation",
+              clientSessionId: "untrusted-renderer",
+              baseHeadSeq: 2,
+              touchedBlockIds: [],
+              update: reservedUpdate,
+            }),
+          );
+          expect(reserved.code).toBe("invalid_document_update");
+          const reservedReceipt = database
+            .prepare(
+              `
+          SELECT COUNT(*) AS count FROM document_update_receipts
+          WHERE document_id = ? AND update_id = 'relocation:user-preallocation'
+        `,
+            )
+            .get(target.documentId) as { count: number };
+          expect(reservedReceipt.count).toBe(0);
+
+          const rejectedReceiptCount = database
+            .prepare(
+              `
+          SELECT COUNT(*) AS count FROM document_update_receipts
+          WHERE document_id = ? AND update_id IN (
+            'stale-derived-relocated',
+            'stale-declared-relocated',
+            'stale-opaque-update'
+          )
+        `,
+            )
+            .get(source.documentId) as { count: number };
+          expect(rejectedReceiptCount.count).toBe(0);
+          const artifactCount = database
+            .prepare(
+              `
+          SELECT COUNT(*) AS count FROM document_recovery_artifacts
+          WHERE document_id = ?
+        `,
+            )
+            .get(source.documentId) as { count: number };
+          expect(artifactCount.count).toBe(3);
+
+          sourceGenesis.document.destroy();
+          targetGenesis.document.destroy();
+          derivedHitReplica.destroy();
+          declaredHitReplica.destroy();
+          opaqueReplica.destroy();
+          safeReplica.destroy();
+        } finally {
+          database.close();
+        }
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        delete process.env.NODEX_DIR;
+      }
+    },
+  );
 });

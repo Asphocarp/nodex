@@ -60,6 +60,8 @@ const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncErrorCode>([
   "invalid_awareness_update",
   "document_update_missing_dependencies",
   "update_id_collision",
+  "block_relocated",
+  "recovery_required",
   "document_state_corrupt",
   "invalid_response",
   "unknown",
@@ -68,7 +70,10 @@ const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncErrorCode>([
 const commandError = (
   code: DocumentSyncErrorCode,
   message: string,
-  options: { readonly retryable?: boolean; readonly resetRequired?: boolean } = {},
+  options: {
+    readonly retryable?: boolean;
+    readonly resetRequired?: boolean;
+  } = {},
 ): DocumentSyncCommandError => ({
   code,
   message,
@@ -79,7 +84,9 @@ const commandError = (
 const transportError = (error: unknown): DocumentSyncCommandError =>
   commandError(
     "transport_unavailable",
-    error instanceof Error ? error.message : "Document HTTP transport is unavailable",
+    error instanceof Error
+      ? error.message
+      : "Document HTTP transport is unavailable",
     { retryable: true },
   );
 
@@ -115,18 +122,24 @@ const makeSubscriptionPath = (
   projectId: string,
   request: DocumentSyncSubscribeRequest,
 ): string => {
-  const query = new URLSearchParams({ clientSessionId: request.clientSessionId });
+  const query = new URLSearchParams({
+    clientSessionId: request.clientSessionId,
+  });
   return `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/events?${query.toString()}`;
 };
 
-const parseHttpError = async (response: Response): Promise<DocumentSyncCommandError> => {
+const parseHttpError = async (
+  response: Response,
+): Promise<DocumentSyncCommandError> => {
   try {
     const error = decodeDocumentHttpError(await response.text());
     if (DOCUMENT_SYNC_ERROR_CODES.has(error.code)) return error;
   } catch {
     // The protocol error below is safer than exposing an arbitrary HTTP body.
   }
-  return invalidResponse(`Document HTTP request failed with status ${response.status}`);
+  return invalidResponse(
+    `Document HTTP request failed with status ${response.status}`,
+  );
 };
 
 const assertBinaryResponse = (response: Response): void => {
@@ -154,7 +167,9 @@ export const createHttpDocumentSyncAdapter = ({
   ): Promise<DocumentSyncCommandResult<T> | null> => {
     const subscription = subscriptions.get(subscriptionKey(request));
     if (!subscription || subscription.disposed) {
-      return failure(commandError("unauthorized", "Document SSE subscription is not active"));
+      return failure(
+        commandError("unauthorized", "Document SSE subscription is not active"),
+      );
     }
     if (subscription.startupError) {
       return failure(subscription.startupError);
@@ -166,7 +181,10 @@ export const createHttpDocumentSyncAdapter = ({
       if (!opened || subscription.disposed) {
         return failure(
           subscription.startupError ??
-            commandError("request_cancelled", "Document SSE subscription was closed"),
+            commandError(
+              "request_cancelled",
+              "Document SSE subscription was closed",
+            ),
         );
       }
     }
@@ -199,7 +217,9 @@ export const createHttpDocumentSyncAdapter = ({
     } catch (error) {
       return failure(
         invalidResponse(
-          error instanceof Error ? error.message : "Document HTTP response is invalid",
+          error instanceof Error
+            ? error.message
+            : "Document HTTP response is invalid",
         ),
       );
     }
@@ -207,7 +227,8 @@ export const createHttpDocumentSyncAdapter = ({
 
   return {
     sync: async (request) => {
-      const blocked = await requireOpenSubscription<DocumentSyncResponse>(request);
+      const blocked =
+        await requireOpenSubscription<DocumentSyncResponse>(request);
       if (blocked) return blocked;
       return postBinary(
         `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/sync`,
@@ -216,7 +237,8 @@ export const createHttpDocumentSyncAdapter = ({
       );
     },
     applyUpdate: async (request) => {
-      const blocked = await requireOpenSubscription<DocumentSyncApplyAck>(request);
+      const blocked =
+        await requireOpenSubscription<DocumentSyncApplyAck>(request);
       if (blocked) return blocked;
       return postBinary(
         `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/updates`,
@@ -225,9 +247,8 @@ export const createHttpDocumentSyncAdapter = ({
       );
     },
     publishAwareness: async (request) => {
-      const blocked = await requireOpenSubscription<DocumentAwarenessPublishAck>(
-        request,
-      );
+      const blocked =
+        await requireOpenSubscription<DocumentAwarenessPublishAck>(request);
       if (blocked) return blocked;
       let response: Response;
       try {
@@ -249,7 +270,7 @@ export const createHttpDocumentSyncAdapter = ({
       }
       if (!response.ok) return failure(await parseHttpError(response));
       try {
-        const value = await response.json() as unknown;
+        const value = (await response.json()) as unknown;
         if (
           typeof value === "object" &&
           value !== null &&

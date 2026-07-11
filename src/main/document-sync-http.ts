@@ -59,7 +59,10 @@ export interface DocumentSyncHttpDependencies {
 const commandError = (
   code: DocumentSyncCommandError["code"],
   message: string,
-  options: { readonly retryable?: boolean; readonly resetRequired?: boolean } = {},
+  options: {
+    readonly retryable?: boolean;
+    readonly resetRequired?: boolean;
+  } = {},
 ): DocumentSyncCommandError => ({
   code,
   message,
@@ -71,7 +74,10 @@ const statusForError = (error: DocumentSyncCommandError): number => {
   if (error.code === "document_not_found" || error.code === "unauthorized") {
     return 404;
   }
-  if (error.code === "transport_unavailable" || error.code === "store_not_initialized") {
+  if (
+    error.code === "transport_unavailable" ||
+    error.code === "store_not_initialized"
+  ) {
     return 503;
   }
   if (
@@ -80,7 +86,9 @@ const statusForError = (error: DocumentSyncCommandError): number => {
     error.code === "document_generation_mismatch" ||
     error.code === "future_base_head" ||
     error.code === "document_update_missing_dependencies" ||
-    error.code === "update_id_collision"
+    error.code === "update_id_collision" ||
+    error.code === "block_relocated" ||
+    error.code === "recovery_required"
   ) {
     return 409;
   }
@@ -116,15 +124,21 @@ const readBinaryBody = async (
 ): Promise<Uint8Array> => {
   const contentType = context.req.header("content-type")?.split(";", 1)[0];
   if (contentType !== DOCUMENT_HTTP_CONTENT_TYPE) {
-    throw new DocumentHttpWireError("Document request has an invalid Content-Type");
+    throw new DocumentHttpWireError(
+      "Document request has an invalid Content-Type",
+    );
   }
   const contentLength = Number(context.req.header("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new DocumentHttpWireError(`Document request exceeds ${maxBytes} bytes`);
+    throw new DocumentHttpWireError(
+      `Document request exceeds ${maxBytes} bytes`,
+    );
   }
   const body = new Uint8Array(await context.req.arrayBuffer());
   if (body.byteLength > maxBytes) {
-    throw new DocumentHttpWireError(`Document request exceeds ${maxBytes} bytes`);
+    throw new DocumentHttpWireError(
+      `Document request exceeds ${maxBytes} bytes`,
+    );
   }
   return body;
 };
@@ -138,9 +152,7 @@ class BrowserDocumentSyncTarget
   readonly id: number;
   private destroyed = false;
 
-  constructor(
-    private readonly enqueue: (serializedEvent: string) => void,
-  ) {
+  constructor(private readonly enqueue: (serializedEvent: string) => void) {
     super();
     browserTargetSequence += 1;
     this.id = -browserTargetSequence;
@@ -173,7 +185,8 @@ interface BrowserClientEntry {
 const browserClientKey = (
   projectId: string,
   request: DocumentSyncSubscribeRequest,
-): string => JSON.stringify([projectId, request.documentId, request.clientSessionId]);
+): string =>
+  JSON.stringify([projectId, request.documentId, request.clientSessionId]);
 
 export class DocumentSyncHttpClients {
   private readonly entries = new Map<string, BrowserClientEntry>();
@@ -220,7 +233,10 @@ const resolveProjectScope = async (
   }
   if (!result.ok) return result.error;
   if (result.value === projectId) return null;
-  return commandError("document_not_found", "Document does not exist in this Project");
+  return commandError(
+    "document_not_found",
+    "Document does not exist in this Project",
+  );
 };
 
 const requireBrowserClient = (
@@ -269,17 +285,22 @@ export const registerDocumentSyncHttpRoutes = (
             ),
           );
         }
-        return new Response(encodeOwnedBlockDocumentDescriptorHttp(descriptor), {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store",
+        return new Response(
+          encodeOwnedBlockDocumentDescriptorHttp(descriptor),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+            },
           },
-        });
+        );
       } catch (error) {
         return errorResponse(
           commandError(
             "document_not_found",
-            error instanceof Error ? error.message : "Owned Document does not exist",
+            error instanceof Error
+              ? error.message
+              : "Owned Document does not exist",
           ),
         );
       }
@@ -312,164 +333,199 @@ export const registerDocumentSyncHttpRoutes = (
             ),
           );
         }
-        return new Response(encodeOwnedBlockDocumentDescriptorHttp(descriptor), {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store",
+        return new Response(
+          encodeOwnedBlockDocumentDescriptorHttp(descriptor),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+            },
           },
-        });
+        );
       } catch (error) {
-        return errorResponse(commandError(
-          "transport_unavailable",
-          error instanceof Error ? error.message : "Owned Document preparation failed",
-          { retryable: true },
-        ));
+        return errorResponse(
+          commandError(
+            "transport_unavailable",
+            error instanceof Error
+              ? error.message
+              : "Owned Document preparation failed",
+            { retryable: true },
+          ),
+        );
       }
     },
   );
 
-  app.get("/api/projects/:projectId/documents/:documentId/events", async (context) => {
-    const projectId = context.req.param("projectId");
-    const documentId = context.req.param("documentId");
-    const clientSessionId = context.req.query("clientSessionId")?.trim() ?? "";
-    if (!projectId || !documentId || !clientSessionId) {
-      return invalidRequest("Project, Document, and client session are required");
-    }
-    const scopeError = await resolveProjectScope(
-      dependencies,
-      projectId,
-      documentId,
-    );
-    if (scopeError) return errorResponse(scopeError);
+  app.get(
+    "/api/projects/:projectId/documents/:documentId/events",
+    async (context) => {
+      const projectId = context.req.param("projectId");
+      const documentId = context.req.param("documentId");
+      const clientSessionId =
+        context.req.query("clientSessionId")?.trim() ?? "";
+      if (!projectId || !documentId || !clientSessionId) {
+        return invalidRequest(
+          "Project, Document, and client session are required",
+        );
+      }
+      const scopeError = await resolveProjectScope(
+        dependencies,
+        projectId,
+        documentId,
+      );
+      if (scopeError) return errorResponse(scopeError);
 
-    const encoder = new TextEncoder();
-    let entry: BrowserClientEntry | null = null;
-    let pingInterval: ReturnType<typeof setInterval> | null = null;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const send = (serializedEvent: string): void => {
-          controller.enqueue(encoder.encode(`data: ${serializedEvent}\n\n`));
-        };
-        const target = new BrowserDocumentSyncTarget(send);
-        entry = {
-          projectId,
-          request: { documentId, clientSessionId },
-          target,
-        };
-        clients.replace(entry);
-        const subscribed = dependencies.hub.subscribe(target, entry.request);
-        if (!subscribed.ok) {
-          clients.remove(entry);
-          controller.error(new Error(subscribed.error.message));
-          return;
-        }
-        pingInterval = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(": ping\n\n"));
-          } catch {
-            if (pingInterval) clearInterval(pingInterval);
+      const encoder = new TextEncoder();
+      let entry: BrowserClientEntry | null = null;
+      let pingInterval: ReturnType<typeof setInterval> | null = null;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const send = (serializedEvent: string): void => {
+            controller.enqueue(encoder.encode(`data: ${serializedEvent}\n\n`));
+          };
+          const target = new BrowserDocumentSyncTarget(send);
+          entry = {
+            projectId,
+            request: { documentId, clientSessionId },
+            target,
+          };
+          clients.replace(entry);
+          const subscribed = dependencies.hub.subscribe(target, entry.request);
+          if (!subscribed.ok) {
+            clients.remove(entry);
+            controller.error(new Error(subscribed.error.message));
+            return;
           }
-        }, SSE_PING_INTERVAL_MS);
-      },
-      cancel() {
-        if (pingInterval) clearInterval(pingInterval);
-        if (entry) clients.remove(entry);
-      },
-    });
-    context.req.raw.signal.addEventListener("abort", () => {
-      if (pingInterval) clearInterval(pingInterval);
-      if (entry) clients.remove(entry);
-    }, { once: true });
+          pingInterval = setInterval(() => {
+            try {
+              controller.enqueue(encoder.encode(": ping\n\n"));
+            } catch {
+              if (pingInterval) clearInterval(pingInterval);
+            }
+          }, SSE_PING_INTERVAL_MS);
+        },
+        cancel() {
+          if (pingInterval) clearInterval(pingInterval);
+          if (entry) clients.remove(entry);
+        },
+      });
+      context.req.raw.signal.addEventListener(
+        "abort",
+        () => {
+          if (pingInterval) clearInterval(pingInterval);
+          if (entry) clients.remove(entry);
+        },
+        { once: true },
+      );
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-store",
-        Connection: "keep-alive",
-      },
-    });
-  });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-store",
+          Connection: "keep-alive",
+        },
+      });
+    },
+  );
 
-  app.post("/api/projects/:projectId/documents/:documentId/sync", async (context) => {
-    const projectId = context.req.param("projectId");
-    const documentId = context.req.param("documentId");
-    try {
-      const request = decodeDocumentSyncHttpRequest(
-        documentId,
-        await readBinaryBody(context, MAX_SYNC_REQUEST_BYTES),
-      );
-      const scopeError = await resolveProjectScope(
-        dependencies,
-        projectId,
-        documentId,
-      );
-      if (scopeError) return errorResponse(scopeError);
-      const client = requireBrowserClient(clients, projectId, request);
-      if (!client.ok) return errorResponse(client.error);
-      const result = await dependencies.hub.sync(client.value.target, request);
-      return result.ok
-        ? binaryResponse(encodeDocumentSyncHttpResponse(result.value))
-        : errorResponse(result.error);
-    } catch (error) {
-      return invalidRequest(error instanceof Error ? error.message : "Invalid sync request");
-    }
-  });
+  app.post(
+    "/api/projects/:projectId/documents/:documentId/sync",
+    async (context) => {
+      const projectId = context.req.param("projectId");
+      const documentId = context.req.param("documentId");
+      try {
+        const request = decodeDocumentSyncHttpRequest(
+          documentId,
+          await readBinaryBody(context, MAX_SYNC_REQUEST_BYTES),
+        );
+        const scopeError = await resolveProjectScope(
+          dependencies,
+          projectId,
+          documentId,
+        );
+        if (scopeError) return errorResponse(scopeError);
+        const client = requireBrowserClient(clients, projectId, request);
+        if (!client.ok) return errorResponse(client.error);
+        const result = await dependencies.hub.sync(
+          client.value.target,
+          request,
+        );
+        return result.ok
+          ? binaryResponse(encodeDocumentSyncHttpResponse(result.value))
+          : errorResponse(result.error);
+      } catch (error) {
+        return invalidRequest(
+          error instanceof Error ? error.message : "Invalid sync request",
+        );
+      }
+    },
+  );
 
-  app.post("/api/projects/:projectId/documents/:documentId/updates", async (context) => {
-    const projectId = context.req.param("projectId");
-    const documentId = context.req.param("documentId");
-    try {
-      const request = decodeDocumentApplyHttpRequest(
-        documentId,
-        await readBinaryBody(context, MAX_APPLY_REQUEST_BYTES),
-      );
-      const scopeError = await resolveProjectScope(
-        dependencies,
-        projectId,
-        documentId,
-      );
-      if (scopeError) return errorResponse(scopeError);
-      const client = requireBrowserClient(clients, projectId, request);
-      if (!client.ok) return errorResponse(client.error);
-      const result = await dependencies.hub.applyUpdate(
-        client.value.target,
-        request,
-      );
-      return result.ok
-        ? binaryResponse(encodeDocumentApplyHttpAck(result.value))
-        : errorResponse(result.error);
-    } catch (error) {
-      return invalidRequest(error instanceof Error ? error.message : "Invalid update request");
-    }
-  });
+  app.post(
+    "/api/projects/:projectId/documents/:documentId/updates",
+    async (context) => {
+      const projectId = context.req.param("projectId");
+      const documentId = context.req.param("documentId");
+      try {
+        const request = decodeDocumentApplyHttpRequest(
+          documentId,
+          await readBinaryBody(context, MAX_APPLY_REQUEST_BYTES),
+        );
+        const scopeError = await resolveProjectScope(
+          dependencies,
+          projectId,
+          documentId,
+        );
+        if (scopeError) return errorResponse(scopeError);
+        const client = requireBrowserClient(clients, projectId, request);
+        if (!client.ok) return errorResponse(client.error);
+        const result = await dependencies.hub.applyUpdate(
+          client.value.target,
+          request,
+        );
+        return result.ok
+          ? binaryResponse(encodeDocumentApplyHttpAck(result.value))
+          : errorResponse(result.error);
+      } catch (error) {
+        return invalidRequest(
+          error instanceof Error ? error.message : "Invalid update request",
+        );
+      }
+    },
+  );
 
-  app.post("/api/projects/:projectId/documents/:documentId/awareness", async (context) => {
-    const projectId = context.req.param("projectId");
-    const documentId = context.req.param("documentId");
-    try {
-      const request = decodeDocumentAwarenessHttpRequest(
-        documentId,
-        await readBinaryBody(context, MAX_AWARENESS_REQUEST_BYTES),
-      );
-      const scopeError = await resolveProjectScope(
-        dependencies,
-        projectId,
-        documentId,
-      );
-      if (scopeError) return errorResponse(scopeError);
-      const client = requireBrowserClient(clients, projectId, request);
-      if (!client.ok) return errorResponse(client.error);
-      const result = dependencies.hub.publishAwareness(
-        client.value.target,
-        request,
-      );
-      return result.ok ? context.json(result.value) : errorResponse(result.error);
-    } catch (error) {
-      return invalidRequest(
-        error instanceof Error ? error.message : "Invalid Awareness request",
-      );
-    }
-  });
+  app.post(
+    "/api/projects/:projectId/documents/:documentId/awareness",
+    async (context) => {
+      const projectId = context.req.param("projectId");
+      const documentId = context.req.param("documentId");
+      try {
+        const request = decodeDocumentAwarenessHttpRequest(
+          documentId,
+          await readBinaryBody(context, MAX_AWARENESS_REQUEST_BYTES),
+        );
+        const scopeError = await resolveProjectScope(
+          dependencies,
+          projectId,
+          documentId,
+        );
+        if (scopeError) return errorResponse(scopeError);
+        const client = requireBrowserClient(clients, projectId, request);
+        if (!client.ok) return errorResponse(client.error);
+        const result = dependencies.hub.publishAwareness(
+          client.value.target,
+          request,
+        );
+        return result.ok
+          ? context.json(result.value)
+          : errorResponse(result.error);
+      } catch (error) {
+        return invalidRequest(
+          error instanceof Error ? error.message : "Invalid Awareness request",
+        );
+      }
+    },
+  );
 
   return clients;
 };

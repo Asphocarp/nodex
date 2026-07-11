@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
 import {
+  applyBlockDocumentUpdate,
+  BlockDocumentStoreError,
   compactBlockDocument,
   initializeCardDocumentGenesis,
   loadPrimaryBlockDocument,
@@ -22,7 +24,11 @@ import {
   createCardDocumentGenesis,
   materializeCardDocument,
 } from "../src/shared/block-documents/block-document-codec";
-import type { RelocateBlocks } from "../src/shared/block-documents";
+import {
+  assertValidCardDocumentRoots,
+  locateBlockContainer,
+  type RelocateBlocks,
+} from "../src/shared/block-documents";
 
 const invariant = (condition: boolean, message: string): void => {
   if (condition) return;
@@ -162,6 +168,26 @@ const readNfm = (documentId: string): string => {
   }
 };
 
+const clonePrimaryDocument = (documentId: string): Y.Doc => {
+  const loaded = loadPrimaryBlockDocument(getDb(), documentId);
+  try {
+    const replica = new Y.Doc({ guid: documentId });
+    Y.applyUpdate(replica, Y.encodeStateAsUpdate(loaded.document));
+    return replica;
+  } finally {
+    loaded.document.destroy();
+  }
+};
+
+const readBlockText = (document: Y.Doc, blockId: string): Y.XmlText => {
+  const body = assertValidCardDocumentRoots(document).body;
+  const container = locateBlockContainer(body, blockId).container;
+  for (const node of container.createTreeWalker(() => true)) {
+    if (node instanceof Y.XmlText) return node;
+  }
+  throw new TypeError(`Block ${blockId} has no text node`);
+};
+
 const relocationInput = (input: {
   readonly relocationId: string;
   readonly projectId: string;
@@ -215,6 +241,9 @@ const run = async (): Promise<void> => {
       nfm: ["Parent", "\tX", "\tY"].join("\n"),
       blockIds: ["parent", "x", "y"],
     });
+    const offlineMovedReplica = clonePrimaryDocument(source.documentId);
+    const offlineSafeReplica = clonePrimaryDocument(source.documentId);
+    const offlineBaseVector = Y.encodeStateVector(offlineMovedReplica);
     const request = relocationInput({
       relocationId: "relocation-success",
       projectId: project.id,
@@ -304,6 +333,101 @@ const run = async (): Promise<void> => {
       collisionCode === "relocation_id_collision",
       "ID collision was not typed",
     );
+
+    const movedText = readBlockText(offlineMovedReplica, "a");
+    movedText.insert(movedText.length, " from offline source");
+    const staleMovedUpdate = Y.encodeStateAsUpdate(
+      offlineMovedReplica,
+      offlineBaseVector,
+    );
+    let staleError: BlockDocumentStoreError | null = null;
+    try {
+      applyBlockDocumentUpdate(getDb(), {
+        documentId: source.documentId,
+        storeEpoch: readEpoch(),
+        generation: 1,
+        updateId: "stale-after-relocation:moved",
+        clientSessionId: "offline-source-window",
+        baseHeadSeq: source.headSeq,
+        touchedBlockIds: [],
+        update: staleMovedUpdate,
+      });
+    } catch (error) {
+      if (error instanceof BlockDocumentStoreError) staleError = error;
+      else throw error;
+    }
+    invariant(
+      staleError?.code === "block_relocated" &&
+        typeof staleError.recoveryArtifactId === "string",
+      "stale moved-Block update did not produce a typed durable recovery artifact",
+    );
+    if (!staleError?.recoveryArtifactId) {
+      throw new Error("stale moved-Block recovery artifact ID is missing");
+    }
+    invariant(
+      readHead(source.documentId) === committed.sourceCommit.headSeq,
+      "rejected stale moved-Block update advanced the source head",
+    );
+    const artifact = getDb()
+      .prepare(
+        `
+          SELECT status, reason, update_id
+          FROM document_recovery_artifacts
+          WHERE id = ?
+        `,
+      )
+      .get(staleError.recoveryArtifactId) as
+      | {
+          readonly status: string;
+          readonly reason: string;
+          readonly update_id: string;
+        }
+      | undefined;
+    invariant(
+      artifact?.status === "pending" &&
+        artifact.reason === "block_relocated" &&
+        artifact.update_id === "stale-after-relocation:moved",
+      "stale moved-Block recovery artifact was not committed",
+    );
+    const staleReceipt = getDb()
+      .prepare(
+        `
+          SELECT COUNT(*) AS count
+          FROM document_update_receipts
+          WHERE document_id = ? AND update_id = ?
+        `,
+      )
+      .get(source.documentId, "stale-after-relocation:moved") as {
+      readonly count: number;
+    };
+    invariant(
+      staleReceipt.count === 0,
+      "rejected stale update leaked into the ordinary durable update log",
+    );
+
+    const safeText = readBlockText(offlineSafeReplica, "b");
+    safeText.insert(safeText.length, " still visible");
+    const safeStaleUpdate = Y.encodeStateAsUpdate(
+      offlineSafeReplica,
+      offlineBaseVector,
+    );
+    const safeAck = applyBlockDocumentUpdate(getDb(), {
+      documentId: source.documentId,
+      storeEpoch: readEpoch(),
+      generation: 1,
+      updateId: "stale-after-relocation:safe",
+      clientSessionId: "offline-source-window",
+      baseHeadSeq: source.headSeq,
+      touchedBlockIds: [],
+      update: safeStaleUpdate,
+    });
+    invariant(
+      safeAck.headSeq === committed.sourceCommit.headSeq + 1 &&
+        readNfm(source.documentId) === "B still visible",
+      "structurally visible stale update did not commit safely",
+    );
+    offlineMovedReplica.destroy();
+    offlineSafeReplica.destroy();
 
     const faultSource = seedPrimaryDocument({
       projectId: project.id,
@@ -408,6 +532,8 @@ const run = async (): Promise<void> => {
         preCommitFaults: preCommitFaults.length,
         compactedReplay: compactedRetry.sourceCommit.update === null,
         afterCommitReplay: true,
+        staleRecoveryArtifact: artifact?.reason ?? null,
+        safeStaleUpdate: true,
       })}\n`,
     );
   } finally {

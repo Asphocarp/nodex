@@ -41,6 +41,8 @@ const ERROR_CODES = new Set<DocumentSyncErrorCode>([
   "invalid_awareness_update",
   "document_update_missing_dependencies",
   "update_id_collision",
+  "block_relocated",
+  "recovery_required",
   "document_state_corrupt",
   "invalid_response",
   "unknown",
@@ -48,7 +50,8 @@ const ERROR_CODES = new Set<DocumentSyncErrorCode>([
 
 const transportError = (error: unknown): DocumentSyncCommandError => ({
   code: "transport_unavailable",
-  message: error instanceof Error ? error.message : "Electron IPC is unavailable",
+  message:
+    error instanceof Error ? error.message : "Electron IPC is unavailable",
   retryable: true,
   resetRequired: false,
 });
@@ -98,11 +101,30 @@ const normalizeError = (value: unknown): DocumentSyncCommandError | null => {
   ) {
     return null;
   }
+  if (
+    value.relocationId !== undefined &&
+    (typeof value.relocationId !== "string" || value.relocationId.length === 0)
+  ) {
+    return null;
+  }
+  if (
+    value.recoveryArtifactId !== undefined &&
+    (typeof value.recoveryArtifactId !== "string" ||
+      value.recoveryArtifactId.length === 0)
+  ) {
+    return null;
+  }
   return {
     code: value.code as DocumentSyncErrorCode,
     message: value.message,
     retryable: value.retryable,
     resetRequired: value.resetRequired,
+    ...(typeof value.relocationId === "string"
+      ? { relocationId: value.relocationId }
+      : {}),
+    ...(typeof value.recoveryArtifactId === "string"
+      ? { recoveryArtifactId: value.recoveryArtifactId }
+      : {}),
   };
 };
 
@@ -112,14 +134,18 @@ const normalizeCommandResult = <T>(
   if (!isRecord(value) || typeof value.ok !== "boolean") {
     return {
       ok: false,
-      error: invalidResponseError("Electron document sync returned an invalid envelope"),
+      error: invalidResponseError(
+        "Electron document sync returned an invalid envelope",
+      ),
     };
   }
   if (value.ok) {
     if (!("value" in value)) {
       return {
         ok: false,
-        error: invalidResponseError("Electron document sync omitted its result"),
+        error: invalidResponseError(
+          "Electron document sync omitted its result",
+        ),
       };
     }
     return { ok: true, value: value.value as T };
@@ -131,7 +157,9 @@ const normalizeCommandResult = <T>(
   }
   return {
     ok: false,
-    error: invalidResponseError("Electron document sync returned an invalid error"),
+    error: invalidResponseError(
+      "Electron document sync returned an invalid error",
+    ),
   };
 };
 
@@ -143,7 +171,10 @@ const normalizeSyncResult = (
   }
   const value = result.value as unknown;
   if (!isRecord(value)) {
-    return { ok: false, error: invalidResponseError("Invalid document sync result") };
+    return {
+      ok: false,
+      error: invalidResponseError("Invalid document sync result"),
+    };
   }
   const stateVector = copyBytes(value.stateVector);
   const update = copyBytes(value.update);
@@ -155,7 +186,10 @@ const normalizeSyncResult = (
     typeof value.generation !== "number" ||
     typeof value.headSeq !== "number"
   ) {
-    return { ok: false, error: invalidResponseError("Invalid document sync result") };
+    return {
+      ok: false,
+      error: invalidResponseError("Invalid document sync result"),
+    };
   }
   return {
     ok: true,
@@ -178,7 +212,10 @@ const normalizeApplyResult = (
   }
   const value = result.value as unknown;
   if (!isRecord(value)) {
-    return { ok: false, error: invalidResponseError("Invalid document update ACK") };
+    return {
+      ok: false,
+      error: invalidResponseError("Invalid document update ACK"),
+    };
   }
   const stateVector = copyBytes(value.stateVector);
   if (
@@ -191,7 +228,10 @@ const normalizeApplyResult = (
     typeof value.headSeq !== "number" ||
     typeof value.duplicate !== "boolean"
   ) {
-    return { ok: false, error: invalidResponseError("Invalid document update ACK") };
+    return {
+      ok: false,
+      error: invalidResponseError("Invalid document update ACK"),
+    };
   }
   return {
     ok: true,
@@ -333,7 +373,9 @@ export function createElectronDocumentSyncAdapter(
         entry.remoteSubscription = null;
         return {
           ok: false,
-          error: invalidResponseError("Electron did not confirm document subscription"),
+          error: invalidResponseError(
+            "Electron did not confirm document subscription",
+          ),
         } satisfies DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;
       }
       if (result.ok) {
@@ -362,27 +404,34 @@ export function createElectronDocumentSyncAdapter(
 
   return {
     sync: async (request: DocumentSyncRequest) => {
-      const blocked = await requireRemoteSubscription<DocumentSyncResponse>(request);
+      const blocked =
+        await requireRemoteSubscription<DocumentSyncResponse>(request);
       if (blocked) {
         return blocked;
       }
       return normalizeSyncResult(
-        await invokeCommand<DocumentSyncResponse>("document-sync:sync", request),
+        await invokeCommand<DocumentSyncResponse>(
+          "document-sync:sync",
+          request,
+        ),
       );
     },
     applyUpdate: async (request: DocumentSyncApplyRequest) => {
-      const blocked = await requireRemoteSubscription<DocumentSyncApplyAck>(request);
+      const blocked =
+        await requireRemoteSubscription<DocumentSyncApplyAck>(request);
       if (blocked) {
         return blocked;
       }
       return normalizeApplyResult(
-        await invokeCommand<DocumentSyncApplyAck>("document-sync:apply", request),
+        await invokeCommand<DocumentSyncApplyAck>(
+          "document-sync:apply",
+          request,
+        ),
       );
     },
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
-      const blocked = await requireRemoteSubscription<DocumentAwarenessPublishAck>(
-        request,
-      );
+      const blocked =
+        await requireRemoteSubscription<DocumentAwarenessPublishAck>(request);
       if (blocked) {
         return blocked;
       }

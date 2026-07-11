@@ -79,6 +79,54 @@ interface DocumentTailUpdateRow {
   readonly update_hash: string;
 }
 
+type RecoveryArtifactReason = "block_relocated" | "unsafe_stale_update";
+
+interface StoredRecoveryArtifactRow {
+  readonly id: string;
+  readonly store_epoch: string;
+  readonly client_session_id: string;
+  readonly base_head_seq: number;
+  readonly touched_block_ids_json: string;
+  readonly derived_touched_block_ids_json: string | null;
+  readonly update_blob: Buffer;
+  readonly update_hash: string;
+  readonly update_byte_length: number;
+  readonly reason: RecoveryArtifactReason;
+  readonly relocation_ids_json: string;
+}
+
+interface CrossedRelocationRow {
+  readonly relocation_id: string;
+  readonly source_committed_seq: number;
+  readonly pre_state_vector: Buffer | null;
+  readonly pre_full_update: Buffer | null;
+  readonly pre_full_update_byte_length: number | null;
+  readonly pre_state_hash: string | null;
+}
+
+interface CrossedRelocationMemberRow {
+  readonly relocation_id: string;
+  readonly block_id: string;
+}
+
+interface StaleRelocationInspection {
+  readonly relocationIds: readonly string[];
+  readonly derivedTouchedBlockIds: readonly BlockId[] | null;
+  readonly rejectionReason: RecoveryArtifactReason | null;
+  readonly rejectedRelocationId?: string;
+}
+
+interface RecoveryArtifactOutcome {
+  readonly kind: "recovery";
+  readonly code: "block_relocated" | "recovery_required";
+  readonly artifactId: string;
+  readonly relocationId?: string;
+}
+
+type ApplyBlockDocumentUpdateOutcome =
+  | { readonly kind: "ack"; readonly ack: DocumentUpdateAck }
+  | RecoveryArtifactOutcome;
+
 export type BlockDocumentStoreErrorCode =
   | "store_not_initialized"
   | "store_epoch_mismatch"
@@ -92,15 +140,30 @@ export type BlockDocumentStoreErrorCode =
   | "invalid_document_update"
   | "document_update_missing_dependencies"
   | "update_id_collision"
+  | "block_relocated"
+  | "recovery_required"
   | "document_state_corrupt";
+
+export interface BlockDocumentStoreErrorDetails {
+  readonly relocationId?: string;
+  readonly recoveryArtifactId?: string;
+}
 
 export class BlockDocumentStoreError extends Error {
   readonly code: BlockDocumentStoreErrorCode;
+  readonly relocationId?: string;
+  readonly recoveryArtifactId?: string;
 
-  constructor(code: BlockDocumentStoreErrorCode, message: string) {
+  constructor(
+    code: BlockDocumentStoreErrorCode,
+    message: string,
+    details: BlockDocumentStoreErrorDetails = {},
+  ) {
     super(message);
     this.name = "BlockDocumentStoreError";
     this.code = code;
+    this.relocationId = details.relocationId;
+    this.recoveryArtifactId = details.recoveryArtifactId;
   }
 }
 
@@ -120,6 +183,8 @@ const toDocumentSyncErrorCode = (error: unknown): DocumentSyncErrorCode => {
     case "invalid_document_update":
     case "document_update_missing_dependencies":
     case "update_id_collision":
+    case "block_relocated":
+    case "recovery_required":
     case "document_state_corrupt":
       return error.code;
     case "document_authority_mismatch":
@@ -133,18 +198,32 @@ export const toDocumentSyncCommandError = (
   error: unknown,
 ): DocumentSyncCommandError => {
   const code = toDocumentSyncErrorCode(error);
+  const details =
+    error instanceof BlockDocumentStoreError
+      ? {
+          ...(error.relocationId ? { relocationId: error.relocationId } : {}),
+          ...(error.recoveryArtifactId
+            ? { recoveryArtifactId: error.recoveryArtifactId }
+            : {}),
+        }
+      : {};
   return {
     code,
     message: error instanceof Error ? error.message : String(error),
-    retryable: code === "store_not_initialized"
-      || code === "document_not_ready"
-      || code === "future_base_head"
-      || code === "document_update_missing_dependencies",
-    resetRequired: code === "store_epoch_mismatch"
-      || code === "document_not_found"
-      || code === "document_generation_mismatch"
-      || code === "unsupported_document_schema"
-      || code === "document_state_corrupt",
+    retryable:
+      code === "store_not_initialized" ||
+      code === "document_not_ready" ||
+      code === "future_base_head" ||
+      code === "document_update_missing_dependencies",
+    resetRequired:
+      code === "store_epoch_mismatch" ||
+      code === "document_not_found" ||
+      code === "document_generation_mismatch" ||
+      code === "unsupported_document_schema" ||
+      code === "block_relocated" ||
+      code === "recovery_required" ||
+      code === "document_state_corrupt",
+    ...details,
   };
 };
 
@@ -281,8 +360,7 @@ const readDocumentRow = (
   documentId: DocumentId,
 ): DocumentRow => {
   const row = database.prepare(LOAD_DOCUMENT_ROW_SQL).get(documentId) as
-    | DocumentRow
-    | undefined;
+    DocumentRow | undefined;
   if (row) {
     return row;
   }
@@ -409,8 +487,7 @@ const validateTouchedBlockIds = (
 };
 
 type DocumentValidationErrorCode =
-  | "document_state_corrupt"
-  | "invalid_document_update";
+  "document_state_corrupt" | "invalid_document_update";
 
 const validationFailure = (
   code: DocumentValidationErrorCode,
@@ -462,7 +539,11 @@ const validateCardDocumentContent = (
     if (error instanceof BlockDocumentStoreError) {
       throw error;
     }
-    throw validationFailure(code, "Card document failed schema validation", error);
+    throw validationFailure(
+      code,
+      "Card document failed schema validation",
+      error,
+    );
   }
 };
 
@@ -470,7 +551,10 @@ const assertNoPendingDependencies = (
   document: Y.Doc,
   code: "document_state_corrupt" | "document_update_missing_dependencies",
 ): void => {
-  if (document.store.pendingStructs === null && document.store.pendingDs === null) {
+  if (
+    document.store.pendingStructs === null &&
+    document.store.pendingDs === null
+  ) {
     return;
   }
 
@@ -490,11 +574,13 @@ const validateRegisteredBlocks = (
 ): void => {
   const documentBlockIds = new Set(blocks.map((block) => block.id));
   const activeRegistryRows = database
-    .prepare(`
+    .prepare(
+      `
       SELECT id
       FROM blocks
       WHERE containing_document_id = ? AND lifecycle = 'active'
-    `)
+    `,
+    )
     .all(row.document_id) as readonly { readonly id: string }[];
   const unexpectedRegistryBlock = activeRegistryRows.find(
     (registered) => !documentBlockIds.has(registered.id),
@@ -563,11 +649,13 @@ const reconcileDocumentBlocks = (
   now: string,
 ): void => {
   const currentRows = database
-    .prepare(`
+    .prepare(
+      `
       SELECT id, project_id, type, lifecycle, location_kind, containing_document_id
       FROM blocks
       WHERE containing_document_id = ?
-    `)
+    `,
+    )
     .all(row.document_id) as readonly RegisteredBlockRow[];
   const currentById = new Map(currentRows.map((block) => [block.id, block]));
   const readBlock = database.prepare(`
@@ -694,16 +782,17 @@ const loadDocumentFromRow = (
   const document = new Y.Doc({ guid: row.document_id });
   try {
     const snapshot = database
-      .prepare(`
+      .prepare(
+        `
         SELECT snapshot_seq, state_vector, snapshot_update, snapshot_hash, schema_version
         FROM document_snapshots
         WHERE document_id = ? AND generation = ? AND snapshot_seq <= ?
         ORDER BY snapshot_seq DESC
         LIMIT 1
-      `)
+      `,
+      )
       .get(row.document_id, row.generation, row.head_seq) as
-      | DocumentSnapshotRow
-      | undefined;
+      DocumentSnapshotRow | undefined;
     const snapshotSeq = snapshot?.snapshot_seq ?? 0;
     if (snapshot) {
       if (snapshot.schema_version !== row.schema_version) {
@@ -729,14 +818,20 @@ const loadDocumentFromRow = (
     }
 
     const updates = database
-      .prepare(`
+      .prepare(
+        `
         SELECT seq, update_blob, update_hash
         FROM document_updates
         WHERE document_id = ? AND generation = ? AND seq > ? AND seq <= ?
         ORDER BY seq ASC
-      `)
-      .all(row.document_id, row.generation, snapshotSeq, row.head_seq) as
-      readonly DocumentTailUpdateRow[];
+      `,
+      )
+      .all(
+        row.document_id,
+        row.generation,
+        snapshotSeq,
+        row.head_seq,
+      ) as readonly DocumentTailUpdateRow[];
     let expectedSeq = snapshotSeq + 1;
     updates.forEach((update) => {
       if (update.seq === expectedSeq) {
@@ -813,14 +908,16 @@ const findStoredUpdateReceipt = (
   updateId: string,
 ): StoredDocumentUpdateReceiptRow | undefined =>
   database
-    .prepare(`
+    .prepare(
+      `
       SELECT
         generation, seq, client_session_id, base_head_seq,
         client_touched_block_ids_json, derived_touched_block_ids_json,
         derivation_version, update_hash, update_byte_length
       FROM document_update_receipts
       WHERE document_id = ? AND update_id = ?
-    `)
+    `,
+    )
     .get(documentId, updateId) as StoredDocumentUpdateReceiptRow | undefined;
 
 const assertMatchingIdempotentUpdate = (
@@ -832,11 +929,11 @@ const assertMatchingIdempotentUpdate = (
   clientTouchedBlockIdsJson: string,
 ): void => {
   if (
-    stored.seq < 1
-    || stored.derivation_version < 0
-    || stored.derivation_version > 1
-    || stored.update_byte_length < 1
-    || !/^[a-f0-9]{64}$/u.test(stored.update_hash)
+    stored.seq < 1 ||
+    stored.derivation_version < 0 ||
+    stored.derivation_version > 1 ||
+    stored.update_byte_length < 1 ||
+    !/^[a-f0-9]{64}$/u.test(stored.update_hash)
   ) {
     throw new BlockDocumentStoreError(
       "document_state_corrupt",
@@ -877,26 +974,30 @@ const insertDocumentUpdateReceipt = (
     readonly committedAt: string;
   },
 ): void => {
-  database.prepare(`
+  database
+    .prepare(
+      `
     INSERT INTO document_update_receipts (
       document_id, generation, seq, update_id, client_session_id,
       base_head_seq, client_touched_block_ids_json,
       derived_touched_block_ids_json, derivation_version,
       update_hash, update_byte_length, committed_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-  `).run(
-    input.documentId,
-    input.generation,
-    input.seq,
-    input.updateId,
-    input.clientSessionId,
-    input.baseHeadSeq,
-    input.clientTouchedBlockIdsJson,
-    input.derivedTouchedBlockIdsJson,
-    input.updateHash,
-    input.updateByteLength,
-    input.committedAt,
-  );
+  `,
+    )
+    .run(
+      input.documentId,
+      input.generation,
+      input.seq,
+      input.updateId,
+      input.clientSessionId,
+      input.baseHeadSeq,
+      input.clientTouchedBlockIdsJson,
+      input.derivedTouchedBlockIdsJson,
+      input.updateHash,
+      input.updateByteLength,
+      input.committedAt,
+    );
 };
 
 const makeAck = (
@@ -916,6 +1017,387 @@ const makeAck = (
   stateVector: toUint8Array(stateVector),
   duplicate,
 });
+
+const RECOVERY_ARTIFACT_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const RESERVED_RELOCATION_UPDATE_ID_PREFIX = "relocation:";
+
+const parseStringArray = (
+  serialized: string,
+  field: string,
+): readonly string[] => {
+  try {
+    const parsed = JSON.parse(serialized) as unknown;
+    if (
+      Array.isArray(parsed) &&
+      parsed.length <= MAX_DOCUMENT_TOUCHED_BLOCK_IDS &&
+      parsed.every(
+        (value) =>
+          typeof value === "string" &&
+          value.length > 0 &&
+          value.length <= MAX_BLOCK_ID_LENGTH,
+      ) &&
+      new Set(parsed).size === parsed.length
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to one typed persisted-state failure.
+  }
+  throw new BlockDocumentStoreError(
+    "document_state_corrupt",
+    `Stored ${field} is invalid`,
+  );
+};
+
+const readStoredRecoveryArtifact = (
+  database: Database.Database,
+  input: ApplyDocumentUpdate,
+): StoredRecoveryArtifactRow | undefined =>
+  database
+    .prepare(
+      `
+    SELECT
+      id, store_epoch, client_session_id, base_head_seq,
+      touched_block_ids_json, derived_touched_block_ids_json,
+      update_blob, update_hash, update_byte_length, reason,
+      relocation_ids_json
+    FROM document_recovery_artifacts
+    WHERE document_id = ? AND generation = ? AND update_id = ?
+  `,
+    )
+    .get(input.documentId, input.generation, input.updateId) as
+    StoredRecoveryArtifactRow | undefined;
+
+const recoveryOutcomeFromStoredArtifact = (
+  stored: StoredRecoveryArtifactRow,
+  input: ApplyDocumentUpdate,
+  clientTouchedBlockIdsJson: string,
+): RecoveryArtifactOutcome => {
+  if (
+    stored.update_blob.byteLength !== stored.update_byte_length ||
+    hashBytes(stored.update_blob) !== stored.update_hash
+  ) {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      `Recovery artifact ${stored.id} checksum does not match`,
+    );
+  }
+  const updateHash = hashBytes(input.update);
+  if (
+    stored.store_epoch !== input.storeEpoch ||
+    stored.client_session_id !== input.clientSessionId ||
+    stored.base_head_seq !== input.baseHeadSeq ||
+    stored.touched_block_ids_json !== clientTouchedBlockIdsJson ||
+    stored.update_hash !== updateHash ||
+    stored.update_byte_length !== input.update.byteLength ||
+    !bytesEqual(stored.update_blob, input.update)
+  ) {
+    throw new BlockDocumentStoreError(
+      "update_id_collision",
+      "The updateId already belongs to a different recovery artifact request",
+    );
+  }
+
+  const relocationIds = parseStringArray(
+    stored.relocation_ids_json,
+    "recovery artifact relocation IDs",
+  );
+  if (stored.derived_touched_block_ids_json !== null) {
+    parseStringArray(
+      stored.derived_touched_block_ids_json,
+      "recovery artifact derived touched Block IDs",
+    );
+  }
+  return {
+    kind: "recovery",
+    code:
+      stored.reason === "block_relocated"
+        ? "block_relocated"
+        : "recovery_required",
+    artifactId: stored.id,
+    ...(relocationIds[0] ? { relocationId: relocationIds[0] } : {}),
+  };
+};
+
+const readCrossedRelocations = (
+  database: Database.Database,
+  row: DocumentRow,
+  baseHeadSeq: number,
+): readonly CrossedRelocationRow[] =>
+  database
+    .prepare(
+      `
+    SELECT
+      relocation.id AS relocation_id,
+      relocation.source_committed_seq,
+      source_state.pre_state_vector,
+      source_state.pre_full_update,
+      source_state.pre_full_update_byte_length,
+      source_state.pre_state_hash
+    FROM block_relocations relocation
+    LEFT JOIN block_relocation_source_states source_state
+      ON source_state.relocation_id = relocation.id
+    WHERE relocation.source_document_id = ?
+      AND relocation.source_generation = ?
+      AND relocation.source_committed_seq > ?
+      AND relocation.source_committed_seq <= ?
+    ORDER BY relocation.source_committed_seq ASC, relocation.id ASC
+  `,
+    )
+    .all(
+      row.document_id,
+      row.generation,
+      baseHeadSeq,
+      row.head_seq,
+    ) as readonly CrossedRelocationRow[];
+
+const readCrossedRelocationMembers = (
+  database: Database.Database,
+  row: DocumentRow,
+  baseHeadSeq: number,
+): readonly CrossedRelocationMemberRow[] =>
+  database
+    .prepare(
+      `
+    SELECT member.relocation_id, member.block_id
+    FROM block_relocations relocation
+    INNER JOIN block_relocation_members member
+      ON member.relocation_id = relocation.id
+    WHERE relocation.source_document_id = ?
+      AND relocation.source_generation = ?
+      AND relocation.source_committed_seq > ?
+      AND relocation.source_committed_seq <= ?
+    ORDER BY relocation.source_committed_seq ASC,
+      relocation.id ASC, member.tree_ordinal ASC
+  `,
+    )
+    .all(
+      row.document_id,
+      row.generation,
+      baseHeadSeq,
+      row.head_seq,
+    ) as readonly CrossedRelocationMemberRow[];
+
+const inspectStaleUpdateAcrossRelocations = (
+  database: Database.Database,
+  row: DocumentRow,
+  input: ApplyDocumentUpdate,
+  clientTouchedBlockIds: readonly BlockId[],
+): StaleRelocationInspection | null => {
+  const crossed = readCrossedRelocations(database, row, input.baseHeadSeq);
+  if (crossed.length === 0) return null;
+
+  const relocationIds = crossed.map((relocation) => relocation.relocation_id);
+  const members = readCrossedRelocationMembers(
+    database,
+    row,
+    input.baseHeadSeq,
+  );
+  const movedBlockIds = new Set(members.map((member) => member.block_id));
+  const declaredMovedBlockId = clientTouchedBlockIds.find((blockId) =>
+    movedBlockIds.has(blockId),
+  );
+  if (declaredMovedBlockId) {
+    const relocationId = members.find(
+      (member) => member.block_id === declaredMovedBlockId,
+    )?.relocation_id;
+    return {
+      relocationIds,
+      derivedTouchedBlockIds: null,
+      rejectionReason: "block_relocated",
+      ...(relocationId ? { rejectedRelocationId: relocationId } : {}),
+    };
+  }
+
+  const earliest = crossed[0];
+  if (
+    !earliest ||
+    earliest.pre_state_vector === null ||
+    earliest.pre_full_update === null ||
+    earliest.pre_full_update_byte_length === null ||
+    earliest.pre_state_hash === null
+  ) {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      `Relocation ${earliest?.relocation_id ?? "unknown"} has no recoverable source state`,
+    );
+  }
+  if (
+    earliest.pre_full_update.byteLength !==
+      earliest.pre_full_update_byte_length ||
+    hashBytes(earliest.pre_full_update) !== earliest.pre_state_hash
+  ) {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      `Relocation ${earliest.relocation_id} source state checksum does not match`,
+    );
+  }
+
+  const preRelocationDocument = new Y.Doc({ guid: row.document_id });
+  try {
+    applyStoredUpdate(
+      preRelocationDocument,
+      earliest.pre_full_update,
+      row.document_id,
+    );
+    assertNoPendingDependencies(
+      preRelocationDocument,
+      "document_state_corrupt",
+    );
+    validateCardDocumentContent(
+      preRelocationDocument,
+      "document_state_corrupt",
+    );
+    if (
+      !bytesEqual(
+        Y.encodeStateVector(preRelocationDocument),
+        earliest.pre_state_vector,
+      )
+    ) {
+      throw new BlockDocumentStoreError(
+        "document_state_corrupt",
+        `Relocation ${earliest.relocation_id} source state vector does not match`,
+      );
+    }
+    const before = captureBlockDocumentChangeState(preRelocationDocument);
+    let derivedTouchedBlockIds: readonly BlockId[] | null = null;
+    try {
+      Y.applyUpdate(
+        preRelocationDocument,
+        input.update,
+        "stale-relocation-recovery-probe",
+      );
+      assertNoPendingDependencies(
+        preRelocationDocument,
+        "document_update_missing_dependencies",
+      );
+      validateCardDocumentContent(
+        preRelocationDocument,
+        "invalid_document_update",
+      );
+      derivedTouchedBlockIds = deriveBlockDocumentTouchedIds({
+        ownerBlockId: row.owner_block_id,
+        before,
+        after: captureBlockDocumentChangeState(preRelocationDocument),
+      });
+    } catch {
+      return {
+        relocationIds,
+        derivedTouchedBlockIds: null,
+        rejectionReason: "unsafe_stale_update",
+      };
+    }
+
+    if (derivedTouchedBlockIds.length === 0) {
+      return {
+        relocationIds,
+        derivedTouchedBlockIds,
+        rejectionReason: "unsafe_stale_update",
+      };
+    }
+    const derivedMovedBlockId = derivedTouchedBlockIds.find((blockId) =>
+      movedBlockIds.has(blockId),
+    );
+    if (!derivedMovedBlockId) {
+      return {
+        relocationIds,
+        derivedTouchedBlockIds,
+        rejectionReason: null,
+      };
+    }
+
+    const relocationId = members.find(
+      (member) => member.block_id === derivedMovedBlockId,
+    )?.relocation_id;
+    return {
+      relocationIds,
+      derivedTouchedBlockIds,
+      rejectionReason: "block_relocated",
+      ...(relocationId ? { rejectedRelocationId: relocationId } : {}),
+    };
+  } finally {
+    preRelocationDocument.destroy();
+  }
+};
+
+const persistRecoveryArtifact = (
+  database: Database.Database,
+  row: DocumentRow,
+  input: ApplyDocumentUpdate,
+  clientTouchedBlockIdsJson: string,
+  inspection: StaleRelocationInspection,
+  reason: RecoveryArtifactReason,
+): RecoveryArtifactOutcome => {
+  const updateHash = hashBytes(input.update);
+  const artifactId = `document-recovery:${createHash("sha256")
+    .update(input.documentId)
+    .update("\0")
+    .update(String(input.generation))
+    .update("\0")
+    .update(input.updateId)
+    .digest("hex")}`;
+  const createdAt = new Date().toISOString();
+  const expiresAt = new Date(
+    Date.parse(createdAt) + RECOVERY_ARTIFACT_RETENTION_MS,
+  ).toISOString();
+  const derivedTouchedBlockIdsJson =
+    inspection.derivedTouchedBlockIds === null
+      ? null
+      : JSON.stringify(inspection.derivedTouchedBlockIds);
+  database
+    .prepare(
+      `
+    INSERT INTO document_recovery_artifacts (
+      id, project_id, store_epoch, document_id, generation, update_id,
+      client_session_id, base_head_seq, touched_block_ids_json,
+      derived_touched_block_ids_json, update_blob, update_hash,
+      update_byte_length, reason, relocation_ids_json, status,
+      created_at, expires_at, resolved_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)
+  `,
+    )
+    .run(
+      artifactId,
+      row.project_id,
+      input.storeEpoch,
+      input.documentId,
+      input.generation,
+      input.updateId,
+      input.clientSessionId,
+      input.baseHeadSeq,
+      clientTouchedBlockIdsJson,
+      derivedTouchedBlockIdsJson,
+      Buffer.from(input.update),
+      updateHash,
+      input.update.byteLength,
+      reason,
+      JSON.stringify(inspection.relocationIds),
+      createdAt,
+      expiresAt,
+    );
+  return {
+    kind: "recovery",
+    code:
+      reason === "block_relocated" ? "block_relocated" : "recovery_required",
+    artifactId,
+    ...(inspection.rejectedRelocationId
+      ? { relocationId: inspection.rejectedRelocationId }
+      : inspection.relocationIds[0]
+        ? { relocationId: inspection.relocationIds[0] }
+        : {}),
+  };
+};
+
+const throwRecoveryOutcome = (outcome: RecoveryArtifactOutcome): never => {
+  const message =
+    outcome.code === "block_relocated"
+      ? "The update touches content that has moved to another Document"
+      : "The stale update could not be applied safely and requires explicit recovery";
+  throw new BlockDocumentStoreError(outcome.code, message, {
+    relocationId: outcome.relocationId,
+    recoveryArtifactId: outcome.artifactId,
+  });
+};
 
 export const loadBlockDocument = (
   database: Database.Database,
@@ -1096,7 +1578,8 @@ export const initializeCardDocumentGenesis = (
         genesisDocument,
         "invalid_document_update",
       );
-      genesisTitle = assertValidCardDocumentRoots(genesisDocument).title.toString();
+      genesisTitle =
+        assertValidCardDocumentRoots(genesisDocument).title.toString();
     } catch (error) {
       if (error instanceof BlockDocumentStoreError) {
         throw error;
@@ -1166,13 +1649,7 @@ export const initializeCardDocumentGenesis = (
         ...genesisBlocks.map((block) => block.id),
       ].sort((left, right) => left.localeCompare(right)),
     );
-    reconcileDocumentBlocks(
-      database,
-      row,
-      genesisBlocks,
-      1,
-      now,
-    );
+    reconcileDocumentBlocks(database, row, genesisBlocks, 1, now);
     persistCardDocumentMaterialization(database, {
       documentId: input.documentId,
       generation: input.generation,
@@ -1193,47 +1670,59 @@ export const initializeCardDocumentGenesis = (
       updateByteLength: input.update.byteLength,
       committedAt: now,
     });
-    database.prepare(`
+    database
+      .prepare(
+        `
       INSERT INTO document_updates (
         document_id, generation, seq, update_id, client_session_id,
         base_head_seq, touched_block_ids_json, update_blob, update_hash, committed_at
       ) VALUES (?, ?, 1, ?, ?, 0, ?, ?, ?, ?)
-    `).run(
-      input.documentId,
-      input.generation,
-      input.updateId,
-      input.clientSessionId,
-      derivedTouchedBlockIdsJson,
-      Buffer.from(input.update),
-      updateHash,
-      now,
-    );
-    database.prepare(`
+    `,
+      )
+      .run(
+        input.documentId,
+        input.generation,
+        input.updateId,
+        input.clientSessionId,
+        derivedTouchedBlockIdsJson,
+        Buffer.from(input.update),
+        updateHash,
+        now,
+      );
+    database
+      .prepare(
+        `
       INSERT INTO document_snapshots (
         document_id, generation, snapshot_seq, state_vector,
         snapshot_update, snapshot_hash, schema_version, created_at
       ) VALUES (?, ?, 1, ?, ?, ?, ?, ?)
-    `).run(
-      input.documentId,
-      input.generation,
-      Buffer.from(genesisStateVector),
-      Buffer.from(genesisSnapshot),
-      snapshotHash,
-      row.schema_version,
-      now,
-    );
-    database.prepare(`
+    `,
+      )
+      .run(
+        input.documentId,
+        input.generation,
+        Buffer.from(genesisStateVector),
+        Buffer.from(genesisSnapshot),
+        snapshotHash,
+        row.schema_version,
+        now,
+      );
+    database
+      .prepare(
+        `
       UPDATE documents
       SET head_seq = 1, state_vector = ?, state_hash = ?,
           readiness = 'ready', updated_at = ?
       WHERE id = ? AND generation = ? AND head_seq = 0 AND readiness = 'pending_genesis'
-    `).run(
-      Buffer.from(genesisStateVector),
-      stateHash,
-      now,
-      input.documentId,
-      input.generation,
-    );
+    `,
+      )
+      .run(
+        Buffer.from(genesisStateVector),
+        stateHash,
+        now,
+        input.documentId,
+        input.generation,
+      );
 
     return makeAck(
       {
@@ -1259,15 +1748,25 @@ const applyBlockDocumentUpdateForAuthority = (
   input: ApplyDocumentUpdate,
   authority: DocumentAuthority,
   allowInactiveOwner: boolean,
+  allowReservedUpdateId: boolean,
 ): DocumentUpdateAck => {
   validateIncomingUpdate(input.update);
   requireNonEmpty(input.documentId, "documentId");
   requireNonEmpty(input.updateId, "updateId");
   requireNonEmpty(input.clientSessionId, "clientSessionId");
+  if (
+    !allowReservedUpdateId &&
+    input.updateId.startsWith(RESERVED_RELOCATION_UPDATE_ID_PREFIX)
+  ) {
+    throw new BlockDocumentStoreError(
+      "invalid_document_update",
+      `updateId namespace ${RESERVED_RELOCATION_UPDATE_ID_PREFIX} is reserved for system relocations`,
+    );
+  }
   const clientTouchedBlockIds = validateTouchedBlockIds(input.touchedBlockIds);
   const clientTouchedBlockIdsJson = JSON.stringify(clientTouchedBlockIds);
 
-  const apply = database.transaction((): DocumentUpdateAck => {
+  const apply = database.transaction((): ApplyBlockDocumentUpdateOutcome => {
     const storeEpoch = assertStoreEpoch(database, input.storeEpoch);
     const row = readDocumentRow(database, input.documentId);
     assertReady(row);
@@ -1300,18 +1799,47 @@ const applyBlockDocumentUpdateForAuthority = (
         input.baseHeadSeq,
         clientTouchedBlockIdsJson,
       );
-      return makeAck(
-        row,
-        storeEpoch,
-        input.updateId,
-        stored.seq,
-        row.state_vector,
-        true,
+      return {
+        kind: "ack",
+        ack: makeAck(
+          row,
+          storeEpoch,
+          input.updateId,
+          stored.seq,
+          row.state_vector,
+          true,
+        ),
+      };
+    }
+
+    const storedRecoveryArtifact = readStoredRecoveryArtifact(database, input);
+    if (storedRecoveryArtifact) {
+      return recoveryOutcomeFromStoredArtifact(
+        storedRecoveryArtifact,
+        input,
+        clientTouchedBlockIdsJson,
       );
     }
 
     if (!allowInactiveOwner) {
       assertWritableCardOwner(row);
+    }
+
+    const staleRelocationInspection = inspectStaleUpdateAcrossRelocations(
+      database,
+      row,
+      input,
+      clientTouchedBlockIds,
+    );
+    if (staleRelocationInspection?.rejectionReason) {
+      return persistRecoveryArtifact(
+        database,
+        row,
+        input,
+        clientTouchedBlockIdsJson,
+        staleRelocationInspection,
+        staleRelocationInspection.rejectionReason,
+      );
     }
 
     const document = loadDocumentFromRow(database, row);
@@ -1335,6 +1863,24 @@ const applyBlockDocumentUpdateForAuthority = (
           before: beforeChangeState,
           after: captureBlockDocumentChangeState(document),
         });
+        if (staleRelocationInspection) {
+          const currentTouchedBlockIds = new Set(derivedTouchedBlockIds);
+          const structurallyVisible =
+            staleRelocationInspection.derivedTouchedBlockIds !== null &&
+            staleRelocationInspection.derivedTouchedBlockIds.every((blockId) =>
+              currentTouchedBlockIds.has(blockId),
+            );
+          if (!structurallyVisible) {
+            return persistRecoveryArtifact(
+              database,
+              row,
+              input,
+              clientTouchedBlockIdsJson,
+              staleRelocationInspection,
+              "unsafe_stale_update",
+            );
+          }
+        }
         materialization = materializeCardDocument(document);
         if (
           authority === "ydoc_primary" &&
@@ -1369,16 +1915,8 @@ const applyBlockDocumentUpdateForAuthority = (
         );
       }
       const now = new Date().toISOString();
-      const derivedTouchedBlockIdsJson = JSON.stringify(
-        derivedTouchedBlockIds,
-      );
-      reconcileDocumentBlocks(
-        database,
-        row,
-        blocks,
-        nextHeadSeq,
-        now,
-      );
+      const derivedTouchedBlockIdsJson = JSON.stringify(derivedTouchedBlockIds);
+      reconcileDocumentBlocks(database, row, blocks, nextHeadSeq, now);
       persistCardDocumentMaterialization(database, {
         documentId: input.documentId,
         generation: input.generation,
@@ -1400,56 +1938,69 @@ const applyBlockDocumentUpdateForAuthority = (
         updateByteLength: input.update.byteLength,
         committedAt: now,
       });
-      database.prepare(`
+      database
+        .prepare(
+          `
         INSERT INTO document_updates (
           document_id, generation, seq, update_id, client_session_id,
           base_head_seq, touched_block_ids_json, update_blob, update_hash, committed_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        input.documentId,
-        input.generation,
-        nextHeadSeq,
-        input.updateId,
-        input.clientSessionId,
-        input.baseHeadSeq,
-        derivedTouchedBlockIdsJson,
-        Buffer.from(input.update),
-        updateHash,
-        now,
-      );
-      database.prepare(`
+      `,
+        )
+        .run(
+          input.documentId,
+          input.generation,
+          nextHeadSeq,
+          input.updateId,
+          input.clientSessionId,
+          input.baseHeadSeq,
+          derivedTouchedBlockIdsJson,
+          Buffer.from(input.update),
+          updateHash,
+          now,
+        );
+      database
+        .prepare(
+          `
         UPDATE documents
         SET head_seq = ?, state_vector = ?, state_hash = ?, updated_at = ?
         WHERE id = ? AND generation = ? AND head_seq = ?
-      `).run(
-        nextHeadSeq,
-        Buffer.from(nextStateVector),
-        nextStateHash,
-        now,
-        input.documentId,
-        input.generation,
-        row.head_seq,
-      );
+      `,
+        )
+        .run(
+          nextHeadSeq,
+          Buffer.from(nextStateVector),
+          nextStateHash,
+          now,
+          input.documentId,
+          input.generation,
+          row.head_seq,
+        );
 
-      return makeAck(
-        {
-          ...row,
-          head_seq: nextHeadSeq,
-          state_vector: Buffer.from(nextStateVector),
-          state_hash: nextStateHash,
-        },
-        storeEpoch,
-        input.updateId,
-        nextHeadSeq,
-        nextStateVector,
-        false,
-      );
+      return {
+        kind: "ack",
+        ack: makeAck(
+          {
+            ...row,
+            head_seq: nextHeadSeq,
+            state_vector: Buffer.from(nextStateVector),
+            state_hash: nextStateHash,
+          },
+          storeEpoch,
+          input.updateId,
+          nextHeadSeq,
+          nextStateVector,
+          false,
+        ),
+      };
     } finally {
       document.destroy();
     }
   });
 
-  return apply.immediate();
+  const outcome = apply.immediate();
+  if (outcome.kind === "ack") return outcome.ack;
+  return throwRecoveryOutcome(outcome);
 };
 
 /** Renderer/provider writes are legal only after the one-way Card cutover. */
@@ -1462,6 +2013,7 @@ export const applyBlockDocumentUpdate = (
     input,
     "ydoc_primary",
     false,
+    false,
   );
 
 /** Internal one-way migration adapter; never expose through IPC or HTTP. */
@@ -1473,6 +2025,7 @@ export const applyLegacyShadowDocumentUpdate = (
     database,
     input,
     "legacy_shadow",
+    true,
     true,
   );
 
@@ -1488,8 +2041,8 @@ export const compactBlockDocument = (
     assertSupportedCardSchema(row);
     assertReadableCardOwner(row);
     if (
-      input.expectedGeneration !== undefined
-      && input.expectedGeneration !== row.generation
+      input.expectedGeneration !== undefined &&
+      input.expectedGeneration !== row.generation
     ) {
       throw new BlockDocumentStoreError(
         "document_generation_mismatch",
@@ -1497,8 +2050,8 @@ export const compactBlockDocument = (
       );
     }
     if (
-      input.expectedHeadSeq !== undefined
-      && input.expectedHeadSeq !== row.head_seq
+      input.expectedHeadSeq !== undefined &&
+      input.expectedHeadSeq !== row.head_seq
     ) {
       throw new BlockDocumentStoreError(
         "invalid_document_update",
@@ -1512,8 +2065,8 @@ export const compactBlockDocument = (
       const stateVector = Y.encodeStateVector(document);
       const snapshotHash = hashBytes(snapshotUpdate);
       if (
-        !bytesEqual(stateVector, row.state_vector)
-        || snapshotHash !== row.state_hash
+        !bytesEqual(stateVector, row.state_vector) ||
+        snapshotHash !== row.state_hash
       ) {
         throw new BlockDocumentStoreError(
           "document_state_corrupt",
@@ -1522,38 +2075,43 @@ export const compactBlockDocument = (
       }
 
       const now = new Date().toISOString();
-      database.prepare(`
+      database
+        .prepare(
+          `
         INSERT INTO document_snapshots (
           document_id, generation, snapshot_seq, state_vector,
           snapshot_update, snapshot_hash, schema_version, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(document_id, generation, snapshot_seq) DO NOTHING
-      `).run(
-        row.document_id,
-        row.generation,
-        row.head_seq,
-        Buffer.from(stateVector),
-        Buffer.from(snapshotUpdate),
-        snapshotHash,
-        row.schema_version,
-        now,
-      );
+      `,
+        )
+        .run(
+          row.document_id,
+          row.generation,
+          row.head_seq,
+          Buffer.from(stateVector),
+          Buffer.from(snapshotUpdate),
+          snapshotHash,
+          row.schema_version,
+          now,
+        );
 
-      const storedSnapshot = database.prepare(`
+      const storedSnapshot = database
+        .prepare(
+          `
         SELECT snapshot_seq, state_vector, snapshot_update, snapshot_hash, schema_version
         FROM document_snapshots
         WHERE document_id = ? AND generation = ? AND snapshot_seq = ?
-      `).get(
-        row.document_id,
-        row.generation,
-        row.head_seq,
-      ) as DocumentSnapshotRow | undefined;
+      `,
+        )
+        .get(row.document_id, row.generation, row.head_seq) as
+        DocumentSnapshotRow | undefined;
       if (
-        !storedSnapshot
-        || storedSnapshot.schema_version !== row.schema_version
-        || storedSnapshot.snapshot_hash !== snapshotHash
-        || !bytesEqual(storedSnapshot.state_vector, stateVector)
-        || !bytesEqual(storedSnapshot.snapshot_update, snapshotUpdate)
+        !storedSnapshot ||
+        storedSnapshot.schema_version !== row.schema_version ||
+        storedSnapshot.snapshot_hash !== snapshotHash ||
+        !bytesEqual(storedSnapshot.state_vector, stateVector) ||
+        !bytesEqual(storedSnapshot.snapshot_update, snapshotUpdate)
       ) {
         throw new BlockDocumentStoreError(
           "document_state_corrupt",
@@ -1583,8 +2141,12 @@ export const compactBlockDocument = (
           "document_state_corrupt",
         );
         if (
-          !bytesEqual(Y.encodeStateVector(verificationDocument), row.state_vector)
-          || hashBytes(Y.encodeStateAsUpdate(verificationDocument)) !== row.state_hash
+          !bytesEqual(
+            Y.encodeStateVector(verificationDocument),
+            row.state_vector,
+          ) ||
+          hashBytes(Y.encodeStateAsUpdate(verificationDocument)) !==
+            row.state_hash
         ) {
           throw new BlockDocumentStoreError(
             "document_state_corrupt",
@@ -1595,22 +2157,36 @@ export const compactBlockDocument = (
         verificationDocument.destroy();
       }
 
-      const pruned = database.prepare(`
+      const pruned = database
+        .prepare(
+          `
         DELETE FROM document_updates
         WHERE document_id = ? AND generation = ? AND seq <= ?
-      `).run(row.document_id, row.generation, row.head_seq);
-      database.prepare(`
+      `,
+        )
+        .run(row.document_id, row.generation, row.head_seq);
+      database
+        .prepare(
+          `
         DELETE FROM document_snapshots
         WHERE document_id = ? AND generation = ? AND snapshot_seq < ?
-      `).run(row.document_id, row.generation, row.head_seq);
+      `,
+        )
+        .run(row.document_id, row.generation, row.head_seq);
 
       const reloaded = loadDocumentFromRow(database, row);
       reloaded.destroy();
-      const receiptCount = database.prepare(`
+      const receiptCount = database
+        .prepare(
+          `
         SELECT COUNT(*) AS count
         FROM document_update_receipts
         WHERE document_id = ? AND generation = ? AND seq <= ?
-      `).get(row.document_id, row.generation, row.head_seq) as { count: number };
+      `,
+        )
+        .get(row.document_id, row.generation, row.head_seq) as {
+        count: number;
+      };
       return {
         documentId: row.document_id,
         generation: row.generation,

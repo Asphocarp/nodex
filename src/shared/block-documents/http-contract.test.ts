@@ -55,7 +55,9 @@ describe("Document HTTP contract", () => {
       syncRequest.documentId,
       encodeDocumentSyncHttpRequest(syncRequest),
     );
-    expect(Array.from(decodedSyncRequest.stateVector).join(",")).toBe("0,128,255");
+    expect(Array.from(decodedSyncRequest.stateVector).join(",")).toBe(
+      "0,128,255",
+    );
 
     const syncResponse = {
       documentId: "document-1",
@@ -85,7 +87,9 @@ describe("Document HTTP contract", () => {
       applyRequest.documentId,
       encodeDocumentApplyHttpRequest(applyRequest),
     );
-    expect(decodedApplyRequest.touchedBlockIds.join(",")).toBe("block-a,block-b");
+    expect(decodedApplyRequest.touchedBlockIds.join(",")).toBe(
+      "block-a,block-b",
+    );
     expect(Array.from(decodedApplyRequest.update).join(",")).toBe("5,6,7");
 
     const ack = {
@@ -148,10 +152,10 @@ describe("Document HTTP contract", () => {
         reason: "event-gap",
       },
     ] as const;
-    const decodedKinds = events.map((event) =>
-      decodeDocumentRealtimeSseEvent(
-        encodeDocumentRealtimeSseEvent(event),
-      ).kind,
+    const decodedKinds = events.map(
+      (event) =>
+        decodeDocumentRealtimeSseEvent(encodeDocumentRealtimeSseEvent(event))
+          .kind,
     );
     expect(decodedKinds.join(",")).toBe(
       "connection,document-update,awareness,resync-required",
@@ -166,6 +170,21 @@ describe("Document HTTP contract", () => {
     expect(decodeDocumentHttpError(encodeDocumentHttpError(error)).code).toBe(
       "document_not_ready",
     );
+
+    const recoveryError = {
+      code: "block_relocated",
+      message: "moved",
+      retryable: false,
+      resetRequired: true,
+      relocationId: "relocation-1",
+      recoveryArtifactId: "artifact-1",
+    } as const;
+    const decodedRecoveryError = decodeDocumentHttpError(
+      encodeDocumentHttpError(recoveryError),
+    );
+    expect(decodedRecoveryError.code).toBe("block_relocated");
+    expect(decodedRecoveryError.relocationId).toBe("relocation-1");
+    expect(decodedRecoveryError.recoveryArtifactId).toBe("artifact-1");
   });
 
   test("rejects duplicate touched identities at the HTTP boundary", () => {

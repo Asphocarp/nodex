@@ -42,6 +42,8 @@ const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
   "invalid_awareness_update",
   "document_update_missing_dependencies",
   "update_id_collision",
+  "block_relocated",
+  "recovery_required",
   "document_state_corrupt",
   "invalid_response",
   "unknown",
@@ -136,14 +138,18 @@ const readString = (
   key: string,
 ): string => {
   const value = record[key];
-  if (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value === value.trim()
-  ) {
+  if (typeof value === "string" && value.length > 0 && value === value.trim()) {
     return value;
   }
   throw new DocumentHttpWireError(`${key} must be a non-empty string`);
+};
+
+const readOptionalString = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined => {
+  if (record[key] === undefined) return undefined;
+  return readString(record, key);
 };
 
 const readInteger = (
@@ -152,7 +158,11 @@ const readInteger = (
   minimum: number,
 ): number => {
   const value = record[key];
-  if (typeof value === "number" && Number.isInteger(value) && value >= minimum) {
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= minimum
+  ) {
     return value;
   }
   throw new DocumentHttpWireError(`${key} must be an integer >= ${minimum}`);
@@ -204,7 +214,10 @@ const readTouchedBlockIds = (
 };
 
 const assertRouteDocument = (routeDocumentId: string): string => {
-  if (routeDocumentId.length > 0 && routeDocumentId === routeDocumentId.trim()) {
+  if (
+    routeDocumentId.length > 0 &&
+    routeDocumentId === routeDocumentId.trim()
+  ) {
     return routeDocumentId;
   }
   throw new DocumentHttpWireError("route documentId must be non-empty");
@@ -318,9 +331,12 @@ export const decodeOwnedBlockDocumentDescriptorHttp = (
   try {
     decoded = JSON.parse(serialized);
   } catch (error) {
-    throw new DocumentHttpWireError("Owned Document descriptor is not valid JSON", {
-      cause: error,
-    });
+    throw new DocumentHttpWireError(
+      "Owned Document descriptor is not valid JSON",
+      {
+        cause: error,
+      },
+    );
   }
   const descriptor = parseOwnedBlockDocumentDescriptor(decoded);
   return {
@@ -511,15 +527,16 @@ export const decodeDocumentAwarenessHttpRequest = (
 export const encodeDocumentRealtimeSseEvent = (
   event: DocumentSyncRealtimeEvent,
 ): string => {
-  const encoded: EncodedRealtimeEvent = event.kind === "connection"
-    ? { version: 1, ...event }
-    : event.kind === "document-update" || event.kind === "awareness"
-      ? {
-          version: 1,
-          ...event,
-          update: documentBytesToBase64(event.update),
-        }
-      : { version: 1, ...event };
+  const encoded: EncodedRealtimeEvent =
+    event.kind === "connection"
+      ? { version: 1, ...event }
+      : event.kind === "document-update" || event.kind === "awareness"
+        ? {
+            version: 1,
+            ...event,
+            update: documentBytesToBase64(event.update),
+          }
+        : { version: 1, ...event };
   return JSON.stringify(encoded);
 };
 
@@ -594,7 +611,9 @@ export const decodeDocumentRealtimeSseEvent = (
       reason,
     };
   }
-  throw new DocumentHttpWireError(`Unsupported Document SSE event kind: ${kind}`);
+  throw new DocumentHttpWireError(
+    `Unsupported Document SSE event kind: ${kind}`,
+  );
 };
 
 export const encodeDocumentHttpError = (
@@ -618,10 +637,14 @@ export const decodeDocumentHttpError = (
   if (!DOCUMENT_SYNC_ERROR_CODES.has(code)) {
     throw new DocumentHttpWireError("Document HTTP error code is invalid");
   }
+  const relocationId = readOptionalString(error, "relocationId");
+  const recoveryArtifactId = readOptionalString(error, "recoveryArtifactId");
   return {
     code,
     message: readString(error, "message"),
     retryable: readBoolean(error, "retryable"),
     resetRequired: readBoolean(error, "resetRequired"),
+    ...(relocationId ? { relocationId } : {}),
+    ...(recoveryArtifactId ? { recoveryArtifactId } : {}),
   };
 };
