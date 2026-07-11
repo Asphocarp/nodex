@@ -3,8 +3,8 @@ import {
   assertValidBlockDocument,
   BLOCK_CONTAINER_NODE_NAME,
   BLOCK_GROUP_NODE_NAME,
-  collectChildlessReferenceBlockViolations,
-  isChildlessReferenceBlockContainer,
+  collectChildlessBlockViolations,
+  isChildlessBlockContainer,
   type ScannedDocumentBlock,
 } from "./block-structure";
 import { assertValidCardDocumentRoots } from "./card-document";
@@ -170,7 +170,7 @@ const validateDocumentBody = (
 ): readonly ScannedDocumentBlock[] => {
   try {
     const blocks = assertValidBlockDocument(body);
-    const violation = collectChildlessReferenceBlockViolations(body)[0];
+    const violation = collectChildlessBlockViolations(body)[0];
     if (!violation) return blocks;
     throw new BlockSubtreeOperationError(
       "invalid_document",
@@ -409,7 +409,7 @@ const resolveInsertionTarget = (
       { blockId: parentBlockId },
     );
   }
-  if (parent && isChildlessReferenceBlockContainer(parent.container)) {
+  if (parent && isChildlessBlockContainer(parent.container)) {
     throw new BlockSubtreeOperationError(
       "target_parent_childless",
       `Canonical reference Block ${parentBlockId} cannot contain child Blocks`,

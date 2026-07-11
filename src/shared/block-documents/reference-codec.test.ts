@@ -93,6 +93,27 @@ describe("Block-first reference codec", () => {
     expect(serializeNfm(roundTrip)).toBe(source);
   });
 
+  test("round-trips Template and typed-shell projection syntax without foreign bodies", () => {
+    const source = [
+      '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
+      '<large-document display-name="Architecture" />',
+      '<large-code display-name="Sync adapter" language="typescript" />',
+    ].join("\n");
+    const nfmBlocks = parseNfm(source);
+    const blockNoteBlocks = nfmToBlockNote(nfmBlocks);
+    const roundTrip = blockNoteToNfm(blockNoteBlocks);
+
+    expect(blockNoteBlocks[0]?.type).toBe("templateRef");
+    expect(blockNoteBlocks[0]?.props?.displayHint).toBe("Incident & review");
+    expect(blockNoteBlocks[0]?.children?.length).toBe(0);
+    expect(blockNoteBlocks[1]?.type).toBe("largeDocument");
+    expect(blockNoteBlocks[1]?.children?.length).toBe(0);
+    expect(blockNoteBlocks[2]?.type).toBe("largeCode");
+    expect(blockNoteBlocks[2]?.props?.language).toBe("typescript");
+    expect(blockNoteBlocks[2]?.children?.length).toBe(0);
+    expect(serializeNfm(roundTrip)).toBe(source);
+  });
+
   test("hoists attempted children out of canonical reference Blocks", () => {
     const blocks = parseNfm(
       [
@@ -100,12 +121,18 @@ describe("Block-first reference codec", () => {
         "\tCard child",
         '<database-view-ref database-view="view-1" />',
         "\tView child",
+        '<template-ref source-block="template-1" />',
+        "\tTemplate child",
+        '<large-document display-name="Document" />',
+        "\tDocument shell child",
       ].join("\n"),
     );
 
-    expect(blocks.length).toBe(4);
+    expect(blocks.length).toBe(8);
     expect(blocks[0]?.children.length).toBe(0);
     expect(blocks[2]?.children.length).toBe(0);
+    expect(blocks[4]?.children.length).toBe(0);
+    expect(blocks[6]?.children.length).toBe(0);
   });
 
   test("rejects persisted children beneath canonical Card and Database references", () => {

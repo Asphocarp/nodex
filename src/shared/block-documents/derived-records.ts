@@ -223,6 +223,15 @@ const collectDerivedRecords = (
         sourceBlockId: block.id,
         targetBlockId: nfmBlock.sourceBlockId,
       });
+    } else if (nfmBlock.type === "templateRef") {
+      assertCanonicalReferenceId(nfmBlock.sourceBlockId, "sourceBlockId");
+      const displayHint = readDisplayHint(nfmBlock.displayHint);
+      references.push({
+        kind: "block",
+        sourceBlockId: block.id,
+        targetBlockId: nfmBlock.sourceBlockId,
+        ...(displayHint !== undefined ? { displayHint } : {}),
+      });
     }
 
     collectDerivedRecords(

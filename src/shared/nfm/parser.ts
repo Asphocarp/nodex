@@ -9,6 +9,9 @@ import type {
   NfmImage,
   NfmThreadSection,
   NfmSyncedBlockRef,
+  NfmReusableTemplateRef,
+  NfmLargeDocument,
+  NfmLargeCode,
   NfmToggleListInlineView,
 } from "./types";
 import { NFM_COLORS } from "./types";
@@ -158,6 +161,33 @@ export function parseNfm(input: string): NfmBlock[] {
       const syncedBlockRef = parseSyncedBlockRef(content.trim());
       if (syncedBlockRef) {
         addBlock(syncedBlockRef, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<template-ref")) {
+      const templateRef = parseReusableTemplateRef(content.trim());
+      if (templateRef) {
+        addBlock(templateRef, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<large-document")) {
+      const largeDocument = parseLargeDocument(content.trim());
+      if (largeDocument) {
+        addBlock(largeDocument, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<large-code")) {
+      const largeCode = parseLargeCode(content.trim());
+      if (largeCode) {
+        addBlock(largeCode, indent);
         i++;
         continue;
       }
@@ -545,6 +575,44 @@ function parseSyncedBlockRef(line: string): NfmSyncedBlockRef | null {
   return {
     type: "syncedBlockRef",
     sourceBlockId: getXmlAttr(match[1] ?? "", "source-block") ?? "",
+    children: [],
+  };
+}
+
+function parseReusableTemplateRef(
+  line: string,
+): NfmReusableTemplateRef | null {
+  const match = line.match(/^<template-ref(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const attributes = match[1] ?? "";
+  const displayHint = getXmlAttr(attributes, "display-hint");
+  return {
+    type: "templateRef",
+    sourceBlockId: getXmlAttr(attributes, "source-block") ?? "",
+    ...(displayHint === undefined ? {} : { displayHint }),
+    children: [],
+  };
+}
+
+function parseLargeDocument(line: string): NfmLargeDocument | null {
+  const match = line.match(/^<large-document(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  return {
+    type: "largeDocument",
+    displayName:
+      getXmlAttr(match[1] ?? "", "display-name") ?? "Untitled document",
+    children: [],
+  };
+}
+
+function parseLargeCode(line: string): NfmLargeCode | null {
+  const match = line.match(/^<large-code(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  return {
+    type: "largeCode",
+    displayName:
+      getXmlAttr(match[1] ?? "", "display-name") ?? "Untitled code",
+    language: getXmlAttr(match[1] ?? "", "language") ?? "text",
     children: [],
   };
 }

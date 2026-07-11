@@ -1,18 +1,20 @@
 import * as Y from "yjs";
-import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
+import {
+  assertValidBodyOnlyBlockDocumentRoots,
+  BODY_ONLY_DOCUMENT_ROOT_KEY,
+  createBodyOnlyBlockDocument,
+  openBodyOnlyBlockDocument,
+  type BodyOnlyBlockDocumentEnvelope,
+} from "./body-only-block-document";
 import type { DocumentId } from "./contracts";
 
 export const SYNCED_BLOCK_SOURCE_TYPE = "synced_block_source";
 export const SYNCED_BLOCK_REFERENCE_TYPE = "syncedBlockRef";
 export const SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY = "nodex.synced-block";
 export const SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION = 1;
-export const SYNCED_BLOCK_DOCUMENT_BODY_KEY = "body";
+export const SYNCED_BLOCK_DOCUMENT_BODY_KEY = BODY_ONLY_DOCUMENT_ROOT_KEY;
 
-export interface SyncedBlockDocumentEnvelope {
-  readonly documentId: DocumentId;
-  readonly document: Y.Doc;
-  readonly body: Y.XmlFragment;
-}
+export type SyncedBlockDocumentEnvelope = BodyOnlyBlockDocumentEnvelope;
 
 export interface CreateSyncedBlockDocumentOptions {
   readonly documentId: DocumentId;
@@ -27,48 +29,31 @@ export class SyncedBlockDocumentRootValidationError extends TypeError {
   }
 }
 
+const SYNCED_BLOCK_BODY_SCHEMA = {
+  label: "Synced Block",
+  makeRootError: (message: string) =>
+    new SyncedBlockDocumentRootValidationError(message),
+} as const;
+
 export const openSyncedBlockDocument = (
   document: Y.Doc,
-): SyncedBlockDocumentEnvelope => {
-  let body: Y.XmlFragment;
-  try {
-    body = document.getXmlFragment(SYNCED_BLOCK_DOCUMENT_BODY_KEY);
-  } catch {
-    throw new SyncedBlockDocumentRootValidationError(
-      `Synced Block document root "${SYNCED_BLOCK_DOCUMENT_BODY_KEY}" has an incompatible Yjs type`,
-    );
-  }
-  return {
-    documentId: document.guid,
-    document,
-    body,
-  };
-};
+): SyncedBlockDocumentEnvelope =>
+  openBodyOnlyBlockDocument(document, SYNCED_BLOCK_BODY_SCHEMA);
 
 export const assertValidSyncedBlockDocumentRoots = (
   document: Y.Doc,
-): SyncedBlockDocumentEnvelope => {
-  const envelope = openSyncedBlockDocument(document);
-  const unexpectedRoots = [...document.share.keys()].filter(
-    (key) => key !== SYNCED_BLOCK_DOCUMENT_BODY_KEY,
-  );
-  if (unexpectedRoots.length === 0) return envelope;
-  throw new SyncedBlockDocumentRootValidationError(
-    `Synced Block document contains unsupported named roots: ${unexpectedRoots.join(", ")}`,
-  );
-};
+): SyncedBlockDocumentEnvelope =>
+  assertValidBodyOnlyBlockDocumentRoots(document, SYNCED_BLOCK_BODY_SCHEMA);
 
 export const createSyncedBlockDocument = ({
   documentId,
   initializeBody = true,
   gc = true,
 }: CreateSyncedBlockDocumentOptions): SyncedBlockDocumentEnvelope => {
-  if (documentId.trim().length === 0) {
-    throw new TypeError("Synced Block documentId must not be empty");
-  }
-  const envelope = openSyncedBlockDocument(new Y.Doc({ guid: documentId, gc }));
-  if (initializeBody) {
-    envelope.body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
-  }
-  return envelope;
+  return createBodyOnlyBlockDocument({
+    documentId,
+    initializeBody,
+    gc,
+    ...SYNCED_BLOCK_BODY_SCHEMA,
+  });
 };

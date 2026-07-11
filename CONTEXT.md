@@ -37,7 +37,7 @@ A Document is an independently loaded, persisted, synchronized, and undo-scoped 
 
 No additional named shared roots are valid. The body fragment contains one canonical root `blockGroup` so every persisted ready Document can be mounted by the editor schema.
 
-A Synced Block source Document uses `nodex.synced-block@1` and has only `Y.XmlFragment("body")`. It is not a Card and has no synthetic title root. Document schemas dispatch through an exact `(ownerType, schemaKey, schemaVersion, contentModel)` registration. BlockNote-backed Documents use `block_tree`; future scene/canvas Documents use a separate `scene_graph` Adapter with their own roots.
+A body-only Block Document has exactly one `Y.XmlFragment("body")` root and no synthetic title. Synced Block sources (`nodex.synced-block@1`), Reusable Template sources (`nodex.reusable-template@1`), Large Documents (`nodex.large-document@1`), and Large Code (`nodex.large-code@1`) share one root/envelope primitive. Document schemas dispatch through an exact `(ownerType, schemaKey, schemaVersion, contentModel)` registration and then apply type-specific content validation. Large Code additionally requires exactly one childless root `codeBlock`. BlockNote-backed Documents use `block_tree`; scene/canvas Documents use a separate `scene_graph` Adapter with their own roots.
 
 The Yjs state vector expresses causal synchronization state. SQLite `headSeq` expresses only the local durable append order. Neither is a content-integrity digest; persisted updates, snapshots, and reconstructed full states carry separate hashes.
 
@@ -45,11 +45,17 @@ Every mounted writable Document surface owns a fresh local Y.Doc/client identity
 
 ### Document-bearing Block
 
-A document-bearing Block owns a Document through `block_documents`. Card and the system-managed Synced Block source are registered document-bearing types. Later types may include reusable templates, large code/documents, and canvas scenes. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Card's Document.
+A document-bearing Block owns a Document through `block_documents`. Card, the system-managed Synced Block source, Reusable Template source, explicit Large Document, and explicit Large Code are registered document-bearing types. Canvas scenes remain a later Adapter. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Document and are never promoted because of size.
 
 Document ownership changes only through an explicit promotion or demotion operation. It never changes automatically because content became large.
 
 Nodex intentionally models a Synced Block source as a hidden library resource. The source Block has a real Space placement so every active Block has one total relational location, but Card/Database/top-level navigation does not present it as another Card or page. Every visible occurrence, including the original promotion location, is a childless `syncedBlockRef` that stores only `sourceBlockId` and mounts the source Document independently. Exact owner lookup, history/search projection, reference expansion, and maintenance may address the source directly.
+
+A Reusable Template is also a library source with an authoritative human display name in intrinsic Block properties and a body-only Document. A childless `templateRef` targets the source and may carry only a disposable display hint. Instantiation reads an exact source generation/head and copies the source subtree into a target Document with fresh deterministic application Block IDs; later Template edits do not mutate existing instances. Exact-head reference scanning prevents deleting or garbage-collecting a referenced source. Template content cannot contain a document-bearing owner shell until a future typed deep-clone operation can also allocate and commit the nested owned Documents.
+
+Large Document and Large Code are explicit visible document-bearing shell types. Their relational `blocks.type` values are exactly the BlockNote shell node names (`largeDocument` and `largeCode`), so registry reconciliation never translates between two type identities. The host stores only that childless shell and presentation fields; the owned body remains independently synchronized. Creating either type is a typed atomic operation. Ordinary Yjs updates cannot manufacture these owner identities.
+
+NFM may project and parse the presentation syntax for `largeDocument` / `largeCode` shells, but generic NFM genesis/import cannot manufacture their relational owner or owned Document. A portable import/copy planner must call the typed ownership operation to allocate the new owner and Document, then insert the identity-aligned shell. This fail-closed boundary is a safety contract, not a generic NFM round-trip promise.
 
 ### Block shell
 
@@ -91,6 +97,8 @@ An inline Database View Block stores only its own `blockId` and a `databaseViewI
 A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`. It presents another Block without changing that target's placement or membership. A collapsed Card reference reads a rebuildable summary. An expanded visible Card reference mounts the target Card's independent Document surface; the foreign body never becomes content of the host Document.
 
 A `syncedBlockRef` follows the same foreign-body rule and targets a `synced_block_source`. Promotion moves the selected subtree IDs into that source's body and allocates a new reference ID at the host location. Copy allocates fresh IDs recursively. Demotion is permitted only when exact-head projections prove a sole reference; one dual-Document fence then relocates the original IDs back, empties the source Y.Doc/projection at a new durable head, and tombstones the source resource and reference atomically.
+
+A `templateRef` follows the same foreign-body rule but has copy-on-instantiate semantics rather than live-content expansion semantics. Collapsed reference UI resolves the source's authoritative summary when the production query transport is available; its optional display hint is never the source name authority and opaque IDs are not user-facing labels.
 
 Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 

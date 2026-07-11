@@ -33,6 +33,23 @@ import {
   SYNCED_BLOCK_SOURCE_TYPE,
   type SyncedBlockDocumentEnvelope,
 } from "./synced-block-document";
+import {
+  LARGE_CODE_BLOCK_TYPE,
+  LARGE_CODE_DOCUMENT_SCHEMA_KEY,
+  LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
+  LARGE_DOCUMENT_BLOCK_TYPE,
+  LARGE_DOCUMENT_SCHEMA_KEY,
+  LARGE_DOCUMENT_SCHEMA_VERSION,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+  REUSABLE_TEMPLATE_SOURCE_TYPE,
+  type AdditionalBlockDocumentKind,
+} from "./additional-document-bearing-blocks";
+import {
+  assertValidBodyOnlyBlockDocumentRoots,
+  createBodyOnlyBlockDocument,
+  type BodyOnlyBlockDocumentEnvelope,
+} from "./body-only-block-document";
 
 export interface CommonOwnedDocumentMaterialization {
   readonly schemaVersion: number;
@@ -53,12 +70,19 @@ export interface SyncedBlockOwnedDocumentMaterialization extends CommonOwnedDocu
   readonly kind: "synced_block";
 }
 
+export interface AdditionalBlockOwnedDocumentMaterialization extends CommonOwnedDocumentMaterialization {
+  readonly kind: AdditionalBlockDocumentKind;
+}
+
 export type OwnedDocumentMaterialization =
-  CardOwnedDocumentMaterialization | SyncedBlockOwnedDocumentMaterialization;
+  | CardOwnedDocumentMaterialization
+  | SyncedBlockOwnedDocumentMaterialization
+  | AdditionalBlockOwnedDocumentMaterialization;
 
 export type BlockTreeOwnedDocumentEnvelope =
   | ({ readonly kind: "card" } & CardDocumentEnvelope)
-  | ({ readonly kind: "synced_block" } & SyncedBlockDocumentEnvelope);
+  | ({ readonly kind: "synced_block" } & SyncedBlockDocumentEnvelope)
+  | ({ readonly kind: AdditionalBlockDocumentKind } & BodyOnlyBlockDocumentEnvelope);
 
 /**
  * Reserved contract for scene/canvas-style Documents. It intentionally has no
@@ -185,8 +209,45 @@ const inspectBlockNoteBody = (
   return {
     envelope,
     blocks,
-    materialization: { kind: "synced_block", ...materialization },
+    materialization: { kind: envelope.kind, ...materialization },
   };
+};
+
+const assertTemplateBodyCanInstantiate = (
+  blockTree: readonly BlockTreeNode[],
+): void => {
+  const pending = [...blockTree];
+  while (pending.length > 0) {
+    const block = pending.pop();
+    if (!block) continue;
+    pending.push(...block.children);
+    if (
+      block.type !== "card" &&
+      block.type !== REUSABLE_TEMPLATE_SOURCE_TYPE &&
+      block.type !== LARGE_DOCUMENT_BLOCK_TYPE &&
+      block.type !== LARGE_CODE_BLOCK_TYPE &&
+      block.type !== SYNCED_BLOCK_SOURCE_TYPE
+    ) {
+      continue;
+    }
+    throw new BlockDocumentSchemaError(
+      `Reusable Template content cannot own nested document-bearing Block ${block.id} (${block.type})`,
+    );
+  }
+};
+
+const assertLargeCodeBody = (blockTree: readonly BlockTreeNode[]): void => {
+  const root = blockTree[0];
+  if (
+    blockTree.length === 1 &&
+    root?.type === "codeBlock" &&
+    root.children.length === 0
+  ) {
+    return;
+  }
+  throw new BlockDocumentSchemaError(
+    "Large Code Documents require exactly one childless root codeBlock",
+  );
 };
 
 const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
@@ -245,9 +306,82 @@ const syncedBlockDocumentAdapter: BlockDocumentSchemaAdapter = {
     ),
 };
 
+const createAdditionalBodyOnlyAdapter = (input: {
+  readonly kind: AdditionalBlockDocumentKind;
+  readonly ownerType: string;
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+  readonly schemaLabel: string;
+  readonly nfmReplace: boolean;
+  readonly validate?: (blockTree: readonly BlockTreeNode[]) => void;
+}): BlockDocumentSchemaAdapter => ({
+  kind: input.kind,
+  contentModel: "block_tree",
+  ownerType: input.ownerType,
+  schemaKey: input.schemaKey,
+  schemaVersion: input.schemaVersion,
+  capabilities: {
+    title: false,
+    blockTree: true,
+    nfmGenesis: true,
+    nfmReplace: input.nfmReplace,
+  },
+  limits: DEFAULT_BLOCKNOTE_LIMITS,
+  create: (documentId) => ({
+    kind: input.kind,
+    ...createBodyOnlyBlockDocument({ documentId, label: input.schemaLabel }),
+  }),
+  inspect: (document) => {
+    const inspection = inspectBlockNoteBody(
+      {
+        kind: input.kind,
+        ...assertValidBodyOnlyBlockDocumentRoots(document, {
+          label: input.schemaLabel,
+        }),
+      },
+      input.schemaVersion,
+      input.schemaLabel,
+    );
+    input.validate?.(inspection.materialization.blockTree);
+    return inspection;
+  },
+});
+
+const reusableTemplateDocumentAdapter = createAdditionalBodyOnlyAdapter({
+  kind: "reusable_template",
+  ownerType: REUSABLE_TEMPLATE_SOURCE_TYPE,
+  schemaKey: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+  schemaLabel: "Reusable Template",
+  nfmReplace: false,
+  validate: assertTemplateBodyCanInstantiate,
+});
+
+const largeDocumentAdapter = createAdditionalBodyOnlyAdapter({
+  kind: "large_document",
+  ownerType: LARGE_DOCUMENT_BLOCK_TYPE,
+  schemaKey: LARGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: LARGE_DOCUMENT_SCHEMA_VERSION,
+  schemaLabel: "Large Document",
+  nfmReplace: true,
+});
+
+const largeCodeDocumentAdapter = createAdditionalBodyOnlyAdapter({
+  kind: "large_code",
+  ownerType: LARGE_CODE_BLOCK_TYPE,
+  schemaKey: LARGE_CODE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
+  schemaLabel: "Large Code",
+  nfmReplace: true,
+  validate: assertLargeCodeBody,
+});
+
 const schemaAdapters: readonly RegisteredBlockDocumentSchemaAdapter[] = [
   cardDocumentAdapter,
   syncedBlockDocumentAdapter,
+  reusableTemplateDocumentAdapter,
+  largeDocumentAdapter,
+  largeCodeDocumentAdapter,
 ] as const;
 
 export const getRegisteredBlockDocumentSchemaAdapter = (input: {

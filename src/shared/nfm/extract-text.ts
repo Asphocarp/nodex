@@ -50,6 +50,14 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       parts.push(block.sourceBlockId);
     }
 
+    if (block.type === "templateRef") {
+      parts.push(block.sourceBlockId);
+    }
+
+    if (block.type === "largeDocument" || block.type === "largeCode") {
+      parts.push(block.displayName);
+    }
+
     if (block.type === "cardToggle") {
       parts.push(block.cardId, block.meta);
     }

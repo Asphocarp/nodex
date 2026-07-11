@@ -4,6 +4,9 @@ const CHILDLESS_NFM_BLOCK_TYPES: ReadonlySet<NfmBlockType> = new Set([
   "cardRef",
   "databaseViewRef",
   "syncedBlockRef",
+  "templateRef",
+  "largeDocument",
+  "largeCode",
   "table",
   "toggleListInlineView",
 ]);

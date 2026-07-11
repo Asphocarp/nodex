@@ -393,67 +393,70 @@ mock.module("./main-view-host", () => ({
   },
 }));
 
-mock.module("@/components/block-documents/owned-block-document-boundary", () => ({
-  OwnedBlockDocumentBoundary: ({
-    projectId,
-    ownerBlockId,
-    dependencies,
-    children,
-  }: {
-    projectId: string;
-    ownerBlockId: string;
-    dependencies?: {
-      fetchDescriptor?: (
-        projectId: string,
-        ownerBlockId: string,
-      ) => Promise<Record<string, unknown>>;
-    };
-    children: (
-      model: Record<string, unknown>,
-      controls: { reload: () => Promise<void> },
-    ) => ReactNode;
-  }) => {
-    const fetchDescriptor = dependencies?.fetchDescriptor;
-    const [model, setModel] = useState<Record<string, unknown>>(() => {
-      if (fetchDescriptor) {
-        return { status: "legacy_shadow", projectId, ownerBlockId };
-      }
-      return {
-        status: "ydoc_primary",
+const MockOwnedBlockDocumentBoundary = ({
+  projectId,
+  ownerBlockId,
+  dependencies,
+  children,
+}: {
+  projectId: string;
+  ownerBlockId: string;
+  dependencies?: {
+    fetchDescriptor?: (
+      projectId: string,
+      ownerBlockId: string,
+    ) => Promise<Record<string, unknown>>;
+  };
+  children: (
+    model: Record<string, unknown>,
+    controls: { reload: () => Promise<void> },
+  ) => ReactNode;
+}) => {
+  const fetchDescriptor = dependencies?.fetchDescriptor;
+  const [model, setModel] = useState<Record<string, unknown>>(() => {
+    if (fetchDescriptor) {
+      return { status: "legacy_shadow", projectId, ownerBlockId };
+    }
+    return {
+      status: "ydoc_primary",
+      projectId,
+      ownerBlockId,
+      descriptor: {
         projectId,
         ownerBlockId,
-        descriptor: {
-          projectId,
-          ownerBlockId,
-          ownerType: "card",
-          ownerLifecycle: "active",
-          documentId: `document:${ownerBlockId}`,
-          storeEpoch: "workbench-test-store",
-          generation: 1,
-          headSeq: 1,
-          schemaKey: "nodex.card",
-          schemaVersion: 1,
-          readiness: "ready",
-          authority: "ydoc_primary",
-          stateVector: new Uint8Array([0]),
-        },
-      };
+        ownerType: "card",
+        ownerLifecycle: "active",
+        documentId: `document:${ownerBlockId}`,
+        storeEpoch: "workbench-test-store",
+        generation: 1,
+        headSeq: 1,
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+        readiness: "ready",
+        authority: "ydoc_primary",
+        stateVector: new Uint8Array([0]),
+      },
+    };
+  });
+  const reload = async (): Promise<void> => {
+    if (!fetchDescriptor) return;
+    const descriptor = await fetchDescriptor(projectId, ownerBlockId);
+    setModel({
+      ...descriptor,
+      status: descriptor.authority,
+      projectId,
+      ownerBlockId,
     });
-    const reload = async (): Promise<void> => {
-      if (!fetchDescriptor) return;
-      const descriptor = await fetchDescriptor(projectId, ownerBlockId);
-      setModel({
-        ...descriptor,
-        status: descriptor.authority,
-        projectId,
-        ownerBlockId,
-      });
-    };
-    useEffect(() => {
-      void reload();
-    }, [fetchDescriptor, ownerBlockId, projectId]);
-    return children(model, { reload });
-  },
+  };
+  useEffect(() => {
+    void reload();
+  }, [fetchDescriptor, ownerBlockId, projectId]);
+  return children(model, { reload });
+};
+
+mock.module("@/components/block-documents/owned-block-document-boundary", () => ({
+  OwnedBlockDocumentBoundary: MockOwnedBlockDocumentBoundary,
+  RegisteredOwnedBlockDocumentBoundary: MockOwnedBlockDocumentBoundary,
 }));
 
 mock.module("./workbench-card-stage", () => ({

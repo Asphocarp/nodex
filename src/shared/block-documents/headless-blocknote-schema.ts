@@ -21,6 +21,9 @@ import {
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
   syncedBlockRefBlockConfig,
+  reusableTemplateRefBlockConfig,
+  largeDocumentBlockConfig,
+  largeCodeBlockConfig,
   toggleListInlineViewBlockConfig,
 } from "./blocknote-schema-config";
 
@@ -68,6 +71,9 @@ export const headlessBlockDocumentSchema = BlockNoteSchema.create({
     cardRef: createHeadlessBlockSpec(cardRefBlockConfig),
     databaseViewRef: createHeadlessBlockSpec(databaseViewRefBlockConfig),
     syncedBlockRef: createHeadlessBlockSpec(syncedBlockRefBlockConfig),
+    templateRef: createHeadlessBlockSpec(reusableTemplateRefBlockConfig),
+    largeDocument: createHeadlessBlockSpec(largeDocumentBlockConfig),
+    largeCode: createHeadlessBlockSpec(largeCodeBlockConfig),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

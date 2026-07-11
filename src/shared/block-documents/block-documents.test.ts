@@ -6,8 +6,10 @@ import {
   UnsupportedXmlNodeError,
   assertValidBlockDocument,
   assertValidCardDocumentRoots,
+  BodyOnlyBlockDocumentRootValidationError,
   captureXmlSubtreeAt,
   cloneXmlSubtree,
+  createBodyOnlyBlockDocument,
   createCardDocument,
   createSyncedBlockDocument,
   deleteXmlSubtreeAt,
@@ -15,7 +17,17 @@ import {
   insertPortableXmlSubtree,
   getRegisteredBlockDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
+  LARGE_CODE_BLOCK_TYPE,
+  LARGE_CODE_DOCUMENT_SCHEMA_KEY,
+  LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
+  LARGE_DOCUMENT_BLOCK_TYPE,
+  LARGE_DOCUMENT_SCHEMA_KEY,
+  LARGE_DOCUMENT_SCHEMA_VERSION,
+  listBlockDocumentSchemaAdapters,
   openCardDocument,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+  REUSABLE_TEMPLATE_SOURCE_TYPE,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
   SYNCED_BLOCK_SOURCE_TYPE,
@@ -27,11 +39,12 @@ const createBlock = (
   id: string,
   textContent: string,
   children: readonly Y.XmlElement[] = [],
+  blockType = "paragraph",
 ): Y.XmlElement => {
   const block = new Y.XmlElement("blockContainer");
   block.setAttribute("id", id);
 
-  const paragraph = new Y.XmlElement("paragraph");
+  const paragraph = new Y.XmlElement(blockType);
   const text = new Y.XmlText();
   text.applyDelta([
     { insert: textContent, attributes: { bold: {} } },
@@ -153,6 +166,28 @@ describe("Card block document envelope", () => {
 });
 
 describe("registered document-bearing Block envelopes", () => {
+  test("keeps every owner/schema registration exact and unambiguous", () => {
+    const adapters = listBlockDocumentSchemaAdapters();
+    expect(adapters.length).toBe(5);
+    expect(
+      adapters
+        .map(
+          (adapter) =>
+            `${adapter.ownerType}/${adapter.schemaKey}@${adapter.schemaVersion}:${adapter.contentModel}`,
+        )
+        .sort()
+        .join(","),
+    ).toBe(
+      [
+        "card/nodex.card@1:block_tree",
+        "largeCode/nodex.large-code@1:block_tree",
+        "largeDocument/nodex.large-document@1:block_tree",
+        "reusable_template_source/nodex.reusable-template@1:block_tree",
+        "synced_block_source/nodex.synced-block@1:block_tree",
+      ].join(","),
+    );
+  });
+
   test("dispatches a Synced Block as body-only block_tree content", () => {
     const envelope = createSyncedBlockDocument({
       documentId: "document-synced-source",
@@ -192,6 +227,96 @@ describe("registered document-bearing Block envelopes", () => {
       error = caught;
     }
     expect(error instanceof SyncedBlockDocumentRootValidationError).toBeTrue();
+  });
+
+  test("registers Template and Large Document as distinct body-only schemas", () => {
+    const cases = [
+      {
+        kind: "reusable_template",
+        ownerType: REUSABLE_TEMPLATE_SOURCE_TYPE,
+        schemaKey: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+      },
+      {
+        kind: "large_document",
+        ownerType: LARGE_DOCUMENT_BLOCK_TYPE,
+        schemaKey: LARGE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: LARGE_DOCUMENT_SCHEMA_VERSION,
+      },
+    ] as const;
+
+    for (const [index, registered] of cases.entries()) {
+      const envelope = createBodyOnlyBlockDocument({
+        documentId: `document:body-only:${index}`,
+        label: registered.kind,
+      });
+      const inspection = inspectRegisteredOwnedBlockDocument(
+        envelope.document,
+        registered,
+      );
+      expect(inspection.envelope.kind).toBe(registered.kind);
+      expect(JSON.stringify([...envelope.document.share.keys()])).toBe(
+        '["body"]',
+      );
+      envelope.document.destroy();
+    }
+  });
+
+  test("Large Code accepts one childless codeBlock and rejects schema drift", () => {
+    const valid = createBodyOnlyBlockDocument({
+      documentId: "document:code",
+      label: "Large Code",
+    });
+    getOnlyElement(valid.body).insert(0, [
+      createBlock("code-content", "const value = 1", [], "codeBlock"),
+    ]);
+    const inspection = inspectRegisteredOwnedBlockDocument(valid.document, {
+      ownerType: LARGE_CODE_BLOCK_TYPE,
+      schemaKey: LARGE_CODE_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
+    });
+    expect(inspection.envelope.kind).toBe("large_code");
+
+    const invalid = createBodyOnlyBlockDocument({
+      documentId: "document:code-invalid",
+      label: "Large Code",
+    });
+    getOnlyElement(invalid.body).insert(0, [
+      createBlock("not-code", "paragraph"),
+    ]);
+    let error: unknown;
+    try {
+      inspectRegisteredOwnedBlockDocument(invalid.document, {
+        ownerType: LARGE_CODE_BLOCK_TYPE,
+        schemaKey: LARGE_CODE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof TypeError).toBeTrue();
+    valid.document.destroy();
+    invalid.document.destroy();
+  });
+
+  test("all new body-only schemas reject a synthetic title root", () => {
+    const envelope = createBodyOnlyBlockDocument({
+      documentId: "document:template-with-title",
+      label: "Reusable Template",
+    });
+    envelope.document.getText("title").insert(0, "not a Card");
+    let error: unknown;
+    try {
+      inspectRegisteredOwnedBlockDocument(envelope.document, {
+        ownerType: REUSABLE_TEMPLATE_SOURCE_TYPE,
+        schemaKey: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof BodyOnlyBlockDocumentRootValidationError).toBeTrue();
+    envelope.document.destroy();
   });
 });
 

@@ -126,6 +126,32 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         );
         break;
       }
+      case "templateRef": {
+        const attrs = [
+          `source-block="${escapeXmlAttr(block.sourceBlockId)}"`,
+        ];
+        if (block.displayHint !== undefined) {
+          attrs.push(`display-hint="${escapeXmlAttr(block.displayHint)}"`);
+        }
+        lines.push(
+          prefix + `<template-ref ${attrs.join(" ")} />`,
+        );
+        break;
+      }
+      case "largeDocument": {
+        lines.push(
+          prefix +
+            `<large-document display-name="${escapeXmlAttr(block.displayName)}" />`,
+        );
+        break;
+      }
+      case "largeCode": {
+        lines.push(
+          prefix +
+            `<large-code display-name="${escapeXmlAttr(block.displayName)}" language="${escapeXmlAttr(block.language)}" />`,
+        );
+        break;
+      }
       case "threadSection": {
         const attrs: string[] = [];
         if (block.label && block.label.length > 0) {

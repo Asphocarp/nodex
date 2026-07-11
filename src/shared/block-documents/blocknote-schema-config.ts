@@ -59,6 +59,32 @@ export const syncedBlockRefBlockConfig = {
   content: "none",
 } as const satisfies CustomBlockConfig;
 
+export const reusableTemplateRefBlockConfig = {
+  type: "templateRef",
+  propSchema: {
+    sourceBlockId: { default: "" },
+    displayHint: { default: "" },
+  },
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
+export const largeDocumentBlockConfig = {
+  type: "largeDocument",
+  propSchema: {
+    displayName: { default: "Untitled document" },
+  },
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
+export const largeCodeBlockConfig = {
+  type: "largeCode",
+  propSchema: {
+    displayName: { default: "Untitled code" },
+    language: { default: "text" },
+  },
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
 export const threadSectionBlockConfig = {
   type: "threadSection",
   propSchema: {
@@ -138,6 +164,9 @@ export const blockDocumentCustomBlockConfigs = {
   cardRef: cardRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,
+  templateRef: reusableTemplateRefBlockConfig,
+  largeDocument: largeDocumentBlockConfig,
+  largeCode: largeCodeBlockConfig,
 } as const;
 
 export const blockDocumentCustomInlineContentConfigs = {

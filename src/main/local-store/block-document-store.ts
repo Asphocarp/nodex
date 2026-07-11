@@ -40,6 +40,14 @@ import {
   SYNCED_BLOCK_SOURCE_TYPE,
 } from "../../shared/block-documents/synced-block-document";
 import {
+  LARGE_CODE_BLOCK_TYPE,
+  LARGE_DOCUMENT_BLOCK_TYPE,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+  REUSABLE_TEMPLATE_REFERENCE_TYPE,
+  REUSABLE_TEMPLATE_SOURCE_TYPE,
+} from "../../shared/block-documents/additional-document-bearing-blocks";
+import {
   captureBlockDocumentChangeState,
   deriveBlockDocumentTouchedIds,
 } from "./block-document-change-set";
@@ -305,6 +313,8 @@ export interface StrictDocumentUpdateCommitPolicy {
   ) => void;
   /** Trusted typed ownership transition; never bind from transport input. */
   readonly allowPendingSyncedReferenceTargetIds?: readonly BlockId[];
+  /** Trusted typed owner rows staged in the host by the same outer transaction. */
+  readonly allowStagedDocumentBearingBlockIds?: readonly BlockId[];
 }
 
 export interface DocumentSyncStep {
@@ -643,6 +653,7 @@ const validateRegisteredBlocks = (
   row: DocumentRow,
   blocks: readonly ScannedDocumentBlock[],
   code: "document_state_corrupt" | "invalid_document_update",
+  allowAbsentActiveBlockIds: ReadonlySet<BlockId> = new Set(),
 ): void => {
   const documentBlockIds = new Set(blocks.map((block) => block.id));
   const activeRegistryRows = database
@@ -655,7 +666,9 @@ const validateRegisteredBlocks = (
     )
     .all(row.document_id) as readonly { readonly id: string }[];
   const unexpectedRegistryBlock = activeRegistryRows.find(
-    (registered) => !documentBlockIds.has(registered.id),
+    (registered) =>
+      !documentBlockIds.has(registered.id) &&
+      !allowAbsentActiveBlockIds.has(registered.id),
   );
   if (unexpectedRegistryBlock) {
     throw new BlockDocumentStoreError(
@@ -663,7 +676,12 @@ const validateRegisteredBlocks = (
       `Active registry Block ${unexpectedRegistryBlock.id} is absent from Document ${row.document_id}`,
     );
   }
-  if (activeRegistryRows.length !== blocks.length) {
+  const allowedAbsentCount = activeRegistryRows.filter(
+    (registered) =>
+      allowAbsentActiveBlockIds.has(registered.id) &&
+      !documentBlockIds.has(registered.id),
+  ).length;
+  if (activeRegistryRows.length !== blocks.length + allowedAbsentCount) {
     throw new BlockDocumentStoreError(
       code,
       `Document ${row.document_id} Block registry cardinality does not match its body`,
@@ -715,9 +733,12 @@ const TYPED_CREATION_BLOCK_TYPES = new Set([
   "card",
   "database",
   SYNCED_BLOCK_SOURCE_TYPE,
+  REUSABLE_TEMPLATE_SOURCE_TYPE,
+  LARGE_DOCUMENT_BLOCK_TYPE,
+  LARGE_CODE_BLOCK_TYPE,
 ]);
 
-const validateSyncedBlockReferences = (
+const validateRegisteredDocumentReferences = (
   database: Database.Database,
   row: DocumentRow,
   materialization: CardDocumentMaterialization,
@@ -765,7 +786,23 @@ const validateSyncedBlockReferences = (
     const block = pending.pop();
     if (!block) continue;
     pending.push(...block.children);
-    if (block.type !== SYNCED_BLOCK_REFERENCE_TYPE) continue;
+    const sourceContract =
+      block.type === SYNCED_BLOCK_REFERENCE_TYPE
+        ? {
+            ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+            schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+            schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+            allowPending: true,
+          }
+        : block.type === REUSABLE_TEMPLATE_REFERENCE_TYPE
+          ? {
+              ownerType: REUSABLE_TEMPLATE_SOURCE_TYPE,
+              schemaKey: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+              schemaVersion: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+              allowPending: false,
+            }
+          : null;
+    if (!sourceContract) continue;
     const sourceBlockId = block.props.sourceBlockId;
     const readable =
       typeof sourceBlockId === "string" &&
@@ -774,26 +811,27 @@ const validateSyncedBlockReferences = (
       readSource.get(
         sourceBlockId,
         row.project_id,
-        SYNCED_BLOCK_SOURCE_TYPE,
-        SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
-        SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+        sourceContract.ownerType,
+        sourceContract.schemaKey,
+        sourceContract.schemaVersion,
       );
     const trustedPending =
+      sourceContract.allowPending &&
       typeof sourceBlockId === "string" &&
       allowPendingSourceBlockIds.has(sourceBlockId) &&
       readPendingSource.get(
         sourceBlockId,
         row.project_id,
-        SYNCED_BLOCK_SOURCE_TYPE,
-        SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
-        SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+        sourceContract.ownerType,
+        sourceContract.schemaKey,
+        sourceContract.schemaVersion,
       );
     if (readable || trustedPending) {
       continue;
     }
     throw new BlockDocumentStoreError(
       code,
-      `Synced Block reference ${block.id} does not target a readable source in Project ${row.project_id}`,
+      `Document reference ${block.id} does not target a readable ${sourceContract.ownerType} source in Project ${row.project_id}`,
     );
   }
 };
@@ -1034,6 +1072,7 @@ const loadDocumentAtSeq = (
 const loadDocumentFromRow = (
   database: Database.Database,
   row: DocumentRow,
+  allowAbsentActiveBlockIds: ReadonlySet<BlockId> = new Set(),
 ): Y.Doc => {
   const document = loadDocumentAtSeq(database, row, row.head_seq);
   try {
@@ -1043,8 +1082,14 @@ const loadDocumentFromRow = (
       "document_state_corrupt",
     );
     const blocks = inspection.blocks;
-    validateRegisteredBlocks(database, row, blocks, "document_state_corrupt");
-    validateSyncedBlockReferences(
+    validateRegisteredBlocks(
+      database,
+      row,
+      blocks,
+      "document_state_corrupt",
+      allowAbsentActiveBlockIds,
+    );
+    validateRegisteredDocumentReferences(
       database,
       row,
       toPersistedBlockDocumentMaterialization(inspection.materialization),
@@ -1752,6 +1797,10 @@ const throwRecoveryOutcome = (outcome: RecoveryArtifactOutcome): never => {
 export const loadBlockDocument = (
   database: Database.Database,
   documentId: DocumentId,
+  options: {
+    /** Trusted typed creation in the same outer SQLite transaction only. */
+    readonly allowAbsentActiveBlockIds?: readonly BlockId[];
+  } = {},
 ): LoadedBlockDocument => {
   const load = database.transaction((): LoadedBlockDocument => {
     const storeEpoch = readStoreEpoch(database);
@@ -1765,7 +1814,11 @@ export const loadBlockDocument = (
       authority: row.authority,
       ownerType: row.owner_type,
       head: toDocumentHead(row),
-      document: loadDocumentFromRow(database, row),
+      document: loadDocumentFromRow(
+        database,
+        row,
+        new Set(options.allowAbsentActiveBlockIds ?? []),
+      ),
     };
   });
   return load();
@@ -1775,8 +1828,11 @@ const loadBlockDocumentWithAuthority = (
   database: Database.Database,
   documentId: DocumentId,
   authority: DocumentAuthority,
+  options: {
+    readonly allowAbsentActiveBlockIds?: readonly BlockId[];
+  } = {},
 ): LoadedBlockDocument => {
-  const loaded = loadBlockDocument(database, documentId);
+  const loaded = loadBlockDocument(database, documentId, options);
   if (loaded.authority === authority) return loaded;
   loaded.document.destroy();
   throw new BlockDocumentStoreError(
@@ -1788,8 +1844,11 @@ const loadBlockDocumentWithAuthority = (
 export const loadPrimaryBlockDocument = (
   database: Database.Database,
   documentId: DocumentId,
+  options: {
+    readonly allowAbsentActiveBlockIds?: readonly BlockId[];
+  } = {},
 ): LoadedBlockDocument =>
-  loadBlockDocumentWithAuthority(database, documentId, "ydoc_primary");
+  loadBlockDocumentWithAuthority(database, documentId, "ydoc_primary", options);
 
 export const loadLegacyShadowBlockDocument = (
   database: Database.Database,
@@ -2043,7 +2102,7 @@ export const initializeBlockDocumentGenesis = (
         ...genesisBlocks.map((block) => block.id),
       ].sort((left, right) => left.localeCompare(right)),
     );
-    validateSyncedBlockReferences(
+    validateRegisteredDocumentReferences(
       database,
       row,
       genesisMaterialization,
@@ -2284,7 +2343,11 @@ const applyBlockDocumentUpdateForAuthority = (
       );
     }
 
-    const document = loadDocumentFromRow(database, row);
+    const document = loadDocumentFromRow(
+      database,
+      row,
+      new Set(strictCommitPolicy?.allowStagedDocumentBearingBlockIds ?? []),
+    );
     try {
       const schema = {
         ownerType: row.owner_type,
@@ -2370,7 +2433,7 @@ const applyBlockDocumentUpdateForAuthority = (
       }
       const now = new Date().toISOString();
       const derivedTouchedBlockIdsJson = JSON.stringify(derivedTouchedBlockIds);
-      validateSyncedBlockReferences(
+      validateRegisteredDocumentReferences(
         database,
         row,
         materialization,

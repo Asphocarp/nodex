@@ -34,6 +34,9 @@ import {
   cardRefBlockConfig,
   databaseViewRefBlockConfig,
   syncedBlockRefBlockConfig,
+  reusableTemplateRefBlockConfig,
+  largeDocumentBlockConfig,
+  largeCodeBlockConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
   toggleListInlineViewBlockConfig,
@@ -131,6 +134,45 @@ const createReadonlySyncedBlockRefBlockSpec = createReactBlockSpec(
         icon={RefreshCw}
         label="Synced block"
         detail={String(block.props.sourceBlockId || "").trim()}
+      />
+    ),
+  },
+);
+
+const createReadonlyTemplateRefBlockSpec = createReactBlockSpec(
+  reusableTemplateRefBlockConfig,
+  {
+    render: ({ block }) => (
+      <InertEmbedPlaceholder
+        icon={FileText}
+        label="Template"
+        detail={String(block.props.displayHint || "Reusable content").trim()}
+      />
+    ),
+  },
+);
+
+const createReadonlyLargeDocumentBlockSpec = createReactBlockSpec(
+  largeDocumentBlockConfig,
+  {
+    render: ({ block }) => (
+      <InertEmbedPlaceholder
+        icon={FileText}
+        label="Document"
+        detail={String(block.props.displayName || "Untitled document").trim()}
+      />
+    ),
+  },
+);
+
+const createReadonlyLargeCodeBlockSpec = createReactBlockSpec(
+  largeCodeBlockConfig,
+  {
+    render: ({ block }) => (
+      <InertEmbedPlaceholder
+        icon={FileText}
+        label="Code"
+        detail={`${String(block.props.displayName || "Untitled code").trim()} · ${String(block.props.language || "text").trim()}`}
       />
     ),
   },
@@ -260,6 +302,9 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     cardRef: createReadonlyCardRefBlockSpec(),
     databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),
+    templateRef: createReadonlyTemplateRefBlockSpec(),
+    largeDocument: createReadonlyLargeDocumentBlockSpec(),
+    largeCode: createReadonlyLargeCodeBlockSpec(),
     threadSection: createReadonlyThreadSectionBlockSpec(),
     toggleListInlineView: createReadonlyToggleListInlineViewBlockSpec(),
   },

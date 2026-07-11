@@ -18,6 +18,11 @@ import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
 import { createToggleListInlineViewBlockSpec } from "./toggle-list-inline-view-block";
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
+import {
+  createLargeCodeBlockSpec,
+  createLargeDocumentBlockSpec,
+  createReusableTemplateRefBlockSpec,
+} from "./document-bearing-shell-block";
 
 export const nfmSchema = BlockNoteSchema.create({
   blockSpecs: {
@@ -39,6 +44,9 @@ export const nfmSchema = BlockNoteSchema.create({
     databaseViewRef: createDatabaseViewRefBlockSpec(),
     cardRef: createCardRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),
+    templateRef: createReusableTemplateRefBlockSpec(),
+    largeDocument: createLargeDocumentBlockSpec(),
+    largeCode: createLargeCodeBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

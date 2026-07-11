@@ -11,7 +11,7 @@ import { serializeNfm } from "../nfm/serializer";
 import {
   assertValidBlockDocument,
   BLOCK_GROUP_NODE_NAME,
-  collectChildlessReferenceBlockViolations,
+  collectChildlessBlockViolations,
   type ScannedDocumentBlock,
 } from "./block-structure";
 import {
@@ -313,13 +313,13 @@ const assertMaterializationMatchesScan = (
   });
 };
 
-const assertCanonicalReferenceBlocksAreChildless = (
+const assertCanonicalChildlessBlocks = (
   body: Y.XmlFragment,
 ): void => {
-  const violation = collectChildlessReferenceBlockViolations(body)[0];
+  const violation = collectChildlessBlockViolations(body)[0];
   if (!violation) return;
   throw new BlockDocumentCodecError(
-    `Canonical reference Block ${violation.blockId ?? "unknown"} must not contain child Blocks`,
+    `Childless ${violation.blockType} Block ${violation.blockId ?? "unknown"} must not contain child Blocks`,
   );
 };
 
@@ -343,7 +343,7 @@ export const materializeBlockDocumentBody = ({
   schemaLabel,
 }: MaterializeBlockDocumentBodyInput): BlockDocumentMaterialization => {
   const scannedBlocks = assertValidBlockDocument(body);
-  assertCanonicalReferenceBlocksAreChildless(body);
+  assertCanonicalChildlessBlocks(body);
   let blockNoteBlocks: readonly BlockNoteBlockValue[] = [];
   if (scannedBlocks.length > 0) {
     try {

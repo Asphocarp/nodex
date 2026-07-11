@@ -142,6 +142,9 @@ export type NfmBlockType =
   | "toggleListInlineView"
   | "databaseViewRef"
   | "syncedBlockRef"
+  | "templateRef"
+  | "largeDocument"
+  | "largeCode"
   | "threadSection"
   | "cardToggle"
   | "cardRef"
@@ -265,6 +268,23 @@ export interface NfmSyncedBlockRef extends NfmBlockBase {
   sourceBlockId: string;
 }
 
+export interface NfmReusableTemplateRef extends NfmBlockBase {
+  type: "templateRef";
+  sourceBlockId: string;
+  displayHint?: string;
+}
+
+export interface NfmLargeDocument extends NfmBlockBase {
+  type: "largeDocument";
+  displayName: string;
+}
+
+export interface NfmLargeCode extends NfmBlockBase {
+  type: "largeCode";
+  displayName: string;
+  language: string;
+}
+
 export interface NfmThreadSection extends NfmBlockBase {
   type: "threadSection";
   label?: string;
@@ -331,6 +351,9 @@ export type NfmBlock =
   | NfmToggleListInlineView
   | NfmDatabaseViewRef
   | NfmSyncedBlockRef
+  | NfmReusableTemplateRef
+  | NfmLargeDocument
+  | NfmLargeCode
   | NfmThreadSection
   | NfmCardToggle
   | NfmCardRef

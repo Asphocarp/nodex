@@ -57,9 +57,15 @@ export interface BlockStructureScan {
   readonly issues: readonly BlockStructureIssue[];
 }
 
-export interface ChildlessReferenceBlockViolation {
+export interface ChildlessBlockViolation {
   readonly blockId: BlockId | null;
-  readonly blockType: "cardRef" | "databaseViewRef" | "syncedBlockRef";
+  readonly blockType:
+    | "cardRef"
+    | "databaseViewRef"
+    | "syncedBlockRef"
+    | "templateRef"
+    | "largeDocument"
+    | "largeCode";
 }
 
 export class BlockDocumentValidationError extends Error {
@@ -104,14 +110,29 @@ const readContentElement = (
         child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
 
-const isCanonicalChildlessReferenceContent = (
+const isCanonicalChildlessBlockContent = (
   content: Y.XmlElement | undefined,
 ): content is Y.XmlElement & {
-  readonly nodeName: "cardRef" | "databaseViewRef" | "syncedBlockRef";
+  readonly nodeName:
+    | "cardRef"
+    | "databaseViewRef"
+    | "syncedBlockRef"
+    | "templateRef"
+    | "largeDocument"
+    | "largeCode";
 } => {
   if (!content) return false;
-  if (content.nodeName === "databaseViewRef") return true;
-  if (content.nodeName === "syncedBlockRef") {
+  if (
+    content.nodeName === "databaseViewRef" ||
+    content.nodeName === "largeDocument" ||
+    content.nodeName === "largeCode"
+  ) {
+    return true;
+  }
+  if (
+    content.nodeName === "syncedBlockRef" ||
+    content.nodeName === "templateRef"
+  ) {
     const sourceBlockId = content.getAttribute("sourceBlockId");
     return typeof sourceBlockId === "string" && sourceBlockId.trim().length > 0;
   }
@@ -120,15 +141,15 @@ const isCanonicalChildlessReferenceContent = (
   return typeof targetBlockId === "string" && targetBlockId.trim().length > 0;
 };
 
-export const isChildlessReferenceBlockContainer = (
+export const isChildlessBlockContainer = (
   container: Y.XmlElement,
 ): boolean =>
-  isCanonicalChildlessReferenceContent(readContentElement(container));
+  isCanonicalChildlessBlockContent(readContentElement(container));
 
-export const collectChildlessReferenceBlockViolations = (
+export const collectChildlessBlockViolations = (
   body: Y.XmlFragment,
-): readonly ChildlessReferenceBlockViolation[] => {
-  const violations: ChildlessReferenceBlockViolation[] = [];
+): readonly ChildlessBlockViolation[] => {
+  const violations: ChildlessBlockViolation[] = [];
   const visit = (parent: Y.XmlFragment | Y.XmlElement): void => {
     for (const child of parent.toArray()) {
       if (!(child instanceof Y.XmlElement)) continue;
@@ -146,7 +167,7 @@ export const collectChildlessReferenceBlockViolations = (
             candidate.nodeName === BLOCK_GROUP_NODE_NAME,
         );
       if (
-        isCanonicalChildlessReferenceContent(content) &&
+        isCanonicalChildlessBlockContent(content) &&
         (childGroup?.length ?? 0) > 0
       ) {
         const blockId = child.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -162,6 +183,12 @@ export const collectChildlessReferenceBlockViolations = (
   visit(body);
   return violations;
 };
+
+/** Compatibility aliases while callers migrate to the generic shell term. */
+export type ChildlessReferenceBlockViolation = ChildlessBlockViolation;
+export const isChildlessReferenceBlockContainer = isChildlessBlockContainer;
+export const collectChildlessReferenceBlockViolations =
+  collectChildlessBlockViolations;
 
 const readPlainText = (container: Y.XmlElement): string => {
   const content = container

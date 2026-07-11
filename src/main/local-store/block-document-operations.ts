@@ -30,6 +30,7 @@ import {
 import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
 import {
   getBlockDocumentSchemaAdapter,
+  getRegisteredBlockDocumentSchemaAdapter,
   inspectOwnedBlockDocument,
   toPersistedBlockDocumentMaterialization,
 } from "../../shared/block-documents/document-schema-adapters";
@@ -68,6 +69,12 @@ export interface ApplyDocumentOperationOptions {
   readonly writeFence?: DocumentWriteFenceProof;
   /** Trusted promotion seam; target must be staged in the same outer transaction. */
   readonly allowPendingSyncedReferenceTargetIds?: readonly string[];
+  /**
+   * Trusted typed-creation seam. Every listed ID must already be an active
+   * document-bearing owner staged at this host Document by the same outer
+   * SQLite transaction.
+   */
+  readonly allowStagedDocumentBearingBlockIds?: readonly string[];
 }
 
 interface StoredMutationRow {
@@ -814,6 +821,82 @@ const assertCreatedIdsNeverExisted = (
   }
 };
 
+const assertCreatedIdsAreNewOrStagedOwners = (
+  database: Database.Database,
+  request: MutationRequestBase,
+  createdBlockIds: readonly string[],
+  allowedStagedOwnerIds: readonly string[] = [],
+): void => {
+  const allowed = new Set(allowedStagedOwnerIds);
+  const created = new Set(createdBlockIds);
+  if ([...allowed].some((blockId) => !created.has(blockId))) {
+    reject(
+      "invalid_operation",
+      "Trusted staged-owner evidence contains a Block not created by this batch",
+      request,
+    );
+  }
+  assertCreatedIdsNeverExisted(
+    database,
+    request,
+    createdBlockIds.filter((blockId) => !allowed.has(blockId)),
+  );
+  if (allowed.size === 0) return;
+  const read = database.prepare(`
+    SELECT owner.project_id, owner.type, owner.lifecycle, owner.location_kind,
+      owner.containing_document_id, document.readiness, document.authority,
+      document.schema_key, document.schema_version
+    FROM blocks owner
+    INNER JOIN block_documents ownership
+      ON ownership.block_id = owner.id
+      AND ownership.project_id = owner.project_id
+    INNER JOIN documents document
+      ON document.id = ownership.document_id
+      AND document.project_id = ownership.project_id
+    WHERE owner.id = ?
+  `);
+  for (const blockId of allowed) {
+    const row = read.get(blockId) as
+      | {
+          readonly project_id: string;
+          readonly type: string;
+          readonly lifecycle: string;
+          readonly location_kind: string;
+          readonly containing_document_id: string | null;
+          readonly readiness: string;
+          readonly authority: string;
+          readonly schema_key: string;
+          readonly schema_version: number;
+        }
+      | undefined;
+    if (
+      row?.project_id === request.projectId &&
+      row.lifecycle === "active" &&
+      row.location_kind === "document" &&
+      row.containing_document_id === request.documentId &&
+      row.readiness === "ready" &&
+      row.authority === "ydoc_primary"
+    ) {
+      try {
+        getRegisteredBlockDocumentSchemaAdapter({
+          ownerType: row.type,
+          schemaKey: row.schema_key,
+          schemaVersion: row.schema_version,
+        });
+        continue;
+      } catch {
+        // Fall through to the typed operation error below.
+      }
+    }
+    reject(
+      "invalid_operation",
+      `Block ${blockId} is not a ready staged document-bearing owner in ${request.documentId}`,
+      request,
+      { blockId },
+    );
+  }
+};
+
 const flattenTargetBlockTypes = (
   blocks: readonly MaterializedBlock[],
 ): ReadonlyMap<string, string> =>
@@ -1171,6 +1254,8 @@ const applyPreparedMutation = (
         },
         allowPendingSyncedReferenceTargetIds:
           options.allowPendingSyncedReferenceTargetIds,
+        allowStagedDocumentBearingBlockIds:
+          options.allowStagedDocumentBearingBlockIds,
       },
     );
     const stored = readStoredMutation(database, request.mutationId);
@@ -1256,7 +1341,10 @@ const applyMutationInTransaction = (
 
   let loaded;
   try {
-    loaded = loadPrimaryBlockDocument(database, request.documentId);
+    loaded = loadPrimaryBlockDocument(database, request.documentId, {
+      allowAbsentActiveBlockIds:
+        options.allowStagedDocumentBearingBlockIds,
+    });
   } catch (error) {
     if (!(error instanceof BlockDocumentStoreError)) throw error;
     return rejectAndPersist(
@@ -1327,7 +1415,12 @@ const applyMutationInTransaction = (
           loaded.head.ownerBlockId,
           schema,
         );
-        assertCreatedIdsNeverExisted(database, request, prepared.createdBlockIds);
+        assertCreatedIdsAreNewOrStagedOwners(
+          database,
+          request,
+          prepared.createdBlockIds,
+          options.allowStagedDocumentBearingBlockIds,
+        );
       } else if (evidence.mutationKind === "replace_document_from_nfm") {
         if (!adapter.capabilities.nfmReplace) {
           return rejectAndPersist(

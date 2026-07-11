@@ -254,6 +254,33 @@ function nfmBlockToBN(
         children: [],
       };
 
+    case "templateRef":
+      return {
+        type: "templateRef",
+        props: {
+          sourceBlockId: block.sourceBlockId,
+          displayHint: block.displayHint ?? "",
+        },
+        children: [],
+      };
+
+    case "largeDocument":
+      return {
+        type: "largeDocument",
+        props: { displayName: block.displayName },
+        children: [],
+      };
+
+    case "largeCode":
+      return {
+        type: "largeCode",
+        props: {
+          displayName: block.displayName,
+          language: block.language,
+        },
+        children: [],
+      };
+
     case "threadSection":
       return {
         type: "threadSection",
@@ -635,6 +662,33 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       return {
         type: "syncedBlockRef",
         sourceBlockId: normalizeString(block.props?.sourceBlockId) ?? "",
+        children: [],
+      };
+
+    case "templateRef":
+      return {
+        type: "templateRef",
+        sourceBlockId: normalizeString(block.props?.sourceBlockId) ?? "",
+        ...(normalizeString(block.props?.displayHint) === undefined
+          ? {}
+          : { displayHint: normalizeString(block.props?.displayHint) }),
+        children: [],
+      };
+
+    case "largeDocument":
+      return {
+        type: "largeDocument",
+        displayName:
+          normalizeString(block.props?.displayName) ?? "Untitled document",
+        children: [],
+      };
+
+    case "largeCode":
+      return {
+        type: "largeCode",
+        displayName:
+          normalizeString(block.props?.displayName) ?? "Untitled code",
+        language: normalizeString(block.props?.language) ?? "text",
         children: [],
       };
 
