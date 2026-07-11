@@ -98,6 +98,52 @@ describe("Card Document CLI", () => {
         });
 
         if (
+          request.method === "GET" &&
+          url.pathname ===
+            "/api/projects/default/cards/card-1/metadata-property-snapshot"
+        ) {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(
+            JSON.stringify({
+              ok: true,
+              value: {
+                projectId: "default",
+                storeEpoch: "epoch-1",
+                changeLogSeq: 4,
+                cardBlockId: "card-1",
+                metadataRevision: 3,
+                fields: [
+                  {
+                    scope: "database",
+                    field: "priority",
+                    databaseBlockId: "database-primary",
+                    propertyId: "property-priority",
+                    revision: 2,
+                    value: "p2-medium",
+                  },
+                ],
+              },
+            }),
+          );
+          return;
+        }
+        if (
+          request.method === "POST" &&
+          url.pathname === "/api/projects/default/block-property-mutations"
+        ) {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(
+            JSON.stringify({
+              ok: true,
+              value: {
+                mutationId: body.mutationId,
+                duplicate: false,
+              },
+            }),
+          );
+          return;
+        }
+        if (
           request.method === "POST" &&
           url.pathname ===
             "/api/projects/default/blocks/card-1/document/prepare"
@@ -121,28 +167,6 @@ describe("Card Document CLI", () => {
                 headSeq: expectedHeadSeq + 1,
                 duplicate: false,
               },
-            }),
-          );
-          return;
-        }
-        if (
-          request.method === "PUT" &&
-          url.pathname === "/api/projects/default/card"
-        ) {
-          response.writeHead(200, { "Content-Type": "application/json" });
-          response.end(JSON.stringify({ status: "updated" }));
-          return;
-        }
-        if (
-          request.method === "GET" &&
-          url.pathname === "/api/projects/default/card"
-        ) {
-          response.writeHead(200, { "Content-Type": "application/json" });
-          response.end(
-            JSON.stringify({
-              id: "card-1",
-              title: "Original",
-              description: "Original body",
             }),
           );
           return;
@@ -200,17 +224,29 @@ describe("Card Document CLI", () => {
         "cli-update:title",
       );
 
-      const legacyUpdate = requests.find(
+      const metadataUpdate = requests.find(
         (entry) =>
-          entry.method === "PUT" &&
-          entry.pathname === "/api/projects/default/card",
+          entry.method === "POST" &&
+          entry.pathname === "/api/projects/default/block-property-mutations",
       );
-      expect(legacyUpdate?.body.priority).toBe("p1-high");
-      expect(Object.hasOwn(legacyUpdate?.body ?? {}, "title")).toBe(false);
-      expect(Object.hasOwn(legacyUpdate?.body ?? {}, "description")).toBe(false);
+      expect(metadataUpdate?.body.mutationId).toBe("cli-update");
+      expect(metadataUpdate?.body.storeEpoch).toBe("epoch-1");
+      const metadataFields = metadataUpdate?.body.fields as
+        | ReadonlyArray<Readonly<Record<string, unknown>>>
+        | undefined;
+      expect(metadataFields?.length).toBe(1);
+      expect(metadataFields?.[0]?.scope).toBe("database");
+      expect(metadataFields?.[0]?.cardBlockId).toBe("card-1");
+      expect(metadataFields?.[0]?.databaseBlockId).toBe("database-primary");
+      expect(metadataFields?.[0]?.propertyId).toBe("property-priority");
+      expect(metadataFields?.[0]?.operation).toBe("set");
+      expect(metadataFields?.[0]?.expectedRevision).toBe(2);
+      expect(metadataFields?.[0]?.value).toBe("p1-high");
 
       const documentMutations = requests.filter(
-        (entry) => entry.pathname.endsWith("/mutations"),
+        (entry) =>
+          entry.pathname.startsWith("/api/projects/default/documents/") &&
+          entry.pathname.endsWith("/mutations"),
       );
       expect(documentMutations.length).toBe(2);
       expect(documentMutations[0]?.body.expectedHeadSeq).toBe(7);
@@ -244,7 +280,9 @@ describe("Card Document CLI", () => {
       );
       expect(applied.exitCode).toBe(0);
       const stableMutation = requests.filter(
-        (entry) => entry.pathname.endsWith("/mutations"),
+        (entry) =>
+          entry.pathname.startsWith("/api/projects/default/documents/") &&
+          entry.pathname.endsWith("/mutations"),
       )[2];
       expect(stableMutation?.body.mutationId).toBe("cli-stable-block");
       expect(stableMutation?.body.expectedHeadSeq).toBe(11);

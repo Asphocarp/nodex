@@ -148,9 +148,74 @@ describe("card status CLI arguments", () => {
           return;
         }
 
-        if (method === "PUT" && url.pathname === "/api/projects/default/move") {
+        if (
+          method === "GET" &&
+          url.pathname ===
+            "/api/projects/default/database-views/primary/snapshot"
+        ) {
+          const snapshot = (value: Readonly<Record<string, unknown>>) => ({
+            version: 1,
+            projectId: "default",
+            storeEpoch: "epoch-1",
+            changeLogSeq: 7,
+            value,
+          });
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ success: true }));
+          res.end(JSON.stringify({
+            ok: true,
+            value: {
+              descriptor: snapshot({
+                database: { blockId: "database-primary" },
+                properties: [
+                  {
+                    id: "property-status",
+                    key: "status",
+                    lifecycle: "active",
+                  },
+                ],
+                views: [
+                  {
+                    id: "view-primary",
+                    lifecycle: "active",
+                    isPrimary: true,
+                    kind: "kanban",
+                    config: { sort: [{ field: { kind: "manual" } }] },
+                  },
+                ],
+              }),
+              query: snapshot({
+                view: { id: "view-primary" },
+                rows: [
+                  {
+                    card: { blockId: "card-1" },
+                    values: {
+                      "property-status": {
+                        value: "in_progress",
+                        revision: 3,
+                      },
+                    },
+                    effectiveGroupKey: "in_progress",
+                    position: { revision: 5 },
+                  },
+                ],
+              }),
+            },
+          }));
+          return;
+        }
+
+        if (
+          method === "POST" &&
+          url.pathname === "/api/projects/default/database-mutations"
+        ) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            ok: true,
+            value: {
+              operationId: body?.operationId,
+              duplicate: false,
+            },
+          }));
           return;
         }
 
@@ -201,9 +266,25 @@ describe("card status CLI arguments", () => {
           ?.status,
       ).toBe("in_review");
 
-      const moveRequest = requests.find((request) => request.method === "PUT");
-      expect(moveRequest?.body?.fromStatus).toBe("in_progress");
-      expect(moveRequest?.body?.toStatus).toBe("done");
+      const moveRequest = requests.find(
+        (request) =>
+          request.method === "POST" &&
+          request.path === "/api/projects/default/database-mutations",
+      );
+      const moveOperations = moveRequest?.body?.operations as
+        | ReadonlyArray<Readonly<Record<string, unknown>>>
+        | undefined;
+      expect(moveOperations?.length).toBe(2);
+      expect(moveOperations?.[0]?.kind).toBe("set_value");
+      expect(moveOperations?.[0]?.cardBlockId).toBe("card-1");
+      expect(moveOperations?.[0]?.databaseBlockId).toBe("database-primary");
+      expect(moveOperations?.[0]?.propertyId).toBe("property-status");
+      expect(moveOperations?.[0]?.expectedValueRevision).toBe(3);
+      expect(moveOperations?.[0]?.value).toBe("done");
+      expect(moveOperations?.[1]?.kind).toBe("position_card");
+      expect(moveOperations?.[1]?.viewId).toBe("view-primary");
+      expect(moveOperations?.[1]?.expectedPositionRevision).toBe(5);
+      expect(moveOperations?.[1]?.groupKey).toBe("done");
     } finally {
       server.close();
       fs.rmSync(homeDir, { recursive: true, force: true });
