@@ -1,20 +1,40 @@
 import { parseAssetSource } from "../assets";
 import { parseNfm } from "../nfm/parser";
-import type { NfmBlock, NfmInlineContent } from "../nfm/types";
+import {
+  isCanonicalNfmCardRef,
+  type NfmBlock,
+  type NfmInlineContent,
+} from "../nfm/types";
 import type { BlockTreeNode } from "./block-document-codec";
-import type { BlockId } from "./contracts";
+import {
+  MAX_BLOCK_ID_LENGTH,
+  MAX_REFERENCE_DISPLAY_HINT_LENGTH,
+  type BlockId,
+} from "./contracts";
 
 export type BlockDocumentReference =
   | {
       readonly kind: "block";
       readonly sourceBlockId: BlockId;
       readonly targetBlockId: BlockId;
-      readonly projectHint?: string;
+      readonly displayHint?: string;
+    }
+  | {
+      readonly kind: "database_view";
+      readonly sourceBlockId: BlockId;
+      readonly databaseViewId: string;
+      readonly displayHint?: string;
     }
   | {
       readonly kind: "thread";
       readonly sourceBlockId: BlockId;
       readonly targetThreadId: string;
+    }
+  | {
+      readonly kind: "legacy_card_projection";
+      readonly sourceBlockId: BlockId;
+      readonly targetBlockId: BlockId;
+      readonly projectHint?: string;
     }
   | {
       readonly kind: "legacy_database_query";
@@ -41,7 +61,8 @@ export interface BlockDocumentDerivedRecords {
 export const isLegacyForeignBodyReference = (
   reference: BlockDocumentReference,
 ): boolean =>
-  reference.kind === "block" || reference.kind === "legacy_database_query";
+  reference.kind === "legacy_card_projection"
+  || reference.kind === "legacy_database_query";
 
 export class BlockDocumentDerivedRecordsError extends Error {
   constructor(message: string) {
@@ -49,6 +70,28 @@ export class BlockDocumentDerivedRecordsError extends Error {
     this.name = "BlockDocumentDerivedRecordsError";
   }
 }
+
+const assertCanonicalReferenceId = (value: string, label: string): void => {
+  if (
+    value.length === 0
+    || value !== value.trim()
+    || value.length > MAX_BLOCK_ID_LENGTH
+  ) {
+    throw new BlockDocumentDerivedRecordsError(
+      `${label} must be a non-empty stable identity no longer than ${MAX_BLOCK_ID_LENGTH} characters`,
+    );
+  }
+};
+
+const readDisplayHint = (value: string | undefined): string | undefined => {
+  if (value === undefined || value.length === 0) return undefined;
+  if (value.length > MAX_REFERENCE_DISPLAY_HINT_LENGTH) {
+    throw new BlockDocumentDerivedRecordsError(
+      `Reference display hints must not exceed ${MAX_REFERENCE_DISPLAY_HINT_LENGTH} characters`,
+    );
+  }
+  return value;
+};
 
 const collectInlineReferences = (
   sourceBlockId: BlockId,
@@ -127,16 +170,28 @@ const collectDerivedRecords = (
         source: nfmBlock.source,
         managedFileName: parseAssetSource(nfmBlock.source)?.fileName ?? null,
       });
-    } else if (nfmBlock.type === "cardRef") {
+    } else if (
+      nfmBlock.type === "cardRef"
+      && isCanonicalNfmCardRef(nfmBlock)
+    ) {
+      assertCanonicalReferenceId(nfmBlock.targetBlockId, "targetBlockId");
+      const displayHint = readDisplayHint(nfmBlock.displayHint);
       references.push({
         kind: "block",
+        sourceBlockId: block.id,
+        targetBlockId: nfmBlock.targetBlockId,
+        ...(displayHint !== undefined ? { displayHint } : {}),
+      });
+    } else if (nfmBlock.type === "cardRef") {
+      references.push({
+        kind: "legacy_card_projection",
         sourceBlockId: block.id,
         targetBlockId: nfmBlock.cardId,
         projectHint: nfmBlock.sourceProjectId,
       });
     } else if (nfmBlock.type === "cardToggle") {
       references.push({
-        kind: "block",
+        kind: "legacy_card_projection",
         sourceBlockId: block.id,
         targetBlockId: nfmBlock.cardId,
         ...(nfmBlock.sourceProjectId
@@ -148,6 +203,18 @@ const collectDerivedRecords = (
         kind: "legacy_database_query",
         sourceBlockId: block.id,
         projectHint: nfmBlock.sourceProjectId,
+      });
+    } else if (nfmBlock.type === "databaseViewRef") {
+      assertCanonicalReferenceId(
+        nfmBlock.databaseViewId,
+        "databaseViewId",
+      );
+      const displayHint = readDisplayHint(nfmBlock.displayHint);
+      references.push({
+        kind: "database_view",
+        sourceBlockId: block.id,
+        databaseViewId: nfmBlock.databaseViewId,
+        ...(displayHint !== undefined ? { displayHint } : {}),
       });
     }
 

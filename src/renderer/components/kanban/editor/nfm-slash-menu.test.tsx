@@ -196,18 +196,30 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 describe("NfmSlashMenu", () => {
-  test("collaborative mode omits legacy foreign-body insertion commands", () => {
+  test("collaborative mode keeps canonical Card references but omits legacy Database projections", () => {
     const items = getNfmSlashMenuCustomItems({}, "project-1", {
-      allowCardReferences: false,
+      allowCardReferences: true,
+      allowLegacyDatabaseViews: false,
     });
     const keys = items
       .map((item) => (item as { key?: string }).key ?? "")
       .join(",");
 
-    expect(keys.includes("card_reference")).toBeFalse();
+    expect(keys.includes("card_reference")).toBeTrue();
     expect(keys.includes("toggle_list_inline_view")).toBeFalse();
-    expect(keys.includes("thread_section")).toBeTrue();
-    expect(keys.includes("agent_config")).toBeTrue();
+
+    const restrictedItems = getNfmSlashMenuCustomItems({}, "project-1", {
+      allowCardReferences: false,
+      allowLegacyDatabaseViews: false,
+    });
+    const restrictedKeys = restrictedItems
+      .map((item) => (item as { key?: string }).key ?? "")
+      .join(",");
+
+    expect(restrictedKeys.includes("card_reference")).toBeFalse();
+    expect(restrictedKeys.includes("toggle_list_inline_view")).toBeFalse();
+    expect(restrictedKeys.includes("thread_section")).toBeTrue();
+    expect(restrictedKeys.includes("agent_config")).toBeTrue();
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
@@ -252,14 +264,22 @@ describe("NfmSlashMenu", () => {
     const cardBlock = buildNfmCardMentionBlock(makePaletteCard({
       projectId: "project-2",
       card: makeCard({ id: "card-2" }),
-    })) as { type?: string; props?: { sourceProjectId?: string; cardId?: string } };
+    })) as {
+      type?: string;
+      props?: Record<string, unknown> & {
+        targetBlockId?: string;
+        displayHint?: string;
+      };
+    };
     const threadContent = buildNfmThreadMentionInlineContent(makePaletteThread({
       threadId: "thr-payload",
     })) as Array<{ type?: string; props?: { uuid?: string } } | string>;
 
     expect(cardBlock.type).toBe("cardRef");
-    expect(cardBlock.props?.sourceProjectId).toBe("project-2");
-    expect(cardBlock.props?.cardId).toBe("card-2");
+    expect(cardBlock.props?.targetBlockId).toBe("card-2");
+    expect(cardBlock.props?.displayHint).toBe("Mention search card");
+    expect(Object.hasOwn(cardBlock.props ?? {}, "sourceProjectId")).toBeFalse();
+    expect(Object.hasOwn(cardBlock.props ?? {}, "cardId")).toBeFalse();
     const firstThreadContent = threadContent[0];
     expect(typeof firstThreadContent === "string").toBeFalse();
     if (typeof firstThreadContent === "string") return;

@@ -32,6 +32,25 @@ export const queryKeys = {
     owned: (projectId: string, ownerBlockId: string) =>
       ["blockDocuments", "owned", projectId, ownerBlockId] as const,
   },
+  blockReferences: {
+    card: (requestingProjectId: string, targetBlockId: string) => [
+      "blockReferences",
+      "card",
+      requestingProjectId,
+      targetBlockId,
+    ] as const,
+    databaseView: (
+      requestingProjectId: string,
+      databaseViewId: string,
+      hostBlockId?: string,
+    ) => [
+      "blockReferences",
+      "databaseView",
+      requestingProjectId,
+      databaseViewId,
+      normalizeNullable(hostBlockId),
+    ] as const,
+  },
   projectSessions: {
     all: () => ["projectSessions"] as const,
     summaries: (projectId: string | null) => ["projectSessions", "summaries", normalizeNullable(projectId)] as const,

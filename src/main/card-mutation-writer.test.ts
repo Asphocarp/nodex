@@ -134,6 +134,43 @@ describe("CardMutationWriter", () => {
     expect(envelope.result.exhausted).toBeTrue();
   });
 
+  test("preserves resumable foreign-reference migration evidence through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+
+    const pending = writer.migrateLegacyForeignReferences(25);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("migrateLegacyForeignReferences");
+    if (!request || request.type !== "migrateLegacyForeignReferences") return;
+    expect(request.payload.limit).toBe(25);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        processedDocuments: 2,
+        migratedReferences: 3,
+        recoveredCards: 1,
+        databaseViewsCreated: 1,
+        failedDocuments: 0,
+        exhausted: false,
+        changedDocumentIds: ["document:one", "document:two"],
+        errors: [],
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.migratedReferences).toBe(3);
+    expect(envelope.result.changedDocumentIds.join(",")).toBe(
+      "document:one,document:two",
+    );
+    expect(envelope.result.exhausted).toBeFalse();
+  });
+
   test("resolves worker ack and republishes board events", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];

@@ -23,6 +23,10 @@ import {
   decodeDocumentHttpError,
   decodeOwnedBlockDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
+import {
+  decodeCardReferenceReadModelHttp,
+  decodeDatabaseViewReadModelHttp,
+} from "../../shared/reference-read-http-contract";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -689,6 +693,41 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         toApiUrl(`/api/projects/${projectId}/board-summary`),
       );
       return res.json();
+    }
+    case "block-reference:card:resolve": {
+      const [input] = args as [{
+        requestingProjectId: string;
+        targetBlockId: string;
+      }];
+      const res = await fetch(toApiUrl(
+        `/api/projects/${encodeURIComponent(input.requestingProjectId)}`
+        + `/references/cards/${encodeURIComponent(input.targetBlockId)}`,
+      ));
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        throw new Error(`Card reference lookup failed with status ${res.status}`);
+      }
+      return decodeCardReferenceReadModelHttp(await res.json());
+    }
+    case "database-view:reference:get": {
+      const [input] = args as [{
+        requestingProjectId: string;
+        databaseViewId: string;
+        hostBlockId?: string;
+      }];
+      const hostQuery = input.hostBlockId
+        ? `?hostBlockId=${encodeURIComponent(input.hostBlockId)}`
+        : "";
+      const res = await fetch(toApiUrl(
+        `/api/projects/${encodeURIComponent(input.requestingProjectId)}`
+        + `/references/database-views/${encodeURIComponent(input.databaseViewId)}`
+        + hostQuery,
+      ));
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        throw new Error(`Database View lookup failed with status ${res.status}`);
+      }
+      return decodeDatabaseViewReadModelHttp(await res.json());
     }
     case "cards:details:get": {
       const [projectId, input] = args as [string, { cardIds: string[] }];

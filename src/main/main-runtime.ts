@@ -32,6 +32,7 @@ import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
 import { cardMutationWriter } from "./card-mutation-writer";
+import { prepareBlockDocumentAuthorityForStartup } from "./block-document-startup";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -867,23 +868,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
       publishDatabaseMigrationProgress(progress);
     },
   });
-  while (true) {
-    const shadowInitialization = await cardMutationWriter
-      .initializeBlockDocumentShadows();
-    const shadow = shadowInitialization.result;
-    if (shadow.errors > 0 || shadow.failed > 0) {
-      throw new Error(
-        `Block Document shadow initialization did not reach parity: ${JSON.stringify(shadow)}`,
-      );
-    }
-    if (shadow.exhausted) break;
-    if (shadow.processed === 0) {
-      throw new Error(
-        "Block Document shadow initialization made no progress",
-      );
-    }
-  }
-  await cardMutationWriter.cutoverEligibleCardDocuments();
+  await prepareBlockDocumentAuthorityForStartup(cardMutationWriter);
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();

@@ -12,6 +12,7 @@ import { createCalloutBlock } from "./callout-block";
 import { createCardToggleBlockSpec } from "./card-toggle-block";
 import { createCardRefBlockSpec } from "./card-ref-block";
 import { createDateMentionInlineContentSpec } from "./date-mention-chip";
+import { createDatabaseViewRefBlockSpec } from "./database-view-ref-block";
 import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
@@ -34,6 +35,7 @@ export const toggleListSchema = BlockNoteSchema.create({
     threadSection: createThreadSectionBlockSpec(),
     cardToggle: createCardToggleBlockSpec(),
     toggleListInlineView: createToggleListInlineViewBlockSpec(),
+    databaseViewRef: createDatabaseViewRefBlockSpec(),
     cardRef: createCardRefBlockSpec(),
   },
   inlineContentSpecs: {

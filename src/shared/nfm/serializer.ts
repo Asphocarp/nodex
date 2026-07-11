@@ -109,6 +109,16 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + `<toggle-list-inline-view ${attrs.join(" ")} />`);
         break;
       }
+      case "databaseViewRef": {
+        const attrs = [
+          `database-view="${escapeXmlAttr(block.databaseViewId)}"`,
+        ];
+        if (block.displayHint !== undefined) {
+          attrs.push(`display-hint="${escapeXmlAttr(block.displayHint)}"`);
+        }
+        lines.push(prefix + `<database-view-ref ${attrs.join(" ")} />`);
+        break;
+      }
       case "threadSection": {
         const attrs: string[] = [];
         if (block.label && block.label.length > 0) {
@@ -122,6 +132,16 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
       case "cardRef": {
+        if (block.targetBlockId !== undefined) {
+          const attrs = [
+            `target-block="${escapeXmlAttr(block.targetBlockId)}"`,
+          ];
+          if (block.displayHint !== undefined) {
+            attrs.push(`display-hint="${escapeXmlAttr(block.displayHint)}"`);
+          }
+          lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
+          break;
+        }
         const attrs = [
           `project="${escapeXmlAttr(block.sourceProjectId)}"`,
           `card="${escapeXmlAttr(block.cardId)}"`,

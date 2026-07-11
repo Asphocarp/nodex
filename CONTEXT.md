@@ -80,15 +80,19 @@ Agent execution, recurrence, reminders, and other behavior intrinsic to a Card a
 
 A Database View is a durable shared query definition over one Database. It stores filter, sort, group, display, and view-specific manual positions. The active view, search text, selection, and expansion state are window-local and are not part of the durable view definition.
 
+An inline Database View Block stores only its own `blockId` and a `databaseViewId`. The query executes over durable memberships and view configuration; result rows are read projections and never become children of the host Document.
+
 ### Reference Block
 
 A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`. It presents another Block without changing that target's placement or membership. A collapsed Card reference reads a rebuildable summary. An expanded visible Card reference mounts the target Card's independent Document surface; the foreign body never becomes content of the host Document.
+
+Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 
 ### Projection
 
 A projection is rebuildable data derived from the authoritative Block, Document, and Database records. NFM, plain text, previews, search units, asset references, Card read models, and scheduled-card indexes are projections. A projection can lag, be discarded, and be rebuilt. It must never be used to reconstruct an already-existing Yjs Document.
 
-Schema v62 is the first persisted property/projection foundation: `block_properties` holds Card-intrinsic agent/run/recurrence/reminder state, Database membership values hold status/priority/estimate/tags/dates/assignee, and `scheduled_card_index` is the typed scheduler read model. During BF-03/BF-07 migration only, legacy Card metadata is a one-way write seam into these records; it is not a second target identity or a content authority.
+Schema v62 is the first persisted property/projection foundation: `block_properties` holds Card-intrinsic agent/run/recurrence/reminder state, Database membership values hold status/priority/estimate/tags/dates/assignee, and `scheduled_card_index` is the typed scheduler read model. Schema v63 adds the resumable foreign-reference migration ledger and converts legacy Card/query snapshots into canonical `targetBlockId`/`databaseViewId` references before cutover. Each stable source records a semantic fingerprint, so an identical crash retry resumes one occurrence while changed live content advances to a new recovery without overwriting the prior Card. During BF-03/BF-07 migration only, legacy Card metadata is a one-way write seam into these records; it is not a second target identity or a content authority.
 
 For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Board-summary fanout reads that committed projection; it never writes the result back through the legacy Card title/body mutation path.
 

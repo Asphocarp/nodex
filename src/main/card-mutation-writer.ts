@@ -20,6 +20,7 @@ import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
+import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -304,6 +305,15 @@ export class CardMutationWriter {
   > {
     return await this.executeTyped<BlockDocumentShadowInitializationResult>({
       type: "initializeBlockDocumentShadows",
+    });
+  }
+
+  async migrateLegacyForeignReferences(
+    limit?: number,
+  ): Promise<CardMutationEnvelope<ForeignReferenceMigrationBatchResult>> {
+    return await this.executeTyped<ForeignReferenceMigrationBatchResult>({
+      type: "migrateLegacyForeignReferences",
+      payload: { limit },
     });
   }
 

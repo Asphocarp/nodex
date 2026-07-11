@@ -23,10 +23,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 62;
+export const CURRENT_SCHEMA_VERSION = 63;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -39,6 +39,7 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "foreign_reference_migrations",
   "legacy_card_shadow_jobs",
   "legacy_card_shadow_heads",
   "database_view_positions",
@@ -345,6 +346,143 @@ function createDocumentUpdateReceiptSchema(db: Database.Database): void {
       PRIMARY KEY (document_id, generation, seq),
       UNIQUE (document_id, update_id)
     ) WITHOUT ROWID;
+  `);
+}
+
+function createForeignReferenceMigrationSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_block_documents_owner_document_project
+      ON block_documents(block_id, document_id, project_id);
+
+    CREATE TABLE IF NOT EXISTS foreign_reference_migrations (
+      source_block_id TEXT PRIMARY KEY,
+      host_document_id TEXT NOT NULL,
+      host_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      legacy_kind TEXT NOT NULL,
+      legacy_target_block_id TEXT,
+      occurrence INTEGER NOT NULL DEFAULT 1 CHECK (occurrence >= 1),
+      source_fingerprint TEXT NOT NULL,
+      target_block_id TEXT,
+      database_view_id TEXT,
+      recovered_card_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (source_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (host_block_id, host_document_id, project_id)
+        REFERENCES block_documents(block_id, document_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (database_view_id)
+        REFERENCES database_views(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY (recovered_card_id)
+        REFERENCES blocks(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+      CHECK (legacy_kind IN ('card_ref', 'card_toggle', 'database_query')),
+      CHECK (status IN ('pending', 'applying', 'applied', 'failed')),
+      CHECK (length(source_block_id) > 0),
+      CHECK (length(host_document_id) > 0),
+      CHECK (length(host_block_id) > 0),
+      CHECK (length(project_id) > 0),
+      CHECK (length(created_at) > 0),
+      CHECK (length(updated_at) > 0),
+      CHECK (legacy_target_block_id IS NULL OR length(legacy_target_block_id) > 0),
+      CHECK (length(source_fingerprint) = 64),
+      CHECK (target_block_id IS NULL OR length(target_block_id) > 0),
+      CHECK (database_view_id IS NULL OR length(database_view_id) > 0),
+      CHECK (
+        (legacy_kind IN ('card_ref', 'card_toggle')
+          AND database_view_id IS NULL)
+        OR (legacy_kind = 'database_query'
+          AND legacy_target_block_id IS NULL
+          AND target_block_id IS NULL
+          AND recovered_card_id IS NULL)
+      ),
+      CHECK (recovered_card_id IS NULL OR recovered_card_id = target_block_id),
+      CHECK (
+        status <> 'applied'
+        OR (legacy_kind IN ('card_ref', 'card_toggle')
+          AND target_block_id IS NOT NULL)
+        OR (legacy_kind = 'database_query'
+          AND database_view_id IS NOT NULL)
+      ),
+      CHECK (
+        (status = 'pending' AND attempt_count >= 0)
+        OR (status <> 'pending' AND attempt_count >= 1)
+      ),
+      CHECK (
+        (status = 'failed' AND last_error IS NOT NULL AND length(last_error) > 0)
+        OR (status <> 'failed' AND last_error IS NULL)
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_foreign_reference_migrations_work
+      ON foreign_reference_migrations(status, project_id, updated_at, source_block_id);
+    CREATE INDEX IF NOT EXISTS idx_foreign_reference_migrations_host
+      ON foreign_reference_migrations(host_document_id, status, source_block_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_foreign_reference_migrations_recovered_card
+      ON foreign_reference_migrations(recovered_card_id)
+      WHERE recovered_card_id IS NOT NULL;
+
+    CREATE TRIGGER IF NOT EXISTS foreign_reference_migrations_validate_insert
+      BEFORE INSERT ON foreign_reference_migrations
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM blocks source
+        WHERE source.id = NEW.source_block_id
+          AND source.project_id = NEW.project_id
+          AND source.location_kind = 'document'
+          AND source.containing_document_id = NEW.host_document_id
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM blocks host
+        WHERE host.id = NEW.host_block_id
+          AND host.project_id = NEW.project_id
+          AND host.type = 'card'
+      ) OR (
+        NEW.recovered_card_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocks recovered
+          WHERE recovered.id = NEW.recovered_card_id
+            AND recovered.type = 'card'
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'foreign reference migration scope is invalid');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS foreign_reference_migrations_validate_update
+      BEFORE UPDATE OF source_block_id, host_document_id, host_block_id, project_id,
+        legacy_target_block_id, source_fingerprint, target_block_id, recovered_card_id
+      ON foreign_reference_migrations
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM blocks source
+        WHERE source.id = NEW.source_block_id
+          AND source.project_id = NEW.project_id
+          AND source.location_kind = 'document'
+          AND source.containing_document_id = NEW.host_document_id
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM blocks host
+        WHERE host.id = NEW.host_block_id
+          AND host.project_id = NEW.project_id
+          AND host.type = 'card'
+      ) OR (
+        NEW.recovered_card_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocks recovered
+          WHERE recovered.id = NEW.recovered_card_id
+            AND recovered.type = 'card'
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'foreign reference migration scope is invalid');
+      END;
   `);
 }
 
@@ -1947,6 +2085,7 @@ function createLatestSchema(db: Database.Database): void {
   `);
   createBlockFoundationSchema(db);
   createLegacyCardShadowOutboxSchema(db);
+  createForeignReferenceMigrationSchema(db);
 }
 
 function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
@@ -4776,14 +4915,17 @@ function backfillExistingDocumentMaterializations(db: Database.Database): void {
     SELECT
       materialization.document_id,
       document.schema_version,
-      card.title,
+      COALESCE(card.title, materialization.title) AS title,
       materialization.nfm,
       materialization.block_tree_json
     FROM document_materializations materialization
     INNER JOIN documents document ON document.id = materialization.document_id
     INNER JOIN block_documents ownership
       ON ownership.document_id = materialization.document_id
-    INNER JOIN cards card ON card.id = ownership.block_id
+    INNER JOIN blocks owner
+      ON owner.id = ownership.block_id
+      AND owner.type = 'card'
+    LEFT JOIN cards card ON card.id = ownership.block_id
     ORDER BY materialization.document_id
   `,
     )
@@ -4862,6 +5004,15 @@ function migrateSchema61To62(db: Database.Database): void {
     backfillExistingDocumentMaterializations(db);
     assertLegacyCardMetadataProjectionParity(db);
     setUserVersion(db, 62);
+  });
+  migrate();
+}
+
+function migrateSchema62To63(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createForeignReferenceMigrationSchema(db);
+    backfillExistingDocumentMaterializations(db);
+    setUserVersion(db, 63);
   });
   migrate();
 }
@@ -5187,6 +5338,16 @@ function runMigrations(
       }
       migrateSchema61To62(db);
       fromVersion = 62;
+      continue;
+    }
+    if (target === 63) {
+      if (fromVersion !== 62) {
+        throw new Error(
+          `Unsupported Nodex database migration target 63 from ${fromVersion}`,
+        );
+      }
+      migrateSchema62To63(db);
+      fromVersion = 63;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

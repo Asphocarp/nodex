@@ -13,6 +13,14 @@ import type {
   DocumentSyncUnsubscribeAck,
 } from "./block-documents/document-sync";
 import type { OwnedBlockDocumentDescriptor } from "./block-documents/contracts";
+import type {
+  CardReferenceReadModel,
+  ResolveCardReferenceInput,
+} from "./block-references";
+import type {
+  DatabaseViewReadModel,
+  ReadDatabaseViewReferenceInput,
+} from "./database-views";
 
 import type {
   BackupRecord,
@@ -509,6 +517,14 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "block-reference:card:resolve": {
+    args: [input: ResolveCardReferenceInput];
+    result: CardReferenceReadModel | null;
+  };
+  "database-view:reference:get": {
+    args: [input: ReadDatabaseViewReferenceInput];
+    result: DatabaseViewReadModel | null;
+  };
   "block-document:owned:get": {
     args: [projectId: string, ownerBlockId: string];
     result: OwnedBlockDocumentDescriptor;

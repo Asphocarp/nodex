@@ -4,6 +4,14 @@ import type { Card, CardUpdateResult } from "./types";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
+import type {
+  CardReferenceReadModel,
+  ResolveCardReferenceInput,
+} from "../../shared/block-references";
+import type {
+  DatabaseViewReadModel,
+  ReadDatabaseViewReferenceInput,
+} from "../../shared/database-views";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -62,6 +70,18 @@ export function prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,
   );
+}
+
+export function resolveCardReference(
+  input: ResolveCardReferenceInput,
+): Promise<CardReferenceReadModel | null> {
+  return invoke("block-reference:card:resolve", input);
+}
+
+export function readDatabaseViewReference(
+  input: ReadDatabaseViewReferenceInput,
+): Promise<DatabaseViewReadModel | null> {
+  return invoke("database-view:reference:get", input);
 }
 
 const CARD_DESCRIPTION_UPDATE_CHUNK_SIZE = 16 * 1024;

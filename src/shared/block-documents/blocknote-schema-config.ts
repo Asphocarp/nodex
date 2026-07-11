@@ -34,8 +34,19 @@ export const cardToggleBlockConfig = {
 export const cardRefBlockConfig = {
   type: "cardRef",
   propSchema: {
-    sourceProjectId: { default: "default" },
+    targetBlockId: { default: "" },
+    displayHint: { default: "" },
+    sourceProjectId: { default: "" },
     cardId: { default: "" },
+  },
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
+export const databaseViewRefBlockConfig = {
+  type: "databaseViewRef",
+  propSchema: {
+    databaseViewId: { default: "" },
+    displayHint: { default: "" },
   },
   content: "none",
 } as const satisfies CustomBlockConfig;
@@ -117,6 +128,7 @@ export const blockDocumentCustomBlockConfigs = {
   cardToggle: cardToggleBlockConfig,
   toggleListInlineView: toggleListInlineViewBlockConfig,
   cardRef: cardRefBlockConfig,
+  databaseViewRef: databaseViewRefBlockConfig,
 } as const;
 
 export const blockDocumentCustomInlineContentConfigs = {

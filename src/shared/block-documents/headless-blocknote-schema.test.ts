@@ -135,6 +135,22 @@ describe("headless Block Document schema", () => {
         type: "cardRef",
         props: { sourceProjectId: "project-1", cardId: "card-2" },
       },
+      {
+        id: "canonical-card-ref-block",
+        type: "cardRef",
+        props: {
+          targetBlockId: "card-3",
+          displayHint: "Canonical Card",
+        },
+      },
+      {
+        id: "database-view-ref-block",
+        type: "databaseViewRef",
+        props: {
+          databaseViewId: "view-1",
+          displayHint: "Planning",
+        },
+      },
     ];
     const editor = BlockNoteEditor.create({
       schema: headlessBlockDocumentSchema,
@@ -147,7 +163,7 @@ describe("headless Block Document schema", () => {
 
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(editor.document));
     expect(decoded.map((block) => block.id).join(",")).toBe(
-      "callout-block,card-toggle-block,thread-section-block,inline-view-block,card-ref-block",
+      "callout-block,card-toggle-block,thread-section-block,inline-view-block,card-ref-block,canonical-card-ref-block,database-view-ref-block",
     );
   });
 });

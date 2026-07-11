@@ -334,7 +334,7 @@ const assertNoForeignBodyReferences = (
 
 interface LegacyForeignBodyParticipantRow {
   readonly host_block_id: string;
-  readonly reference_kind: "block" | "legacy_database_query";
+  readonly reference_kind: "legacy_card_projection" | "legacy_database_query";
 }
 
 /**
@@ -368,7 +368,7 @@ const assertNotLegacyForeignBodyParticipant = (
       AND host_document.readiness = 'ready'
       AND (
         (
-          json_extract(reference.value, '$.kind') = 'block'
+          json_extract(reference.value, '$.kind') = 'legacy_card_projection'
           AND json_extract(reference.value, '$.targetBlockId') = ?
         )
         OR (
@@ -386,7 +386,7 @@ const assertNotLegacyForeignBodyParticipant = (
 
   throw new BlockDocumentCutoverError(
     "foreign_body_reference",
-    participant.reference_kind === "block"
+    participant.reference_kind === "legacy_card_projection"
       ? `Card ${row.owner_block_id} is projected by legacy host ${participant.host_block_id}`
       : `Card ${row.owner_block_id} can be projected by legacy query host ${participant.host_block_id}`,
   );

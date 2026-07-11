@@ -15,6 +15,7 @@ import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
+import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -49,6 +50,10 @@ export interface CardMutationMetrics {
   shadowJobsFailed?: number;
   shadowDrainErrors?: number;
   shadowDrainExhausted?: boolean;
+  foreignReferenceDocumentsProcessed?: number;
+  foreignReferencesMigrated?: number;
+  foreignReferenceMigrationsFailed?: number;
+  foreignReferenceMigrationExhausted?: boolean;
 }
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
@@ -217,6 +222,10 @@ export type CardMutationWorkerRequest =
     type: "initializeBlockDocumentShadows";
   })
   | (CardMutationWorkerRequestBase & {
+    type: "migrateLegacyForeignReferences";
+    payload: { readonly limit?: number };
+  })
+  | (CardMutationWorkerRequestBase & {
     type: "syncBlockDocument";
     payload: DocumentSyncRequest;
   })
@@ -283,6 +292,7 @@ export type CardMutationWorkerResult =
   | BlockDocumentWorkerResult
   | OwnedBlockDocumentDescriptor
   | CutoverEligibleCardDocumentsResult
+  | ForeignReferenceMigrationBatchResult
   | undefined;
 
 export type CardMutationWorkerResponse =

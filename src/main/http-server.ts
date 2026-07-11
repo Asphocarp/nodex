@@ -76,6 +76,11 @@ import { codexService } from "./codex/codex-service";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
+import { registerReferenceReadHttpRoutes } from "./reference-read-http";
+import {
+  readProjectScopedDatabaseViewReference,
+  resolveProjectScopedCardReference,
+} from "./local-store/reference-reads";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -231,6 +236,11 @@ registerDocumentSyncHttpRoutes(app, {
       projectId,
       ownerBlockId,
     ),
+});
+
+registerReferenceReadHttpRoutes(app, {
+  resolveCardReference: resolveProjectScopedCardReference,
+  readDatabaseViewReference: readProjectScopedDatabaseViewReference,
 });
 
 app.post(

@@ -1,11 +1,24 @@
-import { useEffect, useRef, useMemo, useCallback, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  useState,
+  type RefObject,
+} from "react";
 import {
   SideMenuController,
   type LinkToolbarProps,
   useCreateBlockNote,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { ChevronDown, ChevronUp, CornerDownLeft, Repeat2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  CornerDownLeft,
+  Repeat2,
+  X,
+} from "lucide-react";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 
@@ -16,10 +29,7 @@ import {
   NFM_DISABLED_EXTENSIONS,
 } from "./nfm-editor-extensions";
 import { createNfmLinkExtension } from "./nfm-link-extension";
-import {
-  NOTION_BLOCKS_MIME,
-  NOTION_MULTI_TEXT_MIME,
-} from "./notion-paste";
+import { NOTION_BLOCKS_MIME, NOTION_MULTI_TEXT_MIME } from "./notion-paste";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmTextActionMenuRuntimeProvider } from "./nfm-text-action-menu-runtime";
@@ -76,7 +86,11 @@ import {
   mapDraggedBlocksToCardInputs,
   resolveTopLevelDraggedBlocks,
 } from "./block-drop-card-mapper";
-import { NfmSideMenu, NfmSideMenuOpenProvider, NfmSideMenuShortcutController } from "./nfm-side-menu";
+import {
+  NfmSideMenu,
+  NfmSideMenuOpenProvider,
+  NfmSideMenuShortcutController,
+} from "./nfm-side-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
@@ -105,6 +119,12 @@ import {
   useSideMenuSelectionGuard,
 } from "./side-menu-selection-guard";
 import { NfmEditorContextMenu } from "./nfm-editor-context-menu";
+import {
+  appendInlineCardAncestor,
+  BlockReferenceRuntimeProvider,
+  type BlockReferenceHostRuntime,
+  useBlockReferenceHostRuntime,
+} from "@/components/block-documents/block-reference-runtime-context";
 import { ImagePreviewDialog } from "./image-preview-dialog";
 import {
   isSpaceShortcut,
@@ -162,16 +182,25 @@ import {
   ThreadMentionRuntimeProvider,
   type ThreadMentionRuntimeValue,
 } from "./thread-mention-chip";
-import { isBlockWithinOwnerTree } from "./use-projected-card-embed-sync";
+import { isBlockWithinOwnerTree } from "./block-tree-ancestry";
 import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
 import { invoke } from "@/lib/api";
 import { EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS } from "@/lib/timing";
-import { parseNfm, serializeNfm, nfmToBlockNote, blockNoteToNfm, applyToggleStatesFromDom } from "@/lib/nfm";
+import {
+  parseNfm,
+  serializeNfm,
+  nfmToBlockNote,
+  blockNoteToNfm,
+  applyToggleStatesFromDom,
+} from "@/lib/nfm";
 import {
   parseToggleListInlineViewSettings,
   type ToggleListInlineViewProps,
 } from "@/lib/toggle-list/inline-view-props";
-import { TOGGLE_LIST_STATUS_ORDER, type ToggleListStatusId } from "@/lib/toggle-list/types";
+import {
+  TOGGLE_LIST_STATUS_ORDER,
+  type ToggleListStatusId,
+} from "@/lib/toggle-list/types";
 import { useKanban } from "@/lib/use-kanban";
 import { fetchCardDetails, setCardDetail } from "@/lib/card-detail-store";
 import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
@@ -238,7 +267,11 @@ interface NfmEditorCommonProps {
   canStartThreadInSession?: boolean;
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
-  onOpenCard?: (input: { projectId: string; cardId: string; titleSnapshot?: string }) => void | Promise<void>;
+  onOpenCard?: (input: {
+    projectId: string;
+    cardId: string;
+    titleSnapshot?: string;
+  }) => void | Promise<void>;
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
     targetSessionId?: string;
@@ -286,15 +319,17 @@ function isNfmEditorDocumentEmpty(
   doc: Array<{ type?: string; content?: unknown; children?: unknown[] }>,
 ): boolean {
   const [onlyBlock] = doc;
-  const inlineContent = Array.isArray(onlyBlock?.content) ? onlyBlock.content : [];
+  const inlineContent = Array.isArray(onlyBlock?.content)
+    ? onlyBlock.content
+    : [];
 
-  return doc.length === 0
-    || (
-      doc.length === 1
-      && onlyBlock?.type === "paragraph"
-      && inlineContent.length === 0
-      && (!onlyBlock.children || onlyBlock.children.length === 0)
-    );
+  return (
+    doc.length === 0 ||
+    (doc.length === 1 &&
+      onlyBlock?.type === "paragraph" &&
+      inlineContent.length === 0 &&
+      (!onlyBlock.children || onlyBlock.children.length === 0))
+  );
 }
 
 interface InlineViewHostContextRuntimeEditor {
@@ -352,7 +387,12 @@ interface ThreadSectionPickerState {
 function isAvailableNfmSendToThreadPreferredTargetThread(
   thread: CodexThreadSummary | null | undefined,
 ): thread is CodexThreadSummary {
-  return Boolean(thread && !thread.archived && thread.ephemeral !== true && thread.source?.sideConversation !== true);
+  return Boolean(
+    thread &&
+    !thread.archived &&
+    thread.ephemeral !== true &&
+    thread.source?.sideConversation !== true,
+  );
 }
 
 function createNfmSendToThreadPreferredTargetFromThread(
@@ -395,7 +435,8 @@ function toStringProp(
 }
 
 function toStatusId(value: string): ToggleListStatusId | undefined {
-  if (!TOGGLE_LIST_STATUS_ORDER.includes(value as ToggleListStatusId)) return undefined;
+  if (!TOGGLE_LIST_STATUS_ORDER.includes(value as ToggleListStatusId))
+    return undefined;
   return value as ToggleListStatusId;
 }
 
@@ -430,10 +471,13 @@ function toThreadSectionLinkedThreadStateFromSummary(
 function buildThreadSectionThreadMap(
   threads: ThreadSectionLinkedThreadState[],
 ): Record<string, ThreadSectionLinkedThreadState> {
-  return threads.reduce<Record<string, ThreadSectionLinkedThreadState>>((acc, thread) => {
-    acc[thread.threadId] = thread;
-    return acc;
-  }, {});
+  return threads.reduce<Record<string, ThreadSectionLinkedThreadState>>(
+    (acc, thread) => {
+      acc[thread.threadId] = thread;
+      return acc;
+    },
+    {},
+  );
 }
 
 function resolveInlineViewOwnerBlock(
@@ -457,7 +501,8 @@ function resolveInlineViewOwnerBlock(
 function collectInlineViewProjectedRows(
   ownerBlock: RuntimeBlockLike,
 ): InlineViewProjectedRow[] {
-  if (typeof ownerBlock.id !== "string" || ownerBlock.id.length === 0) return [];
+  if (typeof ownerBlock.id !== "string" || ownerBlock.id.length === 0)
+    return [];
   const ownerChildren = Array.isArray(ownerBlock.children)
     ? ownerBlock.children
     : [];
@@ -469,8 +514,9 @@ function collectInlineViewProjectedRows(
     if (!row || typeof row.id !== "string" || row.id.length === 0) continue;
     if (!isRecord(row.props)) continue;
 
-    const cardId = toStringProp(row.props, "projectionCardId")
-      || toStringProp(row.props, "cardId");
+    const cardId =
+      toStringProp(row.props, "projectionCardId") ||
+      toStringProp(row.props, "cardId");
     if (!cardId) continue;
 
     const sourceStatus = toStatusId(toStringProp(row.props, "sourceStatus"));
@@ -490,23 +536,28 @@ function resolveInlineViewDropContext(
 ): InlineViewDropContext | null {
   if (!anchor) return null;
   const owner = resolveInlineViewOwnerBlock(editor, anchor.blockId);
-  if (!owner || typeof owner.id !== "string" || owner.id.length === 0) return null;
+  if (!owner || typeof owner.id !== "string" || owner.id.length === 0)
+    return null;
 
   const projectedRows = collectInlineViewProjectedRows(owner);
-  const rowIndexById = new Map(projectedRows.map((row, index) => [row.blockId, index]));
+  const rowIndexById = new Map(
+    projectedRows.map((row, index) => [row.blockId, index]),
+  );
 
   const anchorTargetsOwner = anchor.blockId === owner.id;
   const anchorTargetsRowRoot = rowIndexById.has(anchor.blockId);
   if (!anchorTargetsOwner && !anchorTargetsRowRoot) return null;
 
   const insertRowIndex = anchorTargetsOwner
-    ? (anchor.placement === "before" ? 0 : projectedRows.length)
-    : (rowIndexById.get(anchor.blockId) ?? projectedRows.length) + (anchor.placement === "after" ? 1 : 0);
+    ? anchor.placement === "before"
+      ? 0
+      : projectedRows.length
+    : (rowIndexById.get(anchor.blockId) ?? projectedRows.length) +
+      (anchor.placement === "after" ? 1 : 0);
 
-  const ownerProps = isRecord(owner.props)
-    ? owner.props
-    : {};
-  const sourceProjectId = toStringProp(ownerProps, "sourceProjectId") || "default";
+  const ownerProps = isRecord(owner.props) ? owner.props : {};
+  const sourceProjectId =
+    toStringProp(ownerProps, "sourceProjectId") || "default";
   const settings = parseToggleListInlineViewSettings(
     ownerProps as Partial<ToggleListInlineViewProps>,
   );
@@ -581,6 +632,7 @@ function NfmEditorInstance({
   placeholder = "Add a description...",
   className,
 }: NfmEditorInstanceProps) {
+  const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
   const { settings: pasteResourceSettings } = usePasteResourceSettings();
@@ -592,37 +644,52 @@ function NfmEditorInstance({
   const [replaceQuery, setReplaceQuery] = useState("");
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
-  const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(null);
-  const [pasteResourceDialog, setPasteResourceDialog] = useState<PasteResourceDialogState | null>(null);
-  const [threadSectionPicker, setThreadSectionPicker] = useState<ThreadSectionPickerState | null>(null);
-  const {
-    threads: sendToThreadItems,
-    loading: sendToThreadItemsLoading,
-  } = useCommandPaletteThreadItems({
-    enabled: Boolean(threadSectionPicker) && Boolean(projectId),
-    activeProjectId: projectId,
-    refreshKey: 0,
-  });
+  const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(
+    null,
+  );
+  const [pasteResourceDialog, setPasteResourceDialog] =
+    useState<PasteResourceDialogState | null>(null);
+  const [threadSectionPicker, setThreadSectionPicker] =
+    useState<ThreadSectionPickerState | null>(null);
+  const { threads: sendToThreadItems, loading: sendToThreadItemsLoading } =
+    useCommandPaletteThreadItems({
+      enabled: Boolean(threadSectionPicker) && Boolean(projectId),
+      activeProjectId: projectId,
+      refreshKey: 0,
+    });
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
-  const [pasteResourceError, setPasteResourceError] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
-  const renderLinkToolbar = useCallback((linkToolbarProps: LinkToolbarProps) => (
-    <NfmLinkToolbar
-      {...linkToolbarProps}
-      projectWorkspacePath={projectWorkspacePath}
-    />
-  ), [projectWorkspacePath]);
-  const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] = useState<Set<string>>(() => new Set());
-  const [threadMentionThreadsById, setThreadMentionThreadsById] = useState<Record<string, CodexThreadSummary>>({});
-  const [threadMentionResolvingIds, setThreadMentionResolvingIds] = useState<Set<string>>(() => new Set());
-  const threadMentionResolvePromisesRef = useRef<Map<string, Promise<CodexThreadSummary | null>>>(new Map());
+  const [pasteResourceError, setPasteResourceError] = useState<string | null>(
+    null,
+  );
+  const [imagePreview, setImagePreview] = useState<{
+    source: string;
+    alt: string;
+  } | null>(null);
+  const renderLinkToolbar = useCallback(
+    (linkToolbarProps: LinkToolbarProps) => (
+      <NfmLinkToolbar
+        {...linkToolbarProps}
+        projectWorkspacePath={projectWorkspacePath}
+      />
+    ),
+    [projectWorkspacePath],
+  );
+  const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] =
+    useState<Set<string>>(() => new Set());
+  const [threadMentionThreadsById, setThreadMentionThreadsById] = useState<
+    Record<string, CodexThreadSummary>
+  >({});
+  const [threadMentionResolvingIds, setThreadMentionResolvingIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const threadMentionResolvePromisesRef = useRef<
+    Map<string, Promise<CodexThreadSummary | null>>
+  >(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suppressExternalDropRef = useRef(false);
   const suppressExternalContentSyncRef = useRef(false);
-  const {
-    sessionId: historySessionId,
-    refreshState: refreshHistoryState,
-  } = useHistory(projectId);
+  const { sessionId: historySessionId, refreshState: refreshHistoryState } =
+    useHistory(projectId);
   const { applyCardEditorDrop } = useKanban({
     projectId,
     sessionId: historySessionId,
@@ -634,34 +701,44 @@ function NfmEditorInstance({
     sourceRef.current = source;
   }, [source]);
 
-  const legacyContent = source.kind === "legacy-snapshot"
-    ? source.content
-    : null;
-  const legacyFlushHandleRef = source.kind === "legacy-snapshot"
-    ? source.flushHandleRef
-    : undefined;
+  const legacyContent =
+    source.kind === "legacy-snapshot" ? source.content : null;
+  const legacyFlushHandleRef =
+    source.kind === "legacy-snapshot" ? source.flushHandleRef : undefined;
 
   const threadSectionThreadMap = useMemo(
-    () => buildThreadSectionThreadMap(
-      [
+    () =>
+      buildThreadSectionThreadMap([
         ...linkedCodexThreads.map(toThreadSectionLinkedThreadState),
-        ...projectThreadSummaries.map(toThreadSectionLinkedThreadStateFromSummary),
-      ],
-    ),
+        ...projectThreadSummaries.map(
+          toThreadSectionLinkedThreadStateFromSummary,
+        ),
+      ]),
     [linkedCodexThreads, projectThreadSummaries],
   );
 
   const projectThreadSummaryMap = useMemo(
-    () => projectThreadSummaries.reduce<Record<string, CodexThreadSummary>>((acc, thread) => {
-      acc[thread.threadId] = thread;
-      return acc;
-    }, {}),
+    () =>
+      projectThreadSummaries.reduce<Record<string, CodexThreadSummary>>(
+        (acc, thread) => {
+          acc[thread.threadId] = thread;
+          return acc;
+        },
+        {},
+      ),
     [projectThreadSummaries],
   );
 
   const sessionSendToThreadPreferredTarget = useMemo(
-    () => createNfmSendToThreadPreferredTargetFromThread(sessionThread, "This session")
-      ?? createNfmSendToThreadPreferredSessionTarget(sessionId, canStartThreadInSession),
+    () =>
+      createNfmSendToThreadPreferredTargetFromThread(
+        sessionThread,
+        "This session",
+      ) ??
+      createNfmSendToThreadPreferredSessionTarget(
+        sessionId,
+        canStartThreadInSession,
+      ),
     [canStartThreadInSession, sessionId, sessionThread],
   );
   const sendToThreadProjectNameById = useMemo(
@@ -701,7 +778,9 @@ function NfmEditorInstance({
   const toggleBlockIdsRef = useRef<string[]>([]);
 
   // Parse initial content for the editor, pre-populating localStorage for toggle states
-  const initialContent = useMemo<typeof nfmSchema.PartialBlock[] | undefined>(() => {
+  const initialContent = useMemo<
+    (typeof nfmSchema.PartialBlock)[] | undefined
+  >(() => {
     if (legacyContent === null) return undefined;
 
     // Clean up previous toggle localStorage entries
@@ -722,7 +801,7 @@ function NfmEditorInstance({
     }
 
     return bnBlocks.length > 0
-      ? bnBlocks as unknown as typeof nfmSchema.PartialBlock[]
+      ? (bnBlocks as unknown as (typeof nfmSchema.PartialBlock)[])
       : undefined;
   }, [editorInstanceKey]);
 
@@ -754,60 +833,70 @@ function NfmEditorInstance({
     [editorInstanceKey],
   );
 
-  const resolveThreadMention = useCallback(async (threadId: string): Promise<CodexThreadSummary | null> => {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return null;
+  const resolveThreadMention = useCallback(
+    async (threadId: string): Promise<CodexThreadSummary | null> => {
+      const normalizedThreadId = threadId.trim();
+      if (!normalizedThreadId) return null;
 
-    const cached = threadMentionSummaryMapRef.current[normalizedThreadId];
-    if (cached) return cached;
+      const cached = threadMentionSummaryMapRef.current[normalizedThreadId];
+      if (cached) return cached;
 
-    const existingPromise = threadMentionResolvePromisesRef.current.get(normalizedThreadId);
-    if (existingPromise) return existingPromise;
+      const existingPromise =
+        threadMentionResolvePromisesRef.current.get(normalizedThreadId);
+      if (existingPromise) return existingPromise;
 
-    setThreadMentionResolvingIds((current) => {
-      if (current.has(normalizedThreadId)) return current;
-      const next = new Set(current);
-      next.add(normalizedThreadId);
-      return next;
-    });
-
-    const resolvePromise = invoke("codex:thread:summary:get", normalizedThreadId)
-      .then((thread) => {
-        const summary = thread as CodexThreadSummary | null;
-        if (!summary) return null;
-
-        setThreadMentionThreadsById((current) => {
-          const existing = current[summary.threadId];
-          if (
-            existing
-            && existing.threadName === summary.threadName
-            && existing.threadPreview === summary.threadPreview
-            && existing.statusType === summary.statusType
-            && existing.archived === summary.archived
-            && existing.updatedAt === summary.updatedAt
-          ) {
-            return current;
-          }
-          return {
-            ...current,
-            [summary.threadId]: summary,
-          };
-        });
-        return summary;
-      })
-      .finally(() => {
-        threadMentionResolvePromisesRef.current.delete(normalizedThreadId);
-        setThreadMentionResolvingIds((current) => {
-          if (!current.has(normalizedThreadId)) return current;
-          const next = new Set(current);
-          next.delete(normalizedThreadId);
-          return next;
-        });
+      setThreadMentionResolvingIds((current) => {
+        if (current.has(normalizedThreadId)) return current;
+        const next = new Set(current);
+        next.add(normalizedThreadId);
+        return next;
       });
 
-    threadMentionResolvePromisesRef.current.set(normalizedThreadId, resolvePromise);
-    return resolvePromise;
-  }, []);
+      const resolvePromise = invoke(
+        "codex:thread:summary:get",
+        normalizedThreadId,
+      )
+        .then((thread) => {
+          const summary = thread as CodexThreadSummary | null;
+          if (!summary) return null;
+
+          setThreadMentionThreadsById((current) => {
+            const existing = current[summary.threadId];
+            if (
+              existing &&
+              existing.threadName === summary.threadName &&
+              existing.threadPreview === summary.threadPreview &&
+              existing.statusType === summary.statusType &&
+              existing.archived === summary.archived &&
+              existing.updatedAt === summary.updatedAt
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              [summary.threadId]: summary,
+            };
+          });
+          return summary;
+        })
+        .finally(() => {
+          threadMentionResolvePromisesRef.current.delete(normalizedThreadId);
+          setThreadMentionResolvingIds((current) => {
+            if (!current.has(normalizedThreadId)) return current;
+            const next = new Set(current);
+            next.delete(normalizedThreadId);
+            return next;
+          });
+        });
+
+      threadMentionResolvePromisesRef.current.set(
+        normalizedThreadId,
+        resolvePromise,
+      );
+      return resolvePromise;
+    },
+    [],
+  );
 
   const syncSearchStats = useCallback(() => {
     if (!editor) return;
@@ -850,7 +939,7 @@ function NfmEditorInstance({
         });
       }
     },
-    [editor, syncSearchStats]
+    [editor, syncSearchStats],
   );
 
   const replaceCurrentMatch = useCallback(() => {
@@ -895,7 +984,11 @@ function NfmEditorInstance({
     const strippedDocument = stripProjectedSubtrees(editor.document);
     const nfmBlocks = blockNoteToNfm(strippedDocument);
     if (containerRef.current) {
-      applyToggleStatesFromDom(strippedDocument, nfmBlocks, containerRef.current);
+      applyToggleStatesFromDom(
+        strippedDocument,
+        nfmBlocks,
+        containerRef.current,
+      );
     }
     return serializeNfm(nfmBlocks);
   }, [editor]);
@@ -906,13 +999,20 @@ function NfmEditorInstance({
     return serializeEditorToNfm();
   }, [editor, serializeEditorToNfm]);
 
-  const serializeCurrentEditorContentRef = useRef(serializeCurrentEditorContent);
+  const serializeCurrentEditorContentRef = useRef(
+    serializeCurrentEditorContent,
+  );
   useEffect(() => {
     serializeCurrentEditorContentRef.current = serializeCurrentEditorContent;
   }, [serializeCurrentEditorContent]);
 
-  const serializedChangeEmitterRef = useRef<ReturnType<typeof createNfmSerializedChangeEmitter> | null>(null);
-  if (source.kind === "legacy-snapshot" && !serializedChangeEmitterRef.current) {
+  const serializedChangeEmitterRef = useRef<ReturnType<
+    typeof createNfmSerializedChangeEmitter
+  > | null>(null);
+  if (
+    source.kind === "legacy-snapshot" &&
+    !serializedChangeEmitterRef.current
+  ) {
     serializedChangeEmitterRef.current = createNfmSerializedChangeEmitter({
       debounceMs: EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS,
       serialize: () => serializeCurrentEditorContentRef.current(),
@@ -928,9 +1028,10 @@ function NfmEditorInstance({
     });
   }
 
-  const flushSerializedEmit = useCallback(() => (
-    serializedChangeEmitterRef.current?.flush() ?? null
-  ), []);
+  const flushSerializedEmit = useCallback(
+    () => serializedChangeEmitterRef.current?.flush() ?? null,
+    [],
+  );
 
   const scheduleSerializedEmit = useCallback(() => {
     serializedChangeEmitterRef.current?.schedule();
@@ -941,7 +1042,8 @@ function NfmEditorInstance({
   }, []);
 
   const isComposingRef = useRef(false);
-  const deferredExternalContentSyncRef = useRef<NfmDeferredExternalContentSync | null>(null);
+  const deferredExternalContentSyncRef =
+    useRef<NfmDeferredExternalContentSync | null>(null);
   const queuedExternalReplaceIdRef = useRef(0);
 
   const getExternalSyncActivity = useCallback((): ExternalSyncActivity => {
@@ -955,85 +1057,91 @@ function NfmEditorInstance({
     }
 
     const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
-    const hasPendingLocalChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
+    const hasPendingLocalChange =
+      serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
     const isComposing = isComposingRef.current;
     const activeElement = document.activeElement;
     const isFocusedWithinEditor = Boolean(
-      runtimeEditor.isFocused?.()
-      || (activeElement instanceof Element && runtimeEditor.isWithinEditor?.(activeElement)),
+      runtimeEditor.isFocused?.() ||
+      (activeElement instanceof Element &&
+        runtimeEditor.isWithinEditor?.(activeElement)),
     );
 
     return {
       hasPendingLocalChange,
       isComposing,
       isFocusedWithinEditor,
-      hasActiveLocalEdit: hasPendingLocalChange || isComposing || isFocusedWithinEditor,
+      hasActiveLocalEdit:
+        hasPendingLocalChange || isComposing || isFocusedWithinEditor,
     };
   }, [editor]);
 
-  const scheduleExternalContentReplacement = useCallback((nextContent: string) => {
-    if (sourceRef.current.kind !== "legacy-snapshot") return () => undefined;
-    if (!editor) return () => undefined;
+  const scheduleExternalContentReplacement = useCallback(
+    (nextContent: string) => {
+      if (sourceRef.current.kind !== "legacy-snapshot") return () => undefined;
+      if (!editor) return () => undefined;
 
-    cancelScheduledSerializedEmit();
-    deferredExternalContentSyncRef.current = null;
-    const replaceId = queuedExternalReplaceIdRef.current + 1;
-    queuedExternalReplaceIdRef.current = replaceId;
+      cancelScheduledSerializedEmit();
+      deferredExternalContentSyncRef.current = null;
+      const replaceId = queuedExternalReplaceIdRef.current + 1;
+      queuedExternalReplaceIdRef.current = replaceId;
 
-    // Clean up previous toggle localStorage entries
-    for (const id of toggleBlockIdsRef.current) {
-      localStorage.removeItem(`toggle-${id}`);
-    }
-    toggleBlockIdsRef.current = [];
+      // Clean up previous toggle localStorage entries
+      for (const id of toggleBlockIdsRef.current) {
+        localStorage.removeItem(`toggle-${id}`);
+      }
+      toggleBlockIdsRef.current = [];
 
-    // Compute replacement blocks synchronously (localStorage must be populated
-    // before replaceBlocks so BlockNote reads correct toggle initial states).
-    let nextBlocks: typeof nfmSchema.PartialBlock[] | undefined;
+      // Compute replacement blocks synchronously (localStorage must be populated
+      // before replaceBlocks so BlockNote reads correct toggle initial states).
+      let nextBlocks: (typeof nfmSchema.PartialBlock)[] | undefined;
 
-    if (!nextContent.trim()) {
-      nextBlocks = [];
-    } else {
-      const blocks = parseNfm(nextContent);
-      const toggleStates = new Map<string, boolean>();
-      const bnBlocks = nfmToBlockNote(blocks, toggleStates);
+      if (!nextContent.trim()) {
+        nextBlocks = [];
+      } else {
+        const blocks = parseNfm(nextContent);
+        const toggleStates = new Map<string, boolean>();
+        const bnBlocks = nfmToBlockNote(blocks, toggleStates);
 
-      // Pre-populate localStorage for toggle state restoration
-      for (const [id, isOpen] of toggleStates) {
-        localStorage.setItem(`toggle-${id}`, isOpen ? "true" : "false");
-        toggleBlockIdsRef.current.push(id);
+        // Pre-populate localStorage for toggle state restoration
+        for (const [id, isOpen] of toggleStates) {
+          localStorage.setItem(`toggle-${id}`, isOpen ? "true" : "false");
+          toggleBlockIdsRef.current.push(id);
+        }
+
+        if (bnBlocks.length > 0) {
+          nextBlocks = bnBlocks as unknown as (typeof nfmSchema.PartialBlock)[];
+        }
       }
 
-      if (bnBlocks.length > 0) {
-        nextBlocks = bnBlocks as unknown as typeof nfmSchema.PartialBlock[];
-      }
-    }
+      if (nextBlocks === undefined) return () => undefined;
 
-    if (nextBlocks === undefined) return () => undefined;
+      // Defer replaceBlocks to a microtask so Tiptap's ReactRenderer.flushSync
+      // (for custom block node views like toggleListInlineView) does not collide
+      // with React's active commit phase. Microtasks run before the next paint,
+      // so the update is invisible to users.
+      queueMicrotask(() => {
+        if (queuedExternalReplaceIdRef.current !== replaceId) return;
+        suppressExternalContentSyncRef.current = true;
+        try {
+          editor.transact((tr) => {
+            tr.setMeta("addToHistory", false);
+            editor.replaceBlocks(editor.document, nextBlocks);
+          });
+          lastEmittedRef.current = nextContent;
+        } finally {
+          suppressExternalContentSyncRef.current = false;
+        }
+      });
 
-    // Defer replaceBlocks to a microtask so Tiptap's ReactRenderer.flushSync
-    // (for custom block node views like toggleListInlineView) does not collide
-    // with React's active commit phase. Microtasks run before the next paint,
-    // so the update is invisible to users.
-    queueMicrotask(() => {
-      if (queuedExternalReplaceIdRef.current !== replaceId) return;
-      suppressExternalContentSyncRef.current = true;
-      try {
-        editor.transact((tr) => {
-          tr.setMeta("addToHistory", false);
-          editor.replaceBlocks(editor.document, nextBlocks);
-        });
-        lastEmittedRef.current = nextContent;
-      } finally {
-        suppressExternalContentSyncRef.current = false;
-      }
-    });
-
-    return () => {
-      if (queuedExternalReplaceIdRef.current === replaceId) {
-        queuedExternalReplaceIdRef.current += 1;
-      }
-    };
-  }, [cancelScheduledSerializedEmit, editor]);
+      return () => {
+        if (queuedExternalReplaceIdRef.current === replaceId) {
+          queuedExternalReplaceIdRef.current += 1;
+        }
+      };
+    },
+    [cancelScheduledSerializedEmit, editor],
+  );
 
   const reconcileDeferredExternalContentSync = useCallback(() => {
     if (sourceRef.current.kind !== "legacy-snapshot") return;
@@ -1079,19 +1187,25 @@ function NfmEditorInstance({
 
     legacyFlushHandleRef.current = {
       flushPendingChange: flushSerializedEmit,
-      hasPendingChange: () => serializedChangeEmitterRef.current?.hasPendingChange() ?? false,
+      hasPendingChange: () =>
+        serializedChangeEmitterRef.current?.hasPendingChange() ?? false,
     };
 
     return () => {
-      if (legacyFlushHandleRef.current?.flushPendingChange === flushSerializedEmit) {
+      if (
+        legacyFlushHandleRef.current?.flushPendingChange === flushSerializedEmit
+      ) {
         legacyFlushHandleRef.current = null;
       }
     };
   }, [legacyFlushHandleRef, flushSerializedEmit]);
 
-  useEffect(() => () => {
-    serializedChangeEmitterRef.current?.cancel();
-  }, []);
+  useEffect(
+    () => () => {
+      serializedChangeEmitterRef.current?.cancel();
+    },
+    [],
+  );
 
   const restoreEditorFocus = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1110,245 +1224,309 @@ function NfmEditorInstance({
     restoreEditorFocus();
   }, [editor, isActivePanelTab, restoreEditorFocus]);
 
-  const prepareThreadSectionSend = useCallback(async (blockId: string) => {
-    if (!editor) return null;
+  const prepareThreadSectionSend = useCallback(
+    async (blockId: string) => {
+      if (!editor) return null;
 
-    const strippedDocument = stripProjectedSubtrees(editor.document) as ThreadSectionBlockLike[];
-    const sendPlan = resolveThreadSectionSendPlan(strippedDocument, blockId);
-    if (!sendPlan) return null;
+      const strippedDocument = stripProjectedSubtrees(
+        editor.document,
+      ) as ThreadSectionBlockLike[];
+      const sendPlan = resolveThreadSectionSendPlan(strippedDocument, blockId);
+      if (!sendPlan) return null;
 
-    const promptBlocks = deriveThreadSectionPromptBlocks(sendPlan.section);
-    const promptInput = buildThreadSectionPromptInput(promptBlocks, (nfmBlocks) => {
-      if (!containerRef.current) return;
-      applyToggleStatesFromDom(promptBlocks, nfmBlocks, containerRef.current);
-    });
-    const plainTextPreview = promptInput.text;
-    const existingThread = sendPlan.section.threadId.length > 0
-      ? threadSectionThreadMap[sendPlan.section.threadId]
-      : undefined;
-    const canReuseThread = Boolean(existingThread && !existingThread.archived);
-    const sectionTitle = sendPlan.section.label || sendPlan.section.fallbackTitle;
-    const sendActionLabel = canReuseThread
-      ? "Send to existing thread"
-      : sendPlan.section.threadId.length > 0
-        ? "Start a new thread and rebind section"
-        : "Start a new thread";
-    const threadLabel = canReuseThread
-      ? existingThread?.threadName?.trim()
-        || existingThread?.threadPreview?.trim()
-        || sendPlan.section.threadId
-      : sendPlan.section.threadId.length > 0
-        ? "Linked thread is unavailable"
-        : "No existing thread";
+      const promptBlocks = deriveThreadSectionPromptBlocks(sendPlan.section);
+      const promptInput = buildThreadSectionPromptInput(
+        promptBlocks,
+        (nfmBlocks) => {
+          if (!containerRef.current) return;
+          applyToggleStatesFromDom(
+            promptBlocks,
+            nfmBlocks,
+            containerRef.current,
+          );
+        },
+      );
+      const plainTextPreview = promptInput.text;
+      const existingThread =
+        sendPlan.section.threadId.length > 0
+          ? threadSectionThreadMap[sendPlan.section.threadId]
+          : undefined;
+      const canReuseThread = Boolean(
+        existingThread && !existingThread.archived,
+      );
+      const sectionTitle =
+        sendPlan.section.label || sendPlan.section.fallbackTitle;
+      const sendActionLabel = canReuseThread
+        ? "Send to existing thread"
+        : sendPlan.section.threadId.length > 0
+          ? "Start a new thread and rebind section"
+          : "Start a new thread";
+      const threadLabel = canReuseThread
+        ? existingThread?.threadName?.trim() ||
+          existingThread?.threadPreview?.trim() ||
+          sendPlan.section.threadId
+        : sendPlan.section.threadId.length > 0
+          ? "Linked thread is unavailable"
+          : "No existing thread";
 
-    return {
-      sectionTitle,
-      plainTextPreview,
-      threadLabel,
-      sendActionLabel,
-      autoCreateSection: sendPlan.createMarkerBeforeBlockId !== null,
-      prompt: promptInput.text,
-      promptInput,
-      markerBlockId: sendPlan.section.markerBlockId || null,
-      threadId: sendPlan.section.threadId,
-      canReuseThread,
-      createMarkerBeforeBlockId: sendPlan.createMarkerBeforeBlockId,
-    };
-  }, [
-    editor,
-    threadSectionThreadMap,
-  ]);
+      return {
+        sectionTitle,
+        plainTextPreview,
+        threadLabel,
+        sendActionLabel,
+        autoCreateSection: sendPlan.createMarkerBeforeBlockId !== null,
+        prompt: promptInput.text,
+        promptInput,
+        markerBlockId: sendPlan.section.markerBlockId || null,
+        threadId: sendPlan.section.threadId,
+        canReuseThread,
+        createMarkerBeforeBlockId: sendPlan.createMarkerBeforeBlockId,
+      };
+    },
+    [editor, threadSectionThreadMap],
+  );
 
   const closeThreadSectionPicker = useCallback(() => {
     setThreadSectionPicker(null);
   }, []);
 
-  const resolveThreadSectionPreferredThread = useCallback((
-    request: PreparedThreadSectionSendRequest,
-  ): NfmSendToThreadPreferredTarget | null => {
-    const sectionThread = request.threadId.length > 0
-      ? projectThreadSummaryMap[request.threadId]
-        ?? (sessionThread?.threadId === request.threadId ? sessionThread : undefined)
-      : undefined;
-    return createNfmSendToThreadPreferredTargetFromThread(sectionThread, "Current section")
-      ?? sessionSendToThreadPreferredTarget;
-  }, [projectThreadSummaryMap, sessionThread, sessionSendToThreadPreferredTarget]);
+  const resolveThreadSectionPreferredThread = useCallback(
+    (
+      request: PreparedThreadSectionSendRequest,
+    ): NfmSendToThreadPreferredTarget | null => {
+      const sectionThread =
+        request.threadId.length > 0
+          ? (projectThreadSummaryMap[request.threadId] ??
+            (sessionThread?.threadId === request.threadId
+              ? sessionThread
+              : undefined))
+          : undefined;
+      return (
+        createNfmSendToThreadPreferredTargetFromThread(
+          sectionThread,
+          "Current section",
+        ) ?? sessionSendToThreadPreferredTarget
+      );
+    },
+    [
+      projectThreadSummaryMap,
+      sessionThread,
+      sessionSendToThreadPreferredTarget,
+    ],
+  );
 
-  const withPendingThreadSection = useCallback(async (
-    blockId: string,
-    action: () => Promise<void>,
-  ) => {
-    setThreadSectionPendingBlockIds((current) => {
-      const next = new Set(current);
-      next.add(blockId);
-      return next;
-    });
-
-    try {
-      await action();
-    } finally {
+  const withPendingThreadSection = useCallback(
+    async (blockId: string, action: () => Promise<void>) => {
       setThreadSectionPendingBlockIds((current) => {
         const next = new Set(current);
-        next.delete(blockId);
+        next.add(blockId);
         return next;
       });
-    }
-  }, []);
 
-  const handleOpenThreadSectionThread = useCallback((threadId: string) => {
-    if (!onOpenCodexThread) return;
-    void onOpenCodexThread(threadId);
-  }, [onOpenCodexThread]);
+      try {
+        await action();
+      } finally {
+        setThreadSectionPendingBlockIds((current) => {
+          const next = new Set(current);
+          next.delete(blockId);
+          return next;
+        });
+      }
+    },
+    [],
+  );
 
-  const performThreadSectionSend = useCallback(async (
-    request: PreparedThreadSectionSendRequest,
-    sendRequest: NfmSendToThreadRequest,
-  ) => {
-    if (!editor) {
-      return false;
-    }
-    if (sendRequest.target.kind === "thread" && !onSendThreadSectionPrompt) {
-      toast.danger("Thread sending is not available.", { id: "nfm-thread-section" });
-      restoreEditorFocus();
-      return false;
-    }
-    if (sendRequest.target.kind === "new-thread" && !onStartNewSessionThreadFromEditor) {
-      toast.danger("New chat creation is not available.", { id: "nfm-thread-section" });
-      restoreEditorFocus();
-      return false;
-    }
+  const handleOpenThreadSectionThread = useCallback(
+    (threadId: string) => {
+      if (!onOpenCodexThread) return;
+      void onOpenCodexThread(threadId);
+    },
+    [onOpenCodexThread],
+  );
 
-    let markerBlockId = request.markerBlockId;
-    if (!markerBlockId && request.createMarkerBeforeBlockId) {
-      const [insertedMarker] = editor.insertBlocks(
-        [createEmptyThreadSectionBlock()],
-        request.createMarkerBeforeBlockId,
-        "before",
-      );
-      markerBlockId = insertedMarker?.id ?? null;
-    }
+  const performThreadSectionSend = useCallback(
+    async (
+      request: PreparedThreadSectionSendRequest,
+      sendRequest: NfmSendToThreadRequest,
+    ) => {
+      if (!editor) {
+        return false;
+      }
+      if (sendRequest.target.kind === "thread" && !onSendThreadSectionPrompt) {
+        toast.danger("Thread sending is not available.", {
+          id: "nfm-thread-section",
+        });
+        restoreEditorFocus();
+        return false;
+      }
+      if (
+        sendRequest.target.kind === "new-thread" &&
+        !onStartNewSessionThreadFromEditor
+      ) {
+        toast.danger("New chat creation is not available.", {
+          id: "nfm-thread-section",
+        });
+        restoreEditorFocus();
+        return false;
+      }
 
-    if (!markerBlockId) {
-      toast.danger("Could not resolve a thread section to send.", {
-        id: "nfm-thread-section",
-      });
-      restoreEditorFocus();
-      return false;
-    }
+      let markerBlockId = request.markerBlockId;
+      if (!markerBlockId && request.createMarkerBeforeBlockId) {
+        const [insertedMarker] = editor.insertBlocks(
+          [createEmptyThreadSectionBlock()],
+          request.createMarkerBeforeBlockId,
+          "before",
+        );
+        markerBlockId = insertedMarker?.id ?? null;
+      }
 
-    const sendExistingThreadPrompt = onSendThreadSectionPrompt;
-    const startNewSessionThread = onStartNewSessionThreadFromEditor;
+      if (!markerBlockId) {
+        toast.danger("Could not resolve a thread section to send.", {
+          id: "nfm-thread-section",
+        });
+        restoreEditorFocus();
+        return false;
+      }
 
-    try {
-      await withPendingThreadSection(markerBlockId, async () => {
-        const threadId = sendRequest.target.kind === "thread"
-          ? sendRequest.target.threadId
-          : (await startNewSessionThread!({
-            projectId,
-            targetSessionId: sendRequest.target.sessionId,
-            prompt: request.prompt,
-            promptInput: request.promptInput,
-            threadName: request.sectionTitle,
-          })).threadId;
+      const sendExistingThreadPrompt = onSendThreadSectionPrompt;
+      const startNewSessionThread = onStartNewSessionThreadFromEditor;
 
-        if (sendRequest.target.kind === "thread") {
-          await sendExistingThreadPrompt!({
-            projectId,
-            threadId,
-            prompt: request.prompt,
-            promptInput: request.promptInput,
+      try {
+        await withPendingThreadSection(markerBlockId, async () => {
+          const threadId =
+            sendRequest.target.kind === "thread"
+              ? sendRequest.target.threadId
+              : (
+                  await startNewSessionThread!({
+                    projectId,
+                    targetSessionId: sendRequest.target.sessionId,
+                    prompt: request.prompt,
+                    promptInput: request.promptInput,
+                    threadName: request.sectionTitle,
+                  })
+                ).threadId;
+
+          if (sendRequest.target.kind === "thread") {
+            await sendExistingThreadPrompt!({
+              projectId,
+              threadId,
+              prompt: request.prompt,
+              promptInput: request.promptInput,
+            });
+          }
+
+          const markerBlock = editor.getBlock(markerBlockId);
+          if (!markerBlock) return;
+          editor.updateBlock(markerBlock, {
+            props: {
+              ...(markerBlock.props ?? {}),
+              threadId,
+            },
           });
+        });
+        restoreEditorFocus();
+        return true;
+      } catch (error) {
+        toast.danger(
+          error instanceof Error
+            ? error.message
+            : "Could not send thread section.",
+          {
+            id: "nfm-thread-section",
+          },
+        );
+        restoreEditorFocus();
+        return false;
+      }
+    },
+    [
+      editor,
+      onStartNewSessionThreadFromEditor,
+      onSendThreadSectionPrompt,
+      projectId,
+      restoreEditorFocus,
+      withPendingThreadSection,
+    ],
+  );
+
+  const handleAcceptThreadSectionPicker = useCallback(
+    async (sendRequest: NfmSendToThreadRequest) => {
+      if (!threadSectionPicker) return;
+      const request = threadSectionPicker.request;
+      closeThreadSectionPicker();
+      await performThreadSectionSend(request, sendRequest);
+    },
+    [closeThreadSectionPicker, performThreadSectionSend, threadSectionPicker],
+  );
+
+  const handleSendThreadSectionByBlockId = useCallback(
+    (blockId: string, anchor?: HTMLElement) => {
+      if (!editor || !onSendThreadSectionPrompt) return false;
+
+      const cssEscape =
+        globalThis.CSS?.escape ??
+        ((value: string) => value.replace(/["\\]/g, "\\$&"));
+      const anchorElement =
+        anchor ??
+        editor.prosemirrorView?.dom.querySelector<HTMLElement>(
+          `.bn-block[data-id="${cssEscape(blockId)}"]`,
+        ) ??
+        editor.prosemirrorView?.dom;
+      if (!anchorElement) return false;
+
+      void (async () => {
+        const sendRequest = await prepareThreadSectionSend(blockId);
+        if (!sendRequest) {
+          toast.danger("Could not resolve content to send.", {
+            id: "nfm-thread-section",
+          });
+          return;
         }
 
-        const markerBlock = editor.getBlock(markerBlockId);
-        if (!markerBlock) return;
-        editor.updateBlock(markerBlock, {
-          props: {
-            ...(markerBlock.props ?? {}),
-            threadId,
-          },
+        if (
+          sendRequest.prompt.length === 0 &&
+          (sendRequest.promptInput.images?.length ?? 0) === 0
+        ) {
+          toast.info("This thread section is empty.", {
+            id: "nfm-thread-section",
+          });
+          return;
+        }
+
+        setThreadSectionPicker({
+          request: sendRequest,
+          anchorRect: anchorElement.getBoundingClientRect(),
+          preferredTarget: resolveThreadSectionPreferredThread(sendRequest),
         });
-      });
-      restoreEditorFocus();
+      })();
+
       return true;
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "Could not send thread section.", {
-        id: "nfm-thread-section",
-      });
-      restoreEditorFocus();
-      return false;
-    }
-  }, [
-    editor,
-    onStartNewSessionThreadFromEditor,
-    onSendThreadSectionPrompt,
-    projectId,
-    restoreEditorFocus,
-    withPendingThreadSection,
-  ]);
+    },
+    [
+      editor,
+      onSendThreadSectionPrompt,
+      prepareThreadSectionSend,
+      resolveThreadSectionPreferredThread,
+    ],
+  );
 
-  const handleAcceptThreadSectionPicker = useCallback(async (sendRequest: NfmSendToThreadRequest) => {
-    if (!threadSectionPicker) return;
-    const request = threadSectionPicker.request;
-    closeThreadSectionPicker();
-    await performThreadSectionSend(request, sendRequest);
-  }, [closeThreadSectionPicker, performThreadSectionSend, threadSectionPicker]);
-
-  const handleSendThreadSectionByBlockId = useCallback((blockId: string, anchor?: HTMLElement) => {
-    if (!editor || !onSendThreadSectionPrompt) return false;
-
-    const cssEscape = globalThis.CSS?.escape ?? ((value: string) => value.replace(/["\\]/g, "\\$&"));
-    const anchorElement =
-      anchor
-      ?? editor.prosemirrorView?.dom.querySelector<HTMLElement>(`.bn-block[data-id="${cssEscape(blockId)}"]`)
-      ?? editor.prosemirrorView?.dom;
-    if (!anchorElement) return false;
-
-    void (async () => {
-      const sendRequest = await prepareThreadSectionSend(blockId);
-      if (!sendRequest) {
-        toast.danger("Could not resolve content to send.", {
-          id: "nfm-thread-section",
-        });
-        return;
-      }
-
-      if (sendRequest.prompt.length === 0 && (sendRequest.promptInput.images?.length ?? 0) === 0) {
-        toast.info("This thread section is empty.", {
-          id: "nfm-thread-section",
-        });
-        return;
-      }
-
-      setThreadSectionPicker({
-        request: sendRequest,
-        anchorRect: anchorElement.getBoundingClientRect(),
-        preferredTarget: resolveThreadSectionPreferredThread(sendRequest),
-      });
-    })();
-
-    return true;
-  }, [
-    editor,
-    onSendThreadSectionPrompt,
-    prepareThreadSectionSend,
-    resolveThreadSectionPreferredThread,
-  ]);
-
-  const threadSectionRuntimeValue = useMemo<ThreadSectionRuntimeValue>(() => ({
-    threads: threadSectionThreadMap,
-    pendingBlockIds: threadSectionPendingBlockIds,
-    openThread: handleOpenThreadSectionThread,
-    send: handleSendThreadSectionByBlockId,
-    resolveScope: () => ({
+  const threadSectionRuntimeValue = useMemo<ThreadSectionRuntimeValue>(
+    () => ({
       threads: threadSectionThreadMap,
+      pendingBlockIds: threadSectionPendingBlockIds,
+      openThread: handleOpenThreadSectionThread,
+      send: handleSendThreadSectionByBlockId,
+      resolveScope: () => ({
+        threads: threadSectionThreadMap,
+      }),
     }),
-  }), [
-    handleOpenThreadSectionThread,
-    handleSendThreadSectionByBlockId,
-    threadSectionPendingBlockIds,
-    threadSectionThreadMap,
-  ]);
+    [
+      handleOpenThreadSectionThread,
+      handleSendThreadSectionByBlockId,
+      threadSectionPendingBlockIds,
+      threadSectionThreadMap,
+    ],
+  );
 
   const closePasteResourceDialog = useCallback(() => {
     setPasteResourcePending(false);
@@ -1365,127 +1543,156 @@ function NfmEditorInstance({
     return () => {
       runtime.nodexSourceCardContext = null;
     };
-  }, [
-    editor,
-    projectId,
-    sourceCardContext,
-  ]);
+  }, [editor, projectId, sourceCardContext]);
 
-  const handlePasteResourceChoice = useCallback(async (mode: "materialized" | "link") => {
-    if (!editor || !pasteResourceDialog || pasteResourcePending) return;
-    if (mode === "materialized" && !canMaterializePasteResourceItems(pasteResourceDialog.items)) {
-      setPasteResourceError("Folders can only be kept as links.");
-      return;
-    }
-
-    try {
-      setPasteResourcePending(true);
-      setPasteResourceError(null);
-
-      const nextAttachments: PasteAttachmentInlineContent[] = [];
-
-      for (const item of pasteResourceDialog.items) {
-        if (item.kind === "text") {
-          const text = pasteResourceDialog.textPayload ?? "";
-          const uploaded = await uploadResourceAsset(createPastedTextUploadFile(text));
-          nextAttachments.push({
-            type: "attachment",
-            props: {
-              kind: "text",
-              mode,
-              source: uploaded.source,
-              name: derivePastedTextAttachmentName(text),
-              mimeType: uploaded.mimeType,
-              bytes: uploaded.bytes,
-            },
-          });
-          continue;
-        }
-
-        if (mode === "link" && item.path) {
-          nextAttachments.push({
-            type: "attachment",
-            props: {
-              kind: item.kind,
-              mode: "link",
-              source: item.path,
-              name: item.name,
-              ...(item.mimeType ? { mimeType: item.mimeType } : {}),
-              ...(item.kind === "file" && typeof item.bytes === "number" ? { bytes: item.bytes } : {}),
-            },
-          });
-          continue;
-        }
-
-        if (item.path) {
-          const uploaded = await materializeLocalResourceAsset(item.path);
-          nextAttachments.push({
-            type: "attachment",
-            props: {
-              kind: item.kind,
-              mode: "materialized",
-              source: uploaded.source,
-              name: uploaded.name,
-              mimeType: uploaded.mimeType,
-              bytes: uploaded.bytes,
-              origin: item.path,
-            },
-          });
-          continue;
-        }
-
-        if (item.file) {
-          const uploaded = await uploadResourceAsset(item.file);
-          nextAttachments.push({
-            type: "attachment",
-            props: {
-              kind: item.kind,
-              mode: "materialized",
-              source: uploaded.source,
-              name: uploaded.name,
-              mimeType: uploaded.mimeType,
-              bytes: uploaded.bytes,
-            },
-          });
-        }
+  const handlePasteResourceChoice = useCallback(
+    async (mode: "materialized" | "link") => {
+      if (!editor || !pasteResourceDialog || pasteResourcePending) return;
+      if (
+        mode === "materialized" &&
+        !canMaterializePasteResourceItems(pasteResourceDialog.items)
+      ) {
+        setPasteResourceError("Folders can only be kept as links.");
+        return;
       }
 
-      if (nextAttachments.length === 0) {
-        throw new Error("No pasted attachment could be created.");
-      }
+      try {
+        setPasteResourcePending(true);
+        setPasteResourceError(null);
 
-      const inserted = insertAttachmentsAtPasteTarget(editor, pasteResourceDialog.target, nextAttachments);
-      if (!inserted) {
-        throw new Error("Could not insert the attachment at the current cursor position.");
-      }
+        const nextAttachments: PasteAttachmentInlineContent[] = [];
 
-      closePasteResourceDialog();
-    } catch (error) {
-      console.error("Failed to insert pasted attachments", error);
-      setPasteResourceError(
-        error instanceof Error && error.message.trim().length > 0
-          ? error.message
-          : "Failed to insert the pasted attachment.",
-      );
-    } finally {
-      setPasteResourcePending(false);
-    }
-  }, [closePasteResourceDialog, editor, pasteResourceDialog, pasteResourcePending]);
+        for (const item of pasteResourceDialog.items) {
+          if (item.kind === "text") {
+            const text = pasteResourceDialog.textPayload ?? "";
+            const uploaded = await uploadResourceAsset(
+              createPastedTextUploadFile(text),
+            );
+            nextAttachments.push({
+              type: "attachment",
+              props: {
+                kind: "text",
+                mode,
+                source: uploaded.source,
+                name: derivePastedTextAttachmentName(text),
+                mimeType: uploaded.mimeType,
+                bytes: uploaded.bytes,
+              },
+            });
+            continue;
+          }
+
+          if (mode === "link" && item.path) {
+            nextAttachments.push({
+              type: "attachment",
+              props: {
+                kind: item.kind,
+                mode: "link",
+                source: item.path,
+                name: item.name,
+                ...(item.mimeType ? { mimeType: item.mimeType } : {}),
+                ...(item.kind === "file" && typeof item.bytes === "number"
+                  ? { bytes: item.bytes }
+                  : {}),
+              },
+            });
+            continue;
+          }
+
+          if (item.path) {
+            const uploaded = await materializeLocalResourceAsset(item.path);
+            nextAttachments.push({
+              type: "attachment",
+              props: {
+                kind: item.kind,
+                mode: "materialized",
+                source: uploaded.source,
+                name: uploaded.name,
+                mimeType: uploaded.mimeType,
+                bytes: uploaded.bytes,
+                origin: item.path,
+              },
+            });
+            continue;
+          }
+
+          if (item.file) {
+            const uploaded = await uploadResourceAsset(item.file);
+            nextAttachments.push({
+              type: "attachment",
+              props: {
+                kind: item.kind,
+                mode: "materialized",
+                source: uploaded.source,
+                name: uploaded.name,
+                mimeType: uploaded.mimeType,
+                bytes: uploaded.bytes,
+              },
+            });
+          }
+        }
+
+        if (nextAttachments.length === 0) {
+          throw new Error("No pasted attachment could be created.");
+        }
+
+        const inserted = insertAttachmentsAtPasteTarget(
+          editor,
+          pasteResourceDialog.target,
+          nextAttachments,
+        );
+        if (!inserted) {
+          throw new Error(
+            "Could not insert the attachment at the current cursor position.",
+          );
+        }
+
+        closePasteResourceDialog();
+      } catch (error) {
+        console.error("Failed to insert pasted attachments", error);
+        setPasteResourceError(
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Failed to insert the pasted attachment.",
+        );
+      } finally {
+        setPasteResourcePending(false);
+      }
+    },
+    [
+      closePasteResourceDialog,
+      editor,
+      pasteResourceDialog,
+      pasteResourcePending,
+    ],
+  );
 
   const handleContinuePasteInline = useCallback(() => {
-    if (!editor || !pasteResourceDialog?.textPayload || pasteResourcePending) return;
+    if (!editor || !pasteResourceDialog?.textPayload || pasteResourcePending)
+      return;
 
     editor.focus();
     const continued = continueInlinePaste(editor, pasteResourceDialog);
     if (!continued) {
-      editor.insertInlineContent(pasteResourceDialog.textPayload, { updateSelection: true });
+      editor.insertInlineContent(pasteResourceDialog.textPayload, {
+        updateSelection: true,
+      });
     }
     closePasteResourceDialog();
-  }, [closePasteResourceDialog, editor, pasteResourceDialog, pasteResourcePending]);
+  }, [
+    closePasteResourceDialog,
+    editor,
+    pasteResourceDialog,
+    pasteResourcePending,
+  ]);
 
   useEffect(() => {
     const runtime = editor as unknown as {
-      onBeforeChange?: (listener: (event: { getChanges: () => NfmEditorChange[] }) => boolean | void) => () => void;
+      onBeforeChange?: (
+        listener: (event: {
+          getChanges: () => NfmEditorChange[];
+        }) => boolean | void,
+      ) => () => void;
     };
 
     if (typeof runtime.onBeforeChange !== "function") return;
@@ -1509,7 +1716,10 @@ function NfmEditorInstance({
       routeNfmEditorDocumentChange(currentSource, scheduleSerializedEmit);
       return;
     }
-    if (suppressExternalDropRef.current || suppressExternalContentSyncRef.current) {
+    if (
+      suppressExternalDropRef.current ||
+      suppressExternalContentSyncRef.current
+    ) {
       cancelScheduledSerializedEmit();
       return;
     }
@@ -1526,19 +1736,23 @@ function NfmEditorInstance({
 
       const clipboardTypes = Array.from(event.clipboardData.types);
       if (
-        clipboardTypes.includes(NOTION_BLOCKS_MIME)
-        || clipboardTypes.includes(NOTION_MULTI_TEXT_MIME)
+        clipboardTypes.includes(NOTION_BLOCKS_MIME) ||
+        clipboardTypes.includes(NOTION_MULTI_TEXT_MIME)
       ) {
         return;
       }
 
       const plainText = event.clipboardData.getData("text/plain");
       const clipboardFiles = Array.from(event.clipboardData.files ?? []);
-      const nonImageFiles = clipboardFiles.filter((file) => !file.type.startsWith("image/"));
+      const nonImageFiles = clipboardFiles.filter(
+        (file) => !file.type.startsWith("image/"),
+      );
       const inspectedItems = window.api?.inspectPasteClipboard?.().items ?? [];
-      const shouldPromptFiles = inspectedItems.length > 0 || nonImageFiles.length > 0;
-      const shouldPromptText = !shouldPromptFiles
-        && shouldPromptForOversizedText(
+      const shouldPromptFiles =
+        inspectedItems.length > 0 || nonImageFiles.length > 0;
+      const shouldPromptText =
+        !shouldPromptFiles &&
+        shouldPromptForOversizedText(
           plainText,
           serializeEditorToNfm().length,
           pasteResourceSettings,
@@ -1582,8 +1796,10 @@ function NfmEditorInstance({
           items: [{ kind: "text", name: "Pasted text" }],
           textPayload: plainText,
           htmlPayload: event.clipboardData.getData("text/html") || undefined,
-          markdownPayload: event.clipboardData.getData("text/markdown") || undefined,
-          blocknoteHtmlPayload: event.clipboardData.getData("blocknote/html") || undefined,
+          markdownPayload:
+            event.clipboardData.getData("text/markdown") || undefined,
+          blocknoteHtmlPayload:
+            event.clipboardData.getData("blocknote/html") || undefined,
           allowLink: false,
         });
       }
@@ -1593,7 +1809,12 @@ function NfmEditorInstance({
     return () => {
       container.removeEventListener("paste", handlePasteCapture, true);
     };
-  }, [editor, pasteResourceDialog, pasteResourceSettings, serializeEditorToNfm]);
+  }, [
+    editor,
+    pasteResourceDialog,
+    pasteResourceSettings,
+    serializeEditorToNfm,
+  ]);
 
   // Sync external content changes (card switching)
   const prevContentRef = useRef(legacyContent ?? "");
@@ -1627,7 +1848,8 @@ function NfmEditorInstance({
       deferredExternalContentSyncRef.current = {
         content,
         baselineSerializedContent: currentSerializedContent,
-        shouldReplayWhenSafe: !activity.hasPendingLocalChange && !activity.isComposing,
+        shouldReplayWhenSafe:
+          !activity.hasPendingLocalChange && !activity.isComposing,
       };
       return;
     }
@@ -1698,7 +1920,10 @@ function NfmEditorInstance({
 
     const handleFocusOut = (event: FocusEvent) => {
       const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
-      if (event.relatedTarget instanceof Element && runtimeEditor.isWithinEditor?.(event.relatedTarget)) {
+      if (
+        event.relatedTarget instanceof Element &&
+        runtimeEditor.isWithinEditor?.(event.relatedTarget)
+      ) {
         return;
       }
 
@@ -1723,7 +1948,9 @@ function NfmEditorInstance({
         if (
           mutation.type === "attributes" &&
           mutation.attributeName === "data-show-children" &&
-          (mutation.target as HTMLElement).classList.contains("bn-toggle-wrapper")
+          (mutation.target as HTMLElement).classList.contains(
+            "bn-toggle-wrapper",
+          )
         ) {
           handleChange();
           // Toggle clicks are discrete actions — flush save immediately
@@ -1776,11 +2003,15 @@ function NfmEditorInstance({
 
       if (
         !targetIsTextField &&
-        event.key === "Tab"
-        && !event.altKey
-        && !event.ctrlKey
-        && !event.metaKey
-        && shouldSuppressPreferIndentBoundaryTab(editor, event.target, event.shiftKey)
+        event.key === "Tab" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        shouldSuppressPreferIndentBoundaryTab(
+          editor,
+          event.target,
+          event.shiftKey,
+        )
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -1795,7 +2026,9 @@ function NfmEditorInstance({
         !event.metaKey
       ) {
         if (isSpaceShortcut(event)) {
-          const focusedImage = resolveFocusedImagePreview(editor as unknown as ImageSelectionEditor);
+          const focusedImage = resolveFocusedImagePreview(
+            editor as unknown as ImageSelectionEditor,
+          );
           if (focusedImage) {
             event.preventDefault();
             event.stopPropagation();
@@ -1809,36 +2042,48 @@ function NfmEditorInstance({
           }
         }
 
-        if (event.key === "ArrowUp" && handleArrowFromInlineBlockSelection(editor, "prev")) {
-          event.preventDefault();
-          return;
-        }
-
-        if (event.key === "ArrowDown" && handleArrowFromInlineBlockSelection(editor, "next")) {
-          event.preventDefault();
-          return;
-        }
-
-        if (event.key === "ArrowUp" && handleArrowIntoInlineSummary(editor, "prev")) {
-          event.preventDefault();
-          return;
-        }
-
-        if (event.key === "ArrowDown" && handleArrowIntoInlineSummary(editor, "next")) {
+        if (
+          event.key === "ArrowUp" &&
+          handleArrowFromInlineBlockSelection(editor, "prev")
+        ) {
           event.preventDefault();
           return;
         }
 
         if (
-          event.key === "ArrowUp"
-          && deferCollapsedToggleVerticalArrowToBrowser(editor, el, "prev", event)
+          event.key === "ArrowDown" &&
+          handleArrowFromInlineBlockSelection(editor, "next")
+        ) {
+          event.preventDefault();
+          return;
+        }
+
+        if (
+          event.key === "ArrowUp" &&
+          handleArrowIntoInlineSummary(editor, "prev")
+        ) {
+          event.preventDefault();
+          return;
+        }
+
+        if (
+          event.key === "ArrowDown" &&
+          handleArrowIntoInlineSummary(editor, "next")
+        ) {
+          event.preventDefault();
+          return;
+        }
+
+        if (
+          event.key === "ArrowUp" &&
+          deferCollapsedToggleVerticalArrowToBrowser(editor, el, "prev", event)
         ) {
           return;
         }
 
         if (
-          event.key === "ArrowDown"
-          && deferCollapsedToggleVerticalArrowToBrowser(editor, el, "next", event)
+          event.key === "ArrowDown" &&
+          deferCollapsedToggleVerticalArrowToBrowser(editor, el, "next", event)
         ) {
           return;
         }
@@ -1850,30 +2095,35 @@ function NfmEditorInstance({
 
       if (!modifier) return;
 
-      if (
-        key === "enter"
-        && !targetIsTextField
-      ) {
-        const handled = !event.altKey && !event.shiftKey && handleNfmEditorModEnterShortcut(
-          editor as unknown as ModifyShortcutEditor,
-          {
-            projectId,
-            openImagePreview: (preview) => {
-              setImagePreview({
-                source: resolveAssetSourceToHttpUrl(preview.source),
-                alt: preview.alt,
-              });
+      if (key === "enter" && !targetIsTextField) {
+        const handled =
+          !event.altKey &&
+          !event.shiftKey &&
+          handleNfmEditorModEnterShortcut(
+            editor as unknown as ModifyShortcutEditor,
+            {
+              projectId,
+              openImagePreview: (preview) => {
+                setImagePreview({
+                  source: resolveAssetSourceToHttpUrl(preview.source),
+                  alt: preview.alt,
+                });
+              },
+              openCard: onOpenCard,
+              openThread: onOpenCodexThread
+                ? handleOpenThreadSectionThread
+                : undefined,
+              sendThreadSectionByBlockId: handleSendThreadSectionByBlockId,
+              showMissingThreadSectionHint: () => {
+                toast.info(
+                  "Insert /thread section to send notebook-style prompts.",
+                  {
+                    id: "nfm-thread-section",
+                  },
+                );
+              },
             },
-            openCard: onOpenCard,
-            openThread: onOpenCodexThread ? handleOpenThreadSectionThread : undefined,
-            sendThreadSectionByBlockId: handleSendThreadSectionByBlockId,
-            showMissingThreadSectionHint: () => {
-              toast.info("Insert /thread section to send notebook-style prompts.", {
-                id: "nfm-thread-section",
-              });
-            },
-          },
-        );
+          );
         if (handled) {
           event.preventDefault();
           event.stopPropagation();
@@ -1937,14 +2187,23 @@ function NfmEditorInstance({
         return;
       }
 
-      const imageContent = event.target.closest<HTMLElement>("[data-content-type='image']");
+      const imageContent = event.target.closest<HTMLElement>(
+        "[data-content-type='image']",
+      );
       if (!imageContent || !el.contains(imageContent)) return;
 
-      const blockOuter = imageContent.closest<HTMLElement>("[data-node-type='blockOuter'][data-id]");
+      const blockOuter = imageContent.closest<HTMLElement>(
+        "[data-node-type='blockOuter'][data-id]",
+      );
       const clickedImage = blockOuter?.dataset.id
-        ? resolveImagePreviewByBlockId(editor as unknown as ImageBlockLookupEditor, blockOuter.dataset.id)
+        ? resolveImagePreviewByBlockId(
+            editor as unknown as ImageBlockLookupEditor,
+            blockOuter.dataset.id,
+          )
         : null;
-      const focusedImage = resolveFocusedImagePreview(editor as unknown as ImageSelectionEditor);
+      const focusedImage = resolveFocusedImagePreview(
+        editor as unknown as ImageSelectionEditor,
+      );
       const preview = clickedImage ?? focusedImage;
       if (!preview) return;
 
@@ -1973,7 +2232,8 @@ function NfmEditorInstance({
       const chip = target.closest<HTMLElement>("[data-chip-property]");
       if (!chip) return;
 
-      const propertyType = chip.dataset.chipProperty as MetaChipPropertyType | undefined;
+      const propertyType = chip.dataset.chipProperty as
+        MetaChipPropertyType | undefined;
       const cardId = chip.dataset.chipCardId;
       const blockId = chip.dataset.chipBlockId;
       const token = chip.dataset.chipToken;
@@ -2000,8 +2260,13 @@ function NfmEditorInstance({
   const handleChipSelect = useCallback(
     (propertyType: string, _cardId: string, value: string, blockId: string) => {
       const runtime = editor as unknown as {
-        getBlock: (id: string) => { type?: string; props?: Record<string, unknown> } | undefined;
-        updateBlock: (id: string, update: { props: Record<string, unknown> }) => void;
+        getBlock: (
+          id: string,
+        ) => { type?: string; props?: Record<string, unknown> } | undefined;
+        updateBlock: (
+          id: string,
+          update: { props: Record<string, unknown> },
+        ) => void;
       };
 
       if (typeof runtime.getBlock !== "function") return;
@@ -2010,11 +2275,11 @@ function NfmEditorInstance({
       const block = runtime.getBlock(blockId);
       if (!block || block.type !== "cardToggle") return;
 
-      const props = typeof block.props === "object" && block.props
-        ? block.props
-        : {};
+      const props =
+        typeof block.props === "object" && block.props ? block.props : {};
       const currentMeta = typeof props.meta === "string" ? props.meta : "";
-      const currentSnapshot = typeof props.snapshot === "string" ? props.snapshot : "";
+      const currentSnapshot =
+        typeof props.snapshot === "string" ? props.snapshot : "";
       const nextMeta = applyCardToggleMetaEdit(
         currentMeta,
         propertyType as "priority" | "estimate" | "status",
@@ -2042,13 +2307,16 @@ function NfmEditorInstance({
     setActiveChipEdit(null);
   }, []);
 
-  const handleConvertDividerToThreadSection = useCallback((blockId: string) => {
-    const block = editor.getBlock(blockId);
-    if (!block || block.type !== "divider") return;
+  const handleConvertDividerToThreadSection = useCallback(
+    (blockId: string) => {
+      const block = editor.getBlock(blockId);
+      if (!block || block.type !== "divider") return;
 
-    editor.updateBlock(block, createEmptyThreadSectionBlock());
-    restoreEditorFocus();
-  }, [editor, restoreEditorFocus]);
+      editor.updateBlock(block, createEmptyThreadSectionBlock());
+      restoreEditorFocus();
+    },
+    [editor, restoreEditorFocus],
+  );
 
   const resolveSendBlocksSelection = useCallback(
     (fallbackBlockId: string): SendBlocksSelection | null => {
@@ -2057,11 +2325,20 @@ function NfmEditorInstance({
       const container = containerRef.current;
       if (!container) return null;
 
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop & EditorForInlineViewDrop;
-      const selection = resolveSendBlockSelection(dropEditor, container, fallbackBlockId);
+      const dropEditor = editor as unknown as EditorForExternalBlockDrop &
+        EditorForInlineViewDrop;
+      const selection = resolveSendBlockSelection(
+        dropEditor,
+        container,
+        fallbackBlockId,
+      );
       if (selection.blockIds.length === 0) return null;
 
-      if (selection.blockIds.some((blockId) => blockHasProjectedAncestor(dropEditor, blockId))) {
+      if (
+        selection.blockIds.some((blockId) =>
+          blockHasProjectedAncestor(dropEditor, blockId),
+        )
+      ) {
         return null;
       }
 
@@ -2087,12 +2364,17 @@ function NfmEditorInstance({
       },
     ) => {
       if (sourceRef.current.kind !== "legacy-snapshot") {
-        throw new Error("Moving blocks between Cards is not available for collaborative documents yet.");
+        throw new Error(
+          "Moving blocks between Cards is not available for collaborative documents yet.",
+        );
       }
       if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
-      if (targetProjectId === projectId && targetCardId === sourceCardContext.cardId) {
+      if (
+        targetProjectId === projectId &&
+        targetCardId === sourceCardContext.cardId
+      ) {
         throw new Error("Choose a different destination card.");
       }
 
@@ -2100,15 +2382,24 @@ function NfmEditorInstance({
       if (!isBoardSummary(boardResult)) {
         throw new Error("Unable to load destination card.");
       }
-      const targetColumn = boardResult.columns.find((column) => column.id === targetStatus);
+      const targetColumn = boardResult.columns.find(
+        (column) => column.id === targetStatus,
+      );
       if (!targetColumn) {
         throw new Error("Destination column not found.");
       }
-      const targetCardSummary = targetColumn.cards.find((card) => card.id === targetCardId);
+      const targetCardSummary = targetColumn.cards.find(
+        (card) => card.id === targetCardId,
+      );
       if (!targetCardSummary) {
         throw new Error("Destination card not found.");
       }
-      const targetCard = (await invoke("card:get", targetProjectId, targetCardId, targetStatus)) as Card | null;
+      const targetCard = (await invoke(
+        "card:get",
+        targetProjectId,
+        targetCardId,
+        targetStatus,
+      )) as Card | null;
       if (!targetCard) {
         throw new Error("Destination card not found.");
       }
@@ -2119,9 +2410,14 @@ function NfmEditorInstance({
       const sourceSnapshot = snapshotEditorDocument(dropEditor);
       const baselineSourceDescription = serializeEditorToNfm();
       const targetBlocks = parseNfm(targetCard.description ?? "");
-      const transferableBlocks = stripProjectedSubtrees(selection.blocks) as DragSessionBlock[];
+      const transferableBlocks = stripProjectedSubtrees(
+        selection.blocks,
+      ) as DragSessionBlock[];
       const movedBlocks = blockNoteToNfm(transferableBlocks);
-      const nextTargetDescription = serializeNfm([...targetBlocks, ...movedBlocks]);
+      const nextTargetDescription = serializeNfm([
+        ...targetBlocks,
+        ...movedBlocks,
+      ]);
 
       suppressExternalDropRef.current = true;
       try {
@@ -2135,32 +2431,31 @@ function NfmEditorInstance({
           throw new Error("Unable to move selected blocks.");
         }
 
-        await invoke(
-          "card:import-block-drop",
-          targetProjectId,
-          {
-            targetStatus,
-            cards: [],
-            sourceUpdates: [
-              {
-                projectId,
-                columnId: sourceCardContext.columnId,
-                cardId: sourceCardContext.cardId,
-                updates: { description: nextSourceDescription },
-              },
-              {
-                projectId: targetProjectId,
-                columnId: targetStatus,
-                cardId: targetCardId,
-                updates: { description: nextTargetDescription },
-              },
-            ],
-            groupId: crypto.randomUUID(),
-          },
-        );
+        await invoke("card:import-block-drop", targetProjectId, {
+          targetStatus,
+          cards: [],
+          sourceUpdates: [
+            {
+              projectId,
+              columnId: sourceCardContext.columnId,
+              cardId: sourceCardContext.cardId,
+              updates: { description: nextSourceDescription },
+            },
+            {
+              projectId: targetProjectId,
+              columnId: targetStatus,
+              cardId: targetCardId,
+              updates: { description: nextTargetDescription },
+            },
+          ],
+          groupId: crypto.randomUUID(),
+        });
         lastEmittedRef.current = nextSourceDescription;
         if (targetProjectId === projectId) {
-          await fetchCardDetails(projectId, [sourceCardContext.cardId, targetCardId]);
+          await fetchCardDetails(projectId, [
+            sourceCardContext.cardId,
+            targetCardId,
+          ]);
         } else {
           await Promise.all([
             fetchCardDetails(projectId, [sourceCardContext.cardId]),
@@ -2174,7 +2469,13 @@ function NfmEditorInstance({
         suppressExternalDropRef.current = false;
       }
     },
-    [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
+    [
+      cancelScheduledSerializedEmit,
+      editor,
+      projectId,
+      serializeEditorToNfm,
+      sourceCardContext,
+    ],
   );
 
   const sendBlockSelectionToProject = useCallback(
@@ -2189,13 +2490,17 @@ function NfmEditorInstance({
       },
     ) => {
       if (sourceRef.current.kind !== "legacy-snapshot") {
-        throw new Error("Moving blocks between Cards is not available for collaborative documents yet.");
+        throw new Error(
+          "Moving blocks between Cards is not available for collaborative documents yet.",
+        );
       }
       if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
 
-      const transferableBlocks = stripProjectedSubtrees(selection.blocks) as DragSessionBlock[];
+      const transferableBlocks = stripProjectedSubtrees(
+        selection.blocks,
+      ) as DragSessionBlock[];
       const cards = mapDraggedBlocksToCardInputs(transferableBlocks);
       if (cards.length === 0) {
         throw new Error("Unable to build cards from the selected blocks.");
@@ -2218,23 +2523,19 @@ function NfmEditorInstance({
           throw new Error("Unable to move selected blocks.");
         }
 
-        await invoke(
-          "card:import-block-drop",
-          targetProjectId,
-          {
-            targetStatus,
-            cards,
-            sourceUpdates: [
-              {
-                projectId,
-                columnId: sourceCardContext.columnId,
-                cardId: sourceCardContext.cardId,
-                updates: { description: nextSourceDescription },
-              },
-            ],
-            groupId: crypto.randomUUID(),
-          },
-        );
+        await invoke("card:import-block-drop", targetProjectId, {
+          targetStatus,
+          cards,
+          sourceUpdates: [
+            {
+              projectId,
+              columnId: sourceCardContext.columnId,
+              cardId: sourceCardContext.cardId,
+              updates: { description: nextSourceDescription },
+            },
+          ],
+          groupId: crypto.randomUUID(),
+        });
         lastEmittedRef.current = nextSourceDescription;
         await fetchCardDetails(projectId, [sourceCardContext.cardId]);
       } catch (error) {
@@ -2244,7 +2545,13 @@ function NfmEditorInstance({
         suppressExternalDropRef.current = false;
       }
     },
-    [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
+    [
+      cancelScheduledSerializedEmit,
+      editor,
+      projectId,
+      serializeEditorToNfm,
+      sourceCardContext,
+    ],
   );
 
   const moveBlocksToDestination = useCallback(
@@ -2281,11 +2588,20 @@ function NfmEditorInstance({
         throw new Error("No blocks selected.");
       }
 
-      const transferableBlocks = stripProjectedSubtrees(selection.blocks) as DragSessionBlock[];
-      const promptInput = buildCodexPromptInputFromBlockNoteBlocks(transferableBlocks, (nfmBlocks) => {
-        if (!containerRef.current) return;
-        applyToggleStatesFromDom(transferableBlocks, nfmBlocks, containerRef.current);
-      });
+      const transferableBlocks = stripProjectedSubtrees(
+        selection.blocks,
+      ) as DragSessionBlock[];
+      const promptInput = buildCodexPromptInputFromBlockNoteBlocks(
+        transferableBlocks,
+        (nfmBlocks) => {
+          if (!containerRef.current) return;
+          applyToggleStatesFromDom(
+            transferableBlocks,
+            nfmBlocks,
+            containerRef.current,
+          );
+        },
+      );
       const hasImages = (promptInput.images?.length ?? 0) > 0;
       if (promptInput.text.length === 0 && !hasImages) {
         toast.info("Selected blocks are empty.", {
@@ -2301,12 +2617,14 @@ function NfmEditorInstance({
         if (!onStartNewSessionThreadFromEditor) {
           throw new Error("New chat creation is not available.");
         }
-        threadId = (await onStartNewSessionThreadFromEditor({
-          projectId,
-          targetSessionId: request.target.sessionId,
-          prompt: promptInput.text,
-          promptInput,
-        })).threadId;
+        threadId = (
+          await onStartNewSessionThreadFromEditor({
+            projectId,
+            targetSessionId: request.target.sessionId,
+            prompt: promptInput.text,
+            promptInput,
+          })
+        ).threadId;
       }
 
       if (request.target.kind === "thread") {
@@ -2335,15 +2653,20 @@ function NfmEditorInstance({
           flushSerializedEmit();
         } catch (error) {
           localStorage.removeItem(toggleStorageKey);
-          toggleBlockIdsRef.current = toggleBlockIdsRef.current.filter((blockId) => blockId !== toggleBlock.id);
+          toggleBlockIdsRef.current = toggleBlockIdsRef.current.filter(
+            (blockId) => blockId !== toggleBlock.id,
+          );
           restoreEditorDocument(dropEditor, sourceSnapshot);
           throw error;
         }
       }
 
-      toast.success(request.target.kind === "thread" ? "Sent to chat" : "Sent to new chat", {
-        id: "nfm-send-to-thread",
-      });
+      toast.success(
+        request.target.kind === "thread" ? "Sent to chat" : "Sent to new chat",
+        {
+          id: "nfm-send-to-thread",
+        },
+      );
       restoreEditorFocus();
     },
     [
@@ -2371,13 +2694,16 @@ function NfmEditorInstance({
         columnId: sourceColumnId,
       },
       () => {
-        const hadPendingChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
+        const hadPendingChange =
+          serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
         cancelScheduledSerializedEmit();
         suppressExternalDropRef.current = true;
         return (result, sourceUpdates) => {
           if (result === "move") {
             const sourceUpdate = sourceUpdates.find(
-              (update) => update.projectId === projectId && update.cardId === sourceCardId,
+              (update) =>
+                update.projectId === projectId &&
+                update.cardId === sourceCardId,
             );
             const nextDescription = sourceUpdate?.updates.description;
             if (typeof nextDescription === "string") {
@@ -2407,12 +2733,16 @@ function NfmEditorInstance({
   });
   const sideMenuSelectionGuardActive = useSideMenuSelectionGuard(containerRef);
   const sideMenuFloatingOptions = useMemo(
-    () => getSideMenuSelectionGuardFloatingOptions(sideMenuSelectionGuardActive),
+    () =>
+      getSideMenuSelectionGuardFloatingOptions(sideMenuSelectionGuardActive),
     [sideMenuSelectionGuardActive],
   );
 
   const applyCardImportDrop = useCallback(
-    async (payload: ExternalCardDragPayload, pointer: { x: number; y: number }) => {
+    async (
+      payload: ExternalCardDragPayload,
+      pointer: { x: number; y: number },
+    ) => {
       if (sourceRef.current.kind !== "legacy-snapshot") return null;
       if (!sourceCardContext) return null;
       const container = containerRef.current;
@@ -2426,7 +2756,8 @@ function NfmEditorInstance({
       if (detailById.size !== payload.cards.length) return null;
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
-      const hadPendingChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
+      const hadPendingChange =
+        serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
       const lastEmittedBeforeDrop = lastEmittedRef.current;
       cancelScheduledSerializedEmit();
       const baselineDescription = serializeEditorToNfm();
@@ -2434,12 +2765,14 @@ function NfmEditorInstance({
       const droppedBlocks = payload.cards.flatMap((entry) => {
         const card = detailById.get(entry.card.id);
         if (!card) return [];
-        return [mapCardToDroppedCardToggleBlock(
-          card,
-          payload.projectId,
-          entry.columnId,
-          entry.columnName,
-        )];
+        return [
+          mapCardToDroppedCardToggleBlock(
+            card,
+            payload.projectId,
+            entry.columnId,
+            entry.columnName,
+          ),
+        ];
       });
       if (droppedBlocks.length !== payload.cards.length) return null;
 
@@ -2551,8 +2884,10 @@ function NfmEditorInstance({
 
   useCardImportDropTarget({
     containerRef,
-    enabled: source.kind === "legacy-snapshot" && sourceCardContext !== undefined,
-    getTargetCardIds: () => (sourceCardContext ? [sourceCardContext.cardId] : []),
+    enabled:
+      source.kind === "legacy-snapshot" && sourceCardContext !== undefined,
+    getTargetCardIds: () =>
+      sourceCardContext ? [sourceCardContext.cardId] : [],
     applyDrop: applyCardImportDrop,
     commitDrop: commitCardImportDrop,
     setHover: handleCardImportHover,
@@ -2566,11 +2901,15 @@ function NfmEditorInstance({
       const container = containerRef.current;
       if (!container) return;
 
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop & EditorForCardDropInsert;
+      const dropEditor = editor as unknown as EditorForExternalBlockDrop &
+        EditorForCardDropInsert;
       const draggedIds = resolveDraggedBlockIds(dropEditor, container);
       if (draggedIds.length === 0) return;
 
-      const draggedBlocks = resolveTopLevelDraggedBlocks(dropEditor, draggedIds);
+      const draggedBlocks = resolveTopLevelDraggedBlocks(
+        dropEditor,
+        draggedIds,
+      );
       if (draggedBlocks.length === 0) return;
       const pointer = { x: event.clientX, y: event.clientY };
       const anchor = resolveCardDropAnchor(container, pointer);
@@ -2581,8 +2920,8 @@ function NfmEditorInstance({
         const dropSource = resolveProjectedCardDropSource(draggedBlock);
         if (dropSource) {
           if (
-            anchor
-            && isBlockWithinOwnerTree(
+            anchor &&
+            isBlockWithinOwnerTree(
               (blockId) => dropEditor.getParentBlock(blockId),
               dropSource.ownerBlockId,
               anchor.blockId,
@@ -2597,7 +2936,10 @@ function NfmEditorInstance({
           cancelScheduledSerializedEmit();
           const baselineDescription = serializeEditorToNfm();
           const snapshot = snapshotEditorDocument(dropEditor);
-          const droppedBlock = materializeProjectedCardToggleBlock(draggedBlock, dropSource);
+          const droppedBlock = materializeProjectedCardToggleBlock(
+            draggedBlock,
+            dropSource,
+          );
 
           suppressExternalDropRef.current = true;
           try {
@@ -2621,10 +2963,12 @@ function NfmEditorInstance({
             const result = await applyCardEditorDrop({
               operation: "move",
               sourceProjectId: dropSource.sourceProjectId,
-              sourceCards: [{
-                cardId: dropSource.sourceCardId,
-                status: dropSource.sourceStatus as Card["status"] | undefined,
-              }],
+              sourceCards: [
+                {
+                  cardId: dropSource.sourceCardId,
+                  status: dropSource.sourceStatus as Card["status"] | undefined,
+                },
+              ],
               targetUpdates: [
                 {
                   projectId,
@@ -2652,11 +2996,19 @@ function NfmEditorInstance({
         }
       }
 
-      if (draggedBlocks.some((block) => resolveProjectedCardDropSource(block) !== null)) {
+      if (
+        draggedBlocks.some(
+          (block) => resolveProjectedCardDropSource(block) !== null,
+        )
+      ) {
         return;
       }
 
-      if (draggedIds.some((blockId) => blockHasProjectedAncestor(dropEditor, blockId))) {
+      if (
+        draggedIds.some((blockId) =>
+          blockHasProjectedAncestor(dropEditor, blockId),
+        )
+      ) {
         return;
       }
 
@@ -2681,7 +3033,10 @@ function NfmEditorInstance({
       event.preventDefault();
       event.stopPropagation();
 
-      const boardResult = await invoke("board:summary:get", dropContext.sourceProjectId);
+      const boardResult = await invoke(
+        "board:summary:get",
+        dropContext.sourceProjectId,
+      );
       if (!isBoardSummary(boardResult)) return;
 
       const inferredDrop = inferInlineViewDropImport({
@@ -2718,17 +3073,15 @@ function NfmEditorInstance({
           },
         ];
 
-        await invoke(
-          "card:import-block-drop",
-          dropContext.sourceProjectId,
-          {
-            targetStatus: inferredDrop.targetStatus,
-            ...(inferredDrop.insertIndex !== undefined ? { insertIndex: inferredDrop.insertIndex } : {}),
-            cards: inferredDrop.cards,
-            sourceUpdates,
-            groupId: crypto.randomUUID(),
-          },
-        );
+        await invoke("card:import-block-drop", dropContext.sourceProjectId, {
+          targetStatus: inferredDrop.targetStatus,
+          ...(inferredDrop.insertIndex !== undefined
+            ? { insertIndex: inferredDrop.insertIndex }
+            : {}),
+          cards: inferredDrop.cards,
+          sourceUpdates,
+          groupId: crypto.randomUUID(),
+        });
         lastEmittedRef.current = nextDescription;
       } catch {
         restoreEditorDocument(dropEditor, snapshot);
@@ -2797,10 +3150,7 @@ function NfmEditorInstance({
     [],
   );
 
-  const customSideMenu = useCallback(
-    () => <NfmSideMenu />,
-    [],
-  );
+  const customSideMenu = useCallback(() => <NfmSideMenu />, []);
 
   const textActionMenuRuntimeValue = useMemo(
     () => ({
@@ -2830,23 +3180,53 @@ function NfmEditorInstance({
     ],
   );
 
-  const openThreadMention = useCallback((threadId: string) => {
-    if (!onOpenCodexThread) return;
-    void onOpenCodexThread(threadId);
-  }, [onOpenCodexThread]);
+  const openThreadMention = useCallback(
+    (threadId: string) => {
+      if (!onOpenCodexThread) return;
+      void onOpenCodexThread(threadId);
+    },
+    [onOpenCodexThread],
+  );
 
-  const threadMentionRuntimeValue = useMemo<ThreadMentionRuntimeValue>(() => ({
-    threads: threadMentionSummaryMap,
-    resolvingIds: threadMentionResolvingIds,
-    resolveThread: resolveThreadMention,
-    ...(onOpenCodexThread ? { openThread: openThreadMention } : {}),
-  }), [
-    onOpenCodexThread,
-    openThreadMention,
-    resolveThreadMention,
-    threadMentionResolvingIds,
-    threadMentionSummaryMap,
-  ]);
+  const threadMentionRuntimeValue = useMemo<ThreadMentionRuntimeValue>(
+    () => ({
+      threads: threadMentionSummaryMap,
+      resolvingIds: threadMentionResolvingIds,
+      resolveThread: resolveThreadMention,
+      ...(onOpenCodexThread ? { openThread: openThreadMention } : {}),
+    }),
+    [
+      onOpenCodexThread,
+      openThreadMention,
+      resolveThreadMention,
+      threadMentionResolvingIds,
+      threadMentionSummaryMap,
+    ],
+  );
+
+  const blockReferenceRuntimeValue = useMemo<BlockReferenceHostRuntime>(
+    () => ({
+      projectId,
+      projectName,
+      projectWorkspacePath: projectWorkspacePath ?? null,
+      hostCardId: sourceCardContext?.cardId ?? null,
+      ancestorCardIds: appendInlineCardAncestor(
+        parentBlockReferenceRuntime?.ancestorCardIds ?? [],
+        sourceCardContext?.cardId,
+      ),
+      isActiveSurface: isActivePanelTab,
+      ...(onOpenCard ? { openCard: onOpenCard } : {}),
+    }),
+    [
+      isActivePanelTab,
+      onOpenCard,
+      projectId,
+      projectName,
+      projectWorkspacePath,
+      parentBlockReferenceRuntime?.ancestorCardIds,
+      sourceCardContext?.cardId,
+    ],
+  );
 
   const activeMatchLabel =
     searchMatchCount === 0
@@ -2854,7 +3234,11 @@ function NfmEditorInstance({
       : `${Math.max(searchActiveIndex + 1, 0)} of ${searchMatchCount}`;
 
   return (
-    <div ref={containerRef} className={cn("nfm-editor relative", className)} spellCheck={spellcheck}>
+    <div
+      ref={containerRef}
+      className={cn("nfm-editor relative", className)}
+      spellCheck={spellcheck}
+    >
       {searchOpen && (
         <div className="pointer-events-none sticky top-2 z-90 flex h-0 justify-end">
           <div className="pointer-events-auto mr-2 flex w-fit max-w-[calc(100%-16px)] flex-col self-start overflow-hidden rounded-lg border border-(--border) bg-(--card) shadow-[0_2px_8px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.06)]">
@@ -2878,7 +3262,9 @@ function NfmEditorInstance({
                 className="h-7 min-w-35 flex-1 border-none bg-transparent text-base/7 font-normal text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
                 aria-label="Find in description"
               />
-              <span className="min-w-10.5 pr-0.5 text-right text-xs whitespace-nowrap text-(--foreground-tertiary) tabular-nums">{activeMatchLabel}</span>
+              <span className="min-w-10.5 pr-0.5 text-right text-xs whitespace-nowrap text-(--foreground-tertiary) tabular-nums">
+                {activeMatchLabel}
+              </span>
               <button
                 type="button"
                 className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
@@ -2901,11 +3287,19 @@ function NfmEditorInstance({
                 type="button"
                 className={cn(
                   "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)",
-                  replaceOpen && "text-(--accent-blue)"
+                  replaceOpen && "text-(--accent-blue)",
                 )}
                 onClick={() => setReplaceOpen((prev) => !prev)}
-                aria-label={replaceOpen ? "Hide replace controls" : "Show replace controls"}
-                title={replaceOpen ? "Hide replace controls" : "Show replace controls"}
+                aria-label={
+                  replaceOpen
+                    ? "Hide replace controls"
+                    : "Show replace controls"
+                }
+                title={
+                  replaceOpen
+                    ? "Hide replace controls"
+                    : "Show replace controls"
+                }
               >
                 <Repeat2 className="size-4" />
               </button>
@@ -3007,64 +3401,76 @@ function NfmEditorInstance({
           </NodexPopoverContent>
         </NodexPopover>
       ) : null}
-      {headingRail?.portalElement
-        ? (
-          <NfmHeadingNavigationRail
-            editor={editor as unknown as Parameters<typeof NfmHeadingNavigationRail>[0]["editor"]}
-            scrollContainerRef={headingRail.scrollContainerRef}
-            portalElement={headingRail.portalElement}
-            isActivePanelTab={isActivePanelTab}
-          />
-        )
-        : null}
-      <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
-        <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
-          <NfmEditorContextMenu editor={editor}>
-            <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
-              <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
-                <BlockNoteView
-                  editor={editor}
-                  onChange={handleChange}
-                  theme={themeMode}
-                  formattingToolbar={false}
-                  linkToolbar={false}
-                  slashMenu={false}
-                  sideMenu={false}
-                  tableHandles={false}
-                  data-theming-css-variables-demo
-                >
-                  <NfmSideMenuOpenProvider>
-                    <NfmSideMenuShortcutController />
-                    <SideMenuController
-                      sideMenu={customSideMenu}
-                      floatingUIOptions={sideMenuFloatingOptions}
-                    />
-                    <NfmFormattingToolbarController
-                      formattingToolbar={NfmFormattingToolbar}
-                    />
-                    <NfmLinkToolbarController
-                      linkToolbar={renderLinkToolbar}
-                      floatingUIOptions={{
-                        useTransitionStylesProps: {
-                          duration: 0,
-                        },
-                        useTransitionStatusProps: {
-                          duration: 0,
-                        },
-                      }}
-                    />
-                    <NfmSlashMenu
-                      projectId={projectId}
-                      allowCardReferences={source.kind === "legacy-snapshot"}
-                    />
-                    <NfmTableHandlesController />
-                  </NfmSideMenuOpenProvider>
-                </BlockNoteView>
-              </NfmSideMenuRuntimeProvider>
-            </NfmTextActionMenuRuntimeProvider>
-          </NfmEditorContextMenu>
-        </ThreadMentionRuntimeProvider>
-      </ThreadSectionRuntimeProvider>
+      {headingRail?.portalElement ? (
+        <NfmHeadingNavigationRail
+          editor={
+            editor as unknown as Parameters<
+              typeof NfmHeadingNavigationRail
+            >[0]["editor"]
+          }
+          scrollContainerRef={headingRail.scrollContainerRef}
+          portalElement={headingRail.portalElement}
+          isActivePanelTab={isActivePanelTab}
+        />
+      ) : null}
+      <BlockReferenceRuntimeProvider value={blockReferenceRuntimeValue}>
+        <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
+          <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
+            <NfmEditorContextMenu editor={editor}>
+              <NfmTextActionMenuRuntimeProvider
+                value={textActionMenuRuntimeValue}
+              >
+                <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
+                  <BlockNoteView
+                    editor={editor}
+                    onChange={handleChange}
+                    theme={themeMode}
+                    formattingToolbar={false}
+                    linkToolbar={false}
+                    slashMenu={false}
+                    sideMenu={false}
+                    tableHandles={false}
+                    data-theming-css-variables-demo
+                  >
+                    <NfmSideMenuOpenProvider>
+                      <NfmSideMenuShortcutController />
+                      <SideMenuController
+                        sideMenu={customSideMenu}
+                        floatingUIOptions={sideMenuFloatingOptions}
+                      />
+                      <NfmFormattingToolbarController
+                        formattingToolbar={NfmFormattingToolbar}
+                      />
+                      <NfmLinkToolbarController
+                        linkToolbar={renderLinkToolbar}
+                        floatingUIOptions={{
+                          useTransitionStylesProps: {
+                            duration: 0,
+                          },
+                          useTransitionStatusProps: {
+                            duration: 0,
+                          },
+                        }}
+                      />
+                      <NfmSlashMenu
+                        projectId={projectId}
+                        allowCardReferences
+                        allowUnresolvedCardReferenceBlock={
+                          source.kind === "legacy-snapshot"
+                        }
+                        allowLegacyDatabaseViews={
+                          source.kind === "legacy-snapshot"
+                        }
+                      />
+                      <NfmTableHandlesController />
+                    </NfmSideMenuOpenProvider>
+                  </BlockNoteView>
+                </NfmSideMenuRuntimeProvider>
+              </NfmTextActionMenuRuntimeProvider>
+            </NfmEditorContextMenu>
+          </ThreadMentionRuntimeProvider>
+        </ThreadSectionRuntimeProvider>
+      </BlockReferenceRuntimeProvider>
       {activeChipEdit && (
         <ChipPropertyEditor
           propertyType={activeChipEdit.propertyType}
@@ -3072,7 +3478,12 @@ function NfmEditorInstance({
           cardId={activeChipEdit.cardId}
           anchorRect={activeChipEdit.anchorRect}
           onSelect={(propertyType, cardId, value) => {
-            handleChipSelect(propertyType, cardId, value, activeChipEdit.blockId);
+            handleChipSelect(
+              propertyType,
+              cardId,
+              value,
+              activeChipEdit.blockId,
+            );
           }}
           onClose={handleChipEditorClose}
         />

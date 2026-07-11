@@ -22,7 +22,9 @@ const FULL_NFM_FIXTURE = [
   '<image source="nodex://assets/image.png">Image caption</image>',
   '<thread-section label="Investigate" thread="thread-2" />',
   '<card-ref project="project-a" card="card-target" />',
+  '<card-ref target-block="card-canonical" display-hint="Canonical Card" />',
   '<toggle-list-inline-view project="project-a" rules-v2="eyJtb2RlIjoiYWxsIn0" />',
+  '<database-view-ref database-view="view-canonical" display-hint="Planning" />',
   '<card-toggle card="legacy-card" meta="[P1]" project="project-a">',
   "\tLegacy title",
   "\tLegacy child",
@@ -69,7 +71,12 @@ describe("CardDocumentCodec", () => {
     expect(new Set(flattenIds(genesis.materialization.blockTree)).size).toBe(
       nextId,
     );
-    expect(genesis.materialization.references.length).toBe(4);
+    expect(genesis.materialization.references.length).toBe(6);
+    expect(
+      genesis.materialization.references.map((reference) => reference.kind).join(","),
+    ).toBe(
+      "thread,legacy_card_projection,block,legacy_database_query,database_view,legacy_card_projection",
+    );
     expect(genesis.materialization.assetRefs.length).toBe(2);
     expect(genesis.materialization.assetRefs[0]?.managedFileName).toBe(
       "demo.txt",

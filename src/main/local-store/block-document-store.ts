@@ -361,6 +361,14 @@ const assertReadableCardOwner = (row: DocumentRow): void => {
   );
 };
 
+const assertCardOwnerForInternalMigration = (row: DocumentRow): void => {
+  if (row.owner_type === "card") return;
+  throw new BlockDocumentStoreError(
+    "document_state_corrupt",
+    `Document ${row.document_id} is not owned by a Card Block`,
+  );
+};
+
 const assertWritableCardOwner = (row: DocumentRow): void => {
   if (row.owner_lifecycle === "active") {
     return;
@@ -956,6 +964,28 @@ export const loadLegacyShadowBlockDocument = (
 ): LoadedBlockDocument =>
   loadBlockDocumentWithAuthority(database, documentId, "legacy_shadow");
 
+/** Internal BF-05 migration read; deleted hosts remain restorable tombstones. */
+export const loadLegacyShadowBlockDocumentForMigration = (
+  database: Database.Database,
+  documentId: DocumentId,
+): LoadedBlockDocument => {
+  const load = database.transaction((): LoadedBlockDocument => {
+    const storeEpoch = readStoreEpoch(database);
+    const row = readDocumentRow(database, documentId);
+    assertReady(row);
+    assertSupportedCardSchema(row);
+    assertCardOwnerForInternalMigration(row);
+    assertDocumentAuthority(row, "legacy_shadow");
+    return {
+      storeEpoch,
+      authority: row.authority,
+      head: toDocumentHead(row),
+      document: loadDocumentFromRow(database, row),
+    };
+  });
+  return load();
+};
+
 export const getBlockDocumentProjectId = (
   database: Database.Database,
   documentId: DocumentId,
@@ -1228,7 +1258,7 @@ const applyBlockDocumentUpdateForAuthority = (
   database: Database.Database,
   input: ApplyDocumentUpdate,
   authority: DocumentAuthority,
-  allowArchivedOwner: boolean,
+  allowInactiveOwner: boolean,
 ): DocumentUpdateAck => {
   validateIncomingUpdate(input.update);
   requireNonEmpty(input.documentId, "documentId");
@@ -1243,7 +1273,11 @@ const applyBlockDocumentUpdateForAuthority = (
     assertReady(row);
     assertGeneration(row, input.generation);
     assertSupportedCardSchema(row);
-    assertReadableCardOwner(row);
+    if (allowInactiveOwner) {
+      assertCardOwnerForInternalMigration(row);
+    } else {
+      assertReadableCardOwner(row);
+    }
     assertDocumentAuthority(row, authority);
     if (input.baseHeadSeq > row.head_seq) {
       throw new BlockDocumentStoreError(
@@ -1276,13 +1310,8 @@ const applyBlockDocumentUpdateForAuthority = (
       );
     }
 
-    if (!allowArchivedOwner) {
+    if (!allowInactiveOwner) {
       assertWritableCardOwner(row);
-    } else if (row.owner_lifecycle !== "active" && row.owner_lifecycle !== "archived") {
-      throw new BlockDocumentStoreError(
-        "invalid_document_update",
-        `Document ${row.document_id} owner is ${row.owner_lifecycle}`,
-      );
     }
 
     const document = loadDocumentFromRow(database, row);

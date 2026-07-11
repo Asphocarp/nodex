@@ -83,6 +83,28 @@ function normalizeCardBodyObject(body: Record<string, unknown>): Record<string, 
 
 const UnknownRecordSchema = z.record(z.string(), z.unknown());
 
+const ProjectScopedReferenceIdSchema = z.string().min(1).max(512).refine(
+  (value) => value === value.trim(),
+  "Reference identifiers must not contain surrounding whitespace",
+);
+
+export const HttpCardReferenceParamsSchema = z.object({
+  projectId: ProjectScopedReferenceIdSchema,
+  targetBlockId: ProjectScopedReferenceIdSchema,
+});
+
+export const HttpDatabaseViewReferenceParamsSchema = z.object({
+  projectId: ProjectScopedReferenceIdSchema,
+  databaseViewId: z.string().min(1).max(1024).refine(
+    (value) => value === value.trim(),
+    "Reference identifiers must not contain surrounding whitespace",
+  ),
+});
+
+export const HttpDatabaseViewReferenceQuerySchema = z.object({
+  hostBlockId: ProjectScopedReferenceIdSchema.optional(),
+});
+
 export const HttpCardBodySchema = UnknownRecordSchema.transform((body) => normalizeCardBodyObject(body));
 
 export const HttpNestedCardInputSchema = z.unknown().transform((value) => {

@@ -1,0 +1,111 @@
+import { describe, expect, test } from "bun:test";
+import * as Y from "yjs";
+import {
+  createCardDocumentGenesis,
+  materializeCardDocument,
+} from "./block-document-codec";
+import { isLegacyForeignBodyReference } from "./derived-records";
+import {
+  ForeignReferenceMigrationError,
+  migrateForeignReferences,
+} from "./foreign-reference-migration";
+
+const legacyDocument = () => {
+  let sequence = 0;
+  return createCardDocumentGenesis({
+    documentId: "document:legacy-reference-host",
+    title: "Host",
+    nfm: [
+      '<card-ref project="project-a" card="card-a" />',
+      '<card-toggle card="missing-card" meta="[P1]" project="project-a">',
+      "\tRecovered title",
+      "\tRecovered body",
+      '\t<card-ref project="project-z" card="nested-snapshot-card" />',
+      "</card-toggle>",
+      '<toggle-list-inline-view project="project-b" rules-v2="eyJtb2RlIjoiYWxsIn0" property-order="priority,estimate,status,tags" show-empty-estimate="false" show-empty-priority="false" />',
+    ].join("\n"),
+    allocateBlockId: () => `block-${sequence++}`,
+  });
+};
+
+describe("foreign reference Document migration", () => {
+  test("replaces legacy projections with childless canonical references and preserves source IDs", () => {
+    const source = legacyDocument();
+    const before = materializeCardDocument(source.document);
+    const cardReferenceId = before.blockTree[0]?.id ?? "";
+    const cardToggleId = before.blockTree[1]?.id ?? "";
+    const queryId = before.blockTree[2]?.id ?? "";
+    const removedToggleChildIds = before.blockTree[1]?.children.map(
+      (block) => block.id,
+    ) ?? [];
+
+    const migration = migrateForeignReferences(source.document, [
+      {
+        kind: "card",
+        sourceBlockId: cardReferenceId,
+        targetBlockId: "card-a",
+        displayHint: "Existing card",
+      },
+      {
+        kind: "card",
+        sourceBlockId: cardToggleId,
+        targetBlockId: "recovered-card",
+        displayHint: "Recovered title",
+      },
+      {
+        kind: "database_view",
+        sourceBlockId: queryId,
+        databaseViewId: `database-view:inline:${queryId}`,
+        displayHint: "Project B",
+      },
+    ]);
+
+    expect(materializeCardDocument(source.document).nfm).toBe(before.nfm);
+    expect(migration.materialization.references.some(isLegacyForeignBodyReference)).toBeFalse();
+    expect(migration.migratedBlockIds.join(",")).toBe(
+      [cardReferenceId, cardToggleId, queryId].join(","),
+    );
+    expect(migration.removedDescendantBlockIds.join(",")).toBe(
+      removedToggleChildIds.join(","),
+    );
+    expect(migration.materialization.blockTree[0]?.id).toBe(cardReferenceId);
+    expect(migration.materialization.blockTree[1]?.id).toBe(cardToggleId);
+    expect(migration.materialization.blockTree[1]?.children.length).toBe(0);
+    expect(migration.materialization.blockTree[2]?.id).toBe(queryId);
+    expect(migration.materialization.nfm).toBe([
+      '<card-ref target-block="card-a" display-hint="Existing card" />',
+      '<card-ref target-block="recovered-card" display-hint="Recovered title" />',
+      `<database-view-ref database-view="database-view:inline:${queryId}" display-hint="Project B" />`,
+    ].join("\n"));
+
+    const replay = new Y.Doc({ guid: source.document.guid });
+    Y.applyUpdate(replay, Y.encodeStateAsUpdate(source.document));
+    Y.applyUpdate(replay, migration.update);
+    expect(materializeCardDocument(replay).nfm).toBe(
+      migration.materialization.nfm,
+    );
+    replay.destroy();
+    source.document.destroy();
+  });
+
+  test("fails without mutating the source when a resolution is missing or has the wrong kind", () => {
+    const source = legacyDocument();
+    const before = Y.encodeStateAsUpdate(source.document);
+    const references = materializeCardDocument(source.document).references.filter(
+      isLegacyForeignBodyReference,
+    );
+    let error: unknown;
+    try {
+      migrateForeignReferences(source.document, [{
+        kind: "database_view",
+        sourceBlockId: references[0]?.sourceBlockId ?? "",
+        databaseViewId: "database-view:wrong-kind",
+      }]);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof ForeignReferenceMigrationError).toBeTrue();
+    expect(Buffer.from(Y.encodeStateAsUpdate(source.document)).equals(Buffer.from(before))).toBeTrue();
+    source.document.destroy();
+  });
+});

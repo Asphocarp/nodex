@@ -24,6 +24,10 @@ import {
   markPendingLegacyCardShadowJobsFailed,
   type LegacyCardShadowJobStatus,
 } from "./local-store/legacy-card-shadow-outbox";
+import {
+  migrateLegacyForeignReferences,
+  type ForeignReferenceMigrationBatchResult,
+} from "./local-store/foreign-reference-migration";
 import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
   BlockDocumentRuntime,
@@ -49,6 +53,9 @@ const blockDocumentRuntime = new BlockDocumentRuntime(
 );
 
 const STARTUP_SHADOW_DRAIN_LIMIT = 10_000;
+const FOREIGN_REFERENCE_BATCH_LIMIT = 50;
+const AUTHORITY_BOUNDARY_MIGRATION_LIMIT = 10_000;
+const AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT = 100;
 const POST_MUTATION_SHADOW_DRAIN_LIMIT = 100;
 const POST_MUTATION_TARGET_DRAIN_LIMIT = 10_000;
 const POST_MUTATION_FENCE_FAILURE =
@@ -63,12 +70,26 @@ interface ShadowDrainMetrics {
   readonly exhausted: boolean;
 }
 
+interface ForeignReferenceMigrationMetrics {
+  readonly processedDocuments: number;
+  readonly migratedReferences: number;
+  readonly failedDocuments: number;
+  readonly exhausted: boolean;
+}
+
 const EMPTY_SHADOW_DRAIN_METRICS: ShadowDrainMetrics = {
   processed: 0,
   applied: 0,
   superseded: 0,
   failed: 0,
   errors: 0,
+  exhausted: true,
+};
+
+const EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS: ForeignReferenceMigrationMetrics = {
+  processedDocuments: 0,
+  migratedReferences: 0,
+  failedDocuments: 0,
   exhausted: true,
 };
 
@@ -128,6 +149,7 @@ const isLegacyAuthorityMutation = (
     case "getCardHistoryVersionPreview":
     case "backfillCardReadModel":
     case "initializeBlockDocumentShadows":
+    case "migrateLegacyForeignReferences":
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
@@ -139,6 +161,253 @@ const isLegacyAuthorityMutation = (
     case "shutdown":
       return false;
   }
+};
+
+const summarizeForeignReferenceMigration = (
+  result: ForeignReferenceMigrationBatchResult,
+): ForeignReferenceMigrationMetrics => ({
+  processedDocuments: result.processedDocuments,
+  migratedReferences: result.migratedReferences,
+  failedDocuments: result.failedDocuments,
+  exhausted: result.exhausted,
+});
+
+const mergeForeignReferenceMigrationMetrics = (
+  left: ForeignReferenceMigrationMetrics,
+  right: ForeignReferenceMigrationMetrics,
+): ForeignReferenceMigrationMetrics => ({
+  processedDocuments: left.processedDocuments + right.processedDocuments,
+  migratedReferences: left.migratedReferences + right.migratedReferences,
+  failedDocuments: left.failedDocuments + right.failedDocuments,
+  // Batches are sequential reads of the same queue. The latest batch says
+  // whether the queue is now exhausted; an earlier bounded batch does not
+  // permanently poison that final state.
+  exhausted: right.exhausted,
+});
+
+const invalidateChangedForeignReferenceDocuments = (
+  result: ForeignReferenceMigrationBatchResult,
+): void => {
+  for (const documentId of result.changedDocumentIds) {
+    blockDocumentRuntime.invalidate(documentId);
+  }
+};
+
+type ForeignReferenceMigrationPhase = "explicit" | "pre_cutover" | "post_mutation";
+
+const logForeignReferenceMigration = (
+  phase: ForeignReferenceMigrationPhase,
+  result: ForeignReferenceMigrationBatchResult,
+): void => {
+  for (const error of result.errors) {
+    postLog("error", "Legacy foreign-reference migration failed", {
+      phase,
+      documentId: error.documentId,
+      error: error.message,
+      cutoverBlocked: true,
+    });
+  }
+  if (!result.exhausted && result.failedDocuments === 0) {
+    postLog("debug", "Legacy foreign-reference migration batch has more work", {
+      phase,
+      processedDocuments: result.processedDocuments,
+      migratedReferences: result.migratedReferences,
+    });
+  }
+};
+
+const runForeignReferenceMigrationBatch = async (
+  phase: ForeignReferenceMigrationPhase,
+  limit?: number,
+): Promise<ForeignReferenceMigrationBatchResult> => {
+  // The store only reports a changed Document after its SQLite transaction has
+  // committed. Invalidation belongs after that durable boundary so a failed
+  // migration cannot evict a valid runtime and expose tentative state.
+  const result = await migrateLegacyForeignReferences(getDb(), { limit });
+  invalidateChangedForeignReferenceDocuments(result);
+  logForeignReferenceMigration(phase, result);
+  return result;
+};
+
+const safelyDrainForeignReferenceMigrations = async (
+  phase: Exclude<ForeignReferenceMigrationPhase, "explicit">,
+  maxDocuments: number,
+): Promise<ForeignReferenceMigrationMetrics> => {
+  let remaining = maxDocuments;
+  let aggregate = EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS;
+  while (remaining > 0) {
+    let batch: ForeignReferenceMigrationBatchResult;
+    try {
+      batch = await runForeignReferenceMigrationBatch(
+        phase,
+        Math.min(FOREIGN_REFERENCE_BATCH_LIMIT, remaining),
+      );
+    } catch (error) {
+      postLog("error", "Legacy foreign-reference migration could not run", {
+        phase,
+        error: toErrorMessage(error),
+        cutoverBlocked: true,
+      });
+      return {
+        ...aggregate,
+        failedDocuments: aggregate.failedDocuments + 1,
+        exhausted: false,
+      };
+    }
+
+    const metrics = summarizeForeignReferenceMigration(batch);
+    aggregate = mergeForeignReferenceMigrationMetrics(aggregate, metrics);
+    if (batch.failedDocuments > 0 || batch.exhausted) return aggregate;
+    if (batch.processedDocuments === 0) {
+      postLog("error", "Legacy foreign-reference migration made no progress", {
+        phase,
+        cutoverBlocked: true,
+      });
+      return { ...aggregate, failedDocuments: aggregate.failedDocuments + 1, exhausted: false };
+    }
+    remaining -= batch.processedDocuments;
+  }
+
+  postLog("warn", "Legacy foreign-reference migration reached its bounded limit", {
+    phase,
+    processedDocuments: aggregate.processedDocuments,
+    migratedReferences: aggregate.migratedReferences,
+    cutoverBlocked: true,
+  });
+  return { ...aggregate, exhausted: false };
+};
+
+const settleForeignReferencesBeforeCutover = async (
+): Promise<{
+  readonly shadow: ShadowDrainMetrics;
+  readonly foreignReferences: ForeignReferenceMigrationMetrics;
+}> => {
+  let shadow = EMPTY_SHADOW_DRAIN_METRICS;
+  let foreignReferences = EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS;
+  for (let round = 0; round < AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT; round += 1) {
+    const migration = await safelyDrainForeignReferenceMigrations(
+      "pre_cutover",
+      AUTHORITY_BOUNDARY_MIGRATION_LIMIT,
+    );
+    foreignReferences = mergeForeignReferenceMigrationMetrics(
+      foreignReferences,
+      migration,
+    );
+    const projection = safelyDrainLegacyCardShadowJobs(
+      "pre_cutover",
+      STARTUP_SHADOW_DRAIN_LIMIT,
+    );
+    shadow = mergeShadowDrainMetrics(shadow, projection);
+    if (migration.failedDocuments > 0 || !migration.exhausted) {
+      return { shadow, foreignReferences };
+    }
+    if (projection.errors > 0 || !projection.exhausted) {
+      return {
+        shadow,
+        foreignReferences: {
+          ...foreignReferences,
+          failedDocuments: foreignReferences.failedDocuments + 1,
+          exhausted: false,
+        },
+      };
+    }
+    if (migration.processedDocuments === 0 && projection.processed === 0) {
+      return { shadow, foreignReferences };
+    }
+  }
+
+  postLog("error", "Legacy foreign-reference migration did not reach a fixed point", {
+    phase: "pre_cutover",
+    rounds: AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT,
+    cutoverBlocked: true,
+  });
+  return {
+    shadow,
+    foreignReferences: {
+      ...foreignReferences,
+      failedDocuments: foreignReferences.failedDocuments + 1,
+      exhausted: false,
+    },
+  };
+};
+
+const safelySettleTargetShadowJobs = (
+  targetJobs: readonly ShadowMutationJobRow[],
+): ShadowDrainMetrics => {
+  if (targetJobs.length === 0) return EMPTY_SHADOW_DRAIN_METRICS;
+  try {
+    const drain = settleShadowMutationJobs(targetJobs);
+    try {
+      invalidateChangedShadowDocuments(drain);
+    } catch (error) {
+      blockDocumentRuntime.destroy();
+      throw error;
+    }
+    logShadowDrain("post_mutation", drain);
+    return summarizeShadowDrain(drain);
+  } catch (error) {
+    postLog("error", "Migration shadow fence could not settle", {
+      phase: "post_mutation",
+      error: toErrorMessage(error),
+      cutoverBlocked: true,
+    });
+    return {
+      ...EMPTY_SHADOW_DRAIN_METRICS,
+      errors: 1,
+      exhausted: false,
+    };
+  }
+};
+
+const settlePostMutationForeignReferences = async (): Promise<{
+  readonly shadow: ShadowDrainMetrics;
+  readonly foreignReferences: ForeignReferenceMigrationMetrics;
+}> => {
+  let shadow = EMPTY_SHADOW_DRAIN_METRICS;
+  let foreignReferences = EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS;
+  for (let round = 0; round < AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT; round += 1) {
+    const migrationFenceStartedAt = new Date().toISOString();
+    const migration = await safelyDrainForeignReferenceMigrations(
+      "post_mutation",
+      AUTHORITY_BOUNDARY_MIGRATION_LIMIT,
+    );
+    foreignReferences = mergeForeignReferenceMigrationMetrics(
+      foreignReferences,
+      migration,
+    );
+    const migrationJobs = readShadowMutationJobs(migrationFenceStartedAt);
+    const projection = safelySettleTargetShadowJobs(migrationJobs);
+    shadow = mergeShadowDrainMetrics(shadow, projection);
+    if (migration.failedDocuments > 0 || !migration.exhausted) {
+      return { shadow, foreignReferences };
+    }
+    if (projection.errors > 0 || !projection.exhausted) {
+      return {
+        shadow,
+        foreignReferences: {
+          ...foreignReferences,
+          failedDocuments: foreignReferences.failedDocuments + 1,
+          exhausted: false,
+        },
+      };
+    }
+    if (migration.processedDocuments === 0 && migrationJobs.length === 0) {
+      return { shadow, foreignReferences };
+    }
+  }
+
+  postLog("error", "Post-mutation foreign-reference migration did not reach a fixed point", {
+    rounds: AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT,
+    cutoverBlocked: true,
+  });
+  return {
+    shadow,
+    foreignReferences: {
+      ...foreignReferences,
+      failedDocuments: foreignReferences.failedDocuments + 1,
+      exhausted: false,
+    },
+  };
 };
 
 const summarizeShadowDrain = (
@@ -670,6 +939,11 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
       return cardsStore.backfillCardReadModelBatch(request.payload.limit);
     case "initializeBlockDocumentShadows":
       return undefined;
+    case "migrateLegacyForeignReferences":
+      return await runForeignReferenceMigrationBatch(
+        "explicit",
+        request.payload.limit,
+      );
     case "syncBlockDocument":
       return runDocumentCommand(() => blockDocumentRuntime.sync(request.payload));
     case "getBlockDocumentProjectId":
@@ -776,36 +1050,99 @@ const runRequestAtAuthorityBoundary = async (
 ): Promise<{
   readonly result: CardMutationWorkerResult;
   readonly shadow: ShadowDrainMetrics;
+  readonly foreignReferences: ForeignReferenceMigrationMetrics;
 }> => {
   if (request.type === "initializeBlockDocumentShadows") {
-    const shadow = initializeLegacyShadowProcessor();
+    const shadow = safelyDrainLegacyCardShadowJobs(
+      "startup",
+      STARTUP_SHADOW_DRAIN_LIMIT,
+    );
+    if (shadow.errors === 0 && shadow.exhausted) {
+      legacyShadowProcessorInitialized = true;
+    }
     return {
       result: shadow satisfies BlockDocumentShadowInitializationResult,
       shadow,
+      foreignReferences: EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS,
+    };
+  }
+  if (request.type === "migrateLegacyForeignReferences") {
+    const result = await runForeignReferenceMigrationBatch(
+      "explicit",
+      request.payload.limit,
+    );
+    return {
+      result,
+      shadow: EMPTY_SHADOW_DRAIN_METRICS,
+      foreignReferences: summarizeForeignReferenceMigration(result),
     };
   }
   if (request.type === "prepareOwnedBlockDocument") {
-    const shadow = initializeLegacyShadowProcessor();
-    return {
-      result: await runRequest(request),
-      shadow,
-    };
+    const current = runOwnedDocumentPreparationCommand(() =>
+      getOwnedBlockDocumentDescriptor(
+        getDb(),
+        request.payload.projectId,
+        request.payload.ownerBlockId,
+      ),
+    );
+    if (!current.ok || current.value.authority === "ydoc_primary") {
+      return {
+        result: current,
+        shadow: EMPTY_SHADOW_DRAIN_METRICS,
+        foreignReferences: EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS,
+      };
+    }
   }
-  if (request.type === "cutoverCardDocumentToPrimary") {
+  if (
+    request.type === "prepareOwnedBlockDocument"
+    || request.type === "cutoverCardDocumentToPrimary"
+    || request.type === "cutoverEligibleCardDocuments"
+  ) {
     const startup = initializeLegacyShadowProcessor();
     const preCutover = safelyDrainLegacyCardShadowJobs(
       "pre_cutover",
       STARTUP_SHADOW_DRAIN_LIMIT,
     );
+    const settled = await settleForeignReferencesBeforeCutover();
+    const foreignReferences = settled.foreignReferences;
+    if (!foreignReferences.exhausted || foreignReferences.failedDocuments > 0) {
+      if (request.type === "prepareOwnedBlockDocument") {
+        return {
+          result: {
+            ok: false,
+            error: {
+              code: "document_not_ready",
+              message: "Legacy foreign-reference migration did not reach a safe cutover boundary",
+              retryable: true,
+              resetRequired: false,
+            },
+          },
+          shadow: mergeShadowDrainMetrics(
+            mergeShadowDrainMetrics(startup, preCutover),
+            settled.shadow,
+          ),
+          foreignReferences,
+        };
+      }
+      throw new BlockDocumentCutoverError(
+        "foreign_body_reference",
+        "Legacy foreign-reference migration did not reach a safe cutover boundary",
+      );
+    }
     return {
       result: await runRequest(request),
-      shadow: mergeShadowDrainMetrics(startup, preCutover),
+      shadow: mergeShadowDrainMetrics(
+        mergeShadowDrainMetrics(startup, preCutover),
+        settled.shadow,
+      ),
+      foreignReferences,
     };
   }
   if (!isLegacyAuthorityMutation(request)) {
     return {
       result: await runRequest(request),
       shadow: EMPTY_SHADOW_DRAIN_METRICS,
+      foreignReferences: EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS,
     };
   }
 
@@ -814,9 +1151,21 @@ const runRequestAtAuthorityBoundary = async (
   const result = await runRequest(request);
   const targetJobs = readShadowMutationJobs(mutationFenceStartedAt);
   const postMutation = settlePostMutationShadowBoundary(targetJobs);
+  const settled = await settlePostMutationForeignReferences();
+  const foreignReferences = settled.foreignReferences;
+  if (!foreignReferences.exhausted || foreignReferences.failedDocuments > 0) {
+    throw new BlockDocumentCutoverError(
+      "foreign_body_reference",
+      "Legacy mutation committed, but its foreign-reference migration did not reach a durable authority boundary; reload before retrying",
+    );
+  }
   return {
     result,
-    shadow: mergeShadowDrainMetrics(startup, postMutation),
+    shadow: mergeShadowDrainMetrics(
+      mergeShadowDrainMetrics(startup, postMutation),
+      settled.shadow,
+    ),
+    foreignReferences,
   };
 };
 
@@ -831,7 +1180,7 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
 
   dbNotifier.on("board-changed", onBoardChanged);
   try {
-    const { result, shadow } = await runRequestAtAuthorityBoundary(request);
+    const { result, shadow, foreignReferences } = await runRequestAtAuthorityBoundary(request);
     dbNotifier.removeListener("board-changed", onBoardChanged);
 
     const metrics: CardMutationMetrics = {
@@ -858,6 +1207,17 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
       shadowDrainExhausted: shadow.processed > 0 || shadow.errors > 0
         ? shadow.exhausted
         : undefined,
+      foreignReferenceDocumentsProcessed:
+        foreignReferences.processedDocuments || undefined,
+      foreignReferencesMigrated:
+        foreignReferences.migratedReferences || undefined,
+      foreignReferenceMigrationsFailed:
+        foreignReferences.failedDocuments || undefined,
+      foreignReferenceMigrationExhausted:
+        foreignReferences.processedDocuments > 0
+          || foreignReferences.failedDocuments > 0
+          ? foreignReferences.exhausted
+          : undefined,
     };
     const events = await enrichEvents(capturedEvents, metrics);
     metrics.eventCount = events.length;

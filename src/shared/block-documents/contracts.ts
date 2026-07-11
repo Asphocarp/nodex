@@ -10,6 +10,7 @@ export const MAX_CARD_DOCUMENT_BLOCKS = 100_000;
 export const MAX_CARD_DOCUMENT_XML_PATH_DEPTH = 512;
 export const MAX_DOCUMENT_TOUCHED_BLOCK_IDS = 10_000;
 export const MAX_BLOCK_ID_LENGTH = 512;
+export const MAX_REFERENCE_DISPLAY_HINT_LENGTH = 512;
 
 export type BlockLocation =
   | {

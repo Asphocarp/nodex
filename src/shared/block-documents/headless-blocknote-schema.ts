@@ -16,6 +16,7 @@ import {
   calloutBlockConfig,
   cardRefBlockConfig,
   cardToggleBlockConfig,
+  databaseViewRefBlockConfig,
   dateMentionInlineContentConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
@@ -64,6 +65,7 @@ export const headlessBlockDocumentSchema = BlockNoteSchema.create({
     cardToggle: createHeadlessBlockSpec(cardToggleBlockConfig),
     toggleListInlineView: createHeadlessBlockSpec(toggleListInlineViewBlockConfig),
     cardRef: createHeadlessBlockSpec(cardRefBlockConfig),
+    databaseViewRef: createHeadlessBlockSpec(databaseViewRefBlockConfig),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

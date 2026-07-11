@@ -44,6 +44,7 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- Card references, inline Database views, and the top-level Toggle List are now reference-only surfaces: collapsed rows use summaries, expanded visible Cards open their own collaborative Document, and legacy foreign snapshots migrate durably without copying or rewriting another Card body.
 - `Cmd/Ctrl+Enter` in NFM editors now modifies the current actionable block before falling back to Card Stage thread-section send, including checkbox toggles, toggle rows, image previews, card opens, and linked thread-section opens.
 - Renamed the main local-store server environment variables from `KANBAN_*` to `NODEX_*` and the SQLite database file from `kanban.db` to `nodex.db`; startup moves an existing legacy database file when no `nodex.db` exists.
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
@@ -59,7 +60,7 @@ All notable changes to this project will be documented in this file.
 - Blank project session thread pages now open on a centered new-chat home with a project-aware hero prompt, attached composer/footer strip, ProseMirror prompt editor, and local/worktree-only start controls.
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
 - Settings now opens as a full-window route shell with the same native vibrant sidebar feel as the normal workbench sidebar instead of a modal overlay.
-- Card Stage description auto-save now waits 1.5 seconds after edits, reducing save churn while keeping blur and close saves immediate.
+- Card Stage title and body now save as collaborative Y.Doc updates; the temporary snapshot autosave remains isolated to an explicit migration-failure surface.
 - Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
 - macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project primary source; cards can request a terminal but no longer own terminal tabs or PTY identity.

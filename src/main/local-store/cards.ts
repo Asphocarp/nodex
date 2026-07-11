@@ -361,6 +361,36 @@ export function readCardSummaryById(
   return row ? rowToCardSummary(row) : null;
 }
 
+/**
+ * Read a bounded set of Card summaries in caller order with one SQL query.
+ *
+ * Database views and reference projections frequently already have an ordered
+ * identity list. Keeping the ordering boundary here avoids both N+1 reads and
+ * leaking the Card compatibility tables into every relational read model.
+ */
+export function readCardSummariesByIds(
+  cardIds: readonly string[],
+  database: Database.Database = getDb(),
+): CardSummary[] {
+  const uniqueCardIds = Array.from(new Set(cardIds));
+  if (uniqueCardIds.length === 0) return [];
+
+  const placeholders = uniqueCardIds.map(() => "?").join(", ");
+  const rows = database.prepare(`
+    SELECT ${CARD_SUMMARY_SELECT_COLUMNS}
+    ${CARD_SUMMARY_FROM}
+    WHERE card.id IN (${placeholders})
+  `).all(...uniqueCardIds) as DbCardSummaryProjection[];
+  const summariesById = new Map(
+    rows.map((row) => [row.id, rowToCardSummary(row)] as const),
+  );
+
+  return cardIds.flatMap((cardId) => {
+    const summary = summariesById.get(cardId);
+    return summary ? [summary] : [];
+  });
+}
+
 export interface CardDocumentBoardProjection {
   readonly projectId: string;
   readonly cardId: string;

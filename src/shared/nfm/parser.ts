@@ -2,6 +2,7 @@ import type {
   NfmBlock,
   NfmCardToggle,
   NfmCardRef,
+  NfmDatabaseViewRef,
   NfmColor,
   NfmInlineContent,
   NfmCallout,
@@ -138,6 +139,15 @@ export function parseNfm(input: string): NfmBlock[] {
       const inlineView = parseToggleListInlineView(content.trim());
       if (inlineView) {
         addBlock(inlineView, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<database-view-ref")) {
+      const databaseViewRef = parseDatabaseViewRef(content.trim());
+      if (databaseViewRef) {
+        addBlock(databaseViewRef, indent);
         i++;
         continue;
       }
@@ -503,6 +513,22 @@ function parseToggleListInlineView(line: string): NfmToggleListInlineView | null
   };
 }
 
+function parseDatabaseViewRef(line: string): NfmDatabaseViewRef | null {
+  const match = line.match(/^<database-view-ref(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+
+  const attrString = match[1] ?? "";
+  const databaseViewId = getXmlAttr(attrString, "database-view") ?? "";
+  const displayHint = getXmlAttr(attrString, "display-hint");
+
+  return {
+    type: "databaseViewRef",
+    databaseViewId,
+    ...(displayHint !== undefined ? { displayHint } : {}),
+    children: [],
+  };
+}
+
 function parseCsvAttr(value: string | undefined): string[] {
   if (!value) return [];
   return value
@@ -522,11 +548,15 @@ function parseCardRef(line: string): NfmCardRef | null {
   if (!match) return null;
 
   const attrString = match[1] ?? "";
+  const targetBlockId = getXmlAttr(attrString, "target-block");
+  const displayHint = getXmlAttr(attrString, "display-hint");
   const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
   const cardId = getXmlAttr(attrString, "card") ?? "";
 
   return {
     type: "cardRef",
+    ...(targetBlockId !== undefined ? { targetBlockId } : {}),
+    ...(displayHint !== undefined ? { displayHint } : {}),
     sourceProjectId,
     cardId,
     children: [],

@@ -20,6 +20,10 @@ import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
 import * as historyStore from "./local-store/history";
 import {
+  readProjectScopedDatabaseViewReference,
+  resolveProjectScopedCardReference,
+} from "./local-store/reference-reads";
+import {
   readPersistedAtomState,
   updatePersistedAtom,
 } from "./local-store/persisted-atoms";
@@ -676,6 +680,12 @@ export function registerIpcHandlers(
     }
     return documentSyncHub.subscribe(target, request);
   });
+  registerHandle("block-reference:card:resolve", (_, input) =>
+    resolveProjectScopedCardReference(input),
+  );
+  registerHandle("database-view:reference:get", (_, input) =>
+    readProjectScopedDatabaseViewReference(input),
+  );
   registerHandle(
     "block-document:owned:get",
     async (_, projectId, ownerBlockId) =>

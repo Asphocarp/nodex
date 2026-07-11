@@ -9,7 +9,7 @@ import {
 import type { PartialBlock } from "@blocknote/core";
 import { createReactBlockSpec, createReactInlineContentSpec, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { Bot, FileText, Link2, ListTree, Paperclip, Settings2 } from "lucide-react";
+import { Bot, FileText, Link2, ListTree, Paperclip, Rows3, Settings2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
@@ -32,6 +32,7 @@ import {
   agentConfigInlineContentConfig,
   attachmentInlineContentConfig,
   cardRefBlockConfig,
+  databaseViewRefBlockConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
   toggleListInlineViewBlockConfig,
@@ -95,15 +96,29 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
   {
     render: ({ block }) => {
       const sourceProjectId = String(block.props.sourceProjectId || "default");
-      const cardId = String(block.props.cardId || "").trim();
+      const targetBlockId = String(block.props.targetBlockId || block.props.cardId || "").trim();
+      const displayHint = String(block.props.displayHint || "").trim();
       return (
         <InertEmbedPlaceholder
           icon={Link2}
           label="Card reference"
-          detail={cardId ? `${sourceProjectId}/${cardId}` : sourceProjectId}
+          detail={displayHint || targetBlockId || sourceProjectId}
         />
       );
     },
+  },
+);
+
+const createReadonlyDatabaseViewRefBlockSpec = createReactBlockSpec(
+  databaseViewRefBlockConfig,
+  {
+    render: ({ block }) => (
+      <InertEmbedPlaceholder
+        icon={Rows3}
+        label="Database view"
+        detail={String(block.props.displayHint || block.props.databaseViewId || "").trim()}
+      />
+    ),
   },
 );
 
@@ -229,6 +244,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     callout: createCalloutBlock(),
     cardToggle: createCardToggleBlockSpec(),
     cardRef: createReadonlyCardRefBlockSpec(),
+    databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
     threadSection: createReadonlyThreadSectionBlockSpec(),
     toggleListInlineView: createReadonlyToggleListInlineViewBlockSpec(),
   },

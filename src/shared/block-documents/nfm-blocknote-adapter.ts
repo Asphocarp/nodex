@@ -237,6 +237,16 @@ function nfmBlockToBN(
         children: [],
       };
 
+    case "databaseViewRef":
+      return {
+        type: "databaseViewRef",
+        props: {
+          databaseViewId: block.databaseViewId,
+          displayHint: block.displayHint ?? "",
+        },
+        children: [],
+      };
+
     case "threadSection":
       return {
         type: "threadSection",
@@ -251,6 +261,8 @@ function nfmBlockToBN(
       return {
         type: "cardRef",
         props: {
+          targetBlockId: block.targetBlockId ?? "",
+          displayHint: block.displayHint ?? "",
           sourceProjectId: block.sourceProjectId,
           cardId: block.cardId,
         },
@@ -600,12 +612,28 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       };
     }
 
+    case "databaseViewRef": {
+      const databaseViewId = normalizeString(block.props?.databaseViewId) ?? "";
+      const displayHint = normalizeString(block.props?.displayHint);
+
+      return {
+        type: "databaseViewRef",
+        databaseViewId,
+        ...(displayHint !== undefined ? { displayHint } : {}),
+        children: [],
+      };
+    }
+
     case "cardRef": {
+      const targetBlockId = normalizeString(block.props?.targetBlockId);
+      const displayHint = normalizeString(block.props?.displayHint);
       const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
       const cardId = normalizeString(block.props?.cardId) ?? "";
 
       return {
         type: "cardRef",
+        ...(targetBlockId !== undefined ? { targetBlockId } : {}),
+        ...(displayHint !== undefined ? { displayHint } : {}),
         sourceProjectId,
         cardId,
         children: [],

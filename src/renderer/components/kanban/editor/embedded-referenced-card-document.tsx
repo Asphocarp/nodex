@@ -1,0 +1,121 @@
+import type { SyntheticEvent } from "react";
+import { BlockDocumentSurface } from "@/components/block-documents/block-document-surface";
+import { BlockDocumentSyncStatus } from "@/components/block-documents/block-document-sync-status";
+import { CollaborativeCardTitle } from "@/components/block-documents/collaborative-card-title";
+import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
+import type { BlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
+import type { CardSummary } from "@/lib/types";
+import { useProjects } from "@/lib/use-projects";
+import { resolveReferencedProjectContext } from "@/lib/referenced-project-context";
+import { NfmEditor } from "./nfm-editor";
+
+export interface EmbeddedReferencedCardDocumentProps {
+  readonly projectId: string;
+  readonly card: CardSummary;
+  readonly isActive: boolean;
+  readonly hostRuntime: BlockReferenceHostRuntime | null;
+}
+
+const stopNestedEditorEvent = (event: SyntheticEvent): void => {
+  event.stopPropagation();
+};
+
+/**
+ * Opens the referenced Card's own Y.Doc. This component is lazy-loaded so a
+ * collapsed reference pays neither the NfmEditor bundle cost nor a provider.
+ */
+export function EmbeddedReferencedCardDocument({
+  projectId,
+  card,
+  isActive,
+  hostRuntime,
+}: EmbeddedReferencedCardDocumentProps) {
+  const { projects } = useProjects();
+  const targetProject = resolveReferencedProjectContext(projectId, projects);
+  return (
+    <OwnedBlockDocumentBoundary projectId={projectId} ownerBlockId={card.id}>
+      {(model, controls) => {
+        if (model.status === "loading") {
+          return (
+            <div className="py-2 text-sm text-token-description-foreground">
+              Opening collaborative document…
+            </div>
+          );
+        }
+        if (model.status === "error") {
+          return (
+            <div role="alert" className="py-2 text-sm text-token-error-foreground">
+              {model.error.message}
+            </div>
+          );
+        }
+        if (model.status === "legacy_shadow") {
+          return (
+            <div className="py-2 text-sm text-token-description-foreground">
+              Finishing collaboration migration…
+            </div>
+          );
+        }
+
+        return (
+          <BlockDocumentSurface
+            projectId={projectId}
+            descriptor={model.descriptor}
+            isActive={isActive}
+            onReload={controls.reload}
+            localAwarenessState={{
+              user: { name: "You", color: "#3b82f6" },
+              nodex: { embedded: true },
+            }}
+          >
+            {(surface) => (
+              <div
+                data-embedded-card-document={card.id}
+                className="min-w-0 py-1"
+                onBeforeInput={stopNestedEditorEvent}
+                onClick={stopNestedEditorEvent}
+                onDoubleClick={stopNestedEditorEvent}
+                onDragStart={stopNestedEditorEvent}
+                onDrop={stopNestedEditorEvent}
+                onInput={stopNestedEditorEvent}
+                onKeyDown={stopNestedEditorEvent}
+                onPaste={stopNestedEditorEvent}
+                onPointerDown={stopNestedEditorEvent}
+              >
+                <div className="flex min-w-0 items-start gap-2 pr-1">
+                  <CollaborativeCardTitle
+                    title={surface.title}
+                    className="min-w-0 flex-1 py-0 text-base/snug font-semibold"
+                    aria-label={`Edit ${card.title.trim() || "Untitled"} title`}
+                  />
+                  <BlockDocumentSyncStatus
+                    runtime={surface.runtime}
+                    status={surface.status.provider}
+                  />
+                </div>
+                <NfmEditor
+                  projectId={projectId}
+                  projectName={targetProject.projectName}
+                  projectWorkspacePath={targetProject.projectWorkspacePath}
+                  source={{
+                    kind: "collaborative-document",
+                    documentId: surface.documentId,
+                    generation: surface.descriptor.generation,
+                    fragment: surface.body,
+                    user: { name: "You", color: "#3b82f6" },
+                    provider: { awareness: surface.awareness },
+                  }}
+                  sourceCardContext={{ cardId: card.id, columnId: card.status }}
+                  onOpenCard={hostRuntime?.openCard}
+                  isActivePanelTab={isActive}
+                  placeholder="Add a description…"
+                  className="min-w-0"
+                />
+              </div>
+            )}
+          </BlockDocumentSurface>
+        );
+      }}
+    </OwnedBlockDocumentBoundary>
+  );
+}

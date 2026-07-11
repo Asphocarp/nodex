@@ -140,6 +140,7 @@ export type NfmBlockType =
   | "callout"
   | "image"
   | "toggleListInlineView"
+  | "databaseViewRef"
   | "threadSection"
   | "cardToggle"
   | "cardRef"
@@ -252,6 +253,12 @@ export interface NfmToggleListInlineView extends NfmBlockBase {
   showEmptyPriority?: boolean;
 }
 
+export interface NfmDatabaseViewRef extends NfmBlockBase {
+  type: "databaseViewRef";
+  databaseViewId: string;
+  displayHint?: string;
+}
+
 export interface NfmThreadSection extends NfmBlockBase {
   type: "threadSection";
   label?: string;
@@ -260,8 +267,28 @@ export interface NfmThreadSection extends NfmBlockBase {
 
 export interface NfmCardRef extends NfmBlockBase {
   type: "cardRef";
+  /** Canonical Block-first target. Its presence takes precedence over legacy fields. */
+  targetBlockId?: string;
+  /** Bounded, non-authoritative text used while the target summary is unavailable. */
+  displayHint?: string;
+  /** Legacy Card-first locator retained only until BF-05 migration completes. */
   sourceProjectId: string;
+  /** Legacy Card-first locator retained only until BF-05 migration completes. */
   cardId: string;
+}
+
+export type NfmCanonicalCardRef = NfmCardRef & {
+  targetBlockId: string;
+};
+
+export function isCanonicalNfmCardRef(
+  block: NfmCardRef,
+): block is NfmCanonicalCardRef {
+  return block.targetBlockId !== undefined;
+}
+
+export function isLegacyNfmCardRef(block: NfmCardRef): boolean {
+  return !isCanonicalNfmCardRef(block);
 }
 
 export interface NfmCardToggle extends NfmBlockBase {
@@ -296,6 +323,7 @@ export type NfmBlock =
   | NfmCallout
   | NfmImage
   | NfmToggleListInlineView
+  | NfmDatabaseViewRef
   | NfmThreadSection
   | NfmCardToggle
   | NfmCardRef

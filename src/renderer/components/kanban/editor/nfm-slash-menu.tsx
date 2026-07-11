@@ -1,5 +1,16 @@
-import { startTransition, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core/extensions";
+import {
+  startTransition,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  filterSuggestionItems,
+  insertOrUpdateBlockForSlashMenu,
+} from "@blocknote/core/extensions";
 import {
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
@@ -7,7 +18,16 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
-import { Bell, CalendarDays, Clock, FileText, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
+import {
+  Bell,
+  CalendarDays,
+  Clock,
+  FileText,
+  Link2,
+  ListTree,
+  SendHorizontal,
+  Settings2,
+} from "lucide-react";
 import {
   NodexDropdownActionRow,
   NodexDropdownMessage,
@@ -20,7 +40,10 @@ import { getDefaultToggleListInlineViewProps } from "@/lib/toggle-list/inline-vi
 import { useAllBoards } from "@/lib/use-all-boards";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
+import type {
+  CommandPaletteCard,
+  CommandPaletteThread,
+} from "@/lib/command-palette";
 import {
   buildCommandPaletteCardDescriptionSearchScopeKey,
   buildCommandPaletteCardItemsFromBoardSummaries,
@@ -43,7 +66,10 @@ import {
 } from "./nfm-blocknote-floating-ui";
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
-import { CodexThreadIcon, NfmSideMenuTableHeaderIcon } from "@/components/shared/icons";
+import {
+  CodexThreadIcon,
+  NfmSideMenuTableHeaderIcon,
+} from "@/components/shared/icons";
 import { CARD_STATUS_LABELS } from "../../../../shared/card-status";
 import {
   buildDateMentionQueryMatches,
@@ -56,6 +82,13 @@ import { dateMentionPayloadToProps } from "./date-mention-chip";
 interface NfmSlashMenuProps {
   projectId: string;
   allowCardReferences?: boolean;
+  /**
+   * Legacy editors may insert an unresolved picker Block. Collaborative
+   * Documents must use the fully resolved @Card flow until a picker can choose
+   * a target before the insertion transaction.
+   */
+  allowUnresolvedCardReferenceBlock?: boolean;
+  allowLegacyDatabaseViews?: boolean;
 }
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
@@ -66,7 +99,10 @@ export type NfmSuggestionItem = DefaultReactSuggestionItem & {
   tooltipContent?: ReactNode | null;
 };
 type UnsafeInlineContentEditor = {
-  insertInlineContent: (content: unknown[], options?: { updateSelection?: boolean }) => void;
+  insertInlineContent: (
+    content: unknown[],
+    options?: { updateSelection?: boolean },
+  ) => void;
 };
 
 const SUGGESTION_SYNTAX_HINT_BY_KEY: Record<string, string> = {
@@ -105,7 +141,9 @@ function insertBlock(editor: unknown, block: Record<string, unknown>) {
 }
 
 function insertInlineContent(editor: unknown, content: unknown[]) {
-  (editor as UnsafeInlineContentEditor).insertInlineContent(content, { updateSelection: true });
+  (editor as UnsafeInlineContentEditor).insertInlineContent(content, {
+    updateSelection: true,
+  });
 }
 
 function createDefaultNfmTableBlock() {
@@ -133,12 +171,20 @@ function createDefaultNfmTableBlock() {
 function normalizeSuggestionAliasHint(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("/") || trimmed.startsWith("@") || trimmed.startsWith(":")) return trimmed;
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("@") ||
+    trimmed.startsWith(":")
+  )
+    return trimmed;
   if (trimmed.includes(" ")) return null;
   return `/${trimmed}`;
 }
 
-export function scrollElementIntoContainerView(container: HTMLElement, element: HTMLElement) {
+export function scrollElementIntoContainerView(
+  container: HTMLElement,
+  element: HTMLElement,
+) {
   const containerHeight = container.clientHeight;
   if (containerHeight <= 0) return;
 
@@ -183,7 +229,9 @@ export function resolveNfmSuggestionHint(item: DefaultReactSuggestionItem) {
 
   if (item.badge?.trim()) return item.badge.trim();
 
-  const aliasHint = item.aliases?.map(normalizeSuggestionAliasHint).find((value): value is string => value !== null);
+  const aliasHint = item.aliases
+    ?.map(normalizeSuggestionAliasHint)
+    .find((value): value is string => value !== null);
   if (aliasHint) return aliasHint;
 
   return null;
@@ -209,7 +257,8 @@ export function NfmSuggestionMenuSurface({
   selectedIndex,
   onItemClick,
 }: SuggestionMenuProps<DefaultReactSuggestionItem>) {
-  const loading = loadingState === "loading-initial" || loadingState === "loading";
+  const loading =
+    loadingState === "loading-initial" || loadingState === "loading";
   const listRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -218,7 +267,9 @@ export function NfmSuggestionMenuSurface({
     const list = listRef.current;
     if (!list) return;
 
-    const item = list.querySelector<HTMLElement>(`#bn-suggestion-menu-item-${selectedIndex}`);
+    const item = list.querySelector<HTMLElement>(
+      `#bn-suggestion-menu-item-${selectedIndex}`,
+    );
     if (!item) return;
 
     scrollElementIntoContainerView(list, item);
@@ -328,9 +379,13 @@ export function NfmSuggestionMenuSurface({
 export function getNfmSlashMenuCustomItems(
   editor: unknown,
   projectId: string,
-  options: { readonly allowCardReferences?: boolean } = {},
+  options: {
+    readonly allowCardReferences?: boolean;
+    readonly allowLegacyDatabaseViews?: boolean;
+  } = {},
 ): DefaultReactSuggestionItem[] {
   const allowCardReferences = options.allowCardReferences ?? true;
+  const allowLegacyDatabaseViews = options.allowLegacyDatabaseViews ?? true;
   const tableItem = {
     key: "table",
     title: "Table",
@@ -371,7 +426,7 @@ export function getNfmSlashMenuCustomItems(
     onItemClick: () => {
       insertBlock(editor, {
         type: "cardRef",
-        props: { sourceProjectId: projectId || "default", cardId: "" },
+        props: { targetBlockId: "", displayHint: "" },
       });
     },
   };
@@ -385,7 +440,10 @@ export function getNfmSlashMenuCustomItems(
     badge: "/thread",
     icon: <SendHorizontal size={16} />,
     onItemClick: () => {
-      insertBlock(editor, createEmptyThreadSectionBlock() as unknown as Record<string, unknown>);
+      insertBlock(
+        editor,
+        createEmptyThreadSectionBlock() as unknown as Record<string, unknown>,
+      );
     },
   };
 
@@ -393,7 +451,15 @@ export function getNfmSlashMenuCustomItems(
     key: "agent_config",
     title: "Agent Config",
     subtext: "Insert a one-send plan-mode config chip",
-    aliases: ["agent-config", "agent config", "plan", "plan mode", "mode", "model", "reasoning"],
+    aliases: [
+      "agent-config",
+      "agent config",
+      "plan",
+      "plan mode",
+      "mode",
+      "model",
+      "reasoning",
+    ],
     group: "Others",
     badge: "/agent-config",
     icon: <Settings2 size={16} />,
@@ -416,7 +482,8 @@ export function getNfmSlashMenuCustomItems(
 
   return [
     tableItem,
-    ...(allowCardReferences ? [toggleListItem, cardRefItem] : []),
+    ...(allowLegacyDatabaseViews ? [toggleListItem] : []),
+    ...(allowCardReferences ? [cardRefItem] : []),
     threadSectionItem,
     agentConfigItem,
   ];
@@ -425,6 +492,8 @@ export function getNfmSlashMenuCustomItems(
 export function NfmSlashMenu({
   projectId,
   allowCardReferences = true,
+  allowUnresolvedCardReferenceBlock = true,
+  allowLegacyDatabaseViews = false,
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
 
@@ -434,14 +503,25 @@ export function NfmSlashMenu({
         const key = (item as NfmSuggestionItem).key;
         return key !== "table" && item.title.toLocaleLowerCase() !== "table";
       });
-      return filterSuggestionItems([
-        ...defaults,
-        ...getNfmSlashMenuCustomItems(editor, projectId, {
-          allowCardReferences,
-        }),
-      ], query);
+      return filterSuggestionItems(
+        [
+          ...defaults,
+          ...getNfmSlashMenuCustomItems(editor, projectId, {
+            allowCardReferences:
+              allowCardReferences && allowUnresolvedCardReferenceBlock,
+            allowLegacyDatabaseViews,
+          }),
+        ],
+        query,
+      );
     },
-    [allowCardReferences, editor, projectId],
+    [
+      allowCardReferences,
+      allowLegacyDatabaseViews,
+      allowUnresolvedCardReferenceBlock,
+      editor,
+      projectId,
+    ],
   );
 
   return (
@@ -480,7 +560,10 @@ type ThreadMentionSubtextInput = {
 };
 
 function resolveMentionSearchPreviewExcerpt(
-  searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
+  searchPreview:
+    | CommandPaletteCard["searchPreview"]
+    | CommandPaletteThread["searchPreview"]
+    | undefined,
 ): string | null {
   const excerpt = searchPreview?.excerpt?.replace(/\s+/g, " ").trim();
   return excerpt || null;
@@ -488,7 +571,10 @@ function resolveMentionSearchPreviewExcerpt(
 
 function appendMentionSearchPreviewSubtext(
   baseSubtext: string,
-  searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
+  searchPreview:
+    | CommandPaletteCard["searchPreview"]
+    | CommandPaletteThread["searchPreview"]
+    | undefined,
 ): string {
   const excerpt = resolveMentionSearchPreviewExcerpt(searchPreview);
   if (!excerpt) return baseSubtext;
@@ -497,7 +583,10 @@ function appendMentionSearchPreviewSubtext(
 
 function buildMentionTooltipContent(
   contextText: string,
-  searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
+  searchPreview:
+    | CommandPaletteCard["searchPreview"]
+    | CommandPaletteThread["searchPreview"]
+    | undefined,
 ): ReactNode {
   const excerpt = resolveMentionSearchPreviewExcerpt(searchPreview);
   if (!contextText && !excerpt) return null;
@@ -505,14 +594,10 @@ function buildMentionTooltipContent(
   return (
     <div className="max-w-72 space-y-1 text-sm leading-5">
       {contextText ? (
-        <div className="text-token-foreground">
-          {contextText}
-        </div>
+        <div className="text-token-foreground">{contextText}</div>
       ) : null}
       {excerpt ? (
-        <div className="text-token-description-foreground">
-          {excerpt}
-        </div>
+        <div className="text-token-description-foreground">{excerpt}</div>
       ) : null}
     </div>
   );
@@ -529,23 +614,37 @@ function resolveThreadMentionTitle(thread: CommandPaletteThread): string {
   return firstPreviewLine || formatThreadMentionShortUuid(thread.threadId);
 }
 
-function resolveThreadMentionStateLabel(thread: Pick<ThreadMentionSubtextInput, "archived" | "statusType" | "statusActiveFlags">): string {
+function resolveThreadMentionStateLabel(
+  thread: Pick<
+    ThreadMentionSubtextInput,
+    "archived" | "statusType" | "statusActiveFlags"
+  >,
+): string {
   if (thread.archived) return "Archived";
   if (thread.statusType === "systemError") return "Error";
-  if (thread.statusActiveFlags.includes("waitingOnApproval")) return "Needs approval";
+  if (thread.statusActiveFlags.includes("waitingOnApproval"))
+    return "Needs approval";
   if (thread.statusActiveFlags.includes("waitingOnUserInput")) return "Waiting";
   if (thread.statusType === "active") return "Running";
   return "";
 }
 
-export function resolveThreadMentionSubtext(thread: ThreadMentionSubtextInput, project: Pick<Project, "id" | "name"> | null): string {
-  const projectLabel = project?.name?.trim()
-    || project?.id
-    || thread.projectName?.trim()
-    || thread.projectId
-    || "Chats";
+export function resolveThreadMentionSubtext(
+  thread: ThreadMentionSubtextInput,
+  project: Pick<Project, "id" | "name"> | null,
+): string {
+  const projectLabel =
+    project?.name?.trim() ||
+    project?.id ||
+    thread.projectName?.trim() ||
+    thread.projectId ||
+    "Chats";
   const stateLabel = resolveThreadMentionStateLabel(thread);
-  return [projectLabel, stateLabel, formatThreadMentionShortUuid(thread.threadId)]
+  return [
+    projectLabel,
+    stateLabel,
+    formatThreadMentionShortUuid(thread.threadId),
+  ]
     .filter(Boolean)
     .join(" / ");
 }
@@ -553,7 +652,9 @@ export function resolveThreadMentionSubtext(thread: ThreadMentionSubtextInput, p
 function resolveCardMentionContext(item: CommandPaletteCard): string {
   const columnName = item.columnName.trim();
   const stateLabel = CARD_STATUS_LABELS[item.card.status];
-  const shouldShowStateLabel = normalizeMentionContextPart(columnName) !== normalizeMentionContextPart(stateLabel);
+  const shouldShowStateLabel =
+    normalizeMentionContextPart(columnName) !==
+    normalizeMentionContextPart(stateLabel);
 
   return [item.projectName, columnName, shouldShowStateLabel ? stateLabel : ""]
     .filter(Boolean)
@@ -561,34 +662,51 @@ function resolveCardMentionContext(item: CommandPaletteCard): string {
 }
 
 function normalizeMentionContextPart(value: string): string {
-  return value.trim().replace(/[_\s-]+/g, " ").toLowerCase();
+  return value
+    .trim()
+    .replace(/[_\s-]+/g, " ")
+    .toLowerCase();
 }
 
 function resolveCardMentionSubtext(item: CommandPaletteCard): string {
-  return appendMentionSearchPreviewSubtext(resolveCardMentionContext(item), item.searchPreview);
+  return appendMentionSearchPreviewSubtext(
+    resolveCardMentionContext(item),
+    item.searchPreview,
+  );
 }
 
 function resolveThreadMentionContext(item: CommandPaletteThread): string {
-  const projectLabel = item.projectName?.trim() || (item.projectless ? "Projectless chat" : CHAT_MENTION_GROUP);
+  const projectLabel =
+    item.projectName?.trim() ||
+    (item.projectless ? "Projectless chat" : CHAT_MENTION_GROUP);
   const stateLabel = resolveThreadMentionStateLabel(item);
   return [projectLabel, stateLabel].filter(Boolean).join(" / ");
 }
 
-function resolveCommandPaletteThreadMentionSubtext(item: CommandPaletteThread): string {
+function resolveCommandPaletteThreadMentionSubtext(
+  item: CommandPaletteThread,
+): string {
   return appendMentionSearchPreviewSubtext(
     resolveThreadMentionContext(item),
     item.searchPreview,
   );
 }
 
-export function buildNfmCardMentionBlock(item: CommandPaletteCard): Record<string, unknown> {
+export function buildNfmCardMentionBlock(
+  item: CommandPaletteCard,
+): Record<string, unknown> {
   return {
     type: "cardRef",
-    props: { sourceProjectId: item.projectId, cardId: item.card.id },
+    props: {
+      targetBlockId: item.card.id,
+      displayHint: item.card.title.slice(0, 512),
+    },
   };
 }
 
-export function buildNfmThreadMentionInlineContent(item: CommandPaletteThread): unknown[] {
+export function buildNfmThreadMentionInlineContent(
+  item: CommandPaletteThread,
+): unknown[] {
   return [
     {
       type: "threadMention",
@@ -598,7 +716,9 @@ export function buildNfmThreadMentionInlineContent(item: CommandPaletteThread): 
   ];
 }
 
-export function buildNfmDateMentionInlineContent(payload: NfmDateMentionInlineContent): unknown[] {
+export function buildNfmDateMentionInlineContent(
+  payload: NfmDateMentionInlineContent,
+): unknown[] {
   return [
     {
       type: "dateMention",
@@ -613,7 +733,11 @@ export function buildNfmDateMentionSuggestionItem(
   match: DateMentionQueryMatch,
 ): NfmSuggestionItem {
   const isReminder = match.group === "Reminders";
-  const Icon = isReminder ? Bell : match.key === "date:now" ? Clock : CalendarDays;
+  const Icon = isReminder
+    ? Bell
+    : match.key === "date:now"
+      ? Clock
+      : CalendarDays;
   return {
     key: match.key,
     title: match.title,
@@ -628,7 +752,10 @@ export function buildNfmDateMentionSuggestionItem(
     ),
     icon: <Icon className="size-4" aria-hidden="true" />,
     onItemClick: () => {
-      insertInlineContent(editor, buildNfmDateMentionInlineContent(match.payload));
+      insertInlineContent(
+        editor,
+        buildNfmDateMentionInlineContent(match.payload),
+      );
     },
   };
 }
@@ -683,9 +810,9 @@ export function buildNfmThreadMentionSuggestionItem(
   };
 }
 
-function partitionMentionResultsByActiveProject<T extends { inActiveProject: boolean }>(
-  items: readonly T[],
-): { activeProjectItems: T[]; otherItems: T[] } {
+function partitionMentionResultsByActiveProject<
+  T extends { inActiveProject: boolean },
+>(items: readonly T[]): { activeProjectItems: T[]; otherItems: T[] } {
   const activeProjectItems: T[] = [];
   const otherItems: T[] = [];
 
@@ -712,38 +839,34 @@ export function buildNfmMentionSuggestionItems({
   cardResults: readonly CommandPaletteCard[];
   threadResults: readonly CommandPaletteThread[];
 }): DefaultReactSuggestionItem[] {
-  const {
-    activeProjectItems: activeProjectThreads,
-    otherItems: otherThreads,
-  } = partitionMentionResultsByActiveProject(threadResults);
-  const {
-    activeProjectItems: activeProjectCards,
-    otherItems: otherCards,
-  } = partitionMentionResultsByActiveProject(cardResults);
+  const { activeProjectItems: activeProjectThreads, otherItems: otherThreads } =
+    partitionMentionResultsByActiveProject(threadResults);
+  const { activeProjectItems: activeProjectCards, otherItems: otherCards } =
+    partitionMentionResultsByActiveProject(cardResults);
   const currentProjectItems = [
-    ...activeProjectThreads.map((item) => buildNfmThreadMentionSuggestionItem(
-      editor,
-      item,
-      { group: CURRENT_PROJECT_MENTION_GROUP },
-    )),
-    ...activeProjectCards.map((item) => buildNfmCardMentionSuggestionItem(
-      editor,
-      item,
-      { group: CURRENT_PROJECT_MENTION_GROUP },
-    )),
+    ...activeProjectThreads.map((item) =>
+      buildNfmThreadMentionSuggestionItem(editor, item, {
+        group: CURRENT_PROJECT_MENTION_GROUP,
+      }),
+    ),
+    ...activeProjectCards.map((item) =>
+      buildNfmCardMentionSuggestionItem(editor, item, {
+        group: CURRENT_PROJECT_MENTION_GROUP,
+      }),
+    ),
   ];
   const dateItems = buildNfmDateMentionSuggestionItems(editor, query);
   const otherMentionItems = [
-    ...otherThreads.map((item) => buildNfmThreadMentionSuggestionItem(
-      editor,
-      item,
-      { group: CHAT_MENTION_GROUP },
-    )),
-    ...otherCards.map((item) => buildNfmCardMentionSuggestionItem(
-      editor,
-      item,
-      { group: CARD_MENTION_GROUP },
-    )),
+    ...otherThreads.map((item) =>
+      buildNfmThreadMentionSuggestionItem(editor, item, {
+        group: CHAT_MENTION_GROUP,
+      }),
+    ),
+    ...otherCards.map((item) =>
+      buildNfmCardMentionSuggestionItem(editor, item, {
+        group: CARD_MENTION_GROUP,
+      }),
+    ),
   ];
 
   return isDateMentionQuery(query)
@@ -808,11 +931,7 @@ function buildNfmMentionAsyncSearchKey({
   projectIdsForCardSearch: readonly string[];
   query: string;
 }) {
-  return JSON.stringify([
-    activeProjectId,
-    projectIdsForCardSearch,
-    query,
-  ]);
+  return JSON.stringify([activeProjectId, projectIdsForCardSearch, query]);
 }
 
 export function useNfmMentionGetItems({
@@ -822,19 +941,35 @@ export function useNfmMentionGetItems({
   cardSearchIndex,
   projectIdsForCardSearch,
   loaders = DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS,
-}: NfmMentionGetItemsInput): (query: string) => Promise<DefaultReactSuggestionItem[]> {
+}: NfmMentionGetItemsInput): (
+  query: string,
+) => Promise<DefaultReactSuggestionItem[]> {
   const [asyncRefreshKey, setAsyncRefreshKey] = useState(0);
-  const threadItemsRef = useRef<{ activeProjectId: string; items: CommandPaletteThread[] } | null>(null);
-  const threadLoadPromiseRef = useRef<{ activeProjectId: string; promise: Promise<CommandPaletteThread[]> } | null>(null);
+  const threadItemsRef = useRef<{
+    activeProjectId: string;
+    items: CommandPaletteThread[];
+  } | null>(null);
+  const threadLoadPromiseRef = useRef<{
+    activeProjectId: string;
+    promise: Promise<CommandPaletteThread[]>;
+  } | null>(null);
   const threadSearchIndexRef = useRef<{
     activeProjectId: string;
     items: CommandPaletteThread[];
     index: ReturnType<typeof createCommandPaletteThreadSearchIndex>;
   } | null>(null);
-  const asyncSearchResultsRef = useRef<NfmMentionAsyncSearchResults | null>(null);
+  const asyncSearchResultsRef = useRef<NfmMentionAsyncSearchResults | null>(
+    null,
+  );
   const latestAsyncSearchKeyRef = useRef<string | null>(null);
-  const cardDescriptionSearchRequestRef = useRef<{ key: string; id: number } | null>(null);
-  const threadContentSearchRequestRef = useRef<{ key: string; id: number } | null>(null);
+  const cardDescriptionSearchRequestRef = useRef<{
+    key: string;
+    id: number;
+  } | null>(null);
+  const threadContentSearchRequestRef = useRef<{
+    key: string;
+    id: number;
+  } | null>(null);
   const asyncRequestIdRef = useRef(0);
   const projectIdRef = useRef(projectId);
   const loadersRef = useRef(loaders);
@@ -872,7 +1007,8 @@ export function useNfmMentionGetItems({
       return inFlight.promise;
     }
 
-    const promise = loadersRef.current.listThreadItems({ activeProjectId })
+    const promise = loadersRef.current
+      .listThreadItems({ activeProjectId })
       .catch(() => [])
       .then((items) => {
         if (projectIdRef.current !== activeProjectId) {
@@ -892,141 +1028,158 @@ export function useNfmMentionGetItems({
     return promise;
   }, [bumpAsyncRefresh]);
 
-  const getThreadSearchIndex = useCallback((threadItems: CommandPaletteThread[]) => {
-    const activeProjectId = projectIdRef.current;
-    const cachedIndex = threadSearchIndexRef.current;
-    if (cachedIndex?.activeProjectId === activeProjectId && cachedIndex.items === threadItems) {
-      return cachedIndex.index;
-    }
+  const getThreadSearchIndex = useCallback(
+    (threadItems: CommandPaletteThread[]) => {
+      const activeProjectId = projectIdRef.current;
+      const cachedIndex = threadSearchIndexRef.current;
+      if (
+        cachedIndex?.activeProjectId === activeProjectId &&
+        cachedIndex.items === threadItems
+      ) {
+        return cachedIndex.index;
+      }
 
-    const index = loadersRef.current.createThreadSearchIndex(threadItems);
-    threadSearchIndexRef.current = {
-      activeProjectId,
-      items: threadItems,
-      index,
-    };
-    return index;
-  }, []);
+      const index = loadersRef.current.createThreadSearchIndex(threadItems);
+      threadSearchIndexRef.current = {
+        activeProjectId,
+        items: threadItems,
+        index,
+      };
+      return index;
+    },
+    [],
+  );
 
-  const ensureAsyncSearches = useCallback(({
-    projectIdsForCardSearch: currentProjectIdsForCardSearch,
-    query,
-    requestKey,
-  }: {
-    projectIdsForCardSearch: readonly string[];
-    query: string;
-    requestKey: string;
-  }) => {
-    const queryText = query.trimStart().trim();
-    if (queryText.length === 0) {
-      return;
-    }
+  const ensureAsyncSearches = useCallback(
+    ({
+      projectIdsForCardSearch: currentProjectIdsForCardSearch,
+      query,
+      requestKey,
+    }: {
+      projectIdsForCardSearch: readonly string[];
+      query: string;
+      requestKey: string;
+    }) => {
+      const queryText = query.trimStart().trim();
+      if (queryText.length === 0) {
+        return;
+      }
 
-    if (asyncSearchResultsRef.current?.key !== requestKey) {
-      asyncSearchResultsRef.current = { key: requestKey };
-    }
+      if (asyncSearchResultsRef.current?.key !== requestKey) {
+        asyncSearchResultsRef.current = { key: requestKey };
+      }
 
-    const currentResults = asyncSearchResultsRef.current;
-    if (!currentResults) {
-      return;
-    }
+      const currentResults = asyncSearchResultsRef.current;
+      if (!currentResults) {
+        return;
+      }
 
-    const currentLoaders = loadersRef.current;
+      const currentLoaders = loadersRef.current;
 
-    if (
-      currentProjectIdsForCardSearch.length > 0 &&
-      currentResults.cardDescriptionSearchResults === undefined &&
-      cardDescriptionSearchRequestRef.current?.key !== requestKey
-    ) {
-      const requestId = asyncRequestIdRef.current + 1;
-      asyncRequestIdRef.current = requestId;
-      cardDescriptionSearchRequestRef.current = { key: requestKey, id: requestId };
+      if (
+        currentProjectIdsForCardSearch.length > 0 &&
+        currentResults.cardDescriptionSearchResults === undefined &&
+        cardDescriptionSearchRequestRef.current?.key !== requestKey
+      ) {
+        const requestId = asyncRequestIdRef.current + 1;
+        asyncRequestIdRef.current = requestId;
+        cardDescriptionSearchRequestRef.current = {
+          key: requestKey,
+          id: requestId,
+        };
 
-      void currentLoaders.searchCardDescriptions({
-        projectIds: currentProjectIdsForCardSearch,
-        query,
-      })
-        .then((results) => {
-          if (
-            latestAsyncSearchKeyRef.current !== requestKey ||
-            cardDescriptionSearchRequestRef.current?.id !== requestId
-          ) {
-            return;
-          }
+        void currentLoaders
+          .searchCardDescriptions({
+            projectIds: currentProjectIdsForCardSearch,
+            query,
+          })
+          .then((results) => {
+            if (
+              latestAsyncSearchKeyRef.current !== requestKey ||
+              cardDescriptionSearchRequestRef.current?.id !== requestId
+            ) {
+              return;
+            }
 
-          asyncSearchResultsRef.current = {
-            ...(asyncSearchResultsRef.current?.key === requestKey
-              ? asyncSearchResultsRef.current
-              : { key: requestKey }),
-            key: requestKey,
-            cardDescriptionSearchResults: results,
-          };
-          bumpAsyncRefresh();
-        })
-        .catch(() => {
-          if (
-            latestAsyncSearchKeyRef.current !== requestKey ||
-            cardDescriptionSearchRequestRef.current?.id !== requestId
-          ) {
-            return;
-          }
+            asyncSearchResultsRef.current = {
+              ...(asyncSearchResultsRef.current?.key === requestKey
+                ? asyncSearchResultsRef.current
+                : { key: requestKey }),
+              key: requestKey,
+              cardDescriptionSearchResults: results,
+            };
+            bumpAsyncRefresh();
+          })
+          .catch(() => {
+            if (
+              latestAsyncSearchKeyRef.current !== requestKey ||
+              cardDescriptionSearchRequestRef.current?.id !== requestId
+            ) {
+              return;
+            }
 
-          asyncSearchResultsRef.current = {
-            ...(asyncSearchResultsRef.current?.key === requestKey
-              ? asyncSearchResultsRef.current
-              : { key: requestKey }),
-            key: requestKey,
-            cardDescriptionSearchResults: [],
-          };
-          bumpAsyncRefresh();
-        });
-    }
+            asyncSearchResultsRef.current = {
+              ...(asyncSearchResultsRef.current?.key === requestKey
+                ? asyncSearchResultsRef.current
+                : { key: requestKey }),
+              key: requestKey,
+              cardDescriptionSearchResults: [],
+            };
+            bumpAsyncRefresh();
+          });
+      }
 
-    if (
-      currentResults.threadContentSearchResults === undefined &&
-      threadContentSearchRequestRef.current?.key !== requestKey
-    ) {
-      const requestId = asyncRequestIdRef.current + 1;
-      asyncRequestIdRef.current = requestId;
-      threadContentSearchRequestRef.current = { key: requestKey, id: requestId };
+      if (
+        currentResults.threadContentSearchResults === undefined &&
+        threadContentSearchRequestRef.current?.key !== requestKey
+      ) {
+        const requestId = asyncRequestIdRef.current + 1;
+        asyncRequestIdRef.current = requestId;
+        threadContentSearchRequestRef.current = {
+          key: requestKey,
+          id: requestId,
+        };
 
-      void currentLoaders.searchThreadContent({ query })
-        .then((results) => {
-          if (
-            latestAsyncSearchKeyRef.current !== requestKey ||
-            threadContentSearchRequestRef.current?.id !== requestId
-          ) {
-            return;
-          }
+        void currentLoaders
+          .searchThreadContent({ query })
+          .then((results) => {
+            if (
+              latestAsyncSearchKeyRef.current !== requestKey ||
+              threadContentSearchRequestRef.current?.id !== requestId
+            ) {
+              return;
+            }
 
-          asyncSearchResultsRef.current = {
-            ...(asyncSearchResultsRef.current?.key === requestKey
-              ? asyncSearchResultsRef.current
-              : { key: requestKey }),
-            key: requestKey,
-            threadContentSearchResults: results,
-          };
-          bumpAsyncRefresh();
-        })
-        .catch(() => {
-          if (
-            latestAsyncSearchKeyRef.current !== requestKey ||
-            threadContentSearchRequestRef.current?.id !== requestId
-          ) {
-            return;
-          }
+            asyncSearchResultsRef.current = {
+              ...(asyncSearchResultsRef.current?.key === requestKey
+                ? asyncSearchResultsRef.current
+                : { key: requestKey }),
+              key: requestKey,
+              threadContentSearchResults: results,
+            };
+            bumpAsyncRefresh();
+          })
+          .catch(() => {
+            if (
+              latestAsyncSearchKeyRef.current !== requestKey ||
+              threadContentSearchRequestRef.current?.id !== requestId
+            ) {
+              return;
+            }
 
-          asyncSearchResultsRef.current = {
-            ...(asyncSearchResultsRef.current?.key === requestKey
-              ? asyncSearchResultsRef.current
-              : { key: requestKey }),
-            key: requestKey,
-            threadContentSearchResults: [],
-          };
-          bumpAsyncRefresh();
-        });
-    }
-  }, [bumpAsyncRefresh]);
+            asyncSearchResultsRef.current = {
+              ...(asyncSearchResultsRef.current?.key === requestKey
+                ? asyncSearchResultsRef.current
+                : { key: requestKey }),
+              key: requestKey,
+              threadContentSearchResults: [],
+            };
+            bumpAsyncRefresh();
+          });
+      }
+    },
+    [bumpAsyncRefresh],
+  );
 
   return useCallback(
     async (query: string) => {
@@ -1054,29 +1207,36 @@ export function useNfmMentionGetItems({
         requestKey,
       });
 
-      const asyncResults = asyncSearchResultsRef.current?.key === requestKey
-        ? asyncSearchResultsRef.current
-        : undefined;
-      const cachedThreads = threadItemsRef.current?.activeProjectId === activeProjectId
-        ? threadItemsRef.current.items
-        : [];
-      const cardDescriptionSearchScopeKey = buildCommandPaletteCardDescriptionSearchScopeKey(currentProjectIdsForCardSearch);
-      const cardDescriptionSearchBatch: CommandPaletteCardDescriptionSearchBatch | undefined =
+      const asyncResults =
+        asyncSearchResultsRef.current?.key === requestKey
+          ? asyncSearchResultsRef.current
+          : undefined;
+      const cachedThreads =
+        threadItemsRef.current?.activeProjectId === activeProjectId
+          ? threadItemsRef.current.items
+          : [];
+      const cardDescriptionSearchScopeKey =
+        buildCommandPaletteCardDescriptionSearchScopeKey(
+          currentProjectIdsForCardSearch,
+        );
+      const cardDescriptionSearchBatch:
+        CommandPaletteCardDescriptionSearchBatch | undefined =
         asyncResults?.cardDescriptionSearchResults
           ? {
-            query,
-            scopeKey: cardDescriptionSearchScopeKey,
-            results: asyncResults.cardDescriptionSearchResults,
-            loading: false,
-          }
+              query,
+              scopeKey: cardDescriptionSearchScopeKey,
+              results: asyncResults.cardDescriptionSearchResults,
+              loading: false,
+            }
           : undefined;
-      const threadContentSearchBatch: CommandPaletteThreadContentSearchBatch | undefined =
+      const threadContentSearchBatch:
+        CommandPaletteThreadContentSearchBatch | undefined =
         asyncResults?.threadContentSearchResults
           ? {
-            query,
-            results: asyncResults.threadContentSearchResults,
-            loading: false,
-          }
+              query,
+              results: asyncResults.threadContentSearchResults,
+              loading: false,
+            }
           : undefined;
       const cardResults = currentLoaders.selectCardResults({
         query,
@@ -1104,7 +1264,12 @@ export function useNfmMentionGetItems({
         threadResults,
       });
     },
-    [asyncRefreshKey, ensureAsyncSearches, getThreadSearchIndex, loadThreadItems],
+    [
+      asyncRefreshKey,
+      ensureAsyncSearches,
+      getThreadSearchIndex,
+      loadThreadItems,
+    ],
   );
 }
 
@@ -1118,20 +1283,19 @@ function MentionMenu({
   const editor = useBlockNoteEditor();
   const { boards, projects } = useAllBoards();
   const cardItems = useMemo(
-    () => allowCardReferences
-      ? buildCommandPaletteCardItemsFromBoardSummaries({
-          projects,
-          boardMap: boards,
-          activeProjectId: projectId,
-        })
-      : [],
+    () =>
+      allowCardReferences
+        ? buildCommandPaletteCardItemsFromBoardSummaries({
+            projects,
+            boardMap: boards,
+            activeProjectId: projectId,
+          })
+        : [],
     [allowCardReferences, boards, projectId, projects],
   );
   const cardSearchIndex = useCommandPaletteCardSearchIndex(cardItems);
   const projectIdsForCardSearch = useMemo(
-    () => allowCardReferences
-      ? projects.map((project) => project.id)
-      : [],
+    () => (allowCardReferences ? projects.map((project) => project.id) : []),
     [allowCardReferences, projects],
   );
   const getItems = useNfmMentionGetItems({
