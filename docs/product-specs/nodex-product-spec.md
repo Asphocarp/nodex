@@ -421,7 +421,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Choosing `Only this occurrence` detaches that occurrence into a standalone non-recurring card while the original series skips that occurrence.
 - Choosing `This and future` trims the original series to end the day before the selected occurrence and creates a new series from the selected occurrence onward; when selected on the first occurrence, it behaves like `All occurrences` (no split).
 - For drag-based recurrence schedule moves (`All occurrences` and `This and future`), if the series has an inclusive end date (`untilDate`), that date shifts by the same calendar-day delta as the dragged occurrence so series length is preserved.
-- Desktop reminders fire while the app is running, include startup/resume catch-up, and notification click deep-links to the target card Card Stage.
+- Desktop reminders fire while the app is running, include startup/resume catch-up, and notification click deep-links to the target Card Stage. Calendar/reminder/snooze reads use the typed schedule index, current relational schedule metadata, and the Card's exact current collaborative title/body; stale index or legacy content coordinates fail closed instead of resurfacing compatibility-row data.
 
 #### 12. Codex Threads (Electron-only in this phase)
 - New chats are created for project sessions and linked through `project_session_threads`; cards can mention threads or send selected content to them, but cards do not own threads.

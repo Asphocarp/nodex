@@ -3,6 +3,7 @@ import { listCalendarOccurrences } from "./card-occurrences";
 import { getDb } from "./database";
 import { listProjects } from "./projects";
 import { getLogger } from "../logging/logger";
+import { readDueReminderSnoozes } from "./scheduled-card-store";
 
 const DEFAULT_INTERVAL_MS = 30_000;
 const CATCH_UP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -131,27 +132,15 @@ async function collectPendingReminders(now: Date): Promise<PendingReminder[]> {
 
 async function processDueSnoozes(now: Date, onReminder: (payload: ReminderNotificationPayload) => void): Promise<void> {
   const database = getDb();
-  const rows = database.prepare(`
-    SELECT s.id, s.project_id, s.card_id, s.occurrence_start, c.title
-    FROM reminder_snoozes s
-    JOIN cards c ON c.id = s.card_id
-    WHERE s.consumed_at IS NULL AND s.due_at <= ?
-    ORDER BY s.due_at ASC
-  `).all(now.toISOString()) as Array<{
-    id: number;
-    project_id: string;
-    card_id: string;
-    occurrence_start: string;
-    title: string;
-  }>;
+  const rows = readDueReminderSnoozes(database, now);
 
   for (const row of rows) {
-    const occurrenceStart = new Date(row.occurrence_start);
-    if (!reminderReceiptExists(row.project_id, row.card_id, occurrenceStart, -1)) {
+    const occurrenceStart = new Date(row.occurrenceStart);
+    if (!reminderReceiptExists(row.projectId, row.cardId, occurrenceStart, -1)) {
       onReminder({
-        projectId: row.project_id,
-        cardId: row.card_id,
-        occurrenceStart: row.occurrence_start,
+        projectId: row.projectId,
+        cardId: row.cardId,
+        occurrenceStart: row.occurrenceStart,
         title: row.title,
         body: "Snoozed reminder",
         reminderOffsetMinutes: -1,
@@ -160,7 +149,7 @@ async function processDueSnoozes(now: Date, onReminder: (payload: ReminderNotifi
         INSERT OR IGNORE INTO reminder_receipts (
           project_id, card_id, occurrence_start, reminder_offset_minutes, delivered_at
         ) VALUES (?, ?, ?, ?, ?)
-      `).run(row.project_id, row.card_id, row.occurrence_start, -1, new Date().toISOString());
+      `).run(row.projectId, row.cardId, row.occurrenceStart, -1, new Date().toISOString());
     }
     database.prepare("UPDATE reminder_snoozes SET consumed_at = ? WHERE id = ?")
       .run(now.toISOString(), row.id);

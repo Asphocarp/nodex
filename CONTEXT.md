@@ -96,6 +96,10 @@ Schema v62 is the first persisted property/projection foundation: `block_propert
 
 Schema v65 separates durable secondary evidence from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. None of these tables writes into `cards`, Y.Doc state, or property authority through a trigger.
 
+A structured property mutation is a versioned, project/store-scoped field-intent batch with one immutable `mutationId`. Scalar fields compare their own property revision rather than a whole-Card revision; set-like values apply add/remove intent against the current set. The property values, any coupled View grouping, one `metadataRevision` advance per affected Card, full Card/schedule projections, change-log cursor, and accepted or rejected receipt are one SQLite transaction. Retrying the same canonical request replays its prior outcome; the same ID can never name different intent.
+
+Scheduler and Calendar reads begin with `scheduled_card_index`, never the wide Card row. An index row is visible only when its source metadata revision equals the current Card Block revision; title/body additionally require the ready `ydoc_primary` Document's exact current materialization. Invalid or stale index/content coordinates fail closed, and the index can be rebuilt completely from Database plus intrinsic Block properties.
+
 For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes the result back through the legacy Card title/body or metadata mutation paths.
 
 ### NFM
