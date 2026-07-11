@@ -17,6 +17,7 @@ import {
   applyBlockPropertyMutation,
   type BlockPropertyMutationFaultPoint,
 } from "../src/main/local-store/block-property-mutations";
+import { listBlockChangeHistory } from "../src/main/local-store/document-versions";
 
 interface Fixture {
   readonly database: Database.Database;
@@ -703,10 +704,24 @@ const run = async (): Promise<void> => {
         `
         SELECT COUNT(*) AS count
         FROM change_log
-        WHERE project_id = ? AND kind = 'block_properties_mutated'
+        WHERE project_id = ? AND kind = 'block_mutation'
       `,
       )
       .get(fixture.projectId) as { readonly count: number };
+    const history = listBlockChangeHistory(fixture.database, {
+      projectId: fixture.projectId,
+      blockId: fixture.cardId,
+      limit: 200,
+    });
+    const propertyHistory = history.find(
+      (entry) => entry.operationId === batch.mutationId,
+    );
+    invariant(
+      propertyHistory?.mutationKind === "property_batch" &&
+        Array.isArray(propertyHistory.payload.fieldChanges) &&
+        propertyHistory.payload.fieldChanges.length === batch.fields.length,
+      "Property mutation was not visible with field-level history evidence",
+    );
     fixture.database.close();
     const reopened = new Database(getDatabasePath());
     reopened.pragma("foreign_keys = ON");
@@ -731,6 +746,7 @@ const run = async (): Promise<void> => {
         preCommitFaults: faultPoints.length,
         durableRestart: true,
         changeLogEntries: changeCount.count,
+        canonicalPropertyHistory: true,
       })}\n`,
     );
   } finally {

@@ -117,6 +117,7 @@ interface ResolvedIntrinsicField {
   readonly valueType: "null" | "boolean" | "number" | "string" | "json";
   readonly valueJson: string;
   readonly currentRevision: number;
+  readonly currentValue: BlockPropertyJsonValue;
 }
 
 interface ResolvedDatabaseField {
@@ -130,6 +131,7 @@ interface ResolvedDatabaseField {
   readonly value: string | null | readonly string[];
   readonly valueJson: string;
   readonly currentRevision: number;
+  readonly currentValue: BlockPropertyJsonValue;
 }
 
 type ResolvedPropertyField = ResolvedIntrinsicField | ResolvedDatabaseField;
@@ -146,6 +148,24 @@ const sha256 = (value: string): string =>
 
 const uniqueSorted = (values: readonly string[]): readonly string[] =>
   [...new Set(values)].sort(compareStrings);
+
+const parseStoredPropertyValue = (
+  valueJson: string | undefined,
+  request: BlockPropertyMutationRequest,
+  path: string,
+): BlockPropertyJsonValue => {
+  if (valueJson === undefined) return null;
+  try {
+    return JSON.parse(valueJson) as BlockPropertyJsonValue;
+  } catch {
+    return reject(
+      "property_value_corrupt",
+      `Stored property ${path} is not valid JSON`,
+      request,
+      { fieldPath: path },
+    );
+  }
+};
 
 const makeError = (
   code: BlockPropertyMutationCommandError["code"],
@@ -532,6 +552,7 @@ const resolveIntrinsicField = (
     valueType: inferIntrinsicValueType(field.value),
     valueJson: stableStringifyBlockPropertyJson(field.value),
     currentRevision: actualRevision,
+    currentValue: parseStoredPropertyValue(current?.value_json, request, path),
   };
 };
 
@@ -932,6 +953,11 @@ const resolveDatabaseField = (
       value: field.value,
       valueJson: JSON.stringify(field.value),
       currentRevision: actualRevision,
+      currentValue: parseStoredPropertyValue(
+        current?.value_json,
+        request,
+        path,
+      ),
     };
   }
   const next = new Set(parseStoredSet(current, request, path));
@@ -949,6 +975,7 @@ const resolveDatabaseField = (
     value,
     valueJson: JSON.stringify(value),
     currentRevision: actualRevision,
+    currentValue: parseStoredSet(current, request, path),
   };
 };
 
@@ -1367,6 +1394,7 @@ const persistChangeLog = (
   database: Database.Database,
   request: BlockPropertyMutationRequest,
   evidence: MutationEvidence,
+  resolvedFields: readonly ResolvedPropertyField[],
   fieldResults: readonly BlockPropertyMutationFieldResult[],
   blockMetadataRevisions: Readonly<Record<string, number>>,
   now: string,
@@ -1378,6 +1406,29 @@ const persistChangeLog = (
     version: BLOCK_PROPERTY_MUTATION_CONTRACT_VERSION,
     requestHash: evidence.requestHash,
     fieldPaths: fieldResults.map((field) => field.path),
+    fieldChanges: fieldResults.map((field) => {
+      const resolved = resolvedFields.find(
+        (candidate) => candidate.path === field.path,
+      );
+      if (!resolved) {
+        throw new Error(`Missing resolved property evidence for ${field.path}`);
+      }
+      return {
+        path: field.path,
+        scope: field.scope,
+        operation: field.operation,
+        before: {
+          exists: resolved.currentRevision > 0,
+          revision: resolved.currentRevision,
+          value: resolved.currentValue,
+        },
+        after: {
+          exists: true,
+          revision: field.revision,
+          value: field.value,
+        },
+      };
+    }),
     committedRevisions,
     blockMetadataRevisions,
   };
@@ -1393,7 +1444,7 @@ const persistChangeLog = (
     .run(
       request.projectId,
       request.storeEpoch,
-      "block_properties_mutated",
+      "block_mutation",
       request.mutationId,
       evidence.targetBlockIdsJson,
       evidence.databaseBlockIdsJson,
@@ -1553,6 +1604,7 @@ export const applyBlockPropertyMutation = (
       database,
       request,
       evidence,
+      fields,
       fieldResults,
       blockMetadataRevisions,
       now,

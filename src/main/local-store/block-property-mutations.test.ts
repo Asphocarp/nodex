@@ -14,6 +14,7 @@ import {
   applyBlockPropertyMutation,
   type BlockPropertyMutationFaultPoint,
 } from "./block-property-mutations";
+import { listBlockChangeHistory } from "./document-versions";
 
 interface PropertyFixture {
   readonly database: Database.Database;
@@ -291,6 +292,49 @@ describe("Block property mutation store", () => {
           )
           .get(request.mutationId) as { readonly count: number };
         expect(ledgerCount.count).toBe(1);
+
+        const canonicalHistory = listBlockChangeHistory(fixture.database, {
+          projectId: fixture.projectId,
+          blockId: fixture.cardId,
+        });
+        expect(canonicalHistory.length).toBe(1);
+        expect(canonicalHistory[0]?.kind).toBe("block_mutation");
+        expect(canonicalHistory[0]?.mutationKind).toBe("property_batch");
+        const fieldChanges = canonicalHistory[0]?.payload.fieldChanges;
+        expect(Array.isArray(fieldChanges)).toBeTrue();
+        if (!Array.isArray(fieldChanges)) {
+          throw new Error("Property history is missing field changes");
+        }
+        const priorityChange = fieldChanges.find(
+          (entry) =>
+            typeof entry === "object" &&
+            entry !== null &&
+            !Array.isArray(entry) &&
+            "path" in entry &&
+            typeof entry.path === "string" &&
+            entry.path.endsWith(
+              `/property/${requirePropertyId(fixture, "priority")}`,
+            ),
+        ) as
+          | {
+              readonly before?: {
+                readonly revision?: number;
+                readonly value?: unknown;
+              };
+              readonly after?: {
+                readonly revision?: number;
+                readonly value?: unknown;
+              };
+            }
+          | undefined;
+        expect(priorityChange?.before?.revision).toBe(priorityBefore.revision);
+        expect(JSON.stringify(priorityChange?.before?.value)).toBe(
+          priorityBefore.value_json,
+        );
+        expect(priorityChange?.after?.revision).toBe(
+          priorityBefore.revision + 1,
+        );
+        expect(priorityChange?.after?.value).toBe("p0-critical");
 
         const collision = applyBlockPropertyMutation(fixture.database, {
           ...request,
