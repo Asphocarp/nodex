@@ -110,6 +110,8 @@ NFM is Nodex's public text interchange format. It is used for genesis import, ex
 
 A mutation is a durable user or agent intent applied by the single SQLite writer. Document updates, property edits, membership changes, and placements are different mutation families but share idempotency, project scoping, durable acknowledgement, history, and change-log rules.
 
+A Document operation batch addresses application Block IDs, not Yjs struct IDs. It may set the title or insert, update, delete, and move Blocks in order. The writer validates the entire batch on a detached current-head clone before committing one relative Yjs update and its registry, projections, mutation receipt, and change-log evidence atomically. Operations that replace or remove existing Yjs structs require a short trusted write fence and record every invalidated Block/subtree ID; an offline update that crosses such a barrier may merge only when its derived touched IDs are disjoint. Otherwise Nodex persists a recovery artifact and requires reload. A tombstoned Block ID is never a valid create/import identity.
+
 ### Relocation
 
 A relocation is an atomic move of one or more Block subtrees between Documents or between a Document and a Space. It preserves application Block IDs. A copy is different: it allocates new IDs for the copied subtree while preserving reference targets.
@@ -166,6 +168,8 @@ Card title undo and body undo are local to the mounted surface's tracked transac
 ### Explicit NFM replacement
 
 `ReplaceDocumentFromNfm` is an import seam, not a normal update path. It requires an expected Document head or state precondition, parses and validates NFM, and generates a transaction on the existing Y.Doc. It does not create a new Y.Doc or reset causal history.
+
+Because public NFM does not encode Block IDs, replacement preserves an existing identity only when a conservative semantic/parent match is unambiguous. It allocates deterministic fresh IDs for unmatched nodes, then compiles the target BlockTree into the same stable-ID Document operation engine. It never writes a materialized NFM snapshot directly into authority.
 
 ### Move and copy
 

@@ -35,6 +35,13 @@ export interface TranslateLegacyNfmIntoCardDocumentInput {
   readonly allocateBlockId?: () => BlockId;
 }
 
+export interface ReplaceCardDocumentBodyFromNfmInput {
+  /** A detached current-head Card Document. The input remains read-only. */
+  readonly document: Y.Doc;
+  readonly nfm: string;
+  readonly allocateBlockId?: () => BlockId;
+}
+
 export interface LegacyNfmShadowTranslation {
   readonly changed: boolean;
   /** Relative to the input document's state vector. Empty only for a no-op. */
@@ -498,6 +505,122 @@ const inferTargetIdentities = (
   return matches;
 };
 
+/**
+ * Explicit NFM replacement is intentionally more conservative than the
+ * one-time legacy shadow migration. Ambiguous equal siblings receive fresh
+ * identities; parent context or a unique high-confidence match is required to
+ * preserve an application ID.
+ */
+const inferConservativeTargetIdentities = (
+  sourceForest: IdentityForest,
+  targetForest: IdentityForest,
+): ReadonlyMap<number, IdentityNode> => {
+  const matches = new Map<number, IdentityNode>();
+  const claimedSource = new Set<number>();
+  const pendingPairs: [readonly IdentityNode[], readonly IdentityNode[]][] = [
+    [sourceForest.roots, targetForest.roots],
+  ];
+  let nextPair = 0;
+
+  const claim = (source: IdentityNode, target: IdentityNode): boolean => {
+    if (claimedSource.has(source.key) || matches.has(target.key)) return false;
+    claimedSource.add(source.key);
+    matches.set(target.key, source);
+    pendingPairs.push([source.children, target.children]);
+    return true;
+  };
+
+  const claimUniqueGroups = (
+    sourceNodes: readonly IdentityNode[],
+    targetNodes: readonly IdentityNode[],
+    signature: (node: IdentityNode) => string,
+  ): void => {
+    const sourceGroups = groupBySignature(
+      sourceNodes.filter((node) => !claimedSource.has(node.key)),
+      signature,
+    );
+    const targetGroups = groupBySignature(
+      targetNodes.filter((node) => !matches.has(node.key)),
+      signature,
+    );
+    targetGroups.forEach((targets, key) => {
+      const sources = sourceGroups.get(key);
+      if (sources?.length !== 1 || targets.length !== 1) return;
+      const source = sources[0];
+      const target = targets[0];
+      if (source && target) claim(source, target);
+    });
+  };
+
+  // Preserve globally unique exact/mere-prop-edit anchors across reordering.
+  claimUniqueGroups(
+    sourceForest.nodes,
+    targetForest.nodes,
+    (node) => node.localSignature,
+  );
+  claimUniqueGroups(
+    sourceForest.nodes,
+    targetForest.nodes,
+    (node) => node.semanticSignature,
+  );
+
+  while (nextPair < pendingPairs.length) {
+    const pair = pendingPairs[nextPair++];
+    if (!pair) continue;
+    const [sourceChildren, targetChildren] = pair;
+    claimUniqueGroups(
+      sourceChildren,
+      targetChildren,
+      (node) => node.localSignature,
+    );
+    claimUniqueGroups(
+      sourceChildren,
+      targetChildren,
+      (node) => node.semanticSignature,
+    );
+
+    const remainingSourceByType = groupBySignature(
+      sourceChildren.filter((node) => !claimedSource.has(node.key)),
+      (node) => node.type,
+    );
+    const remainingTargetByType = groupBySignature(
+      targetChildren.filter((node) => !matches.has(node.key)),
+      (node) => node.type,
+    );
+    remainingTargetByType.forEach((targets, type) => {
+      const sources = remainingSourceByType.get(type);
+      if (sources?.length !== 1 || targets.length !== 1) return;
+      const source = sources[0];
+      const target = targets[0];
+      if (!source || !target) return;
+      const score = identityMatchScore(source, target);
+      if (score !== null && score >= 68) claim(source, target);
+    });
+  }
+
+  // A modified Block may have moved across parents. Preserve it only when the
+  // type is globally unique on both sides and the semantic score has margin.
+  const remainingSourceByType = groupBySignature(
+    sourceForest.nodes.filter((node) => !claimedSource.has(node.key)),
+    (node) => node.type,
+  );
+  const remainingTargetByType = groupBySignature(
+    targetForest.nodes.filter((node) => !matches.has(node.key)),
+    (node) => node.type,
+  );
+  remainingTargetByType.forEach((targets, type) => {
+    const sources = remainingSourceByType.get(type);
+    if (sources?.length !== 1 || targets.length !== 1) return;
+    const source = sources[0];
+    const target = targets[0];
+    if (!source || !target) return;
+    const score = identityMatchScore(source, target);
+    if (score !== null && score >= 72) claim(source, target);
+  });
+
+  return matches;
+};
+
 function assertAllocatedBlockId(
   blockId: unknown,
   unavailableIds: ReadonlySet<BlockId>,
@@ -617,25 +740,15 @@ const assertEquivalentMaterialization = (
  * NFM carries no Block IDs. Identity inference is therefore deterministic but
  * necessarily resolves indistinguishable duplicate Blocks by traversal order.
  */
-export const translateLegacyNfmIntoCardDocument = ({
+const translateNfmIntoCardDocument = ({
   document,
-  authority,
-  readiness,
   title,
   nfm,
   allocateBlockId = createUuidV7,
-}: TranslateLegacyNfmIntoCardDocumentInput): LegacyNfmShadowTranslation => {
-  if (authority !== "legacy_shadow") {
-    throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM translation requires legacy_shadow authority",
-    );
-  }
-  if (readiness !== "ready") {
-    throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM translation requires a ready Card document",
-    );
-  }
-
+  identityPolicy = "legacy",
+}: Omit<TranslateLegacyNfmIntoCardDocumentInput, "authority" | "readiness"> & {
+  readonly identityPolicy?: "legacy" | "conservative";
+}): LegacyNfmShadowTranslation => {
   let currentMaterialization: CardDocumentMaterialization;
   let targetBlocks: readonly BlockNoteBlockValue[];
   try {
@@ -653,7 +766,10 @@ export const translateLegacyNfmIntoCardDocument = ({
     "source",
   );
   const targetForest = createIdentityForest(targetBlocks, "target");
-  const matches = inferTargetIdentities(sourceForest, targetForest);
+  const matches =
+    identityPolicy === "conservative"
+      ? inferConservativeTargetIdentities(sourceForest, targetForest)
+      : inferTargetIdentities(sourceForest, targetForest);
   const identifiedTarget = assignTargetIdentities(
     sourceForest,
     targetForest,
@@ -697,8 +813,10 @@ export const translateLegacyNfmIntoCardDocument = ({
     // Candidate validation is complete before the disposable current-head
     // replica is changed. The authoritative input document remains untouched.
     working.transact(() => {
-      workingEnvelope.title.delete(0, workingEnvelope.title.length);
-      if (title.length > 0) workingEnvelope.title.insert(0, title);
+      if (workingEnvelope.title.toString() !== title) {
+        workingEnvelope.title.delete(0, workingEnvelope.title.length);
+        if (title.length > 0) workingEnvelope.title.insert(0, title);
+      }
       workingEnvelope.body.delete(0, workingEnvelope.body.length);
       workingEnvelope.body.insert(0, [cloneXmlSubtree(candidateRoot)]);
     }, "legacy-nfm-shadow-translation");
@@ -723,3 +841,37 @@ export const translateLegacyNfmIntoCardDocument = ({
     candidate.document.destroy();
   }
 };
+
+export const translateLegacyNfmIntoCardDocument = (
+  input: TranslateLegacyNfmIntoCardDocumentInput,
+): LegacyNfmShadowTranslation => {
+  if (input.authority !== "legacy_shadow") {
+    throw new LegacyNfmShadowTranslationError(
+      "Legacy NFM translation requires legacy_shadow authority",
+    );
+  }
+  if (input.readiness !== "ready") {
+    throw new LegacyNfmShadowTranslationError(
+      "Legacy NFM translation requires a ready Card document",
+    );
+  }
+  return translateNfmIntoCardDocument(input);
+};
+
+/**
+ * Explicit BF-07 import seam. It preserves the current title, deterministically
+ * aligns stable application IDs, and returns one forward update relative to the
+ * supplied current-head Y.Doc. It never replaces or mutates that input Y.Doc.
+ */
+export const replaceCardDocumentBodyFromNfm = ({
+  document,
+  nfm,
+  allocateBlockId,
+}: ReplaceCardDocumentBodyFromNfmInput): LegacyNfmShadowTranslation =>
+  translateNfmIntoCardDocument({
+    document,
+    title: assertValidCardDocumentRoots(document).title.toString(),
+    nfm,
+    identityPolicy: "conservative",
+    ...(allocateBlockId ? { allocateBlockId } : {}),
+  });

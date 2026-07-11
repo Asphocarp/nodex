@@ -1018,6 +1018,8 @@ Card Stage Y.Doc transaction → durable FIFO Document apply → SQLite commit/A
 
 Each surface subscribes before its state-vector handshake. Missed or reordered realtime events are repaired by a later handshake; a fast successful ACK shows no save indicator. Browser clients use the equivalent binary POST + Document SSE Adapter. Neither path rewrites `cards.title` or `cards.description` for a primary Card.
 
+Agent-facing body edits use ordered stable-ID Document operations (`set title`, `insert`, `update`, `delete`, and `move`) against the current Card Document. A batch either commits its Yjs update, Block registry/indexes, projections, mutation receipt, and change cursor together or changes nothing. Identity-destructive operations require mounted editors to flush and freeze behind a short write fence; stale overlapping edits are retained as recovery artifacts rather than silently overwritten. Whole NFM input is an explicit compare-and-swap import that compiles into these operations and never reconstructs the Y.Doc from a projection.
+
 **Browser path (HTTP + SSE):**
 ```
 Database Write → EventEmitter (notifier) → SSE push (Hono /events endpoint)

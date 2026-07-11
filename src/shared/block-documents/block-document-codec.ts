@@ -78,6 +78,17 @@ export interface CardDocumentGenesis {
   readonly materialization: CardDocumentMaterialization;
 }
 
+export interface CreateDetachedCardDocumentFromBlockTreeInput {
+  readonly documentId: DocumentId;
+  readonly title?: string;
+  readonly blockTree: readonly BlockTreeNode[];
+}
+
+export interface DetachedCardDocumentFromBlockTree {
+  readonly document: Y.Doc;
+  readonly materialization: CardDocumentMaterialization;
+}
+
 export interface CardDocumentMigrationResult {
   readonly fromVersion: number;
   readonly toVersion: number;
@@ -198,6 +209,44 @@ const flattenBlockTree = (
     ...flattenBlockTree(block.children, block.id),
   ]);
 
+const blockTreeValuesEqual = (
+  left: BlockTreeValue | undefined,
+  right: BlockTreeValue | undefined,
+): boolean => {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((entry, index) => blockTreeValuesEqual(entry, right[index]))
+    );
+  }
+  if (
+    typeof left !== "object" ||
+    left === null ||
+    typeof right !== "object" ||
+    right === null
+  ) {
+    return false;
+  }
+  const leftEntries = Object.entries(left);
+  const rightRecord = right as Readonly<Record<string, BlockTreeValue>>;
+  return leftEntries.every(
+    ([key, value]) =>
+      Object.hasOwn(rightRecord, key) &&
+      blockTreeValuesEqual(value, rightRecord[key]),
+  );
+};
+
+const requestedBlockSemanticsArePreserved = (
+  requested: BlockTreeNode,
+  actual: BlockTreeNode,
+): boolean =>
+  blockTreeValuesEqual(requested.props, actual.props) &&
+  (!Object.hasOwn(requested, "content") ||
+    blockTreeValuesEqual(requested.content, actual.content));
+
 const assertMaterializationMatchesScan = (
   blockTree: readonly BlockTreeNode[],
   scannedBlocks: readonly ScannedDocumentBlock[],
@@ -317,6 +366,60 @@ export const createCardDocumentGenesis = ({
     if (error instanceof BlockDocumentCodecError) throw error;
     throw new BlockDocumentCodecError(
       `Could not import NFM genesis for Document ${documentId}`,
+      { cause: error },
+    );
+  }
+};
+
+/**
+ * Build a disposable, validated Card Document from an internal stable-ID
+ * BlockTree. This is a codec primitive for headless writers: it does not run
+ * BlockNote editor commands and it never mutates an authoritative Y.Doc.
+ */
+export const createDetachedCardDocumentFromBlockTree = ({
+  documentId,
+  title = "",
+  blockTree,
+}: CreateDetachedCardDocumentFromBlockTreeInput): DetachedCardDocumentFromBlockTree => {
+  const envelope = createCardDocument({
+    documentId,
+    initialTitle: title,
+    initializeBody: false,
+  });
+  try {
+    blocksToYXmlFragment(
+      headlessEditor,
+      blockTree as (typeof headlessBlockDocumentSchema.Block)[],
+      envelope.body,
+    );
+    if (envelope.body.length === 0) {
+      envelope.body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
+    }
+    const materialization = materializeCardDocument(envelope.document);
+    const requested = flattenBlockTree(blockTree);
+    const actual = flattenBlockTree(materialization.blockTree);
+    const identityMatches =
+      requested.length === actual.length &&
+      requested.every(({ block, parentBlockId }, index) => {
+        const candidate = actual[index];
+        return (
+          candidate?.block.id === block.id &&
+          candidate.block.type === block.type &&
+          candidate.parentBlockId === parentBlockId &&
+          requestedBlockSemanticsArePreserved(block, candidate.block)
+        );
+      });
+    if (!identityMatches) {
+      throw new BlockDocumentCodecError(
+        "Stable-ID BlockTree encoding changed identity, type, or hierarchy",
+      );
+    }
+    return { document: envelope.document, materialization };
+  } catch (error) {
+    envelope.document.destroy();
+    if (error instanceof BlockDocumentCodecError) throw error;
+    throw new BlockDocumentCodecError(
+      `Could not encode stable-ID BlockTree for Document ${documentId}`,
       { cause: error },
     );
   }

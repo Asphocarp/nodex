@@ -30,6 +30,10 @@ import {
   materializeCardDocument,
   type CardDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
+import {
+  DocumentOperationContractError,
+  parseDocumentOperationResult,
+} from "../../shared/block-documents/document-operations";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import {
   captureBlockDocumentChangeState,
@@ -110,7 +114,18 @@ interface CrossedRelocationMemberRow {
   readonly block_id: string;
 }
 
-interface StaleRelocationInspection {
+interface CrossedDocumentMutationRow {
+  readonly mutation_id: string;
+  readonly result_json: string;
+}
+
+interface CrossedDocumentMutationBarrier {
+  readonly mutationId: string;
+  readonly committedSeq: number;
+  readonly writeFenceBlockIds: readonly BlockId[];
+}
+
+interface StaleStructuralInspection {
   readonly relocationIds: readonly string[];
   readonly derivedTouchedBlockIds: readonly BlockId[] | null;
   readonly rejectionReason: RecoveryArtifactReason | null;
@@ -252,6 +267,31 @@ export interface InitializeCardDocumentGenesis {
 }
 
 export type DocumentUpdateAck = DocumentSyncApplyAck;
+
+export interface StrictDocumentUpdateCommitContext {
+  readonly projectId: string;
+  readonly ownerBlockId: BlockId;
+  readonly documentId: DocumentId;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly baseHeadSeq: number;
+  readonly headSeq: number;
+  readonly updateId: string;
+  readonly derivedTouchedBlockIds: readonly BlockId[];
+  readonly committedAt: string;
+}
+
+export interface StrictDocumentUpdateCommitPolicy {
+  /** Return the original committed sequence for an exact logical retry. */
+  readonly readCommittedSeq: (database: Database.Database) => number | null;
+  /** Throw a domain-specific typed conflict unless the current head is valid. */
+  readonly assertCurrentHead: (currentHeadSeq: number) => void;
+  /** Persist the logical mutation receipt/history inside the Y.Doc transaction. */
+  readonly persistCommit: (
+    database: Database.Database,
+    context: StrictDocumentUpdateCommitContext,
+  ) => void;
+}
 
 export interface DocumentSyncStep {
   readonly storeEpoch: string;
@@ -776,10 +816,17 @@ const applyStoredUpdate = (
   }
 };
 
-const loadDocumentFromRow = (
+const loadDocumentAtSeq = (
   database: Database.Database,
   row: DocumentRow,
+  headSeq: number,
 ): Y.Doc => {
+  if (!Number.isSafeInteger(headSeq) || headSeq < 0 || headSeq > row.head_seq) {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      `Document ${row.document_id} cannot load invalid historical head ${headSeq}`,
+    );
+  }
   const document = new Y.Doc({ guid: row.document_id });
   try {
     const snapshot = database
@@ -792,7 +839,7 @@ const loadDocumentFromRow = (
         LIMIT 1
       `,
       )
-      .get(row.document_id, row.generation, row.head_seq) as
+      .get(row.document_id, row.generation, headSeq) as
       DocumentSnapshotRow | undefined;
     const snapshotSeq = snapshot?.snapshot_seq ?? 0;
     if (snapshot) {
@@ -831,7 +878,7 @@ const loadDocumentFromRow = (
         row.document_id,
         row.generation,
         snapshotSeq,
-        row.head_seq,
+        headSeq,
       ) as readonly DocumentTailUpdateRow[];
     let expectedSeq = snapshotSeq + 1;
     updates.forEach((update) => {
@@ -852,14 +899,28 @@ const loadDocumentFromRow = (
         `Document ${row.document_id} update tail is missing sequence ${expectedSeq}`,
       );
     });
-    if (expectedSeq !== row.head_seq + 1) {
+    if (expectedSeq !== headSeq + 1) {
       throw new BlockDocumentStoreError(
         "document_state_corrupt",
-        `Document ${row.document_id} update tail ends before head ${row.head_seq}`,
+        `Document ${row.document_id} update tail ends before historical head ${headSeq}`,
       );
     }
 
     assertNoPendingDependencies(document, "document_state_corrupt");
+    validateCardDocumentContent(document, "document_state_corrupt");
+    return document;
+  } catch (error) {
+    document.destroy();
+    throw error;
+  }
+};
+
+const loadDocumentFromRow = (
+  database: Database.Database,
+  row: DocumentRow,
+): Y.Doc => {
+  const document = loadDocumentAtSeq(database, row, row.head_seq);
+  try {
     const blocks = validateCardDocumentContent(
       document,
       "document_state_corrupt",
@@ -1124,6 +1185,7 @@ const readCrossedRelocations = (
   database: Database.Database,
   row: DocumentRow,
   baseHeadSeq: number,
+  storeEpoch: string,
 ): readonly CrossedRelocationRow[] =>
   database
     .prepare(
@@ -1139,6 +1201,8 @@ const readCrossedRelocations = (
     LEFT JOIN block_relocation_source_states source_state
       ON source_state.relocation_id = relocation.id
     WHERE relocation.source_document_id = ?
+      AND relocation.project_id = ?
+      AND relocation.store_epoch = ?
       AND relocation.source_generation = ?
       AND relocation.source_committed_seq > ?
       AND relocation.source_committed_seq <= ?
@@ -1147,6 +1211,8 @@ const readCrossedRelocations = (
     )
     .all(
       row.document_id,
+      row.project_id,
+      storeEpoch,
       row.generation,
       baseHeadSeq,
       row.head_seq,
@@ -1156,6 +1222,7 @@ const readCrossedRelocationMembers = (
   database: Database.Database,
   row: DocumentRow,
   baseHeadSeq: number,
+  storeEpoch: string,
 ): readonly CrossedRelocationMemberRow[] =>
   database
     .prepare(
@@ -1165,6 +1232,8 @@ const readCrossedRelocationMembers = (
     INNER JOIN block_relocation_members member
       ON member.relocation_id = relocation.id
     WHERE relocation.source_document_id = ?
+      AND relocation.project_id = ?
+      AND relocation.store_epoch = ?
       AND relocation.source_generation = ?
       AND relocation.source_committed_seq > ?
       AND relocation.source_committed_seq <= ?
@@ -1174,27 +1243,126 @@ const readCrossedRelocationMembers = (
     )
     .all(
       row.document_id,
+      row.project_id,
+      storeEpoch,
       row.generation,
       baseHeadSeq,
       row.head_seq,
     ) as readonly CrossedRelocationMemberRow[];
 
-const inspectStaleUpdateAcrossRelocations = (
+const readCrossedDocumentMutationBarriers = (
+  database: Database.Database,
+  row: DocumentRow,
+  baseHeadSeq: number,
+  storeEpoch: string,
+): readonly CrossedDocumentMutationBarrier[] => {
+  const stored = database
+    .prepare(
+      `
+      SELECT mutation_id, result_json
+      FROM block_mutations
+      WHERE outcome = 'committed'
+        AND project_id = ?
+        AND store_epoch = ?
+        AND mutation_kind IN (
+          'document_operation_batch',
+          'replace_document_from_nfm'
+        )
+        AND json_extract(result_json, '$.documentId') = ?
+        AND json_extract(result_json, '$.generation') = ?
+        AND json_extract(result_json, '$.headSeq') > ?
+        AND json_extract(result_json, '$.headSeq') <= ?
+        AND json_extract(result_json, '$.coordination') = 'write_fence'
+      ORDER BY json_extract(result_json, '$.headSeq') ASC, mutation_id ASC
+    `,
+    )
+    .all(
+      row.project_id,
+      storeEpoch,
+      row.document_id,
+      row.generation,
+      baseHeadSeq,
+      row.head_seq,
+    ) as readonly CrossedDocumentMutationRow[];
+
+  return stored.map((entry) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(entry.result_json);
+    } catch {
+      throw new BlockDocumentStoreError(
+        "document_state_corrupt",
+        `Document mutation ${entry.mutation_id} has invalid barrier evidence`,
+      );
+    }
+    try {
+      const result = parseDocumentOperationResult(parsed);
+      if (
+        result.mutationId !== entry.mutation_id ||
+        result.projectId !== row.project_id ||
+        result.storeEpoch !== storeEpoch ||
+        result.documentId !== row.document_id ||
+        result.generation !== row.generation ||
+        result.headSeq <= baseHeadSeq ||
+        result.headSeq > row.head_seq ||
+        result.coordination !== "write_fence"
+      ) {
+        throw new DocumentOperationContractError(
+          "Document mutation barrier diverges from its ledger identity",
+        );
+      }
+      return {
+        mutationId: result.mutationId,
+        committedSeq: result.headSeq,
+        writeFenceBlockIds: result.writeFenceBlockIds,
+      };
+    } catch (error) {
+      if (!(error instanceof DocumentOperationContractError)) throw error;
+      throw new BlockDocumentStoreError(
+        "document_state_corrupt",
+        `Document mutation ${entry.mutation_id} has invalid barrier evidence`,
+      );
+    }
+  });
+};
+
+const inspectStaleUpdateAcrossStructuralBarriers = (
   database: Database.Database,
   row: DocumentRow,
   input: ApplyDocumentUpdate,
   clientTouchedBlockIds: readonly BlockId[],
-): StaleRelocationInspection | null => {
-  const crossed = readCrossedRelocations(database, row, input.baseHeadSeq);
-  if (crossed.length === 0) return null;
-
+): StaleStructuralInspection | null => {
+  const currentStoreEpoch = readStoreEpoch(database);
+  if (currentStoreEpoch !== input.storeEpoch) {
+    throw new BlockDocumentStoreError(
+      "store_epoch_mismatch",
+      "Document update store epoch changed during structural barrier inspection",
+    );
+  }
+  const crossed = readCrossedRelocations(
+    database,
+    row,
+    input.baseHeadSeq,
+    currentStoreEpoch,
+  );
+  const mutationBarriers = readCrossedDocumentMutationBarriers(
+    database,
+    row,
+    input.baseHeadSeq,
+    currentStoreEpoch,
+  );
+  if (crossed.length === 0 && mutationBarriers.length === 0) return null;
   const relocationIds = crossed.map((relocation) => relocation.relocation_id);
   const members = readCrossedRelocationMembers(
     database,
     row,
     input.baseHeadSeq,
+    currentStoreEpoch,
   );
   const movedBlockIds = new Set(members.map((member) => member.block_id));
+  const mutationFenceBlockIds = new Set(
+    mutationBarriers.flatMap((barrier) => barrier.writeFenceBlockIds),
+  );
   const declaredMovedBlockId = clientTouchedBlockIds.find((blockId) =>
     movedBlockIds.has(blockId),
   );
@@ -1209,77 +1377,114 @@ const inspectStaleUpdateAcrossRelocations = (
       ...(relocationId ? { rejectedRelocationId: relocationId } : {}),
     };
   }
-
-  const earliest = crossed[0];
   if (
-    !earliest ||
-    earliest.pre_state_vector === null ||
-    earliest.pre_full_update === null ||
-    earliest.pre_full_update_byte_length === null ||
-    earliest.pre_state_hash === null
+    clientTouchedBlockIds.some((blockId) => mutationFenceBlockIds.has(blockId))
   ) {
-    throw new BlockDocumentStoreError(
-      "document_state_corrupt",
-      `Relocation ${earliest?.relocation_id ?? "unknown"} has no recoverable source state`,
-    );
-  }
-  if (
-    earliest.pre_full_update.byteLength !==
-      earliest.pre_full_update_byte_length ||
-    hashBytes(earliest.pre_full_update) !== earliest.pre_state_hash
-  ) {
-    throw new BlockDocumentStoreError(
-      "document_state_corrupt",
-      `Relocation ${earliest.relocation_id} source state checksum does not match`,
-    );
+    return {
+      relocationIds,
+      derivedTouchedBlockIds: null,
+      rejectionReason: "unsafe_stale_update",
+    };
   }
 
-  const preRelocationDocument = new Y.Doc({ guid: row.document_id });
-  try {
-    applyStoredUpdate(
-      preRelocationDocument,
-      earliest.pre_full_update,
-      row.document_id,
-    );
-    assertNoPendingDependencies(
-      preRelocationDocument,
-      "document_state_corrupt",
-    );
-    validateCardDocumentContent(
-      preRelocationDocument,
-      "document_state_corrupt",
-    );
+  const earliestRelocation = crossed[0];
+  const earliestMutation = mutationBarriers[0];
+  let preBarrierDocument: Y.Doc;
+  if (
+    earliestRelocation &&
+    (!earliestMutation ||
+      earliestRelocation.source_committed_seq <= earliestMutation.committedSeq)
+  ) {
     if (
-      !bytesEqual(
-        Y.encodeStateVector(preRelocationDocument),
-        earliest.pre_state_vector,
-      )
+      earliestRelocation.pre_state_vector === null ||
+      earliestRelocation.pre_full_update === null ||
+      earliestRelocation.pre_full_update_byte_length === null ||
+      earliestRelocation.pre_state_hash === null
     ) {
       throw new BlockDocumentStoreError(
         "document_state_corrupt",
-        `Relocation ${earliest.relocation_id} source state vector does not match`,
+        `Relocation ${earliestRelocation.relocation_id} has no recoverable source state`,
       );
     }
-    const before = captureBlockDocumentChangeState(preRelocationDocument);
+    if (
+      earliestRelocation.pre_full_update.byteLength !==
+        earliestRelocation.pre_full_update_byte_length ||
+      hashBytes(earliestRelocation.pre_full_update) !==
+        earliestRelocation.pre_state_hash
+    ) {
+      throw new BlockDocumentStoreError(
+        "document_state_corrupt",
+        `Relocation ${earliestRelocation.relocation_id} source state checksum does not match`,
+      );
+    }
+    preBarrierDocument = new Y.Doc({ guid: row.document_id });
+    try {
+      applyStoredUpdate(
+        preBarrierDocument,
+        earliestRelocation.pre_full_update,
+        row.document_id,
+      );
+      assertNoPendingDependencies(preBarrierDocument, "document_state_corrupt");
+      validateCardDocumentContent(preBarrierDocument, "document_state_corrupt");
+      if (
+        !bytesEqual(
+          Y.encodeStateVector(preBarrierDocument),
+          earliestRelocation.pre_state_vector,
+        )
+      ) {
+        throw new BlockDocumentStoreError(
+          "document_state_corrupt",
+          `Relocation ${earliestRelocation.relocation_id} source state vector does not match`,
+        );
+      }
+    } catch (error) {
+      preBarrierDocument.destroy();
+      throw error;
+    }
+  } else if (earliestMutation) {
+    try {
+      preBarrierDocument = loadDocumentAtSeq(
+        database,
+        row,
+        earliestMutation.committedSeq - 1,
+      );
+    } catch {
+      // Historical tails may have been compacted. A recovery artifact is safer
+      // than applying an update whose pre-barrier effect cannot be proven.
+      return {
+        relocationIds,
+        derivedTouchedBlockIds: null,
+        rejectionReason: "unsafe_stale_update",
+      };
+    }
+  } else {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      "Structural barrier inspection has no earliest durable barrier",
+    );
+  }
+
+  try {
+    const before = captureBlockDocumentChangeState(preBarrierDocument);
     let derivedTouchedBlockIds: readonly BlockId[] | null = null;
     try {
       Y.applyUpdate(
-        preRelocationDocument,
+        preBarrierDocument,
         input.update,
-        "stale-relocation-recovery-probe",
+        "stale-structural-barrier-recovery-probe",
       );
       assertNoPendingDependencies(
-        preRelocationDocument,
+        preBarrierDocument,
         "document_update_missing_dependencies",
       );
       validateCardDocumentContent(
-        preRelocationDocument,
+        preBarrierDocument,
         "invalid_document_update",
       );
       derivedTouchedBlockIds = deriveBlockDocumentTouchedIds({
         ownerBlockId: row.owner_block_id,
         before,
-        after: captureBlockDocumentChangeState(preRelocationDocument),
+        after: captureBlockDocumentChangeState(preBarrierDocument),
       });
     } catch {
       return {
@@ -1299,25 +1504,35 @@ const inspectStaleUpdateAcrossRelocations = (
     const derivedMovedBlockId = derivedTouchedBlockIds.find((blockId) =>
       movedBlockIds.has(blockId),
     );
-    if (!derivedMovedBlockId) {
+    if (derivedMovedBlockId) {
+      const relocationId = members.find(
+        (member) => member.block_id === derivedMovedBlockId,
+      )?.relocation_id;
       return {
         relocationIds,
         derivedTouchedBlockIds,
-        rejectionReason: null,
+        rejectionReason: "block_relocated",
+        ...(relocationId ? { rejectedRelocationId: relocationId } : {}),
       };
     }
-
-    const relocationId = members.find(
-      (member) => member.block_id === derivedMovedBlockId,
-    )?.relocation_id;
+    if (
+      derivedTouchedBlockIds.some((blockId) =>
+        mutationFenceBlockIds.has(blockId),
+      )
+    ) {
+      return {
+        relocationIds,
+        derivedTouchedBlockIds,
+        rejectionReason: "unsafe_stale_update",
+      };
+    }
     return {
       relocationIds,
       derivedTouchedBlockIds,
-      rejectionReason: "block_relocated",
-      ...(relocationId ? { rejectedRelocationId: relocationId } : {}),
+      rejectionReason: null,
     };
   } finally {
-    preRelocationDocument.destroy();
+    preBarrierDocument.destroy();
   }
 };
 
@@ -1326,7 +1541,7 @@ const persistRecoveryArtifact = (
   row: DocumentRow,
   input: ApplyDocumentUpdate,
   clientTouchedBlockIdsJson: string,
-  inspection: StaleRelocationInspection,
+  inspection: StaleStructuralInspection,
   reason: RecoveryArtifactReason,
 ): RecoveryArtifactOutcome => {
   const updateHash = hashBytes(input.update);
@@ -1755,6 +1970,7 @@ const applyBlockDocumentUpdateForAuthority = (
   authority: DocumentAuthority,
   allowInactiveOwner: boolean,
   allowReservedUpdateId: boolean,
+  strictCommitPolicy?: StrictDocumentUpdateCommitPolicy,
 ): DocumentUpdateAck => {
   validateIncomingUpdate(input.update);
   requireNonEmpty(input.documentId, "documentId");
@@ -1784,6 +2000,31 @@ const applyBlockDocumentUpdateForAuthority = (
       assertReadableCardOwner(row);
     }
     assertDocumentAuthority(row, authority);
+    const committedSeq = strictCommitPolicy?.readCommittedSeq(database) ?? null;
+    if (committedSeq !== null) {
+      if (
+        !Number.isSafeInteger(committedSeq) ||
+        committedSeq < 1 ||
+        committedSeq > row.head_seq
+      ) {
+        throw new BlockDocumentStoreError(
+          "document_state_corrupt",
+          "The strict Document mutation receipt has an invalid committed sequence",
+        );
+      }
+      return {
+        kind: "ack",
+        ack: makeAck(
+          row,
+          storeEpoch,
+          input.updateId,
+          committedSeq,
+          row.state_vector,
+          true,
+        ),
+      };
+    }
+    strictCommitPolicy?.assertCurrentHead(row.head_seq);
     if (input.baseHeadSeq > row.head_seq) {
       throw new BlockDocumentStoreError(
         "future_base_head",
@@ -1831,20 +2072,21 @@ const applyBlockDocumentUpdateForAuthority = (
       assertWritableCardOwner(row);
     }
 
-    const staleRelocationInspection = inspectStaleUpdateAcrossRelocations(
-      database,
-      row,
-      input,
-      clientTouchedBlockIds,
-    );
-    if (staleRelocationInspection?.rejectionReason) {
+    const staleStructuralInspection =
+      inspectStaleUpdateAcrossStructuralBarriers(
+        database,
+        row,
+        input,
+        clientTouchedBlockIds,
+      );
+    if (staleStructuralInspection?.rejectionReason) {
       return persistRecoveryArtifact(
         database,
         row,
         input,
         clientTouchedBlockIdsJson,
-        staleRelocationInspection,
-        staleRelocationInspection.rejectionReason,
+        staleStructuralInspection,
+        staleStructuralInspection.rejectionReason,
       );
     }
 
@@ -1869,11 +2111,11 @@ const applyBlockDocumentUpdateForAuthority = (
           before: beforeChangeState,
           after: captureBlockDocumentChangeState(document),
         });
-        if (staleRelocationInspection) {
+        if (staleStructuralInspection) {
           const currentTouchedBlockIds = new Set(derivedTouchedBlockIds);
           const structurallyVisible =
-            staleRelocationInspection.derivedTouchedBlockIds !== null &&
-            staleRelocationInspection.derivedTouchedBlockIds.every((blockId) =>
+            staleStructuralInspection.derivedTouchedBlockIds !== null &&
+            staleStructuralInspection.derivedTouchedBlockIds.every((blockId) =>
               currentTouchedBlockIds.has(blockId),
             );
           if (!structurallyVisible) {
@@ -1882,7 +2124,7 @@ const applyBlockDocumentUpdateForAuthority = (
               row,
               input,
               clientTouchedBlockIdsJson,
-              staleRelocationInspection,
+              staleStructuralInspection,
               "unsafe_stale_update",
             );
           }
@@ -1987,6 +2229,18 @@ const applyBlockDocumentUpdateForAuthority = (
         expectedGeneration: input.generation,
         expectedProjectedSeq: nextHeadSeq,
       });
+      strictCommitPolicy?.persistCommit(database, {
+        projectId: row.project_id,
+        ownerBlockId: row.owner_block_id,
+        documentId: input.documentId,
+        storeEpoch,
+        generation: input.generation,
+        baseHeadSeq: input.baseHeadSeq,
+        headSeq: nextHeadSeq,
+        updateId: input.updateId,
+        derivedTouchedBlockIds,
+        committedAt: now,
+      });
 
       return {
         kind: "ack",
@@ -2025,6 +2279,24 @@ export const applyBlockDocumentUpdate = (
     "ydoc_primary",
     false,
     false,
+  );
+
+/**
+ * Internal writer seam for CAS-bound Agent/CLI operations. The policy shares
+ * the exact SQLite transaction with the Y.Doc update and projection writes.
+ */
+export const applyStrictBlockDocumentUpdate = (
+  database: Database.Database,
+  input: ApplyDocumentUpdate,
+  policy: StrictDocumentUpdateCommitPolicy,
+): DocumentUpdateAck =>
+  applyBlockDocumentUpdateForAuthority(
+    database,
+    input,
+    "ydoc_primary",
+    false,
+    false,
+    policy,
   );
 
 /** Internal one-way migration adapter; never expose through IPC or HTTP. */
