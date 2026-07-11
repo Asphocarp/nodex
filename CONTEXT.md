@@ -94,6 +94,8 @@ A projection is rebuildable data derived from the authoritative Block, Document,
 
 Schema v62 is the first persisted property/projection foundation: `block_properties` holds Card-intrinsic agent/run/recurrence/reminder state, Database membership values hold status/priority/estimate/tags/dates/assignee, and `scheduled_card_index` is the typed scheduler read model. Schema v63 adds the resumable foreign-reference migration ledger and converts legacy Card/query snapshots into canonical `targetBlockId`/`databaseViewId` references before cutover. Each stable source records a semantic fingerprint, so an identical crash retry resumes one occurrence while changed live content advances to a new recovery without overwriting the prior Card. During BF-03/BF-07 migration only, legacy Card metadata is a one-way write seam into these records; it is not a second target identity or a content authority.
 
+Schema v65 separates durable secondary evidence from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. None of these tables writes into `cards`, Y.Doc state, or property authority through a trigger.
+
 For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Board-summary fanout reads that committed projection; it never writes the result back through the legacy Card title/body mutation path.
 
 ### NFM

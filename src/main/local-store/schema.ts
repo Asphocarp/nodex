@@ -23,10 +23,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 64;
+export const CURRENT_SCHEMA_VERSION = 65;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -39,6 +39,12 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "block_search_units_fts",
+  "block_search_units",
+  "block_asset_refs",
+  "card_read_model",
+  "document_versions",
+  "block_mutations",
   "block_relocation_members",
   "block_relocation_source_states",
   "document_recovery_artifacts",
@@ -1821,6 +1827,686 @@ function createBlockFoundationSchema(db: Database.Database): void {
   createDocumentUpdateReceiptSchema(db);
 }
 
+/**
+ * Durable BF-07 read-model and operation foundations.
+ *
+ * These tables deliberately have no triggers back into `cards`, Documents, or
+ * property records. They either retain immutable history/idempotency evidence
+ * or store rebuildable projections with explicit source coordinates. A stale
+ * projection may remain after its source advances, but a writer cannot publish
+ * a projection from a future generation, sequence, or metadata revision.
+ */
+function createBlockSecondaryAuthorityFoundationSchema(
+  db: Database.Database,
+): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS document_versions (
+      version_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+      schema_key TEXT NOT NULL,
+      schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+      cause TEXT NOT NULL,
+      label TEXT,
+      actor_json TEXT NOT NULL DEFAULT '{}',
+      full_update_blob BLOB NOT NULL,
+      state_vector BLOB NOT NULL,
+      checkpoint_hash TEXT NOT NULL,
+      byte_length INTEGER NOT NULL CHECK (byte_length > 0),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE CASCADE,
+      CHECK (length(version_id) BETWEEN 1 AND 512),
+      CHECK (length(schema_key) BETWEEN 1 AND 128),
+      CHECK (length(cause) BETWEEN 1 AND 128),
+      CHECK (label IS NULL OR length(label) <= 512),
+      CHECK (json_valid(actor_json) AND json_type(actor_json) = 'object'),
+      CHECK (byte_length = length(full_update_blob)),
+      CHECK (
+        length(checkpoint_hash) = 64
+        AND checkpoint_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      CHECK (length(created_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_document_versions_document_head
+      ON document_versions(document_id, generation, base_head_seq DESC, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_versions_project_created
+      ON document_versions(project_id, created_at DESC, version_id);
+
+    CREATE TRIGGER IF NOT EXISTS document_versions_validate_insert
+      BEFORE INSERT ON document_versions
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM documents document
+        WHERE document.id = NEW.document_id
+          AND document.project_id = NEW.project_id
+          AND document.readiness = 'ready'
+          AND document.generation = NEW.generation
+          AND document.head_seq >= NEW.base_head_seq
+          AND document.schema_key = NEW.schema_key
+          AND document.schema_version = NEW.schema_version
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'document version source is not a current ready Document');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_versions_are_immutable
+      BEFORE UPDATE ON document_versions
+      BEGIN
+        SELECT RAISE(ABORT, 'document versions are immutable');
+      END;
+
+    CREATE TABLE IF NOT EXISTS block_mutations (
+      mutation_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      store_epoch TEXT NOT NULL,
+      mutation_kind TEXT NOT NULL,
+      actor_json TEXT NOT NULL DEFAULT '{}',
+      client_session_id TEXT,
+      request_hash TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      target_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      affected_document_ids_json TEXT NOT NULL DEFAULT '[]',
+      affected_database_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      field_intents_json TEXT NOT NULL DEFAULT '[]',
+      expected_revisions_json TEXT NOT NULL DEFAULT '{}',
+      outcome TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      committed_revisions_json TEXT NOT NULL DEFAULT '{}',
+      document_heads_json TEXT NOT NULL DEFAULT '{}',
+      change_log_seq INTEGER UNIQUE
+        REFERENCES change_log(seq) ON DELETE RESTRICT,
+      recorded_at TEXT NOT NULL,
+      CHECK (length(mutation_id) BETWEEN 1 AND 512),
+      CHECK (length(store_epoch) BETWEEN 1 AND 512),
+      CHECK (length(mutation_kind) BETWEEN 1 AND 128),
+      CHECK (client_session_id IS NULL OR length(client_session_id) BETWEEN 1 AND 512),
+      CHECK (
+        length(request_hash) = 64
+        AND request_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      CHECK (json_valid(actor_json) AND json_type(actor_json) = 'object'),
+      CHECK (json_valid(request_json) AND json_type(request_json) = 'object'),
+      CHECK (
+        json_valid(target_block_ids_json)
+        AND json_type(target_block_ids_json) = 'array'
+      ),
+      CHECK (
+        json_valid(affected_document_ids_json)
+        AND json_type(affected_document_ids_json) = 'array'
+      ),
+      CHECK (
+        json_valid(affected_database_block_ids_json)
+        AND json_type(affected_database_block_ids_json) = 'array'
+      ),
+      CHECK (
+        json_valid(field_intents_json)
+        AND json_type(field_intents_json) = 'array'
+      ),
+      CHECK (
+        json_valid(expected_revisions_json)
+        AND json_type(expected_revisions_json) = 'object'
+      ),
+      CHECK (outcome IN ('committed', 'rejected')),
+      CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
+      CHECK (
+        json_valid(committed_revisions_json)
+        AND json_type(committed_revisions_json) = 'object'
+      ),
+      CHECK (
+        json_valid(document_heads_json)
+        AND json_type(document_heads_json) = 'object'
+      ),
+      CHECK (
+        (outcome = 'committed' AND change_log_seq IS NOT NULL)
+        OR (outcome = 'rejected' AND change_log_seq IS NULL)
+      ),
+      CHECK (length(recorded_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_block_mutations_project_recorded
+      ON block_mutations(project_id, recorded_at DESC, mutation_id);
+    CREATE INDEX IF NOT EXISTS idx_block_mutations_session_recorded
+      ON block_mutations(project_id, client_session_id, recorded_at DESC)
+      WHERE client_session_id IS NOT NULL;
+
+    CREATE TRIGGER IF NOT EXISTS block_mutations_validate_insert
+      BEFORE INSERT ON block_mutations
+      WHEN NEW.store_epoch <> COALESCE((
+          SELECT store_epoch FROM block_store_metadata WHERE id = 1
+        ), '')
+        OR EXISTS (
+          SELECT 1
+          FROM json_each(NEW.target_block_ids_json) target
+          WHERE target.type <> 'text' OR length(target.value) = 0
+        )
+        OR (
+          SELECT COUNT(*) FROM json_each(NEW.target_block_ids_json)
+        ) <> (
+          SELECT COUNT(DISTINCT target.value)
+          FROM json_each(NEW.target_block_ids_json) target
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM json_each(NEW.field_intents_json) intent
+          WHERE intent.type <> 'object'
+            OR json_type(intent.value, '$.path') <> 'text'
+            OR length(json_extract(intent.value, '$.path')) = 0
+            OR json_type(intent.value, '$.operation') <> 'text'
+            OR length(json_extract(intent.value, '$.operation')) = 0
+        )
+        OR (
+          NEW.outcome = 'committed'
+          AND (
+            EXISTS (
+              SELECT 1
+              FROM json_each(NEW.target_block_ids_json) target
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM blocks block
+                WHERE block.id = target.value
+                  AND block.project_id = NEW.project_id
+              )
+            )
+            OR NOT EXISTS (
+              SELECT 1
+              FROM change_log change
+              WHERE change.seq = NEW.change_log_seq
+                AND change.project_id = NEW.project_id
+                AND change.store_epoch = NEW.store_epoch
+                AND change.operation_id = NEW.mutation_id
+            )
+          )
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'block mutation scope, intent, or result cursor is invalid');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_mutations_reject_id_collision
+      BEFORE INSERT ON block_mutations
+      WHEN EXISTS (
+        SELECT 1
+        FROM block_mutations existing
+        WHERE existing.mutation_id = NEW.mutation_id
+          AND (
+            existing.project_id <> NEW.project_id
+            OR existing.store_epoch <> NEW.store_epoch
+            OR existing.mutation_kind <> NEW.mutation_kind
+            OR existing.actor_json <> NEW.actor_json
+            OR COALESCE(existing.client_session_id, '') <>
+              COALESCE(NEW.client_session_id, '')
+            OR existing.request_hash <> NEW.request_hash
+            OR existing.request_json <> NEW.request_json
+            OR existing.target_block_ids_json <> NEW.target_block_ids_json
+            OR existing.affected_document_ids_json <>
+              NEW.affected_document_ids_json
+            OR existing.affected_database_block_ids_json <>
+              NEW.affected_database_block_ids_json
+            OR existing.field_intents_json <> NEW.field_intents_json
+            OR existing.expected_revisions_json <>
+              NEW.expected_revisions_json
+            OR existing.outcome <> NEW.outcome
+            OR existing.result_json <> NEW.result_json
+            OR existing.committed_revisions_json <>
+              NEW.committed_revisions_json
+            OR existing.document_heads_json <> NEW.document_heads_json
+            OR COALESCE(existing.change_log_seq, -1) <>
+              COALESCE(NEW.change_log_seq, -1)
+          )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'block mutation id collides with another request or result');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_mutations_are_immutable
+      BEFORE UPDATE ON block_mutations
+      BEGIN
+        SELECT RAISE(ABORT, 'block mutations are immutable');
+      END;
+
+    CREATE TABLE IF NOT EXISTS block_search_units (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_key TEXT NOT NULL UNIQUE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      block_id TEXT NOT NULL,
+      owner_block_id TEXT NOT NULL,
+      document_id TEXT,
+      document_generation INTEGER,
+      projected_seq INTEGER,
+      source_revision INTEGER,
+      projection_version INTEGER NOT NULL DEFAULT 1
+        CHECK (projection_version >= 1),
+      source_kind TEXT NOT NULL,
+      field_key TEXT NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (owner_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      UNIQUE (block_id, source_kind, field_key),
+      CHECK (length(unit_key) BETWEEN 1 AND 1024),
+      CHECK (length(source_kind) BETWEEN 1 AND 128),
+      CHECK (length(field_key) BETWEEN 1 AND 256),
+      CHECK (length(text_hash) = 64 AND text_hash NOT GLOB '*[^0-9a-f]*'),
+      CHECK (length(updated_at) > 0),
+      CHECK (
+        (document_id IS NOT NULL
+          AND document_generation >= 1
+          AND projected_seq >= 0
+          AND source_revision IS NULL)
+        OR (document_id IS NULL
+          AND document_generation IS NULL
+          AND projected_seq IS NULL
+          AND source_revision >= 1
+          AND owner_block_id = block_id)
+      )
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_block_search_units_project_source
+      ON block_search_units(project_id, source_kind, block_id);
+    CREATE INDEX IF NOT EXISTS idx_block_search_units_document_freshness
+      ON block_search_units(document_id, document_generation, projected_seq)
+      WHERE document_id IS NOT NULL;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS block_search_units_fts USING fts5(
+      text,
+      content='block_search_units',
+      content_rowid='rowid',
+      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
+      prefix='2 3 4'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS block_search_units_ai
+      AFTER INSERT ON block_search_units
+      BEGIN
+        INSERT INTO block_search_units_fts(rowid, text)
+        VALUES (NEW.rowid, NEW.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_search_units_ad
+      AFTER DELETE ON block_search_units
+      BEGIN
+        INSERT INTO block_search_units_fts(block_search_units_fts, rowid, text)
+        VALUES ('delete', OLD.rowid, OLD.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_search_units_au
+      AFTER UPDATE ON block_search_units
+      BEGIN
+        INSERT INTO block_search_units_fts(block_search_units_fts, rowid, text)
+        VALUES ('delete', OLD.rowid, OLD.text);
+        INSERT INTO block_search_units_fts(rowid, text)
+        VALUES (NEW.rowid, NEW.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_search_units_validate_insert
+      BEFORE INSERT ON block_search_units
+      WHEN (
+          NEW.document_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM documents document
+            INNER JOIN block_documents ownership
+              ON ownership.document_id = document.id
+              AND ownership.project_id = document.project_id
+            INNER JOIN blocks source
+              ON source.id = NEW.block_id
+              AND source.project_id = NEW.project_id
+            WHERE document.id = NEW.document_id
+              AND document.project_id = NEW.project_id
+              AND document.generation = NEW.document_generation
+              AND document.head_seq >= NEW.projected_seq
+              AND ownership.block_id = NEW.owner_block_id
+              AND (
+                source.id = ownership.block_id
+                OR (
+                  source.location_kind = 'document'
+                  AND source.containing_document_id = document.id
+                )
+              )
+          )
+        ) OR (
+          NEW.document_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM blocks source
+            WHERE source.id = NEW.block_id
+              AND source.project_id = NEW.project_id
+              AND source.metadata_revision >= NEW.source_revision
+          )
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'Block search projection source is invalid or from the future');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_search_units_validate_update
+      BEFORE UPDATE ON block_search_units
+      WHEN (
+          NEW.document_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM documents document
+            INNER JOIN block_documents ownership
+              ON ownership.document_id = document.id
+              AND ownership.project_id = document.project_id
+            INNER JOIN blocks source
+              ON source.id = NEW.block_id
+              AND source.project_id = NEW.project_id
+            WHERE document.id = NEW.document_id
+              AND document.project_id = NEW.project_id
+              AND document.generation = NEW.document_generation
+              AND document.head_seq >= NEW.projected_seq
+              AND ownership.block_id = NEW.owner_block_id
+              AND (
+                source.id = ownership.block_id
+                OR (
+                  source.location_kind = 'document'
+                  AND source.containing_document_id = document.id
+                )
+              )
+          )
+        ) OR (
+          NEW.document_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM blocks source
+            WHERE source.id = NEW.block_id
+              AND source.project_id = NEW.project_id
+              AND source.metadata_revision >= NEW.source_revision
+          )
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'Block search projection source is invalid or from the future');
+      END;
+
+    CREATE TABLE IF NOT EXISTS block_asset_refs (
+      document_id TEXT NOT NULL,
+      block_id TEXT NOT NULL,
+      owner_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      document_generation INTEGER NOT NULL CHECK (document_generation >= 1),
+      projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      projection_version INTEGER NOT NULL DEFAULT 1
+        CHECK (projection_version >= 1),
+      role TEXT NOT NULL,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      asset_uri TEXT NOT NULL,
+      asset_hash TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, block_id, role, ordinal),
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (owner_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (length(role) BETWEEN 1 AND 128),
+      CHECK (length(asset_uri) BETWEEN 1 AND 4096),
+      CHECK (
+        asset_hash IS NULL OR (
+          length(asset_hash) = 64
+          AND asset_hash NOT GLOB '*[^0-9a-f]*'
+        )
+      ),
+      CHECK (length(updated_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_block_asset_refs_project_uri
+      ON block_asset_refs(project_id, asset_uri, block_id);
+    CREATE INDEX IF NOT EXISTS idx_block_asset_refs_document_freshness
+      ON block_asset_refs(document_id, document_generation, projected_seq);
+
+    CREATE TRIGGER IF NOT EXISTS block_asset_refs_validate_insert
+      BEFORE INSERT ON block_asset_refs
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM documents document
+        INNER JOIN block_documents ownership
+          ON ownership.document_id = document.id
+          AND ownership.project_id = document.project_id
+        INNER JOIN document_block_index block_index
+          ON block_index.document_id = document.id
+          AND block_index.block_id = NEW.block_id
+        WHERE document.id = NEW.document_id
+          AND document.project_id = NEW.project_id
+          AND document.generation = NEW.document_generation
+          AND document.head_seq >= NEW.projected_seq
+          AND ownership.block_id = NEW.owner_block_id
+          AND block_index.projected_seq = NEW.projected_seq
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Block asset projection source is invalid or from the future');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_asset_refs_validate_update
+      BEFORE UPDATE ON block_asset_refs
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM documents document
+        INNER JOIN block_documents ownership
+          ON ownership.document_id = document.id
+          AND ownership.project_id = document.project_id
+        INNER JOIN document_block_index block_index
+          ON block_index.document_id = document.id
+          AND block_index.block_id = NEW.block_id
+        WHERE document.id = NEW.document_id
+          AND document.project_id = NEW.project_id
+          AND document.generation = NEW.document_generation
+          AND document.head_seq >= NEW.projected_seq
+          AND ownership.block_id = NEW.owner_block_id
+          AND block_index.projected_seq = NEW.projected_seq
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Block asset projection source is invalid or from the future');
+      END;
+
+    CREATE TABLE IF NOT EXISTS card_read_model (
+      card_block_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      lifecycle TEXT NOT NULL,
+      location_kind TEXT NOT NULL,
+      containing_document_id TEXT,
+      top_level_rank_key TEXT,
+      location_revision INTEGER NOT NULL CHECK (location_revision >= 1),
+      metadata_revision INTEGER NOT NULL CHECK (metadata_revision >= 1),
+      document_id TEXT NOT NULL UNIQUE,
+      document_generation INTEGER NOT NULL CHECK (document_generation >= 1),
+      document_projected_seq INTEGER NOT NULL CHECK (document_projected_seq >= 0),
+      document_schema_version INTEGER NOT NULL CHECK (document_schema_version >= 1),
+      document_authority TEXT NOT NULL,
+      membership_id TEXT,
+      database_block_id TEXT,
+      view_id TEXT,
+      view_group_key TEXT,
+      view_rank_key TEXT,
+      title TEXT NOT NULL,
+      description_preview TEXT NOT NULL,
+      description_length INTEGER NOT NULL CHECK (description_length >= 0),
+      has_description INTEGER NOT NULL CHECK (has_description IN (0, 1)),
+      database_values_json TEXT NOT NULL DEFAULT '{}',
+      intrinsic_properties_json TEXT NOT NULL DEFAULT '{}',
+      property_revisions_json TEXT NOT NULL DEFAULT '{}',
+      projection_version INTEGER NOT NULL DEFAULT 1
+        CHECK (projection_version >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (card_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (containing_document_id, project_id)
+        REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY (membership_id, database_block_id, project_id)
+        REFERENCES database_memberships(id, database_block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (view_id, project_id)
+        REFERENCES database_views(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (location_kind IN ('space', 'document')),
+      CHECK (
+        (location_kind = 'space' AND containing_document_id IS NULL)
+        OR (location_kind = 'document' AND containing_document_id IS NOT NULL)
+      ),
+      CHECK (document_authority IN ('legacy_shadow', 'ydoc_primary')),
+      CHECK (
+        (membership_id IS NULL AND database_block_id IS NULL)
+        OR (membership_id IS NOT NULL AND database_block_id IS NOT NULL)
+      ),
+      CHECK (view_id IS NULL OR membership_id IS NOT NULL),
+      CHECK (
+        json_valid(database_values_json)
+        AND json_type(database_values_json) = 'object'
+      ),
+      CHECK (
+        json_valid(intrinsic_properties_json)
+        AND json_type(intrinsic_properties_json) = 'object'
+      ),
+      CHECK (
+        json_valid(property_revisions_json)
+        AND json_type(property_revisions_json) = 'object'
+      ),
+      CHECK (length(created_at) > 0 AND length(updated_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_card_read_model_project_lifecycle
+      ON card_read_model(project_id, lifecycle, card_block_id);
+    CREATE INDEX IF NOT EXISTS idx_card_read_model_view_order
+      ON card_read_model(view_id, view_group_key, view_rank_key, card_block_id)
+      WHERE view_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_card_read_model_document_freshness
+      ON card_read_model(document_id, document_generation, document_projected_seq);
+
+    CREATE TRIGGER IF NOT EXISTS card_read_model_validate_insert
+      BEFORE INSERT ON card_read_model
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM blocks card
+        INNER JOIN block_documents ownership
+          ON ownership.block_id = card.id
+          AND ownership.project_id = card.project_id
+        INNER JOIN documents document
+          ON document.id = ownership.document_id
+          AND document.project_id = ownership.project_id
+        INNER JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        WHERE card.id = NEW.card_block_id
+          AND card.project_id = NEW.project_id
+          AND card.type = 'card'
+          AND card.lifecycle = NEW.lifecycle
+          AND card.location_kind = NEW.location_kind
+          AND card.containing_document_id IS NEW.containing_document_id
+          AND card.location_revision = NEW.location_revision
+          AND card.metadata_revision = NEW.metadata_revision
+          AND ownership.document_id = NEW.document_id
+          AND document.readiness = 'ready'
+          AND document.authority = NEW.document_authority
+          AND document.generation = NEW.document_generation
+          AND document.schema_version = NEW.document_schema_version
+          AND document.head_seq >= NEW.document_projected_seq
+          AND materialization.generation = NEW.document_generation
+          AND materialization.projected_seq = NEW.document_projected_seq
+          AND materialization.title = NEW.title
+          AND materialization.preview = NEW.description_preview
+          AND NEW.description_length = length(materialization.nfm)
+          AND NEW.has_description = CASE
+            WHEN length(trim(materialization.nfm)) > 0 THEN 1
+            ELSE 0
+          END
+      ) OR (
+        NEW.membership_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM database_memberships membership
+          WHERE membership.id = NEW.membership_id
+            AND membership.database_block_id = NEW.database_block_id
+            AND membership.card_block_id = NEW.card_block_id
+            AND membership.project_id = NEW.project_id
+            AND membership.removed_at IS NULL
+        )
+      ) OR (
+        NEW.view_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM database_views view
+          WHERE view.id = NEW.view_id
+            AND view.project_id = NEW.project_id
+            AND view.database_block_id = NEW.database_block_id
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Card read model source coordinates are invalid or stale');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS card_read_model_validate_update
+      BEFORE UPDATE ON card_read_model
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM blocks card
+        INNER JOIN block_documents ownership
+          ON ownership.block_id = card.id
+          AND ownership.project_id = card.project_id
+        INNER JOIN documents document
+          ON document.id = ownership.document_id
+          AND document.project_id = ownership.project_id
+        INNER JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        WHERE card.id = NEW.card_block_id
+          AND card.project_id = NEW.project_id
+          AND card.type = 'card'
+          AND card.lifecycle = NEW.lifecycle
+          AND card.location_kind = NEW.location_kind
+          AND card.containing_document_id IS NEW.containing_document_id
+          AND card.location_revision = NEW.location_revision
+          AND card.metadata_revision = NEW.metadata_revision
+          AND ownership.document_id = NEW.document_id
+          AND document.readiness = 'ready'
+          AND document.authority = NEW.document_authority
+          AND document.generation = NEW.document_generation
+          AND document.schema_version = NEW.document_schema_version
+          AND document.head_seq >= NEW.document_projected_seq
+          AND materialization.generation = NEW.document_generation
+          AND materialization.projected_seq = NEW.document_projected_seq
+          AND materialization.title = NEW.title
+          AND materialization.preview = NEW.description_preview
+          AND NEW.description_length = length(materialization.nfm)
+          AND NEW.has_description = CASE
+            WHEN length(trim(materialization.nfm)) > 0 THEN 1
+            ELSE 0
+          END
+      ) OR (
+        NEW.membership_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM database_memberships membership
+          WHERE membership.id = NEW.membership_id
+            AND membership.database_block_id = NEW.database_block_id
+            AND membership.card_block_id = NEW.card_block_id
+            AND membership.project_id = NEW.project_id
+            AND membership.removed_at IS NULL
+        )
+      ) OR (
+        NEW.view_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM database_views view
+          WHERE view.id = NEW.view_id
+            AND view.project_id = NEW.project_id
+            AND view.database_block_id = NEW.database_block_id
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Card read model source coordinates are invalid or stale');
+      END;
+  `);
+}
+
 const LEGACY_CARD_CONTENT_UPDATE_COLUMNS_SQL = [
   "project_id",
   "title",
@@ -2600,6 +3286,7 @@ function createLatestSchema(db: Database.Database): void {
   createLegacyCardShadowOutboxSchema(db);
   createForeignReferenceMigrationSchema(db);
   createAtomicBlockRelocationSchema(db);
+  createBlockSecondaryAuthorityFoundationSchema(db);
 }
 
 function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
@@ -5539,6 +6226,14 @@ function migrateSchema63To64(db: Database.Database): void {
   migrate();
 }
 
+function migrateSchema64To65(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createBlockSecondaryAuthorityFoundationSchema(db);
+    setUserVersion(db, 65);
+  });
+  migrate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -5880,6 +6575,16 @@ function runMigrations(
       }
       migrateSchema63To64(db);
       fromVersion = 64;
+      continue;
+    }
+    if (target === 65) {
+      if (fromVersion !== 64) {
+        throw new Error(
+          `Unsupported Nodex database migration target 65 from ${fromVersion}`,
+        );
+      }
+      migrateSchema64To65(db);
+      fromVersion = 65;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
