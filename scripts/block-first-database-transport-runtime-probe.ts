@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { CardMutationWriter } from "../src/main/card-mutation-writer";
 import { registerDatabaseKernelHttpRoutes } from "../src/main/database-kernel-http";
 import {
+  DATABASE_MANAGEMENT_IPC_CHANNEL,
   DATABASE_MUTATION_IPC_CHANNEL,
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
   PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
@@ -207,6 +208,8 @@ const run = async (): Promise<void> => {
         (await writer!.applyDatabaseMutation(input)).result,
       readCatalog: async (projectId) =>
         (await writer!.readDatabaseCatalog(projectId)).result,
+      readManagement: async (projectId) =>
+        (await writer!.readDatabaseManagement(projectId)).result,
       readDescriptor: async (projectId, databaseBlockId) =>
         (await writer!.readDatabaseDescriptor(projectId, databaseBlockId))
           .result,
@@ -223,6 +226,8 @@ const run = async (): Promise<void> => {
         (await writer!.applyDatabaseMutation(input)).result,
       readCatalog: async (projectId) =>
         (await writer!.readDatabaseCatalog(projectId)).result,
+      readManagement: async (projectId) =>
+        (await writer!.readDatabaseManagement(projectId)).result,
       readDescriptor: async (projectId, databaseBlockId) =>
         (await writer!.readDatabaseDescriptor(projectId, databaseBlockId))
           .result,
@@ -370,6 +375,28 @@ const run = async (): Promise<void> => {
         JSON.stringify(ipcPrimaryView) === JSON.stringify(httpPrimaryView),
       "Primary Database View snapshot was not one IPC/HTTP authority cursor",
     );
+    const ipcManagement = (await ipcHandlers.get(
+      DATABASE_MANAGEMENT_IPC_CHANNEL,
+    )?.("trusted-window", project.id)) as Awaited<
+      ReturnType<CardMutationWriter["readDatabaseManagement"]>
+    >["result"];
+    const httpManagementResponse = await http.request(
+      `/api/projects/${encodeURIComponent(project.id)}/databases/management`,
+    );
+    const httpManagement =
+      (await httpManagementResponse.json()) as typeof ipcManagement;
+    invariant(
+      ipcManagement.ok &&
+        httpManagement.ok &&
+        ipcManagement.value.value?.cards.find(
+          (state) => state.card.blockId === standalone.id,
+        )?.membership === null &&
+        ipcManagement.value.value?.cards.find(
+          (state) => state.card.blockId === first.id,
+        )?.membership?.databaseBlockId === primary.database_block_id &&
+        JSON.stringify(ipcManagement) === JSON.stringify(httpManagement),
+      "Database management authority diverged or omitted a zero-membership Card",
+    );
 
     const stale = await writer.applyDatabaseMutation(
       request({
@@ -495,6 +522,7 @@ const run = async (): Promise<void> => {
         rollback: true,
         descriptorAndQuery: true,
         compositeSnapshot: true,
+        managementSnapshot: true,
         zeroMembership: true,
         epochFence: true,
       })}\n`,

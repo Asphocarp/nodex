@@ -82,6 +82,8 @@ Database membership associates an existing Card with one owning Database. A Card
 
 Linked Database views and reference Blocks do not count as memberships.
 
+Membership management reads all active Cards, including Cards with no membership, plus each Card's sole membership and View positions in one SQLite authority snapshot. Add, remove, and transfer therefore derive their expected revision without requiring the Card to be visible through any filtered View. A transfer changes the owning membership atomically; it is not a linked-view operation and does not move Card content.
+
 ### Database property
 
 A Database property is a typed field defined by a Database capability. Values belong to the Card membership and are mutated by field/path-level operations. Scalar properties use revision-aware conflict responses. Set-like properties such as tags preserve add/remove intent.
@@ -91,6 +93,8 @@ Agent execution, recurrence, reminders, and other behavior intrinsic to a Card a
 ### Database View
 
 A Database View is a durable shared query definition over one Database. It stores filter, sort, group, display, and view-specific manual positions. The active view, search text, selection, and expansion state are window-local and are not part of the durable view definition.
+
+Renaming or changing a View addresses the selected stable `databaseViewId` and its exact revision. It never silently edits the Project's primary View merely because that View is easier to resolve.
 
 An inline Database View Block stores only its own `blockId` and a `databaseViewId`. The query executes over durable memberships and view configuration; result rows are read projections and never become children of the host Document.
 

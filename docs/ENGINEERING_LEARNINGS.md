@@ -142,6 +142,8 @@ Auto-title scheduling belongs with the main-process thread lifecycle, not the re
 
 Project-session title migrations should be target-shape driven, not only `user_version` driven. Supported 30+ databases can carry partially applied local schema state, so migrations that rename `project_sessions.title` to `no_thread_fallback_title` must first inspect `PRAGMA table_info(project_sessions)`, repair the target column from the old title when available, and only then run later table rebuilds or startup seeding.
 
+A filtered Database View query is not membership authority. A Card absent from a View may still own a membership because of that View's filter, and a Project may contain valid Cards with zero membership. Membership CAS must come from a filter-independent snapshot of the Card's sole active membership; View queries and positions are presentation/query authority only.
+
 ### Sidebar external-thread discovery must be continuous app-server reconciliation
 The sidebar snapshot query is not a discovery loop. `codex:sidebar:snapshot({ refresh:false })` exists so SQLite can render a cold-start read model, while external CLI/VSCode/app-server-created chats must enter through `codex:sidebar:sync` or app-server notifications. Regressions appear when host messages or focus events only invalidate the `refresh:false` query: the row may exist in `codex_threads`, but the matching inactive project session cache stays stale until the user clicks `Start new chat in <project>`.
 

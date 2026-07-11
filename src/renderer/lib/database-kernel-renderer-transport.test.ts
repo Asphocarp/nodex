@@ -175,6 +175,16 @@ describe("Database renderer transport", () => {
       {
         ok: true,
         value: {
+          version: 1,
+          projectId: request.projectId,
+          storeEpoch: request.storeEpoch,
+          changeLogSeq: 4,
+          value: { catalog: { databases: [] }, cards: [] },
+        },
+      },
+      {
+        ok: true,
+        value: {
           descriptor: {
             version: 1,
             projectId: request.projectId,
@@ -250,6 +260,11 @@ describe("Database renderer transport", () => {
         request.projectId,
       )) as { readonly ok: boolean };
       expect(primary.ok).toBe(true);
+      const management = (await browserRendererTransport.invoke(
+        "databases:management:get",
+        request.projectId,
+      )) as { readonly ok: boolean };
+      expect(management.ok).toBe(true);
       const primaryViewSnapshot = (await browserRendererTransport.invoke(
         "database-views:primary:snapshot",
         request.projectId,
@@ -283,16 +298,21 @@ describe("Database renderer transport", () => {
       ).toBe(true);
       expect(
         urls[3]?.endsWith(
-          "/api/projects/project%2Fone/database-views/primary/snapshot",
+          "/api/projects/project%2Fone/databases/management",
         ),
       ).toBe(true);
       expect(
         urls[4]?.endsWith(
-          "/api/projects/project%2Fone/database-views/view%2Fone/snapshot",
+          "/api/projects/project%2Fone/database-views/primary/snapshot",
         ),
       ).toBe(true);
       expect(
         urls[5]?.endsWith(
+          "/api/projects/project%2Fone/database-views/view%2Fone/snapshot",
+        ),
+      ).toBe(true);
+      expect(
+        urls[6]?.endsWith(
           "/api/projects/project%2Fone/database-views/view%2Fone/query",
         ),
       ).toBe(true);

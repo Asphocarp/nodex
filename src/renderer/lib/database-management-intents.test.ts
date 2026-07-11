@@ -6,10 +6,10 @@ import type {
 import type {
   CardContentSummary,
   DatabaseReadSnapshot,
-  DatabaseViewSnapshot,
+  GeneralDatabaseManagement,
+  GeneralDatabaseMembershipState,
   GeneralDatabaseDescriptor,
   GeneralDatabasePropertyDefinition,
-  GeneralDatabaseRow,
   GeneralDatabaseViewDefinition,
 } from "../../shared/database-query";
 import {
@@ -191,65 +191,50 @@ const card = (
   updatedAt: NOW,
 });
 
-const row = (input: {
+const membershipState = (input: {
   readonly descriptor: GeneralDatabaseDescriptor;
   readonly cardBlockId: string;
-  readonly membershipId: string;
-  readonly membershipRevision: number;
+  readonly membershipId?: string;
+  readonly membershipRevision?: number;
   readonly groupKey?: string | null;
   readonly positioned?: boolean;
-}): GeneralDatabaseRow => ({
-  membership: {
-    id: input.membershipId,
-    databaseBlockId: input.descriptor.database.blockId,
-    cardBlockId: input.cardBlockId,
-    revision: input.membershipRevision,
-    createdAt: NOW,
-  },
+}): GeneralDatabaseMembershipState => ({
   card: card(input.cardBlockId, input.descriptor.database.projectId),
-  values: {},
-  position:
-    input.positioned === false
-      ? null
-      : {
+  membership: input.membershipId
+    ? {
+        id: input.membershipId,
+        databaseBlockId: input.descriptor.database.blockId,
+        cardBlockId: input.cardBlockId,
+        revision: input.membershipRevision ?? 1,
+        createdAt: NOW,
+      }
+    : null,
+  positions: input.membershipId && input.positioned !== false
+    ? [
+        {
+          viewId: `${input.descriptor.database.blockId}-list`,
           groupKey: input.groupKey ?? null,
           rankKey: "a0",
           revision: 2,
         },
-  effectiveGroupKey: input.groupKey ?? null,
+      ]
+    : [],
 });
 
-const viewSnapshot = (input: {
-  readonly descriptor: GeneralDatabaseDescriptor;
-  readonly viewId?: string;
-  readonly rows?: readonly GeneralDatabaseRow[];
+const managementSnapshot = (input: {
+  readonly descriptors: readonly GeneralDatabaseDescriptor[];
+  readonly cards: readonly GeneralDatabaseMembershipState[];
   readonly changeLogSeq?: number;
-}): DatabaseViewSnapshot => {
-  const selected = input.descriptor.views.find(
-    (candidate) =>
-      candidate.id ===
-      (input.viewId ?? `${input.descriptor.database.blockId}-list`),
-  );
-  if (!selected) throw new Error("fixture View is missing");
-  const changeLogSeq = input.changeLogSeq ?? 41;
-  return {
-    descriptor: descriptorSnapshot(input.descriptor, changeLogSeq),
-    query: {
-      version: 1,
-      projectId: input.descriptor.database.projectId,
-      storeEpoch: "epoch-1",
-      changeLogSeq,
-      value: {
-        database: input.descriptor.database,
-        view: selected,
-        properties: input.descriptor.properties.filter(
-          (candidate) => candidate.lifecycle === "active",
-        ),
-        rows: input.rows ?? [],
-      },
-    },
-  };
-};
+}): DatabaseReadSnapshot<GeneralDatabaseManagement> => ({
+  version: 1,
+  projectId: input.descriptors[0]?.database.projectId ?? "project-1",
+  storeEpoch: "epoch-1",
+  changeLogSeq: input.changeLogSeq ?? 41,
+  value: {
+    catalog: { databases: input.descriptors },
+    cards: input.cards,
+  },
+});
 
 const context = (): DatabaseManagementRequestContext => ({
   operationId: "operation-retained-by-caller",
@@ -504,32 +489,40 @@ describe("Database management intent compiler", () => {
   });
 
   test("adds and removes memberships with exact membership CAS and logical position anchors", () => {
+    const sourceDescriptor = descriptor("database-a");
     const targetDescriptor = descriptor("database-b");
-    const targetAnchor = row({
+    const targetAnchor = membershipState({
       descriptor: targetDescriptor,
       cardBlockId: "card-b",
       membershipId: "membership-b",
       membershipRevision: 2,
     });
-    const target = viewSnapshot({
+    const newCard = membershipState({
       descriptor: targetDescriptor,
-      rows: [targetAnchor],
+      cardBlockId: "card-new",
+    });
+    const authority = managementSnapshot({
+      descriptors: [sourceDescriptor, targetDescriptor],
+      cards: [newCard, targetAnchor],
     });
     const added = operation(
       compileDatabaseManagementRequest({
         context: context(),
         intent: {
-          kind: "add_membership",
-          card: card("card-new"),
-          membershipId: "membership-new",
-          target,
-          beforeCardBlockId: "card-b",
+          kind: "set_membership",
+          authority,
+          cardBlockId: "card-new",
+          target: {
+            databaseBlockId: "database-b",
+            membershipId: "membership-new",
+            viewId: "database-b-list",
+            beforeCardBlockId: "card-b",
+          },
         },
       }).operations,
       "transfer_membership",
     );
-    const sourceDescriptor = descriptor("database-a");
-    const sourceRow = row({
+    const sourceState = membershipState({
       descriptor: sourceDescriptor,
       cardBlockId: "card-a",
       membershipId: "membership-a",
@@ -539,12 +532,13 @@ describe("Database management intent compiler", () => {
       compileDatabaseManagementRequest({
         context: context(),
         intent: {
-          kind: "remove_membership",
-          cardBlockId: "card-a",
-          source: viewSnapshot({
-            descriptor: sourceDescriptor,
-            rows: [sourceRow],
+          kind: "set_membership",
+          authority: managementSnapshot({
+            descriptors: [sourceDescriptor, targetDescriptor],
+            cards: [sourceState, targetAnchor],
           }),
+          cardBlockId: "card-a",
+          target: null,
         },
       }).operations,
       "transfer_membership",
@@ -570,13 +564,13 @@ describe("Database management intent compiler", () => {
   test("transfers one Card between Database authorities captured at one cursor", () => {
     const sourceDescriptor = descriptor("database-a");
     const targetDescriptor = descriptor("database-b");
-    const sourceRow = row({
+    const sourceState = membershipState({
       descriptor: sourceDescriptor,
       cardBlockId: "card-a",
       membershipId: "membership-a",
       membershipRevision: 7,
     });
-    const targetAnchor = row({
+    const targetAnchor = membershipState({
       descriptor: targetDescriptor,
       cardBlockId: "card-b",
       membershipId: "membership-b",
@@ -586,18 +580,18 @@ describe("Database management intent compiler", () => {
       compileDatabaseManagementRequest({
         context: context(),
         intent: {
-          kind: "transfer_membership",
+          kind: "set_membership",
+          authority: managementSnapshot({
+            descriptors: [sourceDescriptor, targetDescriptor],
+            cards: [sourceState, targetAnchor],
+          }),
           cardBlockId: "card-a",
-          membershipId: "membership-a-in-b",
-          source: viewSnapshot({
-            descriptor: sourceDescriptor,
-            rows: [sourceRow],
-          }),
-          target: viewSnapshot({
-            descriptor: targetDescriptor,
-            rows: [targetAnchor],
-          }),
-          beforeCardBlockId: "card-b",
+          target: {
+            databaseBlockId: "database-b",
+            membershipId: "membership-a-in-b",
+            viewId: "database-b-list",
+            beforeCardBlockId: "card-b",
+          },
         },
       }).operations,
       "transfer_membership",
@@ -621,7 +615,7 @@ describe("Database management intent compiler", () => {
     const authority = descriptor("database-a");
     const snapshot = descriptorSnapshot(authority);
     const targetDescriptor = descriptor("database-b");
-    const unpositionedAnchor = row({
+    const unpositionedAnchor = membershipState({
       descriptor: targetDescriptor,
       cardBlockId: "card-b",
       membershipId: "membership-b",
@@ -685,14 +679,24 @@ describe("Database management intent compiler", () => {
         compileDatabaseManagementRequest({
           context: context(),
           intent: {
-            kind: "add_membership",
-            card: card("card-new"),
-            membershipId: "membership-new",
-            target: viewSnapshot({
-              descriptor: targetDescriptor,
-              rows: [unpositionedAnchor],
+            kind: "set_membership",
+            authority: managementSnapshot({
+              descriptors: [authority, targetDescriptor],
+              cards: [
+                membershipState({
+                  descriptor: targetDescriptor,
+                  cardBlockId: "card-new",
+                }),
+                unpositionedAnchor,
+              ],
             }),
-            beforeCardBlockId: "card-b",
+            cardBlockId: "card-new",
+            target: {
+              databaseBlockId: "database-b",
+              membershipId: "membership-new",
+              viewId: "database-b-list",
+              beforeCardBlockId: "card-b",
+            },
           },
         }),
       ),
@@ -702,21 +706,33 @@ describe("Database management intent compiler", () => {
         compileDatabaseManagementRequest({
           context: context(),
           intent: {
-            kind: "add_membership",
-            card: card("card-new"),
-            membershipId: "membership-new",
-            target: viewSnapshot({ descriptor: targetDescriptor }),
-            groupKey: "todo",
+            kind: "set_membership",
+            authority: managementSnapshot({
+              descriptors: [authority, targetDescriptor],
+              cards: [
+                membershipState({
+                  descriptor: targetDescriptor,
+                  cardBlockId: "card-new",
+                }),
+              ],
+            }),
+            cardBlockId: "card-new",
+            target: {
+              databaseBlockId: "database-b",
+              membershipId: "membership-new",
+              viewId: "database-b-list",
+              groupKey: "todo",
+            },
           },
         }),
       ),
     ).toBe("membership_group_invalid");
   });
 
-  test("rejects cross-cursor transfers instead of guessing target authority", () => {
+  test("rejects stale management authority instead of guessing membership state", () => {
     const sourceDescriptor = descriptor("database-a");
     const targetDescriptor = descriptor("database-b");
-    const sourceRow = row({
+    const sourceState = membershipState({
       descriptor: sourceDescriptor,
       cardBlockId: "card-a",
       membershipId: "membership-a",
@@ -726,23 +742,22 @@ describe("Database management intent compiler", () => {
     expect(
       errorCode(() =>
         compileDatabaseManagementRequest({
-          context: context(),
+          context: { ...context(), storeEpoch: "epoch-new" },
           intent: {
-            kind: "transfer_membership",
+            kind: "set_membership",
+            authority: managementSnapshot({
+              descriptors: [sourceDescriptor, targetDescriptor],
+              cards: [sourceState],
+            }),
             cardBlockId: "card-a",
-            membershipId: "membership-a-in-b",
-            source: viewSnapshot({
-              descriptor: sourceDescriptor,
-              rows: [sourceRow],
-              changeLogSeq: 41,
-            }),
-            target: viewSnapshot({
-              descriptor: targetDescriptor,
-              changeLogSeq: 42,
-            }),
+            target: {
+              databaseBlockId: "database-b",
+              membershipId: "membership-a-in-b",
+              viewId: "database-b-list",
+            },
           },
         }),
       ),
-    ).toBe("authority_cursor_mismatch");
+    ).toBe("authority_scope_mismatch");
   });
 });

@@ -22,6 +22,7 @@ import type {
 import type {
   GeneralDatabaseCatalog,
   GeneralDatabaseDescriptor,
+  GeneralDatabaseMembershipState,
   GeneralDatabasePropertyDefinition,
 } from "../../../shared/database-query";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
@@ -50,6 +51,15 @@ export interface CreateDatabaseViewDraft {
   readonly kind: GeneralDatabaseViewKind;
 }
 
+export interface UpdateDatabaseViewDraft extends CreateDatabaseViewDraft {
+  readonly viewId: string;
+}
+
+export interface SetDatabaseMembershipDraft {
+  readonly cardBlockId: string;
+  readonly databaseBlockId: string | null;
+}
+
 export interface PutDatabasePropertyOptionDraft {
   readonly databaseBlockId: string;
   readonly propertyId: string;
@@ -58,6 +68,7 @@ export interface PutDatabasePropertyOptionDraft {
 
 export interface DatabaseManagementSurfaceProps {
   readonly catalog: GeneralDatabaseCatalog;
+  readonly cards: readonly GeneralDatabaseMembershipState[];
   readonly selectedDatabaseBlockId: string | null;
   readonly busy?: boolean;
   readonly error?: string | null;
@@ -71,9 +82,13 @@ export interface DatabaseManagementSurfaceProps {
     propertyId: string,
   ) => void | Promise<void>;
   readonly onCreateView: (draft: CreateDatabaseViewDraft) => void | Promise<void>;
+  readonly onUpdateView: (draft: UpdateDatabaseViewDraft) => void | Promise<void>;
   readonly onDeleteView: (
     databaseBlockId: string,
     viewId: string,
+  ) => void | Promise<void>;
+  readonly onSetMembership: (
+    draft: SetDatabaseMembershipDraft,
   ) => void | Promise<void>;
   readonly onPutPropertyOption: (
     draft: PutDatabasePropertyOptionDraft,
@@ -206,6 +221,7 @@ function SectionHeader({
 
 export function DatabaseManagementSurface({
   catalog,
+  cards,
   selectedDatabaseBlockId,
   busy = false,
   error = null,
@@ -214,7 +230,9 @@ export function DatabaseManagementSurface({
   onCreateProperty,
   onDeleteProperty,
   onCreateView,
+  onUpdateView,
   onDeleteView,
+  onSetMembership,
   onPutPropertyOption,
   onDeletePropertyOption,
 }: DatabaseManagementSurfaceProps) {
@@ -225,6 +243,10 @@ export function DatabaseManagementSurface({
     useState<DatabasePropertyValueType>("text");
   const [viewName, setViewName] = useState("");
   const [viewKind, setViewKind] = useState<GeneralDatabaseViewKind>("list");
+  const [viewDrafts, setViewDrafts] = useState<Readonly<Record<
+    string,
+    { readonly name: string; readonly kind: GeneralDatabaseViewKind }
+  >>>({});
   const [optionDrafts, setOptionDrafts] = useState<Readonly<Record<string, string>>>({});
 
   useEffect(() => {
@@ -238,6 +260,7 @@ export function DatabaseManagementSurface({
     (property) => property.lifecycle === "active",
   ) ?? [];
   const activeViews = descriptor?.views.filter((view) => view.lifecycle === "active") ?? [];
+  const selectedDatabaseId = descriptor?.database.blockId ?? null;
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] max-sm:grid-cols-1">
@@ -330,6 +353,56 @@ export function DatabaseManagementSurface({
                     {activeProperties.length} properties · {activeViews.length} Views
                   </p>
                 </div>
+
+                <section className="mb-8" aria-labelledby="database-cards-heading">
+                  <SectionHeader
+                    title="Cards"
+                    detail="One owning Database per Card"
+                  />
+                  <h3 id="database-cards-heading" className="sr-only">Database membership</h3>
+                  <div className="max-h-52 divide-y divide-token-border/60 overflow-y-auto border-y border-token-border/60">
+                    {cards.map((state) => {
+                      const currentDatabaseId = state.membership?.databaseBlockId ?? null;
+                      const currentDatabase = catalog.databases.find(
+                        (candidate) => candidate.database.blockId === currentDatabaseId,
+                      );
+                      const belongsHere = currentDatabaseId === selectedDatabaseId;
+                      const actionLabel = belongsHere
+                        ? "Remove"
+                        : currentDatabaseId
+                          ? "Move here"
+                          : "Add";
+                      return (
+                        <div key={state.card.blockId} className="flex min-h-9 items-center gap-2 py-1.5">
+                          <span className="min-w-0 flex-1 truncate text-sm text-token-text-primary">
+                            {state.card.content?.title || "Untitled"}
+                          </span>
+                          <span className="max-w-44 truncate text-xs text-token-description-foreground">
+                            {currentDatabase?.database.name ?? "No Database"}
+                          </span>
+                          <NodexButton
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            disabled={busy || !selectedDatabaseId}
+                            aria-label={`${actionLabel} Card ${state.card.content?.title || state.card.blockId}`}
+                            onClick={() => void onSetMembership({
+                              cardBlockId: state.card.blockId,
+                              databaseBlockId: belongsHere ? null : selectedDatabaseId,
+                            })}
+                          >
+                            {actionLabel}
+                          </NodexButton>
+                        </div>
+                      );
+                    })}
+                    {cards.length === 0 ? (
+                      <p className="py-3 text-xs text-token-description-foreground">
+                        No active Cards in this Project.
+                      </p>
+                    ) : null}
+                  </div>
+                </section>
 
                 <section className="mb-8" aria-labelledby="database-properties-heading">
                   <SectionHeader
@@ -467,15 +540,56 @@ export function DatabaseManagementSurface({
                   <div className="divide-y divide-token-border/60 border-y border-token-border/60">
                     {activeViews.map((view) => {
                       const Icon = viewKindIcon(view.kind);
+                      const draft = viewDrafts[view.id] ?? {
+                        name: view.name,
+                        kind: view.kind,
+                      };
+                      const changed = draft.name.trim() !== view.name || draft.kind !== view.kind;
                       return (
                         <div key={view.id} className="group flex min-h-10 items-center gap-2 py-1.5">
                           <Icon className="size-3.5 text-token-description-foreground" />
-                          <span className="min-w-0 flex-1 truncate text-sm text-token-text-primary">
-                            {view.name}
-                          </span>
-                          <span className="text-xs text-token-description-foreground">
-                            {VIEW_KINDS.find((kind) => kind.value === view.kind)?.label}
-                          </span>
+                          <Input
+                            aria-label={`View name ${view.name}`}
+                            value={draft.name}
+                            disabled={busy}
+                            onInput={(event) => setViewDrafts((current) => ({
+                              ...current,
+                              [view.id]: { ...draft, name: event.currentTarget.value },
+                            }))}
+                            className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
+                          />
+                          <select
+                            aria-label={`View kind ${view.name}`}
+                            value={draft.kind}
+                            disabled={busy}
+                            onChange={(event) => setViewDrafts((current) => ({
+                              ...current,
+                              [view.id]: {
+                                ...draft,
+                                kind: event.target.value as GeneralDatabaseViewKind,
+                              },
+                            }))}
+                            className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
+                          >
+                            {VIEW_KINDS.map((kind) => (
+                              <option key={kind.value} value={kind.value}>{kind.label}</option>
+                            ))}
+                          </select>
+                          <NodexButton
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            disabled={busy || !changed || !draft.name.trim()}
+                            aria-label={`Save View ${view.name}`}
+                            onClick={() => void onUpdateView({
+                              databaseBlockId: descriptor.database.blockId,
+                              viewId: view.id,
+                              name: draft.name.trim(),
+                              kind: draft.kind,
+                            })}
+                          >
+                            Save
+                          </NodexButton>
                           {view.isPrimary ? (
                             <span className="text-[10px] uppercase tracking-wide text-token-description-foreground">
                               Primary

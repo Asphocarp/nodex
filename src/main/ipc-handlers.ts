@@ -189,6 +189,7 @@ import { parseDocumentRelocationRequest } from "../shared/block-documents/reloca
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
 import {
   DATABASE_CATALOG_IPC_CHANNEL,
+  DATABASE_MANAGEMENT_IPC_CHANNEL,
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
   PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
@@ -889,6 +890,7 @@ export function registerIpcHandlers(
     registerHandle: (channel, listener) => {
       if (
         channel === DATABASE_CATALOG_IPC_CHANNEL ||
+        channel === DATABASE_MANAGEMENT_IPC_CHANNEL ||
         channel === PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL ||
         channel === PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
       ) {
@@ -927,6 +929,8 @@ export function registerIpcHandlers(
       ).result,
     readCatalog: async (projectId) =>
       (await cardMutationWriter.readDatabaseCatalog(projectId)).result,
+    readManagement: async (projectId) =>
+      (await cardMutationWriter.readDatabaseManagement(projectId)).result,
     readPrimaryDescriptor: async (projectId) =>
       (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId))
         .result,

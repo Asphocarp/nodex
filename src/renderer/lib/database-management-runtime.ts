@@ -5,24 +5,24 @@ import type {
 } from "../../shared/database-kernel";
 import type {
   DatabaseReadSnapshot,
-  GeneralDatabaseCatalog,
+  GeneralDatabaseManagement,
   GeneralDatabaseDescriptor,
 } from "../../shared/database-query";
 import {
   compileDatabaseManagementRequest,
   type DatabaseManagementIntent,
 } from "./database-management-intents";
-import { mutateDatabase, readDatabaseCatalog } from "./api";
+import { mutateDatabase, readDatabaseManagement } from "./api";
 
 export interface DatabaseManagementAuthority {
-  readonly catalog: DatabaseReadSnapshot<GeneralDatabaseCatalog>;
+  readonly management: DatabaseReadSnapshot<GeneralDatabaseManagement>;
   readonly descriptor: (
     databaseBlockId: string,
   ) => DatabaseReadSnapshot<GeneralDatabaseDescriptor>;
 }
 
 export interface DatabaseManagementRuntimeDependencies {
-  readonly readCatalog: typeof readDatabaseCatalog;
+  readonly readManagement: typeof readDatabaseManagement;
   readonly mutate: (
     projectId: string,
     request: DatabaseMutationRequest,
@@ -44,15 +44,15 @@ export class DatabaseManagementMutationError extends Error {
 }
 
 const defaultDependencies: DatabaseManagementRuntimeDependencies = {
-  readCatalog: readDatabaseCatalog,
+  readManagement: readDatabaseManagement,
   mutate: mutateDatabase,
 };
 
-const requireCatalog = async (
+const requireManagement = async (
   projectId: string,
   dependencies: DatabaseManagementRuntimeDependencies,
-): Promise<DatabaseReadSnapshot<GeneralDatabaseCatalog>> => {
-  const result = await dependencies.readCatalog(projectId);
+): Promise<DatabaseReadSnapshot<GeneralDatabaseManagement>> => {
+  const result = await dependencies.readManagement(projectId);
   if (!result.ok) {
     throw new DatabaseManagementReadError(
       result.error.message,
@@ -66,15 +66,15 @@ const requireCatalog = async (
       false,
     );
   }
-  return snapshot as DatabaseReadSnapshot<GeneralDatabaseCatalog>;
+  return snapshot as DatabaseReadSnapshot<GeneralDatabaseManagement>;
 };
 
 export const createDatabaseManagementAuthority = (
-  catalog: DatabaseReadSnapshot<GeneralDatabaseCatalog>,
+  management: DatabaseReadSnapshot<GeneralDatabaseManagement>,
 ): DatabaseManagementAuthority => ({
-  catalog,
+  management,
   descriptor: (databaseBlockId) => {
-    const descriptor = catalog.value?.databases.find(
+    const descriptor = management.value?.catalog.databases.find(
       (candidate) => candidate.database.blockId === databaseBlockId,
     );
     if (!descriptor) {
@@ -83,7 +83,7 @@ export const createDatabaseManagementAuthority = (
         false,
       );
     }
-    return { ...catalog, value: descriptor };
+    return { ...management, value: descriptor };
   },
 });
 
@@ -106,11 +106,11 @@ const applyExactRequest = async (
   return result;
 };
 
-export const readDatabaseManagementCatalog = async (
+export const readDatabaseManagementAuthority = async (
   projectId: string,
   dependencies: DatabaseManagementRuntimeDependencies = defaultDependencies,
-): Promise<DatabaseReadSnapshot<GeneralDatabaseCatalog>> =>
-  await requireCatalog(projectId, dependencies);
+): Promise<DatabaseReadSnapshot<GeneralDatabaseManagement>> =>
+  await requireManagement(projectId, dependencies);
 
 /**
  * Read one complete Project catalog, compile a single intent exactly once,
@@ -124,20 +124,20 @@ export const commitDatabaseManagementIntent = async (input: {
     authority: DatabaseManagementAuthority,
   ) => DatabaseManagementIntent;
   readonly dependencies?: DatabaseManagementRuntimeDependencies;
-}): Promise<DatabaseReadSnapshot<GeneralDatabaseCatalog>> => {
+}): Promise<DatabaseReadSnapshot<GeneralDatabaseManagement>> => {
   const dependencies = input.dependencies ?? defaultDependencies;
-  const catalog = await requireCatalog(input.projectId, dependencies);
+  const management = await requireManagement(input.projectId, dependencies);
   const request = compileDatabaseManagementRequest({
     context: {
       operationId: input.operationId,
       projectId: input.projectId,
-      storeEpoch: catalog.storeEpoch,
+      storeEpoch: management.storeEpoch,
       ...(input.clientSessionId
         ? { clientSessionId: input.clientSessionId }
         : {}),
       actor: { kind: "renderer_database_management" },
     },
-    intent: input.buildIntent(createDatabaseManagementAuthority(catalog)),
+    intent: input.buildIntent(createDatabaseManagementAuthority(management)),
   });
   const result = await applyExactRequest(
     input.projectId,
@@ -146,10 +146,10 @@ export const commitDatabaseManagementIntent = async (input: {
   );
   if (!result.ok) throw new DatabaseManagementMutationError(result.error);
 
-  const refreshed = await requireCatalog(input.projectId, dependencies);
+  const refreshed = await requireManagement(input.projectId, dependencies);
   if (refreshed.changeLogSeq >= result.value.changeLogSeq) return refreshed;
   throw new DatabaseManagementReadError(
-    "Database catalog refresh is older than the committed mutation",
+    "Database management refresh is older than the committed mutation",
     true,
   );
 };

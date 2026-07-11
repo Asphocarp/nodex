@@ -41,6 +41,7 @@ import {
   applyDatabaseMutation,
   queryDatabaseViewSnapshot,
   readDatabaseCatalogSnapshot,
+  readDatabaseManagementSnapshot,
   readDatabaseViewSnapshot,
   readDatabaseDescriptorSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
@@ -203,6 +204,7 @@ const isLegacyAuthorityMutation = (
     case "compactEligibleBlockDocuments":
     case "readDatabaseDescriptor":
     case "readDatabaseCatalog":
+    case "readDatabaseManagement":
     case "readPrimaryDatabaseDescriptor":
     case "readPrimaryDatabaseViewSnapshot":
     case "readDatabaseViewSnapshot":
@@ -1360,6 +1362,11 @@ async function runRequest(
       return compactEligibleBlockDocuments(getDb(), request.payload);
     case "readDatabaseCatalog":
       return readDatabaseCatalogSnapshot(
+        getDb(),
+        request.payload.projectId,
+      );
+    case "readDatabaseManagement":
+      return readDatabaseManagementSnapshot(
         getDb(),
         request.payload.projectId,
       );

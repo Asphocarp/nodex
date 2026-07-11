@@ -11,11 +11,13 @@ import {
 } from "./database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandError,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseCatalog,
+  GeneralDatabaseManagement,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
 } from "./database-query";
@@ -420,6 +422,11 @@ export const parseDatabaseCatalogSnapshotCommandResult = (
   value: unknown,
 ): DatabaseCatalogSnapshotCommandResult =>
   parseDatabaseReadCommandResult<GeneralDatabaseCatalog>(value);
+
+export const parseDatabaseManagementSnapshotCommandResult = (
+  value: unknown,
+): DatabaseManagementSnapshotCommandResult =>
+  parseDatabaseReadCommandResult<GeneralDatabaseManagement>(value);
 
 export const parsePrimaryDatabaseViewSnapshotCommandResult = (
   value: unknown,

@@ -178,6 +178,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Block-drop card creation uses pointer-based insertion (top/middle/bottom) with a visible drop indicator
 - Block->card import supports strict smart shorthand parsing for non-`cardToggle` blocks (`0..4`, optional estimate `XS/S/M/L/XL`, optional `(tag)`), applying parsed values to `priority`, `estimate`, and `tags`
 - Visual card previews with priority badges
+- The Database manager lists every active Card independently of View filters. For the selected Database it can add an unassigned Card, atomically transfer a Card from another owning Database, remove membership without deleting the Card, and rename/change the exact selected durable View. Other open windows refresh from the committed Database event.
 - Kanban card reorder keeps a non-layout-shifting insertion indicator; the source card stays as a static ghost in place while dragging, same-column reorders do not live-shift sibling cards, columns do not tint as separate previews, the drag overlay is geometry-matched to the source card so it starts aligned with the cursor, and dropping on the visual gap between cards still inserts into that gap instead of falling through to column-end append
 - The Kanban insert-position indicator is resolved against the remaining non-dragged cards in the target surface, so same-column and multi-card drags never draw the line above a dragged ghost when the actual drop will land before the next remaining card
 - Kanban card property chips (priority/estimate/tags/assignee) render inline with the card title by default, and Settings can move them above the title or below the body
@@ -750,6 +751,8 @@ nodex/
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocations` | Move stable Block subtrees to another Card Document through a session-bound lease and one atomic SQLite commit |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocation-leases/[leaseId]/responses` | ACK/NACK a surface-local relocation freeze after its pending edits are durable |
 | POST | `/api/projects/[projectId]/block-property-mutations` | Apply a versioned field-level intrinsic/Database property batch with scalar CAS or set add/remove intent and an immutable typed receipt |
+| GET | `/api/projects/[projectId]/databases/management` | Read the Database catalog plus all active Card membership/position authority under one store epoch and change cursor |
+| POST | `/api/projects/[projectId]/database-mutations` | Apply exact-revision schema, membership, value, View, or selected-View position operations with one immutable receipt |
 
 #### Asset Routes
 
@@ -1074,6 +1077,10 @@ nodex block command <json|@file|@-> # Synced/Template/Large Document command
 nodex rm <card-id>               # Delete card (auto-resolves column)
 nodex mv <card-id> <from> <to> [order] [opts] # Move card (atomic claim)
 nodex history <card-id>          # View the Card-scoped durable cursor timeline
+nodex database catalog           # List Databases and owning membership counts
+nodex database members <database-id> # List current Card memberships
+nodex database membership <card-id> <database-id|none> [view-id] # Add/transfer/remove membership
+nodex database view-update <view-id> <json|@file|@-> # Update that exact durable View
 nodex query "<sql>" [params...]  # Run read-only SQL query
 nodex schema                     # Show database schema
 nodex backups [subcommand]       # List/create/restore backups

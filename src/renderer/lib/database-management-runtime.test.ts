@@ -4,8 +4,9 @@ import type {
   DatabaseMutationRequest,
 } from "../../shared/database-kernel";
 import type {
-  DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   GeneralDatabaseCatalog,
+  GeneralDatabaseManagement,
 } from "../../shared/database-query";
 import {
   commitDatabaseManagementIntent,
@@ -33,17 +34,22 @@ const catalogValue = (schemaRevision = 3): GeneralDatabaseCatalog => ({
   ],
 });
 
+const managementValue = (schemaRevision = 3): GeneralDatabaseManagement => ({
+  catalog: catalogValue(schemaRevision),
+  cards: [],
+});
+
 const catalogResult = (
   changeLogSeq: number,
   schemaRevision = 3,
-): DatabaseCatalogSnapshotCommandResult => ({
+): DatabaseManagementSnapshotCommandResult => ({
   ok: true,
   value: {
     version: 1,
     projectId: "project-1",
     storeEpoch: "epoch-1",
     changeLogSeq,
-    value: catalogValue(schemaRevision),
+    value: managementValue(schemaRevision),
   },
 });
 
@@ -71,7 +77,7 @@ describe("Database management runtime", () => {
     let reads = 0;
     const requests: DatabaseMutationRequest[] = [];
     const dependencies: DatabaseManagementRuntimeDependencies = {
-      readCatalog: async () => catalogResult(reads++ === 0 ? 10 : 11, reads === 1 ? 3 : 4),
+      readManagement: async () => catalogResult(reads++ === 0 ? 10 : 11, reads === 1 ? 3 : 4),
       mutate: async (_projectId, request) => {
         requests.push(request);
         return success(request);
@@ -130,7 +136,7 @@ describe("Database management runtime", () => {
         },
       }),
       dependencies: {
-        readCatalog: async () => catalogResult(reads++ === 0 ? 10 : 11),
+        readManagement: async () => catalogResult(reads++ === 0 ? 10 : 11),
         mutate: async (_projectId, request) => {
           requests.push(request);
           if (requests.length === 1) throw new Error("response lost");
@@ -169,7 +175,7 @@ describe("Database management runtime", () => {
           },
         }),
         dependencies: {
-          readCatalog: async () => catalogResult(10),
+          readManagement: async () => catalogResult(10),
           mutate: async (_projectId, request) => ({
             ok: false,
             error: {

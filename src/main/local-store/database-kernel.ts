@@ -32,8 +32,9 @@ import {
   GeneralDatabaseQueryError,
   queryGeneralDatabaseView,
   readCardContentSummary,
-  readGeneralDatabaseDescriptor,
   readGeneralDatabaseCatalog,
+  readGeneralDatabaseDescriptor,
+  readGeneralDatabaseManagement,
   readPrimaryGeneralDatabaseDescriptor,
 } from "./database-query";
 import {
@@ -41,6 +42,7 @@ import {
   type DatabaseReadCommandResult,
   type DatabaseReadSnapshot,
   type DatabaseCatalogSnapshotCommandResult,
+  type DatabaseManagementSnapshotCommandResult,
   type DatabaseViewSnapshotCommandResult,
   type GeneralDatabaseDescriptor,
   type GeneralDatabaseViewQuery,
@@ -3381,6 +3383,18 @@ export const readDatabaseCatalogSnapshot = (
     database,
     projectId,
     () => readGeneralDatabaseCatalog(projectId, database),
+    options,
+  );
+
+export const readDatabaseManagementSnapshot = (
+  database: Database.Database,
+  projectId: string,
+  options: DatabaseReadSnapshotOptions = {},
+): DatabaseManagementSnapshotCommandResult =>
+  readDatabaseSnapshot(
+    database,
+    projectId,
+    () => readGeneralDatabaseManagement(projectId, database),
     options,
   );
 

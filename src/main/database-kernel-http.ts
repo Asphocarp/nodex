@@ -6,6 +6,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -36,6 +37,9 @@ export interface DatabaseKernelHttpDependencies {
   readonly readCatalog: (
     projectId: string,
   ) => Promise<DatabaseCatalogSnapshotCommandResult>;
+  readonly readManagement: (
+    projectId: string,
+  ) => Promise<DatabaseManagementSnapshotCommandResult>;
   readonly readPrimaryDescriptor: (
     projectId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
@@ -135,6 +139,28 @@ export const registerDatabaseKernelHttpRoutes = (
       let result: DatabaseCatalogSnapshotCommandResult;
       try {
         result = await dependencies.readCatalog(bound.value.projectId);
+      } catch (error) {
+        result = readFailure(error);
+      }
+      return context.json(result, databaseReadHttpStatus(result));
+    },
+  );
+
+  app.get(
+    "/api/projects/:projectId/databases/management",
+    async (context) => {
+      context.header("Cache-Control", "no-store");
+      const bound = bindDatabaseReadIdentity(
+        context.req.param("projectId"),
+        "management",
+      );
+      if (!bound.ok) {
+        const result: DatabaseManagementSnapshotCommandResult = bound;
+        return context.json(result, databaseReadHttpStatus(result));
+      }
+      let result: DatabaseManagementSnapshotCommandResult;
+      try {
+        result = await dependencies.readManagement(bound.value.projectId);
       } catch (error) {
         result = readFailure(error);
       }

@@ -32,6 +32,7 @@ import type {
 } from "../../shared/database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -253,6 +254,12 @@ export function readDatabaseCatalog(
   projectId: string,
 ): Promise<DatabaseCatalogSnapshotCommandResult> {
   return invoke("databases:catalog:get", projectId);
+}
+
+export function readDatabaseManagement(
+  projectId: string,
+): Promise<DatabaseManagementSnapshotCommandResult> {
+  return invoke("databases:management:get", projectId);
 }
 
 export function readDatabaseDescriptor(

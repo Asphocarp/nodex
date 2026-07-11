@@ -10,11 +10,14 @@ import type {
   DatabasePropertyValueType,
   GeneralDatabaseViewConfig,
 } from "../../../shared/database-kernel";
-import type { DatabaseReadSnapshot, GeneralDatabaseCatalog } from "../../../shared/database-query";
+import type {
+  DatabaseReadSnapshot,
+  GeneralDatabaseManagement,
+} from "../../../shared/database-query";
 import { createUuidV7 } from "../../../shared/card-id";
 import {
   commitDatabaseManagementIntent,
-  readDatabaseManagementCatalog,
+  readDatabaseManagementAuthority,
   type DatabaseManagementAuthority,
 } from "@/lib/database-management-runtime";
 import type { DatabaseManagementIntent } from "@/lib/database-management-intents";
@@ -26,6 +29,8 @@ import {
   type CreateDatabasePropertyDraft,
   type CreateDatabaseViewDraft,
   type PutDatabasePropertyOptionDraft,
+  type SetDatabaseMembershipDraft,
+  type UpdateDatabaseViewDraft,
 } from "./database-management-dialog";
 
 interface DatabaseManagementDialogControllerProps {
@@ -71,7 +76,7 @@ export function DatabaseManagementDialogController({
 }: DatabaseManagementDialogControllerProps) {
   const clientSessionId = useMutationAuditSessionId();
   const [snapshot, setSnapshot] =
-    useState<DatabaseReadSnapshot<GeneralDatabaseCatalog> | null>(null);
+    useState<DatabaseReadSnapshot<GeneralDatabaseManagement> | null>(null);
   const [selectedDatabaseBlockId, setSelectedDatabaseBlockId] =
     useState<string | null>(initialDatabaseBlockId);
   const [busy, setBusy] = useState(false);
@@ -80,25 +85,28 @@ export function DatabaseManagementDialogController({
   const mutationSequence = useRef(0);
 
   const applySnapshot = useEffectEvent((
-    next: DatabaseReadSnapshot<GeneralDatabaseCatalog>,
+    next: DatabaseReadSnapshot<GeneralDatabaseManagement>,
     preferredDatabaseBlockId?: string | null,
   ) => {
     if (
       snapshot &&
+      snapshot.projectId === next.projectId &&
       snapshot.storeEpoch === next.storeEpoch &&
       snapshot.changeLogSeq > next.changeLogSeq
     ) {
       return;
     }
     const candidateIds = new Set(
-      next.value?.databases.map((descriptor) => descriptor.database.blockId),
+      next.value?.catalog.databases.map(
+        (descriptor) => descriptor.database.blockId,
+      ),
     );
     const preferred = preferredDatabaseBlockId?.trim() || null;
     const selected = selectedDatabaseBlockId?.trim() || null;
     const nextSelected =
       (preferred && candidateIds.has(preferred) ? preferred : null) ??
       (selected && candidateIds.has(selected) ? selected : null) ??
-      next.value?.databases[0]?.database.blockId ??
+      next.value?.catalog.databases[0]?.database.blockId ??
       null;
     startTransition(() => {
       setSnapshot(next);
@@ -109,7 +117,7 @@ export function DatabaseManagementDialogController({
   const refresh = useEffectEvent(async () => {
     const sequence = ++readSequence.current;
     try {
-      const next = await readDatabaseManagementCatalog(projectId);
+      const next = await readDatabaseManagementAuthority(projectId);
       if (sequence !== readSequence.current) return;
       applySnapshot(next, initialDatabaseBlockId);
       setError(null);
@@ -225,6 +233,57 @@ export function DatabaseManagementDialogController({
     }));
   };
 
+  const updateView = async (draft: UpdateDatabaseViewDraft) => {
+    await mutate((authority) => {
+      const descriptor = authority.descriptor(draft.databaseBlockId);
+      const view = descriptor.value?.views.find(
+        (candidate) => candidate.id === draft.viewId,
+      );
+      if (!view) throw new Error(`Database View is unavailable: ${draft.viewId}`);
+      return {
+        kind: "put_view",
+        mode: "update",
+        descriptor,
+        view: {
+          id: view.id,
+          name: draft.name,
+          kind: draft.kind,
+          config: view.config,
+          isPrimary: view.isPrimary,
+        },
+      };
+    });
+  };
+
+  const setMembership = async (draft: SetDatabaseMembershipDraft) => {
+    const membershipId = draft.databaseBlockId ? createUuidV7() : null;
+    await mutate((authority) => {
+      const targetDescriptor = draft.databaseBlockId
+        ? authority.descriptor(draft.databaseBlockId).value
+        : null;
+      const targetView = targetDescriptor?.views.find(
+        (view) => view.lifecycle === "active" && view.isPrimary,
+      ) ?? targetDescriptor?.views.find((view) => view.lifecycle === "active");
+      if (draft.databaseBlockId && (!targetView || !membershipId)) {
+        throw new Error(
+          `Target Database has no active durable View: ${draft.databaseBlockId}`,
+        );
+      }
+      return {
+        kind: "set_membership",
+        authority: authority.management,
+        cardBlockId: draft.cardBlockId,
+        target: draft.databaseBlockId && targetView && membershipId
+          ? {
+              databaseBlockId: draft.databaseBlockId,
+              membershipId,
+              viewId: targetView.id,
+            }
+          : null,
+      };
+    });
+  };
+
   const putPropertyOption = async (
     draft: PutDatabasePropertyOptionDraft,
   ) => {
@@ -253,7 +312,8 @@ export function DatabaseManagementDialogController({
   return (
     <DatabaseManagementDialog
       open={open}
-      catalog={snapshot?.value ?? { databases: [] }}
+      catalog={snapshot?.value?.catalog ?? { databases: [] }}
+      cards={snapshot?.value?.cards ?? []}
       selectedDatabaseBlockId={selectedDatabaseBlockId}
       busy={busy || snapshot === null}
       error={error}
@@ -263,7 +323,9 @@ export function DatabaseManagementDialogController({
       onCreateProperty={createProperty}
       onDeleteProperty={deleteProperty}
       onCreateView={createView}
+      onUpdateView={updateView}
       onDeleteView={deleteView}
+      onSetMembership={setMembership}
       onPutPropertyOption={putPropertyOption}
       onDeletePropertyOption={deletePropertyOption}
     />

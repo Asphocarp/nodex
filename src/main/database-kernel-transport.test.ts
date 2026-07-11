@@ -6,6 +6,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -15,6 +16,7 @@ import type {
 import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import {
   DATABASE_CATALOG_IPC_CHANNEL,
+  DATABASE_MANAGEMENT_IPC_CHANNEL,
   DATABASE_DESCRIPTOR_IPC_CHANNEL,
   DATABASE_MUTATION_IPC_CHANNEL,
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
@@ -65,6 +67,17 @@ const catalog = (): DatabaseCatalogSnapshotCommandResult => ({
     storeEpoch: "epoch-1",
     changeLogSeq: 7,
     value: { databases: [] },
+  },
+});
+
+const management = (): DatabaseManagementSnapshotCommandResult => ({
+  ok: true,
+  value: {
+    version: 1,
+    projectId: "project-1",
+    storeEpoch: "epoch-1",
+    changeLogSeq: 7,
+    value: { catalog: { databases: [] }, cards: [] },
   },
 });
 
@@ -136,6 +149,7 @@ describe("Database IPC/HTTP transport", () => {
           : null,
       applyMutation: apply,
       readCatalog: async () => catalog(),
+      readManagement: async () => management(),
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
       readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
@@ -163,6 +177,7 @@ describe("Database IPC/HTTP transport", () => {
     registerDatabaseKernelHttpRoutes(app, {
       applyMutation: apply,
       readCatalog: async () => catalog(),
+      readManagement: async () => management(),
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
       readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
@@ -212,6 +227,7 @@ describe("Database IPC/HTTP transport", () => {
         throw new Error("not used");
       },
       readCatalog: async () => catalog(),
+      readManagement: async () => management(),
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
       readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
@@ -227,6 +243,7 @@ describe("Database IPC/HTTP transport", () => {
         throw new Error("not used");
       },
       readCatalog: async () => catalog(),
+      readManagement: async () => management(),
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
       readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
@@ -255,6 +272,16 @@ describe("Database IPC/HTTP transport", () => {
       await app.request("/api/projects/project-1/databases")
     ).json();
     expect(JSON.stringify(ipcCatalog)).toBe(JSON.stringify(httpCatalog));
+
+    const ipcManagement = await handlers.get(
+      DATABASE_MANAGEMENT_IPC_CHANNEL,
+    )?.("trusted", "project-1");
+    const httpManagement = await (
+      await app.request("/api/projects/project-1/databases/management")
+    ).json();
+    expect(JSON.stringify(ipcManagement)).toBe(
+      JSON.stringify(httpManagement),
+    );
 
     const ipcPrimary = await handlers.get(
       PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,

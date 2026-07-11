@@ -42,6 +42,7 @@ import type {
 } from "./database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -501,6 +502,10 @@ export interface IpcApi {
   "databases:catalog:get": {
     args: [projectId: string];
     result: DatabaseCatalogSnapshotCommandResult;
+  };
+  "databases:management:get": {
+    args: [projectId: string];
+    result: DatabaseManagementSnapshotCommandResult;
   };
   "databases:descriptor:get": {
     args: [projectId: string, databaseBlockId: string];

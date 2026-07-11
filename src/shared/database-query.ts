@@ -63,6 +63,38 @@ export interface GeneralDatabaseCatalog {
   readonly databases: readonly GeneralDatabaseDescriptor[];
 }
 
+/**
+ * One Card's complete Database-membership authority captured for management.
+ * Positions are relational ordering records for the Card's current owning
+ * Database only; linked Views never appear here as memberships.
+ */
+export interface GeneralDatabaseMembershipState {
+  readonly card: CardContentSummary;
+  readonly membership: null | {
+    readonly id: string;
+    readonly databaseBlockId: string;
+    readonly cardBlockId: string;
+    readonly revision: number;
+    readonly createdAt: string;
+  };
+  readonly positions: readonly {
+    readonly viewId: string;
+    readonly groupKey: string | null;
+    readonly rankKey: string;
+    readonly revision: number;
+  }[];
+}
+
+/**
+ * Complete management authority for one Project at one SQLite read cursor.
+ * It deliberately contains zero-membership Cards so add/remove/transfer does
+ * not depend on whether a filtered Database View happens to show a Card.
+ */
+export interface GeneralDatabaseManagement {
+  readonly catalog: GeneralDatabaseCatalog;
+  readonly cards: readonly GeneralDatabaseMembershipState[];
+}
+
 export interface CardContentSummary {
   readonly blockId: string;
   readonly projectId: string;
@@ -150,6 +182,9 @@ export type DatabaseReadCommandResult<T> =
 
 export type DatabaseCatalogSnapshotCommandResult =
   DatabaseReadCommandResult<GeneralDatabaseCatalog>;
+
+export type DatabaseManagementSnapshotCommandResult =
+  DatabaseReadCommandResult<GeneralDatabaseManagement>;
 
 /**
  * Descriptor and primary View query captured under one authority read. Keeping

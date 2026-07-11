@@ -271,6 +271,8 @@ registerDatabaseKernelHttpRoutes(app, {
     ).result,
   readCatalog: async (projectId) =>
     (await cardMutationWriter.readDatabaseCatalog(projectId)).result,
+  readManagement: async (projectId) =>
+    (await cardMutationWriter.readDatabaseManagement(projectId)).result,
   readPrimaryDescriptor: async (projectId) =>
     (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
   readPrimaryViewSnapshot: async (projectId) =>

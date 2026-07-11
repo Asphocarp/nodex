@@ -13,6 +13,8 @@ import type {
   GeneralDatabaseCatalog,
   GeneralDatabaseCapability,
   GeneralDatabaseDescriptor,
+  GeneralDatabaseManagement,
+  GeneralDatabaseMembershipState,
   GeneralDatabasePropertyDefinition,
   GeneralDatabaseRow,
   GeneralDatabaseValue,
@@ -26,6 +28,8 @@ export type {
   GeneralDatabaseCatalog,
   GeneralDatabaseCapability,
   GeneralDatabaseDescriptor,
+  GeneralDatabaseManagement,
+  GeneralDatabaseMembershipState,
   GeneralDatabasePropertyDefinition,
   GeneralDatabaseRow,
   GeneralDatabaseValue,
@@ -111,6 +115,22 @@ interface ValueRow {
   readonly property_id: string;
   readonly value_type: DatabasePropertyValueType;
   readonly value_json: string;
+  readonly revision: number;
+}
+
+interface ActiveMembershipAuthorityRow {
+  readonly id: string;
+  readonly database_block_id: string;
+  readonly card_block_id: string;
+  readonly revision: number;
+  readonly created_at: string;
+}
+
+interface MembershipPositionAuthorityRow {
+  readonly view_id: string;
+  readonly block_id: string;
+  readonly group_key: string | null;
+  readonly rank_key: string;
   readonly revision: number;
 }
 
@@ -470,6 +490,119 @@ export const readCardContentSummary = (
   database: Database.Database = getDb(),
 ): CardContentSummary | null =>
   readCardContentSummaries(projectId, [blockId], database)[0] ?? null;
+
+export const readGeneralDatabaseManagement = (
+  projectId: string,
+  database: Database.Database = getDb(),
+): GeneralDatabaseManagement => {
+  const cardIds = database
+    .prepare(
+      `
+      SELECT id
+      FROM blocks
+      WHERE project_id = ? AND type = 'card' AND lifecycle = 'active'
+      ORDER BY created_at, id
+    `,
+    )
+    .all(projectId) as readonly { readonly id: string }[];
+  const cards = readCardContentSummaries(
+    projectId,
+    cardIds.map((row) => row.id),
+    database,
+  );
+  if (cards.length !== cardIds.length) {
+    throw new GeneralDatabaseQueryError(
+      `Project ${projectId} contains an active Card without readable Document authority`,
+    );
+  }
+
+  const membershipRows = database
+    .prepare(
+      `
+      SELECT
+        membership.id, membership.database_block_id,
+        membership.card_block_id, membership.revision, membership.created_at
+      FROM database_memberships membership
+      INNER JOIN blocks card
+        ON card.id = membership.card_block_id
+       AND card.project_id = membership.project_id
+       AND card.type = 'card'
+       AND card.lifecycle = 'active'
+      WHERE membership.project_id = ? AND membership.removed_at IS NULL
+      ORDER BY membership.card_block_id, membership.id
+    `,
+    )
+    .all(projectId) as readonly ActiveMembershipAuthorityRow[];
+  const membershipByCard = new Map<
+    string,
+    ActiveMembershipAuthorityRow
+  >();
+  for (const row of membershipRows) {
+    if (membershipByCard.has(row.card_block_id)) {
+      throw new GeneralDatabaseQueryError(
+        `Card ${row.card_block_id} has more than one active Database membership`,
+      );
+    }
+    membershipByCard.set(row.card_block_id, row);
+  }
+
+  const positionRows = database
+    .prepare(
+      `
+      SELECT
+        position.view_id, position.block_id, position.group_key,
+        position.rank_key, position.revision
+      FROM database_view_positions position
+      INNER JOIN database_views view
+        ON view.id = position.view_id
+       AND view.project_id = position.project_id
+       AND view.lifecycle = 'active'
+      INNER JOIN database_memberships membership
+        ON membership.card_block_id = position.block_id
+       AND membership.project_id = position.project_id
+       AND membership.database_block_id = view.database_block_id
+       AND membership.removed_at IS NULL
+      WHERE position.project_id = ?
+      ORDER BY position.block_id, position.view_id
+    `,
+    )
+    .all(projectId) as readonly MembershipPositionAuthorityRow[];
+  const positionsByCard = new Map<
+    string,
+    MembershipPositionAuthorityRow[]
+  >();
+  for (const row of positionRows) {
+    const positions = positionsByCard.get(row.block_id) ?? [];
+    positions.push(row);
+    positionsByCard.set(row.block_id, positions);
+  }
+
+  const states: GeneralDatabaseMembershipState[] = cards.map((card) => {
+    const membership = membershipByCard.get(card.blockId) ?? null;
+    return {
+      card,
+      membership: membership
+        ? {
+            id: membership.id,
+            databaseBlockId: membership.database_block_id,
+            cardBlockId: membership.card_block_id,
+            revision: membership.revision,
+            createdAt: membership.created_at,
+          }
+        : null,
+      positions: (positionsByCard.get(card.blockId) ?? []).map((position) => ({
+        viewId: position.view_id,
+        groupKey: position.group_key,
+        rankKey: position.rank_key,
+        revision: position.revision,
+      })),
+    };
+  });
+  return {
+    catalog: readGeneralDatabaseCatalog(projectId, database),
+    cards: states,
+  };
+};
 
 const readMembershipRows = (
   database: Database.Database,

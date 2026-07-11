@@ -40,6 +40,7 @@ import { parseBlockPropertyMutationCommandResult } from "../../shared/block-prop
 import { parseCardMetadataPropertySnapshotCommandResult } from "../../shared/card-metadata-property-snapshot-transport";
 import {
   parseDatabaseCatalogSnapshotCommandResult,
+  parseDatabaseManagementSnapshotCommandResult,
   parseDatabaseMutationCommandResult,
   parseDatabaseReadCommandResult,
   parseDatabaseViewSnapshotCommandResult,
@@ -840,6 +841,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         { headers: { Accept: "application/json" } },
       );
       return parseDatabaseCatalogSnapshotCommandResult(await response.json());
+    }
+    case "databases:management:get": {
+      const [projectId] = args as [string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/databases/management`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseManagementSnapshotCommandResult(
+        await response.json(),
+      );
     }
     case "databases:descriptor:get": {
       const [projectId, databaseBlockId] = args as [string, string];

@@ -43,6 +43,7 @@ import {
 } from "../shared/database-events";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -445,6 +446,15 @@ export class CardMutationWriter {
   ): Promise<CardMutationEnvelope<DatabaseCatalogSnapshotCommandResult>> {
     return await this.executeTyped<DatabaseCatalogSnapshotCommandResult>({
       type: "readDatabaseCatalog",
+      payload: { projectId },
+    });
+  }
+
+  async readDatabaseManagement(
+    projectId: string,
+  ): Promise<CardMutationEnvelope<DatabaseManagementSnapshotCommandResult>> {
+    return await this.executeTyped<DatabaseManagementSnapshotCommandResult>({
+      type: "readDatabaseManagement",
       payload: { projectId },
     });
   }

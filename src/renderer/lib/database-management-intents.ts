@@ -4,7 +4,6 @@ import {
   parseDatabaseMutationRequest,
   parseDatabasePropertyConfig,
   parseGeneralDatabaseViewConfig,
-  stableStringifyDatabaseJson,
   type DatabaseJsonValue,
   type DatabaseMutationOperation,
   type DatabaseMutationRequest,
@@ -16,20 +15,17 @@ import {
 } from "../../shared/database-kernel";
 import {
   DATABASE_QUERY_CONTRACT_VERSION,
-  type CardContentSummary,
   type DatabaseReadSnapshot,
-  type DatabaseViewSnapshot,
+  type GeneralDatabaseManagement,
+  type GeneralDatabaseMembershipState,
   type GeneralDatabaseDescriptor,
   type GeneralDatabasePropertyDefinition,
-  type GeneralDatabaseRow,
   type GeneralDatabaseViewDefinition,
-  type GeneralDatabaseViewQuery,
 } from "../../shared/database-query";
 
 export type DatabaseManagementIntentErrorCode =
   | "invalid_intent"
   | "authority_scope_mismatch"
-  | "authority_cursor_mismatch"
   | "database_not_found"
   | "database_authority_invalid"
   | "property_not_found"
@@ -134,31 +130,17 @@ export type DatabaseManagementIntent =
       readonly viewId: string;
     })
   | {
-      readonly kind: "add_membership";
-      readonly card: Pick<
-        CardContentSummary,
-        "blockId" | "projectId" | "lifecycle"
-      >;
-      readonly membershipId: string;
-      readonly target: DatabaseViewSnapshot;
-      /** A new membership has no grouping property value, so this is null. */
-      readonly groupKey?: string | null;
-      readonly beforeCardBlockId?: string;
-    }
-  | {
-      readonly kind: "remove_membership";
+      readonly kind: "set_membership";
+      readonly authority: DatabaseReadSnapshot<GeneralDatabaseManagement>;
       readonly cardBlockId: string;
-      readonly source: DatabaseViewSnapshot;
-    }
-  | {
-      readonly kind: "transfer_membership";
-      readonly cardBlockId: string;
-      readonly membershipId: string;
-      readonly source: DatabaseViewSnapshot;
-      readonly target: DatabaseViewSnapshot;
-      /** A new membership has no grouping property value, so this is null. */
-      readonly groupKey?: string | null;
-      readonly beforeCardBlockId?: string;
+      readonly target: null | {
+        readonly databaseBlockId: string;
+        readonly membershipId: string;
+        readonly viewId: string;
+        /** A new membership has no grouping value, so this must be null. */
+        readonly groupKey?: string | null;
+        readonly beforeCardBlockId?: string;
+      };
     };
 
 const fail = (
@@ -224,105 +206,85 @@ const readDescriptorAuthority = (
   return descriptor;
 };
 
-interface ViewAuthority {
-  readonly descriptor: GeneralDatabaseDescriptor;
-  readonly query: GeneralDatabaseViewQuery;
-}
-
-const readViewAuthority = (
+const readManagementAuthority = (
   context: DatabaseManagementRequestContext,
-  snapshot: DatabaseViewSnapshot,
-): ViewAuthority => {
-  const descriptor = readDescriptorAuthority(context, snapshot.descriptor);
-  const querySnapshot = snapshot.query;
+  snapshot: DatabaseReadSnapshot<GeneralDatabaseManagement>,
+): GeneralDatabaseManagement => {
   if (
-    querySnapshot.version !== DATABASE_QUERY_CONTRACT_VERSION ||
-    querySnapshot.projectId !== context.projectId ||
-    querySnapshot.storeEpoch !== context.storeEpoch
+    snapshot.version !== DATABASE_QUERY_CONTRACT_VERSION ||
+    snapshot.projectId !== context.projectId ||
+    snapshot.storeEpoch !== context.storeEpoch
   ) {
     return fail(
       "authority_scope_mismatch",
-      "Database View query does not belong to the request Project and store epoch",
+      "Database management authority does not belong to the request Project and store epoch",
     );
   }
-  if (snapshot.descriptor.changeLogSeq !== querySnapshot.changeLogSeq) {
+  const authority = snapshot.value;
+  if (!authority) {
     return fail(
-      "authority_cursor_mismatch",
-      "Database descriptor and View query were not captured at one authority cursor",
+      "database_not_found",
+      "Database management authority is unavailable",
     );
   }
-  const query = querySnapshot.value;
-  if (!query) {
-    return fail("view_not_found", "Database View query is unavailable");
-  }
-  const descriptorView = descriptor.views.find(
-    (view) => view.lifecycle === "active" && view.id === query.view.id,
+  const databaseBlockIds = authority.catalog.databases.map(
+    (descriptor) => descriptor.database.blockId,
   );
-  if (
-    !descriptorView ||
-    query.database.blockId !== descriptor.database.blockId ||
-    query.database.projectId !== context.projectId ||
-    query.database.schemaRevision !== descriptor.database.schemaRevision ||
-    query.view.databaseBlockId !== descriptor.database.blockId ||
-    query.view.projectId !== context.projectId ||
-    query.view.lifecycle !== "active" ||
-    query.view.revision !== descriptorView.revision ||
-    query.view.kind !== descriptorView.kind ||
-    stableStringifyDatabaseJson(query.view.config) !==
-      stableStringifyDatabaseJson(descriptorView.config)
-  ) {
-    return fail(
-      "database_authority_invalid",
-      "Database descriptor and View query identities or revisions diverge",
-    );
+  assertUniqueIds(databaseBlockIds, "Database management catalog");
+  const databaseIds = new Set(databaseBlockIds);
+  for (const descriptor of authority.catalog.databases) {
+    readDescriptorAuthority(context, { ...snapshot, value: descriptor });
   }
-
-  const activeProperties = descriptor.properties.filter(
-    (property) => property.lifecycle === "active",
-  );
-  const activeById = new Map(
-    activeProperties.map((property) => [property.id, property] as const),
-  );
-  if (
-    query.properties.length !== activeProperties.length ||
-    query.properties.some((property) => {
-      const descriptorProperty = activeById.get(property.id);
-      return (
-        !descriptorProperty ||
-        property.lifecycle !== "active" ||
-        property.databaseBlockId !== descriptor.database.blockId ||
-        property.revision !== descriptorProperty.revision ||
-        property.valueType !== descriptorProperty.valueType
-      );
-    })
-  ) {
-    return fail(
-      "database_authority_invalid",
-      "Database descriptor and View query property revisions diverge",
-    );
-  }
-
   assertUniqueIds(
-    query.rows.map((row) => row.card.blockId),
-    `Database View ${query.view.id} Cards`,
+    authority.cards.map((state) => state.card.blockId),
+    "Database management Cards",
   );
   assertUniqueIds(
-    query.rows.map((row) => row.membership.id),
-    `Database View ${query.view.id} memberships`,
+    authority.cards.flatMap((state) =>
+      state.membership ? [state.membership.id] : [],
+    ),
+    "Database management memberships",
   );
-  for (const row of query.rows) {
+  for (const state of authority.cards) {
+    assertCardIdentity(context, state.card);
     if (
-      row.card.projectId !== context.projectId ||
-      row.card.blockId !== row.membership.cardBlockId ||
-      row.membership.databaseBlockId !== descriptor.database.blockId
+      state.membership &&
+      (state.membership.cardBlockId !== state.card.blockId ||
+        !databaseIds.has(state.membership.databaseBlockId))
     ) {
       return fail(
-        "card_authority_invalid",
-        `Database View ${query.view.id} contains a cross-scope Card or membership`,
+        "database_authority_invalid",
+        `Card ${state.card.blockId} contains an invalid owning membership`,
       );
     }
+    const viewIds = new Set<string>();
+    for (const position of state.positions) {
+      if (viewIds.has(position.viewId)) {
+        return fail(
+          "database_authority_invalid",
+          `Card ${state.card.blockId} contains duplicate View positions`,
+        );
+      }
+      viewIds.add(position.viewId);
+      const descriptor = authority.catalog.databases.find(
+        (candidate) =>
+          candidate.views.some(
+            (view) =>
+              view.id === position.viewId && view.lifecycle === "active",
+          ),
+      );
+      if (
+        !state.membership ||
+        descriptor?.database.blockId !== state.membership.databaseBlockId
+      ) {
+        return fail(
+          "database_authority_invalid",
+          `Card ${state.card.blockId} contains a position outside its owning Database`,
+        );
+      }
+    }
   }
-  return { descriptor, query };
+  return authority;
 };
 
 const activeProperty = (
@@ -504,17 +466,17 @@ const putPropertyOperation = (input: {
   };
 };
 
-const findMembershipRow = (
-  authority: ViewAuthority,
+const findMembershipState = (
+  authority: GeneralDatabaseManagement,
   cardBlockId: string,
-): GeneralDatabaseRow => {
-  const row = authority.query.rows.find(
+): GeneralDatabaseMembershipState => {
+  const state = authority.cards.find(
     (candidate) => candidate.card.blockId === cardBlockId,
   );
-  if (row) return row;
+  if (state) return state;
   return fail(
-    "membership_not_found",
-    `Card ${cardBlockId} is not visible in Database View ${authority.query.view.id}`,
+    "card_not_found",
+    `Active Card is absent from Database management authority: ${cardBlockId}`,
   );
 };
 
@@ -527,7 +489,9 @@ const readNewMembershipGroup = (groupKey: string | null | undefined): null => {
 };
 
 const membershipAnchor = (input: {
-  readonly authority: ViewAuthority;
+  readonly authority: GeneralDatabaseManagement;
+  readonly databaseBlockId: string;
+  readonly viewId: string;
   readonly movingCardBlockId: string;
   readonly groupKey: string | null;
   readonly beforeCardBlockId: string | undefined;
@@ -539,14 +503,15 @@ const membershipAnchor = (input: {
       "Membership position anchor must be external to the moving Card",
     );
   }
-  const anchor = input.authority.query.rows.find(
-    (row) => row.card.blockId === input.beforeCardBlockId,
+  const anchor = input.authority.cards.find(
+    (state) => state.card.blockId === input.beforeCardBlockId,
   );
-  if (
-    !anchor?.position ||
-    anchor.position.groupKey !== input.groupKey ||
-    anchor.effectiveGroupKey !== input.groupKey
-  ) {
+  const position = anchor?.positions.find(
+    (candidate) => candidate.viewId === input.viewId,
+  );
+  if (!anchor?.membership ||
+    anchor.membership.databaseBlockId !== input.databaseBlockId ||
+    !position || position.groupKey !== input.groupKey) {
     return fail(
       "membership_anchor_not_found",
       `Card ${input.beforeCardBlockId} is not an explicit position anchor in the target View group`,
@@ -555,10 +520,13 @@ const membershipAnchor = (input: {
   return input.beforeCardBlockId;
 };
 
-const assertCardIdentity = (
+function assertCardIdentity(
   context: DatabaseManagementRequestContext,
-  card: Pick<CardContentSummary, "blockId" | "projectId" | "lifecycle">,
-): void => {
+  card: Pick<
+    GeneralDatabaseMembershipState["card"],
+    "blockId" | "projectId" | "lifecycle"
+  >,
+): void {
   if (card.projectId !== context.projectId) {
     fail(
       "card_authority_invalid",
@@ -567,7 +535,7 @@ const assertCardIdentity = (
   }
   if (card.lifecycle === "active") return;
   fail("card_not_found", `Card ${card.blockId} is not active`);
-};
+}
 
 const compileIntent = (
   context: DatabaseManagementRequestContext,
@@ -760,123 +728,75 @@ const compileIntent = (
         expectedRevision: view.revision,
       };
     }
-    case "add_membership": {
-      assertCardIdentity(context, intent.card);
-      const target = readViewAuthority(context, intent.target);
-      if (
-        target.query.rows.some(
-          (row) => row.card.blockId === intent.card.blockId,
-        )
-      ) {
-        return fail(
-          "membership_already_exists",
-          `Card ${intent.card.blockId} already belongs to target Database ${target.descriptor.database.blockId}`,
-        );
+    case "set_membership": {
+      const authority = readManagementAuthority(context, intent.authority);
+      const state = findMembershipState(authority, intent.cardBlockId);
+      assertCardIdentity(context, state.card);
+      const expectedMembership = state.membership
+        ? {
+            membershipId: state.membership.id,
+            revision: state.membership.revision,
+          }
+        : null;
+      if (intent.target === null) {
+        if (!state.membership) {
+          return fail(
+            "membership_not_found",
+            `Card ${intent.cardBlockId} has no owning Database membership`,
+          );
+        }
+        return {
+          kind: "transfer_membership",
+          cardBlockId: state.card.blockId,
+          expectedMembership,
+          target: null,
+        };
       }
-      if (
-        target.query.rows.some(
-          (row) => row.membership.id === intent.membershipId,
-        )
-      ) {
-        return fail(
-          "membership_already_exists",
-          `Membership identity is already visible in the target Database: ${intent.membershipId}`,
-        );
-      }
-      const groupKey = readNewMembershipGroup(intent.groupKey);
-      const beforeCardBlockId = membershipAnchor({
-        authority: target,
-        movingCardBlockId: intent.card.blockId,
-        groupKey,
-        beforeCardBlockId: intent.beforeCardBlockId,
-      });
-      return {
-        kind: "transfer_membership",
-        cardBlockId: intent.card.blockId,
-        expectedMembership: null,
-        target: {
-          databaseBlockId: target.descriptor.database.blockId,
-          membershipId: intent.membershipId,
-          viewId: target.query.view.id,
-          groupKey,
-          ...(beforeCardBlockId === undefined ? {} : { beforeCardBlockId }),
-        },
-      };
-    }
-    case "remove_membership": {
-      const source = readViewAuthority(context, intent.source);
-      const row = findMembershipRow(source, intent.cardBlockId);
-      return {
-        kind: "transfer_membership",
-        cardBlockId: row.card.blockId,
-        expectedMembership: {
-          membershipId: row.membership.id,
-          revision: row.membership.revision,
-        },
-        target: null,
-      };
-    }
-    case "transfer_membership": {
-      const source = readViewAuthority(context, intent.source);
-      const target = readViewAuthority(context, intent.target);
-      if (
-        intent.source.descriptor.changeLogSeq !==
-        intent.target.descriptor.changeLogSeq
-      ) {
-        return fail(
-          "authority_cursor_mismatch",
-          "Source and target Databases changed between membership reads",
-        );
-      }
-      if (
-        source.descriptor.database.blockId ===
-        target.descriptor.database.blockId
-      ) {
+      const target = intent.target;
+
+      if (state.membership?.databaseBlockId === target.databaseBlockId) {
         return fail(
           "membership_target_unchanged",
-          "A Card membership transfer must target another Database",
+          `Card ${intent.cardBlockId} already belongs to Database ${target.databaseBlockId}`,
         );
       }
-      const row = findMembershipRow(source, intent.cardBlockId);
       if (
-        target.query.rows.some(
-          (candidate) => candidate.card.blockId === intent.cardBlockId,
+        authority.cards.some(
+          (candidate) => candidate.membership?.id === target.membershipId,
         )
       ) {
         return fail(
           "membership_already_exists",
-          `Card ${intent.cardBlockId} already belongs to the target Database`,
+          `Membership identity is already active: ${target.membershipId}`,
         );
       }
-      if (
-        target.query.rows.some(
-          (candidate) => candidate.membership.id === intent.membershipId,
-        ) ||
-        row.membership.id === intent.membershipId
-      ) {
+      const descriptor = authority.catalog.databases.find(
+        (candidate) => candidate.database.blockId === target.databaseBlockId,
+      );
+      if (!descriptor) {
         return fail(
-          "membership_already_exists",
-          `A transfer requires a fresh membership identity: ${intent.membershipId}`,
+          "database_not_found",
+          `Target Database is absent from management authority: ${target.databaseBlockId}`,
         );
       }
-      const groupKey = readNewMembershipGroup(intent.groupKey);
+      const view = activeView(descriptor, target.viewId);
+      const groupKey = readNewMembershipGroup(target.groupKey);
       const beforeCardBlockId = membershipAnchor({
-        authority: target,
+        authority,
+        databaseBlockId: descriptor.database.blockId,
+        viewId: view.id,
         movingCardBlockId: intent.cardBlockId,
         groupKey,
-        beforeCardBlockId: intent.beforeCardBlockId,
+        beforeCardBlockId: target.beforeCardBlockId,
       });
       return {
         kind: "transfer_membership",
-        cardBlockId: row.card.blockId,
-        expectedMembership: {
-          membershipId: row.membership.id,
-          revision: row.membership.revision,
-        },
+        cardBlockId: state.card.blockId,
+        expectedMembership,
         target: {
-          databaseBlockId: target.descriptor.database.blockId,
-          membershipId: intent.membershipId,
-          viewId: target.query.view.id,
+          databaseBlockId: descriptor.database.blockId,
+          membershipId: target.membershipId,
+          viewId: view.id,
           groupKey,
           ...(beforeCardBlockId === undefined ? {} : { beforeCardBlockId }),
         },

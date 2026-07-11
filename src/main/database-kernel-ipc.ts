@@ -4,6 +4,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -23,6 +24,8 @@ export const DATABASE_MUTATION_IPC_CHANNEL = "databases:mutate" as const;
 export const DATABASE_DESCRIPTOR_IPC_CHANNEL =
   "databases:descriptor:get" as const;
 export const DATABASE_CATALOG_IPC_CHANNEL = "databases:catalog:get" as const;
+export const DATABASE_MANAGEMENT_IPC_CHANNEL =
+  "databases:management:get" as const;
 export const PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL =
   "databases:primary:get" as const;
 export const PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL =
@@ -36,6 +39,7 @@ export interface DatabaseKernelIpcDependencies {
     channel:
       | typeof DATABASE_MUTATION_IPC_CHANNEL
       | typeof DATABASE_CATALOG_IPC_CHANNEL
+      | typeof DATABASE_MANAGEMENT_IPC_CHANNEL
       | typeof DATABASE_DESCRIPTOR_IPC_CHANNEL
       | typeof PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL
       | typeof PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
@@ -60,6 +64,9 @@ export interface DatabaseKernelIpcDependencies {
   readonly readCatalog: (
     projectId: string,
   ) => Promise<DatabaseCatalogSnapshotCommandResult>;
+  readonly readManagement: (
+    projectId: string,
+  ) => Promise<DatabaseManagementSnapshotCommandResult>;
   readonly readPrimaryDescriptor: (
     projectId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
@@ -135,6 +142,31 @@ export const registerDatabaseKernelIpcHandlers = (
             true,
           ),
         } satisfies DatabaseCatalogSnapshotCommandResult;
+      }
+    },
+  );
+
+  dependencies.registerHandle(
+    DATABASE_MANAGEMENT_IPC_CHANNEL,
+    async (event, projectId) => {
+      if (!dependencies.resolveTrustedIdentity(event)) {
+        return untrustedRead<never>();
+      }
+      const bound = bindDatabaseReadIdentity(projectId, "management");
+      if (!bound.ok) return bound;
+      try {
+        return await dependencies.readManagement(bound.value.projectId);
+      } catch (error) {
+        return {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            error instanceof Error
+              ? error.message
+              : "The Database management reader is unavailable",
+            true,
+          ),
+        } satisfies DatabaseManagementSnapshotCommandResult;
       }
     },
   );

@@ -79,6 +79,43 @@ const catalog: GeneralDatabaseCatalog = {
 
 const noop = () => undefined;
 
+const cardState = (
+  blockId: string,
+  title: string,
+  databaseBlockId: string | null,
+) => ({
+  card: {
+    blockId,
+    projectId: "project-1",
+    lifecycle: "active" as const,
+    location: { kind: "space" as const, rankKey: "1" },
+    locationRevision: 1,
+    metadataRevision: 1,
+    documentId: `document-${blockId}`,
+    documentGeneration: 1,
+    documentHeadSeq: 1,
+    documentAuthority: "ydoc_primary" as const,
+    content: {
+      projectedSeq: 1,
+      title,
+      preview: "",
+      plainText: "",
+    },
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  },
+  membership: databaseBlockId
+    ? {
+        id: `membership-${blockId}`,
+        databaseBlockId,
+        cardBlockId: blockId,
+        revision: 1,
+        createdAt: "2026-07-12T00:00:00.000Z",
+      }
+    : null,
+  positions: [],
+});
+
 describe("DatabaseManagementDialog", () => {
   test("emits stable management intents instead of mutating descriptor state", async () => {
     const createdDatabases: unknown[] = [];
@@ -90,6 +127,7 @@ describe("DatabaseManagementDialog", () => {
     const screen = render(
       <DatabaseManagementSurface
         catalog={catalog}
+        cards={[]}
         selectedDatabaseBlockId="database-primary"
         onSelectDatabase={(databaseBlockId) => selected.push(databaseBlockId)}
         onCreateDatabase={(draft) => {
@@ -102,7 +140,9 @@ describe("DatabaseManagementDialog", () => {
         onCreateView={(draft) => {
           createdViews.push(draft);
         }}
+        onUpdateView={noop}
         onDeleteView={noop}
+        onSetMembership={noop}
         onPutPropertyOption={noop}
         onDeletePropertyOption={(...args) => {
           deletedOptions.push(args);
@@ -177,5 +217,64 @@ describe("DatabaseManagementDialog", () => {
       "property-tags",
       "option-block-first",
     ]));
+  });
+
+  test("writes Card membership and the selected durable View identity", async () => {
+    const memberships: unknown[] = [];
+    const updatedViews: unknown[] = [];
+    const { DatabaseManagementSurface } = await import("./database-management-dialog");
+    const screen = render(
+      <DatabaseManagementSurface
+        catalog={catalog}
+        cards={[
+          cardState("card-member", "Current member", "database-primary"),
+          cardState("card-other", "Research note", "database-research"),
+          cardState("card-free", "Unassigned", null),
+        ]}
+        selectedDatabaseBlockId="database-primary"
+        onSelectDatabase={noop}
+        onCreateDatabase={noop}
+        onCreateProperty={noop}
+        onDeleteProperty={noop}
+        onCreateView={noop}
+        onUpdateView={(draft) => updatedViews.push(draft)}
+        onDeleteView={noop}
+        onSetMembership={(draft) => memberships.push(draft)}
+        onPutPropertyOption={noop}
+        onDeletePropertyOption={noop}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Card Current member" }));
+      fireEvent.click(screen.getByRole("button", { name: "Move here Card Research note" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add Card Unassigned" }));
+      await Promise.resolve();
+    });
+    expect(JSON.stringify(memberships)).toBe(JSON.stringify([
+      { cardBlockId: "card-member", databaseBlockId: null },
+      { cardBlockId: "card-other", databaseBlockId: "database-primary" },
+      { cardBlockId: "card-free", databaseBlockId: "database-primary" },
+    ]));
+
+    await act(async () => {
+      fireEvent.input(screen.getByLabelText("View name Board"), {
+        target: { value: "Delivery" },
+      });
+      fireEvent.change(screen.getByLabelText("View kind Board"), {
+        target: { value: "list" },
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save View Board" }));
+      await Promise.resolve();
+    });
+    expect(JSON.stringify(updatedViews[0])).toBe(JSON.stringify({
+      databaseBlockId: "database-primary",
+      viewId: "view-primary",
+      name: "Delivery",
+      kind: "list",
+    }));
   });
 });

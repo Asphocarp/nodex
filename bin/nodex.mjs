@@ -1393,13 +1393,71 @@ async function readDatabaseDescriptorSnapshot(config, databaseBlockId) {
   return result.value;
 }
 
+async function readDatabaseManagementSnapshot(config) {
+  const result = await apiGet(`${apiPrefix(config)}/databases/management`);
+  if (
+    result?.ok !== true ||
+    result?.value?.projectId !== config.project ||
+    typeof result?.value?.storeEpoch !== "string" ||
+    !Number.isSafeInteger(result?.value?.changeLogSeq) ||
+    !Array.isArray(result?.value?.value?.catalog?.databases) ||
+    !Array.isArray(result?.value?.value?.cards)
+  ) {
+    throw new Error(result?.error?.message || "Server returned an invalid Database management snapshot");
+  }
+  return result.value;
+}
+
+async function applyDatabaseOperations(config, snapshot, operationId, operations) {
+  const result = await apiPost(`${apiPrefix(config)}/database-mutations`, {
+    version: 1,
+    operationId,
+    projectId: config.project,
+    storeEpoch: snapshot.storeEpoch,
+    ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
+    actor: { kind: "nodex_cli" },
+    operations,
+  });
+  if (result?.ok !== true) {
+    throw new Error(result?.error?.message || "Database mutation failed");
+  }
+  return result.value;
+}
+
 async function cmdDatabase(positional, flags, config) {
   const action = positional[0];
   const stableId = positional[1];
-  if (!action || !stableId) {
+  if (!action) {
     throw new Error(
-      "Usage: nodex database <descriptor|query|apply> <database-or-view-id> [operations]",
+      "Usage: nodex database <catalog|descriptor|query|members|membership|view-update|apply> [stable-id] [value]",
     );
+  }
+
+  if (action === "catalog") {
+    const snapshot = await readDatabaseManagementSnapshot(config);
+    if (flags.json) {
+      jsonOut(snapshot, flags);
+      return;
+    }
+    rowsOut(
+      ["databaseBlockId", "name", "primary", "properties", "views", "members"],
+      snapshot.value.catalog.databases.map((descriptor) => ({
+        databaseBlockId: descriptor.database.blockId,
+        name: descriptor.database.name,
+        primary: descriptor.database.isPrimary,
+        properties: descriptor.properties.filter((property) => property.lifecycle === "active").length,
+        views: descriptor.views.filter((view) => view.lifecycle === "active").length,
+        members: snapshot.value.cards.filter(
+          (state) => state.membership?.databaseBlockId === descriptor.database.blockId,
+        ).length,
+      })),
+      flags,
+    );
+    return;
+  }
+
+  if (!stableId) {
+    throw new Error(`nodex database ${action} requires a stable identity`);
   }
 
   if (action === "descriptor") {
@@ -1428,6 +1486,144 @@ async function cmdDatabase(positional, flags, config) {
       })),
       flags,
     );
+    return;
+  }
+  if (action === "members") {
+    const snapshot = await readDatabaseManagementSnapshot(config);
+    const descriptor = snapshot.value.catalog.databases.find(
+      (candidate) => candidate.database.blockId === stableId,
+    );
+    if (!descriptor) throw new Error(`Database not found: ${stableId}`);
+    const members = snapshot.value.cards.filter(
+      (state) => state.membership?.databaseBlockId === stableId,
+    );
+    if (flags.json) {
+      jsonOut({ database: descriptor.database, cards: members }, flags);
+      return;
+    }
+    rowsOut(
+      ["cardBlockId", "title", "membershipId", "membershipRevision"],
+      members.map((state) => ({
+        cardBlockId: state.card.blockId,
+        title: state.card.content?.title ?? "",
+        membershipId: state.membership?.id ?? "",
+        membershipRevision: state.membership?.revision ?? 0,
+      })),
+      flags,
+    );
+    return;
+  }
+  if (action === "membership") {
+    const targetDatabaseId = positional[2];
+    if (!targetDatabaseId) {
+      throw new Error("Usage: nodex database membership <card-id> <database-id|none> [view-id]");
+    }
+    const snapshot = await readDatabaseManagementSnapshot(config);
+    const state = snapshot.value.cards.find(
+      (candidate) => candidate.card.blockId === stableId,
+    );
+    if (!state) throw new Error(`Card not found: ${stableId}`);
+    const operationId = requireCanonicalMutationId(flags.mutationId);
+    let target = null;
+    if (targetDatabaseId !== "none") {
+      if (state.membership?.databaseBlockId === targetDatabaseId) {
+        throw new Error(`Card already belongs to Database ${targetDatabaseId}`);
+      }
+      const descriptor = snapshot.value.catalog.databases.find(
+        (candidate) => candidate.database.blockId === targetDatabaseId,
+      );
+      if (!descriptor) throw new Error(`Database not found: ${targetDatabaseId}`);
+      const requestedViewId = positional[3];
+      const selectedView = requestedViewId
+        ? descriptor.views.find(
+            (view) => view.id === requestedViewId && view.lifecycle === "active",
+          )
+        : descriptor.views.find(
+            (view) => view.lifecycle === "active" && view.isPrimary,
+          ) ?? descriptor.views.find((view) => view.lifecycle === "active");
+      if (!selectedView) {
+        throw new Error(`Target Database has no active View: ${targetDatabaseId}`);
+      }
+      target = {
+        databaseBlockId: targetDatabaseId,
+        membershipId: `database-membership:${operationId}`,
+        viewId: selectedView.id,
+        groupKey: null,
+      };
+    }
+    const receipt = await applyDatabaseOperations(config, snapshot, operationId, [
+      {
+        kind: "transfer_membership",
+        cardBlockId: stableId,
+        expectedMembership: state.membership
+          ? {
+              membershipId: state.membership.id,
+              revision: state.membership.revision,
+            }
+          : null,
+        target,
+      },
+    ]);
+    keyValueOut(receipt, flags);
+    return;
+  }
+  if (action === "view-update") {
+    const input = positional[2];
+    if (input === undefined) {
+      throw new Error("nodex database view-update requires a JSON patch or @file/@- input");
+    }
+    const resolved = await resolveValue(input);
+    let patch;
+    try {
+      patch = JSON.parse(resolved);
+    } catch {
+      throw new Error("Database View patch must be valid JSON");
+    }
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      throw new Error("Database View patch must be a JSON object");
+    }
+    const result = await apiGet(
+      `${apiPrefix(config)}/database-views/${encodeURIComponent(stableId)}/snapshot`,
+    );
+    const descriptorSnapshot = result?.value?.descriptor;
+    const querySnapshot = result?.value?.query;
+    const current = querySnapshot?.value?.view;
+    const descriptor = descriptorSnapshot?.value;
+    if (
+      result?.ok !== true ||
+      !current ||
+      !descriptor ||
+      descriptorSnapshot.storeEpoch !== querySnapshot.storeEpoch ||
+      descriptorSnapshot.changeLogSeq !== querySnapshot.changeLogSeq
+    ) {
+      throw new Error(result?.error?.message || "Server returned an invalid Database View snapshot");
+    }
+    const allowed = new Set(["name", "kind", "config"]);
+    const unsupported = Object.keys(patch).find((key) => !allowed.has(key));
+    if (unsupported) throw new Error(`Unsupported Database View patch field: ${unsupported}`);
+    const activeViews = descriptor.views.filter((view) => view.lifecycle === "active");
+    const index = activeViews.findIndex((view) => view.id === current.id);
+    const beforeViewId = index < 0 ? undefined : activeViews[index + 1]?.id;
+    const operationId = requireCanonicalMutationId(flags.mutationId);
+    const receipt = await applyDatabaseOperations(
+      config,
+      descriptorSnapshot,
+      operationId,
+      [
+        {
+          kind: "put_view",
+          databaseBlockId: current.databaseBlockId,
+          viewId: current.id,
+          expectedRevision: current.revision,
+          name: patch.name ?? current.name,
+          viewKind: patch.kind ?? current.kind,
+          config: patch.config ?? current.config,
+          isPrimary: current.isPrimary,
+          ...(beforeViewId ? { beforeViewId } : {}),
+        },
+      ],
+    );
+    keyValueOut(receipt, flags);
     return;
   }
   if (action !== "apply") {
@@ -1462,11 +1658,13 @@ async function cmdDatabase(positional, flags, config) {
       throw new Error("--mutation-id must match the operationId in a full Database request envelope");
     }
   }
-  const result = await apiPost(`${apiPrefix(config)}/database-mutations`, request);
-  if (result?.ok !== true) {
+  const result = Array.isArray(parsed)
+    ? await applyDatabaseOperations(config, snapshot, request.operationId, request.operations)
+    : await apiPost(`${apiPrefix(config)}/database-mutations`, request);
+  if (!Array.isArray(parsed) && result?.ok !== true) {
     throw new Error(result?.error?.message || "Database mutation failed");
   }
-  keyValueOut(result.value, flags);
+  keyValueOut(Array.isArray(parsed) ? result : result.value, flags);
 }
 
 // ─── Command: add ───
@@ -2329,13 +2527,19 @@ function printCommandHelp(cmd) {
     --csv                      CSV output
     --table                    Print aligned text table`,
 
-    database: `Usage: nodex database <action> <stable-id> [value] [options]
+    database: `Usage: nodex database <action> [stable-id] [value] [options]
 
   Operate on general Databases and Views using stable application identities.
 
   Actions:
+    catalog                        List Databases and owning membership counts
     descriptor <database-id>       Read schema, Views, store epoch, and cursor
     query <view-id>                Evaluate the View's durable nested filter/sort/group
+    members <database-id>          List the Database's current Card memberships
+    membership <card-id> <database-id|none> [view-id]
+                                   Add, transfer, or remove the Card membership
+    view-update <view-id> <json|@file|@->
+                                   Update the selected durable View using exact revision CAS
     apply <database-id> <json|@file|@->
                                    Atomically apply a bounded operation array
 

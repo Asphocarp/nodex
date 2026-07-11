@@ -33,6 +33,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseCatalogSnapshotCommandResult,
+  DatabaseManagementSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -244,6 +245,10 @@ export type CardMutationWorkerRequest =
       payload: { readonly projectId: string };
     })
   | (CardMutationWorkerRequestBase & {
+      type: "readDatabaseManagement";
+      payload: { readonly projectId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "readDatabaseDescriptor";
       payload: { readonly projectId: string; readonly databaseBlockId: string };
     })
@@ -382,6 +387,7 @@ export type CardMutationWorkerResult =
   | CardLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult
   | DatabaseCatalogSnapshotCommandResult
+  | DatabaseManagementSnapshotCommandResult
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
   | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
   | PrimaryDatabaseViewSnapshotCommandResult
