@@ -62,6 +62,8 @@ import type { ListCardHistoryRequest } from "../../shared/card-history";
 import type { CardHistoryCommandResult } from "../../shared/card-history-transport";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
+import type { CardProjectTransferCommandResult } from "../../shared/card-project-transfer";
+import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -149,6 +151,16 @@ export function applyAdditionalDocumentCommand(
   return resolveRendererTransport().applyAdditionalDocumentCommand(
     projectId,
     request,
+  );
+}
+
+export function transferCardProject(
+  sourceProjectId: string,
+  intent: PublicCardProjectTransferIntent,
+): Promise<CardProjectTransferCommandResult> {
+  return resolveRendererTransport().transferCardProject(
+    sourceProjectId,
+    intent,
   );
 }
 

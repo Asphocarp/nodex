@@ -196,6 +196,7 @@ import {
 } from "./database-kernel-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
+import { registerCardProjectTransferIpcHandler } from "./card-project-transfer-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 import {
   registerCardLifecycleIpcHandler,
@@ -1021,6 +1022,26 @@ export function registerIpcHandlers(
       documentSyncHub.applyAdditionalDocumentCommand(request),
   });
 
+  registerCardProjectTransferIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, sourceProjectId, intent) =>
+        listener(event, sourceProjectId, intent),
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    transfer: (intent) => documentSyncHub.transferCardProject(intent),
+  });
+
   registerDocumentHistoryIpcHandlers({
     registerHandle: (channel, listener) => {
       if (channel === "block-documents:history:checkpoint") {
@@ -1582,16 +1603,6 @@ export function registerIpcHandlers(
   registerHandle("card:move", async (_, input) => {
     const { result } = await cardMutationWriter.moveCard(input);
     return result === "moved";
-  });
-
-  registerHandle("card:move-to-project", async (_, input) => {
-    const { result } = await cardMutationWriter.moveCardToProject(input);
-    if (result === "wrong_column")
-      throw new Error("Card is no longer in the expected column");
-    if (result === "not_found") throw new Error("Card not found");
-    if (result === "target_project_not_found")
-      throw new Error("Target project not found");
-    return result;
   });
 
   registerHandle(

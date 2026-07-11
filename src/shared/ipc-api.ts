@@ -19,6 +19,8 @@ import type {
   RelocationCommandResult,
 } from "./block-documents/contracts";
 import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
+import type { CardProjectTransferCommandResult } from "./card-project-transfer";
+import type { PublicCardProjectTransferIntent } from "./card-project-transfer-transport";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -220,8 +222,6 @@ import type {
   CommandPaletteThreadSummary,
   CreateBackupInput,
   MoveCardInput,
-  MoveCardToProjectInput,
-  MoveCardToProjectResult,
   Project,
   ProjectCreateInput,
   ProjectOrderInput,
@@ -751,9 +751,12 @@ export interface IpcApi {
     args: [input: MoveCardInput & { projectId: string; sessionId?: string }];
     result: boolean;
   };
-  "card:move-to-project": {
-    args: [input: MoveCardToProjectInput & { sessionId?: string }];
-    result: MoveCardToProjectResult;
+  "cards:project-transfer": {
+    args: [
+      sourceProjectId: string,
+      intent: PublicCardProjectTransferIntent,
+    ];
+    result: CardProjectTransferCommandResult;
   };
   "card:import-block-drop": {
     args: [projectId: string, input: BlockDropImportInput, sessionId?: string];

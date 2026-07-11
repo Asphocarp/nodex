@@ -2,7 +2,8 @@ export const DATABASE_CHANGE_EVENT_VERSION = 1 as const;
 
 export type DatabaseChangeSourceKind =
   | "database_mutation"
-  | "card_lifecycle";
+  | "card_lifecycle"
+  | "card_project_transfer";
 
 /**
  * Project-scoped invalidation after one durable mutation touches Database

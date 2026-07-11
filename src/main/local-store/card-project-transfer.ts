@@ -2,7 +2,10 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
   CARD_PROJECT_TRANSFER_CONTRACT_VERSION,
+  cardProjectTransferIntentFromRequest,
+  cardProjectTransferIntentsEqual,
   CardProjectTransferContractError,
+  parseCardProjectTransferIntent,
   parseCardProjectTransferCommandResult,
   parseCardProjectTransferReceipt,
   parseCardProjectTransferRequest,
@@ -11,6 +14,7 @@ import {
   type CardProjectTransferCommandResult,
   type CardProjectTransferDocumentCoordinate,
   type CardProjectTransferErrorCode,
+  type CardProjectTransferIntent,
   type CardProjectTransferMembershipCoordinate,
   type CardProjectTransferReceipt,
   type CardProjectTransferRequest,
@@ -41,7 +45,6 @@ export type CardProjectTransferFaultPoint =
   | "after_source_memberships"
   | "after_project_coordinates"
   | "after_target_memberships"
-  | "after_compatibility_rows"
   | "after_projections"
   | "after_change_log"
   | "after_ledger"
@@ -648,6 +651,30 @@ export const compileCardProjectTransferRequest = (
     }
     return request;
   })();
+
+export const compileCardProjectTransferIntent = (
+  database: Database.Database,
+  rawIntent: CardProjectTransferIntent,
+): CardProjectTransferRequest => {
+  const intent = parseCardProjectTransferIntent(rawIntent);
+  return compileCardProjectTransferRequest(database, {
+    operationId: intent.operationId,
+    sourceProjectId: intent.sourceProjectId,
+    targetProjectId: intent.targetProjectId,
+    cardId: intent.cardId,
+    targetDatabaseBlockId: intent.target.databaseBlockId,
+    targetViewId: intent.target.viewId,
+    targetStatus: intent.target.status,
+    ...(intent.target.beforeBlockId === undefined
+      ? {}
+      : { beforeBlockId: intent.target.beforeBlockId }),
+    ...(intent.target.beforeViewCardId === undefined
+      ? {}
+      : { beforeViewCardId: intent.target.beforeViewCardId }),
+    clientSessionId: intent.clientSessionId,
+    actor: intent.actor,
+  });
+};
 
 const canonicalLogicalRequest = (
   request: CardProjectTransferRequest,
@@ -1565,70 +1592,6 @@ const insertTargetMemberships = (
   }
 };
 
-const migrateCompatibilityRows = (
-  database: Database.Database,
-  request: CardProjectTransferRequest,
-  prepared: PreparedTransfer,
-  now: string,
-): void => {
-  const statuses = new Map(
-    prepared.targetMemberships.map((membership) => [
-      membership.cardBlockId,
-      membership.status,
-    ] as const),
-  );
-  const cardIds = prepared.closure.blocks
-    .filter((block) => block.type === "card")
-    .map((block) => block.id);
-  const readCompatibility = database.prepare(
-    "SELECT project_id, status FROM cards WHERE id = ?",
-  );
-  const insertFence = database.prepare(
-    `INSERT INTO card_project_transfer_write_fences (
-       operation_id, card_id, source_project_id, target_project_id, created_at
-     ) VALUES (?, ?, ?, ?, ?)`,
-  );
-  const updateCompatibility = database.prepare(
-    `UPDATE cards
-     SET project_id = ?, status = ?
-     WHERE id = ? AND project_id = ?`,
-  );
-  for (const cardId of cardIds) {
-    const row = readCompatibility.get(cardId) as
-      | { readonly project_id: string; readonly status: CardStatus }
-      | undefined;
-    if (!row) continue;
-    if (row.project_id !== request.sourceProjectId) {
-      throw new Error(
-        `Compatibility Card ${cardId} escaped the source Project`,
-      );
-    }
-    insertFence.run(
-      request.operationId,
-      cardId,
-      request.sourceProjectId,
-      request.targetProjectId,
-      now,
-    );
-    const updated = updateCompatibility.run(
-      request.targetProjectId,
-      statuses.get(cardId) ?? row.status,
-      cardId,
-      request.sourceProjectId,
-    );
-    if (updated.changes === 1) continue;
-    throw new Error(`Compatibility Card changed during transfer: ${cardId}`);
-  }
-  database
-    .prepare("DELETE FROM card_search_units WHERE card_id IN (SELECT card_id FROM card_project_transfer_write_fences WHERE operation_id = ?)")
-    .run(request.operationId);
-  database
-    .prepare(
-      "DELETE FROM card_project_transfer_write_fences WHERE operation_id = ?",
-    )
-    .run(request.operationId);
-};
-
 const rebuildTransferProjections = (
   database: Database.Database,
   request: CardProjectTransferRequest,
@@ -1811,6 +1774,100 @@ const loadStoredOutcome = (
       ),
     };
   }
+};
+
+/**
+ * Resolve an immutable outcome from logical intent before touching source
+ * authority. This makes response-loss retries independent of the Card's now
+ * obsolete source Project coordinate while retaining operation-ID collision
+ * detection.
+ */
+export const readCardProjectTransferOutcomeByIntent = (
+  database: Database.Database,
+  rawIntent: CardProjectTransferIntent,
+): CardProjectTransferCommandResult | null => {
+  let intent: CardProjectTransferIntent;
+  try {
+    intent = parseCardProjectTransferIntent(rawIntent);
+  } catch (error) {
+    return {
+      ok: false,
+      error: makeError(
+        "invalid_card_project_transfer_request",
+        error instanceof Error ? error.message : String(error),
+      ),
+    };
+  }
+  const row = readStoredMutation(database, intent.operationId);
+  if (!row) return null;
+  const currentEpoch = readStoreEpoch(database);
+  if (row.store_epoch !== currentEpoch) {
+    return {
+      ok: false,
+      error: makeError(
+        "store_epoch_mismatch",
+        `Transfer receipt belongs to store epoch ${row.store_epoch}; current epoch is ${currentEpoch}`,
+        intent,
+      ),
+    };
+  }
+  if (
+    row.mutation_kind !== MUTATION_KIND ||
+    row.project_id !== intent.targetProjectId
+  ) {
+    return {
+      ok: false,
+      error: makeError(
+        "operation_id_collision",
+        `Operation ID ${intent.operationId} already names another mutation`,
+        intent,
+      ),
+    };
+  }
+
+  let storedRequest: CardProjectTransferRequest;
+  try {
+    const stored = JSON.parse(row.request_json) as Readonly<
+      Record<string, unknown>
+    >;
+    storedRequest = parseCardProjectTransferRequest({
+      ...stored,
+      clientSessionId: intent.clientSessionId,
+      actor: intent.actor,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: makeError(
+        "operation_receipt_corrupt",
+        `Stored transfer request is corrupt: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        intent,
+      ),
+    };
+  }
+  if (
+    !cardProjectTransferIntentsEqual(
+      intent,
+      cardProjectTransferIntentFromRequest(storedRequest),
+    )
+  ) {
+    return {
+      ok: false,
+      error: makeError(
+        "operation_id_collision",
+        `Operation ID ${intent.operationId} already names another Card transfer intent`,
+        intent,
+      ),
+    };
+  }
+  return loadStoredOutcome(
+    database,
+    storedRequest,
+    makeEvidence(storedRequest),
+    row,
+  );
 };
 
 const persistLedger = (
@@ -2015,7 +2072,7 @@ const buildReceipt = (
  * Move one top-level Y.Doc-primary Card and its recursively owned Document
  * closure between Projects. References are intentionally not traversed. All
  * Project coordinates, membership replacement, projections, immutable receipt,
- * and compatibility rows commit in one IMMEDIATE SQLite transaction while
+ * and disposable projections commit in one IMMEDIATE SQLite transaction while
  * Y.Doc updates, heads, state vectors, and internal struct identities remain
  * byte-for-byte unchanged.
  */
@@ -2123,8 +2180,6 @@ export const applyCardProjectTransfer = (
       inject("after_project_coordinates");
       insertTargetMemberships(database, request, prepared, now);
       inject("after_target_memberships");
-      migrateCompatibilityRows(database, request, prepared, now);
-      inject("after_compatibility_rows");
       rebuildTransferProjections(database, request, prepared.closure, now);
       inject("after_projections");
       assertNoForeignKeyViolations(database);

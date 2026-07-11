@@ -62,6 +62,12 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/additional-document-commands").AdditionalDocumentCommandResult
   >;
+  transferCardProject: (
+    sourceProjectId: string,
+    intent: import("../../shared/card-project-transfer-transport").PublicCardProjectTransferIntent,
+  ) => Promise<
+    import("../../shared/card-project-transfer").CardProjectTransferCommandResult
+  >;
   createDocumentVersionCheckpoint: (
     projectId: string,
     documentId: string,

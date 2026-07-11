@@ -62,6 +62,12 @@ import type {
   AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
 import type {
+  CardProjectTransferCommandResult,
+  CardProjectTransferIntent,
+  CardProjectTransferPreparation,
+  CardProjectTransferRequest,
+} from "../shared/card-project-transfer";
+import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
@@ -85,8 +91,6 @@ import type {
   CardUpdateResult,
   MoveCardInput,
   MoveCardsInput,
-  MoveCardToProjectInput,
-  MoveCardToProjectResult,
 } from "../shared/types";
 import type {
   BlockDocumentShadowInitializationResult,
@@ -234,27 +238,6 @@ export class CardMutationWriter {
   ): Promise<CardMutationEnvelope<"moved" | "not_found" | "wrong_column">> {
     return await this.executeTyped<"moved" | "not_found" | "wrong_column">({
       type: "moveCards",
-      payload: input,
-    });
-  }
-
-  async moveCardToProject(
-    input: MoveCardToProjectInput & { sessionId?: string },
-  ): Promise<
-    CardMutationEnvelope<
-      | MoveCardToProjectResult
-      | "not_found"
-      | "wrong_column"
-      | "target_project_not_found"
-    >
-  > {
-    return await this.executeTyped<
-      | MoveCardToProjectResult
-      | "not_found"
-      | "wrong_column"
-      | "target_project_not_found"
-    >({
-      type: "moveCardToProject",
       payload: input,
     });
   }
@@ -684,6 +667,62 @@ export class CardMutationWriter {
       payload: intent,
     });
     return envelope.result;
+  }
+
+  async prepareCardProjectTransfer(
+    intent: CardProjectTransferIntent,
+  ): Promise<CardProjectTransferCommandResult<CardProjectTransferPreparation>> {
+    const envelope = await this.executeTyped<
+      CardProjectTransferCommandResult<CardProjectTransferPreparation>
+    >({
+      type: "prepareCardProjectTransfer",
+      payload: intent,
+    });
+    return envelope.result;
+  }
+
+  async applyCardProjectTransfer(
+    request: CardProjectTransferRequest,
+  ): Promise<CardProjectTransferCommandResult> {
+    const envelope = await this.executeTyped<CardProjectTransferCommandResult>({
+      type: "applyCardProjectTransfer",
+      payload: request,
+    });
+    const result = envelope.result;
+    if (!result.ok || result.value.duplicate) return result;
+
+    const sourceDatabaseBlockIds = [
+      ...new Set(
+        request.expectedMemberships.map(
+          (membership) => membership.databaseBlockId,
+        ),
+      ),
+    ].sort((left, right) => left.localeCompare(right));
+    this.publishDatabaseEvent(
+      {
+        version: DATABASE_CHANGE_EVENT_VERSION,
+        projectId: request.sourceProjectId,
+        storeEpoch: result.value.storeEpoch,
+        operationId: result.value.operationId,
+        sourceKind: "card_project_transfer",
+        affectedDatabaseBlockIds: sourceDatabaseBlockIds,
+        changeLogSeq: result.value.changeLogSeq,
+      },
+      envelope.metrics,
+    );
+    this.publishDatabaseEvent(
+      {
+        version: DATABASE_CHANGE_EVENT_VERSION,
+        projectId: request.targetProjectId,
+        storeEpoch: result.value.storeEpoch,
+        operationId: result.value.operationId,
+        sourceKind: "card_project_transfer",
+        affectedDatabaseBlockIds: [request.target.databaseBlockId],
+        changeLogSeq: result.value.changeLogSeq,
+      },
+      envelope.metrics,
+    );
+    return result;
   }
 
   async barrier(): Promise<void> {

@@ -33,6 +33,8 @@ import type {
 } from "../../shared/block-documents/document-operations";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
+import type { CardProjectTransferCommandResult } from "../../shared/card-project-transfer";
+import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
 import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
@@ -126,6 +128,16 @@ export function createElectronRendererTransport(
         projectId,
         request,
       ) as Promise<AdditionalDocumentCommandResult>;
+    },
+    transferCardProject(
+      sourceProjectId: string,
+      intent: PublicCardProjectTransferIntent,
+    ) {
+      return bridge.invoke(
+        "cards:project-transfer",
+        sourceProjectId,
+        intent,
+      ) as Promise<CardProjectTransferCommandResult>;
     },
     createDocumentVersionCheckpoint(
       projectId: string,

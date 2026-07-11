@@ -30,6 +30,11 @@ import {
   type AdditionalDocumentCommandRequest,
   type AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
+import type {
+  CardProjectTransferIntent,
+  CardProjectTransferReceipt,
+  CardProjectTransferRequest,
+} from "../shared/card-project-transfer";
 import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
@@ -321,6 +326,123 @@ const relocationResult = (
   },
   changeLogSeq: 1,
   committedAt: "2026-07-11T00:00:00.000Z",
+});
+
+const cardProjectTransferIntent = (): CardProjectTransferIntent => ({
+  version: 1,
+  operationId: "card-transfer-1",
+  sourceProjectId: "project-source",
+  targetProjectId: "project-target",
+  cardId: "card-root",
+  target: {
+    databaseBlockId: "database-target",
+    viewId: "view-target",
+    status: "in_progress",
+  },
+  clientSessionId: "transfer-caller",
+  actor: { kind: "test" },
+});
+
+const cardProjectTransferRequest = (
+  intent: CardProjectTransferIntent,
+  rootHeadSeq: number,
+  nestedHeadSeq: number,
+): CardProjectTransferRequest => ({
+  version: 1,
+  operationId: intent.operationId,
+  storeEpoch: "epoch-1",
+  sourceProjectId: intent.sourceProjectId,
+  targetProjectId: intent.targetProjectId,
+  cardId: intent.cardId,
+  expectedTopLevelRankKey: "1000",
+  expectedBlocks: [
+    {
+      blockId: "card-root",
+      type: "card",
+      lifecycle: "active",
+      location: { kind: "space" },
+      locationRevision: 1,
+      metadataRevision: 1,
+    },
+    {
+      blockId: "large-owned",
+      type: "large_document",
+      lifecycle: "active",
+      location: { kind: "document", documentId: "doc-card-root" },
+      locationRevision: 1,
+      metadataRevision: 1,
+    },
+  ],
+  expectedDocuments: [
+    {
+      ownerBlockId: "card-root",
+      documentId: "doc-card-root",
+      generation: 1,
+      headSeq: rootHeadSeq,
+      schemaKey: "nodex.card",
+      schemaVersion: 1,
+    },
+    {
+      ownerBlockId: "large-owned",
+      documentId: "doc-large-owned",
+      generation: 1,
+      headSeq: nestedHeadSeq,
+      schemaKey: "nodex.large-document",
+      schemaVersion: 1,
+    },
+  ],
+  expectedMemberships: [
+    {
+      cardBlockId: "card-root",
+      membershipId: "membership-source",
+      databaseBlockId: "database-source",
+      databaseSchemaRevision: 1,
+      membershipRevision: 1,
+      statusPropertyId: "property-status-source",
+      statusValueRevision: 1,
+      status: "draft",
+    },
+  ],
+  target: {
+    databaseBlockId: intent.target.databaseBlockId,
+    databaseSchemaRevision: 1,
+    viewId: intent.target.viewId,
+    viewRevision: 1,
+    status: intent.target.status,
+  },
+  clientSessionId: intent.clientSessionId,
+  actor: intent.actor,
+});
+
+const cardProjectTransferReceipt = (
+  intent: CardProjectTransferIntent,
+  duplicate: boolean,
+): CardProjectTransferReceipt => ({
+  version: 1,
+  operationId: intent.operationId,
+  storeEpoch: "epoch-1",
+  sourceProjectId: intent.sourceProjectId,
+  targetProjectId: intent.targetProjectId,
+  cardId: intent.cardId,
+  duplicate,
+  movedBlockIds: ["card-root", "large-owned"],
+  movedDocumentIds: ["doc-card-root", "doc-large-owned"],
+  sourceMembershipIds: ["membership-source"],
+  targetMembershipIds: { "card-root": "membership-target" },
+  blockMetadataRevisions: { "card-root": 2, "large-owned": 2 },
+  rootLocationRevision: 2,
+  documentHeads: {
+    "doc-card-root": { generation: 1, headSeq: 2 },
+    "doc-large-owned": { generation: 1, headSeq: 4 },
+  },
+  targetDatabaseBlockId: intent.target.databaseBlockId,
+  targetDatabaseSchemaRevision: 1,
+  targetViewId: intent.target.viewId,
+  targetStatus: intent.target.status,
+  targetTopLevelRankKey: "2000",
+  targetViewRankKey: "3000",
+  changeLogSeq: 10,
+  committedAt: "2026-07-12T00:00:00.000Z",
 });
 
 const syncSubscription = async (
@@ -1366,5 +1488,138 @@ describe("DocumentSyncHub", () => {
       stateVector: new Uint8Array([0]),
     });
     expect(freshSync.ok).toBe(true);
+  });
+
+  test("leases every owned Document, recompiles after flush, and skips leases on exact retry", async () => {
+    const intent = cardProjectTransferIntent();
+    let prepareCalls = 0;
+    let applyCalls = 0;
+    let committed = false;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      prepareCardProjectTransfer: async (received) => {
+        prepareCalls += 1;
+        if (committed) {
+          return {
+            ok: true,
+            value: {
+              kind: "committed",
+              intent: received,
+              receipt: cardProjectTransferReceipt(received, true),
+            },
+          };
+        }
+        const flushed = prepareCalls > 1;
+        return {
+          ok: true,
+          value: {
+            kind: "prepared",
+            intent: received,
+            request: cardProjectTransferRequest(
+              received,
+              flushed ? 2 : 1,
+              flushed ? 4 : 3,
+            ),
+          },
+        };
+      },
+      applyCardProjectTransfer: async (request) => {
+        applyCalls += 1;
+        expect(request.expectedDocuments[0]?.headSeq).toBe(2);
+        expect(request.expectedDocuments[1]?.headSeq).toBe(4);
+        committed = true;
+        return { ok: true, value: cardProjectTransferReceipt(intent, false) };
+      },
+    });
+    const rootSurface = new FakeTarget(80);
+    const nestedSurface = new FakeTarget(81);
+    subscribe(hub, rootSurface, "doc-card-root", "surface-root");
+    subscribe(hub, nestedSurface, "doc-large-owned", "surface-nested");
+    await syncSubscription(
+      hub,
+      rootSurface,
+      "doc-card-root",
+      "surface-root",
+    );
+    await syncSubscription(
+      hub,
+      nestedSurface,
+      "doc-large-owned",
+      "surface-nested",
+    );
+    clearSent(rootSurface, nestedSurface);
+
+    const pending = hub.transferCardProject(intent);
+    await waitUntil(() =>
+      [rootSurface, nestedSurface].every((surface) =>
+        surface.sent.some(
+          (delivery) =>
+            (delivery.value as DocumentSyncRealtimeEvent).kind ===
+            "relocation-lease-prepare",
+        ),
+      ),
+    );
+    for (const surface of [rootSurface, nestedSurface]) {
+      const prepare = surface.sent
+        .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+        .find(
+          (
+            event,
+          ): event is Extract<
+            DocumentSyncRealtimeEvent,
+            { kind: "relocation-lease-prepare" }
+          > => event.kind === "relocation-lease-prepare",
+        );
+      if (!prepare) throw new Error("Missing Card transfer lease prepare");
+      expect(
+        hub.respondToRelocationLease(surface, {
+          response: "ack",
+          leaseId: prepare.leaseId,
+          documentId: prepare.documentId,
+          clientSessionId: prepare.clientSessionId,
+          storeEpoch: prepare.storeEpoch,
+          generation: prepare.generation,
+          headSeq: prepare.expectedHeadSeq + 1,
+        }).ok,
+      ).toBe(true);
+    }
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(prepareCalls).toBe(2);
+    expect(applyCalls).toBe(1);
+    for (const surface of [rootSurface, nestedSurface]) {
+      const kinds = surface.sent.map(
+        (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
+      );
+      expect(kinds.includes("resync-required")).toBe(true);
+      expect(kinds.includes("relocation-lease-release")).toBe(true);
+    }
+
+    clearSent(rootSurface, nestedSurface);
+    const retry = await hub.transferCardProject({
+      ...intent,
+      clientSessionId: "retry-session",
+      actor: { kind: "retry" },
+    });
+    expect(retry.ok).toBe(true);
+    if (retry.ok) expect(retry.value.duplicate).toBe(true);
+    expect(prepareCalls).toBe(3);
+    expect(applyCalls).toBe(1);
+    for (const surface of [rootSurface, nestedSurface]) {
+      expect(
+        surface.sent.some(
+          (delivery) =>
+            (delivery.value as DocumentSyncRealtimeEvent).kind ===
+            "relocation-lease-prepare",
+        ),
+      ).toBe(false);
+      expect(
+        surface.sent.some(
+          (delivery) =>
+            (delivery.value as DocumentSyncRealtimeEvent).kind ===
+            "resync-required",
+        ),
+      ).toBe(true);
+    }
   });
 });

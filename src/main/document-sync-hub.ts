@@ -49,6 +49,16 @@ import {
   type AdditionalDocumentCommandResult,
   type AdditionalDocumentHeadRevision,
 } from "../shared/additional-document-commands";
+import {
+  cardProjectTransferIntentFromRequest,
+  cardProjectTransferIntentsEqual,
+  parseCardProjectTransferIntent,
+  type CardProjectTransferCommandResult,
+  type CardProjectTransferIntent,
+  type CardProjectTransferPreparation,
+  type CardProjectTransferReceipt,
+  type CardProjectTransferRequest,
+} from "../shared/card-project-transfer";
 import { safeSendToWebContents } from "./ipc-safe-send";
 import {
   DocumentRelocationLeaseCoordinator,
@@ -92,6 +102,12 @@ export interface DocumentSyncDurableBackend {
   applyAdditionalDocumentCommand?(
     request: AdditionalDocumentCommandRequest,
   ): Promise<AdditionalDocumentCommandResult>;
+  prepareCardProjectTransfer?(
+    intent: CardProjectTransferIntent,
+  ): Promise<CardProjectTransferCommandResult<CardProjectTransferPreparation>>;
+  applyCardProjectTransfer?(
+    request: CardProjectTransferRequest,
+  ): Promise<CardProjectTransferCommandResult>;
 }
 
 export interface DocumentSyncHubOptions {
@@ -209,6 +225,44 @@ const additionalDocumentResultMatchesRequest = (
     result.value.storeEpoch === request.storeEpoch &&
     result.value.operationKind === request.operation.kind &&
     result.value.semanticHash === expectedSemanticHash
+  );
+};
+
+const cardProjectTransferFailure = (
+  intent: Pick<CardProjectTransferIntent, "operationId" | "cardId"> | null,
+  code: import("../shared/card-project-transfer").CardProjectTransferErrorCode,
+  message: string,
+  retryable = false,
+): CardProjectTransferCommandResult => ({
+  ok: false,
+  error: {
+    code,
+    message: message.length <= 4_096 ? message : `${message.slice(0, 4_095)}…`,
+    retryable,
+    ...(intent
+      ? { operationId: intent.operationId, cardId: intent.cardId }
+      : {}),
+  },
+});
+
+const preparedCardTransferMatchesIntent = (
+  intent: CardProjectTransferIntent,
+  preparation: CardProjectTransferPreparation,
+): boolean => {
+  if (!cardProjectTransferIntentsEqual(intent, preparation.intent)) {
+    return false;
+  }
+  if (preparation.kind === "committed") {
+    return (
+      preparation.receipt.operationId === intent.operationId &&
+      preparation.receipt.sourceProjectId === intent.sourceProjectId &&
+      preparation.receipt.targetProjectId === intent.targetProjectId &&
+      preparation.receipt.cardId === intent.cardId
+    );
+  }
+  return cardProjectTransferIntentsEqual(
+    intent,
+    cardProjectTransferIntentFromRequest(preparation.request),
   );
 };
 
@@ -398,6 +452,7 @@ export class DocumentSyncHub {
   private relocationLeaseSequence = 0;
   private documentMutationLeaseSequence = 0;
   private additionalDocumentLeaseSequence = 0;
+  private cardProjectTransferLeaseSequence = 0;
 
   constructor(
     backend: DocumentSyncDurableBackend,
@@ -891,6 +946,192 @@ export class DocumentSyncHub {
     return result;
   };
 
+  transferCardProject = async (
+    rawIntent: CardProjectTransferIntent,
+  ): Promise<CardProjectTransferCommandResult> => {
+    let intent: CardProjectTransferIntent;
+    try {
+      intent = parseCardProjectTransferIntent(rawIntent);
+    } catch (error) {
+      return cardProjectTransferFailure(
+        null,
+        "invalid_card_project_transfer_request",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const prepareTransfer = this.backend.prepareCardProjectTransfer;
+    const applyTransfer = this.backend.applyCardProjectTransfer;
+    if (!prepareTransfer || !applyTransfer) {
+      return cardProjectTransferFailure(
+        intent,
+        "unknown",
+        "The durable Card Project transfer writer is unavailable",
+        true,
+      );
+    }
+
+    let initial;
+    try {
+      initial = await prepareTransfer(intent);
+    } catch {
+      return cardProjectTransferFailure(
+        intent,
+        "unknown",
+        "Card Project transfer preparation failed",
+        true,
+      );
+    }
+    if (!initial.ok) return initial;
+    if (!preparedCardTransferMatchesIntent(intent, initial.value)) {
+      return cardProjectTransferFailure(
+        intent,
+        "invalid_card_project_transfer_request",
+        "The durable writer prepared a different Card transfer intent",
+      );
+    }
+    if (initial.value.kind === "committed") {
+      this.fanoutCardProjectTransferResync(initial.value.receipt);
+      return { ok: true, value: initial.value.receipt };
+    }
+
+    const initialRequest = initial.value.request;
+    const leaseId = this.createCardProjectTransferLeaseId();
+    this.setCardProjectTransferLeaseBoundary(leaseId, initialRequest);
+    let preparedLease;
+    try {
+      preparedLease = await this.relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: initialRequest.expectedDocuments.map((document) => ({
+          documentId: document.documentId,
+          generation: document.generation,
+          expectedHeadSeq: document.headSeq,
+        })),
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return cardProjectTransferFailure(
+        intent,
+        "coordination_failed",
+        "Card Project transfer write lease preparation failed",
+        true,
+      );
+    }
+    if (!preparedLease.ok) {
+      this.relocationLeaseBoundaries.delete(leaseId);
+      return cardProjectTransferFailure(
+        intent,
+        "coordination_failed",
+        preparedLease.error.message,
+        preparedLease.error.code !== "invalid_request" &&
+          preparedLease.error.code !== "lease_id_collision",
+      );
+    }
+
+    let flushed;
+    try {
+      flushed = await prepareTransfer(intent);
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return cardProjectTransferFailure(
+        intent,
+        "unknown",
+        "Card Project transfer flush verification failed",
+        true,
+      );
+    }
+    if (!flushed.ok) {
+      this.cancelRelocationLease(leaseId);
+      return flushed;
+    }
+    if (!preparedCardTransferMatchesIntent(intent, flushed.value)) {
+      this.cancelRelocationLease(leaseId);
+      return cardProjectTransferFailure(
+        intent,
+        "invalid_card_project_transfer_request",
+        "The flushed preparation changed Card transfer intent",
+      );
+    }
+    if (flushed.value.kind === "committed") {
+      this.cancelRelocationLease(leaseId);
+      this.fanoutCardProjectTransferResync(flushed.value.receipt);
+      return { ok: true, value: flushed.value.receipt };
+    }
+
+    const request = flushed.value.request;
+    const resolvedHeads = new Map(
+      preparedLease.value.resolvedHeads.map((head) => [head.documentId, head]),
+    );
+    const initialDocumentIds = initialRequest.expectedDocuments.map(
+      (document) => document.documentId,
+    );
+    const flushedDocumentIds = request.expectedDocuments.map(
+      (document) => document.documentId,
+    );
+    const sameDocumentClosure =
+      initialDocumentIds.length === flushedDocumentIds.length &&
+      initialDocumentIds.every(
+        (documentId, index) => documentId === flushedDocumentIds[index],
+      );
+    const observedEveryFlushedHead = request.expectedDocuments.every(
+      (document) => {
+        const resolved = resolvedHeads.get(document.documentId);
+        return (
+          resolved !== undefined &&
+          resolved.generation === document.generation &&
+          document.headSeq >= resolved.headSeq
+        );
+      },
+    );
+    if (
+      !sameDocumentClosure ||
+      resolvedHeads.size !== request.expectedDocuments.length ||
+      !observedEveryFlushedHead
+    ) {
+      this.cancelRelocationLease(leaseId);
+      return cardProjectTransferFailure(
+        intent,
+        "document_head_conflict",
+        "The writer did not observe every leased Document head in the final authority closure",
+        true,
+      );
+    }
+    this.setCardProjectTransferLeaseBoundary(leaseId, request);
+
+    let result: CardProjectTransferCommandResult;
+    try {
+      result = await applyTransfer(request);
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return cardProjectTransferFailure(
+        intent,
+        "unknown",
+        "Card Project transfer commit failed",
+        true,
+      );
+    }
+    if (!result.ok) {
+      this.cancelRelocationLease(leaseId);
+      return result;
+    }
+
+    this.setCardProjectTransferResultBoundary(leaseId, result.value);
+    try {
+      this.fanoutCardProjectTransferResync(result.value);
+    } catch {
+      // The durable receipt plus release fallback is sufficient for repair.
+    }
+    const released = this.relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      this.publishCardProjectTransferReleaseFallback(
+        leaseId,
+        result.value,
+      );
+      this.fanoutCardProjectTransferResync(result.value);
+    }
+    this.relocationLeaseBoundaries.delete(leaseId);
+    return result;
+  };
+
   publishAwareness = (
     target: DocumentSyncClientTarget,
     request: DocumentAwarenessPublishRequest,
@@ -1333,6 +1574,11 @@ export class DocumentSyncHub {
     return `additional-document-lease:${this.additionalDocumentLeaseSequence.toString(36)}`;
   }
 
+  private createCardProjectTransferLeaseId(): string {
+    this.cardProjectTransferLeaseSequence += 1;
+    return `card-project-transfer-lease:${this.cardProjectTransferLeaseSequence.toString(36)}`;
+  }
+
   private setSingleDocumentLeaseBoundary(
     leaseId: string,
     boundary: HubRelocationDocumentBoundary,
@@ -1378,6 +1624,46 @@ export class DocumentSyncHub {
       storeEpoch,
       leasedHeads.map((leased) => committedById.get(leased.documentId) ?? leased),
     );
+  }
+
+  private setCardProjectTransferLeaseBoundary(
+    leaseId: string,
+    request: CardProjectTransferRequest,
+  ): void {
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents: new Map(
+        request.expectedDocuments.map((document) => [
+          document.documentId,
+          {
+            documentId: document.documentId,
+            storeEpoch: request.storeEpoch,
+            generation: document.generation,
+            headSeq: document.headSeq,
+          },
+        ]),
+      ),
+    });
+  }
+
+  private setCardProjectTransferResultBoundary(
+    leaseId: string,
+    receipt: CardProjectTransferReceipt,
+  ): void {
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents: new Map(
+        Object.entries(receipt.documentHeads).map(([documentId, head]) => [
+          documentId,
+          {
+            documentId,
+            storeEpoch: receipt.storeEpoch,
+            generation: head.generation,
+            headSeq: head.headSeq,
+          },
+        ]),
+      ),
+    });
   }
 
   private setRelocationLeaseBoundary(
@@ -1582,6 +1868,21 @@ export class DocumentSyncHub {
     }
   }
 
+  private fanoutCardProjectTransferResync(
+    receipt: CardProjectTransferReceipt,
+  ): void {
+    for (const [documentId, head] of Object.entries(receipt.documentHeads)) {
+      this.fanout(documentId, {
+        kind: "resync-required",
+        documentId,
+        storeEpoch: receipt.storeEpoch,
+        generation: head.generation,
+        headSeq: head.headSeq,
+        reason: "event-gap",
+      });
+    }
+  }
+
   private publishAdditionalDocumentReleaseFallback(
     leaseId: string,
     storeEpoch: string,
@@ -1608,6 +1909,35 @@ export class DocumentSyncHub {
               documentId: head.documentId,
               clientSessionId: subscription.clientSessionId,
               storeEpoch,
+              generation: head.generation,
+              headSeq: head.headSeq,
+            } satisfies DocumentSyncRealtimeEvent,
+          ],
+        );
+      }
+    }
+  }
+
+  private publishCardProjectTransferReleaseFallback(
+    leaseId: string,
+    receipt: CardProjectTransferReceipt,
+  ): void {
+    for (const [documentId, head] of Object.entries(receipt.documentHeads)) {
+      const keys = this.subscriptionKeysByDocument.get(documentId);
+      if (!keys) continue;
+      for (const key of keys) {
+        const subscription = this.subscriptions.get(key);
+        if (!subscription) continue;
+        safeSendToWebContents(
+          subscription.target,
+          DOCUMENT_SYNC_EVENT_CHANNEL,
+          [
+            {
+              kind: "relocation-lease-release",
+              leaseId,
+              documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch: receipt.storeEpoch,
               generation: head.generation,
               headSeq: head.headSeq,
             } satisfies DocumentSyncRealtimeEvent,

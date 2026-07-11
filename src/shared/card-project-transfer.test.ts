@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  cardProjectTransferIntentFromRequest,
+  cardProjectTransferIntentsEqual,
   parseCardProjectTransferCommandResult,
+  parseCardProjectTransferIntent,
   parseCardProjectTransferRequest,
 } from "./card-project-transfer";
 
@@ -66,6 +69,32 @@ const request = () => ({
 });
 
 describe("Card Project transfer contract", () => {
+  test("keeps public logical intent independent from compiled authority and audit identity", () => {
+    const exact = parseCardProjectTransferRequest(request());
+    const logical = cardProjectTransferIntentFromRequest(exact);
+    expect(logical.target.databaseBlockId).toBe(
+      "database:project:b:primary",
+    );
+    expect(
+      Object.hasOwn(
+        logical.target as unknown as Record<string, unknown>,
+        "databaseSchemaRevision",
+      ),
+    ).toBe(false);
+    const rebound = parseCardProjectTransferIntent({
+      ...logical,
+      clientSessionId: "another-window",
+      actor: { kind: "http_loopback" },
+    });
+    expect(cardProjectTransferIntentsEqual(logical, rebound)).toBe(true);
+    expect(
+      cardProjectTransferIntentsEqual(logical, {
+        ...rebound,
+        target: { ...rebound.target, status: "done" },
+      }),
+    ).toBe(false);
+  });
+
   test("parses one exact closure and rejects unstable ordering", () => {
     const parsed = parseCardProjectTransferRequest(request());
     expect(parsed.expectedBlocks.length).toBe(2);

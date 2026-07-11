@@ -10,6 +10,30 @@ const MAX_ID_LENGTH = 512;
 const MAX_TYPE_LENGTH = 128;
 const MAX_CLOSURE_ENTRIES = 100_000;
 
+export interface CardProjectTransferIntentTarget {
+  readonly databaseBlockId: string;
+  readonly viewId: string;
+  readonly status: CardStatus;
+  readonly beforeBlockId?: string;
+  readonly beforeViewCardId?: string;
+}
+
+/**
+ * Publicly meaningful transfer intent. Authority coordinates are deliberately
+ * absent: the single SQLite writer compiles them immediately before use.
+ * Audit identity is present only after a trusted host boundary binds it.
+ */
+export interface CardProjectTransferIntent {
+  readonly version: typeof CARD_PROJECT_TRANSFER_CONTRACT_VERSION;
+  readonly operationId: string;
+  readonly sourceProjectId: string;
+  readonly targetProjectId: string;
+  readonly cardId: string;
+  readonly target: CardProjectTransferIntentTarget;
+  readonly clientSessionId: string;
+  readonly actor: Readonly<Record<string, BlockPropertyJsonValue>>;
+}
+
 export interface CardProjectTransferBlockCoordinate {
   readonly blockId: string;
   readonly type: string;
@@ -113,6 +137,9 @@ export type CardProjectTransferErrorCode =
   | "card_location_invalid"
   | "block_authority_conflict"
   | "document_authority_conflict"
+  | "document_generation_mismatch"
+  | "document_head_conflict"
+  | "coordination_failed"
   | "membership_authority_conflict"
   | "target_database_conflict"
   | "target_view_conflict"
@@ -131,9 +158,27 @@ export interface CardProjectTransferCommandError {
   readonly cardId?: string;
 }
 
-export type CardProjectTransferCommandResult =
-  | { readonly ok: true; readonly value: CardProjectTransferReceipt }
+export type CardProjectTransferCommandResult<
+  Value = CardProjectTransferReceipt,
+> =
+  | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly error: CardProjectTransferCommandError };
+
+export interface PreparedCardProjectTransfer {
+  readonly kind: "prepared";
+  readonly intent: CardProjectTransferIntent;
+  readonly request: CardProjectTransferRequest;
+}
+
+export interface CommittedCardProjectTransfer {
+  readonly kind: "committed";
+  readonly intent: CardProjectTransferIntent;
+  readonly receipt: CardProjectTransferReceipt;
+}
+
+export type CardProjectTransferPreparation =
+  | PreparedCardProjectTransfer
+  | CommittedCardProjectTransfer;
 
 export class CardProjectTransferContractError extends Error {
   constructor(message: string) {
@@ -399,6 +444,30 @@ const parseTarget = (value: unknown): CardProjectTransferTarget => {
   };
 };
 
+const parseIntentTarget = (value: unknown): CardProjectTransferIntentTarget => {
+  const label = "cardProjectTransferIntent.target";
+  const record = readRecord(value, label);
+  assertExactKeys(
+    record,
+    label,
+    ["databaseBlockId", "viewId", "status"],
+    ["beforeBlockId", "beforeViewCardId"],
+  );
+  const beforeBlockId = readOptionalString(record, "beforeBlockId", label);
+  const beforeViewCardId = readOptionalString(
+    record,
+    "beforeViewCardId",
+    label,
+  );
+  return {
+    databaseBlockId: readString(record, "databaseBlockId", label),
+    viewId: readString(record, "viewId", label),
+    status: readStatus(record, "status", label),
+    ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
+    ...(beforeViewCardId === undefined ? {} : { beforeViewCardId }),
+  };
+};
+
 const parseActor = (
   value: unknown,
 ): Readonly<Record<string, BlockPropertyJsonValue>> => {
@@ -413,6 +482,90 @@ const parseActor = (
     );
   }
 };
+
+export const parseCardProjectTransferIntent = (
+  value: unknown,
+): CardProjectTransferIntent => {
+  const label = "cardProjectTransferIntent";
+  const record = readRecord(value, label);
+  assertExactKeys(record, label, [
+    "version",
+    "operationId",
+    "sourceProjectId",
+    "targetProjectId",
+    "cardId",
+    "target",
+    "clientSessionId",
+    "actor",
+  ]);
+  if (record.version !== CARD_PROJECT_TRANSFER_CONTRACT_VERSION) {
+    throw new CardProjectTransferContractError(
+      `cardProjectTransferIntent.version must be ${CARD_PROJECT_TRANSFER_CONTRACT_VERSION}`,
+    );
+  }
+  const intent: CardProjectTransferIntent = {
+    version: CARD_PROJECT_TRANSFER_CONTRACT_VERSION,
+    operationId: readString(record, "operationId", label),
+    sourceProjectId: readString(record, "sourceProjectId", label),
+    targetProjectId: readString(record, "targetProjectId", label),
+    cardId: readString(record, "cardId", label),
+    target: parseIntentTarget(record.target),
+    clientSessionId: readString(record, "clientSessionId", label),
+    actor: parseActor(record.actor),
+  };
+  if (intent.sourceProjectId === intent.targetProjectId) {
+    throw new CardProjectTransferContractError(
+      "cardProjectTransferIntent source and target Projects must differ",
+    );
+  }
+  stableStringifyBlockPropertyJson(intent);
+  return intent;
+};
+
+export const cardProjectTransferIntentFromRequest = (
+  request: CardProjectTransferRequest,
+): CardProjectTransferIntent =>
+  parseCardProjectTransferIntent({
+    version: CARD_PROJECT_TRANSFER_CONTRACT_VERSION,
+    operationId: request.operationId,
+    sourceProjectId: request.sourceProjectId,
+    targetProjectId: request.targetProjectId,
+    cardId: request.cardId,
+    target: {
+      databaseBlockId: request.target.databaseBlockId,
+      viewId: request.target.viewId,
+      status: request.target.status,
+      ...(request.target.beforeBlockId === undefined
+        ? {}
+        : { beforeBlockId: request.target.beforeBlockId }),
+      ...(request.target.beforeViewCardId === undefined
+        ? {}
+        : { beforeViewCardId: request.target.beforeViewCardId }),
+    },
+    clientSessionId: request.clientSessionId ?? "sqlite-card-transfer",
+    actor: request.actor,
+  });
+
+export const encodeCardProjectTransferIntentSemanticInput = (
+  intent: CardProjectTransferIntent,
+): string => {
+  const parsed = parseCardProjectTransferIntent(intent);
+  return stableStringifyBlockPropertyJson({
+    version: parsed.version,
+    operationId: parsed.operationId,
+    sourceProjectId: parsed.sourceProjectId,
+    targetProjectId: parsed.targetProjectId,
+    cardId: parsed.cardId,
+    target: parsed.target,
+  });
+};
+
+export const cardProjectTransferIntentsEqual = (
+  left: CardProjectTransferIntent,
+  right: CardProjectTransferIntent,
+): boolean =>
+  encodeCardProjectTransferIntentSemanticInput(left) ===
+  encodeCardProjectTransferIntentSemanticInput(right);
 
 export const parseCardProjectTransferRequest = (
   value: unknown,
@@ -700,6 +853,9 @@ const ERROR_CODES = new Set<CardProjectTransferErrorCode>([
   "card_location_invalid",
   "block_authority_conflict",
   "document_authority_conflict",
+  "document_generation_mismatch",
+  "document_head_conflict",
+  "coordination_failed",
   "membership_authority_conflict",
   "target_database_conflict",
   "target_view_conflict",

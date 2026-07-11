@@ -36,7 +36,6 @@ import type {
   CardEditorDropInput,
   CardSearchInput,
   CardsDetailsInput,
-  MoveCardToProjectInput,
 } from "../shared/types";
 import {
   CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
@@ -76,6 +75,7 @@ import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutatio
 import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
 import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
+import { registerCardProjectTransferHttpRoute } from "./card-project-transfer-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
 import {
   registerCardLifecycleHttpRoute,
@@ -303,6 +303,10 @@ registerDocumentMutationHttpRoute(app, {
 registerAdditionalDocumentCommandHttpRoute(app, {
   applyCommand: (request) =>
     documentSyncHub.applyAdditionalDocumentCommand(request),
+});
+
+registerCardProjectTransferHttpRoute(app, {
+  transfer: (intent) => documentSyncHub.transferCardProject(intent),
 });
 
 registerDocumentHistoryHttpRoutes(app, {
@@ -1541,43 +1545,6 @@ app.put("/api/projects/:projectId/move", async (c) => {
   }
   if (result === "not_found") return c.json({ error: "Card not found" }, 404);
   return c.json({ success: true });
-});
-
-app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
-  const sourceProjectId = c.req.param("projectId");
-  const body = await c.req.json().catch(() => ({}));
-
-  try {
-    if (!isRecord(body)) throw new Error("Invalid request body");
-    if (typeof body.cardId !== "string" || body.cardId.length === 0) {
-      throw new Error("Missing cardId");
-    }
-    if (typeof body.targetProjectId !== "string" || body.targetProjectId.length === 0) {
-      throw new Error("Missing targetProjectId");
-    }
-
-    const input: MoveCardToProjectInput = {
-      cardId: body.cardId,
-      sourceProjectId,
-      sourceStatus: parseOptionalCardStatus(body.sourceStatus),
-      targetProjectId: body.targetProjectId,
-      targetStatus: parseOptionalCardStatus(body.targetStatus),
-    };
-
-    const { result } = await cardMutationWriter.moveCardToProject(input);
-    if (result === "wrong_column") {
-      return c.json({ error: "Card is no longer in the expected column" }, 409);
-    }
-    if (result === "not_found") {
-      return c.json({ error: "Card not found" }, 404);
-    }
-    if (result === "target_project_not_found") {
-      return c.json({ error: "Target project not found" }, 404);
-    }
-    return c.json(result, 201);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
 });
 
 app.post("/api/projects/:projectId/card-import-block-drop", cardWriteBodyLimit, async (c) => {

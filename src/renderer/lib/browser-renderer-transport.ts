@@ -60,6 +60,11 @@ import {
   type AdditionalDocumentCommandResult,
 } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
+import {
+  parseCardProjectTransferCommandResult,
+  type CardProjectTransferCommandResult,
+} from "../../shared/card-project-transfer";
+import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
 import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
@@ -1031,27 +1036,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       const data = await res.json();
       return data.success ?? false;
-    }
-    case "card:move-to-project": {
-      const [input] = args as [{ sourceProjectId: string; sessionId?: string }];
-      const { sourceProjectId, ...rest } = input;
-      const res = await fetch(
-        toApiUrl(`/api/projects/${sourceProjectId}/card-move-to-project`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(rest),
-        },
-      );
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        const message =
-          typeof error.error === "string"
-            ? error.error
-            : `Request failed: ${res.status}`;
-        throw new Error(message);
-      }
-      return res.json();
     }
     case "window-sessions:bootstrap": {
       return createBrowserWindowSessionBootstrap(browserWindowSessionLayout);
@@ -2680,6 +2664,25 @@ export const browserRendererTransport = {
       },
     );
     return parseAdditionalDocumentCommandResult(await response.json());
+  },
+  async transferCardProject(
+    sourceProjectId: string,
+    intent: PublicCardProjectTransferIntent,
+  ): Promise<CardProjectTransferCommandResult> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(sourceProjectId)}/card-transfers`,
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(intent),
+      },
+    );
+    return parseCardProjectTransferCommandResult(await response.json());
   },
   async createDocumentVersionCheckpoint(
     projectId: string,

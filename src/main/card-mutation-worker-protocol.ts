@@ -52,6 +52,12 @@ import type {
   AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
 import type {
+  CardProjectTransferCommandResult,
+  CardProjectTransferIntent,
+  CardProjectTransferPreparation,
+  CardProjectTransferRequest,
+} from "../shared/card-project-transfer";
+import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
@@ -75,8 +81,6 @@ import type {
   CardUpdateResult,
   MoveCardInput,
   MoveCardsInput,
-  MoveCardToProjectInput,
-  MoveCardToProjectResult,
 } from "../shared/types";
 
 export interface CardMutationMetrics {
@@ -159,10 +163,6 @@ export type CardMutationWorkerRequest =
   | (CardMutationWorkerRequestBase & {
       type: "moveCards";
       payload: MoveCardsInput & { projectId: string; sessionId?: string };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "moveCardToProject";
-      payload: MoveCardToProjectInput & { sessionId?: string };
     })
   | (CardMutationWorkerRequestBase & {
       type: "importBlockDropAsCards";
@@ -342,6 +342,14 @@ export type CardMutationWorkerRequest =
     payload: RelocationIntent;
   })
   | (CardMutationWorkerRequestBase & {
+      type: "prepareCardProjectTransfer";
+      payload: CardProjectTransferIntent;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "applyCardProjectTransfer";
+      payload: CardProjectTransferRequest;
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "writerBarrier";
     })
   | (CardMutationWorkerRequestBase & {
@@ -360,7 +368,9 @@ export type BlockDocumentWorkerResult =
   | CardHistoryCommandResult
   | RelocationCommandResult
   | RelocationCommandResult<RelocateBlocks>
-  | RelocationCommandResult<RelocationResult | null>;
+  | RelocationCommandResult<RelocationResult | null>
+  | CardProjectTransferCommandResult
+  | CardProjectTransferCommandResult<CardProjectTransferPreparation>;
 
 export type CardMutationWorkerResult =
   | Card
@@ -369,8 +379,6 @@ export type CardMutationWorkerResult =
   | "moved"
   | "not_found"
   | "wrong_column"
-  | "target_project_not_found"
-  | MoveCardToProjectResult
   | BlockDropImportResult
   | CardEditorDropResult
   | CardOccurrenceMutationResult

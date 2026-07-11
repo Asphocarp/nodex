@@ -35,7 +35,7 @@ const ESTIMATES = new Set(["xs", "s", "m", "l", "xl"]);
 const DEFAULT_LS_DESCRIPTION_CHARS = 240;
 
 const COMMANDS = new Set([
-  "serve", "ls", "get", "add", "update", "rm", "mv", "block", "database",
+  "serve", "ls", "get", "add", "update", "rm", "mv", "transfer", "block", "database",
   "history", "query", "schema", "backups", "help", "projects", "config",
 ]);
 
@@ -808,6 +808,10 @@ const OPTION_ALIASES = {
   "--description-chars": "descriptionChars",
   "--mutation-id": "mutationId",
   "--expected-head": "expectedHead",
+  "--target-database": "targetDatabase",
+  "--target-view": "targetView",
+  "--before-card": "beforeCard",
+  "--before-view-card": "beforeViewCard",
 };
 
 const BOOLEAN_OPTION_ALIASES = {
@@ -862,6 +866,10 @@ const FLAG_DISPLAY = {
   descriptionChars: "--description-chars",
   mutationId: "--mutation-id",
   expectedHead: "--expected-head",
+  targetDatabase: "--target-database",
+  targetView: "--target-view",
+  beforeCard: "--before-card",
+  beforeViewCard: "--before-view-card",
   help: "--help",
   json: "--json",
   jsonl: "--jsonl",
@@ -901,6 +909,11 @@ const COMMAND_ALLOWED_FLAGS = {
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
     "assignee", "clearAssignee", "due", "clearDue", "agentStatus", "clearAgentStatus",
     "agentBlocked", "mutationId", "expectedHead",
+  ]),
+  transfer: new Set([
+    "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
+    "sessionId", "mutationId", "targetDatabase", "targetView", "beforeCard",
+    "beforeViewCard",
   ]),
   block: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
@@ -1985,6 +1998,80 @@ async function cmdMv(positional, flags, config) {
   );
 }
 
+// ─── Command: transfer ───
+
+async function cmdTransfer(positional, flags, config) {
+  const cardId = positional[0];
+  const targetProjectId = positional[1];
+  const targetStatusRaw = positional[2];
+  if (!cardId || !targetProjectId || !targetStatusRaw) {
+    throw new Error(
+      "Usage: nodex transfer <card-id> <target-project> <target-status> [options]",
+    );
+  }
+  assertValidProjectId(targetProjectId);
+  const targetStatus = normalizeStatusId(targetStatusRaw);
+  const hasTargetDatabase = flags.targetDatabase !== undefined;
+  const hasTargetView = flags.targetView !== undefined;
+  if (hasTargetDatabase !== hasTargetView) {
+    throw new Error(
+      "--target-database and --target-view must be provided together",
+    );
+  }
+
+  let targetDatabaseBlockId = flags.targetDatabase;
+  let targetViewId = flags.targetView;
+  if (!targetDatabaseBlockId || !targetViewId) {
+    const descriptorResult = await apiGet(
+      `/api/projects/${encodeURIComponent(targetProjectId)}/databases/primary`,
+    );
+    const descriptor = descriptorResult?.value?.value;
+    const primaryView = descriptor?.views?.find(
+      (view) => view?.isPrimary === true && view?.lifecycle === "active",
+    );
+    if (
+      descriptorResult?.ok !== true ||
+      !descriptor?.database?.blockId ||
+      !primaryView?.id
+    ) {
+      throw new Error(
+        descriptorResult?.error?.message ||
+          "Target Project has no active primary Database View",
+      );
+    }
+    targetDatabaseBlockId = descriptor.database.blockId;
+    targetViewId = primaryView.id;
+  }
+
+  const operationId = requireCanonicalMutationId(flags.mutationId);
+  const intent = {
+    version: 1,
+    operationId,
+    sourceProjectId: config.project,
+    targetProjectId,
+    cardId,
+    target: {
+      databaseBlockId: targetDatabaseBlockId,
+      viewId: targetViewId,
+      status: targetStatus,
+      ...(flags.beforeCard === undefined
+        ? {}
+        : { beforeBlockId: flags.beforeCard }),
+      ...(flags.beforeViewCard === undefined
+        ? {}
+        : { beforeViewCardId: flags.beforeViewCard }),
+    },
+  };
+  const result = await apiPost(
+    `/api/projects/${encodeURIComponent(config.project)}/card-transfers`,
+    intent,
+  );
+  if (result?.ok !== true) {
+    throw new Error(result?.error?.message || "Card Project transfer failed");
+  }
+  keyValueOut(result.value, flags);
+}
+
 // ─── Command: history ───
 
 function cardHistoryCursorQuery(flags) {
@@ -2390,6 +2477,8 @@ Agent Commands:
   nodex database <action> <id>   Query/mutate a Database by stable IDs
   nodex rm <card-id>             Delete card
   nodex mv <card-id> <from> <to> Move card (supports update opts)
+  nodex transfer <card> <project> <status>
+                                 Atomically transfer a Card and owned Documents
   nodex history <card-id>        View a Card's durable history
   nodex query "<sql>" [params]   Run SQL query
   nodex schema                   Show DB schema
@@ -2593,6 +2682,24 @@ function printCommandHelp(cmd) {
     --json                      JSON object output
     --csv                       CSV output
     --table                     Print aligned text table`,
+
+    transfer: `Usage: nodex transfer <card-id> <target-project> <target-status> [options]
+
+  Atomically move one top-level Card, its recursively owned document-bearing
+  Block closure, and its owning Database membership to another Project. Y.Doc
+  identities and heads remain unchanged. Reuse --mutation-id after response loss.
+
+  Options:
+    -p, --project <id>              Source Project (default: "default")
+    --target-database <block-id>    Target Database Block (pair with --target-view)
+    --target-view <view-id>         Target durable View; omitted pair uses target primary
+    --before-card <block-id>        Logical top-level placement anchor
+    --before-view-card <block-id>   Logical target View placement anchor
+    --mutation-id <id>              Stable exact-retry operation identity
+    --jsonl                         JSON Lines output (default)
+    --json                          JSON object output
+    --csv                           CSV output
+    --table                         Print aligned text table`,
 
     history: `Usage: nodex history <card-id> [options]
 
@@ -2928,6 +3035,7 @@ async function main() {
     update: cmdUpdate,
     rm: cmdRm,
     mv: cmdMv,
+    transfer: cmdTransfer,
     block: cmdBlock,
     database: cmdDatabase,
     history: cmdHistory,

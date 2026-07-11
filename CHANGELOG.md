@@ -47,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- Moving a Card to another Project now atomically transfers its complete owned-document closure and Database membership after all open editors flush, preserving collaborative identities while both Projects refresh immediately.
 - Synced Blocks, Reusable Templates, Large Documents, and Large Code Blocks now open their independently synchronized content inline on demand, while collapsed/offscreen shells create no editor or provider and Canvas scenes remain in Canvas view.
 - Database management now adds, transfers, and removes a Card's single owning membership without relying on filtered View visibility, targets a chosen durable View and logical position anchor, and authors each View's layout, filters, sorts, grouping, displayed properties, and order without silently overwriting a concurrent window.
 - Database tabs now stay bound to their durable View identity, so multiple Views from one Project can remain open independently. Secondary and filtered Views render and edit their own list, board, calendar, or canvas query results instead of borrowing the primary board's rows or write actions.

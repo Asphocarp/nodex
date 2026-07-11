@@ -182,7 +182,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Kanban card reorder keeps a non-layout-shifting insertion indicator; the source card stays as a static ghost in place while dragging, same-column reorders do not live-shift sibling cards, columns do not tint as separate previews, the drag overlay is geometry-matched to the source card so it starts aligned with the cursor, and dropping on the visual gap between cards still inserts into that gap instead of falling through to column-end append
 - The Kanban insert-position indicator is resolved against the remaining non-dragged cards in the target surface, so same-column and multi-card drags never draw the line above a dragged ghost when the actual drop will land before the next remaining card
 - Kanban card property chips (priority/estimate/tags/assignee) render inline with the card title by default, and Settings can move them above the title or below the body
-- Right-clicking a Kanban card opens a Radix context menu with a searchable action list; production shows only real actions: `Copy deeplink` copies an `nodex://cards/<card-id>` deeplink to the target card, `Delete` removes the card, and clicking `Move to` advances the same menu into a searchable in-place project picker that moves the card into the same workflow column in the selected project. Reference-only actions such as favorite/icon/property/layout/open/duplicate appear only in development or Storybook as disabled rows with a `Mock` badge.
+- Right-clicking a Kanban card opens a Radix context menu with a searchable action list; production shows only real actions: `Copy deeplink` copies an `nodex://cards/<card-id>` deeplink to the target card, `Delete` removes the card, and clicking `Move to` advances the same menu into a searchable in-place project picker that atomically transfers the Card into the same workflow column of the selected Project's primary Database View. Every open editor for the Card or a recursively owned Document briefly flushes and freezes first; failure leaves the Card entirely in the source Project, while success removes the source row, publishes the target summary, and resynchronizes all moved Documents without changing stable IDs. Reference-only actions such as favorite/icon/property/layout/open/duplicate appear only in development or Storybook as disabled rows with a `Mock` badge.
 - Real-time updates when data changes
 - Card updates include revision-based stale-write detection: stale edits return typed `conflict` results instead of silent last-write-wins
 - Card Stage surfaces conflicts inline with explicit recovery actions: `Reload Latest` (drop local draft fields) and `Overwrite Mine` (retry on newest revision)
@@ -1076,6 +1076,7 @@ nodex block export <card-id>      # Export title + materialized NFM
 nodex block command <json|@file|@-> # Synced/Template/Large Document command
 nodex rm <card-id>               # Delete card (auto-resolves column)
 nodex mv <card-id> <from> <to> [order] [opts] # Move card (atomic claim)
+nodex transfer <card-id> <target-project> <target-status> # Transfer Card + owned Documents
 nodex history <card-id>          # View the Card-scoped durable cursor timeline
 nodex database catalog           # List Databases and owning membership counts
 nodex database members <database-id> # List current Card memberships
@@ -1091,6 +1092,7 @@ Agent command options:
 - `-p, --project <id>` - Project to operate on (default: "default")
 - `--url <url>` - Server URL override
 - `--session-id <id>` - Stable client session identity for mutation audit
+- `nodex transfer` accepts paired `--target-database` / `--target-view`, optional logical placement anchors, and `--mutation-id` for response-loss retry; omitting the pair selects the target Project's primary Database View.
 - `--jsonl` - Output JSON Lines (default)
 - `--json` - Output JSON array/object
 - `--csv` - Output CSV

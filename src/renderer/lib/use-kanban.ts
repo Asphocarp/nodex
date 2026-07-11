@@ -37,11 +37,14 @@ import type {
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   MoveCardInput,
-  MoveCardToProjectInput,
-  MoveCardToProjectResult,
   MoveCardsInput,
 } from "./types";
-import { invoke } from "./api";
+import {
+  invoke,
+  readPrimaryDatabaseDescriptor,
+  transferCardProject,
+} from "./api";
+import type { CardProjectTransferReceipt } from "../../shared/card-project-transfer";
 import { getKanbanProjectStore } from "./kanban-store";
 import { getCardDetail, setCardDetail } from "./card-detail-store";
 import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
@@ -67,6 +70,13 @@ type NewCardOccurrenceUpdate = Omit<
   CardOccurrenceUpdateInput,
   "operationId"
 >;
+
+interface MoveCardToProjectIntentInput {
+  readonly cardId: string;
+  readonly sourceStatus: Card["status"];
+  readonly targetProjectId: string;
+  readonly targetStatus?: Card["status"];
+}
 
 function asDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
@@ -367,25 +377,56 @@ export function useKanban(options: UseKanbanOptions) {
 
   const moveCardToProject = useCallback(
     async (
-      input: Omit<MoveCardToProjectInput, "sourceProjectId">,
-    ): Promise<MoveCardToProjectResult | null> => {
+      input: MoveCardToProjectIntentInput,
+    ): Promise<CardProjectTransferReceipt | null> => {
       if (!requireWritableSelectedView()) return null;
-      const outcome = await store.runOptimisticMutation<MoveCardToProjectResult>({
-        kind: "card:move-to-project",
-        conflictKeys: conflictKeysForDelete(input.cardId),
-        apply: buildDeleteCardTransform(input.sourceStatus, input.cardId),
-        runRemote: async () => (await invoke("card:move-to-project", {
-          ...input,
-          sourceProjectId: projectId,
-          sessionId,
-        })) as MoveCardToProjectResult,
-      });
+      const targetDescriptor = await readPrimaryDatabaseDescriptor(
+        input.targetProjectId,
+      );
+      const descriptor = targetDescriptor.ok
+        ? targetDescriptor.value.value
+        : null;
+      const targetView = descriptor?.views.find(
+        (view) => view.isPrimary && view.lifecycle === "active",
+      );
+      if (!descriptor || !targetView) {
+        store.setError(
+          targetDescriptor.ok
+            ? "Target Project has no active primary Database View"
+            : targetDescriptor.error.message,
+        );
+        return null;
+      }
+
+      const operationId = createUuidV7();
+      const outcome =
+        await store.runOptimisticMutation<CardProjectTransferReceipt>({
+          kind: "card:project-transfer",
+          conflictKeys: conflictKeysForDelete(input.cardId),
+          apply: buildDeleteCardTransform(input.sourceStatus, input.cardId),
+          runRemote: async () => {
+            const result = await transferCardProject(projectId, {
+              version: 1,
+              operationId,
+              sourceProjectId: projectId,
+              targetProjectId: input.targetProjectId,
+              cardId: input.cardId,
+              target: {
+                databaseBlockId: descriptor.database.blockId,
+                viewId: targetView.id,
+                status: input.targetStatus ?? input.sourceStatus,
+              },
+            });
+            if (result.ok) return result.value;
+            throw new Error(result.error.message);
+          },
+        });
 
       if (!outcome.ok) return null;
       onMutation?.();
       return outcome.result ?? null;
     },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, store],
   );
 
   const importBlockDrop = useCallback(

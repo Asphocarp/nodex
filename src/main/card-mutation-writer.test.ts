@@ -13,6 +13,7 @@ import type { DatabaseMutationRequest } from "../shared/database-kernel";
 import type { DatabaseChangeEvent } from "../shared/database-events";
 import type { CardLifecycleMutationRequest } from "../shared/card-lifecycle";
 import type { AdditionalDocumentCommandRequest } from "../shared/additional-document-commands";
+import type { CardProjectTransferRequest } from "../shared/card-project-transfer";
 
 class FakeWorker implements CardMutationWorkerLike {
   readonly messages: CardMutationWorkerRequest[] = [];
@@ -112,6 +113,122 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
 }
 
 describe("CardMutationWriter", () => {
+  test("publishes source and target Database invalidations once for a Card transfer", async () => {
+    const worker = new FakeWorker();
+    const databaseEvents: DatabaseChangeEvent[] = [];
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+      publishDatabaseEvent: (event) => databaseEvents.push(event),
+    });
+    const input: CardProjectTransferRequest = {
+      version: 1,
+      operationId: "transfer-writer-1",
+      storeEpoch: "epoch-1",
+      sourceProjectId: "project-a",
+      targetProjectId: "project-b",
+      cardId: "card-1",
+      expectedTopLevelRankKey: "1000",
+      expectedBlocks: [
+        {
+          blockId: "card-1",
+          type: "card",
+          lifecycle: "active",
+          location: { kind: "space" },
+          locationRevision: 1,
+          metadataRevision: 1,
+        },
+      ],
+      expectedDocuments: [
+        {
+          ownerBlockId: "card-1",
+          documentId: "document-card-1",
+          generation: 1,
+          headSeq: 2,
+          schemaKey: "nodex.card",
+          schemaVersion: 1,
+        },
+      ],
+      expectedMemberships: [
+        {
+          cardBlockId: "card-1",
+          membershipId: "membership-a",
+          databaseBlockId: "database-a",
+          databaseSchemaRevision: 1,
+          membershipRevision: 1,
+          statusPropertyId: "property-status-a",
+          statusValueRevision: 1,
+          status: "draft",
+        },
+      ],
+      target: {
+        databaseBlockId: "database-b",
+        databaseSchemaRevision: 2,
+        viewId: "view-b",
+        viewRevision: 3,
+        status: "in_progress",
+      },
+      clientSessionId: "window-1",
+      actor: { kind: "electron_renderer" },
+    };
+    const pending = writer.applyCardProjectTransfer(input);
+    const request = worker.messages[0];
+    if (!request || request.type !== "applyCardProjectTransfer") {
+      throw new Error("Expected Card transfer writer request");
+    }
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: input.operationId,
+          storeEpoch: input.storeEpoch,
+          sourceProjectId: input.sourceProjectId,
+          targetProjectId: input.targetProjectId,
+          cardId: input.cardId,
+          duplicate: false,
+          movedBlockIds: ["card-1"],
+          movedDocumentIds: ["document-card-1"],
+          sourceMembershipIds: ["membership-a"],
+          targetMembershipIds: { "card-1": "membership-b" },
+          blockMetadataRevisions: { "card-1": 2 },
+          rootLocationRevision: 2,
+          documentHeads: {
+            "document-card-1": { generation: 1, headSeq: 2 },
+          },
+          targetDatabaseBlockId: "database-b",
+          targetDatabaseSchemaRevision: 2,
+          targetViewId: "view-b",
+          targetStatus: "in_progress",
+          targetTopLevelRankKey: "2000",
+          targetViewRankKey: "3000",
+          changeLogSeq: 8,
+          committedAt: "2026-07-12T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(databaseEvents.length).toBe(2);
+    expect(databaseEvents[0]?.projectId).toBe("project-a");
+    expect(databaseEvents[0]?.affectedDatabaseBlockIds.join(",")).toBe(
+      "database-a",
+    );
+    expect(databaseEvents[1]?.projectId).toBe("project-b");
+    expect(databaseEvents[1]?.affectedDatabaseBlockIds.join(",")).toBe(
+      "database-b",
+    );
+    expect(
+      databaseEvents.every(
+        (event) => event.sourceKind === "card_project_transfer",
+      ),
+    ).toBe(true);
+  });
+
   test("rejects Card title and body snapshots before creating a worker", async () => {
     let workerCreations = 0;
     const writer = new CardMutationWriter({

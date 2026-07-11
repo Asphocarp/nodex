@@ -35,6 +35,12 @@ import {
   readCommittedRelocation,
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
+import {
+  applyCardProjectTransfer,
+  CardProjectTransferCompilationError,
+  compileCardProjectTransferIntent,
+  readCardProjectTransferOutcomeByIntent,
+} from "./local-store/card-project-transfer";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
 import {
@@ -81,6 +87,13 @@ import type {
   RelocationCommandResult,
   RelocationResult,
 } from "../shared/block-documents";
+import {
+  parseCardProjectTransferIntent,
+  type CardProjectTransferCommandError,
+  type CardProjectTransferCommandResult,
+  type CardProjectTransferIntent,
+  type CardProjectTransferPreparation,
+} from "../shared/card-project-transfer";
 import type {
   DocumentHistoryCommandError,
   DocumentHistoryCommandResult,
@@ -186,7 +199,6 @@ const isLegacyAuthorityMutation = (
     case "deleteCard":
     case "moveCard":
     case "moveCards":
-    case "moveCardToProject":
     case "importBlockDropAsCards":
     case "applyCardEditorDrop":
     case "completeCardOccurrence":
@@ -225,6 +237,8 @@ const isLegacyAuthorityMutation = (
     case "relocateBlocks":
     case "prepareRelocationCommand":
     case "readCommittedRelocation":
+    case "prepareCardProjectTransfer":
+    case "applyCardProjectTransfer":
     case "writerBarrier":
     case "shutdown":
       return false;
@@ -933,6 +947,105 @@ const runRelocationCommand = <T>(
   }
 };
 
+const transferCompilationFailure = (
+  intent: CardProjectTransferIntent,
+  error: unknown,
+): CardProjectTransferCommandError => {
+  const code =
+    error instanceof CardProjectTransferCompilationError
+      ? error.code
+      : "unknown";
+  return {
+    code,
+    message: toErrorMessage(error),
+    retryable:
+      code === "block_authority_conflict" ||
+      code === "document_authority_conflict" ||
+      code === "membership_authority_conflict" ||
+      code === "target_database_conflict" ||
+      code === "target_view_conflict" ||
+      code === "position_anchor_not_found" ||
+      code === "position_anchor_group_mismatch" ||
+      code === "unknown",
+    operationId: intent.operationId,
+    cardId: intent.cardId,
+  };
+};
+
+const prepareCardProjectTransfer = (
+  rawIntent: CardProjectTransferIntent,
+): CardProjectTransferCommandResult<CardProjectTransferPreparation> => {
+  let intent: CardProjectTransferIntent;
+  try {
+    intent = parseCardProjectTransferIntent(rawIntent);
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: "invalid_card_project_transfer_request",
+        message: toErrorMessage(error),
+        retryable: false,
+      },
+    };
+  }
+  const stored = readCardProjectTransferOutcomeByIntent(getDb(), intent);
+  if (stored) {
+    if (!stored.ok) return stored;
+    return {
+      ok: true,
+      value: {
+        kind: "committed",
+        intent,
+        receipt: stored.value,
+      },
+    };
+  }
+  try {
+    return {
+      ok: true,
+      value: {
+        kind: "prepared",
+        intent,
+        request: compileCardProjectTransferIntent(getDb(), intent),
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: transferCompilationFailure(intent, error) };
+  }
+};
+
+const publishCardProjectTransferBoardEvents = (
+  request: import("../shared/card-project-transfer").CardProjectTransferRequest,
+): void => {
+  const sourceStatus =
+    request.expectedMemberships.find(
+      (membership) => membership.cardBlockId === request.cardId,
+    )?.status ?? request.target.status;
+  dbNotifier.notifyChange(
+    request.sourceProjectId,
+    "delete",
+    sourceStatus,
+    request.cardId,
+    { mutationId: request.operationId },
+  );
+  const summary = readAuthoritativeCardSummaryById(getDb(), request.cardId);
+  if (!summary) {
+    postLog("error", "Committed Card Project transfer has no target summary", {
+      operationId: request.operationId,
+      cardId: request.cardId,
+      targetProjectId: request.targetProjectId,
+    });
+    return;
+  }
+  dbNotifier.notifyChange(
+    request.targetProjectId,
+    "create",
+    summary.status,
+    request.cardId,
+    { summary, mutationId: request.operationId },
+  );
+};
+
 const invalidateRelocatedDocumentCaches = (
   documentIds: readonly string[],
   relocationId: string,
@@ -1166,8 +1279,6 @@ async function runRequest(
       return await cardsStore.moveCard(request.payload);
     case "moveCards":
       return await cardsStore.moveCards(request.payload);
-    case "moveCardToProject":
-      return await cardsStore.moveCardToProject(request.payload);
     case "importBlockDropAsCards":
       return await cardsStore.importBlockDropAsCards(
         request.payload.projectId,
@@ -1619,6 +1730,17 @@ async function runRequest(
         ],
         result.value.relocationId,
       );
+      return result;
+    }
+    case "prepareCardProjectTransfer":
+      return prepareCardProjectTransfer(request.payload);
+    case "applyCardProjectTransfer": {
+      const result = applyCardProjectTransfer(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+      for (const documentId of result.value.movedDocumentIds) {
+        blockDocumentRuntime.invalidate(documentId);
+      }
+      publishCardProjectTransferBoardEvents(request.payload);
       return result;
     }
     case "writerBarrier":
