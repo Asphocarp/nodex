@@ -1,5 +1,7 @@
 export type BlockId = string;
 export type DocumentId = string;
+export type DocumentReadiness = "pending_genesis" | "ready" | "failed";
+export type DocumentAuthority = "legacy_shadow" | "ydoc_primary";
 
 export const MAX_CARD_DOCUMENT_UPDATE_BYTES = 2 * 1024 * 1024;
 export const MAX_CARD_DOCUMENT_STATE_BYTES = 16 * 1024 * 1024;
@@ -37,6 +39,22 @@ export interface DocumentHead {
   readonly headSeq: number;
   readonly schemaKey: string;
   readonly schemaVersion: number;
+  readonly stateVector: Uint8Array;
+}
+
+export interface OwnedBlockDocumentDescriptor {
+  readonly projectId: string;
+  readonly ownerBlockId: BlockId;
+  readonly ownerType: string;
+  readonly ownerLifecycle: "active" | "archived" | "deleted";
+  readonly documentId: DocumentId;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly headSeq: number;
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+  readonly readiness: DocumentReadiness;
+  readonly authority: DocumentAuthority;
   readonly stateVector: Uint8Array;
 }
 

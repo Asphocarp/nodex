@@ -1,0 +1,396 @@
+import type Database from "better-sqlite3";
+import {
+  materializeCardDocument,
+  type CardDocumentMaterialization,
+} from "../../shared/block-documents/block-document-codec";
+import type {
+  DocumentAuthority,
+  DocumentReadiness,
+  OwnedBlockDocumentDescriptor,
+} from "../../shared/block-documents/contracts";
+import { parseNfm } from "../../shared/nfm/parser";
+import { serializeNfm } from "../../shared/nfm/serializer";
+import { loadLegacyShadowBlockDocument } from "./block-document-store";
+
+export type BlockDocumentCutoverErrorCode =
+  | "owned_document_not_found"
+  | "owner_not_writable"
+  | "document_not_ready"
+  | "document_generation_mismatch"
+  | "document_head_mismatch"
+  | "shadow_ledger_not_drained"
+  | "shadow_ledger_failed"
+  | "content_parity_failed"
+  | "projection_parity_failed"
+  | "foreign_body_reference";
+
+export class BlockDocumentCutoverError extends Error {
+  constructor(
+    readonly code: BlockDocumentCutoverErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "BlockDocumentCutoverError";
+  }
+}
+
+export interface CutoverCardDocumentInput {
+  readonly projectId: string;
+  readonly ownerBlockId: string;
+  readonly expectedGeneration: number;
+  readonly expectedHeadSeq: number;
+}
+
+interface OwnedDocumentRow {
+  readonly project_id: string;
+  readonly owner_block_id: string;
+  readonly owner_type: string;
+  readonly owner_lifecycle: "active" | "archived" | "deleted";
+  readonly document_id: string;
+  readonly generation: number;
+  readonly head_seq: number;
+  readonly schema_key: string;
+  readonly schema_version: number;
+  readonly readiness: DocumentReadiness;
+  readonly authority: DocumentAuthority;
+  readonly state_vector: Buffer;
+}
+
+interface LegacyCardContentRow {
+  readonly title: string;
+  readonly description: string;
+  readonly revision: number;
+}
+
+interface ShadowLedgerStatusRow {
+  readonly last_event_seq: number;
+  readonly last_source_revision: number;
+  readonly latest_job_status: string | null;
+  readonly latest_job_source_revision: number | null;
+  readonly applied_document_head_seq: number | null;
+  readonly unfinished_count: number;
+  readonly failed_count: number;
+}
+
+interface MaterializationRow {
+  readonly generation: number;
+  readonly projected_seq: number;
+  readonly nfm: string;
+  readonly plain_text: string;
+  readonly preview: string;
+  readonly block_tree_json: string;
+}
+
+const requireIdentity = (value: string, field: string): string => {
+  if (value.length > 0 && value === value.trim()) return value;
+  throw new BlockDocumentCutoverError(
+    "owned_document_not_found",
+    `${field} must be non-empty`,
+  );
+};
+
+const readStoreEpoch = (database: Database.Database): string => {
+  const row = database.prepare(`
+    SELECT store_epoch FROM block_store_metadata WHERE id = 1
+  `).get() as { readonly store_epoch: string } | undefined;
+  if (row?.store_epoch) return row.store_epoch;
+  throw new BlockDocumentCutoverError(
+    "owned_document_not_found",
+    "Block store epoch is missing",
+  );
+};
+
+const readOwnedDocumentRow = (
+  database: Database.Database,
+  projectId: string,
+  ownerBlockId: string,
+): OwnedDocumentRow => {
+  const row = database.prepare(`
+    SELECT
+      owner.project_id,
+      owner.id AS owner_block_id,
+      owner.type AS owner_type,
+      owner.lifecycle AS owner_lifecycle,
+      document.id AS document_id,
+      document.generation,
+      document.head_seq,
+      document.schema_key,
+      document.schema_version,
+      document.readiness,
+      document.authority,
+      document.state_vector
+    FROM blocks owner
+    INNER JOIN block_documents ownership ON ownership.block_id = owner.id
+    INNER JOIN documents document ON document.id = ownership.document_id
+    WHERE owner.id = ? AND owner.project_id = ?
+  `).get(ownerBlockId, projectId) as OwnedDocumentRow | undefined;
+  if (row) return row;
+  throw new BlockDocumentCutoverError(
+    "owned_document_not_found",
+    `Block ${ownerBlockId} has no owned Document in Project ${projectId}`,
+  );
+};
+
+const toDescriptor = (
+  row: OwnedDocumentRow,
+  storeEpoch: string,
+): OwnedBlockDocumentDescriptor => ({
+  projectId: row.project_id,
+  ownerBlockId: row.owner_block_id,
+  ownerType: row.owner_type,
+  ownerLifecycle: row.owner_lifecycle,
+  documentId: row.document_id,
+  storeEpoch,
+  generation: row.generation,
+  headSeq: row.head_seq,
+  schemaKey: row.schema_key,
+  schemaVersion: row.schema_version,
+  readiness: row.readiness,
+  authority: row.authority,
+  stateVector: new Uint8Array(
+    row.state_vector.buffer,
+    row.state_vector.byteOffset,
+    row.state_vector.byteLength,
+  ).slice(),
+});
+
+export const getOwnedBlockDocumentDescriptor = (
+  database: Database.Database,
+  projectId: string,
+  ownerBlockId: string,
+): OwnedBlockDocumentDescriptor => {
+  const normalizedProjectId = requireIdentity(projectId, "projectId");
+  const normalizedOwnerBlockId = requireIdentity(ownerBlockId, "ownerBlockId");
+  const read = database.transaction(() =>
+    toDescriptor(
+      readOwnedDocumentRow(
+        database,
+        normalizedProjectId,
+        normalizedOwnerBlockId,
+      ),
+      readStoreEpoch(database),
+    ),
+  );
+  return read();
+};
+
+const readLegacyCardContent = (
+  database: Database.Database,
+  row: OwnedDocumentRow,
+): LegacyCardContentRow => {
+  const card = database.prepare(`
+    SELECT title, description, revision
+    FROM cards
+    WHERE id = ? AND project_id = ?
+  `).get(row.owner_block_id, row.project_id) as
+    | LegacyCardContentRow
+    | undefined;
+  if (card) return card;
+  throw new BlockDocumentCutoverError(
+    "owner_not_writable",
+    `Card ${row.owner_block_id} is not an active legacy source row`,
+  );
+};
+
+const assertShadowLedgerDrained = (
+  database: Database.Database,
+  row: OwnedDocumentRow,
+  card: LegacyCardContentRow,
+): void => {
+  const ledger = database.prepare(`
+    SELECT
+      head.last_event_seq,
+      head.last_source_revision,
+      latest.status AS latest_job_status,
+      latest.source_revision AS latest_job_source_revision,
+      latest.applied_document_head_seq,
+      (
+        SELECT COUNT(*)
+        FROM legacy_card_shadow_jobs job
+        WHERE job.card_id = head.card_id
+          AND job.status IN ('pending', 'processing')
+      ) AS unfinished_count,
+      (
+        SELECT COUNT(*)
+        FROM legacy_card_shadow_jobs job
+        WHERE job.card_id = head.card_id AND job.status = 'failed'
+      ) AS failed_count
+    FROM legacy_card_shadow_heads head
+    LEFT JOIN legacy_card_shadow_jobs latest
+      ON latest.card_id = head.card_id
+      AND latest.source_event_seq = head.last_event_seq
+    WHERE head.card_id = ?
+  `).get(row.owner_block_id) as ShadowLedgerStatusRow | undefined;
+  if (!ledger || ledger.failed_count > 0) {
+    throw new BlockDocumentCutoverError(
+      "shadow_ledger_failed",
+      `Card ${row.owner_block_id} has failed or missing shadow ledger state`,
+    );
+  }
+  if (
+    ledger.unfinished_count > 0 ||
+    ledger.last_source_revision !== card.revision ||
+    ledger.latest_job_status !== "applied" ||
+    ledger.latest_job_source_revision !== card.revision ||
+    ledger.applied_document_head_seq !== row.head_seq
+  ) {
+    throw new BlockDocumentCutoverError(
+      "shadow_ledger_not_drained",
+      `Card ${row.owner_block_id} shadow ledger has not reached Document head ${row.head_seq}`,
+    );
+  }
+};
+
+const readMaterialization = (
+  database: Database.Database,
+  documentId: string,
+): MaterializationRow | null => {
+  const row = database.prepare(`
+    SELECT generation, projected_seq, nfm, plain_text, preview, block_tree_json
+    FROM document_materializations
+    WHERE document_id = ?
+  `).get(documentId) as MaterializationRow | undefined;
+  return row ?? null;
+};
+
+const normalizeNfm = (nfm: string): string => serializeNfm(parseNfm(nfm));
+
+const assertContentAndProjectionParity = (
+  database: Database.Database,
+  row: OwnedDocumentRow,
+  card: LegacyCardContentRow,
+): CardDocumentMaterialization => {
+  const loaded = loadLegacyShadowBlockDocument(database, row.document_id);
+  let materialization: CardDocumentMaterialization;
+  try {
+    materialization = materializeCardDocument(loaded.document);
+  } finally {
+    loaded.document.destroy();
+  }
+
+  let expectedNfm: string;
+  try {
+    expectedNfm = normalizeNfm(card.description);
+  } catch (error) {
+    throw new BlockDocumentCutoverError(
+      "content_parity_failed",
+      `Legacy NFM for Card ${row.owner_block_id} is invalid`,
+      { cause: error },
+    );
+  }
+  if (
+    materialization.title !== card.title ||
+    materialization.nfm !== expectedNfm
+  ) {
+    throw new BlockDocumentCutoverError(
+      "content_parity_failed",
+      `Card ${row.owner_block_id} title/body diverges from its Document`,
+    );
+  }
+
+  const projection = readMaterialization(database, row.document_id);
+  if (
+    !projection ||
+    projection.generation !== row.generation ||
+    projection.projected_seq !== row.head_seq ||
+    projection.nfm !== materialization.nfm ||
+    projection.plain_text !== materialization.plainText ||
+    projection.preview !== materialization.preview ||
+    projection.block_tree_json !== JSON.stringify(materialization.blockTree)
+  ) {
+    throw new BlockDocumentCutoverError(
+      "projection_parity_failed",
+      `Document ${row.document_id} materialization is stale`,
+    );
+  }
+  return materialization;
+};
+
+const assertNoForeignBodyReferences = (
+  row: OwnedDocumentRow,
+  materialization: CardDocumentMaterialization,
+): void => {
+  const foreignReference = materialization.references.find(
+    (reference) =>
+      reference.kind === "block" ||
+      reference.kind === "legacy_database_query",
+  );
+  if (!foreignReference) return;
+  throw new BlockDocumentCutoverError(
+    "foreign_body_reference",
+    `Document ${row.document_id} contains a legacy foreign-body reference`,
+  );
+};
+
+export const cutoverCardDocumentToPrimary = (
+  database: Database.Database,
+  input: CutoverCardDocumentInput,
+): OwnedBlockDocumentDescriptor => {
+  const projectId = requireIdentity(input.projectId, "projectId");
+  const ownerBlockId = requireIdentity(input.ownerBlockId, "ownerBlockId");
+  const cutover = database.transaction((): OwnedBlockDocumentDescriptor => {
+    const storeEpoch = readStoreEpoch(database);
+    const row = readOwnedDocumentRow(database, projectId, ownerBlockId);
+    if (row.owner_type !== "card" || row.owner_lifecycle !== "active") {
+      throw new BlockDocumentCutoverError(
+        "owner_not_writable",
+        `Block ${ownerBlockId} is not an active Card`,
+      );
+    }
+    if (row.readiness !== "ready") {
+      throw new BlockDocumentCutoverError(
+        "document_not_ready",
+        `Document ${row.document_id} is ${row.readiness}`,
+      );
+    }
+    if (row.generation !== input.expectedGeneration) {
+      throw new BlockDocumentCutoverError(
+        "document_generation_mismatch",
+        `Document ${row.document_id} generation is ${row.generation}`,
+      );
+    }
+    if (row.authority === "ydoc_primary") {
+      return toDescriptor(row, storeEpoch);
+    }
+    if (row.head_seq !== input.expectedHeadSeq) {
+      throw new BlockDocumentCutoverError(
+        "document_head_mismatch",
+        `Document ${row.document_id} head is ${row.head_seq}`,
+      );
+    }
+
+    const card = readLegacyCardContent(database, row);
+    assertShadowLedgerDrained(database, row, card);
+    const materialization = assertContentAndProjectionParity(
+      database,
+      row,
+      card,
+    );
+    assertNoForeignBodyReferences(row, materialization);
+
+    const now = new Date().toISOString();
+    const updated = database.prepare(`
+      UPDATE documents
+      SET authority = 'ydoc_primary', updated_at = ?
+      WHERE id = ? AND generation = ? AND head_seq = ?
+        AND readiness = 'ready' AND authority = 'legacy_shadow'
+    `).run(
+      now,
+      row.document_id,
+      row.generation,
+      row.head_seq,
+    );
+    if (updated.changes !== 1) {
+      throw new BlockDocumentCutoverError(
+        "document_head_mismatch",
+        `Document ${row.document_id} changed during cutover`,
+      );
+    }
+    return toDescriptor(
+      { ...row, authority: "ydoc_primary" },
+      storeEpoch,
+    );
+  });
+  return cutover.immediate();
+};

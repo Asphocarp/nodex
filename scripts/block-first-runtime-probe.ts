@@ -996,6 +996,9 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       genesisAck.committedSeq === 1 && genesisAck.headSeq === 1 && !genesisAck.duplicate,
       "Document genesis ACK is invalid",
     );
+    database.prepare(`
+      UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?
+    `).run(documentId);
 
     const hiddenRootClient = new Y.Doc({ guid: documentId });
     Y.applyUpdate(hiddenRootClient, genesisUpdate);

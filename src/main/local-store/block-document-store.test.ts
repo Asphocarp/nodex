@@ -134,6 +134,16 @@ describe("BlockDocumentStore", () => {
     expect(dependency.retryable).toBeTrue();
     expect(dependency.resetRequired).toBeFalse();
 
+    const beforeCutover = toDocumentSyncCommandError(
+      new BlockDocumentStoreError(
+        "document_authority_mismatch",
+        "legacy shadow is not client writable",
+      ),
+    );
+    expect(beforeCutover.code).toBe("document_not_ready");
+    expect(beforeCutover.retryable).toBeTrue();
+    expect(beforeCutover.resetRequired).toBeFalse();
+
     const restoredStore = toDocumentSyncCommandError(
       new BlockDocumentStoreError("store_epoch_mismatch", "restored store"),
     );
@@ -194,14 +204,6 @@ describe("BlockDocumentStore", () => {
         expect(genesisAck.committedSeq).toBe(1);
         expect(genesisAck.storeEpoch).toBe(storeEpoch);
         expect(genesisAck.duplicate).toBeFalse();
-        const genesisIdentity = getBlockDocumentRuntimeIdentity(
-          database,
-          documentId,
-        );
-        expect(genesisIdentity.storeEpoch).toBe(storeEpoch);
-        expect(genesisIdentity.head.headSeq).toBe(1);
-        expect(genesisIdentity.stateHash.length).toBe(64);
-
         const duplicateGenesis = initializeCardDocumentGenesis(database, {
           documentId,
           storeEpoch,
@@ -214,6 +216,32 @@ describe("BlockDocumentStore", () => {
         expect(duplicateGenesis.committedSeq).toBe(1);
         expect(duplicateGenesis.storeEpoch).toBe(storeEpoch);
         expect(duplicateGenesis.duplicate).toBeTrue();
+
+        expectThrowsCode(
+          () => getBlockDocumentRuntimeIdentity(database, documentId),
+          "document_authority_mismatch",
+        );
+        const shadowReplica = new Y.Doc({ guid: documentId });
+        expectThrowsCode(
+          () => syncBlockDocument(database, {
+            documentId,
+            clientSessionId: "window-before-cutover",
+            stateVector: Y.encodeStateVector(shadowReplica),
+          }),
+          "document_authority_mismatch",
+        );
+        shadowReplica.destroy();
+
+        database.prepare(`
+          UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?
+        `).run(documentId);
+        const genesisIdentity = getBlockDocumentRuntimeIdentity(
+          database,
+          documentId,
+        );
+        expect(genesisIdentity.storeEpoch).toBe(storeEpoch);
+        expect(genesisIdentity.head.headSeq).toBe(1);
+        expect(genesisIdentity.stateHash.length).toBe(64);
 
         const emptyReplica = new Y.Doc({ guid: documentId });
         const initialSync = syncBlockDocument(database, {

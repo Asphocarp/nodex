@@ -10,10 +10,9 @@ import { createUuidV7FromTimestamp } from "../../shared/card-id";
 import { parseNfm } from "../../shared/nfm/parser";
 import { serializeNfm } from "../../shared/nfm/serializer";
 import {
-  applyBlockDocumentUpdate,
+  applyLegacyShadowDocumentUpdate,
   initializeCardDocumentGenesis,
-  loadBlockDocument,
-  type DocumentUpdateAck,
+  loadLegacyShadowBlockDocument,
 } from "./block-document-store";
 import {
   claimNextLegacyCardShadowJob,
@@ -333,53 +332,6 @@ const persistMaterialization = (
   );
 };
 
-/**
- * Public Document updates intentionally reject archived owners. The legacy
- * shadow processor is the authority adapter for an already-committed Card
- * mutation, so it may translate an archived Card while holding the only
- * SQLite write transaction. The temporary lifecycle state is unobservable
- * outside that transaction and is restored even when validation throws.
- */
-const applyInternalLegacyShadowUpdate = (
-  database: Database.Database,
-  document: LegacyCardDocumentRow,
-  input: Parameters<typeof applyBlockDocumentUpdate>[1],
-): DocumentUpdateAck => {
-  if (document.owner_lifecycle === "active") {
-    return applyBlockDocumentUpdate(database, input);
-  }
-  if (document.owner_lifecycle !== "archived") {
-    throw new LegacyCardShadowProcessorError(
-      `Cannot update ${document.owner_lifecycle} owner ${document.owner_block_id}`,
-    );
-  }
-
-  const promoted = database.prepare(`
-    UPDATE blocks
-    SET lifecycle = 'active'
-    WHERE id = ? AND lifecycle = 'archived'
-  `).run(document.owner_block_id);
-  if (promoted.changes !== 1) {
-    throw new LegacyCardShadowProcessorError(
-      `Could not acquire archived shadow write fence for ${document.owner_block_id}`,
-    );
-  }
-  try {
-    return applyBlockDocumentUpdate(database, input);
-  } finally {
-    const restored = database.prepare(`
-      UPDATE blocks
-      SET lifecycle = 'archived'
-      WHERE id = ? AND lifecycle = 'active'
-    `).run(document.owner_block_id);
-    if (restored.changes !== 1) {
-      throw new LegacyCardShadowProcessorError(
-        `Could not restore archived owner ${document.owner_block_id}`,
-      );
-    }
-  }
-};
-
 const loadPersistedMaterialization = (
   database: Database.Database,
   documentId: string,
@@ -388,7 +340,7 @@ const loadPersistedMaterialization = (
   readonly headSeq: number;
   readonly materialization: CardDocumentMaterialization;
 } => {
-  const loaded = loadBlockDocument(database, documentId);
+  const loaded = loadLegacyShadowBlockDocument(database, documentId);
   try {
     return {
       generation: loaded.head.generation,
@@ -440,7 +392,7 @@ const applyLatestSource = (
     }
   }
 
-  const loaded = loadBlockDocument(database, job.documentId);
+  const loaded = loadLegacyShadowBlockDocument(database, job.documentId);
   let translation: ReturnType<typeof translateLegacyNfmIntoCardDocument>;
   try {
     translation = translateLegacyNfmIntoCardDocument({
@@ -457,7 +409,7 @@ const applyLatestSource = (
 
   let headSeq = document.head_seq;
   if (translation.changed) {
-    const ack = applyInternalLegacyShadowUpdate(database, document, {
+    const ack = applyLegacyShadowDocumentUpdate(database, {
       documentId: job.documentId,
       storeEpoch,
       generation: document.generation,

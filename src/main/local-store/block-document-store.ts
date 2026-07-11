@@ -17,6 +17,8 @@ import {
   type BlockId,
   type DocumentHead,
   type DocumentId,
+  type DocumentAuthority,
+  type DocumentReadiness,
   type DocumentSyncApplyAck,
   type DocumentSyncCommandError,
   type DocumentSyncErrorCode,
@@ -28,9 +30,6 @@ import {
   captureBlockDocumentChangeState,
   deriveBlockDocumentTouchedIds,
 } from "./block-document-change-set";
-
-type DocumentReadiness = "pending_genesis" | "ready" | "failed";
-type DocumentAuthority = "legacy_shadow" | "ydoc_primary";
 
 interface DocumentRow {
   readonly document_id: string;
@@ -79,6 +78,7 @@ export type BlockDocumentStoreErrorCode =
   | "store_epoch_mismatch"
   | "document_not_found"
   | "document_not_ready"
+  | "document_authority_mismatch"
   | "document_already_initialized"
   | "document_generation_mismatch"
   | "unsupported_document_schema"
@@ -116,6 +116,8 @@ const toDocumentSyncErrorCode = (error: unknown): DocumentSyncErrorCode => {
     case "update_id_collision":
     case "document_state_corrupt":
       return error.code;
+    case "document_authority_mismatch":
+      return "document_not_ready";
     case "document_already_initialized":
       return "invalid_document_update";
   }
@@ -303,6 +305,17 @@ const assertReady = (row: DocumentRow): void => {
   throw new BlockDocumentStoreError(
     "document_not_ready",
     `Block document ${row.document_id} is ${row.readiness}`,
+  );
+};
+
+const assertDocumentAuthority = (
+  row: DocumentRow,
+  authority: DocumentAuthority,
+): void => {
+  if (row.authority === authority) return;
+  throw new BlockDocumentStoreError(
+    "document_authority_mismatch",
+    `Document ${row.document_id} has ${row.authority} authority; expected ${authority}`,
   );
 };
 
@@ -911,6 +924,32 @@ export const loadBlockDocument = (
   return load();
 };
 
+const loadBlockDocumentWithAuthority = (
+  database: Database.Database,
+  documentId: DocumentId,
+  authority: DocumentAuthority,
+): LoadedBlockDocument => {
+  const loaded = loadBlockDocument(database, documentId);
+  if (loaded.authority === authority) return loaded;
+  loaded.document.destroy();
+  throw new BlockDocumentStoreError(
+    "document_authority_mismatch",
+    `Document ${documentId} has ${loaded.authority} authority; expected ${authority}`,
+  );
+};
+
+export const loadPrimaryBlockDocument = (
+  database: Database.Database,
+  documentId: DocumentId,
+): LoadedBlockDocument =>
+  loadBlockDocumentWithAuthority(database, documentId, "ydoc_primary");
+
+export const loadLegacyShadowBlockDocument = (
+  database: Database.Database,
+  documentId: DocumentId,
+): LoadedBlockDocument =>
+  loadBlockDocumentWithAuthority(database, documentId, "legacy_shadow");
+
 export const getBlockDocumentProjectId = (
   database: Database.Database,
   documentId: DocumentId,
@@ -928,6 +967,7 @@ export const getBlockDocumentRuntimeIdentity = (
     const storeEpoch = readStoreEpoch(database);
     const row = readDocumentRow(database, documentId);
     assertReady(row);
+    assertDocumentAuthority(row, "ydoc_primary");
     assertSupportedCardSchema(row);
     assertReadableCardOwner(row);
     return {
@@ -945,7 +985,7 @@ export const getBlockDocumentSyncStep = (
   documentId: DocumentId,
   clientStateVector: Uint8Array,
 ): DocumentSyncStep => {
-  const loaded = loadBlockDocument(database, documentId);
+  const loaded = loadPrimaryBlockDocument(database, documentId);
   try {
     let update: Uint8Array;
     try {
@@ -1047,6 +1087,7 @@ export const initializeCardDocumentGenesis = (
     assertGeneration(row, input.generation);
     assertSupportedCardSchema(row);
     assertReadableCardOwner(row);
+    assertDocumentAuthority(row, "legacy_shadow");
 
     const stored = findStoredUpdateReceipt(
       database,
@@ -1168,9 +1209,11 @@ export const initializeCardDocumentGenesis = (
   return initialize.immediate();
 };
 
-export const applyBlockDocumentUpdate = (
+const applyBlockDocumentUpdateForAuthority = (
   database: Database.Database,
   input: ApplyDocumentUpdate,
+  authority: DocumentAuthority,
+  allowArchivedOwner: boolean,
 ): DocumentUpdateAck => {
   validateIncomingUpdate(input.update);
   requireNonEmpty(input.documentId, "documentId");
@@ -1186,6 +1229,7 @@ export const applyBlockDocumentUpdate = (
     assertGeneration(row, input.generation);
     assertSupportedCardSchema(row);
     assertReadableCardOwner(row);
+    assertDocumentAuthority(row, authority);
     if (input.baseHeadSeq > row.head_seq) {
       throw new BlockDocumentStoreError(
         "future_base_head",
@@ -1217,7 +1261,14 @@ export const applyBlockDocumentUpdate = (
       );
     }
 
-    assertWritableCardOwner(row);
+    if (!allowArchivedOwner) {
+      assertWritableCardOwner(row);
+    } else if (row.owner_lifecycle !== "active" && row.owner_lifecycle !== "archived") {
+      throw new BlockDocumentStoreError(
+        "invalid_document_update",
+        `Document ${row.document_id} owner is ${row.owner_lifecycle}`,
+      );
+    }
 
     const document = loadDocumentFromRow(database, row);
     try {
@@ -1338,6 +1389,30 @@ export const applyBlockDocumentUpdate = (
 
   return apply.immediate();
 };
+
+/** Renderer/provider writes are legal only after the one-way Card cutover. */
+export const applyBlockDocumentUpdate = (
+  database: Database.Database,
+  input: ApplyDocumentUpdate,
+): DocumentUpdateAck =>
+  applyBlockDocumentUpdateForAuthority(
+    database,
+    input,
+    "ydoc_primary",
+    false,
+  );
+
+/** Internal one-way migration adapter; never expose through IPC or HTTP. */
+export const applyLegacyShadowDocumentUpdate = (
+  database: Database.Database,
+  input: ApplyDocumentUpdate,
+): DocumentUpdateAck =>
+  applyBlockDocumentUpdateForAuthority(
+    database,
+    input,
+    "legacy_shadow",
+    true,
+  );
 
 export const compactBlockDocument = (
   database: Database.Database,
