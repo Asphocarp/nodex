@@ -3,6 +3,7 @@ import {
   CardLifecycleContractError,
   parseCardLifecycleMutationRequest,
   type CardLifecycleMutationCommandError,
+  type CardLifecycleMutationCommandResult,
   type CardLifecycleMutationRequest,
 } from "./card-lifecycle";
 
@@ -151,3 +152,20 @@ export const cardLifecycleMutationHttpStatus = (
   if (error.code === "unknown") return 500;
   return 400;
 };
+
+export const cardLifecycleTransportFailure = (
+  request: CardLifecycleMutationRequest,
+  error: unknown,
+): CardLifecycleMutationCommandResult => ({
+  ok: false,
+  error: {
+    code: "unknown",
+    message:
+      error instanceof Error
+        ? error.message
+        : "The durable Card lifecycle writer is unavailable",
+    retryable: true,
+    operationId: request.operationId,
+    cardId: request.operation.cardId,
+  },
+});
