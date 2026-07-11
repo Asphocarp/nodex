@@ -684,6 +684,14 @@ export function registerIpcHandlers(
         ownerBlockId,
       )).result,
   );
+  registerHandle(
+    "block-document:owned:prepare",
+    async (_, projectId, ownerBlockId) =>
+      await cardMutationWriter.prepareOwnedBlockDocument(
+        projectId,
+        ownerBlockId,
+      ),
+  );
   registerHandle("document-sync:unsubscribe", (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {

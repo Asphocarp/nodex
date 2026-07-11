@@ -226,6 +226,11 @@ registerDocumentSyncHttpRoutes(app, {
       projectId,
       ownerBlockId,
     )).result,
+  prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
+    await cardMutationWriter.prepareOwnedBlockDocument(
+      projectId,
+      ownerBlockId,
+    ),
 });
 
 app.post(

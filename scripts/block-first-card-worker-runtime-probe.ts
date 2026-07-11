@@ -2,19 +2,27 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as Y from "yjs";
 import { CardMutationWriter } from "../src/main/card-mutation-writer";
 import { getDatabasePath } from "../src/main/local-store/config";
 import {
   closeDatabase,
   initializeDatabase,
 } from "../src/main/local-store/database";
-import { createCard as createCardDirect } from "../src/main/local-store/cards";
+import {
+  createCard as createCardDirect,
+  readCardSummaryById,
+} from "../src/main/local-store/cards";
 import { loadBlockDocument } from "../src/main/local-store/block-document-store";
 import { createProject } from "../src/main/local-store/projects";
 import {
+  createCardDocumentGenesis,
   materializeCardDocument,
   type BlockTreeNode,
 } from "../src/shared/block-documents/block-document-codec";
+import { openCardDocument } from "../src/shared/block-documents";
+import { cloneXmlSubtree } from "../src/shared/block-documents/xml-subtree-codec";
+import type { BoardChangeEvent } from "../src/shared/ipc-api";
 
 function invariant(
   condition: unknown,
@@ -26,6 +34,24 @@ function invariant(
 
 const flattenIds = (blocks: readonly BlockTreeNode[]): readonly string[] =>
   blocks.flatMap((block) => [block.id, ...flattenIds(block.children)]);
+
+const captureDocumentUpdate = (
+  document: Y.Doc,
+  mutate: () => void,
+): Uint8Array => {
+  let captured: Uint8Array | undefined;
+  const onUpdate = (update: Uint8Array): void => {
+    captured = update.slice();
+  };
+  document.on("update", onUpdate);
+  try {
+    mutate();
+  } finally {
+    document.off("update", onUpdate);
+  }
+  invariant(captured, "Expected the collaborative mutation to emit an update");
+  return captured;
+};
 
 interface PersistedCardDocument {
   readonly readiness: string;
@@ -105,6 +131,21 @@ const enqueueLegacyUpdate = (
       WHERE id = ?
     `).run(...values, cardId);
     invariant(result.changes === 1, `Could not enqueue update for ${cardId}`);
+  } finally {
+    database.close();
+  }
+};
+
+const archiveCardForProbe = (cardId: string): void => {
+  const database = new Database(getDatabasePath(), { readonly: false });
+  database.pragma("foreign_keys = ON");
+  try {
+    const result = database.prepare(`
+      UPDATE cards
+      SET archived = 1, revision = revision + 1
+      WHERE id = ?
+    `).run(cardId);
+    invariant(result.changes === 1, `Could not archive projection host ${cardId}`);
   } finally {
     database.close();
   }
@@ -291,11 +332,71 @@ try {
     "Shutdown lost queued Document translation",
   );
 
-  const cutoverWriter = new CardMutationWriter();
+  const documentBoardEvents: BoardChangeEvent[] = [];
+  let documentEventObservedCommittedState = false;
+  let cutoverCandidateId = "";
+  const cutoverWriter = new CardMutationWriter({
+    publishBoardEvent: (event) => {
+      documentBoardEvents.push(event);
+      if (event.cardId !== cutoverCandidateId) return;
+      documentEventObservedCommittedState =
+        readPersistedCardDocument(event.cardId).title === event.summary?.title;
+    },
+  });
+  const projectedTarget = await cutoverWriter.createCard(project.id, "draft", {
+    title: "Legacy projected target",
+    description: "Projected body",
+  });
+  const directProjectionHost = await cutoverWriter.createCard(project.id, "draft", {
+    title: "Direct projection host",
+    description: `<card-ref project="${project.id}" card="${projectedTarget.result.id}" />`,
+  });
+  archiveCardForProbe(directProjectionHost.result.id);
+  const projectedTargetPreparation = await cutoverWriter.prepareOwnedBlockDocument(
+    project.id,
+    projectedTarget.result.id,
+  );
+  invariant(projectedTargetPreparation.ok, "Projected target preparation failed");
+  invariant(
+    projectedTargetPreparation.value.authority === "legacy_shadow",
+    "Inbound legacy projection target crossed the authority fence",
+  );
+  const projectionHostPreparation = await cutoverWriter.prepareOwnedBlockDocument(
+    project.id,
+    directProjectionHost.result.id,
+  );
+  invariant(projectionHostPreparation.ok, "Projection host preparation failed");
+  invariant(
+    projectionHostPreparation.value.authority === "legacy_shadow",
+    "Legacy projection host crossed the authority fence",
+  );
+
+  await initializeDatabase();
+  const querySourceProject = createProject({ name: "Legacy query source" });
+  closeDatabase();
+  const possibleQueryRow = await cutoverWriter.createCard(
+    querySourceProject.id,
+    "draft",
+    { title: "Possible legacy query row" },
+  );
+  await cutoverWriter.createCard(project.id, "draft", {
+    title: "Legacy query host",
+    description: `<toggle-list-inline-view project="${querySourceProject.id}" rules-v2="eyJtb2RlIjoiYWxsIn0" property-order="priority,estimate,status,tags" show-empty-estimate="false" show-empty-priority="false" />`,
+  });
+  const queryRowPreparation = await cutoverWriter.prepareOwnedBlockDocument(
+    querySourceProject.id,
+    possibleQueryRow.result.id,
+  );
+  invariant(queryRowPreparation.ok, "Query row preparation failed");
+  invariant(
+    queryRowPreparation.value.authority === "legacy_shadow",
+    "Possible legacy query row crossed the authority fence",
+  );
   const cutoverCandidate = await cutoverWriter.createCard(project.id, "in_review", {
     title: "Cutover candidate",
     description: "Primary body",
   });
+  cutoverCandidateId = cutoverCandidate.result.id;
   const shadowDescriptor = await cutoverWriter.getOwnedBlockDocumentDescriptor(
     project.id,
     cutoverCandidate.result.id,
@@ -304,23 +405,122 @@ try {
     shadowDescriptor.result.authority === "legacy_shadow",
     "Descriptor did not expose legacy authority",
   );
-  const primaryDescriptor = await cutoverWriter.cutoverCardDocumentToPrimary({
-    projectId: project.id,
-    ownerBlockId: cutoverCandidate.result.id,
-    expectedGeneration: shadowDescriptor.result.generation,
-    expectedHeadSeq: shadowDescriptor.result.headSeq,
-  });
+  let crossProjectPrepareRejected = false;
+  const crossProjectPrepare = await cutoverWriter.prepareOwnedBlockDocument(
+    "not-the-owner-project",
+    cutoverCandidate.result.id,
+  );
+  crossProjectPrepareRejected = !crossProjectPrepare.ok
+    && crossProjectPrepare.error.code === "document_not_found";
+  invariant(crossProjectPrepareRejected, "Cross-Project prepare was accepted");
   invariant(
-    primaryDescriptor.result.authority === "ydoc_primary",
+    (await cutoverWriter.getOwnedBlockDocumentDescriptor(
+      project.id,
+      cutoverCandidate.result.id,
+    )).result.authority === "legacy_shadow",
+    "Rejected prepare still changed Document authority",
+  );
+  const primaryDescriptor = await cutoverWriter.prepareOwnedBlockDocument(
+    project.id,
+    cutoverCandidate.result.id,
+  );
+  invariant(primaryDescriptor.ok, "Writer cutover failed");
+  invariant(
+    primaryDescriptor.value.authority === "ydoc_primary",
     "Writer cutover did not publish primary authority",
   );
   const primarySync = await cutoverWriter.syncBlockDocument({
-    documentId: primaryDescriptor.result.documentId,
+    documentId: primaryDescriptor.value.documentId,
     clientSessionId: "primary-after-cutover",
     stateVector: new Uint8Array([0]),
   });
   invariant(primarySync.ok, "Primary Document was not syncable after cutover");
+
+  documentBoardEvents.length = 0;
+  const collaborativeDocument = new Y.Doc({
+    guid: primaryDescriptor.value.documentId,
+  });
+  Y.applyUpdate(collaborativeDocument, primarySync.value.update, "probe-sync");
+  const collaborativeRoots = openCardDocument(collaborativeDocument);
+  const collaborativeUpdate = captureDocumentUpdate(
+    collaborativeDocument,
+    () => {
+      collaborativeDocument.transact(() => {
+        collaborativeRoots.title.delete(0, collaborativeRoots.title.length);
+        collaborativeRoots.title.insert(0, "Collaborative title");
+      }, "probe-title-edit");
+    },
+  );
+  const applyRequest = {
+    documentId: primaryDescriptor.value.documentId,
+    storeEpoch: primarySync.value.storeEpoch,
+    generation: primarySync.value.generation,
+    updateId: "probe:collaborative-title",
+    clientSessionId: "primary-after-cutover",
+    baseHeadSeq: primarySync.value.headSeq,
+    touchedBlockIds: [cutoverCandidate.result.id],
+    update: collaborativeUpdate,
+  } as const;
+  const applied = await cutoverWriter.applyBlockDocumentUpdate(applyRequest);
+  invariant(applied.ok, "Collaborative Document update failed");
+  invariant(!applied.value.duplicate, "First collaborative update was duplicate");
+  invariant(documentBoardEvents.length === 1, "Document update did not publish one board event");
+  const documentBoardEvent = documentBoardEvents[0];
+  invariant(documentBoardEvent?.cardId === cutoverCandidate.result.id, "Document event targeted the wrong Card");
+  invariant(documentBoardEvent.summary?.title === "Collaborative title", "Document event used the legacy Card title");
+  invariant(documentBoardEvent.summary?.descriptionPreview === "Primary body", "Document event omitted the materialized body preview");
+  invariant(documentEventObservedCommittedState, "Document event was published before its SQLite commit became visible");
+
+  const foreignTemplate = createCardDocumentGenesis({
+    documentId: "document:foreign-body-template",
+    title: "",
+    nfm: `<card-ref project="${project.id}" card="${created.result.id}" />`,
+  });
+  const foreignTemplateRoot = openCardDocument(foreignTemplate.document).body.get(0);
+  invariant(foreignTemplateRoot instanceof Y.XmlElement, "Foreign template root is invalid");
+  const foreignBlock = foreignTemplateRoot.get(0);
+  invariant(foreignBlock instanceof Y.XmlElement, "Foreign template Block is missing");
+  const collaborativeRoot = collaborativeRoots.body.get(0);
+  invariant(collaborativeRoot instanceof Y.XmlElement, "Collaborative body root is invalid");
+  const rejectedForeignUpdate = captureDocumentUpdate(
+    collaborativeDocument,
+    () => collaborativeRoot.insert(collaborativeRoot.length, [cloneXmlSubtree(foreignBlock)]),
+  );
+  const rejectedForeign = await cutoverWriter.applyBlockDocumentUpdate({
+    documentId: primaryDescriptor.value.documentId,
+    storeEpoch: primarySync.value.storeEpoch,
+    generation: primarySync.value.generation,
+    updateId: "probe:foreign-body-rejected",
+    clientSessionId: "primary-after-cutover",
+    baseHeadSeq: applied.value.headSeq,
+    touchedBlockIds: [],
+    update: rejectedForeignUpdate,
+  });
+  invariant(!rejectedForeign.ok, "Primary Document accepted a legacy foreign-body projection");
+  invariant(
+    rejectedForeign.error.code === "invalid_document_update",
+    "Foreign-body rejection returned the wrong error code",
+  );
+  foreignTemplate.document.destroy();
+
+  const duplicate = await cutoverWriter.applyBlockDocumentUpdate(applyRequest);
+  invariant(duplicate.ok, "Idempotent Document retry failed");
+  invariant(duplicate.value.duplicate, "Idempotent Document retry was not marked duplicate");
+  invariant(documentBoardEvents.length === 1, "Idempotent retry published a duplicate board event");
+  collaborativeDocument.destroy();
   await cutoverWriter.shutdown();
+
+  await initializeDatabase();
+  const restartedPrimarySummary = readCardSummaryById(cutoverCandidate.result.id);
+  invariant(
+    restartedPrimarySummary?.title === "Collaborative title",
+    "Restarted Card summary fell back to the legacy Card title",
+  );
+  invariant(
+    restartedPrimarySummary.descriptionPreview === "Primary body",
+    "Restarted Card summary fell back to the legacy Card body",
+  );
+  closeDatabase();
 
   enqueueLegacyUpdate(afterRestart.result.id, {
     title: "Shutdown must not project this",
@@ -347,7 +547,11 @@ try {
     publicDocumentCommandsDidNotDrainShadow: true,
     shutdownDidNotDrainShadow: true,
     descriptorAndCutoverStayedProjectScoped: true,
+    legacyProjectionParticipantsStayedOnOneAuthority: true,
     primarySyncWorkedAfterCutover: true,
+    documentBoardEventWasPostCommitAndIdempotent: true,
+    primaryWriterRejectedForeignBodyProjection: true,
+    primarySummarySurvivedRestartWithoutDualWrite: true,
     failedJobs: countShadowJobs("failed"),
   })}\n`);
 } finally {

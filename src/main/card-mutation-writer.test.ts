@@ -181,6 +181,157 @@ describe("CardMutationWriter", () => {
     expect(envelope.metrics.mainEventLoopLagMaxMs !== undefined).toBeTrue();
   });
 
+  test("publishes a committed Document summary once and never before the worker ACK", async () => {
+    const worker = new FakeWorker();
+    const published: BoardChangeEvent[] = [];
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: (event) => {
+        published.push(event);
+      },
+    });
+    const input: DocumentSyncApplyRequest = {
+      documentId: "document:card-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      updateId: "document-update-1",
+      clientSessionId: "window-1",
+      baseHeadSeq: 3,
+      touchedBlockIds: ["card-1"],
+      update: new Uint8Array([5]),
+    };
+    const summary = makeSummary({
+      title: "Collaborative title",
+      descriptionPreview: "Collaborative body",
+      descriptionLength: 18,
+    });
+
+    const firstPending = writer.applyBlockDocumentUpdate(input);
+    const firstRequest = worker.messages[0];
+    expect(firstRequest?.type).toBe("applyBlockDocumentUpdate");
+    expect(published.length).toBe(0);
+    if (!firstRequest) return;
+    worker.emitMessage({
+      id: firstRequest.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          documentId: input.documentId,
+          storeEpoch: input.storeEpoch,
+          generation: input.generation,
+          updateId: input.updateId,
+          committedSeq: 4,
+          headSeq: 4,
+          stateVector: new Uint8Array([1, 4]),
+          duplicate: false,
+        },
+      },
+      events: [{
+        projectId: "project-1",
+        changeType: "update",
+        columnId: "draft",
+        status: "draft",
+        cardId: "card-1",
+        summary,
+        mutationId: firstRequest.mutationId,
+      }],
+      metrics: makeMetrics(firstRequest.mutationId),
+    });
+
+    const firstAck = await firstPending;
+    expect(firstAck.ok).toBeTrue();
+    expect(published.length).toBe(1);
+    expect(published[0]?.summary?.title).toBe("Collaborative title");
+
+    const duplicatePending = writer.applyBlockDocumentUpdate(input);
+    const duplicateRequest = worker.messages[1];
+    expect(published.length).toBe(1);
+    if (!duplicateRequest) return;
+    worker.emitMessage({
+      id: duplicateRequest.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          documentId: input.documentId,
+          storeEpoch: input.storeEpoch,
+          generation: input.generation,
+          updateId: input.updateId,
+          committedSeq: 4,
+          headSeq: 4,
+          stateVector: new Uint8Array([1, 4]),
+          duplicate: true,
+        },
+      },
+      events: [],
+      metrics: makeMetrics(duplicateRequest.mutationId),
+    });
+
+    const duplicateAck = await duplicatePending;
+    expect(duplicateAck.ok).toBeTrue();
+    if (!duplicateAck.ok) return;
+    expect(duplicateAck.value.duplicate).toBeTrue();
+    expect(published.length).toBe(1);
+  });
+
+  test("returns the durable Document ACK when a board listener throws", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => {
+        throw new Error("listener unavailable");
+      },
+    });
+    const input: DocumentSyncApplyRequest = {
+      documentId: "document:card-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      updateId: "document-update-1",
+      clientSessionId: "window-1",
+      baseHeadSeq: 3,
+      touchedBlockIds: ["card-1"],
+      update: new Uint8Array([5]),
+    };
+
+    const pending = writer.applyBlockDocumentUpdate(input);
+    const request = worker.messages[0];
+    if (!request) return;
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          documentId: input.documentId,
+          storeEpoch: input.storeEpoch,
+          generation: input.generation,
+          updateId: input.updateId,
+          committedSeq: 4,
+          headSeq: 4,
+          stateVector: new Uint8Array([1, 4]),
+          duplicate: false,
+        },
+      },
+      events: [{
+        projectId: "project-1",
+        changeType: "update",
+        columnId: "draft",
+        status: "draft",
+        cardId: "card-1",
+        summary: makeSummary(),
+        mutationId: request.mutationId,
+      }],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const ack = await pending;
+    expect(ack.ok).toBeTrue();
+    if (!ack.ok) return;
+    expect(ack.value.committedSeq).toBe(4);
+    expect(ack.value.duplicate).toBeFalse();
+  });
+
   test("rejects pending requests on worker failure and rebuilds for the next request", async () => {
     const firstWorker = new FakeWorker();
     const secondWorker = new FakeWorker();

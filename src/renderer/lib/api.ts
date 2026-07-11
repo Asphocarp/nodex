@@ -3,6 +3,7 @@ import type { IpcApi } from "../../shared/ipc-api";
 import type { Card, CardUpdateResult } from "./types";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
+import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -48,6 +49,16 @@ export function getOwnedBlockDocumentDescriptor(
   ownerBlockId: string,
 ): Promise<OwnedBlockDocumentDescriptor> {
   return resolveRendererTransport().getOwnedBlockDocumentDescriptor(
+    projectId,
+    ownerBlockId,
+  );
+}
+
+export function prepareOwnedBlockDocument(
+  projectId: string,
+  ownerBlockId: string,
+): Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>> {
+  return resolveRendererTransport().prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,
   );

@@ -6,6 +6,7 @@ import type {
   CodexPromptInput,
   CodexThreadSummary,
 } from "@/lib/types";
+import type { ReadyCardBlockDocumentDescriptor } from "@/lib/owned-block-document";
 
 export interface CardStageLinkedThread {
   threadId: string;
@@ -27,6 +28,21 @@ export interface CardStageDescriptionFlushHandle {
   flushPendingChange: () => string | null;
   hasPendingChange: () => boolean;
 }
+
+/**
+ * Makes the content authority impossible to infer from a Card read model.
+ * Legacy Cards temporarily use the compatibility snapshot editor; primary
+ * Cards must mount the owned Y.Doc identified by the prepared descriptor.
+ */
+export type CardStageDocumentAuthority =
+  | { readonly kind: "legacy_shadow" }
+  | {
+      readonly kind: "ydoc_primary";
+      readonly descriptor: ReadyCardBlockDocumentDescriptor & {
+        readonly authority: "ydoc_primary";
+      };
+      readonly reload: () => Promise<void>;
+    };
 
 export interface CardStageProps {
   onClose: () => void;
@@ -88,4 +104,5 @@ export interface CardStageProps {
     promptInput?: CodexPromptInput;
   }) => Promise<void>;
   historyPanelActive?: boolean;
+  documentAuthority: CardStageDocumentAuthority;
 }

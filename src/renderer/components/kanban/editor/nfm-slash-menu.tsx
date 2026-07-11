@@ -55,6 +55,7 @@ import { dateMentionPayloadToProps } from "./date-mention-chip";
 
 interface NfmSlashMenuProps {
   projectId: string;
+  allowCardReferences?: boolean;
 }
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
@@ -327,7 +328,9 @@ export function NfmSuggestionMenuSurface({
 export function getNfmSlashMenuCustomItems(
   editor: unknown,
   projectId: string,
+  options: { readonly allowCardReferences?: boolean } = {},
 ): DefaultReactSuggestionItem[] {
+  const allowCardReferences = options.allowCardReferences ?? true;
   const tableItem = {
     key: "table",
     title: "Table",
@@ -411,10 +414,18 @@ export function getNfmSlashMenuCustomItems(
     },
   };
 
-  return [tableItem, toggleListItem, cardRefItem, threadSectionItem, agentConfigItem];
+  return [
+    tableItem,
+    ...(allowCardReferences ? [toggleListItem, cardRefItem] : []),
+    threadSectionItem,
+    agentConfigItem,
+  ];
 }
 
-export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
+export function NfmSlashMenu({
+  projectId,
+  allowCardReferences = true,
+}: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
 
   const getItems = useMemo(
@@ -423,9 +434,14 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
         const key = (item as NfmSuggestionItem).key;
         return key !== "table" && item.title.toLocaleLowerCase() !== "table";
       });
-      return filterSuggestionItems([...defaults, ...getNfmSlashMenuCustomItems(editor, projectId)], query);
+      return filterSuggestionItems([
+        ...defaults,
+        ...getNfmSlashMenuCustomItems(editor, projectId, {
+          allowCardReferences,
+        }),
+      ], query);
     },
-    [editor, projectId],
+    [allowCardReferences, editor, projectId],
   );
 
   return (
@@ -436,7 +452,10 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
         {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
         suggestionMenuComponent={NfmSuggestionMenuSurface}
       />
-      <MentionMenu projectId={projectId} />
+      <MentionMenu
+        projectId={projectId}
+        allowCardReferences={allowCardReferences}
+      />
     </>
   );
 }
@@ -915,6 +934,7 @@ export function useNfmMentionGetItems({
     const currentLoaders = loadersRef.current;
 
     if (
+      currentProjectIdsForCardSearch.length > 0 &&
       currentResults.cardDescriptionSearchResults === undefined &&
       cardDescriptionSearchRequestRef.current?.key !== requestKey
     ) {
@@ -1088,21 +1108,31 @@ export function useNfmMentionGetItems({
   );
 }
 
-function MentionMenu({ projectId }: { projectId: string }) {
+function MentionMenu({
+  projectId,
+  allowCardReferences,
+}: {
+  projectId: string;
+  allowCardReferences: boolean;
+}) {
   const editor = useBlockNoteEditor();
   const { boards, projects } = useAllBoards();
   const cardItems = useMemo(
-    () => buildCommandPaletteCardItemsFromBoardSummaries({
-      projects,
-      boardMap: boards,
-      activeProjectId: projectId,
-    }),
-    [boards, projectId, projects],
+    () => allowCardReferences
+      ? buildCommandPaletteCardItemsFromBoardSummaries({
+          projects,
+          boardMap: boards,
+          activeProjectId: projectId,
+        })
+      : [],
+    [allowCardReferences, boards, projectId, projects],
   );
   const cardSearchIndex = useCommandPaletteCardSearchIndex(cardItems);
   const projectIdsForCardSearch = useMemo(
-    () => projects.map((project) => project.id),
-    [projects],
+    () => allowCardReferences
+      ? projects.map((project) => project.id)
+      : [],
+    [allowCardReferences, projects],
   );
   const getItems = useNfmMentionGetItems({
     editor,

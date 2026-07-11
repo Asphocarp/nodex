@@ -81,6 +81,7 @@ describe("card stage", () => {
           columnName="In progress"
           projectId="default"
           projectName="Default"
+          documentAuthority={{ kind: "legacy_shadow" }}
           availableTags={[]}
           sessionId="session-current"
           canStartThreadInSession
@@ -103,7 +104,7 @@ describe("card stage", () => {
     expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
     expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBeTrue();
     const editorProps = lastNfmEditorProps as {
-      flushHandleRef?: unknown;
+      source?: { flushHandleRef?: unknown };
       projectName?: unknown;
       sessionId?: unknown;
       canStartThreadInSession?: unknown;
@@ -113,7 +114,7 @@ describe("card stage", () => {
         scrollContainerRef?: unknown;
       };
     } | null;
-    expect(typeof editorProps?.flushHandleRef).toBe("object");
+    expect(typeof editorProps?.source?.flushHandleRef).toBe("object");
     expect(editorProps?.projectName).toBe("Default");
     expect(editorProps?.sessionId).toBe("session-current");
     expect(editorProps?.canStartThreadInSession).toBe(true);
@@ -135,6 +136,7 @@ describe("card stage", () => {
           columnId="in_progress"
           columnName="In progress"
           projectId="default"
+          documentAuthority={{ kind: "legacy_shadow" }}
           availableTags={[]}
           onUpdate={async () => buildUpdateAck()}
           onPatch={() => undefined}
@@ -175,6 +177,7 @@ describe("card stage", () => {
           columnId="in_progress"
           columnName="In progress"
           projectId="default"
+          documentAuthority={{ kind: "legacy_shadow" }}
           availableTags={[]}
           onUpdate={async () => buildUpdateAck()}
           onPatch={() => undefined}
@@ -202,6 +205,7 @@ describe("card stage", () => {
           columnId="in_progress"
           columnName="In progress"
           projectId="default"
+          documentAuthority={{ kind: "legacy_shadow" }}
           availableTags={[]}
           onUpdate={async () => new Promise<CardUpdateMutationResult>((resolve) => {
             resolveUpdate = resolve;
@@ -213,8 +217,12 @@ describe("card stage", () => {
       </NodexTooltipProvider>,
     );
 
-    const onChange = lastNfmEditorProps?.onChange as ((value: string) => void) | undefined;
-    const onBlur = lastNfmEditorProps?.onBlur as (() => void) | undefined;
+    const editorSource = lastNfmEditorProps?.source as {
+      onChange?: (value: string) => void;
+      onBlur?: () => void;
+    } | undefined;
+    const onChange = editorSource?.onChange;
+    const onBlur = editorSource?.onBlur;
     expect(typeof onChange).toBe("function");
     expect(typeof onBlur).toBe("function");
     const renderCountAfterMount = nfmEditorRenderCount;

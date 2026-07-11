@@ -26,6 +26,8 @@ A Card is the user-facing name for a document-bearing Block. A Card has no separ
 
 A Card can be placed directly in a Space, nested in another Document, or shown through references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
 
+Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read-model snapshot as proof of content authority. During migration the returned descriptor explicitly selects either the temporary legacy surface or the Y.Doc-primary surface.
+
 ### Document
 
 A Document is an independently loaded, persisted, synchronized, and undo-scoped Yjs document. Its identity is `documentId`. A Card Document has exactly two named shared roots:
@@ -36,6 +38,8 @@ A Document is an independently loaded, persisted, synchronized, and undo-scoped 
 No additional named shared roots are valid. The body fragment contains one canonical root `blockGroup` so every persisted ready Document can be mounted by the editor schema.
 
 The Yjs state vector expresses causal synchronization state. SQLite `headSeq` expresses only the local durable append order. Neither is a content-integrity digest; persisted updates, snapshots, and reconstructed full states carry separate hashes.
+
+Every mounted writable Document surface owns a fresh local Y.Doc/client identity. It completes a state-vector handshake before resolving and mounting the `title` and `body` roots. A retained inactive surface may keep content synchronization alive, but it clears its local Awareness state so a hidden tab does not appear present.
 
 ### Document-bearing Block
 
@@ -85,6 +89,8 @@ A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`
 A projection is rebuildable data derived from the authoritative Block, Document, and Database records. NFM, plain text, previews, search units, asset references, Card read models, and scheduled-card indexes are projections. A projection can lag, be discarded, and be rebuilt. It must never be used to reconstruct an already-existing Yjs Document.
 
 Schema v62 is the first persisted property/projection foundation: `block_properties` holds Card-intrinsic agent/run/recurrence/reminder state, Database membership values hold status/priority/estimate/tags/dates/assignee, and `scheduled_card_index` is the typed scheduler read model. During BF-03/BF-07 migration only, legacy Card metadata is a one-way write seam into these records; it is not a second target identity or a content authority.
+
+For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Board-summary fanout reads that committed projection; it never writes the result back through the legacy Card title/body mutation path.
 
 ### NFM
 
@@ -141,6 +147,8 @@ Cross-Document relocation uses short-lived write fences and an ephemeral lease s
 
 A local editor transaction updates its live Y.Doc immediately. Its provider sends an idempotent binary update with the current store epoch, Document generation, client session, and declared touched Block IDs. Declared IDs are bounded diagnostics, not authority; relocation safety uses writer-derived changes. The writer tentatively applies the update against a cloned or reloadable Document, rejects unresolved dependencies, validates the resulting schema and global identity set, commits the update and derived registry/index changes, then acknowledges and fans it out. Remote-origin transactions do not echo and do not enter the local undo stack.
 
+Card title undo and body undo are local to the mounted surface's tracked transaction origins. Awareness is ephemeral and window/session-specific rather than an edit lock. Surface close/deactivation persistence is bounded: content remains pending until durable acknowledgement or a disposable local checkpoint, and a close path must not wait forever on an offline transport. Normal fast acknowledgements render no sync chrome; only sustained pending, offline, error, or reset states become visible.
+
 ### Explicit NFM replacement
 
 `ReplaceDocumentFromNfm` is an import seam, not a normal update path. It requires an expected Document head or state precondition, parses and validates NFM, and generates a transaction on the existing Y.Doc. It does not create a new Y.Doc or reset causal history.
@@ -171,7 +179,7 @@ Presence, cursors, selections, open toggles, active Database View, search terms,
 
 The legacy Card-first authority is primarily in `src/main/local-store/schema.ts`, `src/main/local-store/cards.ts`, `src/main/local-store/history.ts`, `src/main/card-mutation-writer.ts`, `src/main/card-mutation-worker.ts`, `src/renderer/components/kanban/card-stage/use-card-stage-controller.ts`, and `src/renderer/components/kanban/editor/nfm-editor.tsx`.
 
-The Block-first migration adds shared Block/Document Interfaces under `src/shared/`, persistence Implementations under `src/main/local-store/`, and a transport-neutral renderer provider behind `src/renderer/lib/api.ts`. The exact paths and phased cutover are maintained in `.generated/block-first/EXECPLAN.md`.
+The Block-first migration adds shared Block/Document Interfaces under `src/shared/`, persistence Implementations under `src/main/local-store/`, and a transport-neutral renderer provider behind `src/renderer/lib/api.ts`. Card Stage's authority boundary and writable surface live under `src/renderer/components/block-documents/`; the surface runtime and descriptor validation live under `src/renderer/lib/`. The exact paths and phased cutover are maintained in `.generated/block-first/EXECPLAN.md`.
 
 ## Decision index
 

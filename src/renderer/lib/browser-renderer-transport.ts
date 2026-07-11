@@ -19,7 +19,10 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
-import { decodeOwnedBlockDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
+import {
+  decodeDocumentHttpError,
+  decodeOwnedBlockDocumentDescriptorHttp,
+} from "../../shared/block-documents/http-contract";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -2310,6 +2313,36 @@ export const browserRendererTransport = {
       throw new Error(`Owned Document lookup failed with status ${response.status}`);
     }
     return decodeOwnedBlockDocumentDescriptorHttp(await response.text());
+  },
+  async prepareOwnedBlockDocument(projectId: string, ownerBlockId: string) {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/blocks/${encodeURIComponent(ownerBlockId)}/document/prepare`,
+      ),
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      },
+    );
+    if (!response.ok) {
+      try {
+        return { ok: false as const, error: decodeDocumentHttpError(await response.text()) };
+      } catch {
+        return {
+          ok: false as const,
+          error: {
+            code: "invalid_response" as const,
+            message: `Owned Document preparation failed with status ${response.status}`,
+            retryable: false,
+            resetRequired: false,
+          },
+        };
+      }
+    }
+    return {
+      ok: true as const,
+      value: decodeOwnedBlockDocumentDescriptorHttp(await response.text()),
+    };
   },
   createDocumentSyncAdapter(projectId: string) {
     return createHttpDocumentSyncAdapter({ projectId });

@@ -44,6 +44,7 @@ import {
 import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
+import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
 import { CardStageToolbar } from "@/components/kanban/card-stage/toolbar";
 import { HistoryPanel } from "./workbench-history-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
@@ -11876,8 +11877,38 @@ function CardStageSessionTab({
   const columnName = KANBAN_STATUS_LABELS[columnId] ?? columnId;
 
   return (
-    <>
-      <CardStage
+    <OwnedBlockDocumentBoundary
+      projectId={tab.config.projectId}
+      ownerBlockId={card.id}
+    >
+      {(documentModel, documentControls) => {
+        if (documentModel.status === "loading") {
+          return <CardStageSessionSkeleton titleSnapshot={card.title} />;
+        }
+        if (documentModel.status === "error") {
+          return (
+            <CardStageSessionNotice
+              title="Could not open card"
+              description={documentModel.error.message}
+              actionLabel="Retry"
+              onAction={() => {
+                void documentControls.reload();
+              }}
+            />
+          );
+        }
+
+        const documentAuthority = documentModel.status === "ydoc_primary"
+          ? {
+              kind: "ydoc_primary" as const,
+              descriptor: documentModel.descriptor,
+              reload: documentControls.reload,
+            }
+          : { kind: "legacy_shadow" as const };
+
+        return (
+          <CardStage
+        documentAuthority={documentAuthority}
         card={card}
         columnId={columnId}
         columnName={columnName}
@@ -11934,8 +11965,10 @@ function CardStageSessionTab({
         onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
           await codexControl.startTurn(threadId, prompt, { projectId, promptInput });
         }}
-      />
-    </>
+          />
+        );
+      }}
+    </OwnedBlockDocumentBoundary>
   );
 }
 

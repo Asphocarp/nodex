@@ -513,6 +513,10 @@ export interface IpcApi {
     args: [projectId: string, ownerBlockId: string];
     result: OwnedBlockDocumentDescriptor;
   };
+  "block-document:owned:prepare": {
+    args: [projectId: string, ownerBlockId: string];
+    result: DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>;
+  };
   "document-sync:subscribe": {
     args: [request: DocumentSyncSubscribeRequest];
     result: DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;

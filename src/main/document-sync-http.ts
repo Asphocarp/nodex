@@ -50,6 +50,10 @@ export interface DocumentSyncHttpDependencies {
     projectId: string,
     ownerBlockId: string,
   ) => Promise<OwnedBlockDocumentDescriptor>;
+  readonly prepareOwnedBlockDocument: (
+    projectId: string,
+    ownerBlockId: string,
+  ) => Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>>;
 }
 
 const commandError = (
@@ -278,6 +282,48 @@ export const registerDocumentSyncHttpRoutes = (
             error instanceof Error ? error.message : "Owned Document does not exist",
           ),
         );
+      }
+    },
+  );
+
+  app.post(
+    "/api/projects/:projectId/blocks/:ownerBlockId/document/prepare",
+    async (context) => {
+      const projectId = context.req.param("projectId").trim();
+      const ownerBlockId = context.req.param("ownerBlockId").trim();
+      if (!projectId || !ownerBlockId) {
+        return invalidRequest("Project and owner Block are required");
+      }
+      try {
+        const prepared = await dependencies.prepareOwnedBlockDocument(
+          projectId,
+          ownerBlockId,
+        );
+        if (!prepared.ok) return errorResponse(prepared.error);
+        const descriptor = prepared.value;
+        if (
+          descriptor.projectId !== projectId ||
+          descriptor.ownerBlockId !== ownerBlockId
+        ) {
+          return errorResponse(
+            commandError(
+              "invalid_response",
+              "Prepared Document descriptor escaped its requested scope",
+            ),
+          );
+        }
+        return new Response(encodeOwnedBlockDocumentDescriptorHttp(descriptor), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (error) {
+        return errorResponse(commandError(
+          "transport_unavailable",
+          error instanceof Error ? error.message : "Owned Document preparation failed",
+          { retryable: true },
+        ));
       }
     },
   );

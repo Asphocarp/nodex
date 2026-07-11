@@ -8,7 +8,9 @@ import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as historyStore from "./local-store/history";
 import {
+  BlockDocumentCutoverError,
   cutoverCardDocumentToPrimary,
+  cutoverEligibleCardDocumentsToPrimary,
   getOwnedBlockDocumentDescriptor,
 } from "./local-store/block-document-cutover";
 import {
@@ -28,7 +30,10 @@ import {
   createSqliteBlockDocumentRuntimeAuthority,
 } from "./block-document-runtime";
 import type { BoardChangeEvent } from "../shared/ipc-api";
-import type { DocumentSyncCommandResult } from "../shared/block-documents";
+import type {
+  DocumentSyncCommandError,
+  DocumentSyncCommandResult,
+} from "../shared/block-documents";
 import type { Card, CardSummary } from "../shared/types";
 import type {
   BlockDocumentShadowInitializationResult,
@@ -126,7 +131,9 @@ const isLegacyAuthorityMutation = (
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
+    case "prepareOwnedBlockDocument":
     case "cutoverCardDocumentToPrimary":
+    case "cutoverEligibleCardDocuments":
     case "applyBlockDocumentUpdate":
     case "writerBarrier":
     case "shutdown":
@@ -410,6 +417,55 @@ function runDocumentCommand<T>(operation: () => T): DocumentSyncCommandResult<T>
   }
 }
 
+const cutoverErrorCode = (
+  error: BlockDocumentCutoverError,
+): DocumentSyncCommandError["code"] => {
+  switch (error.code) {
+    case "owned_document_not_found":
+      return "document_not_found";
+    case "document_generation_mismatch":
+      return "document_generation_mismatch";
+    case "document_head_mismatch":
+      return "future_base_head";
+    case "shadow_ledger_failed":
+    case "content_parity_failed":
+    case "projection_parity_failed":
+      return "document_state_corrupt";
+    case "owner_not_writable":
+    case "document_not_ready":
+    case "shadow_ledger_not_drained":
+    case "foreign_body_reference":
+      return "document_not_ready";
+  }
+};
+
+const toOwnedDocumentPreparationError = (
+  error: unknown,
+): DocumentSyncCommandError => {
+  if (!(error instanceof BlockDocumentCutoverError)) {
+    return toDocumentSyncCommandError(error);
+  }
+  const code = cutoverErrorCode(error);
+  return {
+    code,
+    message: error.message,
+    retryable: code === "document_not_ready" || code === "future_base_head",
+    resetRequired: code === "document_not_found"
+      || code === "document_generation_mismatch"
+      || code === "document_state_corrupt",
+  };
+};
+
+function runOwnedDocumentPreparationCommand<T>(
+  operation: () => T,
+): DocumentSyncCommandResult<T> {
+  try {
+    return { ok: true, value: operation() };
+  } catch (error) {
+    return { ok: false, error: toOwnedDocumentPreparationError(error) };
+  }
+}
+
 function approximatePayloadBytes(value: unknown): number {
   try {
     return Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -626,15 +682,86 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.projectId,
         request.payload.ownerBlockId,
       );
+    case "prepareOwnedBlockDocument": {
+      return runOwnedDocumentPreparationCommand(() => {
+        const current = getOwnedBlockDocumentDescriptor(
+          getDb(),
+          request.payload.projectId,
+          request.payload.ownerBlockId,
+        );
+        if (current.authority === "ydoc_primary") return current;
+        const cutover = cutoverEligibleCardDocumentsToPrimary(
+          getDb(),
+          [request.payload.ownerBlockId],
+        );
+        for (const documentId of cutover.cutoverDocumentIds) {
+          blockDocumentRuntime.invalidate(documentId);
+        }
+        return getOwnedBlockDocumentDescriptor(
+          getDb(),
+          request.payload.projectId,
+          request.payload.ownerBlockId,
+        );
+      });
+    }
     case "cutoverCardDocumentToPrimary": {
       const descriptor = cutoverCardDocumentToPrimary(getDb(), request.payload);
       blockDocumentRuntime.invalidate(descriptor.documentId);
       return descriptor;
     }
-    case "applyBlockDocumentUpdate":
-      return runDocumentCommand(() =>
+    case "cutoverEligibleCardDocuments": {
+      const result = cutoverEligibleCardDocumentsToPrimary(
+        getDb(),
+        request.payload.ownerBlockIds,
+      );
+      for (const documentId of result.cutoverDocumentIds) {
+        blockDocumentRuntime.invalidate(documentId);
+      }
+      return result;
+    }
+    case "applyBlockDocumentUpdate": {
+      const result = runDocumentCommand(() =>
         blockDocumentRuntime.applyUpdate(request.payload),
       );
+      if (!result.ok || result.value.duplicate) return result;
+
+      // applyUpdate only returns after its SQLite transaction commits. Publish
+      // the Card summary from that same committed materialization so every
+      // window/browser updates without making legacy Card content authoritative
+      // again. A post-commit projection read must never turn a durable ACK into
+      // a retryable failure: a retry is a duplicate and intentionally emits no
+      // second semantic event.
+      try {
+        const projection = cardsStore.readCardDocumentBoardProjection(
+          getDb(),
+          request.payload.documentId,
+        );
+        if (!projection) {
+          postLog("error", "Committed Card Document has no board projection", {
+            documentId: request.payload.documentId,
+            updateId: request.payload.updateId,
+            committedSeq: result.value.committedSeq,
+          });
+          return result;
+        }
+
+        dbNotifier.notifyChange(
+          projection.projectId,
+          "update",
+          projection.status,
+          projection.cardId,
+          { summary: projection.summary },
+        );
+      } catch (error) {
+        postLog("error", "Committed Card Document summary fanout failed", {
+          documentId: request.payload.documentId,
+          updateId: request.payload.updateId,
+          committedSeq: result.value.committedSeq,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
     case "writerBarrier":
       return undefined;
     case "shutdown":
@@ -654,6 +781,13 @@ const runRequestAtAuthorityBoundary = async (
     const shadow = initializeLegacyShadowProcessor();
     return {
       result: shadow satisfies BlockDocumentShadowInitializationResult,
+      shadow,
+    };
+  }
+  if (request.type === "prepareOwnedBlockDocument") {
+    const shadow = initializeLegacyShadowProcessor();
+    return {
+      result: await runRequest(request),
       shadow,
     };
   }
@@ -678,9 +812,8 @@ const runRequestAtAuthorityBoundary = async (
   const startup = initializeLegacyShadowProcessor();
   const mutationFenceStartedAt = new Date().toISOString();
   const result = await runRequest(request);
-  const postMutation = settlePostMutationShadowBoundary(
-    readShadowMutationJobs(mutationFenceStartedAt),
-  );
+  const targetJobs = readShadowMutationJobs(mutationFenceStartedAt);
+  const postMutation = settlePostMutationShadowBoundary(targetJobs);
   return {
     result,
     shadow: mergeShadowDrainMetrics(startup, postMutation),

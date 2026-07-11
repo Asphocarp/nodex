@@ -16,7 +16,10 @@ import type {
   DocumentSyncResponse,
   OwnedBlockDocumentDescriptor,
 } from "../shared/block-documents";
-import type { CutoverCardDocumentInput } from "./local-store/block-document-cutover";
+import type {
+  CutoverCardDocumentInput,
+  CutoverEligibleCardDocumentsResult,
+} from "./local-store/block-document-cutover";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -334,12 +337,34 @@ export class CardMutationWriter {
     });
   }
 
+  async prepareOwnedBlockDocument(
+    projectId: string,
+    ownerBlockId: string,
+  ): Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>> {
+    const envelope = await this.executeTyped<
+      DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
+    >({
+      type: "prepareOwnedBlockDocument",
+      payload: { projectId, ownerBlockId },
+    });
+    return envelope.result;
+  }
+
   async cutoverCardDocumentToPrimary(
     input: CutoverCardDocumentInput,
   ): Promise<CardMutationEnvelope<OwnedBlockDocumentDescriptor>> {
     return await this.executeTyped<OwnedBlockDocumentDescriptor>({
       type: "cutoverCardDocumentToPrimary",
       payload: input,
+    });
+  }
+
+  async cutoverEligibleCardDocuments(
+    ownerBlockIds?: readonly string[],
+  ): Promise<CardMutationEnvelope<CutoverEligibleCardDocumentsResult>> {
+    return await this.executeTyped<CutoverEligibleCardDocumentsResult>({
+      type: "cutoverEligibleCardDocuments",
+      payload: { ownerBlockIds },
     });
   }
 
@@ -581,26 +606,38 @@ export class CardMutationWriter {
 
   private publishBoardEvents(events: readonly BoardChangeEvent[], metrics: CardMutationMetrics): void {
     for (const event of events) {
-      if (this.options.publishBoardEvent) {
-        this.options.publishBoardEvent(event, metrics);
-        continue;
-      }
+      try {
+        if (this.options.publishBoardEvent) {
+          this.options.publishBoardEvent(event, metrics);
+          continue;
+        }
 
-      dbNotifier.notifyChange(
-        event.projectId,
-        event.changeType as ChangeType,
-        event.status,
-        event.cardId,
-        {
-          summary: event.summary,
-          mutationId: event.mutationId ?? metrics.mutationId,
-          metrics: event.metrics ?? {
-            workerDurationMs: metrics.workerDurationMs,
-            queueWaitMs: metrics.queueWaitMs,
-            transactionMs: metrics.transactionMs,
+        dbNotifier.notifyChange(
+          event.projectId,
+          event.changeType as ChangeType,
+          event.status,
+          event.cardId,
+          {
+            summary: event.summary,
+            mutationId: event.mutationId ?? metrics.mutationId,
+            metrics: event.metrics ?? {
+              workerDurationMs: metrics.workerDurationMs,
+              queueWaitMs: metrics.queueWaitMs,
+              transactionMs: metrics.transactionMs,
+            },
           },
-        },
-      );
+        );
+      } catch (error) {
+        // The worker ACK represents an already committed SQLite transaction.
+        // A best-effort read-model notification must never turn that durable
+        // success into an apparent failure or suppress Y.Doc fanout.
+        logger.warn("Failed to publish committed board event", {
+          error: error instanceof Error ? error.message : String(error),
+          mutationId: event.mutationId ?? metrics.mutationId,
+          projectId: event.projectId,
+          cardId: event.cardId,
+        });
+      }
     }
   }
 }

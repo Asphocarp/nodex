@@ -196,6 +196,20 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 describe("NfmSlashMenu", () => {
+  test("collaborative mode omits legacy foreign-body insertion commands", () => {
+    const items = getNfmSlashMenuCustomItems({}, "project-1", {
+      allowCardReferences: false,
+    });
+    const keys = items
+      .map((item) => (item as { key?: string }).key ?? "")
+      .join(",");
+
+    expect(keys.includes("card_reference")).toBeFalse();
+    expect(keys.includes("toggle_list_inline_view")).toBeFalse();
+    expect(keys.includes("thread_section")).toBeTrue();
+    expect(keys.includes("agent_config")).toBeTrue();
+  });
+
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
     const project = createMentionProject();
 

@@ -27,6 +27,11 @@ export const queryKeys = {
     all: () => ["boards"] as const,
     byProject: (projectId: string) => ["boards", "byProject", projectId] as const,
   },
+  blockDocuments: {
+    all: () => ["blockDocuments"] as const,
+    owned: (projectId: string, ownerBlockId: string) =>
+      ["blockDocuments", "owned", projectId, ownerBlockId] as const,
+  },
   projectSessions: {
     all: () => ["projectSessions"] as const,
     summaries: (projectId: string | null) => ["projectSessions", "summaries", normalizeNullable(projectId)] as const,

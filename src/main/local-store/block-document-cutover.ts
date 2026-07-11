@@ -10,6 +10,7 @@ import type {
 } from "../../shared/block-documents/contracts";
 import { parseNfm } from "../../shared/nfm/parser";
 import { serializeNfm } from "../../shared/nfm/serializer";
+import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import { loadLegacyShadowBlockDocument } from "./block-document-store";
 
 export type BlockDocumentCutoverErrorCode =
@@ -40,6 +41,12 @@ export interface CutoverCardDocumentInput {
   readonly ownerBlockId: string;
   readonly expectedGeneration: number;
   readonly expectedHeadSeq: number;
+}
+
+export interface CutoverEligibleCardDocumentsResult {
+  readonly cutoverDocumentIds: readonly string[];
+  readonly alreadyPrimary: number;
+  readonly deferredForeignReferences: number;
 }
 
 interface OwnedDocumentRow {
@@ -121,8 +128,12 @@ const readOwnedDocumentRow = (
       document.authority,
       document.state_vector
     FROM blocks owner
-    INNER JOIN block_documents ownership ON ownership.block_id = owner.id
-    INNER JOIN documents document ON document.id = ownership.document_id
+    INNER JOIN block_documents ownership
+      ON ownership.block_id = owner.id
+      AND ownership.project_id = owner.project_id
+    INNER JOIN documents document
+      ON document.id = ownership.document_id
+      AND document.project_id = owner.project_id
     WHERE owner.id = ? AND owner.project_id = ?
   `).get(ownerBlockId, projectId) as OwnedDocumentRow | undefined;
   if (row) return row;
@@ -312,14 +323,72 @@ const assertNoForeignBodyReferences = (
   materialization: CardDocumentMaterialization,
 ): void => {
   const foreignReference = materialization.references.find(
-    (reference) =>
-      reference.kind === "block" ||
-      reference.kind === "legacy_database_query",
+    isLegacyForeignBodyReference,
   );
   if (!foreignReference) return;
   throw new BlockDocumentCutoverError(
     "foreign_body_reference",
     `Document ${row.document_id} contains a legacy foreign-body reference`,
+  );
+};
+
+interface LegacyForeignBodyParticipantRow {
+  readonly host_block_id: string;
+  readonly reference_kind: "block" | "legacy_database_query";
+}
+
+/**
+ * Legacy projection editors mutate both the host snapshot and the projected
+ * Card snapshot. Until BF-05 replaces them with reference-only Blocks, every
+ * participant must remain on the same legacy authority side: the host, a
+ * directly referenced target, and every possible row of a dynamic Project
+ * query. Query rules are mutable renderer configuration, so fencing the whole
+ * source Project is the only safe pre-migration boundary.
+ */
+const assertNotLegacyForeignBodyParticipant = (
+  database: Database.Database,
+  row: OwnedDocumentRow,
+): void => {
+  const participant = database.prepare(`
+    SELECT
+      host_owner.id AS host_block_id,
+      json_extract(reference.value, '$.kind') AS reference_kind
+    FROM documents host_document
+    INNER JOIN block_documents host_ownership
+      ON host_ownership.document_id = host_document.id
+    INNER JOIN blocks host_owner
+      ON host_owner.id = host_ownership.block_id
+      AND host_owner.project_id = host_ownership.project_id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = host_document.id
+      AND materialization.generation = host_document.generation
+      AND materialization.projected_seq = host_document.head_seq
+    INNER JOIN json_each(materialization.references_json) reference
+    WHERE host_document.authority = 'legacy_shadow'
+      AND host_document.readiness = 'ready'
+      AND (
+        (
+          json_extract(reference.value, '$.kind') = 'block'
+          AND json_extract(reference.value, '$.targetBlockId') = ?
+        )
+        OR (
+          json_extract(reference.value, '$.kind') = 'legacy_database_query'
+          AND json_extract(reference.value, '$.projectHint') = ?
+        )
+      )
+    ORDER BY host_owner.project_id, host_owner.id
+    LIMIT 1
+  `).get(
+    row.owner_block_id,
+    row.project_id,
+  ) as LegacyForeignBodyParticipantRow | undefined;
+  if (!participant) return;
+
+  throw new BlockDocumentCutoverError(
+    "foreign_body_reference",
+    participant.reference_kind === "block"
+      ? `Card ${row.owner_block_id} is projected by legacy host ${participant.host_block_id}`
+      : `Card ${row.owner_block_id} can be projected by legacy query host ${participant.host_block_id}`,
   );
 };
 
@@ -368,6 +437,7 @@ export const cutoverCardDocumentToPrimary = (
       card,
     );
     assertNoForeignBodyReferences(row, materialization);
+    assertNotLegacyForeignBodyParticipant(database, row);
 
     const now = new Date().toISOString();
     const updated = database.prepare(`
@@ -393,4 +463,93 @@ export const cutoverCardDocumentToPrimary = (
     );
   });
   return cutover.immediate();
+};
+
+/**
+ * Monotonically cut over every active, ready Card that no longer embeds a
+ * foreign body. A crash may stop between Cards; rerunning is idempotent and
+ * can only advance legacy_shadow to ydoc_primary.
+ */
+export const cutoverEligibleCardDocumentsToPrimary = (
+  database: Database.Database,
+  ownerBlockIds?: readonly string[],
+): CutoverEligibleCardDocumentsResult => {
+  const normalizedOwnerIds = ownerBlockIds
+    ? Array.from(new Set(
+        ownerBlockIds.map((ownerBlockId) =>
+          requireIdentity(ownerBlockId, "ownerBlockIds entry"),
+        ),
+      ))
+    : null;
+  if (normalizedOwnerIds?.length === 0) {
+    return {
+      cutoverDocumentIds: [],
+      alreadyPrimary: 0,
+      deferredForeignReferences: 0,
+    };
+  }
+
+  const ownerFilter = normalizedOwnerIds
+    ? `AND owner.id IN (${normalizedOwnerIds.map(() => "?").join(", ")})`
+    : "";
+  const candidates = database.prepare(`
+    SELECT
+      owner.id AS owner_block_id,
+      owner.project_id,
+      document.id AS document_id,
+      document.generation,
+      document.head_seq,
+      document.authority
+    FROM blocks owner
+    INNER JOIN cards card
+      ON card.id = owner.id AND card.project_id = owner.project_id
+    INNER JOIN block_documents ownership ON ownership.block_id = owner.id
+    INNER JOIN documents document ON document.id = ownership.document_id
+    WHERE owner.type = 'card'
+      AND owner.lifecycle = 'active'
+      AND document.readiness = 'ready'
+      ${ownerFilter}
+    ORDER BY owner.project_id, owner.id
+  `).all(...(normalizedOwnerIds ?? [])) as readonly {
+    readonly owner_block_id: string;
+    readonly project_id: string;
+    readonly document_id: string;
+    readonly generation: number;
+    readonly head_seq: number;
+    readonly authority: DocumentAuthority;
+  }[];
+
+  const cutoverDocumentIds: string[] = [];
+  let alreadyPrimary = 0;
+  let deferredForeignReferences = 0;
+  for (const candidate of candidates) {
+    if (candidate.authority === "ydoc_primary") {
+      alreadyPrimary += 1;
+      continue;
+    }
+    try {
+      const descriptor = cutoverCardDocumentToPrimary(database, {
+        projectId: candidate.project_id,
+        ownerBlockId: candidate.owner_block_id,
+        expectedGeneration: candidate.generation,
+        expectedHeadSeq: candidate.head_seq,
+      });
+      cutoverDocumentIds.push(descriptor.documentId);
+    } catch (error) {
+      if (
+        error instanceof BlockDocumentCutoverError &&
+        error.code === "foreign_body_reference"
+      ) {
+        deferredForeignReferences += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return {
+    cutoverDocumentIds,
+    alreadyPrimary,
+    deferredForeignReferences,
+  };
 };

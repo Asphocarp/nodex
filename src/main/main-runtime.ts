@@ -883,6 +883,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
       );
     }
   }
+  await cardMutationWriter.cutoverEligibleCardDocuments();
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();

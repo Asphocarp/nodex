@@ -16,6 +16,7 @@ import type {
 } from "../../shared/cross-window-drag";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
+import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -28,6 +29,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         projectId,
         ownerBlockId,
       ) as Promise<OwnedBlockDocumentDescriptor>;
+    },
+    prepareOwnedBlockDocument(projectId: string, ownerBlockId: string) {
+      return bridge.invoke(
+        "block-document:owned:prepare",
+        projectId,
+        ownerBlockId,
+      ) as Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>>;
     },
     createDocumentSyncAdapter(projectId: string) {
       void projectId;

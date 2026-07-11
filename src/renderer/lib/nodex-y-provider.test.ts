@@ -11,9 +11,18 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import {
+  BLOCK_GROUP_NODE_NAME,
+  BLOCK_ID_ATTRIBUTE,
+  captureXmlSubtreeAt,
   createCardDocument,
+  deleteXmlSubtreeAt,
+  insertPortableXmlSubtree,
   openCardDocument,
 } from "../../shared/block-documents";
+import {
+  createCardDocumentGenesis,
+  materializeCardDocument,
+} from "../../shared/block-documents/block-document-codec";
 import type {
   DocumentCheckpointBoundary,
   DocumentLocalCheckpoint,
@@ -71,6 +80,58 @@ const captureUpdate = (document: Y.Doc, mutate: () => void): Uint8Array => {
     throw new Error("Mutation did not produce a Yjs update");
   }
   return captured;
+};
+
+const getRootBlockGroup = (document: Y.Doc): Y.XmlElement => {
+  const root = openCardDocument(document).body.toArray()[0];
+  if (
+    !(root instanceof Y.XmlElement) ||
+    root.nodeName !== BLOCK_GROUP_NODE_NAME
+  ) {
+    throw new TypeError("Expected the canonical Card body blockGroup");
+  }
+  return root;
+};
+
+const findBlockElement = (document: Y.Doc, blockId: string): Y.XmlElement => {
+  for (const node of openCardDocument(document).body.createTreeWalker(
+    (candidate) => candidate instanceof Y.XmlElement,
+  )) {
+    if (
+      node instanceof Y.XmlElement &&
+      node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId
+    ) {
+      return node;
+    }
+  }
+  throw new Error(`Could not find Block ${blockId}`);
+};
+
+const getFirstBlockText = (block: Y.XmlElement): Y.XmlText => {
+  for (const node of block.createTreeWalker(
+    (candidate) => candidate instanceof Y.XmlText,
+  )) {
+    if (node instanceof Y.XmlText) return node;
+  }
+  throw new TypeError("Expected the Block to contain text");
+};
+
+const getChildBlockGroup = (block: Y.XmlElement): Y.XmlElement | null =>
+  block
+    .toArray()
+    .find(
+      (node): node is Y.XmlElement =>
+        node instanceof Y.XmlElement && node.nodeName === BLOCK_GROUP_NODE_NAME,
+    ) ?? null;
+
+const deleteDirectBlock = (group: Y.XmlElement, blockId: string): void => {
+  const index = group.toArray().findIndex(
+    (node) =>
+      node instanceof Y.XmlElement &&
+      node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId,
+  );
+  if (index < 0) throw new Error(`Could not delete Block ${blockId}`);
+  deleteXmlSubtreeAt(group, index);
 };
 
 const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
@@ -308,6 +369,203 @@ describe("NodexYProvider", () => {
       second.destroy();
       firstDocument.destroy();
       secondDocument.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("keeps a Card's title, nested Block tree, formatting, and stable identities convergent across two surfaces and restart", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const initialIds = ["block-root", "block-child", "block-sibling"];
+    let nextInitialId = 0;
+    const genesis = createCardDocumentGenesis({
+      documentId: "document-1",
+      title: "Shared Card",
+      nfm: "Root\n\tChild\nSibling",
+      allocateBlockId: () => {
+        const blockId = initialIds[nextInitialId];
+        if (!blockId) throw new Error("Unexpected genesis Block allocation");
+        nextInitialId += 1;
+        return blockId;
+      },
+    });
+    const insertedGenesis = createCardDocumentGenesis({
+      documentId: "insert-template",
+      title: "",
+      nfm: "Inserted **live**",
+      allocateBlockId: () => "block-inserted",
+    });
+    const insertedPortable = captureXmlSubtreeAt(
+      getRootBlockGroup(insertedGenesis.document),
+      0,
+    );
+    Y.applyUpdate(adapter.serverDocument, genesis.update);
+    adapter.headSeq = 1;
+
+    const firstDocument = new Y.Doc({ guid: "document-1" });
+    const secondDocument = new Y.Doc({ guid: "document-1" });
+    const firstClientId = firstDocument.clientID;
+    const secondClientId = secondDocument.clientID;
+    const first = new NodexYProvider({
+      documentId: "document-1",
+      document: firstDocument,
+      adapter,
+      clientSessionId: "window-alpha",
+      autoConnect: false,
+    });
+    const second = new NodexYProvider({
+      documentId: "document-1",
+      document: secondDocument,
+      adapter,
+      clientSessionId: "window-beta",
+      autoConnect: false,
+    });
+
+    let restartedFirstDocument: Y.Doc | null = null;
+    let restartedSecondDocument: Y.Doc | null = null;
+    let restartedFirst: NodexYProvider | null = null;
+    let restartedSecond: NodexYProvider | null = null;
+    try {
+      await Promise.all([first.connect(), second.connect()]);
+      expect(firstDocument.clientID !== secondDocument.clientID).toBeTrue();
+
+      firstDocument.transact(() => {
+        const title = openCardDocument(firstDocument).title;
+        title.insert(title.length, " / Alpha");
+        const rootText = getFirstBlockText(
+          findBlockElement(firstDocument, "block-root"),
+        );
+        rootText.insert(rootText.length, " edited by Alpha");
+        rootText.format(0, "Root".length, { italic: {} });
+      }, "window-alpha-edit");
+      secondDocument.transact(() => {
+        const title = openCardDocument(secondDocument).title;
+        title.insert(title.length, " / Beta");
+        const rootGroup = getRootBlockGroup(secondDocument);
+        insertPortableXmlSubtree(rootGroup, rootGroup.length, insertedPortable);
+      }, "window-beta-edit");
+
+      await Promise.all([first.flush(), second.flush()]);
+      await waitUntil(
+        () =>
+          first.getStatus().headSeq === 3 &&
+          second.getStatus().headSeq === 3,
+      );
+      const concurrentMaterialization = materializeCardDocument(firstDocument);
+      expect(concurrentMaterialization.title.includes(" / Alpha")).toBeTrue();
+      expect(concurrentMaterialization.title.includes(" / Beta")).toBeTrue();
+      expect(
+        concurrentMaterialization.plainText.includes("Root edited by Alpha"),
+      ).toBeTrue();
+      expect(
+        concurrentMaterialization.nfm.includes("*Root* edited by Alpha"),
+      ).toBeTrue();
+      expect(
+        JSON.stringify(materializeCardDocument(secondDocument)),
+      ).toBe(JSON.stringify(concurrentMaterialization));
+
+      firstDocument.transact(() => {
+        const sourceBlock = findBlockElement(firstDocument, "block-root");
+        const sourceGroup = getChildBlockGroup(sourceBlock);
+        if (!sourceGroup) throw new Error("Missing nested source blockGroup");
+        const movedPortable = captureXmlSubtreeAt(sourceGroup, 0);
+        deleteXmlSubtreeAt(sourceGroup, 0);
+        const sourceGroupIndex = sourceBlock.toArray().indexOf(sourceGroup);
+        if (sourceGroupIndex < 0) {
+          throw new Error("Missing source blockGroup attachment");
+        }
+        sourceBlock.delete(sourceGroupIndex, 1);
+
+        const targetBlock = findBlockElement(firstDocument, "block-inserted");
+        const targetGroup = new Y.XmlElement(BLOCK_GROUP_NODE_NAME);
+        targetBlock.insert(targetBlock.length, [targetGroup]);
+        insertPortableXmlSubtree(targetGroup, 0, movedPortable);
+      }, "window-alpha-nested-move");
+      secondDocument.transact(() => {
+        deleteDirectBlock(
+          getRootBlockGroup(secondDocument),
+          "block-sibling",
+        );
+      }, "window-beta-delete");
+
+      await Promise.all([first.flush(), second.flush()]);
+      await waitUntil(
+        () =>
+          first.getStatus().headSeq === 5 &&
+          second.getStatus().headSeq === 5,
+      );
+      const beforeRestart = materializeCardDocument(adapter.serverDocument);
+      expect(JSON.stringify(materializeCardDocument(firstDocument))).toBe(
+        JSON.stringify(beforeRestart),
+      );
+      expect(JSON.stringify(materializeCardDocument(secondDocument))).toBe(
+        JSON.stringify(beforeRestart),
+      );
+
+      first.destroy();
+      second.destroy();
+      firstDocument.destroy();
+      secondDocument.destroy();
+
+      restartedFirstDocument = new Y.Doc({ guid: "document-1" });
+      restartedSecondDocument = new Y.Doc({ guid: "document-1" });
+      restartedFirst = new NodexYProvider({
+        documentId: "document-1",
+        document: restartedFirstDocument,
+        adapter,
+        clientSessionId: "window-alpha-restarted",
+        autoConnect: false,
+      });
+      restartedSecond = new NodexYProvider({
+        documentId: "document-1",
+        document: restartedSecondDocument,
+        adapter,
+        clientSessionId: "window-beta-restarted",
+        autoConnect: false,
+      });
+      await Promise.all([restartedFirst.connect(), restartedSecond.connect()]);
+      expect(restartedFirstDocument.clientID !== firstClientId).toBeTrue();
+      expect(restartedSecondDocument.clientID !== secondClientId).toBeTrue();
+      expect(
+        restartedFirstDocument.clientID !== restartedSecondDocument.clientID,
+      ).toBeTrue();
+
+      const restartedMaterialization = materializeCardDocument(
+        restartedFirstDocument,
+      );
+      expect(JSON.stringify(restartedMaterialization)).toBe(
+        JSON.stringify(beforeRestart),
+      );
+      expect(
+        JSON.stringify(materializeCardDocument(restartedSecondDocument)),
+      ).toBe(JSON.stringify(beforeRestart));
+      expect(restartedMaterialization.blockTree.length).toBe(2);
+      expect(restartedMaterialization.blockTree[0]?.id).toBe("block-root");
+      expect(restartedMaterialization.blockTree[0]?.children.length).toBe(0);
+      expect(restartedMaterialization.blockTree[1]?.id).toBe("block-inserted");
+      expect(restartedMaterialization.blockTree[1]?.children[0]?.id).toBe(
+        "block-child",
+      );
+      const survivingIds = restartedMaterialization.blockTree.flatMap(
+        (block) => [
+          block.id,
+          ...block.children.map((child) => child.id),
+        ],
+      );
+      expect(survivingIds.join(",")).toBe(
+        "block-root,block-inserted,block-child",
+      );
+      expect(new Set(survivingIds).size).toBe(survivingIds.length);
+    } finally {
+      restartedFirst?.destroy();
+      restartedSecond?.destroy();
+      restartedFirstDocument?.destroy();
+      restartedSecondDocument?.destroy();
+      first.destroy();
+      second.destroy();
+      firstDocument.destroy();
+      secondDocument.destroy();
+      genesis.document.destroy();
+      insertedGenesis.document.destroy();
       adapter.destroy();
     }
   });

@@ -34,6 +34,15 @@ export interface BlockDocumentDerivedRecords {
   readonly assetRefs: readonly BlockDocumentAssetReference[];
 }
 
+/**
+ * BF-04 safety fence. These legacy reference shapes project another Card body
+ * into the host editor; canonical reference-only Blocks replace them in BF-05.
+ */
+export const isLegacyForeignBodyReference = (
+  reference: BlockDocumentReference,
+): boolean =>
+  reference.kind === "block" || reference.kind === "legacy_database_query";
+
 export class BlockDocumentDerivedRecordsError extends Error {
   constructor(message: string) {
     super(message);

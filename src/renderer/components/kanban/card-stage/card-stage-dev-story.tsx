@@ -190,6 +190,7 @@ export function CardStageDevStoryPage({
               columnId={CARD_STAGE_STORY_COLUMN_ID}
               columnName={CARD_STAGE_STORY_COLUMN_NAME}
               projectId={CARD_STAGE_STORY_PROJECT_ID}
+              documentAuthority={{ kind: "legacy_shadow" }}
               projectWorkspacePath={CARD_STAGE_STORY_WORKSPACE_PATH}
               availableTags={["ui", "threads", "card-stage", "spacing", "review"]}
               onUpdate={handleUpdate}

@@ -11,7 +11,10 @@ import type {
   DocumentSyncResponse,
   OwnedBlockDocumentDescriptor,
 } from "../shared/block-documents";
-import type { CutoverCardDocumentInput } from "./local-store/block-document-cutover";
+import type {
+  CutoverCardDocumentInput,
+  CutoverEligibleCardDocumentsResult,
+} from "./local-store/block-document-cutover";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -229,8 +232,19 @@ export type CardMutationWorkerRequest =
     };
   })
   | (CardMutationWorkerRequestBase & {
+    type: "prepareOwnedBlockDocument";
+    payload: {
+      readonly projectId: string;
+      readonly ownerBlockId: string;
+    };
+  })
+  | (CardMutationWorkerRequestBase & {
     type: "cutoverCardDocumentToPrimary";
     payload: CutoverCardDocumentInput;
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "cutoverEligibleCardDocuments";
+    payload: { readonly ownerBlockIds?: readonly string[] };
   })
   | (CardMutationWorkerRequestBase & {
     type: "applyBlockDocumentUpdate";
@@ -246,6 +260,7 @@ export type CardMutationWorkerRequest =
 export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentSyncResponse>
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
+  | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
   | DocumentSyncCommandResult<string>;
 
 export type CardMutationWorkerResult =
@@ -267,6 +282,7 @@ export type CardMutationWorkerResult =
   | HistoryMutationResult
   | BlockDocumentWorkerResult
   | OwnedBlockDocumentDescriptor
+  | CutoverEligibleCardDocumentsResult
   | undefined;
 
 export type CardMutationWorkerResponse =

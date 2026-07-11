@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useCallback, useState, type MutableRefObject, type RefObject } from "react";
+import { useEffect, useRef, useMemo, useCallback, useState, type RefObject } from "react";
 import {
   SideMenuController,
   type LinkToolbarProps,
@@ -163,7 +163,7 @@ import {
   type ThreadMentionRuntimeValue,
 } from "./thread-mention-chip";
 import { isBlockWithinOwnerTree } from "./use-projected-card-embed-sync";
-import type { CardStageDescriptionFlushHandle, CardStageLinkedThread } from "@/components/kanban/card-stage/types";
+import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
 import { invoke } from "@/lib/api";
 import { EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS } from "@/lib/timing";
 import { parseNfm, serializeNfm, nfmToBlockNote, blockNoteToNfm, applyToggleStatesFromDom } from "@/lib/nfm";
@@ -197,6 +197,13 @@ import {
 } from "@/features/local-conversation/local-conversation-store";
 import type { ModifyShortcutEditor } from "./modify-block-shortcut";
 import { handleNfmEditorModEnterShortcut } from "./nfm-editor-mod-enter-shortcut";
+import {
+  createNfmEditorModeOptions,
+  getNfmEditorInstanceKey,
+  resolveNfmEditorBlockActionCapabilities,
+  routeNfmEditorDocumentChange,
+  type NfmEditorSource,
+} from "./nfm-editor-source";
 
 interface ActiveChipEdit {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
@@ -218,15 +225,10 @@ interface NfmEditorFocusRuntime {
   isWithinEditor?: (element: Element) => boolean;
 }
 
-interface NfmEditorProps {
+interface NfmEditorCommonProps {
   projectId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
-  content: string;
-  onChange: (nfm: string) => void;
-  onPendingChange?: () => void;
-  onBlur: () => void;
-  flushHandleRef?: MutableRefObject<CardStageDescriptionFlushHandle | null>;
   sourceCardContext?: {
     cardId: string;
     columnId: string;
@@ -257,6 +259,15 @@ interface NfmEditorProps {
   };
   placeholder?: string;
   className?: string;
+}
+
+export interface NfmEditorProps extends NfmEditorCommonProps {
+  source: NfmEditorSource;
+}
+
+interface NfmEditorInstanceProps extends NfmEditorCommonProps {
+  source: NfmEditorSource;
+  editorInstanceKey: string;
 }
 
 interface NfmEditorChangeBlock {
@@ -532,15 +543,30 @@ function isBoardSummary(value: unknown): value is BoardSummary {
   return Array.isArray(value.columns);
 }
 
-export function NfmEditor({
+export function NfmEditor(props: NfmEditorProps) {
+  const source = props.source;
+  const editorInstanceKey = getNfmEditorInstanceKey({
+    projectId: props.projectId,
+    sourceCardId: props.sourceCardContext?.cardId,
+    source,
+  });
+
+  return (
+    <NfmEditorInstance
+      key={editorInstanceKey}
+      {...props}
+      source={source}
+      editorInstanceKey={editorInstanceKey}
+    />
+  );
+}
+
+function NfmEditorInstance({
   projectId,
   projectName = null,
   projectWorkspacePath,
-  content,
-  onChange,
-  onPendingChange,
-  onBlur,
-  flushHandleRef,
+  source,
+  editorInstanceKey,
   sourceCardContext,
   sessionId = null,
   sessionThread = null,
@@ -554,7 +580,7 @@ export function NfmEditor({
   headingRail,
   placeholder = "Add a description...",
   className,
-}: NfmEditorProps) {
+}: NfmEditorInstanceProps) {
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
   const { settings: pasteResourceSettings } = usePasteResourceSettings();
@@ -603,21 +629,17 @@ export function NfmEditor({
     onMutation: refreshHistoryState,
   });
 
-  // Use refs to avoid stale closures
-  const onChangeRef = useRef(onChange);
+  const sourceRef = useRef(source);
   useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
+    sourceRef.current = source;
+  }, [source]);
 
-  const onPendingChangeRef = useRef(onPendingChange);
-  useEffect(() => {
-    onPendingChangeRef.current = onPendingChange;
-  }, [onPendingChange]);
-
-  const onBlurRef = useRef(onBlur);
-  useEffect(() => {
-    onBlurRef.current = onBlur;
-  }, [onBlur]);
+  const legacyContent = source.kind === "legacy-snapshot"
+    ? source.content
+    : null;
+  const legacyFlushHandleRef = source.kind === "legacy-snapshot"
+    ? source.flushHandleRef
+    : undefined;
 
   const threadSectionThreadMap = useMemo(
     () => buildThreadSectionThreadMap(
@@ -680,14 +702,16 @@ export function NfmEditor({
 
   // Parse initial content for the editor, pre-populating localStorage for toggle states
   const initialContent = useMemo<typeof nfmSchema.PartialBlock[] | undefined>(() => {
+    if (legacyContent === null) return undefined;
+
     // Clean up previous toggle localStorage entries
     for (const id of toggleBlockIdsRef.current) {
       localStorage.removeItem(`toggle-${id}`);
     }
     toggleBlockIdsRef.current = [];
 
-    if (!content.trim()) return undefined;
-    const blocks = parseNfm(content);
+    if (!legacyContent.trim()) return undefined;
+    const blocks = parseNfm(legacyContent);
     const toggleStates = new Map<string, boolean>();
     const bnBlocks = nfmToBlockNote(blocks, toggleStates);
 
@@ -700,12 +724,14 @@ export function NfmEditor({
     return bnBlocks.length > 0
       ? bnBlocks as unknown as typeof nfmSchema.PartialBlock[]
       : undefined;
-  }, [projectId]);
+  }, [editorInstanceKey]);
+
+  const editorModeOptions = createNfmEditorModeOptions(source, initialContent);
 
   const editor = useCreateBlockNote(
     {
       schema: nfmSchema,
-      initialContent,
+      ...editorModeOptions,
       tabBehavior: "prefer-indent",
       placeholders: {
         default: placeholder,
@@ -725,7 +751,7 @@ export function NfmEditor({
         extensions: tiptapExtensions,
       },
     },
-    [projectId],
+    [editorInstanceKey],
   );
 
   const resolveThreadMention = useCallback(async (threadId: string): Promise<CodexThreadSummary | null> => {
@@ -862,7 +888,7 @@ export function NfmEditor({
   }, [editor, replaceQuery, syncSearchStats]);
 
   // Track the last value we sent via onChange to avoid re-parsing our own changes
-  const lastEmittedRef = useRef(content);
+  const lastEmittedRef = useRef(legacyContent ?? "");
 
   const serializeEditorToNfm = useCallback((): string => {
     if (!editor) return "";
@@ -886,11 +912,15 @@ export function NfmEditor({
   }, [serializeCurrentEditorContent]);
 
   const serializedChangeEmitterRef = useRef<ReturnType<typeof createNfmSerializedChangeEmitter> | null>(null);
-  if (!serializedChangeEmitterRef.current) {
+  if (source.kind === "legacy-snapshot" && !serializedChangeEmitterRef.current) {
     serializedChangeEmitterRef.current = createNfmSerializedChangeEmitter({
       debounceMs: EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS,
       serialize: () => serializeCurrentEditorContentRef.current(),
-      emit: (value) => onChangeRef.current(value),
+      emit: (value) => {
+        const currentSource = sourceRef.current;
+        if (currentSource.kind !== "legacy-snapshot") return;
+        currentSource.onChange(value);
+      },
       getLastEmitted: () => lastEmittedRef.current,
       setLastEmitted: (value) => {
         lastEmittedRef.current = value;
@@ -915,6 +945,15 @@ export function NfmEditor({
   const queuedExternalReplaceIdRef = useRef(0);
 
   const getExternalSyncActivity = useCallback((): ExternalSyncActivity => {
+    if (sourceRef.current.kind !== "legacy-snapshot") {
+      return {
+        hasPendingLocalChange: false,
+        isComposing: false,
+        isFocusedWithinEditor: false,
+        hasActiveLocalEdit: false,
+      };
+    }
+
     const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
     const hasPendingLocalChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
     const isComposing = isComposingRef.current;
@@ -933,6 +972,7 @@ export function NfmEditor({
   }, [editor]);
 
   const scheduleExternalContentReplacement = useCallback((nextContent: string) => {
+    if (sourceRef.current.kind !== "legacy-snapshot") return () => undefined;
     if (!editor) return () => undefined;
 
     cancelScheduledSerializedEmit();
@@ -996,6 +1036,7 @@ export function NfmEditor({
   }, [cancelScheduledSerializedEmit, editor]);
 
   const reconcileDeferredExternalContentSync = useCallback(() => {
+    if (sourceRef.current.kind !== "legacy-snapshot") return;
     const deferred = deferredExternalContentSyncRef.current;
     if (!deferred) return;
     const activity = getExternalSyncActivity();
@@ -1034,19 +1075,19 @@ export function NfmEditor({
   ]);
 
   useEffect(() => {
-    if (!flushHandleRef) return;
+    if (!legacyFlushHandleRef) return;
 
-    flushHandleRef.current = {
+    legacyFlushHandleRef.current = {
       flushPendingChange: flushSerializedEmit,
       hasPendingChange: () => serializedChangeEmitterRef.current?.hasPendingChange() ?? false,
     };
 
     return () => {
-      if (flushHandleRef.current?.flushPendingChange === flushSerializedEmit) {
-        flushHandleRef.current = null;
+      if (legacyFlushHandleRef.current?.flushPendingChange === flushSerializedEmit) {
+        legacyFlushHandleRef.current = null;
       }
     };
-  }, [flushHandleRef, flushSerializedEmit]);
+  }, [legacyFlushHandleRef, flushSerializedEmit]);
 
   useEffect(() => () => {
     serializedChangeEmitterRef.current?.cancel();
@@ -1463,13 +1504,17 @@ export function NfmEditor({
   // Handle content changes from the editor
   const handleChange = useCallback(() => {
     if (!editor) return;
+    const currentSource = sourceRef.current;
+    if (currentSource.kind === "collaborative-document") {
+      routeNfmEditorDocumentChange(currentSource, scheduleSerializedEmit);
+      return;
+    }
     if (suppressExternalDropRef.current || suppressExternalContentSyncRef.current) {
       cancelScheduledSerializedEmit();
       return;
     }
 
-    onPendingChangeRef.current?.();
-    scheduleSerializedEmit();
+    routeNfmEditorDocumentChange(currentSource, scheduleSerializedEmit);
   }, [cancelScheduledSerializedEmit, editor, scheduleSerializedEmit]);
 
   useEffect(() => {
@@ -1551,9 +1596,11 @@ export function NfmEditor({
   }, [editor, pasteResourceDialog, pasteResourceSettings, serializeEditorToNfm]);
 
   // Sync external content changes (card switching)
-  const prevContentRef = useRef(content);
+  const prevContentRef = useRef(legacyContent ?? "");
   useEffect(() => {
+    if (source.kind !== "legacy-snapshot") return;
     if (!editor) return;
+    const content = source.content;
     const previousContent = prevContentRef.current;
     if (content === previousContent) return;
     prevContentRef.current = content;
@@ -1588,10 +1635,10 @@ export function NfmEditor({
     return scheduleExternalContentReplacement(content);
   }, [
     cancelScheduledSerializedEmit,
-    content,
     editor,
     getExternalSyncActivity,
     scheduleExternalContentReplacement,
+    source,
   ]);
 
   useEffect(() => {
@@ -1617,6 +1664,7 @@ export function NfmEditor({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (source.kind !== "legacy-snapshot") return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -1641,9 +1689,10 @@ export function NfmEditor({
       el.removeEventListener("compositionend", handleCompositionEnd, true);
       el.removeEventListener("beforeinput", handleBeforeInput, true);
     };
-  }, [reconcileDeferredExternalContentSync]);
+  }, [reconcileDeferredExternalContentSync, source.kind]);
 
   useEffect(() => {
+    if (source.kind !== "legacy-snapshot") return;
     const el = containerRef.current;
     if (!el || !editor) return;
 
@@ -1660,11 +1709,12 @@ export function NfmEditor({
     return () => {
       el.removeEventListener("focusout", handleFocusOut, true);
     };
-  }, [editor, reconcileDeferredExternalContentSync]);
+  }, [editor, reconcileDeferredExternalContentSync, source.kind]);
 
   // Detect toggle button clicks (which don't create ProseMirror transactions)
   // and trigger save so toggle open/closed state is persisted via ▶/▼ markers
   useEffect(() => {
+    if (source.kind !== "legacy-snapshot") return;
     const el = containerRef.current;
     if (!el || !editor) return;
 
@@ -1680,7 +1730,10 @@ export function NfmEditor({
           // (queueMicrotask defers until after React's batched state update)
           queueMicrotask(() => {
             flushSerializedEmit();
-            onBlurRef.current();
+            const currentSource = sourceRef.current;
+            if (currentSource.kind === "legacy-snapshot") {
+              currentSource.onBlur();
+            }
           });
           return;
         }
@@ -1694,16 +1747,17 @@ export function NfmEditor({
     });
 
     return () => observer.disconnect();
-  }, [editor, flushSerializedEmit, handleChange]);
+  }, [editor, flushSerializedEmit, handleChange, source.kind]);
 
   // Clean up toggle localStorage entries on unmount
   useEffect(() => {
+    if (source.kind !== "legacy-snapshot") return;
     return () => {
       for (const id of toggleBlockIdsRef.current) {
         localStorage.removeItem(`toggle-${id}`);
       }
     };
-  }, []);
+  }, [source.kind]);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -2032,6 +2086,9 @@ export function NfmEditor({
         cardId: string;
       },
     ) => {
+      if (sourceRef.current.kind !== "legacy-snapshot") {
+        throw new Error("Moving blocks between Cards is not available for collaborative documents yet.");
+      }
       if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
@@ -2131,6 +2188,9 @@ export function NfmEditor({
         columnId: string;
       },
     ) => {
+      if (sourceRef.current.kind !== "legacy-snapshot") {
+        throw new Error("Moving blocks between Cards is not available for collaborative documents yet.");
+      }
       if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
@@ -2302,6 +2362,7 @@ export function NfmEditor({
   const sourceCardId = sourceCardContext?.cardId;
   const sourceColumnId = sourceCardContext?.columnId;
   const externalDropAdapter = useMemo(() => {
+    if (source.kind !== "legacy-snapshot") return null;
     if (!sourceCardId || !sourceColumnId) return null;
     return createCardStageDropAdapter(
       {
@@ -2334,6 +2395,7 @@ export function NfmEditor({
     cancelScheduledSerializedEmit,
     projectId,
     scheduleSerializedEmit,
+    source.kind,
     sourceCardId,
     sourceColumnId,
   ]);
@@ -2351,6 +2413,7 @@ export function NfmEditor({
 
   const applyCardImportDrop = useCallback(
     async (payload: ExternalCardDragPayload, pointer: { x: number; y: number }) => {
+      if (sourceRef.current.kind !== "legacy-snapshot") return null;
       if (!sourceCardContext) return null;
       const container = containerRef.current;
       if (!container) return null;
@@ -2488,7 +2551,7 @@ export function NfmEditor({
 
   useCardImportDropTarget({
     containerRef,
-    enabled: sourceCardContext !== undefined,
+    enabled: source.kind === "legacy-snapshot" && sourceCardContext !== undefined,
     getTargetCardIds: () => (sourceCardContext ? [sourceCardContext.cardId] : []),
     applyDrop: applyCardImportDrop,
     commitDrop: commitCardImportDrop,
@@ -2497,6 +2560,7 @@ export function NfmEditor({
 
   const handleInlineEmbedDrop = useCallback(
     async (event: DragEvent) => {
+      if (sourceRef.current.kind !== "legacy-snapshot") return;
       if (!sourceCardContext) return;
 
       const container = containerRef.current;
@@ -2683,6 +2747,7 @@ export function NfmEditor({
   );
 
   useEffect(() => {
+    if (source.kind !== "legacy-snapshot") return;
     if (!sourceCardContext) return;
     const container = containerRef.current;
     if (!container) return;
@@ -2695,7 +2760,7 @@ export function NfmEditor({
     return () => {
       container.removeEventListener("drop", onDropCapture, true);
     };
-  }, [handleInlineEmbedDrop, sourceCardContext]);
+  }, [handleInlineEmbedDrop, source.kind, sourceCardContext]);
 
   // The side-menu component identity must stay stable across NfmEditor renders.
   // BlockNote renders the side menu as `<Component/>` where Component is this
@@ -2704,8 +2769,12 @@ export function NfmEditor({
   // frequency, an unstable side-menu identity remounts the grip mid-gesture and
   // aborts native block drag-and-drop. Route volatile values through a ref so
   // the callback identity below never changes.
+  const blockActionCapabilities = resolveNfmEditorBlockActionCapabilities(
+    source,
+    sourceCardContext !== undefined,
+  );
   const sideMenuHandlersRef = useRef({
-    canSendBlocks: sourceCardContext !== undefined,
+    canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
     sourceProjectId: sourceCardContext ? projectId : null,
     sourceCardId: sourceCardContext?.cardId ?? null,
@@ -2713,7 +2782,7 @@ export function NfmEditor({
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   });
   sideMenuHandlersRef.current = {
-    canSendBlocks: sourceCardContext !== undefined,
+    canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
     sourceProjectId: sourceCardContext ? projectId : null,
     sourceCardId: sourceCardContext?.cardId ?? null,
@@ -2735,12 +2804,14 @@ export function NfmEditor({
 
   const textActionMenuRuntimeValue = useMemo(
     () => ({
-      canSendBlocks: sourceCardContext !== undefined,
+      canSendBlocks: blockActionCapabilities.canSendBlocksToThread,
       sourceProjectId: sourceCardContext ? projectId : null,
       sourceCardId: sourceCardContext?.cardId ?? null,
       sendToThreadProjectNameById,
       sendToThreadPreferredTarget: sessionSendToThreadPreferredTarget,
-      onMoveBlocksToDestination: moveBlocksToDestination,
+      ...(blockActionCapabilities.canMoveBlocks
+        ? { onMoveBlocksToDestination: moveBlocksToDestination }
+        : {}),
       onSendBlocksToThread: sendBlocksToThread,
       onSendThreadSection: handleSendThreadSectionByBlockId,
       onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
@@ -2748,6 +2819,8 @@ export function NfmEditor({
     [
       handleConvertDividerToThreadSection,
       handleSendThreadSectionByBlockId,
+      blockActionCapabilities.canMoveBlocks,
+      blockActionCapabilities.canSendBlocksToThread,
       moveBlocksToDestination,
       projectId,
       sendToThreadProjectNameById,
@@ -2980,7 +3053,10 @@ export function NfmEditor({
                         },
                       }}
                     />
-                    <NfmSlashMenu projectId={projectId} />
+                    <NfmSlashMenu
+                      projectId={projectId}
+                      allowCardReferences={source.kind === "legacy-snapshot"}
+                    />
                     <NfmTableHandlesController />
                   </NfmSideMenuOpenProvider>
                 </BlockNoteView>

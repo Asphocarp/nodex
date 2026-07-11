@@ -1,0 +1,105 @@
+import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import {
+  resolveBlockDocumentSyncIndicator,
+  type BlockDocumentSyncIndicatorModel,
+} from "@/lib/block-document-sync-indicator";
+import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
+import type { NodexYProviderStatus } from "@/lib/nodex-y-provider";
+
+interface SyncTimingState {
+  phase: NodexYProviderStatus["phase"];
+  phaseStartedAt: number;
+  pendingStartedAt: number | null;
+  hasEverSynced: boolean;
+}
+
+export interface BlockDocumentSyncStatusProps {
+  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly status: NodexYProviderStatus;
+}
+
+const readNow = (): number => Date.now();
+
+const toneClassName = (
+  model: BlockDocumentSyncIndicatorModel,
+): string => {
+  if (model.tone === "danger") return "text-(--destructive)";
+  if (model.tone === "warning") return "text-(--orange-text)";
+  return "text-(--foreground-tertiary)";
+};
+
+/** Sparse status chrome: the normal durable ACK path renders nothing. */
+export function BlockDocumentSyncStatus({
+  runtime,
+  status,
+}: BlockDocumentSyncStatusProps) {
+  const [, setClock] = useState(0);
+  const timingRef = useRef<SyncTimingState>({
+    phase: status.phase,
+    phaseStartedAt: readNow(),
+    pendingStartedAt: status.pendingUpdateCount > 0 ? readNow() : null,
+    hasEverSynced: status.phase === "synced",
+  });
+  const timing = timingRef.current;
+  const now = readNow();
+
+  if (timing.phase !== status.phase) {
+    timing.phase = status.phase;
+    timing.phaseStartedAt = now;
+  }
+  if (status.phase === "synced") timing.hasEverSynced = true;
+  if (status.pendingUpdateCount > 0 && timing.pendingStartedAt === null) {
+    timing.pendingStartedAt = now;
+  }
+  if (status.pendingUpdateCount === 0) timing.pendingStartedAt = null;
+
+  useEffect(() => {
+    if (status.phase === "synced" || status.phase === "destroyed") return;
+    const interval = globalThis.setInterval(() => {
+      setClock((current) => current + 1);
+    }, 250);
+    return () => globalThis.clearInterval(interval);
+  }, [status.phase]);
+
+  const model = resolveBlockDocumentSyncIndicator({
+    status,
+    phaseAgeMs: Math.max(0, now - timing.phaseStartedAt),
+    pendingAgeMs: timing.pendingStartedAt === null
+      ? 0
+      : Math.max(0, now - timing.pendingStartedAt),
+    hasEverSynced: timing.hasEverSynced,
+  });
+  if (!model) return null;
+
+  const retry = (): void => {
+    if (model.action?.kind === "reload") {
+      void runtime.reload();
+      return;
+    }
+    void runtime.connect();
+  };
+
+  return (
+    <div
+      role="status"
+      aria-live={model.announce}
+      className={cn(
+        "flex min-h-5 items-center justify-end gap-2 text-xs",
+        toneClassName(model),
+      )}
+      data-block-document-sync-phase={model.phase}
+    >
+      <span title={model.detail ?? undefined}>{model.label}</span>
+      {model.action ? (
+        <button
+          type="button"
+          className="font-medium text-(--foreground-secondary) hover:text-(--foreground)"
+          onClick={retry}
+        >
+          {model.action.label}
+        </button>
+      ) : null}
+    </div>
+  );
+}

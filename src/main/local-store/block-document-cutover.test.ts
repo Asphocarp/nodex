@@ -8,6 +8,7 @@ import { createCard } from "./cards";
 import {
   BlockDocumentCutoverError,
   cutoverCardDocumentToPrimary,
+  cutoverEligibleCardDocumentsToPrimary,
   getOwnedBlockDocumentDescriptor,
 } from "./block-document-cutover";
 import { syncBlockDocument } from "./block-document-store";
@@ -72,6 +73,101 @@ const expectCutoverCode = (
 };
 
 describe("Card Document cutover", () => {
+  sqliteTest("cuts eligible Cards monotonically and defers foreign-body hosts", async () => {
+    await withDatabase("document-cutover-batch", async (database) => {
+      const project = createProject({ name: "Batch cutover" });
+      const simple = await createCard(project.id, "draft", {
+        title: "Simple",
+        description: "Ready body",
+      });
+      const target = await createCard(project.id, "draft", { title: "Target" });
+      const host = await createCard(project.id, "draft", {
+        title: "Legacy host",
+        description: `<card-ref project="${project.id}" card="${target.id}" />`,
+      });
+      const archivedTarget = await createCard(project.id, "draft", {
+        title: "Archived host target",
+      });
+      const archivedHost = await createCard(project.id, "draft", {
+        title: "Archived projection host",
+        description: `<card-ref project="${project.id}" card="${archivedTarget.id}" />`,
+      });
+      runLegacyCardShadowProcessorProbe(database);
+      database.prepare(`
+        UPDATE cards
+        SET archived = 1, revision = revision + 1
+        WHERE id = ?
+      `).run(archivedHost.id);
+
+      const first = cutoverEligibleCardDocumentsToPrimary(database);
+      expect(first.cutoverDocumentIds.includes(`document:${simple.id}`)).toBeTrue();
+      expect(first.cutoverDocumentIds.includes(`document:${target.id}`)).toBeFalse();
+      expect(
+        first.cutoverDocumentIds.includes(`document:${archivedTarget.id}`),
+      ).toBeFalse();
+      expect(first.deferredForeignReferences).toBe(3);
+      expect(
+        getOwnedBlockDocumentDescriptor(database, project.id, host.id).authority,
+      ).toBe("legacy_shadow");
+      expect(
+        getOwnedBlockDocumentDescriptor(database, project.id, target.id).authority,
+      ).toBe("legacy_shadow");
+      expect(
+        getOwnedBlockDocumentDescriptor(database, project.id, archivedHost.id).ownerLifecycle,
+      ).toBe("archived");
+      expect(
+        getOwnedBlockDocumentDescriptor(database, project.id, archivedTarget.id).authority,
+      ).toBe("legacy_shadow");
+
+      const retry = cutoverEligibleCardDocumentsToPrimary(database);
+      expect(retry.cutoverDocumentIds.length).toBe(0);
+      expect(retry.alreadyPrimary).toBe(1);
+      expect(retry.deferredForeignReferences).toBe(3);
+    });
+  });
+
+  sqliteTest("keeps every possible legacy inline-query row on snapshot authority", async () => {
+    await withDatabase("document-cutover-query-participants", async (database) => {
+      const hostProject = createProject({ name: "Query host" });
+      const sourceProject = createProject({ name: "Query rows" });
+      const host = await createCard(hostProject.id, "draft", {
+        title: "Inline query host",
+        description: `<toggle-list-inline-view project="${sourceProject.id}" rules-v2="eyJtb2RlIjoiYWxsIn0" property-order="priority,estimate,status,tags" show-empty-estimate="false" show-empty-priority="false" />`,
+      });
+      const firstRow = await createCard(sourceProject.id, "draft", {
+        title: "Current row",
+      });
+      const futureRuleMatch = await createCard(sourceProject.id, "done", {
+        title: "Possible row after rules change",
+      });
+      runLegacyCardShadowProcessorProbe(database);
+
+      const result = cutoverEligibleCardDocumentsToPrimary(database);
+      expect(result.cutoverDocumentIds.includes(`document:${host.id}`)).toBeFalse();
+      expect(result.cutoverDocumentIds.includes(`document:${firstRow.id}`)).toBeFalse();
+      expect(
+        result.cutoverDocumentIds.includes(`document:${futureRuleMatch.id}`),
+      ).toBeFalse();
+      expect(
+        getOwnedBlockDocumentDescriptor(database, sourceProject.id, firstRow.id).authority,
+      ).toBe("legacy_shadow");
+      const possibleRowDescriptor = getOwnedBlockDocumentDescriptor(
+        database,
+        sourceProject.id,
+        futureRuleMatch.id,
+      );
+      expectCutoverCode(
+        () => cutoverCardDocumentToPrimary(database, {
+          projectId: sourceProject.id,
+          ownerBlockId: futureRuleMatch.id,
+          expectedGeneration: possibleRowDescriptor.generation,
+          expectedHeadSeq: possibleRowDescriptor.headSeq,
+        }),
+        "foreign_body_reference",
+      );
+    });
+  });
+
   sqliteTest("atomically flips a drained parity-checked Card and is idempotent", async () => {
     await withDatabase("document-cutover", async (database) => {
       const project = createProject({ name: "Cutover" });

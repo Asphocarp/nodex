@@ -1,5 +1,14 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Fragment, createElement, createRef, useEffect, useRef, useState, type ComponentProps } from "react";
+import {
+  Fragment,
+  createElement,
+  createRef,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
@@ -381,6 +390,69 @@ mock.module("./main-view-host", () => ({
         createElement("div", { style: { height: 400, width: 400 } }),
       ),
     );
+  },
+}));
+
+mock.module("@/components/block-documents/owned-block-document-boundary", () => ({
+  OwnedBlockDocumentBoundary: ({
+    projectId,
+    ownerBlockId,
+    dependencies,
+    children,
+  }: {
+    projectId: string;
+    ownerBlockId: string;
+    dependencies?: {
+      fetchDescriptor?: (
+        projectId: string,
+        ownerBlockId: string,
+      ) => Promise<Record<string, unknown>>;
+    };
+    children: (
+      model: Record<string, unknown>,
+      controls: { reload: () => Promise<void> },
+    ) => ReactNode;
+  }) => {
+    const fetchDescriptor = dependencies?.fetchDescriptor;
+    const [model, setModel] = useState<Record<string, unknown>>(() => {
+      if (fetchDescriptor) {
+        return { status: "legacy_shadow", projectId, ownerBlockId };
+      }
+      return {
+        status: "ydoc_primary",
+        projectId,
+        ownerBlockId,
+        descriptor: {
+          projectId,
+          ownerBlockId,
+          ownerType: "card",
+          ownerLifecycle: "active",
+          documentId: `document:${ownerBlockId}`,
+          storeEpoch: "workbench-test-store",
+          generation: 1,
+          headSeq: 1,
+          schemaKey: "nodex.card",
+          schemaVersion: 1,
+          readiness: "ready",
+          authority: "ydoc_primary",
+          stateVector: new Uint8Array([0]),
+        },
+      };
+    });
+    const reload = async (): Promise<void> => {
+      if (!fetchDescriptor) return;
+      const descriptor = await fetchDescriptor(projectId, ownerBlockId);
+      setModel({
+        ...descriptor,
+        status: descriptor.authority,
+        projectId,
+        ownerBlockId,
+      });
+    };
+    useEffect(() => {
+      void reload();
+    }, [fetchDescriptor, ownerBlockId, projectId]);
+    return children(model, { reload });
   },
 }));
 
@@ -10106,9 +10178,16 @@ describe("workbench session shell", () => {
 
     const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
     const card = cardStageProps?.card as { id?: string; projectId?: string } | undefined;
+    const documentAuthority = cardStageProps?.documentAuthority as {
+      kind?: string;
+      descriptor?: { projectId?: string; ownerBlockId?: string };
+    } | undefined;
     expect(cardStageProps?.projectId).toBe("beta");
     expect(card?.id).toBe("card-beta");
     expect(card?.projectId).toBe("beta");
+    expect(documentAuthority?.kind).toBe("ydoc_primary");
+    expect(documentAuthority?.descriptor?.projectId).toBe("beta");
+    expect(documentAuthority?.descriptor?.ownerBlockId).toBe("card-beta");
   });
 
   test("card-stage editor can start a new thread in the current blank session", async () => {

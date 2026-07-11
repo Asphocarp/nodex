@@ -1,0 +1,415 @@
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
+import type { Awareness } from "y-protocols/awareness.js";
+import type { CardDocumentEnvelope } from "../../../shared/block-documents";
+import { NodexButton } from "@/components/ui/button";
+import { createDocumentSyncAdapter } from "@/lib/api";
+import {
+  BlockDocumentSurfaceRuntime,
+  type BlockDocumentSurfaceReloadContext,
+  type BlockDocumentSurfaceRuntimeOptions,
+  type BlockDocumentSurfaceStatus,
+} from "@/lib/block-document-surface-runtime";
+import type { DocumentSyncAdapter } from "@/lib/nodex-y-provider";
+import type {
+  OwnedBlockDocumentModel,
+  ReadyCardBlockDocumentDescriptor,
+} from "@/lib/owned-block-document";
+
+export type PrimaryCardBlockDocumentDescriptor =
+  ReadyCardBlockDocumentDescriptor & {
+    readonly authority: "ydoc_primary";
+  };
+
+export type BlockDocumentLocalAwarenessState = Readonly<
+  Record<string, unknown>
+>;
+
+export interface BlockDocumentSurfaceValue extends CardDocumentEnvelope {
+  readonly descriptor: PrimaryCardBlockDocumentDescriptor;
+  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly awareness: Awareness;
+  readonly clientSessionId: string;
+  readonly status: BlockDocumentSurfaceStatus;
+}
+
+export interface BlockDocumentSurfaceDependencies {
+  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+  readonly createRuntime?: (
+    options: BlockDocumentSurfaceRuntimeOptions,
+  ) => BlockDocumentSurfaceRuntime;
+}
+
+export interface BlockDocumentSurfaceProps {
+  readonly projectId: string;
+  readonly descriptor: PrimaryCardBlockDocumentDescriptor;
+  /** Retained inactive tabs continue syncing content but publish no presence. */
+  readonly isActive: boolean;
+  readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
+  readonly onReload?: (
+    context?: BlockDocumentSurfaceReloadContext,
+  ) => void | Promise<void>;
+  readonly dependencies?: BlockDocumentSurfaceDependencies;
+  /** Read-only integration seam for flush/checkpoint before closing a stage. */
+  readonly runtimeRef?: MutableRefObject<BlockDocumentSurfaceRuntime | null>;
+  readonly children: (surface: BlockDocumentSurfaceValue) => ReactNode;
+}
+
+interface SurfaceFailureProps {
+  readonly error: Error;
+  readonly resetRequired: boolean;
+  readonly reloading: boolean;
+  readonly reload: () => Promise<void>;
+}
+
+const DEFAULT_DEPENDENCIES: BlockDocumentSurfaceDependencies = {};
+
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
+const createRuntime = (
+  options: BlockDocumentSurfaceRuntimeOptions,
+): BlockDocumentSurfaceRuntime => new BlockDocumentSurfaceRuntime(options);
+
+function SurfacePending({ phase }: { readonly phase?: string }) {
+  const label = phase === "connecting" ? "Connecting card…" : "Opening card…";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-block-document-surface-state={phase ?? "loading"}
+      className="py-8 text-sm text-token-description-foreground"
+    >
+      {label}
+    </div>
+  );
+}
+
+function SurfaceFailure({
+  error,
+  resetRequired,
+  reloading,
+  reload,
+}: SurfaceFailureProps) {
+  return (
+    <div
+      role="alert"
+      data-block-document-surface-state={
+        resetRequired ? "reset-required" : "error"
+      }
+      className="flex items-center gap-2 py-8 text-sm"
+    >
+      <span className="min-w-0 text-token-description-foreground">
+        {resetRequired
+          ? "This card needs to resync before editing can continue."
+          : "Couldn’t open this card’s collaborative document."}
+      </span>
+      <NodexButton
+        type="button"
+        size="xs"
+        variant="secondary"
+        disabled={reloading}
+        title={error.message}
+        onClick={() => void reload()}
+      >
+        {reloading ? "Reloading…" : "Reload"}
+      </NodexButton>
+    </div>
+  );
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const makeActiveAwarenessState = (
+  runtime: BlockDocumentSurfaceRuntime,
+  projectId: string,
+  descriptor: PrimaryCardBlockDocumentDescriptor,
+  configured: BlockDocumentLocalAwarenessState | undefined,
+  retained: Record<string, unknown> | null,
+): Record<string, unknown> => {
+  const current = runtime.awareness.getLocalState();
+  const base = retained ?? (isRecord(current) ? current : {});
+  const configuredNodex = isRecord(configured?.nodex) ? configured.nodex : {};
+  const retainedNodex = isRecord(base.nodex) ? base.nodex : {};
+  return {
+    ...base,
+    ...configured,
+    nodex: {
+      ...retainedNodex,
+      ...configuredNodex,
+      projectId,
+      ownerBlockId: descriptor.ownerBlockId,
+      clientSessionId: runtime.clientSessionId,
+    },
+  };
+};
+
+const useSurfaceAwareness = (
+  runtime: BlockDocumentSurfaceRuntime,
+  projectId: string,
+  descriptor: PrimaryCardBlockDocumentDescriptor,
+  isActive: boolean,
+  configured: BlockDocumentLocalAwarenessState | undefined,
+): void => {
+  const retainedStateRef = useRef<Record<string, unknown> | null>(null);
+  const configuredRef = useRef(configured);
+  configuredRef.current = configured;
+
+  useEffect(() => {
+    const awareness = runtime.awareness;
+    const localClientId = runtime.document.clientID;
+
+    if (isActive) {
+      awareness.setLocalState(
+        makeActiveAwarenessState(
+          runtime,
+          projectId,
+          descriptor,
+          configuredRef.current,
+          retainedStateRef.current,
+        ),
+      );
+      return;
+    }
+
+    const clearPresence = (): void => {
+      const current = awareness.getLocalState();
+      if (!isRecord(current)) return;
+      retainedStateRef.current = current;
+      runtime.clearLocalAwareness();
+    };
+    const handleAwarenessUpdate = (changes: {
+      readonly added: readonly number[];
+      readonly updated: readonly number[];
+    }): void => {
+      if (
+        !changes.added.includes(localClientId) &&
+        !changes.updated.includes(localClientId)
+      ) {
+        return;
+      }
+      clearPresence();
+    };
+
+    awareness.on("update", handleAwarenessUpdate);
+    clearPresence();
+    return () => awareness.off("update", handleAwarenessUpdate);
+  }, [descriptor, isActive, projectId, runtime]);
+};
+
+interface ReadySurfaceProps {
+  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly projectId: string;
+  readonly descriptor: PrimaryCardBlockDocumentDescriptor;
+  readonly isActive: boolean;
+  readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
+  readonly startupError: Error | null;
+  readonly onReload: () => Promise<void>;
+  readonly children: BlockDocumentSurfaceProps["children"];
+}
+
+function ReadySurface({
+  runtime,
+  projectId,
+  descriptor,
+  isActive,
+  localAwarenessState,
+  startupError,
+  onReload,
+  children,
+}: ReadySurfaceProps) {
+  const status = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.getStatus,
+    runtime.getStatus,
+  );
+  const [reloading, setReloading] = useState(false);
+  useSurfaceAwareness(
+    runtime,
+    projectId,
+    descriptor,
+    isActive,
+    localAwarenessState,
+  );
+
+  const reload = async (): Promise<void> => {
+    if (reloading) return;
+    setReloading(true);
+    try {
+      if (status.reloadRequired) {
+        await runtime.reload();
+      } else {
+        await runtime.close();
+      }
+    } finally {
+      await onReload();
+    }
+  };
+
+  const failure = startupError ?? status.error;
+  if (failure) {
+    return (
+      <SurfaceFailure
+        error={failure}
+        resetRequired={status.phase === "reset-required"}
+        reloading={reloading}
+        reload={reload}
+      />
+    );
+  }
+
+  const document = status.ready ? runtime.getReadyDocument() : null;
+  if (!document) return <SurfacePending phase={status.phase} />;
+
+  return children({
+    ...document,
+    descriptor,
+    runtime,
+    awareness: runtime.awareness,
+    clientSessionId: runtime.clientSessionId,
+    status,
+  });
+}
+
+interface RuntimeOwnerProps extends BlockDocumentSurfaceProps {
+  readonly restart: () => void;
+}
+
+function RuntimeOwner({
+  projectId,
+  descriptor: descriptorProp,
+  isActive,
+  localAwarenessState,
+  onReload,
+  dependencies = DEFAULT_DEPENDENCIES,
+  runtimeRef,
+  children,
+  restart,
+}: RuntimeOwnerProps) {
+  const [descriptor] = useState(descriptorProp);
+  const [runtime, setRuntime] = useState<BlockDocumentSurfaceRuntime | null>(
+    null,
+  );
+  const [startupError, setStartupError] = useState<Error | null>(null);
+  const onReloadRef = useRef(onReload);
+  onReloadRef.current = onReload;
+  const adapterFactory = dependencies.createAdapter ?? createDocumentSyncAdapter;
+  const runtimeFactory = dependencies.createRuntime ?? createRuntime;
+
+  useEffect(() => {
+    let live = true;
+    let ownedRuntime: BlockDocumentSurfaceRuntime | null = null;
+    try {
+      if (descriptor.projectId !== projectId) {
+        throw new TypeError(
+          "Block Document surface Project does not match its descriptor",
+        );
+      }
+      const adapter = adapterFactory(projectId);
+      ownedRuntime = runtimeFactory({
+        descriptor,
+        adapter,
+        reload: (context) => onReloadRef.current?.(context),
+      });
+      if (runtimeRef) runtimeRef.current = ownedRuntime;
+      setRuntime(ownedRuntime);
+      void ownedRuntime.connect().catch((error: unknown) => {
+        if (live) setStartupError(toError(error));
+      });
+    } catch (error) {
+      setStartupError(toError(error));
+    }
+
+    return () => {
+      live = false;
+      if (runtimeRef?.current === ownedRuntime) runtimeRef.current = null;
+      if (ownedRuntime) void ownedRuntime.close();
+    };
+  }, [adapterFactory, descriptor, projectId, runtimeFactory, runtimeRef]);
+
+  const reloadWithoutRuntime = async (): Promise<void> => {
+    try {
+      await onReloadRef.current?.();
+    } finally {
+      restart();
+    }
+  };
+
+  if (!runtime) {
+    if (startupError) {
+      return (
+        <SurfaceFailure
+          error={startupError}
+          resetRequired={false}
+          reloading={false}
+          reload={reloadWithoutRuntime}
+        />
+      );
+    }
+    return <SurfacePending />;
+  }
+
+  const handleReload = async (): Promise<void> => {
+    try {
+      if (!runtime.getStatus().reloadRequired) {
+        await onReloadRef.current?.();
+      }
+    } finally {
+      restart();
+    }
+  };
+
+  return (
+    <ReadySurface
+      runtime={runtime}
+      projectId={projectId}
+      descriptor={descriptor}
+      isActive={isActive}
+      localAwarenessState={localAwarenessState}
+      startupError={startupError}
+      onReload={handleReload}
+    >
+      {children}
+    </ReadySurface>
+  );
+}
+
+const surfaceIdentity = (
+  projectId: string,
+  descriptor: PrimaryCardBlockDocumentDescriptor,
+): string =>
+  [
+    projectId,
+    descriptor.documentId,
+    descriptor.storeEpoch,
+    descriptor.generation,
+  ].join("\u0000");
+
+/**
+ * Owns one independent Y.Doc/provider pair for one mounted writable surface.
+ * The authoritative roots are withheld until the initial state-vector sync and
+ * schema validation have completed.
+ */
+export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
+  const [revision, setRevision] = useState(0);
+  const identity = surfaceIdentity(props.projectId, props.descriptor);
+  return (
+    <RuntimeOwner
+      key={`${identity}\u0000${revision}`}
+      {...props}
+      restart={() => setRevision((current) => current + 1)}
+    />
+  );
+}
+
+export const isPrimaryOwnedBlockDocumentModel = (
+  model: OwnedBlockDocumentModel,
+): model is Extract<OwnedBlockDocumentModel, { readonly status: "ydoc_primary" }> =>
+  model.status === "ydoc_primary";

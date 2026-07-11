@@ -13,6 +13,12 @@ export interface RendererTransport {
     projectId: string,
     ownerBlockId: string,
   ) => Promise<import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor>;
+  prepareOwnedBlockDocument: (
+    projectId: string,
+    ownerBlockId: string,
+  ) => Promise<import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
+    import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor
+  >>;
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;

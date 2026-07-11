@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
+  decodeDocumentHttpError,
   decodeOwnedBlockDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentRealtimeSseEvent,
@@ -13,6 +14,7 @@ import {
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
+  DocumentSyncCommandError,
   DocumentSyncCommandResult,
   DocumentSyncRequest,
   DocumentSyncResponse,
@@ -25,7 +27,10 @@ const success = <T>(value: T): DocumentSyncCommandResult<T> => ({
   value,
 });
 
-const createApp = (options?: { readonly duplicate?: boolean }) => {
+const createApp = (options?: {
+  readonly duplicate?: boolean;
+  readonly prepareError?: DocumentSyncCommandError;
+}) => {
   const syncCalls: DocumentSyncRequest[] = [];
   const applyCalls: DocumentSyncApplyRequest[] = [];
   const hub = new DocumentSyncHub({
@@ -74,6 +79,24 @@ const createApp = (options?: { readonly duplicate?: boolean }) => {
       authority: "ydoc_primary",
       stateVector: new Uint8Array([1]),
     }),
+    prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
+      options?.prepareError
+        ? { ok: false, error: options.prepareError }
+        : success({
+            projectId,
+            ownerBlockId,
+            ownerType: "card",
+            ownerLifecycle: "active",
+            documentId: "document-1",
+            storeEpoch: "store-1",
+            generation: 1,
+            headSeq: 0,
+            schemaKey: "nodex.card",
+            schemaVersion: 1,
+            readiness: "ready",
+            authority: "ydoc_primary",
+            stateVector: new Uint8Array([2]),
+          }),
     getDocumentProjectId: async (documentId) =>
       documentId === "document-1"
         ? success("project-1")
@@ -129,6 +152,40 @@ describe("Document sync HTTP routes", () => {
     expect(descriptor.ownerBlockId).toBe("card-1");
     expect(descriptor.authority).toBe("ydoc_primary");
     expect(Array.from(descriptor.stateVector).join(",")).toBe("1");
+  });
+
+  test("prepares an eligible owned Document through the writer boundary", async () => {
+    const { app } = createApp();
+    const response = await app.request(
+      "/api/projects/project-1/blocks/card-1/document/prepare",
+      { method: "POST" },
+    );
+    expect(response.status).toBe(200);
+    const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
+      await response.text(),
+    );
+    expect(descriptor.authority).toBe("ydoc_primary");
+    expect(Array.from(descriptor.stateVector).join(",")).toBe("2");
+  });
+
+  test("preserves typed preparation errors on the HTTP transport", async () => {
+    const { app } = createApp({
+      prepareError: {
+        code: "document_not_ready",
+        message: "legacy projections still need migration",
+        retryable: true,
+        resetRequired: false,
+      },
+    });
+    const response = await app.request(
+      "/api/projects/project-1/blocks/card-1/document/prepare",
+      { method: "POST" },
+    );
+    expect(response.status).toBe(409);
+    const error = decodeDocumentHttpError(await response.text());
+    expect(error.code).toBe("document_not_ready");
+    expect(error.message).toBe("legacy projections still need migration");
+    expect(error.retryable).toBeTrue();
   });
 
   test("requires project-scoped SSE before binary sync and durable fanout", async () => {

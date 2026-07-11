@@ -30,6 +30,7 @@ import {
   materializeCardDocument,
   type CardDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
+import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import {
   captureBlockDocumentChangeState,
   deriveBlockDocumentTouchedIds,
@@ -1306,6 +1307,15 @@ const applyBlockDocumentUpdateForAuthority = (
           after: captureBlockDocumentChangeState(document),
         });
         materialization = materializeCardDocument(document);
+        if (
+          authority === "ydoc_primary" &&
+          materialization.references.some(isLegacyForeignBodyReference)
+        ) {
+          throw new BlockDocumentStoreError(
+            "invalid_document_update",
+            "Primary Card Documents cannot contain legacy foreign-body projections",
+          );
+        }
       } catch (error) {
         if (error instanceof BlockDocumentStoreError) {
           throw error;

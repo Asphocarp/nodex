@@ -25,7 +25,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 ## Non-Goals
 
-- Multi-user collaboration features
+- Remote multi-account collaboration or a cloud sync service (multiple local windows still share one collaborative Card Document)
 - Cloud sync or remote storage
 - Mobile-responsive design (desktop-first)
 - Complex workflow automation (keep it simple)
@@ -261,7 +261,14 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 7. Card Stage Editor
 - Notion-style slide-out panel for card details
 - Always-editable fields (no edit mode toggle)
-- Card description edits persist after a 1.5s auto-save debounce, with immediate save on blur/close and explicit save actions
+- Card is the user-facing term for a document-bearing Block; Card Stage never introduces a second Page identity
+- Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content and explicitly branches on `ydoc_primary` versus the temporary `legacy_shadow` migration surface
+- On a primary Card, every mounted writable surface owns an independent Y.Doc client/session, completes state-vector synchronization before mounting content, binds title to `Y.Text("title")`, and binds BlockNote to `Y.XmlFragment("body")`
+- Primary title/body edits are Yjs transactions and never run the 250ms whole-NFM serialization, 1.5s description save, external whole-body replacement, or description conflict overwrite path. NFM is a read/export materialization
+- The legacy 1.5s snapshot auto-save remains only for Cards with unconverted foreign-body projections until BF-05 converts those embeds to references; authority is never inferred from `Card.description`
+- Title/body undo tracks only the current surface's local origins. Remote edits merge visibly but do not enter that surface's undo stack
+- Awareness distinguishes mounted windows/sessions and is advisory rather than a lock. Retained inactive Card tabs keep content synchronization alive while clearing their own presence
+- Close/deactivation persistence is bounded and combines durable provider flush with a disposable local checkpoint. Normal fast ACKs stay visually quiet; delayed pending, offline, error, and reset states show compact retry/reload status
 - Card Stage visibility context is global: switching spaces/projects and views keeps the current Card Stage state/card until explicitly closed
 - Card Stage draft fields survive view/space switching because local patch/update/move operations keep the active card snapshot in sync
 - Card Stage priority uses an explicit empty state by default; empty priority renders as a subdued placeholder in selectors and is omitted from dense card badges.
@@ -274,7 +281,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - NFM headings use a typography scale in-editor: H1 `1.875em`, H2 `1.5em`, H3 `1.25em`, H4 `1.125em`, all at `600` weight with `1.3` line-height relative to the editor body size
 - Card Stage rich editors with four or more H1-H4 headings show an automatic left-gutter heading rail. The rail is renderer-derived from the mounted NFM document, is available only for the active rich-editor tab on fine-pointer viewports with at least 48px of left gutter, and is absent in raw mode. It shares the user-message marker rail behavior: current headings follow viewport intersection, rows auto-scroll, click reveal uses smooth scrolling, pointer drag scrub uses instant reveal, and hover shows a heading tooltip. The rail has no toolbar setting, card field, schema migration, backend endpoint, or history persistence.
 - NFM descriptions support simple editable tables from GFM pipe-table syntax and the lossless NFM `<table>` extension. Tables render in Card Stage, inline toggle-list editors, read-only history previews, and raw NFM renderer surfaces; detailed behavior lives in [NFM Editor Table Block Behavior](./nfm-editor-table-block-behavior.md).
-- Card Stage toolbar includes a `Show raw` toggle that swaps the description area into a read-only raw NFM view of the current local draft for debugging, without changing card fields or save behavior.
+- Card Stage toolbar includes a `Show raw` toggle that swaps the description area into a read-only raw NFM view for debugging. A primary Card materializes that view from the live Y.Doc; a legacy Card shows its current snapshot draft. Raw mode never becomes content authority.
 - BlockNote structural animations are mostly disabled in-editor (including indent/unindent depth transitions) to keep editing interactions immediate
 - NFM link labels are escape-normalized on parse, so repeated auto-save cycles remain idempotent (prevents exponential backslash growth on escaped markdown markers inside link text)
 - NFM autolink behavior is renderer-configurable: typing and paste recognition can be toggled independently, bare-domain recognition defaults on, and paste-time matching is intentionally strict enough to leave repo paths, slash-separated path segments, local file paths, and filename-like text such as `foo/bar/baz.md`, `local/code-block-mock-ui/action-menu-popper.com`, or `nfm-editor-copy-behavior.md` plain by default
@@ -752,6 +759,17 @@ nodex/
 | POST | `/api/projects/[projectId]/query` | Execute read-only SQL query |
 | GET | `/api/projects/[projectId]/schema` | Get database schema |
 
+#### Block Document Routes (project-scoped)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/projects/[projectId]/blocks/[ownerBlockId]/document` | Read the exact owned-Document descriptor without changing authority |
+| POST | `/api/projects/[projectId]/blocks/[ownerBlockId]/document/prepare` | Drain migration state and return the explicit primary-or-legacy descriptor for Card Stage |
+| GET | `/api/projects/[projectId]/documents/[documentId]/events` | Subscribe to targeted update and Awareness events before synchronization |
+| POST | `/api/projects/[projectId]/documents/[documentId]/sync` | Send a state vector and receive the missing binary update plus current durable head |
+| POST | `/api/projects/[projectId]/documents/[documentId]/updates` | Submit one idempotent binary update; success is acknowledged only after SQLite commit |
+| POST | `/api/projects/[projectId]/documents/[documentId]/awareness` | Publish bounded ephemeral presence; it never mutates content or SQLite |
+
 #### Asset Routes
 
 | Method | Endpoint | Description |
@@ -762,7 +780,7 @@ nodex/
 
 ### Database Schema
 
-Schema v59 adds a non-authoritative Block-first migration foundation alongside the current Card model: `blocks` preserves Card identity, `documents` / `block_documents` reserve one owned Document per Card, checksummed binary update/snapshot tables support the future collaborative authority, and Database capability/membership/view records model rows without copying Cards. Transitional triggers keep Card shells, membership/view placement, pending-Document source revision, cross-Project scope, and delete tombstones aligned for Card writes created after migration. Documents remain `pending_genesis + legacy_shadow`; Card Stage continues to use the Card/NFM behavior documented below until exact-once genesis, Yjs shadow translation, and collaborative cutover are complete. A v58 store receives a verified SQLite-and-assets safety backup, and the foundation seed plus schema-version bump commit atomically.
+Schema v59-v62 supplies the Block-first migration foundation and complete Card Document materializations: `blocks` preserves Card identity, `documents` / `block_documents` own one Document per Card, checksummed binary update/snapshot/receipt tables persist collaborative authority, and Database capability/membership/view/property records model rows without copying Cards. Startup and per-mutation fences drain one-way legacy title/body translation until every Card Document is ready and parity-checked. Eligible Cards advance monotonically to `ydoc_primary`; Cards containing unconverted foreign-body projections remain explicitly `legacy_shadow` for BF-05. A v58 store receives a verified SQLite-and-assets safety backup, and each numbered schema migration commits atomically.
 
 ```sql
 -- Current schema (simplified excerpt)
@@ -998,6 +1016,16 @@ CREATE TABLE thread_search_thread_state (
 Database Write → EventEmitter (notifier) → mainWindow.webContents.send()
     → window.api.on("board-changed") → useKanban hook → UI re-renders
 ```
+
+Primary Card Document edits use the independent binary collaboration plane:
+
+```
+Card Stage Y.Doc transaction → durable FIFO Document apply → SQLite commit/ACK
+    → Document subscriber fanout + same-head CardSummary materialization event
+    → other mounted surfaces apply remote origin; board summaries patch from projection
+```
+
+Each surface subscribes before its state-vector handshake. Missed or reordered realtime events are repaired by a later handshake; a fast successful ACK shows no save indicator. Browser clients use the equivalent binary POST + Document SSE Adapter. Neither path rewrites `cards.title` or `cards.description` for a primary Card.
 
 **Browser path (HTTP + SSE):**
 ```
@@ -1449,10 +1477,10 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 | Term | Definition |
 |------|------------|
 | **Agent** | AI coding assistant (e.g., Claude Code) that interacts via API |
-| **Card** | A single task/item on the board |
+| **Card** | The user-facing document-like Block; its Card ID is its Block ID and it owns one collaborative Document |
 | **Column** | A vertical list representing a workflow stage |
 | **Project** | An independent kanban board with its own cards and history |
-| **Card Stage** | Slide-out panel for viewing/editing card details |
+| **Card Stage** | Panel for viewing/editing Card properties and its independently synchronized title/body Document |
 | **SSE** | Server-Sent Events for real-time updates (browser mode) |
 | **IPC** | Inter-Process Communication between Electron main and renderer |
 | **Transport** | Abstraction layer (`api.ts`) that routes calls to IPC or HTTP |

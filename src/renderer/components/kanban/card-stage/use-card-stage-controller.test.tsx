@@ -1,7 +1,10 @@
 import { act } from "@testing-library/react";
 import { describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
-import { useCardStageController } from "./use-card-stage-controller";
+import {
+  useCardStageController,
+  type CardStageControllerDependencies,
+} from "./use-card-stage-controller";
 import type { CardStageProps } from "./types";
 import type { Card, CardInput, CardUpdateField, CardUpdateMutationResult, CardSummary } from "@/lib/types";
 import {
@@ -78,11 +81,34 @@ function buildUpdatedResult(updates: Partial<CardInput>): CardUpdateMutationResu
   };
 }
 
+function buildPrimaryDocumentAuthority(): CardStageProps["documentAuthority"] {
+  return {
+    kind: "ydoc_primary",
+    descriptor: {
+      projectId: "project-1",
+      ownerBlockId: "card-1",
+      ownerType: "card",
+      ownerLifecycle: "active",
+      documentId: "document-1",
+      storeEpoch: "store-epoch-1",
+      generation: 1,
+      headSeq: 1,
+      schemaKey: "nodex.card",
+      schemaVersion: 1,
+      readiness: "ready",
+      authority: "ydoc_primary",
+      stateVector: new Uint8Array(),
+    },
+    reload: async () => undefined,
+  };
+}
+
 function buildProps(overrides: Partial<CardStageProps> = {}): CardStageProps {
   const card = overrides.card === undefined ? buildCard() : overrides.card;
 
   return {
     card,
+    documentAuthority: { kind: "legacy_shadow" },
     columnId: "in_progress",
     columnName: "In progress",
     projectId: "project-1",
@@ -96,11 +122,14 @@ function buildProps(overrides: Partial<CardStageProps> = {}): CardStageProps {
   };
 }
 
-function renderController(props: CardStageProps) {
+function renderController(
+  props: CardStageProps,
+  dependencies: CardStageControllerDependencies = {},
+) {
   let controller: CardStageController | null = null;
 
   function Harness({ nextProps, children }: { nextProps: CardStageProps; children?: ReactNode }) {
-    controller = useCardStageController(nextProps);
+    controller = useCardStageController(nextProps, dependencies);
     return <>{children}</>;
   }
 
@@ -148,6 +177,226 @@ async function withQueuedAnimationFrames<T>(run: (flushFrame: () => void) => T |
 }
 
 describe("useCardStageController", () => {
+  test("authority cutover invalidates already queued legacy content callbacks", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    const legacyProps = buildProps({
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        return buildUpdatedResult(updates);
+      },
+    });
+    const result = renderController(legacyProps);
+    await settleAsyncRender();
+
+    type TimeoutCallback = Parameters<typeof globalThis.setTimeout>[0];
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const callbacks: TimeoutCallback[] = [];
+    globalThis.setTimeout = ((callback: TimeoutCallback) => {
+      callbacks.push(callback);
+      return callbacks.length as unknown as ReturnType<typeof globalThis.setTimeout>;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = (() => undefined) as typeof globalThis.clearTimeout;
+    try {
+      act(() => {
+        result.controller.handleTitleChange("Queued legacy title");
+        result.controller.handleDescriptionChange("Queued legacy body");
+        result.rerender(buildProps({
+          ...legacyProps,
+          documentAuthority: buildPrimaryDocumentAuthority(),
+        }));
+      });
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+
+    await act(async () => {
+      for (const callback of callbacks) {
+        if (typeof callback === "function") callback();
+      }
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(callbacks.length).toBe(2);
+    expect(updatesSeen.length).toBe(0);
+    result.view.unmount();
+  });
+
+  test("primary document authority never routes title or description through legacy writes", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    let patchCount = 0;
+    let flushCount = 0;
+    let documentPersistCount = 0;
+    const persistRef = { current: null as (() => Promise<void>) | null };
+    const props = buildProps({
+      documentAuthority: buildPrimaryDocumentAuthority(),
+      isActivePanelTab: true,
+      persistRef,
+      onPatch: () => {
+        patchCount += 1;
+      },
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        return buildUpdatedResult(updates);
+      },
+    });
+    const result = renderController(props, {
+      persistDocument: async () => {
+        documentPersistCount += 1;
+      },
+    });
+    await settleAsyncRender();
+    result.controller.descriptionFlushHandleRef.current = {
+      flushPendingChange: () => {
+        flushCount += 1;
+        return "Legacy editor body";
+      },
+      hasPendingChange: () => true,
+    };
+
+    act(() => {
+      result.controller.handleTitleChange("Legacy title attempt");
+      result.controller.handleTitleBlur();
+      result.controller.handleDescriptionPendingChange();
+      result.controller.handleDescriptionChange("Legacy body attempt");
+      result.controller.handleDescriptionBlur();
+    });
+    await act(async () => {
+      await persistRef.current?.();
+    });
+    await act(async () => {
+      result.rerender(buildProps({
+        ...props,
+        isActivePanelTab: false,
+      }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(result.controller.title).toBe("Persisted title");
+    expect(result.controller.description).toBe("Persisted body");
+    expect(flushCount).toBe(0);
+    expect(patchCount).toBe(0);
+    expect(updatesSeen.length).toBe(0);
+    expect(documentPersistCount).toBe(2);
+    result.view.unmount();
+  });
+
+  test("primary document authority keeps metadata writes active", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    const result = renderController(buildProps({
+      documentAuthority: buildPrimaryDocumentAuthority(),
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        return buildUpdatedResult(updates);
+      },
+    }));
+    await settleAsyncRender();
+
+    await act(async () => {
+      result.controller.handlePriorityChange("p1-high");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(updatesSeen.length).toBe(1);
+    expect(updatesSeen[0]?.priority).toBe("p1-high");
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "title")).toBeFalse();
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "description")).toBeFalse();
+    result.view.unmount();
+  });
+
+  test("document title updates the primary session snapshot without a legacy mutation", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    let patchCount = 0;
+    const sessionSnapshotRef = {
+      current: null as { projectId: string; cardId: string; titleSnapshot: string } | null,
+    };
+    const result = renderController(buildProps({
+      documentAuthority: buildPrimaryDocumentAuthority(),
+      sessionSnapshotRef,
+      onPatch: () => {
+        patchCount += 1;
+      },
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        return buildUpdatedResult(updates);
+      },
+    }));
+    await settleAsyncRender();
+
+    act(() => {
+      result.controller.handleDocumentTitleChange("Live document title");
+    });
+    await settleAsyncRender();
+
+    expect(result.controller.title).toBe("Live document title");
+    expect(sessionSnapshotRef.current?.titleSnapshot).toBe("Live document title");
+    expect(patchCount).toBe(0);
+    expect(updatesSeen.length).toBe(0);
+    result.view.unmount();
+  });
+
+  test("primary conflict overwrite strips title and description from a legacy conflict", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    const persistRef = { current: null as (() => Promise<void>) | null };
+    const legacyProps = buildProps({
+      persistRef,
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        if (updatesSeen.length === 1) {
+          return {
+            status: "conflict",
+            card: buildCard({
+              title: "Remote title",
+              description: "Remote body",
+              revision: 2,
+            }),
+          };
+        }
+        return buildUpdatedResult(updates);
+      },
+    });
+    const result = renderController(legacyProps);
+    await settleAsyncRender();
+
+    act(() => {
+      result.controller.handleTitleChange("Local title");
+      result.controller.handleDescriptionChange("Local body");
+    });
+    await settleAsyncRender();
+    await act(async () => {
+      await persistRef.current?.();
+    });
+    await settleAsyncRender();
+
+    expect(updatesSeen.length).toBe(1);
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "title")).toBeTrue();
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "description")).toBeTrue();
+
+    result.rerender(buildProps({
+      ...legacyProps,
+      documentAuthority: buildPrimaryDocumentAuthority(),
+    }));
+    await settleAsyncRender();
+    await act(async () => {
+      await result.controller.handleOverwriteMine();
+    });
+    await settleAsyncRender();
+
+    expect(updatesSeen.length).toBe(2);
+    expect(Object.hasOwn(updatesSeen[1] ?? {}, "title")).toBeFalse();
+    expect(Object.hasOwn(updatesSeen[1] ?? {}, "description")).toBeFalse();
+    result.view.unmount();
+  });
+
   test("handlePersist flushes pending editor content before saving", async () => {
     resetCardDraftStoreForTest();
     const updatesSeen: Partial<CardInput>[] = [];
