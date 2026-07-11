@@ -187,6 +187,34 @@ describe("Database View render model", () => {
     expect(model.columns[0]?.rows[0]?.blockId).toBe("card-1");
   });
 
+  test("builds generic Board columns from stable select option identities", () => {
+    const snapshot = makeSnapshot({ primary: false });
+    const descriptor = snapshot.descriptor.value;
+    const query = snapshot.query.value;
+    if (!descriptor || !query) throw new Error("Missing Database View fixture");
+    const workflowProperty = {
+      ...query.properties[0]!,
+      key: "workflow",
+      name: "Workflow",
+      config: { options: [{ id: "in_progress", name: "Doing" }] },
+    };
+    const properties = [workflowProperty, ...query.properties.slice(1)];
+    const model = buildDatabaseViewRenderModel({
+      descriptor: {
+        ...snapshot.descriptor,
+        value: { ...descriptor, properties },
+      },
+      query: {
+        ...snapshot.query,
+        value: { ...query, properties },
+      },
+    });
+    expect(model.primaryWriteCompatible).toBe(false);
+    expect(model.columns[0]?.id).toBe("in_progress");
+    expect(model.columns[0]?.name).toBe("Doing");
+    expect(model.columns[0]?.rows[0]?.blockId).toBe("card-1");
+  });
+
   test("does not route a filtered primary View through the unfiltered Board adapter", () => {
     const snapshot = makeSnapshot();
     const descriptor = snapshot.descriptor.value;

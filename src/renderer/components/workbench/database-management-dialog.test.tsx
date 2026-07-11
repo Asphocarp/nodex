@@ -237,9 +237,13 @@ describe("DatabaseManagementDialog", () => {
         onCreateProperty={noop}
         onDeleteProperty={noop}
         onCreateView={noop}
-        onUpdateView={(draft) => updatedViews.push(draft)}
+        onUpdateView={(draft) => {
+          updatedViews.push(draft);
+        }}
         onDeleteView={noop}
-        onSetMembership={(draft) => memberships.push(draft)}
+        onSetMembership={(draft) => {
+          memberships.push(draft);
+        }}
         onPutPropertyOption={noop}
         onDeletePropertyOption={noop}
       />,
@@ -253,8 +257,8 @@ describe("DatabaseManagementDialog", () => {
     });
     expect(JSON.stringify(memberships)).toBe(JSON.stringify([
       { cardBlockId: "card-member", databaseBlockId: null },
-      { cardBlockId: "card-other", databaseBlockId: "database-primary" },
-      { cardBlockId: "card-free", databaseBlockId: "database-primary" },
+      { cardBlockId: "card-other", databaseBlockId: "database-primary", viewId: "view-primary" },
+      { cardBlockId: "card-free", databaseBlockId: "database-primary", viewId: "view-primary" },
     ]));
 
     await act(async () => {
@@ -273,8 +277,230 @@ describe("DatabaseManagementDialog", () => {
     expect(JSON.stringify(updatedViews[0])).toBe(JSON.stringify({
       databaseBlockId: "database-primary",
       viewId: "view-primary",
+      expectedRevision: 1,
       name: "Delivery",
       kind: "list",
+      config: catalog.databases[0]?.views[0]?.config,
+    }));
+  });
+
+  test("authors durable filter, grouping, and display config from one captured View revision", async () => {
+    const updatedViews: unknown[] = [];
+    const { DatabaseManagementSurface } = await import("./database-management-dialog");
+    const screen = render(
+      <DatabaseManagementSurface
+        catalog={catalog}
+        cards={[]}
+        selectedDatabaseBlockId="database-primary"
+        onSelectDatabase={noop}
+        onCreateDatabase={noop}
+        onCreateProperty={noop}
+        onDeleteProperty={noop}
+        onCreateView={noop}
+        onUpdateView={(draft) => {
+          updatedViews.push(draft);
+        }}
+        onDeleteView={noop}
+        onSetMembership={noop}
+        onPutPropertyOption={noop}
+        onDeletePropertyOption={noop}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Edit View settings Board" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Group View by property"), {
+        target: { value: "property-tags" },
+      });
+      fireEvent.click(screen.getByLabelText("Title"));
+      fireEvent.click(screen.getByRole("button", { name: "Rule" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save View Board" }));
+      await Promise.resolve();
+    });
+
+    const draft = updatedViews[0] as {
+      readonly expectedRevision: number;
+      readonly config: {
+        readonly filter: unknown;
+        readonly group: unknown;
+        readonly display: unknown;
+      };
+    };
+    expect(draft.expectedRevision).toBe(1);
+    expect(JSON.stringify(draft.config.filter)).toBe(JSON.stringify({
+      kind: "group",
+      operator: "and",
+      children: [{
+        kind: "clause",
+        propertyId: "property-tags",
+        operator: "equals",
+        value: ["option-block-first"],
+      }],
+    }));
+    expect(JSON.stringify(draft.config.group)).toBe(JSON.stringify({ propertyId: "property-tags" }));
+    expect(JSON.stringify(draft.config.display)).toBe(JSON.stringify({ propertyIds: [], showTitle: false }));
+  });
+
+  test("adds membership through the selected durable View and logical Card anchor", async () => {
+    const memberships: unknown[] = [];
+    const anchored = {
+      ...cardState("card-anchor", "Anchor", "database-primary"),
+      positions: [{
+        viewId: "view-primary",
+        groupKey: null,
+        rankKey: "a",
+        revision: 1,
+      }],
+    };
+    const { DatabaseManagementSurface } = await import("./database-management-dialog");
+    const screen = render(
+      <DatabaseManagementSurface
+        catalog={catalog}
+        cards={[anchored, cardState("card-free", "Unassigned", null)]}
+        selectedDatabaseBlockId="database-primary"
+        onSelectDatabase={noop}
+        onCreateDatabase={noop}
+        onCreateProperty={noop}
+        onDeleteProperty={noop}
+        onCreateView={noop}
+        onUpdateView={noop}
+        onDeleteView={noop}
+        onSetMembership={(draft) => {
+          memberships.push(draft);
+        }}
+        onPutPropertyOption={noop}
+        onDeletePropertyOption={noop}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Membership position anchor"), {
+        target: { value: "card-anchor" },
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add Card Unassigned" }));
+      await Promise.resolve();
+    });
+    expect(JSON.stringify(memberships[0])).toBe(JSON.stringify({
+      cardBlockId: "card-free",
+      databaseBlockId: "database-primary",
+      viewId: "view-primary",
+      beforeCardBlockId: "card-anchor",
+    }));
+  });
+
+  test("keeps a stale local View draft visible but blocks overwrite after a remote revision", async () => {
+    const props = {
+      cards: [],
+      selectedDatabaseBlockId: "database-primary",
+      onSelectDatabase: noop,
+      onCreateDatabase: noop,
+      onCreateProperty: noop,
+      onDeleteProperty: noop,
+      onCreateView: noop,
+      onUpdateView: noop,
+      onDeleteView: noop,
+      onSetMembership: noop,
+      onPutPropertyOption: noop,
+      onDeletePropertyOption: noop,
+    } as const;
+    const { DatabaseManagementSurface } = await import("./database-management-dialog");
+    const screen = render(<DatabaseManagementSurface catalog={catalog} {...props} />);
+
+    await act(async () => {
+      fireEvent.input(screen.getByLabelText("View name Board"), {
+        target: { value: "Local draft" },
+      });
+      await Promise.resolve();
+    });
+    const primary = catalog.databases[0];
+    const primaryView = primary?.views[0];
+    if (!primary || !primaryView) throw new Error("Missing primary View fixture");
+    const remoteCatalog: GeneralDatabaseCatalog = {
+      databases: [{
+        ...primary,
+        views: [{ ...primaryView, name: "Remote rename", revision: 2 }],
+      }, ...catalog.databases.slice(1)],
+    };
+    await act(async () => {
+      screen.rerender(<DatabaseManagementSurface catalog={remoteCatalog} {...props} />);
+      await Promise.resolve();
+    });
+    expect((screen.getByLabelText("View name Remote rename") as HTMLInputElement).value).toBe("Local draft");
+    expect((screen.getByLabelText("View name Remote rename") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save View Remote rename" })).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Reload View Remote rename" }));
+      await Promise.resolve();
+    });
+    expect((screen.getByLabelText("View name Remote rename") as HTMLInputElement).value).toBe("Remote rename");
+  });
+
+  test("reorders durable Views with a logical anchor and captured CAS", async () => {
+    const primary = catalog.databases[0];
+    if (!primary) throw new Error("Missing primary Database fixture");
+    const primaryView = primary.views[0];
+    if (!primaryView) throw new Error("Missing primary View fixture");
+    const reorderedCatalog: GeneralDatabaseCatalog = {
+      databases: [{
+        ...primary,
+        views: [
+          primaryView,
+          {
+            ...primaryView,
+            id: "view-list",
+            name: "List",
+            kind: "list",
+            isPrimary: false,
+            revision: 2,
+            rankKey: "2",
+          },
+        ],
+      }],
+    };
+    const updates: unknown[] = [];
+    const { DatabaseManagementSurface } = await import("./database-management-dialog");
+    const screen = render(
+      <DatabaseManagementSurface
+        catalog={reorderedCatalog}
+        cards={[]}
+        selectedDatabaseBlockId="database-primary"
+        onSelectDatabase={noop}
+        onCreateDatabase={noop}
+        onCreateProperty={noop}
+        onDeleteProperty={noop}
+        onCreateView={noop}
+        onUpdateView={(draft) => {
+          updates.push(draft);
+        }}
+        onDeleteView={noop}
+        onSetMembership={noop}
+        onPutPropertyOption={noop}
+        onDeletePropertyOption={noop}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Move View Board down" }));
+      await Promise.resolve();
+    });
+    expect(JSON.stringify(updates[0])).toBe(JSON.stringify({
+      databaseBlockId: "database-primary",
+      viewId: "view-primary",
+      expectedRevision: 1,
+      name: "Board",
+      kind: "kanban",
+      config: primaryView.config,
+      beforeViewId: null,
     }));
   });
 });

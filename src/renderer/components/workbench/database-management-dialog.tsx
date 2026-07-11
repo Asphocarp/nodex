@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Boxes,
   CalendarDays,
   CheckSquare2,
@@ -9,6 +11,7 @@ import {
   Hash,
   List,
   Plus,
+  SlidersHorizontal,
   Tags,
   TextCursorInput,
   Trash2,
@@ -17,13 +20,13 @@ import {
 import type {
   DatabasePropertyOption,
   DatabasePropertyValueType,
+  GeneralDatabaseViewConfig,
   GeneralDatabaseViewKind,
 } from "../../../shared/database-kernel";
 import type {
   GeneralDatabaseCatalog,
   GeneralDatabaseDescriptor,
   GeneralDatabaseMembershipState,
-  GeneralDatabasePropertyDefinition,
 } from "../../../shared/database-query";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import {
@@ -33,7 +36,13 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  databaseViewConfigsEqual,
+  databaseViewMoveBeforeId,
+  readDatabasePropertyOptions,
+} from "@/lib/database-view-authoring";
 import { cn } from "@/lib/utils";
+import { DatabaseViewConfigEditor } from "./database-view-config-editor";
 
 export interface CreateDatabaseDraft {
   readonly name: string;
@@ -53,11 +62,17 @@ export interface CreateDatabaseViewDraft {
 
 export interface UpdateDatabaseViewDraft extends CreateDatabaseViewDraft {
   readonly viewId: string;
+  readonly expectedRevision: number;
+  readonly config: GeneralDatabaseViewConfig;
+  /** Undefined preserves placement; null appends. */
+  readonly beforeViewId?: string | null;
 }
 
 export interface SetDatabaseMembershipDraft {
   readonly cardBlockId: string;
   readonly databaseBlockId: string | null;
+  readonly viewId?: string;
+  readonly beforeCardBlockId?: string;
 }
 
 export interface PutDatabasePropertyOptionDraft {
@@ -162,27 +177,6 @@ const viewKindIcon = (kind: GeneralDatabaseViewKind) => {
   }
 };
 
-const readOptions = (
-  property: GeneralDatabasePropertyDefinition,
-): readonly DatabasePropertyOption[] => {
-  if (property.valueType !== "select" && property.valueType !== "multi_select") {
-    return [];
-  }
-  const options = property.config.options;
-  if (!Array.isArray(options)) return [];
-  return options.flatMap((option) => {
-    if (typeof option !== "object" || option === null || Array.isArray(option)) {
-      return [];
-    }
-    const id = option.id;
-    const name = option.name;
-    const color = option.color;
-    if (typeof id !== "string" || typeof name !== "string") return [];
-    if (color !== undefined && typeof color !== "string") return [];
-    return [{ id, name, ...(color === undefined ? {} : { color }) }];
-  });
-};
-
 const selectedDescriptor = (
   catalog: GeneralDatabaseCatalog,
   selectedDatabaseBlockId: string | null,
@@ -245,7 +239,17 @@ export function DatabaseManagementSurface({
   const [viewKind, setViewKind] = useState<GeneralDatabaseViewKind>("list");
   const [viewDrafts, setViewDrafts] = useState<Readonly<Record<
     string,
-    { readonly name: string; readonly kind: GeneralDatabaseViewKind }
+    {
+      readonly baseRevision: number;
+      readonly name: string;
+      readonly kind: GeneralDatabaseViewKind;
+      readonly config: GeneralDatabaseViewConfig;
+    }
+  >>>({});
+  const [expandedViewId, setExpandedViewId] = useState<string | null>(null);
+  const [membershipTargets, setMembershipTargets] = useState<Readonly<Record<
+    string,
+    { readonly viewId: string; readonly beforeCardBlockId: string }
   >>>({});
   const [optionDrafts, setOptionDrafts] = useState<Readonly<Record<string, string>>>({});
 
@@ -261,6 +265,19 @@ export function DatabaseManagementSurface({
   ) ?? [];
   const activeViews = descriptor?.views.filter((view) => view.lifecycle === "active") ?? [];
   const selectedDatabaseId = descriptor?.database.blockId ?? null;
+  const fallbackMembershipView = activeViews.find((view) => view.isPrimary) ?? activeViews[0] ?? null;
+  const storedMembershipTarget = selectedDatabaseId ? membershipTargets[selectedDatabaseId] : undefined;
+  const membershipView = activeViews.find((view) => view.id === storedMembershipTarget?.viewId)
+    ?? fallbackMembershipView;
+  const membershipAnchorCandidates = cards.filter((state) =>
+    state.membership?.databaseBlockId === selectedDatabaseId &&
+    state.positions.some((position) =>
+      position.viewId === membershipView?.id && position.groupKey === null));
+  const membershipBeforeCardBlockId = membershipAnchorCandidates.some(
+    (state) => state.card.blockId === storedMembershipTarget?.beforeCardBlockId,
+  )
+    ? storedMembershipTarget?.beforeCardBlockId ?? ""
+    : "";
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] max-sm:grid-cols-1">
@@ -360,6 +377,56 @@ export function DatabaseManagementSurface({
                     detail="One owning Database per Card"
                   />
                   <h3 id="database-cards-heading" className="sr-only">Database membership</h3>
+                  {selectedDatabaseId && membershipView ? (
+                    <div className="mb-2 flex min-h-8 flex-wrap items-center gap-2 rounded-lg bg-token-foreground/3 px-2">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-token-description-foreground">
+                        Add to
+                      </span>
+                      <select
+                        aria-label="Membership target View"
+                        value={membershipView.id}
+                        disabled={busy}
+                        onChange={(event) => setMembershipTargets((current) => ({
+                          ...current,
+                          [selectedDatabaseId]: {
+                            viewId: event.target.value,
+                            beforeCardBlockId: "",
+                          },
+                        }))}
+                        className="h-7 rounded-md border border-transparent bg-token-foreground/5 px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/8 focus:border-token-focus-border"
+                      >
+                        {activeViews.map((view) => (
+                          <option key={view.id} value={view.id}>{view.name}</option>
+                        ))}
+                      </select>
+                      <span className="text-xs text-token-description-foreground">before</span>
+                      <select
+                        aria-label="Membership position anchor"
+                        value={membershipBeforeCardBlockId}
+                        disabled={busy}
+                        onChange={(event) => setMembershipTargets((current) => ({
+                          ...current,
+                          [selectedDatabaseId]: {
+                            viewId: membershipView.id,
+                            beforeCardBlockId: event.target.value,
+                          },
+                        }))}
+                        className="h-7 max-w-48 rounded-md border border-transparent bg-token-foreground/5 px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/8 focus:border-token-focus-border"
+                      >
+                        <option value="">End of No group</option>
+                        {membershipAnchorCandidates.map((state) => (
+                          <option key={state.card.blockId} value={state.card.blockId}>
+                            {state.card.content?.title || "Untitled"}
+                          </option>
+                        ))}
+                      </select>
+                      {membershipView.config.group ? (
+                        <span className="text-xs text-token-description-foreground">
+                          New Cards enter the empty group
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="max-h-52 divide-y divide-token-border/60 overflow-y-auto border-y border-token-border/60">
                     {cards.map((state) => {
                       const currentDatabaseId = state.membership?.databaseBlockId ?? null;
@@ -389,6 +456,14 @@ export function DatabaseManagementSurface({
                             onClick={() => void onSetMembership({
                               cardBlockId: state.card.blockId,
                               databaseBlockId: belongsHere ? null : selectedDatabaseId,
+                              ...(!belongsHere && membershipView
+                                ? {
+                                    viewId: membershipView.id,
+                                    ...(membershipBeforeCardBlockId
+                                      ? { beforeCardBlockId: membershipBeforeCardBlockId }
+                                      : {}),
+                                  }
+                                : {}),
                             })}
                           >
                             {actionLabel}
@@ -413,7 +488,7 @@ export function DatabaseManagementSurface({
                   <div className="divide-y divide-token-border/60 border-y border-token-border/60">
                     {activeProperties.map((property) => {
                       const Icon = propertyTypeIcon(property.valueType);
-                      const options = readOptions(property);
+                      const options = readDatabasePropertyOptions(property);
                       return (
                         <div key={property.id} className="group py-2.5">
                           <div className="flex min-h-7 items-center gap-2">
@@ -538,73 +613,154 @@ export function DatabaseManagementSurface({
                   />
                   <h3 id="database-views-heading" className="sr-only">Database Views</h3>
                   <div className="divide-y divide-token-border/60 border-y border-token-border/60">
-                    {activeViews.map((view) => {
-                      const Icon = viewKindIcon(view.kind);
-                      const draft = viewDrafts[view.id] ?? {
+                    {activeViews.map((view, index) => {
+                      const storedDraft = viewDrafts[view.id];
+                      const storedMatchesAuthority = storedDraft
+                        ? storedDraft.name.trim() === view.name
+                          && storedDraft.kind === view.kind
+                          && databaseViewConfigsEqual(storedDraft.config, view.config)
+                        : false;
+                      const draft = storedDraft && !storedMatchesAuthority
+                        ? storedDraft
+                        : {
+                        baseRevision: view.revision,
                         name: view.name,
                         kind: view.kind,
+                        config: view.config,
                       };
-                      const changed = draft.name.trim() !== view.name || draft.kind !== view.kind;
+                      const stale = draft.baseRevision !== view.revision;
+                      const Icon = viewKindIcon(draft.kind);
+                      const changed = draft.name.trim() !== view.name
+                        || draft.kind !== view.kind
+                        || !databaseViewConfigsEqual(draft.config, view.config);
+                      const expanded = expandedViewId === view.id;
+                      const moveUpBeforeId = databaseViewMoveBeforeId(activeViews, view.id, "up");
+                      const moveDownBeforeId = databaseViewMoveBeforeId(activeViews, view.id, "down");
+                      const updateDraft = (
+                        update: Partial<Pick<typeof draft, "name" | "kind" | "config">>,
+                      ) => setViewDrafts((current) => ({
+                        ...current,
+                        [view.id]: { ...draft, ...update },
+                      }));
+                      const moveView = (beforeViewId: string | null | undefined) => {
+                        if (beforeViewId === undefined || changed) return;
+                        void onUpdateView({
+                          databaseBlockId: descriptor.database.blockId,
+                          viewId: view.id,
+                          expectedRevision: view.revision,
+                          name: view.name,
+                          kind: view.kind,
+                          config: view.config,
+                          beforeViewId,
+                        });
+                      };
                       return (
-                        <div key={view.id} className="group flex min-h-10 items-center gap-2 py-1.5">
-                          <Icon className="size-3.5 text-token-description-foreground" />
-                          <Input
-                            aria-label={`View name ${view.name}`}
-                            value={draft.name}
-                            disabled={busy}
-                            onInput={(event) => setViewDrafts((current) => ({
-                              ...current,
-                              [view.id]: { ...draft, name: event.currentTarget.value },
-                            }))}
-                            className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
-                          />
-                          <select
-                            aria-label={`View kind ${view.name}`}
-                            value={draft.kind}
-                            disabled={busy}
-                            onChange={(event) => setViewDrafts((current) => ({
-                              ...current,
-                              [view.id]: {
-                                ...draft,
-                                kind: event.target.value as GeneralDatabaseViewKind,
-                              },
-                            }))}
-                            className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
-                          >
-                            {VIEW_KINDS.map((kind) => (
-                              <option key={kind.value} value={kind.value}>{kind.label}</option>
-                            ))}
-                          </select>
-                          <NodexButton
-                            type="button"
-                            size="xs"
-                            variant="ghost"
-                            disabled={busy || !changed || !draft.name.trim()}
-                            aria-label={`Save View ${view.name}`}
-                            onClick={() => void onUpdateView({
-                              databaseBlockId: descriptor.database.blockId,
-                              viewId: view.id,
-                              name: draft.name.trim(),
-                              kind: draft.kind,
-                            })}
-                          >
-                            Save
-                          </NodexButton>
-                          {view.isPrimary ? (
-                            <span className="text-[10px] uppercase tracking-wide text-token-description-foreground">
-                              Primary
-                            </span>
-                          ) : (
-                            <NodexIconButton
-                              icon={Trash2}
-                              size="xs"
-                              tone="danger"
-                              ariaLabel={`Delete View ${view.name}`}
-                              disabled={busy}
-                              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                              onClick={() => void onDeleteView(descriptor.database.blockId, view.id)}
+                        <div key={view.id} className="group/view">
+                          <div className="flex min-h-10 items-center gap-1.5 py-1.5">
+                            <Icon className="size-3.5 shrink-0 text-token-description-foreground" />
+                            <Input
+                              aria-label={`View name ${view.name}`}
+                              value={draft.name}
+                              disabled={busy || stale}
+                              onInput={(event) => updateDraft({ name: event.currentTarget.value })}
+                              className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
                             />
-                          )}
+                            <select
+                              aria-label={`View kind ${view.name}`}
+                              value={draft.kind}
+                              disabled={busy || stale}
+                              onChange={(event) => updateDraft({
+                                kind: event.target.value as GeneralDatabaseViewKind,
+                              })}
+                              className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
+                            >
+                              {VIEW_KINDS.map((kind) => (
+                                <option key={kind.value} value={kind.value}>{kind.label}</option>
+                              ))}
+                            </select>
+                            <NodexIconButton
+                              icon={SlidersHorizontal}
+                              size="xs"
+                              active={expanded}
+                              ariaLabel={`${expanded ? "Hide" : "Edit"} View settings ${view.name}`}
+                              disabled={busy}
+                              onClick={() => setExpandedViewId(expanded ? null : view.id)}
+                            />
+                            <NodexIconButton
+                              icon={ArrowUp}
+                              size="xs"
+                              ariaLabel={`Move View ${view.name} up`}
+                              disabled={busy || stale || changed || index === 0 || moveUpBeforeId === undefined}
+                              onClick={() => moveView(moveUpBeforeId)}
+                            />
+                            <NodexIconButton
+                              icon={ArrowDown}
+                              size="xs"
+                              ariaLabel={`Move View ${view.name} down`}
+                              disabled={busy || stale || changed || index === activeViews.length - 1 || moveDownBeforeId === undefined}
+                              onClick={() => moveView(moveDownBeforeId)}
+                            />
+                            {stale ? (
+                              <NodexButton
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                disabled={busy}
+                                aria-label={`Reload View ${view.name}`}
+                                title="This View changed in another window"
+                                onClick={() => setViewDrafts((current) => {
+                                  const next = { ...current };
+                                  delete next[view.id];
+                                  return next;
+                                })}
+                              >
+                                Reload
+                              </NodexButton>
+                            ) : (
+                              <NodexButton
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                disabled={busy || !changed || !draft.name.trim()}
+                                aria-label={`Save View ${view.name}`}
+                                onClick={() => void onUpdateView({
+                                  databaseBlockId: descriptor.database.blockId,
+                                  viewId: view.id,
+                                  expectedRevision: draft.baseRevision,
+                                  name: draft.name.trim(),
+                                  kind: draft.kind,
+                                  config: draft.config,
+                                })}
+                              >
+                                Save
+                              </NodexButton>
+                            )}
+                            {view.isPrimary ? (
+                              <span className="text-[10px] uppercase tracking-wide text-token-description-foreground">
+                                Primary
+                              </span>
+                            ) : (
+                              <NodexIconButton
+                                icon={Trash2}
+                                size="xs"
+                                tone="danger"
+                                ariaLabel={`Delete View ${view.name}`}
+                                disabled={busy}
+                                className="opacity-0 group-hover/view:opacity-100 focus-visible:opacity-100"
+                                onClick={() => void onDeleteView(descriptor.database.blockId, view.id)}
+                              />
+                            )}
+                          </div>
+                          {expanded ? (
+                            <div className="mb-2 rounded-lg bg-token-foreground/3 px-2">
+                              <DatabaseViewConfigEditor
+                                config={draft.config}
+                                properties={activeProperties}
+                                disabled={busy || stale}
+                                onChange={(config) => updateDraft({ config })}
+                              />
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}

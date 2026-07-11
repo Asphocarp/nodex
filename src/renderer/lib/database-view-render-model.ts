@@ -7,6 +7,7 @@ import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
+import { readDatabasePropertyOptions } from "./database-view-authoring";
 import type {
   DatabaseViewSnapshot,
   GeneralDatabasePropertyDefinition,
@@ -204,11 +205,54 @@ const buildColumns = (
     renderRow: toRenderRow(row, query.properties),
   }));
   if (!statusGrouped) {
-    return [{
+    const groupPropertyId = query.view.config.group?.propertyId;
+    if (!groupPropertyId) return [{
         id: DEFAULT_CARD_STATUS,
         name: query.view.name,
         rows: rows.map(({ renderRow }) => renderRow),
     }];
+    const groupProperty = query.properties.find(
+      (property) => property.id === groupPropertyId && property.lifecycle === "active",
+    );
+    if (!groupProperty) return [{
+      id: DEFAULT_CARD_STATUS,
+      name: query.view.name,
+      rows: rows.map(({ renderRow }) => renderRow),
+    }];
+    const optionNames = new Map(
+      readDatabasePropertyOptions(groupProperty).map((option) => [option.id, option.name]),
+    );
+    const configuredGroupKeys = [
+      ...readDatabasePropertyOptions(groupProperty).map((option) => option.id),
+      ...rows.map(({ row }) => row.effectiveGroupKey),
+    ].filter((key, index, all): key is string | null => all.indexOf(key) === index);
+    const groupKeys = configuredGroupKeys.length > 0 ? configuredGroupKeys : [null];
+    const groupName = (key: string | null): string => {
+      if (key === null) return `No ${groupProperty.name}`;
+      const optionName = optionNames.get(key);
+      if (optionName) return optionName;
+      if (groupProperty.valueType === "multi_select") {
+        try {
+          const optionIds = JSON.parse(key) as unknown;
+          if (Array.isArray(optionIds) && optionIds.every((id) => typeof id === "string")) {
+            return optionIds
+              .map((id) => optionNames.get(id) ?? id)
+              .join(" · ");
+          }
+        } catch {
+          // The query owns the canonical group key; unknown values remain visible.
+        }
+      }
+      if (key === "true") return "Checked";
+      if (key === "false") return "Unchecked";
+      return key;
+    };
+    return groupKeys.map((groupKey) => ({
+      id: groupKey ?? `empty:${groupProperty.id}`,
+      name: groupName(groupKey),
+      rows: rows.flatMap(({ row, renderRow }) =>
+        row.effectiveGroupKey === groupKey ? [renderRow] : []),
+    }));
   }
 
   return CARD_STATUS_COLUMNS.map((column) => ({

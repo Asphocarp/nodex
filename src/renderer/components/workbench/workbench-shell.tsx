@@ -11610,14 +11610,14 @@ function DbViewSessionTab({
   });
   const activeProjectBoard = selectedDatabaseView.board;
   const databaseView = selectedDatabaseView.databaseView;
-  const readOnlySelectedView = Boolean(
+  const selectedGeneralView = Boolean(
     databaseView && !databaseView.primaryWriteCompatible,
   );
-  const renderedView: ProjectSessionDbView = readOnlySelectedView && databaseView
+  const renderedView: ProjectSessionDbView = selectedGeneralView && databaseView
     ? databaseView.query.view.kind
     : view;
-  const rulesView = readOnlySelectedView ? null : legacyRulesView;
-  const dbViewPrefs = readOnlySelectedView ? null : legacyDbViewPrefs;
+  const rulesView = selectedGeneralView ? null : legacyRulesView;
+  const dbViewPrefs = selectedGeneralView ? null : legacyDbViewPrefs;
   const [calendarState, setCalendarState] = useState<CalendarViewState>(() => loadCalendarViewState());
   const [calendarCreateRequestId, setCalendarCreateRequestId] = useState(0);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
@@ -11705,7 +11705,7 @@ function DbViewSessionTab({
   }, []);
 
   const selectView = async (nextView: ProjectSessionDbView) => {
-    if (readOnlySelectedView) return;
+    if (selectedGeneralView) return;
     await invoke("project-session-tabs:update", tab.id, {
       config: {
         projectId: config.projectId,
@@ -11717,7 +11717,7 @@ function DbViewSessionTab({
     await onRefreshSessions(tab.projectId);
   };
 
-  const availableToolbarItems = readOnlySelectedView
+  const availableToolbarItems = selectedGeneralView
     ? DB_VIEW_TABS.filter((item) => item.id === renderedView)
     : DB_VIEW_TABS;
   const toolbarItems = availableToolbarItems.map((item) => ({
@@ -11729,7 +11729,7 @@ function DbViewSessionTab({
       void selectView(item.id);
     },
   }));
-  const calendarToolbarControls = !readOnlySelectedView && renderedView === "calendar" ? (
+  const calendarToolbarControls = !selectedGeneralView && renderedView === "calendar" ? (
     <CalendarToolbarControls
       range={calendarState.range}
       onRangeChange={handleCalendarRangeChange}
@@ -11739,7 +11739,7 @@ function DbViewSessionTab({
       onNext={handleCalendarNext}
     />
   ) : null;
-  const calendarToolbarContextLabel = !readOnlySelectedView && renderedView === "calendar" ? (
+  const calendarToolbarContextLabel = !selectedGeneralView && renderedView === "calendar" ? (
     <CalendarToolbarMonthLabel visibleDays={calendarVisibleDays} />
   ) : null;
   const updateDbViewPrefs = rulesView
@@ -11762,7 +11762,7 @@ function DbViewSessionTab({
         items={toolbarItems}
         activeSearchQuery={searchQuery}
         taskSearchOpen={taskSearchOpen}
-        showSearchControls={readOnlySelectedView || renderedView !== "calendar"}
+        showSearchControls={selectedGeneralView || renderedView !== "calendar"}
         searchShortcutLabel={searchShortcutLabel}
         taskSearchInputRef={taskSearchInputRef}
         rulesView={rulesView}
@@ -11796,6 +11796,7 @@ function DbViewSessionTab({
           projectId={config.projectId}
           databaseViewId={databaseViewId}
           databaseView={databaseView}
+          refreshDatabaseView={selectedDatabaseView.refresh}
           projects={projects}
           view={renderedView}
           searchQuery={searchQuery}

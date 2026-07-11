@@ -122,6 +122,11 @@ export type DatabaseManagementIntent =
       readonly kind: "put_view";
       readonly mode: "create" | "update";
       readonly view: DatabaseViewDraft;
+      /**
+       * A mounted editor's captured revision. Supplying it prevents a later
+       * authority read from silently upgrading a stale whole-View draft.
+       */
+      readonly expectedRevision?: number;
       /** Undefined preserves an update's current placement; null appends. */
       readonly beforeViewId?: string | null;
     })
@@ -710,7 +715,10 @@ const compileIntent = (
         kind: "put_view",
         databaseBlockId: descriptor.database.blockId,
         viewId: intent.view.id,
-        expectedRevision: intent.mode === "create" ? 0 : existing!.revision,
+        expectedRevision:
+          intent.mode === "create"
+            ? 0
+            : intent.expectedRevision ?? existing!.revision,
         name: intent.view.name,
         viewKind: intent.view.kind,
         config: normalizeViewConfig(intent.view.config, descriptor),

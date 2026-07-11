@@ -458,6 +458,7 @@ describe("Database management intent compiler", () => {
           kind: "put_view",
           mode: "update",
           descriptor: snapshot,
+          expectedRevision: 4,
           view: {
             id: "database-a-board",
             name: "Board renamed",
@@ -483,7 +484,7 @@ describe("Database management intent compiler", () => {
 
     expect(created.expectedRevision).toBe(0);
     expect(created.beforeViewId).toBe("database-a-list");
-    expect(updated.expectedRevision).toBe(5);
+    expect(updated.expectedRevision).toBe(4);
     expect(updated.beforeViewId).toBe("database-a-list");
     expect(deleted.expectedRevision).toBe(2);
   });

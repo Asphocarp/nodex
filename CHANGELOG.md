@@ -48,8 +48,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Synced Blocks, Reusable Templates, Large Documents, and Large Code Blocks now open their independently synchronized content inline on demand, while collapsed/offscreen shells create no editor or provider and Canvas scenes remain in Canvas view.
-- Database management now adds, transfers, and removes a Card's single owning membership without relying on filtered View visibility, and can update the exact selected durable View through equivalent Electron, browser, and CLI paths.
-- Database tabs now stay bound to their durable View identity, so multiple Views from one Project can remain open independently. Secondary and filtered Views render their own query results read-only instead of borrowing the primary board's rows or write actions.
+- Database management now adds, transfers, and removes a Card's single owning membership without relying on filtered View visibility, targets a chosen durable View and logical position anchor, and authors each View's layout, filters, sorts, grouping, displayed properties, and order without silently overwriting a concurrent window.
+- Database tabs now stay bound to their durable View identity, so multiple Views from one Project can remain open independently. Secondary and filtered Views render and edit their own list, board, calendar, or canvas query results instead of borrowing the primary board's rows or write actions.
 - Canvas scenes now synchronize through an independent per-Project Y.Doc, so concurrent windows merge Excalidraw edits instead of overwriting a whole-scene snapshot; image files use verified managed assets and Card shapes remain stable references.
 - Multi-Card Kanban drags now commit status, property, and manual View position changes as one atomic Database operation, with exact retry and all-or-nothing conflict recovery.
 - Moving Blocks between collaborative Cards now uses one atomic cross-Document transaction: active editors briefly flush and freeze, application Block IDs stay stable, and a failed move leaves both Cards unchanged instead of saving competing body snapshots.

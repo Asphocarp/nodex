@@ -8,7 +8,6 @@ import {
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
-  GeneralDatabaseViewConfig,
 } from "../../../shared/database-kernel";
 import type {
   DatabaseReadSnapshot,
@@ -22,6 +21,7 @@ import {
 } from "@/lib/database-management-runtime";
 import type { DatabaseManagementIntent } from "@/lib/database-management-intents";
 import { subscribeDatabaseChanges } from "@/lib/api";
+import { emptyDatabaseViewConfig } from "@/lib/database-view-authoring";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
   DatabaseManagementDialog,
@@ -39,21 +39,6 @@ interface DatabaseManagementDialogControllerProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }
-
-const emptyViewConfig = (): GeneralDatabaseViewConfig => ({
-  schemaKey: "nodex.database-view",
-  schemaVersion: 1,
-  filter: { kind: "group", operator: "and", children: [] },
-  sort: [
-    {
-      field: { kind: "manual" },
-      direction: "asc",
-      nulls: "last",
-    },
-  ],
-  group: null,
-  display: { propertyIds: [], showTitle: true },
-});
 
 const propertyConfig = (
   valueType: DatabasePropertyValueType,
@@ -175,7 +160,7 @@ export function DatabaseManagementDialogController({
           id: viewId,
           name: "All",
           kind: "list",
-          config: emptyViewConfig(),
+          config: emptyDatabaseViewConfig(),
         },
       }),
       databaseBlockId,
@@ -219,7 +204,7 @@ export function DatabaseManagementDialogController({
         id: viewId,
         name: draft.name,
         kind: draft.kind,
-        config: emptyViewConfig(),
+        config: emptyDatabaseViewConfig(),
         isPrimary: false,
       },
     }));
@@ -244,11 +229,15 @@ export function DatabaseManagementDialogController({
         kind: "put_view",
         mode: "update",
         descriptor,
+        expectedRevision: draft.expectedRevision,
+        ...(draft.beforeViewId === undefined
+          ? {}
+          : { beforeViewId: draft.beforeViewId }),
         view: {
           id: view.id,
           name: draft.name,
           kind: draft.kind,
-          config: view.config,
+          config: draft.config,
           isPrimary: view.isPrimary,
         },
       };
@@ -262,6 +251,8 @@ export function DatabaseManagementDialogController({
         ? authority.descriptor(draft.databaseBlockId).value
         : null;
       const targetView = targetDescriptor?.views.find(
+        (view) => view.lifecycle === "active" && view.id === draft.viewId,
+      ) ?? targetDescriptor?.views.find(
         (view) => view.lifecycle === "active" && view.isPrimary,
       ) ?? targetDescriptor?.views.find((view) => view.lifecycle === "active");
       if (draft.databaseBlockId && (!targetView || !membershipId)) {
@@ -278,6 +269,9 @@ export function DatabaseManagementDialogController({
               databaseBlockId: draft.databaseBlockId,
               membershipId,
               viewId: targetView.id,
+              ...(draft.beforeCardBlockId
+                ? { beforeCardBlockId: draft.beforeCardBlockId }
+                : {}),
             }
           : null,
       };

@@ -15,6 +15,7 @@ interface MainViewHostProps {
   projectId: string;
   databaseViewId: string;
   databaseView: DatabaseViewRenderModel | null;
+  refreshDatabaseView?: () => void | Promise<void>;
   projects: Project[];
   view: WorkbenchView;
   searchQuery: string;
@@ -50,6 +51,7 @@ export function MainViewHost({
   projectId,
   databaseViewId,
   databaseView,
+  refreshDatabaseView,
   projects,
   view,
   searchQuery,
@@ -73,6 +75,7 @@ export function MainViewHost({
         model={databaseView}
         searchQuery={searchQuery}
         openCardStage={openCardStage}
+        onCommitted={refreshDatabaseView}
       />
     );
   }
