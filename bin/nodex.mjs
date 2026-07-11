@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { homedir } from "os";
 import { randomUUID } from "crypto";
 import TOML from "smol-toml";
+import { v7 as uuidV7 } from "uuid";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -420,6 +421,111 @@ function apiDelete(path) {
   return apiFetch(path, { method: "DELETE" });
 }
 
+async function readCardLifecyclePreflight(config, cardId) {
+  const result = await apiGet(
+    `${apiPrefix(config)}/card-lifecycle-preflight?cardId=${encodeURIComponent(cardId)}`,
+  );
+  const snapshot = result?.value;
+  if (
+    result?.ok !== true ||
+    snapshot?.version !== 1 ||
+    snapshot?.projectId !== config.project ||
+    typeof snapshot?.storeEpoch !== "string" ||
+    !Number.isSafeInteger(snapshot?.changeLogSeq) ||
+    snapshot?.value?.version !== 1
+  ) {
+    throw new Error(
+      result?.error?.message ||
+        "Server returned an invalid Card lifecycle preflight",
+    );
+  }
+  return snapshot;
+}
+
+async function sendCardLifecycleMutation(config, request) {
+  const url = `${BASE_URL}${apiPrefix(config)}/card-lifecycle-mutations`;
+  const serializedRequest = JSON.stringify(request);
+  const send = async () => {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: serializedRequest,
+    });
+    const result = await response.json().catch(() => null);
+    if (result && typeof result.ok === "boolean") return result;
+    throw new Error(
+      typeof result?.error === "string"
+        ? result.error
+        : `HTTP ${response.status}`,
+    );
+  };
+
+  let result;
+  let retried = false;
+  try {
+    result = await send();
+  } catch {
+    retried = true;
+    result = await send();
+  }
+  if (result?.ok !== true && result?.error?.retryable === true && !retried) {
+    result = await send();
+  }
+  if (result?.ok !== true) {
+    throw new Error(result?.error?.message || "Card lifecycle mutation failed");
+  }
+  return result.value;
+}
+
+async function readCardOrNull(config, cardId) {
+  let response;
+  try {
+    response = await fetch(
+      `${BASE_URL}${apiPrefix(config)}/card?cardId=${encodeURIComponent(cardId)}`,
+    );
+  } catch {
+    throw new Error(`Cannot connect to ${BASE_URL}. Is the Nodex server running?`);
+  }
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+    );
+  }
+  return response.json();
+}
+
+async function readCanonicalCardAfterLifecycle(config, receipt) {
+  const expectsDeleted = receipt.lifecycle === "deleted";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const card = await readCardOrNull(config, receipt.cardId);
+    const matches = expectsDeleted
+      ? card === null
+      : card?.id === receipt.cardId &&
+        card.archived === (receipt.lifecycle === "archived");
+    if (matches) return card;
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  throw new Error(
+    `Canonical Card read did not reach lifecycle ${receipt.lifecycle}`,
+  );
+}
+
+function cardLifecycleEnvelope(config, snapshot, operationId, operation) {
+  return {
+    version: 1,
+    operationId,
+    projectId: config.project,
+    storeEpoch: snapshot.storeEpoch,
+    ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
+    actor: { kind: "nodex_cli" },
+    operation,
+  };
+}
+
 // ─── Project API prefix ───
 
 function apiPrefix(config) {
@@ -437,6 +543,20 @@ function requireCanonicalMutationId(value) {
     throw new Error("--mutation-id must be a canonical non-empty identity up to 512 characters");
   }
   return mutationId;
+}
+
+function requireCanonicalCardId(value) {
+  if (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    value === value.trim()
+  ) {
+    return value;
+  }
+  throw new Error(
+    "--card-id must be a canonical non-empty identity up to 512 characters",
+  );
 }
 
 function scopedMutationId(baseMutationId, suffix, hasMultipleMutations) {
@@ -664,6 +784,7 @@ const OPTION_ALIASES = {
   "--name": "name", "-n": "name",
   "--label": "label",
   "--card": "card",
+  "--card-id": "cardId",
   "--limit": "limit",
   "--offset": "offset",
   "--description-chars": "descriptionChars",
@@ -713,6 +834,7 @@ const FLAG_DISPLAY = {
   name: "--name",
   label: "--label",
   card: "--card",
+  cardId: "--card-id",
   limit: "--limit",
   offset: "--offset",
   descriptionChars: "--description-chars",
@@ -744,14 +866,14 @@ const COMMAND_ALLOWED_FLAGS = {
     "priority", "assignee", "blocked", "limit", "offset", "full", "descriptionChars", "descriptionFull",
   ]),
   get: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
-  add: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "description", "priority", "estimate", "tags", "assignee", "due", "agentStatus", "agentBlocked"]),
+  add: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "description", "priority", "estimate", "tags", "assignee", "due", "agentStatus", "agentBlocked", "mutationId", "cardId"]),
   update: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
     "assignee", "clearAssignee", "due", "clearDue", "agentStatus", "clearAgentStatus",
     "agentBlocked", "mutationId", "expectedHead",
   ]),
-  rm: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
+  rm: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "mutationId"]),
   mv: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
@@ -1281,27 +1403,54 @@ async function cmdAdd(positional, flags, config) {
   const title = positional[1];
   if (!statusRaw || !title) throw new Error("Usage: nodex add <status> <title> [opts]");
 
-  const prefix = apiPrefix(config);
   const status = normalizeStatusId(statusRaw);
-  const body = { status, title };
-  if (config.sessionId) body.sessionId = config.sessionId;
+  if (flags.mutationId !== undefined && flags.cardId === undefined) {
+    throw new Error(
+      "--mutation-id for 'nodex add' requires --card-id so a later retry preserves both identities",
+    );
+  }
+  const cardId = flags.cardId === undefined
+    ? uuidV7()
+    : requireCanonicalCardId(flags.cardId);
+  const operationId = requireCanonicalMutationId(flags.mutationId);
+  const operation = {
+    kind: "create_card",
+    cardId,
+    status,
+    title,
+    nfm: "",
+  };
 
-  if (flags.description !== undefined) body.description = await resolveValue(flags.description);
+  if (flags.description !== undefined) operation.nfm = await resolveValue(flags.description);
   if (flags.priority) {
     assertValidPriority(flags.priority);
-    body.priority = flags.priority;
+    operation.priority = flags.priority;
   }
   if (flags.estimate) {
     assertValidEstimate(flags.estimate);
-    body.estimate = flags.estimate;
+    operation.estimate = flags.estimate;
   }
-  if (flags.tags !== undefined) body.tags = parseTags(flags.tags);
-  if (flags.assignee !== undefined) body.assignee = flags.assignee;
-  if (flags.due !== undefined) body.dueDate = parseDueDate(flags.due);
-  if (flags.agentStatus !== undefined) body.agentStatus = await resolveValue(flags.agentStatus);
-  if (flags.agentBlocked === true) body.agentBlocked = true;
+  if (flags.tags !== undefined) operation.tags = parseTags(flags.tags);
+  if (flags.assignee !== undefined) operation.assignee = flags.assignee;
+  if (flags.due !== undefined) operation.dueDate = parseDueDate(flags.due);
+  if (flags.agentStatus !== undefined) operation.agentStatus = await resolveValue(flags.agentStatus);
+  if (flags.agentBlocked === true) operation.agentBlocked = true;
 
-  const card = await apiPost(`${prefix}/board`, body);
+  const preflight = await readCardLifecyclePreflight(config, cardId);
+  const isExplicitExactRetry =
+    flags.cardId !== undefined && flags.mutationId !== undefined;
+  if (
+    (preflight.value.card || preflight.value.reservedBlockType) &&
+    !isExplicitExactRetry
+  ) {
+    throw new Error(`Card identity is already reserved: ${cardId}`);
+  }
+  const receipt = await sendCardLifecycleMutation(
+    config,
+    cardLifecycleEnvelope(config, preflight, operationId, operation),
+  );
+  const card = await readCanonicalCardAfterLifecycle(config, receipt);
+  if (!card) throw new Error("Created Card is missing from canonical authority");
 
   if (flags.json) {
     jsonOut(card, flags);
@@ -1413,13 +1562,31 @@ async function cmdRm(positional, flags, config) {
   const cardId = positional[0];
   if (!cardId) throw new Error("Usage: nodex rm <card-id>");
 
-  const prefix = apiPrefix(config);
-  let url = `${prefix}/card?cardId=${encodeURIComponent(cardId)}`;
-  if (config.sessionId) url += `&sessionId=${encodeURIComponent(config.sessionId)}`;
-
-  await apiDelete(url);
+  const operationId = requireCanonicalMutationId(flags.mutationId);
+  const preflight = await readCardLifecyclePreflight(config, cardId);
+  const card = preflight.value.card;
+  if (!card || card.cardId !== cardId) {
+    throw new Error(`Card does not exist: ${cardId}`);
+  }
+  if (
+    card.lifecycle === "deleted" ||
+    card.location?.kind !== "space" ||
+    card.location.rankKey === null
+  ) {
+    throw new Error(`Card ${cardId} is not an active top-level Space Card`);
+  }
+  const receipt = await sendCardLifecycleMutation(
+    config,
+    cardLifecycleEnvelope(config, preflight, operationId, {
+      kind: "delete_card",
+      cardId,
+      expectedMetadataRevision: card.metadataRevision,
+      expectedLocationRevision: card.locationRevision,
+    }),
+  );
+  await readCanonicalCardAfterLifecycle(config, receipt);
   if (flags.json) {
-    jsonOut({ success: true, cardId }, flags);
+    jsonOut({ success: true, cardId, operationId: receipt.operationId }, flags);
     return;
   }
   rowsOut(["status", "cardId"], [{ status: "deleted", cardId }], flags);
@@ -2000,6 +2167,8 @@ function printCommandHelp(cmd) {
     --due <YYYY-MM-DD>        Due date
     --agent-status <text>     Agent status (supports @file/@-)
     --agent-blocked           Mark as blocked
+    --card-id <id>            Stable Card Block identity (required with --mutation-id)
+    --mutation-id <id>        Stable operation identity; retry with the same --card-id
     --jsonl                   JSON Lines output (default)
     --json                    JSON object output
     --csv                     CSV output
@@ -2081,7 +2250,10 @@ function printCommandHelp(cmd) {
 
     rm: `Usage: nodex rm <card-id>
 
-  Delete a card. Status is auto-resolved.`,
+  Delete a card. Status is auto-resolved.
+
+  Options:
+    --mutation-id <id>        Stable exact-retry identity for deletion`,
 
     mv: `Usage: nodex mv <card-id> <from-status> <to-status> [order] [opts]
 

@@ -11,7 +11,7 @@ import { createUuidV7 } from "../../shared/card-id";
 import { readAuthoritativeCardById } from "./card-read-store";
 import {
   applyCardLifecycleMutation,
-  readCardLifecycleStoreEpoch,
+  readCardLifecyclePreflightSnapshot,
   verifyCardDocumentContinuity,
   type CardLifecycleMutationFaultPoint,
 } from "./card-block-lifecycle";
@@ -19,6 +19,7 @@ import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
 import { rebuildCardReadModelProjection } from "./card-read-store";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
+import { readBlockStoreEpoch } from "./block-store-metadata";
 
 interface Fixture {
   readonly database: Database.Database;
@@ -60,7 +61,7 @@ const withFixture = async (
     await initializeDatabase();
     const project = createProject({ name: "Card lifecycle" });
     const database = getDb();
-    const storeEpoch = readCardLifecycleStoreEpoch(database);
+    const storeEpoch = readBlockStoreEpoch(database);
     if (!storeEpoch) throw new Error("Fixture has no store epoch");
     await run({ database, projectId: project.id, storeEpoch });
   } finally {
@@ -448,6 +449,93 @@ describe("authoritative Card lifecycle kernel", () => {
             .prepare("SELECT 1 FROM blocks WHERE id = ?")
             .get(cardId) === undefined,
         ).toBeTrue();
+      });
+    },
+  );
+
+  sqliteTest(
+    "reads lifecycle authority and restore evidence at one snapshot coordinate",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const created = committed(
+          fixture,
+          "create-preflight",
+          createOperation(cardId),
+        );
+        const active = readCardLifecyclePreflightSnapshot(
+          fixture.database,
+          fixture.projectId,
+          cardId,
+        );
+        expect(active.ok).toBeTrue();
+        if (!active.ok) return;
+        const activeCard = active.value.value?.card;
+        expect(active.value.storeEpoch).toBe(fixture.storeEpoch);
+        expect(active.value.changeLogSeq).toBe(created.changeLogSeq);
+        expect(active.value.value?.reservedBlockType).toBe(null);
+        expect(activeCard?.document.documentId).toBe(created.documentId);
+        expect(activeCard?.membership?.membershipId).toBe(created.membershipId);
+        expect(activeCard?.membership?.viewId).toBe(created.viewId);
+        expect(activeCard?.membership?.status).toBe("draft");
+        expect(activeCard?.membership?.position.groupKey).toBe("draft");
+        expect(
+          active.value.value?.primaryDatabase.query.rows.some(
+            (row) => row.card.blockId === cardId,
+          ) ?? false,
+        ).toBeTrue();
+
+        const deleted = committed(fixture, "delete-preflight", {
+          kind: "delete_card",
+          cardId,
+          expectedMetadataRevision: created.metadataRevision,
+          expectedLocationRevision: created.locationRevision,
+        });
+        const tombstone = readCardLifecyclePreflightSnapshot(
+          fixture.database,
+          fixture.projectId,
+          cardId,
+        );
+        expect(tombstone.ok).toBeTrue();
+        if (!tombstone.ok) return;
+        expect(tombstone.value.changeLogSeq).toBe(deleted.changeLogSeq);
+        expect(tombstone.value.value?.card?.lifecycle).toBe("deleted");
+        expect(tombstone.value.value?.card?.location.kind).toBe("space");
+        expect(tombstone.value.value?.card?.restoreEvidence?.deleteOperationId).toBe(
+          "delete-preflight",
+        );
+        expect(tombstone.value.value?.card?.restoreEvidence?.membership?.membershipId).toBe(
+          created.membershipId,
+        );
+      });
+    },
+  );
+
+  sqliteTest(
+    "reports application identity reserved by another Project globally",
+    async () => {
+      await withFixture((fixture) => {
+        const otherProject = createProject({ name: "Other identity owner" });
+        const cardId = createUuidV7();
+        committed(
+          {
+            database: fixture.database,
+            projectId: otherProject.id,
+            storeEpoch: fixture.storeEpoch,
+          },
+          "create-other-project",
+          createOperation(cardId),
+        );
+
+        const result = readCardLifecyclePreflightSnapshot(
+          fixture.database,
+          fixture.projectId,
+          cardId,
+        );
+        expect(result.ok).toBeTrue();
+        if (!result.ok) return;
+        expect(result.value.value?.card).toBe(null);
+        expect(result.value.value?.reservedBlockType).toBe("card");
       });
     },
   );

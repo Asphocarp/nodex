@@ -368,6 +368,42 @@ describe("CardMutationWriter", () => {
     expect(databaseEvents[0]?.sourceKind).toBe("database_mutation");
   });
 
+  test("serializes the Card lifecycle preflight through the same FIFO worker", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const pending = writer.readCardLifecyclePreflight(
+      "project-1",
+      "card-1",
+    );
+    const request = worker.messages[0];
+    expect(request?.type).toBe("readCardLifecyclePreflight");
+    if (!request || request.type !== "readCardLifecyclePreflight") return;
+    expect(request.payload.projectId).toBe("project-1");
+    expect(request.payload.cardId).toBe("card-1");
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          changeLogSeq: 4,
+          value: null,
+        },
+      },
+      events: [],
+      metrics: { ...makeMetrics(request.mutationId), eventCount: 0 },
+    });
+    const envelope = await pending;
+    expect(envelope.result.ok).toBeTrue();
+    expect(envelope.events.length).toBe(0);
+  });
+
   test("preserves the trusted Card lifecycle identity and typed receipt through the FIFO", async () => {
     const worker = new FakeWorker();
     const databaseEvents: DatabaseChangeEvent[] = [];

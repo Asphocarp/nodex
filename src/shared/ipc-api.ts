@@ -47,6 +47,11 @@ import type {
 } from "./database-query";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
+  CardLifecycleMutationCommandResult,
+  CardLifecycleMutationRequest,
+} from "./card-lifecycle";
+import type { CardLifecyclePreflightResult } from "./card-lifecycle-runtime";
+import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
 } from "./block-references";
@@ -189,7 +194,6 @@ import type {
   BlockDropImportResult,
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
-  CardCreateInput,
   CardDescriptionUpdateStartInput,
   CardUpdateResult,
   CardEditorDropInput,
@@ -199,7 +203,6 @@ import type {
   CanvasData,
   Card,
   CardInput,
-  CardCreatePlacement,
   CardSummary,
   CardsDetailsInput,
   CardSearchInput,
@@ -586,6 +589,14 @@ export interface IpcApi {
     args: [projectId: string, request: BlockPropertyMutationRequest];
     result: BlockPropertyMutationCommandResult;
   };
+  "cards:lifecycle:preflight": {
+    args: [projectId: string, cardId: string];
+    result: CardLifecyclePreflightResult;
+  };
+  "cards:lifecycle:apply": {
+    args: [projectId: string, request: CardLifecycleMutationRequest];
+    result: CardLifecycleMutationCommandResult;
+  };
   "databases:mutate": {
     args: [projectId: string, request: DatabaseMutationRequest];
     result: DatabaseMutationCommandResult;
@@ -807,16 +818,6 @@ export interface IpcApi {
     args: [input: CardSearchInput];
     result: CardSearchResult[];
   };
-  "card:create": {
-    args: [
-      projectId: string,
-      status: Card["status"],
-      input: CardCreateInput,
-      sessionId?: string,
-      placement?: CardCreatePlacement,
-    ];
-    result: Card;
-  };
   "card:update": {
     args: [
       projectId: string,
@@ -847,15 +848,6 @@ export interface IpcApi {
   "card:get": {
     args: [projectId: string, cardId: string, status?: Card["status"]];
     result: Card | null;
-  };
-  "card:delete": {
-    args: [
-      projectId: string,
-      status: Card["status"] | undefined,
-      cardId: string,
-      sessionId?: string,
-    ];
-    result: boolean;
   };
   "card:move": {
     args: [input: MoveCardInput & { projectId: string; sessionId?: string }];

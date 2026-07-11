@@ -12,6 +12,13 @@ import {
   type CreateCardBlockOperation,
   type RestoreCardBlockOperation,
 } from "../../shared/card-lifecycle";
+import type {
+  CardLifecycleMembershipCoordinate,
+  CardLifecycleOwnedBlockAuthority,
+  CardLifecyclePreflight,
+  CardLifecyclePreflightResult,
+  CardLifecycleRestoreEvidence,
+} from "../../shared/card-lifecycle-runtime";
 import {
   BlockDocumentCodecError,
   createCardDocumentGenesis,
@@ -45,6 +52,11 @@ import {
   prepareAuthoritativeOperation,
   type AuthoritativeOperationEvidence,
 } from "./authoritative-operation-receipts";
+import {
+  queryGeneralDatabaseView,
+  readPrimaryGeneralDatabaseDescriptor,
+} from "./database-query";
+import { readBlockStoreEpoch } from "./block-store-metadata";
 
 const MUTATION_KIND = "card_lifecycle";
 
@@ -256,13 +268,6 @@ const genesisUpdateId = (operationId: string): string =>
 
 const flattenBlockIds = (blocks: readonly BlockTreeNode[]): readonly string[] =>
   blocks.flatMap((block) => [block.id, ...flattenBlockIds(block.children)]);
-
-const readStoreEpoch = (database: Database.Database): string | null =>
-  (
-    database
-      .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
-      .get() as { readonly store_epoch: string } | undefined
-  )?.store_epoch ?? null;
 
 const projectExists = (
   database: Database.Database,
@@ -2170,7 +2175,7 @@ export const applyCardLifecycleMutation = (
     options.faultInjector?.(point);
   };
   const apply = database.transaction((): CardLifecycleMutationCommandResult => {
-    const currentEpoch = readStoreEpoch(database);
+    const currentEpoch = readBlockStoreEpoch(database);
     if (currentEpoch !== request.storeEpoch) {
       return {
         ok: false,
@@ -2289,9 +2294,354 @@ const isLifecycleRequestIdentity = (
   );
 };
 
-export const readCardLifecycleStoreEpoch = (
+const readLifecycleChangeLogSeq = (
   database: Database.Database,
-): string | null => readStoreEpoch(database);
+): number => {
+  const row = database
+    .prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log")
+    .get() as { readonly seq: number };
+  return row.seq;
+};
+
+const readMembershipCoordinate = (
+  database: Database.Database,
+  request: CardLifecycleMutationRequest,
+  membership: MembershipRow | null,
+): CardLifecycleMembershipCoordinate | null => {
+  if (!membership) return null;
+  const row = database
+    .prepare(
+      `
+      SELECT
+        view.id AS view_id, view.revision AS view_revision,
+        property.id AS status_property_id,
+        value.revision AS status_value_revision, value.value_json,
+        position.group_key, position.rank_key,
+        position.revision AS position_revision
+      FROM database_views view
+      INNER JOIN database_properties property
+        ON property.database_block_id = view.database_block_id
+       AND property.project_id = view.project_id
+       AND property.key = 'status'
+       AND property.lifecycle = 'active'
+      INNER JOIN database_property_values value
+        ON value.membership_id = ?
+       AND value.database_block_id = view.database_block_id
+       AND value.project_id = view.project_id
+       AND value.property_id = property.id
+      INNER JOIN database_view_positions position
+        ON position.view_id = view.id
+       AND position.project_id = view.project_id
+       AND position.block_id = ?
+      WHERE view.database_block_id = ? AND view.project_id = ?
+        AND view.lifecycle = 'active' AND view.is_primary = 1
+      LIMIT 1
+    `,
+    )
+    .get(
+      membership.id,
+      request.operation.cardId,
+      membership.database_block_id,
+      request.projectId,
+    ) as
+    | {
+        readonly view_id: string;
+        readonly view_revision: number;
+        readonly status_property_id: string;
+        readonly status_value_revision: number;
+        readonly value_json: string;
+        readonly group_key: string | null;
+        readonly rank_key: string;
+        readonly position_revision: number;
+      }
+    | undefined;
+  if (!row) {
+    throw new Error(
+      `Card ${request.operation.cardId} membership has no exact primary View/status coordinate`,
+    );
+  }
+  const status = JSON.parse(row.value_json) as unknown;
+  if (!isCardStatus(status) || row.group_key !== status) {
+    throw new Error(
+      `Card ${request.operation.cardId} membership status and primary View group diverge`,
+    );
+  }
+  return {
+    membershipId: membership.id,
+    databaseBlockId: membership.database_block_id,
+    membershipRevision: membership.revision,
+    viewId: row.view_id,
+    viewRevision: row.view_revision,
+    statusPropertyId: row.status_property_id,
+    statusValueRevision: row.status_value_revision,
+    status,
+    position: {
+      groupKey: row.group_key,
+      rankKey: row.rank_key,
+      revision: row.position_revision,
+    },
+  };
+};
+
+const readLatestDeleteOperationId = (
+  database: Database.Database,
+  projectId: string,
+  storeEpoch: string,
+  cardId: string,
+): string | null => {
+  const row = database
+    .prepare(
+      `
+      SELECT mutation_id
+      FROM block_mutations
+      WHERE project_id = ? AND store_epoch = ?
+        AND mutation_kind = ? AND outcome = 'committed'
+        AND json_extract(request_json, '$.operation.kind') = 'delete_card'
+        AND json_extract(request_json, '$.operation.cardId') = ?
+      ORDER BY change_log_seq DESC
+      LIMIT 1
+    `,
+    )
+    .get(projectId, storeEpoch, MUTATION_KIND, cardId) as
+    | { readonly mutation_id: string }
+    | undefined;
+  return row?.mutation_id ?? null;
+};
+
+const readRestoreEvidence = (
+  database: Database.Database,
+  request: CardLifecycleMutationRequest,
+  block: BlockRow,
+  document: OwnedDocumentRow,
+): CardLifecycleRestoreEvidence | null => {
+  if (block.lifecycle !== "deleted") return null;
+  const deleteOperationId = readLatestDeleteOperationId(
+    database,
+    request.projectId,
+    request.storeEpoch,
+    block.id,
+  );
+  if (!deleteOperationId) {
+    throw new Error(`Deleted Card ${block.id} has no committed delete receipt`);
+  }
+  const evidenceRequest: CardLifecycleMutationRequest = {
+    ...request,
+    operationId: "internal:card-lifecycle-preflight",
+    operation: {
+      kind: "restore_card",
+      cardId: block.id,
+      deleteOperationId,
+      expectedMetadataRevision: block.metadata_revision,
+      expectedLocationRevision: block.location_revision,
+      membership: null,
+    },
+  };
+  const evidence = readDeleteEvidence(
+    database,
+    evidenceRequest as CardLifecycleMutationRequest & {
+      readonly operation: RestoreCardBlockOperation;
+    },
+    block,
+    document,
+  );
+  const membership =
+    evidence.membershipId &&
+    evidence.databaseBlockId &&
+    evidence.viewId &&
+    evidence.status
+      ? {
+          membershipId: evidence.membershipId,
+          databaseBlockId: evidence.databaseBlockId,
+          viewId: evidence.viewId,
+          status: evidence.status,
+        }
+      : null;
+  return {
+    deleteOperationId,
+    previousLifecycle: evidence.previousLifecycle,
+    membership,
+  };
+};
+
+const readOwnedCardAuthority = (
+  database: Database.Database,
+  projectId: string,
+  storeEpoch: string,
+  cardId: string,
+): {
+  readonly reservedBlockType: string | null;
+  readonly card: CardLifecycleOwnedBlockAuthority | null;
+} => {
+  const identity = database
+    .prepare(
+      "SELECT type, project_id FROM blocks WHERE id = ? LIMIT 1",
+    )
+    .get(cardId) as
+    | { readonly type: string; readonly project_id: string }
+    | undefined;
+  if (!identity) return { reservedBlockType: null, card: null };
+  if (identity.type !== "card" || identity.project_id !== projectId) {
+    return { reservedBlockType: identity.type, card: null };
+  }
+  const request: CardLifecycleMutationRequest = {
+    version: CARD_LIFECYCLE_CONTRACT_VERSION,
+    operationId: "internal:card-lifecycle-preflight",
+    projectId,
+    storeEpoch,
+    actor: { kind: "internal_preflight" },
+    operation: {
+      kind: "archive_card",
+      cardId,
+      expectedMetadataRevision: 1,
+    },
+  };
+  const block = readBlock(database, request);
+  const document = readOwnedDocument(database, request);
+  const membership = readActiveMembership(database, request);
+  const membershipCoordinate = readMembershipCoordinate(
+    database,
+    request,
+    membership,
+  );
+  const rankKey = readPlacementRank(database, request);
+  if (block.location_kind === "document" && !block.containing_document_id) {
+    throw new Error(`Card ${cardId} has an invalid Document location`);
+  }
+  return {
+    reservedBlockType: null,
+    card: {
+      cardId,
+      lifecycle: block.lifecycle,
+      location:
+        block.location_kind === "space"
+          ? { kind: "space", rankKey }
+          : {
+              kind: "document",
+              documentId: block.containing_document_id as string,
+            },
+      metadataRevision: block.metadata_revision,
+      locationRevision: block.location_revision,
+      document: {
+        documentId: document.document_id,
+        generation: document.generation,
+        headSeq: document.head_seq,
+        readiness: document.readiness,
+        authority: document.authority,
+        schemaKey: document.schema_key,
+        schemaVersion: document.schema_version,
+      },
+      membership: membershipCoordinate,
+      restoreEvidence: readRestoreEvidence(
+        database,
+        request,
+        block,
+        document,
+      ),
+    },
+  };
+};
+
+const lifecycleReadFailure = (
+  code:
+    | "invalid_database_read_request"
+    | "store_not_initialized"
+    | "project_not_found"
+    | "database_state_corrupt"
+    | "unknown",
+  message: string,
+  retryable = false,
+): CardLifecyclePreflightResult => ({
+  ok: false,
+  error: { code, message, retryable },
+});
+
+/** Read every lifecycle precondition from one SQLite transaction. */
+export const readCardLifecyclePreflightSnapshot = (
+  database: Database.Database,
+  projectId: string,
+  cardId: string,
+): CardLifecyclePreflightResult => {
+  if (
+    !projectId ||
+    projectId !== projectId.trim() ||
+    !cardId ||
+    cardId !== cardId.trim() ||
+    projectId.length > 512 ||
+    cardId.length > 512
+  ) {
+    return lifecycleReadFailure(
+      "invalid_database_read_request",
+      "Card lifecycle preflight requires canonical Project and Card identities",
+    );
+  }
+  try {
+    return database.transaction((): CardLifecyclePreflightResult => {
+      const storeEpoch = readBlockStoreEpoch(database);
+      if (!storeEpoch) {
+        return lifecycleReadFailure(
+          "store_not_initialized",
+          "Block store metadata is missing",
+          true,
+        );
+      }
+      if (!projectExists(database, projectId)) {
+        return lifecycleReadFailure(
+          "project_not_found",
+          `Project does not exist: ${projectId}`,
+        );
+      }
+      const descriptor = readPrimaryGeneralDatabaseDescriptor(
+        projectId,
+        database,
+      );
+      const view = descriptor?.views.find(
+        (candidate) =>
+          candidate.lifecycle === "active" &&
+          candidate.isPrimary &&
+          candidate.kind === "kanban",
+      );
+      const query = view
+        ? queryGeneralDatabaseView(projectId, view.id, database)
+        : null;
+      if (!descriptor || !view || !query) {
+        return lifecycleReadFailure(
+          "database_state_corrupt",
+          "Project primary Database/View authority is incomplete",
+        );
+      }
+      const authority = readOwnedCardAuthority(
+        database,
+        projectId,
+        storeEpoch,
+        cardId,
+      );
+      const value: CardLifecyclePreflight = {
+        version: 1,
+        primaryDatabase: { descriptor, query },
+        reservedBlockType: authority.reservedBlockType,
+        card: authority.card,
+      };
+      return {
+        ok: true,
+        value: {
+          version: 1,
+          projectId,
+          storeEpoch,
+          changeLogSeq: readLifecycleChangeLogSeq(database),
+          value,
+        },
+      };
+    })();
+  } catch (error) {
+    return lifecycleReadFailure(
+      error instanceof CardLifecycleRejection
+        ? "database_state_corrupt"
+        : "unknown",
+      error instanceof Error ? error.message : String(error),
+      !(error instanceof CardLifecycleRejection),
+    );
+  }
+};
 
 export const verifyCardDocumentContinuity = (
   database: Database.Database,

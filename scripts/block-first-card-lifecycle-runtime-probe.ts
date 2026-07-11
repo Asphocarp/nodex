@@ -9,10 +9,10 @@ import { createUuidV7 } from "../src/shared/card-id";
 import { readAuthoritativeCardById } from "../src/main/local-store/card-read-store";
 import {
   applyCardLifecycleMutation,
-  readCardLifecycleStoreEpoch,
   verifyCardDocumentContinuity,
   type CardLifecycleMutationFaultPoint,
 } from "../src/main/local-store/card-block-lifecycle";
+import { readBlockStoreEpoch } from "../src/main/local-store/block-store-metadata";
 import {
   closeDatabase,
   getDb,
@@ -121,7 +121,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Card lifecycle runtime" });
-    const storeEpoch = readCardLifecycleStoreEpoch(getDb());
+    const storeEpoch = readBlockStoreEpoch(getDb());
     invariant(storeEpoch, "Store epoch is missing");
     const scope: Scope = { projectId: project.id, storeEpoch };
 

@@ -13,6 +13,18 @@ import type {
 
 export interface RendererTransport {
   kind: "browser" | "electron";
+  readCardLifecyclePreflight: (
+    projectId: string,
+    cardId: string,
+  ) => Promise<
+    import("../../shared/card-lifecycle-runtime").CardLifecyclePreflightResult
+  >;
+  mutateCardLifecycle: (
+    projectId: string,
+    request: import("../../shared/card-lifecycle").CardLifecycleMutationRequest,
+  ) => Promise<
+    import("../../shared/card-lifecycle").CardLifecycleMutationCommandResult
+  >;
   getOwnedBlockDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,

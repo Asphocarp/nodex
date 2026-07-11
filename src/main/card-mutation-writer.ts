@@ -50,6 +50,7 @@ import type {
   CardLifecycleMutationCommandResult,
   CardLifecycleMutationRequest,
 } from "../shared/card-lifecycle";
+import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
 import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
@@ -470,6 +471,16 @@ export class CardMutationWriter {
       );
     }
     return envelope;
+  }
+
+  async readCardLifecyclePreflight(
+    projectId: string,
+    cardId: string,
+  ): Promise<CardMutationEnvelope<CardLifecyclePreflightResult>> {
+    return await this.executeTyped<CardLifecyclePreflightResult>({
+      type: "readCardLifecyclePreflight",
+      payload: { projectId, cardId },
+    });
   }
 
   async compactEligibleBlockDocuments(

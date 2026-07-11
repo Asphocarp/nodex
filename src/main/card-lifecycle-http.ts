@@ -10,6 +10,7 @@ import {
   cardLifecycleMutationHttpStatus,
   cardLifecycleTransportFailure,
 } from "../shared/card-lifecycle-transport";
+import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
 
 const MAX_CARD_LIFECYCLE_HTTP_BYTES = 2_100_000;
 
@@ -73,6 +74,38 @@ export const registerCardLifecycleHttpRoute = (
         result,
         result.ok ? 200 : cardLifecycleMutationHttpStatus(result.error),
       );
+    },
+  );
+};
+
+export interface CardLifecyclePreflightHttpDependencies {
+  readonly readPreflight: (
+    projectId: string,
+    cardId: string,
+  ) => Promise<CardLifecyclePreflightResult>;
+}
+
+export const registerCardLifecyclePreflightHttpRoute = (
+  app: Hono,
+  dependencies: CardLifecyclePreflightHttpDependencies,
+): void => {
+  app.get(
+    "/api/projects/:projectId/card-lifecycle-preflight",
+    async (context) => {
+      context.header("Cache-Control", "no-store");
+      const cardId = context.req.query("cardId") ?? "";
+      const result = await dependencies.readPreflight(
+        context.req.param("projectId"),
+        cardId,
+      );
+      const status = result.ok
+        ? 200
+        : result.error.code === "project_not_found"
+          ? 404
+          : result.error.code === "unknown"
+            ? 500
+            : 400;
+      return context.json(result, status);
     },
   );
 };

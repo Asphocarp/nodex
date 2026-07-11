@@ -4,11 +4,17 @@ import type {
   CardLifecycleMutationCommandResult,
   CardLifecycleMutationRequest,
 } from "../shared/card-lifecycle";
-import { registerCardLifecycleHttpRoute } from "./card-lifecycle-http";
+import {
+  registerCardLifecycleHttpRoute,
+  registerCardLifecyclePreflightHttpRoute,
+} from "./card-lifecycle-http";
 import {
   CARD_LIFECYCLE_MUTATION_IPC_CHANNEL,
+  CARD_LIFECYCLE_PREFLIGHT_IPC_CHANNEL,
   registerCardLifecycleIpcHandler,
+  registerCardLifecyclePreflightIpcHandler,
 } from "./card-lifecycle-ipc";
+import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
 
 const request = (session: string, actorKind: string) => ({
   version: 1,
@@ -129,5 +135,54 @@ describe("Card lifecycle IPC/HTTP transport", () => {
     );
     expect(response.status).toBe(400);
     expect(calls).toBe(0);
+  });
+
+  test("serves the same typed preflight contract over IPC and HTTP", async () => {
+    const result: CardLifecyclePreflightResult = {
+      ok: true,
+      value: {
+        version: 1,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        changeLogSeq: 8,
+        value: null,
+      },
+    };
+    const reads: string[] = [];
+    const readPreflight = async (
+      projectId: string,
+      cardId: string,
+    ): Promise<CardLifecyclePreflightResult> => {
+      reads.push(`${projectId}:${cardId}`);
+      return result;
+    };
+    const handlers = new Map<
+      string,
+      (
+        event: unknown,
+        projectId: string,
+        cardId: string,
+      ) => Promise<CardLifecyclePreflightResult>
+    >();
+    registerCardLifecyclePreflightIpcHandler({
+      registerHandle: (channel, listener) => handlers.set(channel, listener),
+      readPreflight,
+    });
+    const ipc = await handlers.get(CARD_LIFECYCLE_PREFLIGHT_IPC_CHANNEL)?.(
+      {},
+      "project-1",
+      "card-1",
+    );
+    expect(ipc?.ok).toBeTrue();
+
+    const app = new Hono();
+    registerCardLifecyclePreflightHttpRoute(app, { readPreflight });
+    const response = await app.request(
+      "/api/projects/project-1/card-lifecycle-preflight?cardId=card-1",
+    );
+    expect(response.status).toBe(200);
+    const http = (await response.json()) as CardLifecyclePreflightResult;
+    expect(http.ok).toBeTrue();
+    expect(reads.join(",")).toBe("project-1:card-1,project-1:card-1");
   });
 });

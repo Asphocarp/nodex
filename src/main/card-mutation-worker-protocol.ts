@@ -44,6 +44,7 @@ import type {
   CardLifecycleMutationCommandResult,
   CardLifecycleMutationRequest,
 } from "../shared/card-lifecycle";
+import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
 import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
@@ -282,6 +283,10 @@ export type CardMutationWorkerRequest =
       payload: CardLifecycleMutationRequest;
     })
   | (CardMutationWorkerRequestBase & {
+      type: "readCardLifecyclePreflight";
+      payload: { readonly projectId: string; readonly cardId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "compactEligibleBlockDocuments";
       payload: CompactEligibleBlockDocumentsInput;
     })
@@ -407,6 +412,7 @@ export type CardMutationWorkerResult =
   | BlockPropertyMutationCommandResult
   | DatabaseMutationCommandResult
   | CardLifecycleMutationCommandResult
+  | CardLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
   | DatabaseReadCommandResult<GeneralDatabaseViewQuery>

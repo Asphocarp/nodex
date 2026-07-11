@@ -38,11 +38,9 @@ import {
 } from "./git-branch-service";
 import type {
   BlockDropImportInput,
-  CardCreatePlacement,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   CardEditorDropInput,
-  CardCreateInput,
   CardInput,
   CardSearchInput,
   CardsDetailsInput,
@@ -81,6 +79,10 @@ import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutatio
 import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
+import {
+  registerCardLifecycleHttpRoute,
+  registerCardLifecyclePreflightHttpRoute,
+} from "./card-lifecycle-http";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardReference,
@@ -266,6 +268,17 @@ registerDatabaseKernelHttpRoutes(app, {
     (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
   queryView: async (projectId, viewId) =>
     (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
+});
+
+registerCardLifecyclePreflightHttpRoute(app, {
+  readPreflight: async (projectId, cardId) =>
+    (await cardMutationWriter.readCardLifecyclePreflight(projectId, cardId))
+      .result,
+});
+
+registerCardLifecycleHttpRoute(app, {
+  applyMutation: async (request) =>
+    (await cardMutationWriter.applyCardLifecycleMutation(request)).result,
 });
 
 registerDocumentMutationHttpRoute(app, {
@@ -1134,32 +1147,15 @@ app.get("/api/projects/:projectId/board-summary", async (c) => {
   return c.json(board);
 });
 
-app.post("/api/projects/:projectId/board", cardWriteBodyLimit, async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = (await c.req.json()) as Record<string, unknown>;
-  try {
-    const { status, sessionId, placement, ...input } = normalizeCardBody(body);
-    const normalizedStatus = parseOptionalCardStatus(status);
-    if (!normalizedStatus) {
-      return c.json({ error: "Missing status" }, 400);
-    }
-    if (placement !== undefined && placement !== "top" && placement !== "bottom") {
-      return c.json({ error: "Invalid placement" }, 400);
-    }
-    const normalizedSessionId = typeof sessionId === "string" ? sessionId : undefined;
-    const normalizedPlacement: CardCreatePlacement = placement === "top" ? "top" : "bottom";
-    const { result: card } = await cardMutationWriter.createCard(
-      projectId,
-      normalizedStatus,
-      input as unknown as CardCreateInput,
-      normalizedSessionId,
-      normalizedPlacement,
-    );
-    return c.json(card, 201);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
+app.post("/api/projects/:projectId/board", cardWriteBodyLimit, (c) =>
+  c.json(
+    {
+      error:
+        "Card creation moved to the authoritative Card lifecycle mutation endpoint",
+    },
+    410,
+  ),
+);
 
 // === Asset routes ===
 
@@ -1458,14 +1454,13 @@ app.put("/api/projects/:projectId/card/description", cardWriteBodyLimit, async (
 });
 
 app.delete("/api/projects/:projectId/card", async (c) => {
-  const projectId = c.req.param("projectId");
-  const status = parseOptionalCardStatus(c.req.query("status") || undefined);
-  const cardId = c.req.query("cardId");
-  const sessionId = c.req.query("sessionId") || undefined;
-  if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const { result: success } = await cardMutationWriter.deleteCard(projectId, status, cardId, sessionId);
-  if (!success) return c.json({ error: "Not found" }, 404);
-  return c.json({ success: true });
+  return c.json(
+    {
+      error:
+        "Card deletion moved to the authoritative Card lifecycle mutation endpoint",
+    },
+    410,
+  );
 });
 
 app.get("/api/projects/:projectId/calendar/occurrences", async (c) => {

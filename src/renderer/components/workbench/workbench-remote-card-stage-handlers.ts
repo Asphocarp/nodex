@@ -1,6 +1,10 @@
 import { invoke } from "@/lib/api";
 import type { CardInput, CardUpdateMutationResult, CardUpdateResult } from "@/lib/types";
 import type { CardStageHandlers } from "@/lib/use-card-stage";
+import { createUuidV7 } from "../../../shared/card-id";
+import { isCardStatus } from "../../../shared/card-status";
+import { commitCardLifecycleIntent } from "@/lib/card-lifecycle-runtime";
+import { commitPrimaryDatabaseCardDrag } from "@/lib/primary-database-card-drag-runtime";
 
 export function makeRemoteCardStageHandlers(projectId: string): CardStageHandlers {
   return {
@@ -12,14 +16,22 @@ export function makeRemoteCardStageHandlers(projectId: string): CardStageHandler
       return result as CardUpdateMutationResult;
     },
     onDelete: async (columnId: string, cardId: string) => {
-      await invoke("card:delete", projectId, columnId, cardId);
+      void columnId;
+      await commitCardLifecycleIntent({
+        kind: "delete",
+        projectId,
+        operationId: createUuidV7(),
+        cardId,
+      });
     },
     onMove: async (fromStatus: string, cardId: string, toStatus: string) => {
-      await invoke("card:move", {
+      if (!isCardStatus(fromStatus) || !isCardStatus(toStatus)) {
+        throw new Error("Card Stage move requires canonical Card statuses");
+      }
+      await commitPrimaryDatabaseCardDrag({
         projectId,
-        cardId,
-        fromStatus,
-        toStatus,
+        operationId: createUuidV7(),
+        move: { cardId, fromStatus, toStatus },
       });
     },
     onCompleteOccurrence: async (cardId: string, occurrenceStart: Date) => {

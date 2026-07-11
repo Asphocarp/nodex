@@ -46,7 +46,10 @@ import {
   readDatabaseDescriptorSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
 } from "./local-store/database-kernel";
-import { applyCardLifecycleMutation } from "./local-store/card-block-lifecycle";
+import {
+  applyCardLifecycleMutation,
+  readCardLifecyclePreflightSnapshot,
+} from "./local-store/card-block-lifecycle";
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
 import {
   applyDocumentOperationBatch,
@@ -193,6 +196,7 @@ const isLegacyAuthorityMutation = (
     case "applyBlockPropertyMutation":
     case "applyDatabaseMutation":
     case "applyCardLifecycleMutation":
+    case "readCardLifecyclePreflight":
     case "compactEligibleBlockDocuments":
     case "readDatabaseDescriptor":
     case "readPrimaryDatabaseDescriptor":
@@ -1386,6 +1390,12 @@ async function runRequest(
       }
       return result;
     }
+    case "readCardLifecyclePreflight":
+      return readCardLifecyclePreflightSnapshot(
+        getDb(),
+        request.payload.projectId,
+        request.payload.cardId,
+      );
     case "compactEligibleBlockDocuments":
       return compactEligibleBlockDocuments(getDb(), request.payload);
     case "readDatabaseDescriptor":

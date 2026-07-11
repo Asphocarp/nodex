@@ -17,6 +17,7 @@ import {
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import { createUuidV7 } from "../../shared/card-id";
+import { isCardStatus } from "../../shared/card-status";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -40,6 +41,7 @@ import { invoke, updateCardDescription } from "./api";
 import { getKanbanProjectStore } from "./kanban-store";
 import { getCardDetail, setCardDetail } from "./card-detail-store";
 import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
+import { commitCardLifecycleIntent } from "./card-lifecycle-runtime";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -128,20 +130,32 @@ export function useKanban(options: UseKanbanOptions) {
       input: CardCreateInput,
       placement: CardCreatePlacement = "bottom",
     ): Promise<Card | null> => {
+      if (!isCardStatus(columnId)) {
+        throw new Error("Card creation requires a canonical Card status");
+      }
       const createInput = ensureCreateInputId(input);
       const optimisticCard = createOptimisticCard(createInput);
+      const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<Card>({
         kind: "card:create",
         conflictKeys: conflictKeysForCreate(columnId, optimisticCard.id),
         apply: buildCreateCardTransform(columnId, optimisticCard, placement),
-        runRemote: async () => (await invoke(
-          "card:create",
-          projectId,
-          columnId,
-          createInput,
-          sessionId,
-          placement,
-        )) as Card,
+        runRemote: async () => {
+          const committed = await commitCardLifecycleIntent({
+            kind: "create",
+            projectId,
+            operationId,
+            clientSessionId: sessionId,
+            cardId: optimisticCard.id,
+            status: columnId,
+            input: createInput,
+            placement,
+          });
+          if (!committed.card) {
+            throw new Error("Created Card is missing from canonical authority");
+          }
+          return committed.card;
+        },
       });
 
       if (!outcome.ok) return null;
@@ -260,17 +274,21 @@ export function useKanban(options: UseKanbanOptions) {
 
   const deleteCard = useCallback(
     async (columnId: string, cardId: string): Promise<boolean> => {
+      const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "card:delete",
         conflictKeys: conflictKeysForDelete(cardId),
         apply: buildDeleteCardTransform(columnId, cardId),
-        runRemote: async () => (await invoke(
-          "card:delete",
-          projectId,
-          columnId,
-          cardId,
-          sessionId,
-        )) as boolean,
+        runRemote: async () => {
+          const committed = await commitCardLifecycleIntent({
+            kind: "delete",
+            projectId,
+            operationId,
+            clientSessionId: sessionId,
+            cardId,
+          });
+          return committed.receipt.lifecycle === "deleted";
+        },
       });
       if (!outcome.ok) return false;
       if (!outcome.result) {

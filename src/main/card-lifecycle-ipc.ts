@@ -8,9 +8,12 @@ import {
   cardLifecycleTransportFailure,
   type TrustedCardLifecycleMutationIdentity,
 } from "../shared/card-lifecycle-transport";
+import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
 
 export const CARD_LIFECYCLE_MUTATION_IPC_CHANNEL =
   "cards:lifecycle:apply" as const;
+export const CARD_LIFECYCLE_PREFLIGHT_IPC_CHANNEL =
+  "cards:lifecycle:preflight" as const;
 
 export interface CardLifecycleIpcDependencies {
   readonly registerHandle: (
@@ -58,5 +61,30 @@ export const registerCardLifecycleIpcHandler = (
         return cardLifecycleTransportFailure(bound.value, error);
       }
     },
+  );
+};
+
+export interface CardLifecyclePreflightIpcDependencies {
+  readonly registerHandle: (
+    channel: typeof CARD_LIFECYCLE_PREFLIGHT_IPC_CHANNEL,
+    listener: (
+      event: unknown,
+      projectId: string,
+      cardId: string,
+    ) => Promise<CardLifecyclePreflightResult>,
+  ) => void;
+  readonly readPreflight: (
+    projectId: string,
+    cardId: string,
+  ) => Promise<CardLifecyclePreflightResult>;
+}
+
+export const registerCardLifecyclePreflightIpcHandler = (
+  dependencies: CardLifecyclePreflightIpcDependencies,
+): void => {
+  dependencies.registerHandle(
+    CARD_LIFECYCLE_PREFLIGHT_IPC_CHANNEL,
+    async (_event, projectId, cardId) =>
+      await dependencies.readPreflight(projectId, cardId),
   );
 };

@@ -199,6 +199,10 @@ import {
 } from "./database-kernel-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
+import {
+  registerCardLifecycleIpcHandler,
+  registerCardLifecyclePreflightIpcHandler,
+} from "./card-lifecycle-ipc";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -913,6 +917,38 @@ export function registerIpcHandlers(
       (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
   });
 
+  registerCardLifecyclePreflightIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, cardId) =>
+        listener(event, projectId, cardId),
+      );
+    },
+    readPreflight: async (projectId, cardId) =>
+      (await cardMutationWriter.readCardLifecyclePreflight(projectId, cardId))
+        .result,
+  });
+
+  registerCardLifecycleIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, request) =>
+        listener(event, projectId, request),
+      );
+    },
+    getTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    applyMutation: async (request) =>
+      (await cardMutationWriter.applyCardLifecycleMutation(request)).result,
+  });
+
   registerDocumentMutationIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, projectId, documentId, request) =>
@@ -1437,20 +1473,6 @@ export function registerIpcHandlers(
   });
 
   registerHandle(
-    "card:create",
-    async (_, projectId, columnId, input, sessionId?, placement?) => {
-      const envelope = await cardMutationWriter.createCard(
-        projectId,
-        columnId,
-        input,
-        sessionId,
-        placement,
-      );
-      return envelope.result;
-    },
-  );
-
-  registerHandle(
     "card:update",
     async (
       _,
@@ -1551,19 +1573,6 @@ export function registerIpcHandlers(
         cardId,
         status as Parameters<typeof cardsStore.getCard>[2],
       ),
-  );
-
-  registerHandle(
-    "card:delete",
-    async (_, projectId, columnId, cardId, sessionId?) => {
-      const envelope = await cardMutationWriter.deleteCard(
-        projectId,
-        columnId || undefined,
-        cardId,
-        sessionId,
-      );
-      return envelope.result;
-    },
   );
 
   registerHandle("card:move", async (_, input) => {

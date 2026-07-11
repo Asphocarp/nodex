@@ -1,0 +1,174 @@
+import { describe, expect, test } from "bun:test";
+import type { CardLifecycleMutationRequest } from "../../shared/card-lifecycle";
+import { browserRendererTransport } from "./browser-renderer-transport";
+import {
+  createElectronRendererTransport,
+  type ElectronRendererBridge,
+} from "./electron-renderer-transport";
+
+const request: CardLifecycleMutationRequest = {
+  version: 1,
+  operationId: "card-lifecycle-transport",
+  projectId: "project/one",
+  storeEpoch: "epoch-1",
+  actor: { kind: "renderer_test" },
+  operation: {
+    kind: "archive_card",
+    cardId: "card/one",
+    expectedMetadataRevision: 3,
+  },
+};
+
+const preflightResult = {
+  ok: true,
+  value: {
+    version: 1,
+    projectId: request.projectId,
+    storeEpoch: request.storeEpoch,
+    changeLogSeq: 4,
+    value: null,
+  },
+} as const;
+
+const mutationResult = {
+  ok: true,
+  value: {
+    version: 1,
+    operationId: request.operationId,
+    projectId: request.projectId,
+    storeEpoch: request.storeEpoch,
+    operationKind: "archive_card",
+    cardId: "card/one",
+    duplicate: false,
+    metadataRevision: 4,
+    locationRevision: 2,
+    lifecycle: "archived",
+    documentId: "document-1",
+    documentGeneration: 1,
+    documentHeadSeq: 5,
+    databaseBlockId: "database-1",
+    membershipId: "membership-1",
+    viewId: "view-1",
+    topLevelRankKey: "7fffffffffffffffffffffffffffffff",
+    viewRankKey: "7fffffffffffffffffffffffffffffff",
+    createdBlockIds: [],
+    changeLogSeq: 5,
+    committedAt: "2026-07-11T00:00:00.000Z",
+  },
+} as const;
+
+describe("Card lifecycle renderer transport", () => {
+  test("keeps browser and Electron lifecycle command surfaces in parity", async () => {
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    const bodies: unknown[] = [];
+    const responses: unknown[] = [preflightResult, mutationResult];
+    globalThis.fetch = (async (input, init) => {
+      urls.push(String(input));
+      if (init?.body) bodies.push(JSON.parse(String(init.body)) as unknown);
+      return new Response(JSON.stringify(responses.shift()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const preflight = await browserRendererTransport.readCardLifecyclePreflight(
+        request.projectId,
+        "card/one",
+      );
+      const mutation = await browserRendererTransport.mutateCardLifecycle(
+        request.projectId,
+        request,
+      );
+      expect(preflight.ok).toBeTrue();
+      expect(mutation.ok).toBeTrue();
+      expect(
+        urls[0]?.endsWith(
+          "/api/projects/project%2Fone/card-lifecycle-preflight?cardId=card%2Fone",
+        ) ?? false,
+      ).toBeTrue();
+      expect(
+        urls[1]?.endsWith(
+          "/api/projects/project%2Fone/card-lifecycle-mutations",
+        ) ?? false,
+      ).toBeTrue();
+      expect(
+        (bodies[0] as { readonly operationId?: string }).operationId,
+      ).toBe(request.operationId);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const calls: Array<{ readonly channel: string; readonly args: unknown[] }> = [];
+    const bridge = {
+      invoke: async (channel: string, ...args: unknown[]) => {
+        calls.push({ channel, args });
+        return channel === "cards:lifecycle:preflight"
+          ? preflightResult
+          : mutationResult;
+      },
+    } as unknown as ElectronRendererBridge;
+    const electron = createElectronRendererTransport(bridge);
+    await electron.readCardLifecyclePreflight(request.projectId, "card/one");
+    await electron.mutateCardLifecycle(request.projectId, request);
+    expect(calls[0]?.channel).toBe("cards:lifecycle:preflight");
+    expect(calls[1]?.channel).toBe("cards:lifecycle:apply");
+    expect(calls[1]?.args[1] === request).toBeTrue();
+  });
+
+  test("fans a lifecycle change to every window subscribed to the Project", () => {
+    const originalEventSource = globalThis.EventSource;
+    class FakeEventSource {
+      static readonly instances: FakeEventSource[] = [];
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      closed = false;
+
+      constructor(readonly url: string | URL) {
+        FakeEventSource.instances.push(this);
+      }
+
+      close(): void {
+        this.closed = true;
+      }
+    }
+    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+    let firstWindow = 0;
+    let secondWindow = 0;
+    let unsubscribeFirst: () => void = () => undefined;
+    let unsubscribeSecond: () => void = () => undefined;
+    try {
+      unsubscribeFirst = browserRendererTransport.subscribeDatabaseChanges(
+        "project-1",
+        () => {
+          firstWindow += 1;
+        },
+      );
+      unsubscribeSecond = browserRendererTransport.subscribeDatabaseChanges(
+        "project-1",
+        () => {
+          secondWindow += 1;
+        },
+      );
+      expect(FakeEventSource.instances.length).toBe(1);
+      FakeEventSource.instances[0]?.onmessage?.({
+        data: JSON.stringify({
+          event: "database-changed",
+          version: 1,
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          operationId: "lifecycle-1",
+          sourceKind: "card_lifecycle",
+          affectedDatabaseBlockIds: ["database-1"],
+          changeLogSeq: 9,
+        }),
+      } as MessageEvent<string>);
+      expect(firstWindow).toBe(1);
+      expect(secondWindow).toBe(1);
+    } finally {
+      unsubscribeFirst();
+      unsubscribeSecond();
+      globalThis.EventSource = originalEventSource;
+    }
+  });
+});

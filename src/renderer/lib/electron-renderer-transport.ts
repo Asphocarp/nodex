@@ -41,6 +41,11 @@ import type {
   PrepareDocumentVersionRestore,
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
+import type {
+  CardLifecycleMutationCommandResult,
+  CardLifecycleMutationRequest,
+} from "../../shared/card-lifecycle";
+import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -49,6 +54,23 @@ export function createElectronRendererTransport(
 ) {
   return {
     kind: "electron" as const,
+    readCardLifecyclePreflight(projectId: string, cardId: string) {
+      return bridge.invoke(
+        "cards:lifecycle:preflight",
+        projectId,
+        cardId,
+      ) as Promise<CardLifecyclePreflightResult>;
+    },
+    mutateCardLifecycle(
+      projectId: string,
+      request: CardLifecycleMutationRequest,
+    ) {
+      return bridge.invoke(
+        "cards:lifecycle:apply",
+        projectId,
+        request,
+      ) as Promise<CardLifecycleMutationCommandResult>;
+    },
     getOwnedBlockDocumentDescriptor(projectId: string, ownerBlockId: string) {
       return bridge.invoke(
         "block-document:owned:get",

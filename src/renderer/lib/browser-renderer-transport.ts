@@ -60,6 +60,12 @@ import type {
   PrepareDocumentVersionRestore,
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
+import {
+  parseCardLifecycleMutationCommandResult,
+  type CardLifecycleMutationCommandResult,
+  type CardLifecycleMutationRequest,
+} from "../../shared/card-lifecycle";
+import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
 
 const decodeDocumentHistoryResponse = <T>(
   value: unknown,
@@ -765,6 +771,38 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return parseBlockPropertyMutationCommandResult(await response.json());
     }
+    case "cards:lifecycle:preflight": {
+      const [projectId, cardId] = args as [string, string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/card-lifecycle-preflight?cardId=${encodeURIComponent(cardId)}`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseReadCommandResult(
+        await response.json(),
+      ) as CardLifecyclePreflightResult;
+    }
+    case "cards:lifecycle:apply": {
+      const [projectId, request] = args as [
+        string,
+        CardLifecycleMutationRequest,
+      ];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/card-lifecycle-mutations`,
+        ),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+      );
+      return parseCardLifecycleMutationCommandResult(await response.json());
+    }
     case "databases:mutate": {
       const [projectId, request] = args as [string, unknown];
       const response = await fetch(
@@ -890,21 +928,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       if (!res.ok) return [];
       return res.json();
     }
-    case "card:create": {
-      const [projectId, status, input, sessionId, placement] = args as [
-        string,
-        string,
-        object,
-        string | undefined,
-        "top" | "bottom" | undefined,
-      ];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/board`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, ...input, sessionId, placement }),
-      });
-      return res.json();
-    }
     case "card:update": {
       const [projectId, status, cardId, updates, sessionId, expectedRevision] =
         args as [string, string, string, object, string?, number?];
@@ -1000,22 +1023,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       if (!res.ok) return null;
       return res.json();
-    }
-    case "card:delete": {
-      const [projectId, status, cardId, sessionId] = args as [
-        string,
-        string,
-        string,
-        string?,
-      ];
-      const params = new URLSearchParams({ status, cardId });
-      if (sessionId) params.set("sessionId", sessionId);
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card?${params}`),
-        { method: "DELETE" },
-      );
-      const data = await res.json();
-      return data.success ?? false;
     }
     case "card:move": {
       const [input] = args as [{ projectId: string; sessionId?: string }];
@@ -2576,6 +2583,26 @@ function subscribeWindowFocusChanges(
 
 export const browserRendererTransport = {
   kind: "browser" as const,
+  readCardLifecyclePreflight(
+    projectId: string,
+    cardId: string,
+  ): Promise<CardLifecyclePreflightResult> {
+    return invoke(
+      "cards:lifecycle:preflight",
+      projectId,
+      cardId,
+    ) as Promise<CardLifecyclePreflightResult>;
+  },
+  mutateCardLifecycle(
+    projectId: string,
+    request: CardLifecycleMutationRequest,
+  ): Promise<CardLifecycleMutationCommandResult> {
+    return invoke(
+      "cards:lifecycle:apply",
+      projectId,
+      request,
+    ) as Promise<CardLifecycleMutationCommandResult>;
+  },
   async getOwnedBlockDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,

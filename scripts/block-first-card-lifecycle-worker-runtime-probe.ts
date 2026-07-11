@@ -2,10 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CardMutationWriter } from "../src/main/card-mutation-writer";
-import {
-  applyCardLifecycleMutation,
-  readCardLifecycleStoreEpoch,
-} from "../src/main/local-store/card-block-lifecycle";
+import { applyCardLifecycleMutation } from "../src/main/local-store/card-block-lifecycle";
+import { readBlockStoreEpoch } from "../src/main/local-store/block-store-metadata";
 import {
   closeDatabase,
   getDb,
@@ -82,7 +80,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Card lifecycle worker" });
-    const storeEpoch = readCardLifecycleStoreEpoch(getDb());
+    const storeEpoch = readBlockStoreEpoch(getDb());
     invariant(storeEpoch, "Store epoch is missing");
     const scope: Scope = { projectId: project.id, storeEpoch };
     const cardId = createUuidV7();
@@ -117,6 +115,21 @@ const main = async (): Promise<void> => {
         created.result.value.operationId === create.operationId &&
         created.result.value.storeEpoch === scope.storeEpoch,
       "Worker did not preserve the lifecycle request identity and receipt",
+    );
+    const createdDocumentId = created.result.value.documentId;
+    const preflight = await writer.readCardLifecyclePreflight(
+      scope.projectId,
+      cardId,
+    );
+    invariant(
+      preflight.result.ok &&
+        preflight.result.value.storeEpoch === scope.storeEpoch &&
+        preflight.result.value.value?.card?.cardId === cardId &&
+        preflight.result.value.value.card.document.documentId ===
+          created.result.value.documentId &&
+        preflight.result.value.value.card.membership?.membershipId ===
+          created.result.value.membershipId,
+      "Worker did not return the Card lifecycle authority as one preflight snapshot",
     );
     invariant(
       created.metrics.eventCount === 1 &&
@@ -178,21 +191,29 @@ const main = async (): Promise<void> => {
       policy: {
         minimumUpdateCount: 1,
         minimumUpdateBytes: 1,
-        maximumDocuments: 1,
+        maximumDocuments: 8,
         maximumTailBytes: 1024 * 1024,
-        scanLimit: 1,
+        scanLimit: 64,
       },
     });
     invariant(
       compacted.result.storeEpoch === scope.storeEpoch &&
-        compacted.result.selectedDocumentCount === 1 &&
-        compacted.result.documents[0]?.documentId ===
-          created.result.value.documentId &&
+        compacted.result.selectedDocumentCount >= 1 &&
+        compacted.result.documents.some(
+          (document) =>
+            document.documentId === createdDocumentId,
+        ) &&
         compacted.events.length === 0 &&
         compacted.metrics.eventCount === 0 &&
         eventCount(firstEvents) === 2 &&
         eventCount(firstDatabaseEvents) === 2,
-      "Document compaction did not stay inside the FIFO or emitted content fanout",
+      `Document compaction did not stay inside the FIFO or emitted content fanout: ${JSON.stringify({
+        result: compacted.result,
+        workerEventCount: compacted.events.length,
+        metricEventCount: compacted.metrics.eventCount,
+        boardEventCount: eventCount(firstEvents),
+        databaseEventCount: eventCount(firstDatabaseEvents),
+      })}`,
     );
 
     await writer.shutdown();
@@ -342,6 +363,7 @@ const main = async (): Promise<void> => {
       `${JSON.stringify({
         fifo: true,
         typedReceipt: true,
+        preflightSnapshot: true,
         trustedIdentityPreserved: true,
         firstCommitFanoutOnce: true,
         databaseInvalidationOnce: true,

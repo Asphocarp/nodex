@@ -21,7 +21,7 @@ import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
 import { findCardLocationById } from "./local-store/cards";
-import { initializeDatabase } from "./local-store/database";
+import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
 import { dbNotifier } from "./local-store/notifier";
 import {
@@ -33,6 +33,9 @@ import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local
 import { terminalManager } from "./terminal-manager";
 import { cardMutationWriter } from "./card-mutation-writer";
 import { prepareBlockDocumentAuthorityForStartup } from "./block-document-startup";
+import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
+import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
+import { readBlockStoreEpoch } from "./local-store/block-store-metadata";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -133,6 +136,26 @@ let mediaPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
+const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
+  () =>
+    startBlockDocumentCompactionScheduler({
+      writer: cardMutationWriter,
+      readStoreEpoch: () => readBlockStoreEpoch(getDb()),
+      onResult: (result) => {
+        if (result.selectedDocumentCount === 0) return;
+        logger.info("Block Document compaction pass completed", {
+          documentCount: result.selectedDocumentCount,
+          updateCount: result.selectedUpdateCount,
+          updateBytes: result.selectedUpdateBytes,
+        });
+      },
+      onError: (error) => {
+        logger.warn("Block Document compaction pass deferred", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    }),
+);
 const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
 
 function shouldManageElectronWindowBackdrop(): boolean {
@@ -869,6 +892,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     },
   });
   await prepareBlockDocumentAuthorityForStartup(cardMutationWriter);
+  blockDocumentCompactionRuntime.start();
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();
@@ -1068,6 +1092,7 @@ function beginMainRuntimeShutdown(): void {
     clearTimeout(cardReadModelBackfillTimer);
     cardReadModelBackfillTimer = null;
   }
+  blockDocumentCompactionRuntime.dispose();
   stopAutoBackupScheduler();
   if (stopReminderScheduler) {
     stopReminderScheduler();

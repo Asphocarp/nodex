@@ -46,6 +46,11 @@ import type {
   PrepareDocumentVersionRestore,
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
+import type {
+  CardLifecycleMutationCommandResult,
+  CardLifecycleMutationRequest,
+} from "../../shared/card-lifecycle";
+import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -179,6 +184,23 @@ export function mutateBlockProperties(
   request: BlockPropertyMutationRequest,
 ): Promise<BlockPropertyMutationCommandResult> {
   return invoke("block-properties:mutate", projectId, request);
+}
+
+export function readCardLifecyclePreflight(
+  projectId: string,
+  cardId: string,
+): Promise<CardLifecyclePreflightResult> {
+  return resolveRendererTransport().readCardLifecyclePreflight(
+    projectId,
+    cardId,
+  );
+}
+
+export function mutateCardLifecycle(
+  projectId: string,
+  request: CardLifecycleMutationRequest,
+): Promise<CardLifecycleMutationCommandResult> {
+  return resolveRendererTransport().mutateCardLifecycle(projectId, request);
 }
 
 export function mutateDatabase(
