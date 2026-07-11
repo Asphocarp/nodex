@@ -416,12 +416,19 @@ const run = async (): Promise<void> => {
         intrinsicHash,
         new Date().toISOString(),
       );
+    const expectedProjectDocumentCount = (
+      getDb()
+        .prepare(
+          "SELECT COUNT(*) AS count FROM documents WHERE project_id = ? AND readiness = 'ready'",
+        )
+        .get(project.id) as { readonly count: number }
+    ).count;
     const projectRebuild = rebuildProjectDocumentSecondaryProjections(
       getDb(),
       project.id,
     );
     invariant(
-      projectRebuild.documentCount === 1,
+      projectRebuild.documentCount === expectedProjectDocumentCount,
       "project rebuild missed a Document",
     );
     invariant(

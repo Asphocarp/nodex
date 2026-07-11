@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import type { GeneralDatabaseCatalog } from "../../../shared/database-query";
@@ -123,7 +123,7 @@ describe("DatabaseManagementDialog", () => {
       await Promise.resolve();
     });
     expect((screen.getByLabelText("New Database name") as HTMLInputElement).value).toBe("Knowledge");
-    expect((screen.getByRole("button", { name: "Create Database" }) as HTMLButtonElement).disabled).toBeFalse();
+    expect((screen.getByRole("button", { name: "Create Database" }) as HTMLButtonElement).disabled).toBe(false);
     await act(async () => {
       fireEvent.submit(screen.getByLabelText("New Database name").closest("form")!);
       await Promise.resolve();

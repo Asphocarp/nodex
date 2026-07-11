@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import type { CardMetadataPropertySnapshot } from "../shared/card-metadata-property-compiler";
 import { CardMetadataPropertySnapshotError } from "./local-store/card-metadata-property-snapshot";
@@ -34,7 +34,7 @@ describe("Card metadata property snapshot IPC boundary", () => {
     if (!handler) throw new Error("handler was not registered");
 
     const result = await handler("trusted", "project-1", "card-1");
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(result.ok ? result.value.storeEpoch : "").toBe("epoch-1");
     expect(reads.join(",")).toBe("project-1:card-1");
   });
@@ -57,11 +57,11 @@ describe("Card metadata property snapshot IPC boundary", () => {
     if (!handler) throw new Error("handler was not registered");
 
     const untrusted = await handler("foreign", "project-1", "card-1");
-    expect(untrusted.ok).toBeFalse();
+    expect(untrusted.ok).toBe(false);
     expect(untrusted.ok ? "ok" : untrusted.error.code).toBe("invalid_request");
 
     const missing = await handler("trusted", "project-1", "card-1");
-    expect(missing.ok).toBeFalse();
+    expect(missing.ok).toBe(false);
     expect(missing.ok ? "ok" : missing.error.code).toBe("card_not_found");
   });
 });

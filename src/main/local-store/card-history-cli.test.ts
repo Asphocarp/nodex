@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -134,7 +134,7 @@ describe("Card history CLI", () => {
         homeDir,
       );
       expect(missingCard.exitCode).toBe(1);
-      expect(missingCard.stderr.includes("history <card-id>")).toBeTrue();
+      expect(missingCard.stderr.includes("history <card-id>")).toBe(true);
 
       const malformedCursor = await runCli(
         [
@@ -152,7 +152,7 @@ describe("Card history CLI", () => {
         homeDir,
       );
       expect(malformedCursor.exitCode).toBe(1);
-      expect(malformedCursor.stderr.includes("--before-version-id")).toBeTrue();
+      expect(malformedCursor.stderr.includes("--before-version-id")).toBe(true);
       expect(requests.length).toBe(1);
 
       const removedUndo = await runCli(
@@ -160,7 +160,7 @@ describe("Card history CLI", () => {
         homeDir,
       );
       expect(removedUndo.exitCode).toBe(1);
-      expect(removedUndo.stderr.includes("Unknown command: undo")).toBeTrue();
+      expect(removedUndo.stderr.includes("Unknown command: undo")).toBe(true);
       expect(requests.length).toBe(1);
     } finally {
       server.close();

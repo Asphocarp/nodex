@@ -23,7 +23,6 @@ import {
 import { migrateLegacyForeignReferences } from "../src/main/local-store/foreign-reference-migration";
 import { drainLegacyCardShadowJobs } from "../src/main/local-store/legacy-card-shadow-processor";
 import { createProject } from "../src/main/local-store/projects";
-import * as descriptionRevisionService from "../src/main/local-store/description-revisions";
 import { upsertLegacyInlineDatabaseView } from "../src/main/local-store/database-views";
 
 function invariant(condition: unknown, message: string): asserts condition {
@@ -293,24 +292,24 @@ const run = async (): Promise<void> => {
       view.config_json.includes("missing-source-project"),
       "Fallback View discarded the original source diagnostic",
     );
-    const hostRevision = getDb()
+    const hostProjection = getDb()
       .prepare(
         `
-    SELECT description, description_revision_id
-    FROM cards
-    WHERE id = ?
+    SELECT card.description, materialization.nfm
+    FROM cards card
+    INNER JOIN block_documents ownership ON ownership.block_id = card.id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = ownership.document_id
+    WHERE card.id = ?
   `,
       )
       .get(host.id) as {
       readonly description: string;
-      readonly description_revision_id: number;
+      readonly nfm: string;
     };
     invariant(
-      descriptionRevisionService.reconstructDescription(
-        getDb(),
-        hostRevision.description_revision_id,
-      ) === hostRevision.description,
-      "Compatibility history no longer reconstructs the migrated NFM",
+      hostProjection.description === hostProjection.nfm,
+      "Legacy Card projection diverged from the migrated Document",
     );
 
     // The recovered body contains one nested legacy reference. Its new Card
@@ -825,7 +824,7 @@ const run = async (): Promise<void> => {
         sideEffectCrashResumedExactlyOnce: true,
         databaseViewSideEffectCrashResumedExactlyOnce: true,
         sequentialBatchesReportedFinalExhaustion: true,
-        compatibilityHistoryStayedConsistent: true,
+        compatibilityProjectionStayedConsistent: true,
         everyReadyLegacyYDocIsReferenceOnly: true,
       })}\n`,
     );

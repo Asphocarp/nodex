@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import type { CardMetadataPropertySnapshot } from "../../shared/card-metadata-property-compiler";
 import type {
@@ -100,12 +100,12 @@ const dependencies = (
 
 describe("Card metadata property runtime", () => {
   test("routes only non-empty metadata-only Card patches", () => {
-    expect(isCardMetadataPropertyPatch({ priority: "p1-high" })).toBeTrue();
+    expect(isCardMetadataPropertyPatch({ priority: "p1-high" })).toBe(true);
     expect(
       isCardMetadataPropertyPatch({ priority: "p1-high", title: "Title" }),
-    ).toBeFalse();
-    expect(isCardMetadataPropertyPatch({ description: "Body" })).toBeFalse();
-    expect(isCardMetadataPropertyPatch({})).toBeFalse();
+    ).toBe(false);
+    expect(isCardMetadataPropertyPatch({ description: "Body" })).toBe(false);
+    expect(isCardMetadataPropertyPatch({})).toBe(false);
   });
 
   test("compiles one canonical property receipt then refreshes the Card read model", async () => {
@@ -154,7 +154,7 @@ describe("Card metadata property runtime", () => {
 
     expect(result.status).toBe("updated");
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
   });
 
   test("retries one typed retryable result and never recompiles the intent", async () => {
@@ -183,7 +183,7 @@ describe("Card metadata property runtime", () => {
 
     expect(result.status).toBe("updated");
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
   });
 
   test("returns a fresh canonical Card for a stale scalar conflict", async () => {
@@ -238,7 +238,7 @@ describe("Card metadata property runtime", () => {
     });
 
     expect(result.status).toBe("updated");
-    expect(result.status === "updated" ? result.didMutate : true).toBeFalse();
+    expect(result.status === "updated" ? result.didMutate : true).toBe(false);
     expect(mutationCalls).toBe(0);
   });
 

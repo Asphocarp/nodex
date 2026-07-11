@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   parseCardProjectTransferCommandResult,
   parseCardProjectTransferRequest,
@@ -80,7 +80,7 @@ describe("Card Project transfer contract", () => {
     } catch {
       rejected = true;
     }
-    expect(rejected).toBeTrue();
+    expect(rejected).toBe(true);
   });
 
   test("parses committed and rejected exact-retry results", () => {
@@ -113,7 +113,7 @@ describe("Card Project transfer contract", () => {
         committedAt: "2026-07-12T00:00:00.000Z",
       },
     });
-    expect(committed.ok).toBeTrue();
+    expect(committed.ok).toBe(true);
 
     const rejected = parseCardProjectTransferCommandResult({
       ok: false,
@@ -125,6 +125,6 @@ describe("Card Project transfer contract", () => {
         cardId: "card:1",
       },
     });
-    expect(rejected.ok).toBeFalse();
+    expect(rejected.ok).toBe(false);
   });
 });

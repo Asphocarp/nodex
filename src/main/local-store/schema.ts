@@ -7389,6 +7389,51 @@ function migrateSchema67To68(db: Database.Database): void {
   migrate.immediate();
 }
 
+const V69_PROJECT_TRANSFER_SCOPE_TABLES = [
+  "database_memberships",
+  "block_relocations",
+  "document_recovery_artifacts",
+  "document_versions",
+  "canvas_card_references",
+] as const;
+
+const quoteSqlIdentifier = (identifier: string): string =>
+  `"${identifier.replaceAll('"', '""')}"`;
+
+const readTableColumnNames = (
+  db: Database.Database,
+  tableName: string,
+): readonly string[] =>
+  (
+    db
+      .prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`)
+      .all() as readonly { readonly name: string }[]
+  ).map((column) => column.name);
+
+/** Copy a rebuilt table by identity, never by migration-dependent ordinal. */
+const copyV69TableRowsByColumnName = (
+  db: Database.Database,
+  tableName: (typeof V69_PROJECT_TRANSFER_SCOPE_TABLES)[number],
+): void => {
+  const sourceTableName = `${tableName}_v68`;
+  const targetColumns = readTableColumnNames(db, tableName);
+  const sourceColumns = new Set(readTableColumnNames(db, sourceTableName));
+  if (
+    targetColumns.length === 0 ||
+    targetColumns.length !== sourceColumns.size ||
+    targetColumns.some((column) => !sourceColumns.has(column))
+  ) {
+    throw new Error(
+      `Database schema v69 cannot copy ${sourceTableName}: column identities differ`,
+    );
+  }
+  const columns = targetColumns.map(quoteSqlIdentifier).join(", ");
+  db.exec(
+    `INSERT INTO ${quoteSqlIdentifier(tableName)} (${columns}) ` +
+      `SELECT ${columns} FROM ${quoteSqlIdentifier(sourceTableName)}`,
+  );
+};
+
 /**
  * v68 coupled immutable evidence to the current Project coordinate of the
  * referenced Block/Document. That made a stable-ID Card transfer impossible:
@@ -7418,18 +7463,11 @@ function rebuildV69ProjectTransferScopeTables(db: Database.Database): void {
   createBlockSecondaryAuthorityFoundationSchema(db);
   createCanvasSceneMaterializationSchema(db);
 
-  db.exec(`
-    INSERT INTO database_memberships
-      SELECT * FROM database_memberships_v68;
-    INSERT INTO block_relocations
-      SELECT * FROM block_relocations_v68;
-    INSERT INTO document_recovery_artifacts
-      SELECT * FROM document_recovery_artifacts_v68;
-    INSERT INTO document_versions
-      SELECT * FROM document_versions_v68;
-    INSERT INTO canvas_card_references
-      SELECT * FROM canvas_card_references_v68;
+  for (const tableName of V69_PROJECT_TRANSFER_SCOPE_TABLES) {
+    copyV69TableRowsByColumnName(db, tableName);
+  }
 
+  db.exec(`
     DROP TABLE database_memberships_v68;
     DROP TABLE block_relocations_v68;
     DROP TABLE document_recovery_artifacts_v68;

@@ -172,7 +172,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(request.mutationId),
     });
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.changeLogSeq).toBe(9);
   });
 

@@ -391,7 +391,7 @@ describe("Block retention GC kernel", () => {
             update_blob, update_hash, update_byte_length, reason,
             relocation_ids_json, status, created_at, expires_at
           ) VALUES (?, ?, ?, ?, 1, ?, 'test:gc', 0, '[]', NULL,
-            X'01', ?, 1, 'test', '[]', 'pending', ?, ?)`,
+            X'01', ?, 1, 'unsafe_stale_update', '[]', 'pending', ?, ?)`,
         )
         .run(
           "recovery:gc-evidence",

@@ -339,7 +339,7 @@ describe("additional document command contract", () => {
     );
     expect(
       generationChange instanceof AdditionalDocumentExecutionProofError,
-    ).toBeTrue();
+    ).toBe(true);
     if (generationChange instanceof AdditionalDocumentExecutionProofError) {
       expect(generationChange.code).toBe("document_generation_mismatch");
     }

@@ -1186,7 +1186,7 @@ describe("DocumentSyncHub", () => {
         > => event.kind === "relocation-lease-prepare",
       );
     if (!prepare) throw new Error("Missing additional Document lease prepare");
-    expect(prepare.leaseId === "caller-supplied-lease").toBeFalse();
+    expect(prepare.leaseId === "caller-supplied-lease").toBe(false);
     expect(
       hub.respondToRelocationLease(surface, {
         response: "ack",
@@ -1197,10 +1197,10 @@ describe("DocumentSyncHub", () => {
         generation: prepare.generation,
         headSeq: prepare.expectedHeadSeq,
       }).ok,
-    ).toBeTrue();
+    ).toBe(true);
 
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(received.length).toBe(1);
     const coordination = received[0]?.coordination;
     expect(coordination?.kind).toBe("hub_lease");
@@ -1211,8 +1211,8 @@ describe("DocumentSyncHub", () => {
     const kinds = surface.sent.map(
       (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
     );
-    expect(kinds.includes("resync-required")).toBeTrue();
-    expect(kinds.includes("relocation-lease-release")).toBeTrue();
+    expect(kinds.includes("resync-required")).toBe(true);
+    expect(kinds.includes("relocation-lease-release")).toBe(true);
 
     clearSent(surface);
     const flushedRequest = additionalDocumentRequest("additional:flushed");
@@ -1245,7 +1245,7 @@ describe("DocumentSyncHub", () => {
       headSeq: flushedPrepare.expectedHeadSeq + 1,
     });
     const flushed = await flushedPending;
-    expect(flushed.ok).toBeTrue();
+    expect(flushed.ok).toBe(true);
     expect(received.length).toBe(2);
     const flushedCoordination = received[1]?.coordination;
     expect(flushedCoordination?.kind).toBe("hub_lease");
@@ -1286,7 +1286,7 @@ describe("DocumentSyncHub", () => {
       generation: regeneratedPrepare.generation + 1,
       headSeq: regeneratedPrepare.expectedHeadSeq,
     });
-    expect(generationMismatch.ok).toBeFalse();
+    expect(generationMismatch.ok).toBe(false);
     if (!generationMismatch.ok) {
       expect(generationMismatch.error.code).toBe(
         "document_generation_mismatch",
@@ -1304,9 +1304,9 @@ describe("DocumentSyncHub", () => {
         reason: "surface_prepare_failed",
         message: "Document generation changed",
       }).ok,
-    ).toBeTrue();
+    ).toBe(true);
     const regenerated = await regeneratedPending;
-    expect(regenerated.ok).toBeFalse();
+    expect(regenerated.ok).toBe(false);
     if (!regenerated.ok) {
       expect(regenerated.error.code).toBe("coordination_failed");
     }

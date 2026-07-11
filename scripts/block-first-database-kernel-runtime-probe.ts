@@ -29,6 +29,7 @@ import {
 import { readDatabaseView } from "../src/main/local-store/database-views";
 import { createProject } from "../src/main/local-store/projects";
 import { drainLegacyCardShadowJobs } from "../src/main/local-store/legacy-card-shadow-processor";
+import { CURRENT_SCHEMA_VERSION } from "../src/main/local-store/schema";
 
 const invariant = (condition: boolean, message: string): void => {
   if (condition) return;
@@ -673,7 +674,8 @@ const run = async (): Promise<void> => {
       }
     ).options.map((option) => option.id);
     const migratedClean =
-      (migrated.pragma("user_version", { simple: true }) as number) === 67 &&
+      (migrated.pragma("user_version", { simple: true }) as number) ===
+        CURRENT_SCHEMA_VERSION &&
       schemaClean(migrated) &&
       JSON.stringify(migrated.pragma("foreign_key_check")) === "[]" &&
       migratedPrimaryConfig.group?.propertyId.endsWith(":property:status") ===
@@ -685,7 +687,7 @@ const run = async (): Promise<void> => {
         migrated.pragma("integrity_check") as Array<{ integrity_check: string }>
       )[0]?.integrity_check === "ok";
     migrated.close();
-    invariant(migratedClean, "Schema v66→v67 migration evidence failed");
+    invariant(migratedClean, "Schema v66→current migration evidence failed");
 
     const rollback = await runRollbackProbe();
     invariant(rollback, "Schema v67 rollback probe failed");

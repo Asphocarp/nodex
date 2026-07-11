@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
   CARD_HISTORY_CONTRACT_VERSION,
@@ -8,26 +8,6 @@ import {
   type ListCardHistoryRequest,
 } from "../../shared/card-history";
 import { CardHistoryStoreError, listCardHistory } from "./card-history";
-
-interface BunStatement {
-  readonly run: (...parameters: readonly unknown[]) => {
-    readonly lastInsertRowid: number | bigint;
-  };
-}
-
-interface BunSqliteDatabase {
-  readonly exec: (sql: string) => void;
-  readonly prepare: (sql: string) => BunStatement;
-  readonly close: () => void;
-}
-
-const bunSqliteModuleId = ["bun", "sqlite"].join(":");
-const { Database: BunDatabase } = (await import(bunSqliteModuleId)) as {
-  readonly Database: new (
-    filename: string,
-    options?: Readonly<Record<string, unknown>>,
-  ) => BunSqliteDatabase;
-};
 
 const T0 = "2026-06-01T10:00:00.000Z";
 const T1 = "2026-06-01T10:01:00.000Z";
@@ -46,7 +26,7 @@ interface CardFixture {
   readonly documentId: string;
 }
 
-const createSchema = (database: BunSqliteDatabase): void => {
+const createSchema = (database: Database.Database): void => {
   database.exec(`
     CREATE TABLE blocks (
       id TEXT PRIMARY KEY,
@@ -127,16 +107,16 @@ const createSchema = (database: BunSqliteDatabase): void => {
 };
 
 const withFixture = (run: (fixture: Fixture) => void): void => {
-  const bunDatabase = new BunDatabase(":memory:", { strict: true });
-  createSchema(bunDatabase);
+  const database = new Database(":memory:");
+  createSchema(database);
   try {
     run({
-      database: bunDatabase as unknown as Database.Database,
+      database,
       projectId: "project:history",
       storeEpoch: "store:history",
     });
   } finally {
-    bunDatabase.close();
+    database.close();
   }
 };
 

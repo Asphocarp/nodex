@@ -3,9 +3,10 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type {
-  BlockPropertyFieldMutation,
-  BlockPropertyMutationRequest,
+import {
+  makeBlockPropertyFieldPath,
+  type BlockPropertyFieldMutation,
+  type BlockPropertyMutationRequest,
 } from "../../shared/block-property-mutations";
 import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -312,9 +313,7 @@ describe("Block property mutation store", () => {
             !Array.isArray(entry) &&
             "path" in entry &&
             typeof entry.path === "string" &&
-            entry.path.endsWith(
-              `/property/${requirePropertyId(fixture, "priority")}`,
-            ),
+            entry.path === makeBlockPropertyFieldPath(request.fields[0]!),
         ) as
           | {
               readonly before?: {

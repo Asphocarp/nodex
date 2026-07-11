@@ -90,6 +90,6 @@ describe("http server startup options", () => {
     const responses = await Promise.all(
       requests.map((request) => options.fetch(request)),
     );
-    expect(responses.every((response) => response.status === 404)).toBeTrue();
+    expect(responses.every((response) => response.status === 404)).toBe(true);
   });
 });

@@ -61,6 +61,11 @@ const dropProjectionFoundationToV61 = (database: Database.Database): void => {
       DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_insert;
       DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_update;
       DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_delete;
+      DROP TRIGGER IF EXISTS scheduled_card_index_require_card_block_insert;
+      DROP TRIGGER IF EXISTS scheduled_card_index_require_card_block_update;
+      DROP TRIGGER IF EXISTS card_behavior_records_guard_block_retype;
+      DROP TRIGGER IF EXISTS card_read_model_validate_insert;
+      DROP TRIGGER IF EXISTS card_read_model_validate_update;
       DROP TABLE IF EXISTS database_property_values;
       DROP TABLE IF EXISTS database_properties;
       DROP TABLE IF EXISTS scheduled_card_index;

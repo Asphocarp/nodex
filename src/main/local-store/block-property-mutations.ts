@@ -830,6 +830,12 @@ const validateDatabaseSetValue = (
         { fieldPath: path },
       );
     }
+    // The seeded Card tags property is intentionally open-ended. Its values
+    // are application-level tag identities, so a field-level add/remove intent
+    // must not require a separate Database schema mutation first. Custom
+    // multi-select properties continue through the closed option validation
+    // below.
+    return;
   }
   const config = parsePropertyConfig(property, request, path);
   const options = config.options;

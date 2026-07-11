@@ -19,6 +19,7 @@ const probes = [
   "block-first-card-behavior-schema-runtime-probe",
   "block-first-property-mutation-runtime-probe",
   "block-first-property-worker-runtime-probe",
+  "block-first-card-lifecycle-runtime-probe",
   "block-first-card-lifecycle-worker-runtime-probe",
   "block-first-projection-runtime-probe",
   "block-first-document-projection-runtime-probe",
@@ -31,12 +32,20 @@ const probes = [
   "block-first-additional-documents-runtime-probe",
   "block-first-canvas-document-runtime-probe",
   "block-first-document-version-runtime-probe",
+  "block-first-document-compaction-runtime-probe",
   "block-first-card-clone-runtime-probe",
+  "block-first-synced-block-runtime-probe",
   "block-first-foreign-reference-runtime-probe",
   "block-first-relocation-schema-runtime-probe",
   "block-first-relocation-runtime-probe",
   "block-first-relocation-worker-runtime-probe",
   "block-first-card-worker-runtime-probe",
+  "block-first-additional-document-command-runtime-probe",
+  "block-first-additional-document-command-worker-runtime-probe",
+  "block-first-block-retention-gc-runtime-probe",
+  "block-first-card-history-runtime-probe",
+  "block-first-database-view-snapshot-runtime-probe",
+  "block-first-card-project-transfer-runtime-probe",
 ];
 
 const workerProbes = new Set([
@@ -47,7 +56,17 @@ const workerProbes = new Set([
   "block-first-database-transport-runtime-probe",
   "block-first-relocation-worker-runtime-probe",
   "block-first-card-worker-runtime-probe",
+  "block-first-additional-document-command-worker-runtime-probe",
 ]);
+
+const requestedProbes = process.argv.slice(2).filter((argument) => argument !== "--");
+const selectedProbes =
+  requestedProbes.length === 0
+    ? probes
+    : requestedProbes.map((requestedProbe) => {
+        if (probes.includes(requestedProbe)) return requestedProbe;
+        throw new Error(`Unknown Block-first runtime probe: ${requestedProbe}`);
+      });
 
 async function bundle(entryPoint, outfile, format) {
   await build({
@@ -81,7 +100,7 @@ await bundle(
   "cjs",
 );
 
-for (const probe of probes) {
+for (const probe of selectedProbes) {
   const isWorkerProbe = workerProbes.has(probe);
   const extension = isWorkerProbe ? "mjs" : "cjs";
   const outfile = path.join(outputDir, `${probe}.${extension}`);

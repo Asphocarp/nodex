@@ -161,8 +161,11 @@ const main = async (): Promise<void> => {
     });
 
     const policy = {
-      minimumUpdateCount: 1,
-      minimumUpdateBytes: 1,
+      // Both edited Cards have at least genesis + one edit. The Project's
+      // primary Canvas only has genesis and must not become an incidental
+      // candidate for this bounded two-Card compaction scenario.
+      minimumUpdateCount: 2,
+      minimumUpdateBytes: 64 * 1024 * 1024,
       maximumDocuments: 1,
       maximumTailBytes: 64 * 1024 * 1024,
       scanLimit: 16,

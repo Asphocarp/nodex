@@ -263,7 +263,7 @@ describe("general Database kernel", () => {
         fixture.database,
         fixture.projectId,
       );
-      expect(snapshot.ok).toBeTrue();
+      expect(snapshot.ok).toBe(true);
       if (!snapshot.ok || !snapshot.value.value) return;
       expect(snapshot.value.storeEpoch).toBe(fixture.storeEpoch);
       expect(snapshot.value.value.databases.length).toBe(2);
@@ -273,7 +273,7 @@ describe("general Database kernel", () => {
             descriptor.database.blockId === "database-catalog-secondary" &&
             descriptor.views.some((view) => view.id === "view-catalog-secondary"),
         ),
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         snapshot.value.value.databases.filter(
           (descriptor) => descriptor.database.isPrimary,
@@ -322,7 +322,7 @@ describe("general Database kernel", () => {
         fixture.projectId,
         "view-secondary",
       );
-      expect(snapshot.ok).toBeTrue();
+      expect(snapshot.ok).toBe(true);
       if (!snapshot.ok) return;
       expect(snapshot.value.descriptor.changeLogSeq).toBe(
         snapshot.value.query.changeLogSeq,
@@ -380,7 +380,7 @@ describe("general Database kernel", () => {
             },
           },
         );
-        expect(snapshot.ok).toBeTrue();
+        expect(snapshot.ok).toBe(true);
         if (!snapshot.ok) return;
         expect(snapshot.value.query.value?.view.name).toBe("All");
 
@@ -392,7 +392,7 @@ describe("general Database kernel", () => {
           SELECT MAX(seq) AS seq FROM change_log WHERE project_id = ?
         `).get(fixture.projectId) as { readonly seq: number };
         expect(current.name).toBe("Concurrent name");
-        expect(currentCursor.seq > snapshot.value.query.changeLogSeq).toBeTrue();
+        expect(currentCursor.seq > snapshot.value.query.changeLogSeq).toBe(true);
       } finally {
         concurrent.close();
       }
@@ -876,7 +876,7 @@ describe("general Database kernel", () => {
           resultCode(
             applyDatabaseMutation(
               fixture.database,
-              request(fixture, "add-multi", {
+              request(fixture, "mutate-multi-options", {
                 kind: "add_remove_value",
                 cardBlockId: first.id,
                 databaseBlockId: "database-custom",
@@ -1157,7 +1157,7 @@ describe("general Database kernel", () => {
             key: "select",
             name: "Select",
             valueType: "select",
-            config: { options: [{ id: "select-a", name: "A" }] },
+            config: { options: [{ id: "select-b", name: "B" }] },
           }),
         );
         expect(resultCode(removeUsedOption)).toBe("property_option_in_use");

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
   CARD_METADATA_INTRINSIC_FIELDS,
@@ -95,7 +95,7 @@ describe("Card metadata property snapshot contract", () => {
       ok: true,
       value: completeSnapshot(),
     });
-    expect(success.ok).toBeTrue();
+    expect(success.ok).toBe(true);
 
     const failure = parseCardMetadataPropertySnapshotCommandResult({
       ok: false,
@@ -105,7 +105,7 @@ describe("Card metadata property snapshot contract", () => {
         retryable: false,
       },
     });
-    expect(failure.ok).toBeFalse();
+    expect(failure.ok).toBe(false);
     expect(failure.ok ? "ok" : failure.error.code).toBe("card_not_found");
     expect(
       errorMessage(() =>

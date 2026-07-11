@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 
 import type { CardMetadataPropertySnapshot } from "../shared/card-metadata-property-compiler";
@@ -32,7 +32,7 @@ describe("Card metadata property snapshot HTTP boundary", () => {
     const result = (await response.json()) as CardMetadataPropertySnapshotCommandResult;
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(reads.join(",")).toBe("project-1:card-1");
   });
 
@@ -62,6 +62,6 @@ describe("Card metadata property snapshot HTTP boundary", () => {
     );
     const result = (await unavailable.json()) as CardMetadataPropertySnapshotCommandResult;
     expect(unavailable.status).toBe(503);
-    expect(result.ok ? false : result.error.retryable).toBeTrue();
+    expect(result.ok ? false : result.error.retryable).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   DatabaseMutationCommandResult,
   DatabaseMutationRequest,
@@ -141,7 +141,7 @@ describe("Database management runtime", () => {
 
     expect(result.changeLogSeq).toBe(11);
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
   });
 
   test("surfaces terminal typed mutation failures", async () => {

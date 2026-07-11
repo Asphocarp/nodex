@@ -4779,7 +4779,7 @@ describe("workbench session shell", () => {
       screen.container.querySelector(
         '[data-main-view-host="true"][data-database-view-id="view-alpha-focused"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.mouseDown(getPanelTabById(screen.container, primaryTab.id), {
@@ -4793,7 +4793,7 @@ describe("workbench session shell", () => {
       screen.container.querySelector(
         '[data-main-view-host="true"][data-database-view-id="view-alpha-primary"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("renders an attached session thread as the main session page", async () => {

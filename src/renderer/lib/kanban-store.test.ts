@@ -232,7 +232,7 @@ describe("kanban store", () => {
 
     await Promise.all([primary.fetchBoard(), focused.fetchBoard()]);
 
-    expect(primary === focused).toBeFalse();
+    expect(primary === focused).toBe(false);
     expect(primary.getSnapshot().databaseView?.databaseViewId).toBe(
       "view-primary",
     );
@@ -250,7 +250,7 @@ describe("kanban store", () => {
     const callsBeforeFreshEnsure = calls.length;
     await focused.ensureFreshBoard();
     expect(calls.length).toBe(callsBeforeFreshEnsure);
-    expect(focused.getSnapshot().loading).toBeFalse();
+    expect(focused.getSnapshot().loading).toBe(false);
   });
 
   test("invalidates two window stores from one project-scoped Database receipt", async () => {
