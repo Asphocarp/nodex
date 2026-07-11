@@ -21,10 +21,14 @@ import {
 } from "../src/main/local-store/database";
 import { undoLatest } from "../src/main/local-store/history";
 import {
+  LegacyCardShadowOutboxError,
+  claimNextLegacyCardShadowJob,
+  markLegacyCardShadowJobSuperseded,
+} from "../src/main/local-store/legacy-card-shadow-outbox";
+import {
   createProject,
   deleteProject,
 } from "../src/main/local-store/projects";
-import { CURRENT_SCHEMA_VERSION } from "../src/main/local-store/schema";
 import {
   createCardDocument,
   openCardDocument,
@@ -98,6 +102,8 @@ interface ShadowOutboxProbeResult {
   readonly projectionMutationIgnored: boolean;
   readonly claimCasVerified: boolean;
   readonly oneActiveClaimPerCard: boolean;
+  readonly expiredClaimReclaimed: boolean;
+  readonly staleClaimFenced: boolean;
   readonly primaryLegacyWritesRejected: boolean;
   readonly migrationRollbackVerified: boolean;
 }
@@ -658,38 +664,39 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
     invariant(everyAuthoritativeMutationQueued, "authoritative Card mutation was not queued");
     invariant(projectionMutationIgnored, "rebuildable Card projection created a shadow job");
 
-    const claim = database.prepare(`
-      UPDATE legacy_card_shadow_jobs
-      SET status = 'processing', claim_token = 'runtime-claim',
-          claimed_at = '2026-07-11T00:00:00.000Z',
-          claim_expires_at = '2026-07-11T00:01:00.000Z',
-          attempt_count = attempt_count + 1,
-          updated_at = '2026-07-11T00:00:00.000Z'
-      WHERE card_id = ? AND source_event_seq = 1 AND status = 'pending'
-    `).run(card.id);
-    const duplicateClaim = database.prepare(`
-      UPDATE legacy_card_shadow_jobs
-      SET status = 'processing', claim_token = 'runtime-claim-duplicate',
-          claimed_at = '2026-07-11T00:00:00.000Z',
-          claim_expires_at = '2026-07-11T00:01:00.000Z',
-          attempt_count = attempt_count + 1,
-          updated_at = '2026-07-11T00:00:00.000Z'
-      WHERE card_id = ? AND source_event_seq = 1 AND status = 'pending'
-    `).run(card.id);
-    const claimCasVerified = claim.changes === 1 && duplicateClaim.changes === 0;
-    const oneActiveClaimPerCard = operationFails(() => {
-      database.prepare(`
-        UPDATE legacy_card_shadow_jobs
-        SET status = 'processing', claim_token = 'runtime-parallel-claim',
-            claimed_at = '2026-07-11T00:00:00.000Z',
-            claim_expires_at = '2026-07-11T00:01:00.000Z',
-            attempt_count = attempt_count + 1,
-            updated_at = '2026-07-11T00:00:00.000Z'
-        WHERE card_id = ? AND source_event_seq = 2
-      `).run(card.id);
+    const firstClaim = claimNextLegacyCardShadowJob(database, {
+      claimToken: "runtime-claim",
+      now: new Date("2026-07-11T00:00:00.000Z"),
+      leaseMs: 1_000,
     });
+    const parallelClaim = claimNextLegacyCardShadowJob(database, {
+      claimToken: "runtime-parallel-claim",
+      now: new Date("2026-07-11T00:00:00.500Z"),
+    });
+    const claimCasVerified = firstClaim?.sourceEventSeq === 1;
+    const oneActiveClaimPerCard = parallelClaim === null;
+    const reclaimedClaim = claimNextLegacyCardShadowJob(database, {
+      claimToken: "runtime-reclaimed-claim",
+      now: new Date("2026-07-11T00:00:02.000Z"),
+    });
+    const expiredClaimReclaimed =
+      reclaimedClaim?.id === firstClaim?.id && reclaimedClaim?.attemptCount === 2;
+    let staleClaimFenced = false;
+    try {
+      markLegacyCardShadowJobSuperseded(database, {
+        id: firstClaim?.id ?? "",
+        claimToken: firstClaim?.claimToken ?? null,
+      });
+    } catch (error) {
+      staleClaimFenced = error instanceof LegacyCardShadowOutboxError;
+    }
+    if (reclaimedClaim) {
+      markLegacyCardShadowJobSuperseded(database, reclaimedClaim);
+    }
     invariant(claimCasVerified, "shadow outbox claim was not compare-and-swap safe");
     invariant(oneActiveClaimPerCard, "two shadow jobs were claimed for one Card");
+    invariant(expiredClaimReclaimed, "expired shadow claim was not reclaimed");
+    invariant(staleClaimFenced, "stale shadow claim completed reclaimed work");
 
     database.prepare(`
       UPDATE documents
@@ -748,6 +755,8 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
       projectionMutationIgnored,
       claimCasVerified,
       oneActiveClaimPerCard,
+      expiredClaimReclaimed,
+      staleClaimFenced,
       primaryLegacyWritesRejected,
       migrationRollbackVerified,
     };
