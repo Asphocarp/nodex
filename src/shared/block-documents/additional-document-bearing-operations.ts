@@ -97,7 +97,10 @@ export interface AdditionalDocumentBearingMutationResult {
     | CreateReusableTemplateSource["kind"]
     | CreateReusableTemplateReference["kind"]
     | InstantiateReusableTemplate["kind"]
-    | CreateExplicitDocumentBearingBlock["kind"];
+    | CreateExplicitDocumentBearingBlock["kind"]
+    | "delete_owned_source"
+    | "create_canvas_owner"
+    | "delete_canvas_owner";
   readonly blockIds: readonly string[];
   readonly documentHeads: Readonly<
     Record<string, { readonly generation: number; readonly headSeq: number }>

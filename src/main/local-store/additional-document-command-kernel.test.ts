@@ -10,6 +10,7 @@ import {
   type BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
 import { applyAdditionalDocumentCommand } from "./additional-document-command-kernel";
+import { getDocumentBearingBlockSummary } from "./additional-document-bearing-blocks";
 import {
   applyBlockDocumentUpdate,
   initializeBlockDocumentGenesis,
@@ -650,7 +651,86 @@ describe("additional Document authoritative command kernel", () => {
   );
 
   sqliteTest(
-    "rolls every nested domain write back when the adapter faults and refuses capability gaps",
+    "fails closed when another exact-head Document references an owned source",
+    async () => {
+      await withDatabase((database, projectId, storeEpoch) => {
+        const created = applyAdditionalDocumentCommand(
+          database,
+          command(projectId, storeEpoch, "command:referenced-large", {
+            kind: "create_large_document",
+            blockId: "large:referenced",
+            documentId: "document:large-referenced",
+            displayName: "Referenced",
+            content: {
+              kind: "large_document",
+              initialBlocks: [paragraph("large:referenced-body", "body")],
+            },
+            location: { kind: "space" },
+          }),
+        );
+        if (!created.ok) throw new Error(created.error.message);
+        seedCardDocument(database, {
+          projectId,
+          cardId: "card:reference-host",
+          documentId: "document:reference-host",
+          blockTree: [
+            {
+              id: "reference:large",
+              type: "cardRef",
+              props: {
+                targetBlockId: "large:referenced",
+                displayHint: "Referenced",
+              },
+              children: [],
+            },
+          ],
+        });
+        const owner = database
+          .prepare(
+            `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
+          )
+          .get("large:referenced") as {
+          readonly metadata_revision: number;
+          readonly location_revision: number;
+        };
+        const head = created.value.effect.documentHeads[0];
+        if (!head) throw new Error("Referenced source returned no Document head");
+        const rejected = applyAdditionalDocumentCommand(
+          database,
+          command(
+            projectId,
+            storeEpoch,
+            "command:referenced-large-delete",
+            {
+              kind: "delete_owned_source",
+              ownerKind: "large_document",
+              owner: {
+                ownerBlockId: "large:referenced",
+                documentId: head.documentId,
+                generation: head.generation,
+                metadataRevision: owner.metadata_revision,
+                locationRevision: owner.location_revision,
+              },
+              referencePolicy: "require_unreferenced",
+            },
+            lease("lease:referenced-large-delete", [head]),
+          ),
+        );
+        expect(rejected.ok).toBe(false);
+        if (!rejected.ok) expect(rejected.error.code).toBe("source_referenced");
+        expect(
+          (
+            database
+              .prepare("SELECT lifecycle FROM blocks WHERE id = 'large:referenced'")
+              .get() as { readonly lifecycle: string }
+          ).lifecycle,
+        ).toBe("active");
+      });
+    },
+  );
+
+  sqliteTest(
+    "rolls nested writes back and atomically creates then tombstones a non-primary Canvas",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
         const request = command(projectId, storeEpoch, "command:fault", {
@@ -682,7 +762,7 @@ describe("additional Document authoritative command kernel", () => {
         }
         expect(applyAdditionalDocumentCommand(database, request).ok).toBe(true);
 
-        const gap = applyAdditionalDocumentCommand(
+        const createdCanvas = applyAdditionalDocumentCommand(
           database,
           command(
             projectId,
@@ -698,13 +778,155 @@ describe("additional Document authoritative command kernel", () => {
             },
           ),
         );
-        expect(gap.ok).toBe(false);
-        if (!gap.ok) expect(gap.error.code).toBe("capability_gap");
+        if (!createdCanvas.ok) throw new Error(createdCanvas.error.message);
+        expect(createdCanvas.ok).toBe(true);
+        expect(createdCanvas.value.effect.createdBlockIds.join(",")).toBe(
+          "canvas:secondary",
+        );
+        const owner = database
+          .prepare(
+            `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
+          )
+          .get("canvas:secondary") as {
+          readonly metadata_revision: number;
+          readonly location_revision: number;
+        };
+        expect(
+          getDocumentBearingBlockSummary(
+            database,
+            projectId,
+            "canvas:secondary",
+          ).ownerType,
+        ).toBe("canvas");
+        const canvasHead = createdCanvas.value.effect.documentHeads[0];
+        if (!canvasHead) throw new Error("Canvas command returned no Document head");
+        const deletedCanvas = applyAdditionalDocumentCommand(
+          database,
+          command(
+            projectId,
+            storeEpoch,
+            "command:canvas-delete",
+            {
+              kind: "delete_canvas_owner",
+              scope: "non_primary",
+              owner: {
+                ownerBlockId: "canvas:secondary",
+                documentId: canvasHead.documentId,
+                generation: canvasHead.generation,
+                metadataRevision: owner.metadata_revision,
+                locationRevision: owner.location_revision,
+              },
+              referencePolicy: "require_unreferenced",
+            },
+            lease("lease:canvas-delete", [canvasHead]),
+          ),
+        );
+        expect(deletedCanvas.ok).toBe(true);
+        if (!deletedCanvas.ok) throw new Error(deletedCanvas.error.message);
+        expect(deletedCanvas.value.effect.deletedBlockIds.join(",")).toBe(
+          "canvas:secondary",
+        );
+        expect(
+          (
+            database
+              .prepare("SELECT lifecycle FROM blocks WHERE id = 'canvas:secondary'")
+              .get() as { readonly lifecycle: string }
+          ).lifecycle,
+        ).toBe("deleted");
         expect(
           database
-            .prepare("SELECT 1 FROM blocks WHERE id = 'canvas:secondary'")
-            .get() === undefined,
+            .prepare("SELECT 1 FROM documents WHERE id = 'document:canvas-secondary'")
+            .get() !== undefined,
         ).toBe(true);
+        const retry = applyAdditionalDocumentCommand(
+          database,
+          command(
+            projectId,
+            storeEpoch,
+            "command:canvas-delete",
+            {
+              kind: "delete_canvas_owner",
+              scope: "non_primary",
+              owner: {
+                ownerBlockId: "canvas:secondary",
+                documentId: canvasHead.documentId,
+                generation: canvasHead.generation,
+                metadataRevision: owner.metadata_revision,
+                locationRevision: owner.location_revision,
+              },
+              referencePolicy: "require_unreferenced",
+            },
+            { kind: "receipt_replay" },
+          ),
+        );
+        expect(retry.ok).toBe(true);
+        if (retry.ok) expect(retry.value.duplicate).toBe(true);
+
+        const largeSource = applyAdditionalDocumentCommand(
+          database,
+          command(projectId, storeEpoch, "command:large-source", {
+            kind: "create_large_document",
+            blockId: "large:deletable",
+            documentId: "document:large-deletable",
+            displayName: "Temporary source",
+            content: {
+              kind: "large_document",
+              initialBlocks: [
+                paragraph("large:delete-root", "root", [
+                  paragraph("large:delete-child", "child"),
+                ]),
+              ],
+            },
+            location: { kind: "space" },
+          }),
+        );
+        if (!largeSource.ok) throw new Error(largeSource.error.message);
+        const largeOwner = database
+          .prepare(
+            `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
+          )
+          .get("large:deletable") as {
+          readonly metadata_revision: number;
+          readonly location_revision: number;
+        };
+        const largeHead = largeSource.value.effect.documentHeads[0];
+        if (!largeHead) throw new Error("Large source returned no Document head");
+        const deletedLarge = applyAdditionalDocumentCommand(
+          database,
+          command(
+            projectId,
+            storeEpoch,
+            "command:large-source-delete",
+            {
+              kind: "delete_owned_source",
+              ownerKind: "large_document",
+              owner: {
+                ownerBlockId: "large:deletable",
+                documentId: largeHead.documentId,
+                generation: largeHead.generation,
+                metadataRevision: largeOwner.metadata_revision,
+                locationRevision: largeOwner.location_revision,
+              },
+              referencePolicy: "require_unreferenced",
+            },
+            lease("lease:large-source-delete", [largeHead]),
+          ),
+        );
+        if (!deletedLarge.ok) throw new Error(deletedLarge.error.message);
+        expect(deletedLarge.value.effect.deletedBlockIds.join(",")).toBe(
+          "large:deletable,large:delete-child,large:delete-root",
+        );
+        expect(
+          (
+            database
+              .prepare(
+                `SELECT COUNT(*) AS count FROM blocks
+                 WHERE id IN ('large:deletable', 'large:delete-root', 'large:delete-child')
+                   AND lifecycle = 'deleted'`,
+              )
+              .get() as { readonly count: number }
+          ).count,
+        ).toBe(3);
       });
     },
   );

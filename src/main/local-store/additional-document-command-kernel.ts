@@ -23,8 +23,10 @@ import {
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import {
   AdditionalDocumentBearingBlockError,
+  createNonPrimaryCanvasOwner,
   createExplicitDocumentBearingBlock,
   createReusableTemplateSource,
+  deleteOwnedDocumentSource,
   instantiateReusableTemplate,
 } from "./additional-document-bearing-blocks";
 import {
@@ -429,9 +431,23 @@ const deriveMutationEffect = (
       documentHeads: evidence.documentHeads,
     };
   }
-  throw new AdditionalDocumentCommandContractError(
-    `Capability gap ${operation.kind} cannot produce a mutation effect`,
-  );
+  if (
+    operation.kind === "delete_owned_source" ||
+    operation.kind === "delete_canvas_owner"
+  ) {
+    return {
+      createdBlockIds: [],
+      preservedBlockIds: [],
+      deletedBlockIds: evidence.targetBlockIds,
+      documentHeads: evidence.documentHeads,
+    };
+  }
+  return {
+    createdBlockIds: evidence.targetBlockIds,
+    preservedBlockIds: [],
+    deletedBlockIds: [],
+    documentHeads: evidence.documentHeads,
+  };
 };
 
 const executionHead = (
@@ -619,8 +635,46 @@ const executeDomainMutation = (
       location,
     });
   }
+  if (operation.kind === "create_canvas_owner") {
+    return createNonPrimaryCanvasOwner(database, {
+      ...common,
+      version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
+      kind: "create_canvas_owner",
+      blockId: operation.blockId,
+      documentId: operation.documentId,
+      displayName: operation.displayName,
+      ...(operation.placement.before
+        ? {
+            beforeBlockId: operation.placement.before.blockId,
+            expectedBeforeLocationRevision:
+              operation.placement.before.expectedLocationRevision,
+          }
+        : {}),
+    });
+  }
+  if (
+    operation.kind === "delete_owned_source" ||
+    operation.kind === "delete_canvas_owner"
+  ) {
+    const head = executionHead(request, operation.owner);
+    return deleteOwnedDocumentSource(database, {
+      ...common,
+      version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
+      kind: operation.kind,
+      ownerKind:
+        operation.kind === "delete_canvas_owner"
+          ? "canvas"
+          : operation.ownerKind,
+      ownerBlockId: operation.owner.ownerBlockId,
+      documentId: head.documentId,
+      expectedGeneration: head.generation,
+      expectedHeadSeq: head.headSeq,
+      expectedMetadataRevision: operation.owner.metadataRevision,
+      expectedLocationRevision: operation.owner.locationRevision,
+    });
+  }
   throw new AdditionalDocumentCommandContractError(
-    `Capability gap ${operation.kind} reached the command kernel`,
+    "An unsupported additional Document command reached the kernel",
   );
 };
 

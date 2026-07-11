@@ -4,6 +4,9 @@ import * as Y from "yjs";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
+  CANVAS_BLOCK_TYPE,
+  CANVAS_DOCUMENT_SCHEMA_KEY,
+  CANVAS_DOCUMENT_SCHEMA_VERSION,
   DOCUMENT_OPERATION_CONTRACT_VERSION,
   LARGE_CODE_BLOCK_TYPE,
   LARGE_CODE_DOCUMENT_SCHEMA_KEY,
@@ -15,7 +18,10 @@ import {
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
   REUSABLE_TEMPLATE_REFERENCE_TYPE,
   REUSABLE_TEMPLATE_SOURCE_TYPE,
+  SYNCED_BLOCK_SOURCE_TYPE,
+  createCanvasDocument,
   createBodyOnlyBlockDocument,
+  primaryCanvasBlockId,
   type AdditionalDocumentBearingMutationResult,
   type CreateExplicitDocumentBearingBlock,
   type CreateReusableTemplateReference,
@@ -31,6 +37,7 @@ import {
 import {
   getRegisteredBlockDocumentSchemaAdapter,
   inspectOwnedBlockDocument,
+  inspectRegisteredOwnedBlockDocument,
 } from "../../shared/block-documents/document-schema-adapters";
 import {
   AuthoritativeOperationReceiptError,
@@ -78,6 +85,45 @@ export type AdditionalDocumentBearingFaultPoint =
 
 export interface AdditionalDocumentBearingMutationOptions {
   readonly faultInjector?: (point: AdditionalDocumentBearingFaultPoint) => void;
+}
+
+export type DeletableOwnedDocumentKind =
+  | "synced_block"
+  | "reusable_template"
+  | "large_document"
+  | "large_code"
+  | "canvas";
+
+export interface CreateNonPrimaryCanvasOwnerInput {
+  readonly version: typeof ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION;
+  readonly kind: "create_canvas_owner";
+  readonly operationId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly clientSessionId: string;
+  readonly actor: Readonly<Record<string, BlockTreeValue>>;
+  readonly blockId: string;
+  readonly documentId: string;
+  readonly displayName: string;
+  readonly beforeBlockId?: string;
+  readonly expectedBeforeLocationRevision?: number;
+}
+
+export interface DeleteOwnedDocumentSourceInput {
+  readonly version: typeof ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION;
+  readonly kind: "delete_owned_source" | "delete_canvas_owner";
+  readonly operationId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly clientSessionId: string;
+  readonly actor: Readonly<Record<string, BlockTreeValue>>;
+  readonly ownerKind: DeletableOwnedDocumentKind;
+  readonly ownerBlockId: string;
+  readonly documentId: string;
+  readonly expectedGeneration: number;
+  readonly expectedHeadSeq: number;
+  readonly expectedMetadataRevision: number;
+  readonly expectedLocationRevision: number;
 }
 
 export interface DocumentBearingBlockSummary {
@@ -217,7 +263,9 @@ export const getDocumentBearingBlockSummary = (
       SELECT owner.type AS owner_type, owner.lifecycle, property.value_json,
         document.id AS document_id, document.generation, document.head_seq,
         document.schema_key, document.schema_version,
-        materialization.projected_seq, materialization.preview
+        COALESCE(materialization.projected_seq, scene.projected_seq)
+          AS projected_seq,
+        COALESCE(materialization.preview, scene.preview) AS preview
       FROM blocks owner
       INNER JOIN block_documents ownership
         ON ownership.block_id = owner.id
@@ -225,8 +273,10 @@ export const getDocumentBearingBlockSummary = (
       INNER JOIN documents document
         ON document.id = ownership.document_id
         AND document.project_id = ownership.project_id
-      INNER JOIN document_materializations materialization
+      LEFT JOIN document_materializations materialization
         ON materialization.document_id = document.id
+      LEFT JOIN canvas_scene_materializations scene
+        ON scene.document_id = document.id
       INNER JOIN block_properties property
         ON property.block_id = owner.id
         AND property.project_id = owner.project_id
@@ -248,11 +298,15 @@ export const getDocumentBearingBlockSummary = (
         readonly head_seq: number;
         readonly schema_key: string;
         readonly schema_version: number;
-        readonly projected_seq: number;
-        readonly preview: string;
+        readonly projected_seq: number | null;
+        readonly preview: string | null;
       }
     | undefined;
-  if (!row || row.projected_seq !== row.head_seq) {
+  if (
+    !row ||
+    row.projected_seq !== row.head_seq ||
+    row.preview === null
+  ) {
     throw new AdditionalDocumentBearingBlockError(
       "source_not_found",
       `Document-bearing Block ${ownerId} has no exact-head summary in Project ${scope}`,
@@ -675,7 +729,7 @@ const initializeOwnedBlockTreeDocument = (
       label: input.blockType,
     });
     populateBlockDocumentBodyFromBlockTree(envelope.body, input.blockTree);
-    inspectOwnedBlockDocument(envelope.document, {
+    inspectRegisteredOwnedBlockDocument(envelope.document, {
       ownerType: input.blockType,
       schemaKey: input.schemaKey,
       schemaVersion: input.schemaVersion,
@@ -704,6 +758,64 @@ const initializeOwnedBlockTreeDocument = (
     throw new AdditionalDocumentBearingBlockError(
       "invalid_request",
       `Initial ${input.blockType} content violates its registered Document schema: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  } finally {
+    envelope?.document.destroy();
+  }
+};
+
+const initializeOwnedCanvasDocument = (
+  database: Database.Database,
+  input: {
+    readonly operationId: string;
+    readonly projectId: string;
+    readonly storeEpoch: string;
+    readonly clientSessionId: string;
+    readonly blockId: string;
+    readonly documentId: string;
+    readonly displayName: string;
+    readonly location: Extract<StageOwnedDocumentInput["location"], { kind: "space" }>;
+  },
+): { readonly generation: number; readonly headSeq: number } => {
+  let envelope: ReturnType<typeof createCanvasDocument> | null = null;
+  try {
+    stageOwnedDocument(database, {
+      ...input,
+      blockType: CANVAS_BLOCK_TYPE,
+      schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+    });
+    envelope = createCanvasDocument({ documentId: input.documentId });
+    inspectRegisteredOwnedBlockDocument(envelope.document, {
+      ownerType: CANVAS_BLOCK_TYPE,
+      schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+    });
+    const ack = initializeBlockDocumentGenesis(database, {
+      documentId: input.documentId,
+      storeEpoch: input.storeEpoch,
+      generation: 1,
+      updateId: `${input.operationId}:genesis`,
+      clientSessionId: input.clientSessionId,
+      update: Y.encodeStateAsUpdate(envelope.document),
+      finalAuthority: "ydoc_primary",
+    });
+    return { generation: ack.generation, headSeq: ack.headSeq };
+  } catch (error) {
+    if (error instanceof AdditionalDocumentBearingBlockError) throw error;
+    if (error instanceof BlockDocumentStoreError) {
+      throw new AdditionalDocumentBearingBlockError(
+        error.code === "store_epoch_mismatch"
+          ? "store_epoch_mismatch"
+          : "document_state_corrupt",
+        error.message,
+        { cause: error },
+      );
+    }
+    throw new AdditionalDocumentBearingBlockError(
+      "document_state_corrupt",
+      `Canvas genesis violates its registered Document schema: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   } finally {
@@ -1477,6 +1589,424 @@ export const createExplicitDocumentBearingBlock = (
       return {
         blockIds: [blockId, ...flattenBlockIds(blockTree)],
         documentHeads,
+      };
+    },
+    options,
+  );
+};
+
+const DELETABLE_OWNER_TYPES: Readonly<Record<DeletableOwnedDocumentKind, string>> = {
+  synced_block: SYNCED_BLOCK_SOURCE_TYPE,
+  reusable_template: REUSABLE_TEMPLATE_SOURCE_TYPE,
+  large_document: LARGE_DOCUMENT_BLOCK_TYPE,
+  large_code: LARGE_CODE_BLOCK_TYPE,
+  canvas: CANVAS_BLOCK_TYPE,
+};
+
+interface OwnedDocumentClosure {
+  readonly blockIds: readonly string[];
+  readonly documentHeads: Readonly<
+    Record<string, { readonly generation: number; readonly headSeq: number }>
+  >;
+}
+
+const collectOwnedDocumentClosure = (
+  database: Database.Database,
+  projectId: string,
+  rootBlockId: string,
+): OwnedDocumentClosure => {
+  const blockIds = new Set<string>([rootBlockId]);
+  const documentHeads = new Map<
+    string,
+    { readonly generation: number; readonly headSeq: number }
+  >();
+  const pendingOwners = [rootBlockId];
+  while (pendingOwners.length > 0) {
+    const ownerBlockId = pendingOwners.shift();
+    if (!ownerBlockId) continue;
+    const document = database
+      .prepare(
+        `
+        SELECT document.id, document.generation, document.head_seq,
+          document.readiness, document.authority
+        FROM block_documents ownership
+        INNER JOIN documents document
+          ON document.id = ownership.document_id
+          AND document.project_id = ownership.project_id
+        WHERE ownership.block_id = ? AND ownership.project_id = ?
+      `,
+      )
+      .get(ownerBlockId, projectId) as
+      | {
+          readonly id: string;
+          readonly generation: number;
+          readonly head_seq: number;
+          readonly readiness: string;
+          readonly authority: string;
+        }
+      | undefined;
+    if (!document) continue;
+    if (
+      document.readiness !== "ready" ||
+      document.authority !== "ydoc_primary" ||
+      document.head_seq < 1
+    ) {
+      throw new AdditionalDocumentBearingBlockError(
+        "document_state_corrupt",
+        `Owned Document ${document.id} is not ready Y.Doc authority`,
+      );
+    }
+    if (documentHeads.has(document.id)) continue;
+    documentHeads.set(document.id, {
+      generation: document.generation,
+      headSeq: document.head_seq,
+    });
+    const children = database
+      .prepare(
+        `
+        SELECT id
+        FROM blocks
+        WHERE project_id = ? AND containing_document_id = ?
+        ORDER BY id
+      `,
+      )
+      .all(projectId, document.id) as readonly { readonly id: string }[];
+    for (const child of children) {
+      if (blockIds.has(child.id)) continue;
+      blockIds.add(child.id);
+      pendingOwners.push(child.id);
+    }
+  }
+  return {
+    blockIds: [...blockIds].sort(),
+    documentHeads: Object.fromEntries(
+      [...documentHeads.entries()].sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  };
+};
+
+const assertNoExternalBlockReferences = (
+  database: Database.Database,
+  closure: OwnedDocumentClosure,
+): void => {
+  const targetBlockIds = new Set(closure.blockIds);
+  const ownedDocumentIds = new Set(Object.keys(closure.documentHeads));
+  const documents = database
+    .prepare(
+      `
+      SELECT document.id, document.generation, document.head_seq,
+        document.schema_key, document.schema_version, owner.type AS owner_type,
+        owner.lifecycle AS owner_lifecycle,
+        materialization.generation AS materialized_generation,
+        materialization.projected_seq, materialization.references_json
+      FROM documents document
+      INNER JOIN block_documents ownership
+        ON ownership.document_id = document.id
+        AND ownership.project_id = document.project_id
+      INNER JOIN blocks owner
+        ON owner.id = ownership.block_id
+        AND owner.project_id = ownership.project_id
+      LEFT JOIN document_materializations materialization
+        ON materialization.document_id = document.id
+      WHERE document.readiness = 'ready'
+        AND document.authority = 'ydoc_primary'
+        AND owner.lifecycle <> 'deleted'
+      ORDER BY document.id
+    `,
+    )
+    .all() as readonly {
+    readonly id: string;
+    readonly generation: number;
+    readonly head_seq: number;
+    readonly schema_key: string;
+    readonly schema_version: number;
+    readonly owner_type: string;
+    readonly owner_lifecycle: string;
+    readonly materialized_generation: number | null;
+    readonly projected_seq: number | null;
+    readonly references_json: string | null;
+  }[];
+  for (const document of documents) {
+    if (ownedDocumentIds.has(document.id)) continue;
+    let contentModel: "block_tree" | "scene_graph";
+    try {
+      contentModel = getRegisteredBlockDocumentSchemaAdapter({
+        ownerType: document.owner_type,
+        schemaKey: document.schema_key,
+        schemaVersion: document.schema_version,
+      }).contentModel;
+    } catch (error) {
+      throw new AdditionalDocumentBearingBlockError(
+        "document_state_corrupt",
+        `Cannot prove references while Document ${document.id} uses an unregistered schema`,
+        { cause: error },
+      );
+    }
+    if (contentModel !== "block_tree") continue;
+    if (
+      document.materialized_generation !== document.generation ||
+      document.projected_seq !== document.head_seq ||
+      document.references_json === null
+    ) {
+      throw new AdditionalDocumentBearingBlockError(
+        "document_state_corrupt",
+        `Cannot prove references while Document ${document.id} lacks an exact-head materialization`,
+      );
+    }
+    let references: unknown;
+    try {
+      references = JSON.parse(document.references_json);
+    } catch {
+      references = null;
+    }
+    if (!Array.isArray(references)) {
+      throw new AdditionalDocumentBearingBlockError(
+        "document_state_corrupt",
+        `Document ${document.id} has invalid reference materialization`,
+      );
+    }
+    if (
+      references.some(
+        (reference) =>
+          typeof reference === "object" &&
+          reference !== null &&
+          "targetBlockId" in reference &&
+          typeof reference.targetBlockId === "string" &&
+          targetBlockIds.has(reference.targetBlockId),
+      )
+    ) {
+      throw new AdditionalDocumentBearingBlockError(
+        "source_referenced",
+        `Owned source ${closure.blockIds[0]} is still referenced by Document ${document.id}`,
+      );
+    }
+  }
+
+  if (closure.blockIds.length === 0) return;
+  const placeholders = closure.blockIds.map(() => "?").join(", ");
+  const externalCanvasReference = database
+    .prepare(
+      `
+      SELECT reference.document_id
+      FROM canvas_card_references reference
+      INNER JOIN blocks owner ON owner.id = reference.owner_block_id
+      WHERE reference.target_block_id IN (${placeholders})
+        AND owner.lifecycle <> 'deleted'
+        AND reference.document_id NOT IN (${[...ownedDocumentIds]
+          .map(() => "?")
+          .join(", ") || "NULL"})
+      LIMIT 1
+    `,
+    )
+    .get(...closure.blockIds, ...ownedDocumentIds) as
+    | { readonly document_id: string }
+    | undefined;
+  if (!externalCanvasReference) return;
+  throw new AdditionalDocumentBearingBlockError(
+    "source_referenced",
+    `Owned source ${closure.blockIds[0]} is still referenced by Canvas ${externalCanvasReference.document_id}`,
+  );
+};
+
+const withoutDeleteExecutionHead = (
+  input: DeleteOwnedDocumentSourceInput,
+): Readonly<Record<string, unknown>> => {
+  const logicalRequest = withoutAuditIdentity(input);
+  const { expectedHeadSeq, ...withoutHead } = logicalRequest;
+  void expectedHeadSeq;
+  return withoutHead;
+};
+
+export const createNonPrimaryCanvasOwner = (
+  database: Database.Database,
+  input: CreateNonPrimaryCanvasOwnerInput,
+  options: AdditionalDocumentBearingMutationOptions = {},
+): AdditionalDocumentBearingMutationResult => {
+  validateCommonInput(input);
+  const blockId = requireIdentity(input.blockId, "blockId");
+  const documentId = requireIdentity(input.documentId, "documentId");
+  const displayName = requireBoundedText(input.displayName, "displayName", 512);
+  if (blockId === primaryCanvasBlockId(input.projectId)) {
+    throw new AdditionalDocumentBearingBlockError(
+      "identity_conflict",
+      "The deterministic primary Canvas identity cannot be reused",
+    );
+  }
+  return executeMutation(
+    database,
+    {
+      ...input,
+      mutationKind: input.kind,
+      logicalRequest: withoutAuditIdentity(input),
+      requestedBlockIds: [blockId],
+      fieldIntents: [
+        { path: "block.documentOwnership", operation: "create_canvas" },
+      ],
+    },
+    () => {
+      const head = initializeOwnedCanvasDocument(database, {
+        ...input,
+        blockId,
+        documentId,
+        displayName,
+        location: {
+          kind: "space",
+          ...(input.beforeBlockId
+            ? { beforeBlockId: requireIdentity(input.beforeBlockId, "beforeBlockId") }
+            : {}),
+          ...(input.expectedBeforeLocationRevision === undefined
+            ? {}
+            : {
+                expectedBeforeLocationRevision:
+                  input.expectedBeforeLocationRevision,
+              }),
+        },
+      });
+      options.faultInjector?.("after_owner_staged");
+      options.faultInjector?.("after_genesis");
+      return {
+        blockIds: [blockId],
+        documentHeads: { [documentId]: head },
+      };
+    },
+    options,
+  );
+};
+
+export const deleteOwnedDocumentSource = (
+  database: Database.Database,
+  input: DeleteOwnedDocumentSourceInput,
+  options: AdditionalDocumentBearingMutationOptions = {},
+): AdditionalDocumentBearingMutationResult => {
+  validateCommonInput(input);
+  const ownerBlockId = requireIdentity(input.ownerBlockId, "ownerBlockId");
+  const documentId = requireIdentity(input.documentId, "documentId");
+  requireHead(input.expectedGeneration, "expectedGeneration", 1);
+  requireHead(input.expectedHeadSeq, "expectedHeadSeq", 1);
+  requireHead(input.expectedMetadataRevision, "expectedMetadataRevision", 1);
+  requireHead(input.expectedLocationRevision, "expectedLocationRevision", 1);
+  if (
+    input.ownerKind === "canvas" &&
+    ownerBlockId === primaryCanvasBlockId(input.projectId)
+  ) {
+    throw new AdditionalDocumentBearingBlockError(
+      "source_referenced",
+      "A Project's primary Canvas cannot be deleted",
+    );
+  }
+  return executeMutation(
+    database,
+    {
+      ...input,
+      mutationKind: input.kind,
+      logicalRequest: withoutDeleteExecutionHead(input),
+      requestedBlockIds: [ownerBlockId],
+      fieldIntents: [
+        { path: "block.lifecycle", operation: "delete_owned_source" },
+      ],
+    },
+    () => {
+      const owner = database
+        .prepare(
+          `
+          SELECT type, lifecycle, location_kind, containing_document_id,
+            location_revision, metadata_revision
+          FROM blocks
+          WHERE id = ? AND project_id = ?
+        `,
+        )
+        .get(ownerBlockId, input.projectId) as
+        | {
+            readonly type: string;
+            readonly lifecycle: string;
+            readonly location_kind: string;
+            readonly containing_document_id: string | null;
+            readonly location_revision: number;
+            readonly metadata_revision: number;
+          }
+        | undefined;
+      if (
+        !owner ||
+        owner.type !== DELETABLE_OWNER_TYPES[input.ownerKind] ||
+        owner.lifecycle === "deleted"
+      ) {
+        throw new AdditionalDocumentBearingBlockError(
+          "source_not_found",
+          `Owned source ${ownerBlockId} is unavailable`,
+        );
+      }
+      if (
+        owner.location_kind !== "space" ||
+        owner.containing_document_id !== null
+      ) {
+        throw new AdditionalDocumentBearingBlockError(
+          "block_revision_conflict",
+          `Owned source ${ownerBlockId} must be moved to Space before deletion`,
+        );
+      }
+      if (
+        owner.location_revision !== input.expectedLocationRevision ||
+        owner.metadata_revision !== input.expectedMetadataRevision
+      ) {
+        throw new AdditionalDocumentBearingBlockError(
+          "block_revision_conflict",
+          `Owned source ${ownerBlockId} changed before deletion`,
+        );
+      }
+      const descriptor = getOwnedBlockDocumentDescriptor(
+        database,
+        input.projectId,
+        ownerBlockId,
+      );
+      if (
+        descriptor.documentId !== documentId ||
+        descriptor.generation !== input.expectedGeneration ||
+        descriptor.headSeq !== input.expectedHeadSeq ||
+        descriptor.readiness !== "ready" ||
+        descriptor.authority !== "ydoc_primary"
+      ) {
+        throw new AdditionalDocumentBearingBlockError(
+          "document_head_conflict",
+          `Owned Document ${documentId} changed before deletion`,
+        );
+      }
+      const closure = collectOwnedDocumentClosure(
+        database,
+        input.projectId,
+        ownerBlockId,
+      );
+      if (!Object.hasOwn(closure.documentHeads, documentId)) {
+        throw new AdditionalDocumentBearingBlockError(
+          "document_state_corrupt",
+          `Owned source ${ownerBlockId} has no registered Document closure`,
+        );
+      }
+      assertNoExternalBlockReferences(database, closure);
+      const placeholders = closure.blockIds.map(() => "?").join(", ");
+      const now = new Date().toISOString();
+      database
+        .prepare(
+          `DELETE FROM top_level_block_placements WHERE block_id IN (${placeholders})`,
+        )
+        .run(...closure.blockIds);
+      database
+        .prepare(
+          `
+          UPDATE blocks
+          SET lifecycle = 'deleted',
+              location_revision = location_revision + CASE WHEN id = ? THEN 1 ELSE 0 END,
+              metadata_revision = metadata_revision + 1,
+              updated_at = ?
+          WHERE project_id = ? AND id IN (${placeholders})
+        `,
+        )
+        .run(ownerBlockId, now, input.projectId, ...closure.blockIds);
+      options.faultInjector?.("after_owner_staged");
+      return {
+        blockIds: closure.blockIds,
+        documentHeads: closure.documentHeads,
       };
     },
     options,

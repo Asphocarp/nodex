@@ -255,22 +255,19 @@ export const ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES: Readonly<
       "create_owner_preserve_supplied_or_derive_code_content_ids",
   },
   delete_owned_source: {
-    availability: "capability_gap",
+    availability: "kernel_ready",
     coordination: "hub_lease",
     identitySemantics: "delete_owner_preserving_retained_history_ids",
-    gap: "Reference guards exist, but no single idempotent kernel atomically tombstones the owner and retires its owned Document.",
   },
   create_canvas_owner: {
-    availability: "capability_gap",
+    availability: "kernel_ready",
     coordination: "fifo_only",
     identitySemantics: "create_empty_owner",
-    gap: "Only deterministic primary-Canvas bootstrap exists; non-primary owner creation is not implemented.",
   },
   delete_canvas_owner: {
-    availability: "capability_gap",
+    availability: "kernel_ready",
     coordination: "hub_lease",
     identitySemantics: "delete_canvas_owner_preserving_retained_history_ids",
-    gap: "No guarded idempotent non-primary Canvas deletion kernel exists.",
   },
 };
 

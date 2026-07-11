@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added one trusted command boundary for creating and transforming Synced Blocks, Reusable Templates, and explicit Large Document/Code Blocks, available through Electron, browser HTTP/SSE, the renderer API, and `nodex block command` with exact-retry receipts.
+- Added one trusted command boundary for creating, transforming, and safely deleting Synced Blocks, Reusable Templates, explicit Large Document/Code Blocks, and Canvas documents, available through Electron, browser HTTP/SSE, the renderer API, and `nodex block command` with exact-retry receipts.
 - Added stable-ID Card Document mutation APIs and `nodex block` CLI commands for title, NFM import/export, and Block insert/update/delete/move operations, with exact-head receipts, equivalent Electron/browser behavior, and short editor flush/freeze fences for identity-destructive changes.
 - Added stable Block property mutation APIs for field-level scalar conflict detection and set add/remove intent, with equivalent Electron and browser behavior and exact retry receipts.
 - Added same-window and cross-window drag-and-drop between Kanban and Card Stage/Toggle List editors, with ordered multi-item moves, Alt/Option copy, cross-project transactions, rollback-safe editor insertion, and atomic cross-project undo/redo.

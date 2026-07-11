@@ -92,10 +92,10 @@ const main = async (): Promise<void> => {
         duplicate.value.changeLogSeq === first.value.changeLogSeq,
       "Worker exact retry did not replay the durable receipt",
     );
-    const gap = await writer.applyAdditionalDocumentCommand(
+    const canvas = await writer.applyAdditionalDocumentCommand(
       parseAdditionalDocumentCommandRequest({
         version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
-        operationId: "worker:canvas-gap",
+        operationId: "worker:canvas-create",
         projectId: project.id,
         storeEpoch,
         clientSessionId: "worker:surface",
@@ -112,8 +112,10 @@ const main = async (): Promise<void> => {
       }),
     );
     invariant(
-      !gap.ok && gap.error.code === "capability_gap",
-      "Worker claimed success for a capability gap",
+      canvas.ok &&
+        canvas.value.effect.createdBlockIds.join(",") ===
+          "worker:secondary-canvas",
+      "Worker did not commit the non-primary Canvas owner",
     );
     await writer.shutdown();
     writer = undefined;
@@ -146,6 +148,24 @@ const main = async (): Promise<void> => {
         readonly outcome: string;
         readonly change_log_seq: number;
       };
+      const canvasOwner = persisted
+        .prepare(
+          `
+          SELECT block.lifecycle, document.head_seq,
+            materialization.projected_seq
+          FROM blocks block
+          INNER JOIN block_documents ownership ON ownership.block_id = block.id
+          INNER JOIN documents document ON document.id = ownership.document_id
+          INNER JOIN canvas_scene_materializations materialization
+            ON materialization.document_id = document.id
+          WHERE block.id = ? AND block.project_id = ?
+        `,
+        )
+        .get("worker:secondary-canvas", project.id) as {
+        readonly lifecycle: string;
+        readonly head_seq: number;
+        readonly projected_seq: number;
+      };
       const foreignKeys = persisted.pragma(
         "foreign_key_check",
       ) as readonly unknown[];
@@ -155,6 +175,8 @@ const main = async (): Promise<void> => {
           owner.projected_seq === owner.head_seq &&
           receipt.outcome === "committed" &&
           receipt.change_log_seq === first.value.changeLogSeq &&
+          canvasOwner.lifecycle === "active" &&
+          canvasOwner.head_seq === canvasOwner.projected_seq &&
           foreignKeys.length === 0,
         "Worker ACK preceded durable owner/projection/receipt state",
       );
@@ -162,7 +184,7 @@ const main = async (): Promise<void> => {
         `${JSON.stringify({
           fifo: true,
           exactRetry: true,
-          capabilityGap: true,
+          nonPrimaryCanvas: true,
           projection: true,
           restart: true,
           foreignKeys: true,

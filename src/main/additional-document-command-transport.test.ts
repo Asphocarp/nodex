@@ -182,7 +182,7 @@ describe("Additional Document command transports", () => {
     expect(mismatch.status).toBe(400);
     expect(calls).toBe(0);
 
-    const capabilityGap = await scoped.request(
+    const invalidScope = await scoped.request(
       "/api/projects/project-1/document-commands",
       {
         method: "POST",
@@ -191,7 +191,7 @@ describe("Additional Document command transports", () => {
           ...request,
           operation: {
             kind: "create_canvas_owner",
-            scope: "non_primary",
+            scope: "primary",
             blockId: "canvas-1",
             documentId: "document-canvas-1",
             displayName: "Canvas",
@@ -200,7 +200,7 @@ describe("Additional Document command transports", () => {
         }),
       },
     );
-    expect(capabilityGap.status).toBe(400);
+    expect(invalidScope.status).toBe(400);
     expect(calls).toBe(0);
 
     const unavailable = new Hono();

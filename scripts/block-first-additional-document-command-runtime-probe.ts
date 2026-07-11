@@ -654,9 +654,9 @@ const main = async (): Promise<void> => {
       "Rolled-back operation identity could not be retried",
     );
 
-    const gap = applyAdditionalDocumentCommand(
+    const createdCanvas = applyAdditionalDocumentCommand(
       getDb(),
-      command(project.id, storeEpoch, "probe:canvas-gap", {
+      command(project.id, storeEpoch, "probe:canvas-create", {
         kind: "create_canvas_owner",
         scope: "non_primary",
         blockId: "probe:secondary-canvas",
@@ -666,12 +666,45 @@ const main = async (): Promise<void> => {
       }),
     );
     invariant(
-      !gap.ok &&
-        gap.error.code === "capability_gap" &&
-        !getDb()
-          .prepare("SELECT 1 FROM blocks WHERE id = 'probe:secondary-canvas'")
-          .get(),
-      "Capability gap claimed success or changed authority",
+      createdCanvas.ok,
+      "Non-primary Canvas creation did not commit",
+    );
+    const canvasHead = createdCanvas.value.effect.documentHeads[0];
+    invariant(canvasHead, "Canvas creation returned no Document head");
+    const canvasOwner = getDb()
+      .prepare(
+        `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
+      )
+      .get("probe:secondary-canvas") as {
+      readonly metadata_revision: number;
+      readonly location_revision: number;
+    };
+    const deletedCanvas = applyAdditionalDocumentCommand(
+      getDb(),
+      command(
+        project.id,
+        storeEpoch,
+        "probe:canvas-delete",
+        {
+          kind: "delete_canvas_owner",
+          scope: "non_primary",
+          owner: {
+            ownerBlockId: "probe:secondary-canvas",
+            documentId: canvasHead.documentId,
+            generation: canvasHead.generation,
+            metadataRevision: canvasOwner.metadata_revision,
+            locationRevision: canvasOwner.location_revision,
+          },
+          referencePolicy: "require_unreferenced",
+        },
+        lease("lease:canvas-delete", [canvasHead]),
+      ),
+    );
+    invariant(
+      deletedCanvas.ok &&
+        deletedCanvas.value.effect.deletedBlockIds.join(",") ===
+          "probe:secondary-canvas",
+      "Non-primary Canvas deletion did not tombstone its owner",
     );
 
     const beforeRestart = getDb()
@@ -712,7 +745,7 @@ const main = async (): Promise<void> => {
         durableRejection: staleReceipt?.outcome === "rejected",
         missingReplay: !missingReplay.ok,
         faultRollback: faultRolledBack,
-        capabilityGap: !gap.ok,
+        canvasLifecycle: createdCanvas.ok && deletedCanvas.ok,
         restart: beforeRestart.count === afterRestart.count,
         foreignKeys: foreignKeys.length === 0,
       })}\n`,

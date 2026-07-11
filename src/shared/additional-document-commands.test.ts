@@ -512,7 +512,7 @@ describe("additional document command contract", () => {
     );
   });
 
-  test("records copy/move identity rules and exposes unsupported kernels as gaps", () => {
+  test("records identity rules and exposes every owned-Document lifecycle kernel", () => {
     expect(
       ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.promote_synced_source
         .identitySemantics,
@@ -527,17 +527,13 @@ describe("additional document command contract", () => {
     ).toBe("copy_deriving_every_content_id_from_operation_id");
     expect(
       ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.delete_owned_source.availability,
-    ).toBe("capability_gap");
+    ).toBe("kernel_ready");
     expect(
       ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.create_canvas_owner.availability,
-    ).toBe("capability_gap");
+    ).toBe("kernel_ready");
     expect(
       ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.delete_canvas_owner.availability,
-    ).toBe("capability_gap");
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.create_canvas_owner.gap
-        ?.length === 0,
-    ).toBe(false);
+    ).toBe("kernel_ready");
   });
 });
 
@@ -574,24 +570,25 @@ describe("additional document command result contract", () => {
     expect(isAdditionalDocumentSemanticHash("A".repeat(64))).toBe(false);
   });
 
-  test("does not permit capability gaps to masquerade as committed effects", () => {
-    expectContractError(() =>
+  test("accepts Canvas effects and rejects stale capability-gap claims", () => {
+    expect(
       parseAdditionalDocumentCommandReceipt({
         ...receipt,
         operationKind: "create_canvas_owner",
+      }).operationKind,
+    ).toBe("create_canvas_owner");
+    expectContractError(() =>
+      parseAdditionalDocumentCommandResult({
+        ok: false,
+        error: {
+          code: "capability_gap",
+          message: "stale gap",
+          retryable: false,
+          operationId: "operation:1",
+          operationKind: "create_canvas_owner",
+        },
       }),
     );
-    const gap = parseAdditionalDocumentCommandResult({
-      ok: false,
-      error: {
-        code: "capability_gap",
-        message: "Non-primary Canvas creation is not implemented",
-        retryable: false,
-        operationId: "operation:1",
-        operationKind: "create_canvas_owner",
-      },
-    });
-    expect(gap.ok).toBe(false);
     expectContractError(() =>
       parseAdditionalDocumentCommandResult({
         ok: false,
