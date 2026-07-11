@@ -1490,6 +1490,49 @@ describe("DocumentSyncHub", () => {
     expect(freshSync.ok).toBe(true);
   });
 
+  test("Project deletion resets only removed Documents and revokes their Hub authorization", async () => {
+    const hub = new DocumentSyncHub(createBackend());
+    const deletedSurface = new FakeTarget(63);
+    const retainedSurface = new FakeTarget(64);
+    subscribe(hub, deletedSurface, "doc-deleted", "surface-deleted");
+    subscribe(hub, retainedSurface, "doc-retained", "surface-retained");
+    await syncSubscription(
+      hub,
+      deletedSurface,
+      "doc-deleted",
+      "surface-deleted",
+    );
+    await syncSubscription(
+      hub,
+      retainedSurface,
+      "doc-retained",
+      "surface-retained",
+    );
+    clearSent(deletedSurface, retainedSurface);
+
+    hub.resetForDeletedDocuments(["doc-deleted"], "epoch-1");
+
+    expect(deletedSurface.sent.length).toBe(1);
+    const reset = deletedSurface.sent[0]?.value as DocumentSyncRealtimeEvent;
+    expect(reset.kind).toBe("store-reset");
+    expect(retainedSurface.sent.length).toBe(0);
+
+    const deletedSync = await hub.sync(deletedSurface, {
+      documentId: "doc-deleted",
+      clientSessionId: "surface-deleted",
+      stateVector: new Uint8Array([0]),
+    });
+    expect(deletedSync.ok).toBe(false);
+    if (!deletedSync.ok) expect(deletedSync.error.code).toBe("unauthorized");
+
+    const retainedSync = await hub.sync(retainedSurface, {
+      documentId: "doc-retained",
+      clientSessionId: "surface-retained",
+      stateVector: new Uint8Array([0]),
+    });
+    expect(retainedSync.ok).toBe(true);
+  });
+
   test("leases every owned Document, recompiles after flush, and skips leases on exact retry", async () => {
     const intent = cardProjectTransferIntent();
     let prepareCalls = 0;

@@ -348,7 +348,7 @@ class KanbanProjectStore {
     runRemote,
   }: RunOptimisticPatchOptions<T>): Promise<T> => {
     const outcome = await this.runOptimisticMutation({
-      kind: "card:update",
+      kind: "block:properties",
       conflictKeys: conflictKeysForPatch(cardId, updates),
       apply: buildPatchCardTransform(columnId, cardId, updates),
       runRemote,

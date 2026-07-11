@@ -159,14 +159,22 @@ export const threadMentionInlineContentConfig = {
 export const blockDocumentCustomBlockConfigs = {
   callout: calloutBlockConfig,
   threadSection: threadSectionBlockConfig,
-  cardToggle: cardToggleBlockConfig,
-  toggleListInlineView: toggleListInlineViewBlockConfig,
   cardRef: cardRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,
   templateRef: reusableTemplateRefBlockConfig,
   largeDocument: largeDocumentBlockConfig,
   largeCode: largeCodeBlockConfig,
+} as const;
+
+/**
+ * Decode-only Block configs used by the v69→v70 migration and historical NFM
+ * readers. Writable Block Document surfaces intentionally do not register
+ * them, so foreign Card bodies cannot re-enter a host Y.Doc.
+ */
+export const legacyBlockDocumentCustomBlockConfigs = {
+  cardToggle: cardToggleBlockConfig,
+  toggleListInlineView: toggleListInlineViewBlockConfig,
 } as const;
 
 export const blockDocumentCustomInlineContentConfigs = {

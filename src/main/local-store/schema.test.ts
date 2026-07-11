@@ -143,6 +143,7 @@ describe("schema v70 Block-first finalization", () => {
       "database_memberships",
       "database_views",
       "card_read_model",
+      "retired_block_identities",
     ]) {
       expect(names.has(tableName)).toBe(true);
     }
@@ -150,6 +151,90 @@ describe("schema v70 Block-first finalization", () => {
       expect(names.has(tableName)).toBe(false);
     }
     assertHealthy(database);
+  });
+
+  test("never permits a physically retired Block identity to name new content", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    const project = database
+      .prepare("SELECT id FROM projects ORDER BY created, id LIMIT 1")
+      .get() as { readonly id: string };
+    const retiredId = "retired:block:1";
+    database
+      .prepare(
+        `
+        INSERT INTO retired_block_identities (
+          block_id, project_id, block_type, retention_root_block_id, retired_at
+        ) VALUES (?, ?, 'paragraph', ?, ?)
+      `,
+      )
+      .run(retiredId, project.id, retiredId, new Date().toISOString());
+
+    expect(() =>
+      database
+        .prepare(
+          `
+          INSERT INTO blocks (
+            id, project_id, type, lifecycle, location_kind,
+            containing_document_id, location_revision, metadata_revision,
+            created_at, updated_at
+          ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+        `,
+        )
+        .run(
+          retiredId,
+          project.id,
+          new Date().toISOString(),
+          new Date().toISOString(),
+        ),
+    ).toThrow("retired Block identity cannot be reused");
+    expect(() =>
+      database
+        .prepare(
+          "DELETE FROM retired_block_identities WHERE block_id = ?",
+        )
+        .run(retiredId),
+    ).toThrow("retired Block identity evidence is immutable");
+
+    const liveId = "live:block:cannot-be-renamed";
+    const now = new Date().toISOString();
+    database
+      .prepare(
+        `
+        INSERT INTO blocks (
+          id, project_id, type, lifecycle, location_kind,
+          containing_document_id, location_revision, metadata_revision,
+          created_at, updated_at
+        ) VALUES (?, ?, 'paragraph', 'active', 'space', NULL, 1, 1, ?, ?)
+      `,
+      )
+      .run(liveId, project.id, now, now);
+    expect(() =>
+      database
+        .prepare("UPDATE blocks SET id = ? WHERE id = ?")
+        .run(retiredId, liveId),
+    ).toThrow("Block identity is immutable");
+    expect(
+      database.prepare("SELECT id FROM blocks WHERE id = ?").get(liveId) !==
+        undefined,
+    ).toBe(true);
+  });
+
+  test("repairs the unreleased v70 retired-identity invariant idempotently", async () => {
+    useTempStore();
+    await initializeDatabase();
+    getDb().exec("DROP TABLE retired_block_identities");
+    closeDatabase();
+
+    await initializeDatabase();
+
+    expect(new Set(tableNames(getDb())).has("retired_block_identities")).toBe(
+      true,
+    );
+    expect(
+      getDb().pragma("user_version", { simple: true }) as number,
+    ).toBe(CURRENT_SCHEMA_VERSION);
   });
 
   test("drains one real legacy Card and drops migration storage atomically", async () => {
@@ -180,6 +265,105 @@ describe("schema v70 Block-first finalization", () => {
     expect(
       database.pragma("user_version", { simple: true }) as number,
     ).toBe(CURRENT_SCHEMA_VERSION);
+    assertHealthy(database);
+  });
+
+  test("recovers orphan foreign bodies and inline Views before removing v69 storage", async () => {
+    const { projectId, now } = seedPreFinalizationStore();
+    const hostCardId = seedLegacyCardSource(projectId, now);
+    const legacyNfm = [
+      `<card-toggle card="missing-card" meta="[P1]" project="${projectId}" status="in_progress">`,
+      "\tRecovered title",
+      "\tRecovered body",
+      `\t<card-ref project="${projectId}" card="nested-missing" />`,
+      "</card-toggle>",
+      `<toggle-list-inline-view project="${projectId}" rules-v2="eyJtb2RlIjoiYWxsIn0" property-order="priority,estimate,status,tags" show-empty-estimate="false" show-empty-priority="false" />`,
+    ].join("\n");
+    getDb()
+      .prepare(
+        `
+        UPDATE cards
+        SET description = ?, description_preview = ?, description_length = ?,
+            has_description = 1, revision = revision + 1
+        WHERE id = ?
+      `,
+      )
+      .run(legacyNfm, "Recovered title Recovered body", legacyNfm.length, hostCardId);
+    closeDatabase();
+
+    await initializeDatabase();
+
+    const database = getDb();
+    const hostMaterialization = database
+      .prepare(
+        `
+        SELECT nfm, references_json
+        FROM document_materializations
+        WHERE document_id = ?
+      `,
+      )
+      .get(`document:${hostCardId}`) as {
+      readonly nfm: string;
+      readonly references_json: string;
+    };
+    const references = JSON.parse(hostMaterialization.references_json) as Array<{
+      readonly kind: string;
+      readonly targetBlockId?: string;
+      readonly databaseViewId?: string;
+    }>;
+    const recoveredReference = references.find(
+      (reference) =>
+        reference.kind === "block" &&
+        typeof reference.targetBlockId === "string",
+    );
+    const databaseViewReference = references.find(
+      (reference) =>
+        reference.kind === "database_view" &&
+        typeof reference.databaseViewId === "string",
+    );
+    expect(recoveredReference?.targetBlockId === undefined).toBe(false);
+    expect(databaseViewReference?.databaseViewId === undefined).toBe(false);
+    expect(hostMaterialization.nfm.includes("<card-toggle")).toBe(false);
+    expect(hostMaterialization.nfm.includes("<toggle-list-inline-view")).toBe(false);
+
+    const recoveredCard = await getCard(
+      projectId,
+      recoveredReference?.targetBlockId ?? "",
+    );
+    expect(recoveredCard?.title).toBe("Recovered title");
+    expect(recoveredCard?.description.includes("Recovered body") ?? false).toBe(true);
+    const recoveredMaterialization = database
+      .prepare(
+        `
+        SELECT nfm, references_json
+        FROM document_materializations
+        WHERE document_id = ?
+      `,
+      )
+      .get(`document:${recoveredReference?.targetBlockId}`) as {
+      readonly nfm: string;
+      readonly references_json: string;
+    };
+    expect(recoveredMaterialization.nfm.includes('project="')).toBe(false);
+    expect(
+      recoveredMaterialization.references_json.includes("legacy_"),
+    ).toBe(false);
+    const durableView = database
+      .prepare(
+        `
+        SELECT lifecycle
+        FROM database_views
+        WHERE id = ? AND project_id = ?
+      `,
+      )
+      .get(databaseViewReference?.databaseViewId, projectId) as
+      | { readonly lifecycle: string }
+      | undefined;
+    expect(durableView?.lifecycle).toBe("active");
+    const names = new Set(tableNames(database));
+    for (const tableName of LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER) {
+      expect(names.has(tableName)).toBe(false);
+    }
     assertHealthy(database);
   });
 

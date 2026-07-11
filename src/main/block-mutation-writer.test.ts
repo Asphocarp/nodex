@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { CardMutationWriter, type CardMutationWorkerLike } from "./card-mutation-writer";
+import { BlockMutationWriter, type BlockMutationWorkerLike } from "./block-mutation-writer";
 import type { BoardChangeEvent } from "../shared/ipc-api";
-import type { CardMutationMetrics, CardMutationWorkerMessage, CardMutationWorkerRequest } from "./card-mutation-worker-protocol";
+import type { BlockMutationMetrics, BlockMutationWorkerMessage, BlockMutationWorkerRequest } from "./block-mutation-worker-protocol";
 import type { CardSummary } from "../shared/types";
 import type {
   DocumentMutationRequest,
@@ -15,26 +15,26 @@ import type { CardLifecycleMutationRequest } from "../shared/card-lifecycle";
 import type { AdditionalDocumentCommandRequest } from "../shared/additional-document-commands";
 import type { CardProjectTransferRequest } from "../shared/card-project-transfer";
 
-class FakeWorker implements CardMutationWorkerLike {
-  readonly messages: CardMutationWorkerRequest[] = [];
+class FakeWorker implements BlockMutationWorkerLike {
+  readonly messages: BlockMutationWorkerRequest[] = [];
   terminated = false;
-  private messageListeners: Array<(message: CardMutationWorkerMessage) => void> = [];
+  private messageListeners: Array<(message: BlockMutationWorkerMessage) => void> = [];
   private errorListeners: Array<(error: Error) => void> = [];
   private exitListeners: Array<(code: number) => void> = [];
 
-  postMessage(message: CardMutationWorkerRequest): void {
+  postMessage(message: BlockMutationWorkerRequest): void {
     this.messages.push(message);
   }
 
-  on(event: "message", listener: (message: CardMutationWorkerMessage) => void): void;
+  on(event: "message", listener: (message: BlockMutationWorkerMessage) => void): void;
   on(event: "error", listener: (error: Error) => void): void;
   on(event: "exit", listener: (code: number) => void): void;
   on(
     event: "message" | "error" | "exit",
-    listener: ((message: CardMutationWorkerMessage) => void) | ((error: Error) => void) | ((code: number) => void),
+    listener: ((message: BlockMutationWorkerMessage) => void) | ((error: Error) => void) | ((code: number) => void),
   ): void {
     if (event === "message") {
-      this.messageListeners.push(listener as (message: CardMutationWorkerMessage) => void);
+      this.messageListeners.push(listener as (message: BlockMutationWorkerMessage) => void);
       return;
     }
     if (event === "error") {
@@ -55,7 +55,7 @@ class FakeWorker implements CardMutationWorkerLike {
     return undefined;
   }
 
-  emitMessage(message: CardMutationWorkerMessage): void {
+  emitMessage(message: BlockMutationWorkerMessage): void {
     for (const listener of this.messageListeners) listener(message);
   }
 
@@ -102,7 +102,7 @@ function makeSummary(overrides: Partial<CardSummary> = {}): CardSummary {
   };
 }
 
-function makeMetrics(mutationId: string): CardMutationMetrics {
+function makeMetrics(mutationId: string): BlockMutationMetrics {
   return {
     mutationId,
     queueWaitMs: 1,
@@ -112,11 +112,11 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
   };
 }
 
-describe("CardMutationWriter", () => {
+describe("BlockMutationWriter", () => {
   test("publishes source and target Database invalidations once for a Card transfer", async () => {
     const worker = new FakeWorker();
     const databaseEvents: DatabaseChangeEvent[] = [];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
@@ -231,7 +231,7 @@ describe("CardMutationWriter", () => {
 
   test("preserves an additional Document command and strict receipt through the FIFO", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -295,7 +295,7 @@ describe("CardMutationWriter", () => {
 
   test("serializes Document history reads through the same FIFO worker", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -322,7 +322,7 @@ describe("CardMutationWriter", () => {
 
   test("preserves the property mutation envelope and typed receipt through the FIFO", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -393,7 +393,7 @@ describe("CardMutationWriter", () => {
   test("preserves an atomic Database operation batch through the FIFO", async () => {
     const worker = new FakeWorker();
     const databaseEvents: DatabaseChangeEvent[] = [];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
@@ -492,7 +492,7 @@ describe("CardMutationWriter", () => {
     const worker = new FakeWorker();
     const boardEvents: BoardChangeEvent[] = [];
     const databaseEvents: DatabaseChangeEvent[] = [];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: (event) => boardEvents.push(event),
       publishDatabaseEvent: (event) => databaseEvents.push(event),
@@ -552,7 +552,7 @@ describe("CardMutationWriter", () => {
 
   test("serializes the Card lifecycle preflight through the same FIFO worker", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -589,7 +589,7 @@ describe("CardMutationWriter", () => {
   test("preserves the trusted Card lifecycle identity and typed receipt through the FIFO", async () => {
     const worker = new FakeWorker();
     const databaseEvents: DatabaseChangeEvent[] = [];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
@@ -719,7 +719,7 @@ describe("CardMutationWriter", () => {
 
   test("serializes bounded Document compaction through the mutation FIFO", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -767,9 +767,80 @@ describe("CardMutationWriter", () => {
     expect(envelope.events.length).toBe(0);
   });
 
+  test("serializes epoch-fenced Block retention through the mutation FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new BlockMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+
+    const pending = writer.maintainStoreBlockRetention({
+      storeEpoch: "epoch-1",
+      retainNewestDeletedBlocks: 250,
+    });
+    const request = worker.messages[0];
+    expect(request?.type).toBe("maintainStoreBlockRetention");
+    if (!request || request.type !== "maintainStoreBlockRetention") return;
+    expect(request.payload.storeEpoch).toBe("epoch-1");
+    expect(request.payload.retainNewestDeletedBlocks).toBe(250);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        storeEpoch: "epoch-1",
+        retainNewestDeletedBlocks: 250,
+        projectResults: [],
+        collectedCandidateCount: 0,
+        coveredCandidateCount: 0,
+        retainedCandidateCount: 0,
+        failedCandidateCount: 0,
+        collectedBlockCount: 0,
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.retainNewestDeletedBlocks).toBe(250);
+    expect(envelope.result.failedCandidateCount).toBe(0);
+    expect(envelope.events.length).toBe(0);
+  });
+
+  test("serializes Project deletion through the same mutation FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new BlockMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+
+    const pending = writer.deleteProject("project-1");
+    const request = worker.messages[0];
+    expect(request?.type).toBe("deleteProject");
+    if (!request || request.type !== "deleteProject") return;
+    expect(request.payload.projectId).toBe("project-1");
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        deleted: true,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        deletedDocumentIds: ["document-1"],
+        retiredBlockCount: 4,
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.deleted).toBe(true);
+    expect(envelope.result.deletedDocumentIds[0]).toBe("document-1");
+    expect(envelope.events.length).toBe(0);
+  });
+
   test("keeps trusted Document write-fence evidence inside the FIFO boundary", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -844,7 +915,7 @@ describe("CardMutationWriter", () => {
   test("publishes a committed Document summary once and never before the worker ACK", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: (event) => {
         published.push(event);
@@ -937,7 +1008,7 @@ describe("CardMutationWriter", () => {
 
   test("returns the durable Document ACK when a board listener throws", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => {
         throw new Error("listener unavailable");
@@ -996,7 +1067,7 @@ describe("CardMutationWriter", () => {
     const firstWorker = new FakeWorker();
     const secondWorker = new FakeWorker();
     const workers = [firstWorker, secondWorker];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => {
         const worker = workers.shift();
         if (!worker) throw new Error("No fake worker available");
@@ -1032,7 +1103,7 @@ describe("CardMutationWriter", () => {
 
   test("preserves typed Document results across the worker boundary", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -1167,7 +1238,7 @@ describe("CardMutationWriter", () => {
 
   test("preserves typed relocation binaries and compacted null replay through the FIFO", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -1270,7 +1341,7 @@ describe("CardMutationWriter", () => {
 
   test("places barriers after accepted work and gracefully drains before shutdown", async () => {
     const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
@@ -1296,7 +1367,7 @@ describe("CardMutationWriter", () => {
     } catch (error) {
       rejectedMessage = error instanceof Error ? error.message : String(error);
     }
-    expect(rejectedMessage).toBe("Card mutation writer is shutting down");
+    expect(rejectedMessage).toBe("Block mutation writer is shutting down");
 
     const mutationRequest = worker.messages[0];
     const projectRequest = worker.messages[1];
@@ -1355,7 +1426,7 @@ describe("CardMutationWriter", () => {
     const firstWorker = new FakeWorker();
     const secondWorker = new FakeWorker();
     const workers = [firstWorker, secondWorker];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => workers.shift() ?? secondWorker,
       publishBoardEvent: () => undefined,
     });
@@ -1371,7 +1442,7 @@ describe("CardMutationWriter", () => {
     } catch (error) {
       rejectedMessage = error instanceof Error ? error.message : String(error);
     }
-    expect(rejectedMessage).toBe("Card mutation writer is shutting down");
+    expect(rejectedMessage).toBe("Block mutation writer is shutting down");
 
     const acceptedRequest = firstWorker.messages[0];
     const suspendRequest = firstWorker.messages[1];
@@ -1425,7 +1496,7 @@ describe("CardMutationWriter", () => {
     const firstWorker = new FakeWorker();
     const secondWorker = new FakeWorker();
     const workers = [firstWorker, secondWorker];
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => workers.shift() ?? secondWorker,
       publishBoardEvent: () => undefined,
     });
@@ -1460,7 +1531,7 @@ describe("CardMutationWriter", () => {
     const scheduled: { deadline?: () => void } = {};
     let scheduledTimeoutMs = 0;
     let deadlineCancelled = false;
-    const writer = new CardMutationWriter({
+    const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
       shutdownTimeoutMs: 123,
@@ -1486,10 +1557,10 @@ describe("CardMutationWriter", () => {
     scheduled.deadline?.();
 
     expect(await mutationPending).toBe(
-      "Card mutation writer did not drain within 123ms",
+      "Block mutation writer did not drain within 123ms",
     );
     expect(await shutdownPending).toBe(
-      "Card mutation writer did not drain within 123ms",
+      "Block mutation writer did not drain within 123ms",
     );
     expect(worker.terminated).toBe(true);
     expect(deadlineCancelled).toBe(true);

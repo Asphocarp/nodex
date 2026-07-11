@@ -210,7 +210,7 @@ export function useKanban(options: UseKanbanOptions) {
       const conflictKeys = conflictKeysForPatch(cardId, updates);
       const metadataMutationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<CardUpdateResult>({
-        kind: "card:update",
+        kind: "block:properties",
         conflictKeys,
         apply: buildPatchCardTransform(columnId, cardId, updates, { bumpRevision: true }),
         runRemote: async () => await commitCardMetadataPropertyPatch({
@@ -322,7 +322,7 @@ export function useKanban(options: UseKanbanOptions) {
       if (!requireWritableSelectedView()) return false;
       const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "card:move",
+        kind: "database:position",
         conflictKeys: conflictKeysForMove(input),
         apply: buildMoveCardTransform(input),
         runRemote: async () => await commitPrimaryDatabaseCardDrag({
@@ -348,7 +348,7 @@ export function useKanban(options: UseKanbanOptions) {
       if (!requireWritableSelectedView()) return false;
       const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "card:move-many",
+        kind: "database:position-many",
         conflictKeys: conflictKeysForMoveMany(input),
         apply: buildMoveCardsTransform(input),
         runRemote: async () => await commitPrimaryDatabaseCardDragMany({

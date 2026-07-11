@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Hono } from "hono";
-import { CardMutationWriter } from "../src/main/card-mutation-writer";
+import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import { registerDatabaseKernelHttpRoutes } from "../src/main/database-kernel-http";
 import {
   DATABASE_MANAGEMENT_IPC_CHANNEL,
@@ -59,7 +59,7 @@ const run = async (): Promise<void> => {
     path.join(os.tmpdir(), "nodex-database-transport-runtime-"),
   );
   process.env.NODEX_DIR = directory;
-  let writer: CardMutationWriter | undefined;
+  let writer: BlockMutationWriter | undefined;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Database transport runtime" });
@@ -184,7 +184,7 @@ const run = async (): Promise<void> => {
 
     const events: BoardChangeEvent[] = [];
     const databaseEvents: DatabaseChangeEvent[] = [];
-    writer = new CardMutationWriter({
+    writer = new BlockMutationWriter({
       publishBoardEvent: (event) => events.push(event),
       publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
@@ -266,7 +266,7 @@ const run = async (): Promise<void> => {
       project.id,
       boardDrag,
     )) as Awaited<
-      ReturnType<CardMutationWriter["applyDatabaseMutation"]>
+      ReturnType<BlockMutationWriter["applyDatabaseMutation"]>
     >["result"];
     invariant(
       committed.ok &&
@@ -302,7 +302,7 @@ const run = async (): Promise<void> => {
       },
     );
     const duplicate = (await retryResponse.json()) as Awaited<
-      ReturnType<CardMutationWriter["applyDatabaseMutation"]>
+      ReturnType<BlockMutationWriter["applyDatabaseMutation"]>
     >["result"];
     invariant(
       retryResponse.status === 200 &&
@@ -343,7 +343,7 @@ const run = async (): Promise<void> => {
     const ipcPrimary = (await ipcHandlers.get(
       PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
     )?.("trusted-window", project.id)) as Awaited<
-      ReturnType<CardMutationWriter["readPrimaryDatabaseDescriptor"]>
+      ReturnType<BlockMutationWriter["readPrimaryDatabaseDescriptor"]>
     >["result"];
     const httpPrimaryResponse = await http.request(
       `/api/projects/${encodeURIComponent(project.id)}/databases/primary`,
@@ -359,7 +359,7 @@ const run = async (): Promise<void> => {
     const ipcPrimaryView = (await ipcHandlers.get(
       PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
     )?.("trusted-window", project.id)) as Awaited<
-      ReturnType<CardMutationWriter["readPrimaryDatabaseViewSnapshot"]>
+      ReturnType<BlockMutationWriter["readPrimaryDatabaseViewSnapshot"]>
     >["result"];
     const httpPrimaryViewResponse = await http.request(
       `/api/projects/${encodeURIComponent(project.id)}/database-views/primary/snapshot`,
@@ -378,7 +378,7 @@ const run = async (): Promise<void> => {
     const ipcManagement = (await ipcHandlers.get(
       DATABASE_MANAGEMENT_IPC_CHANNEL,
     )?.("trusted-window", project.id)) as Awaited<
-      ReturnType<CardMutationWriter["readDatabaseManagement"]>
+      ReturnType<BlockMutationWriter["readDatabaseManagement"]>
     >["result"];
     const httpManagementResponse = await http.request(
       `/api/projects/${encodeURIComponent(project.id)}/databases/management`,

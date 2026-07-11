@@ -48,7 +48,7 @@ export default defineConfig({
             __dirname,
             "src/main/codex/command-palette-thread-search-worker.ts",
           ),
-          "card-mutation-worker": resolve(__dirname, "src/main/card-mutation-worker.ts"),
+          "block-mutation-worker": resolve(__dirname, "src/main/block-mutation-worker.ts"),
         },
         output: {
           entryFileNames: "[name].js",

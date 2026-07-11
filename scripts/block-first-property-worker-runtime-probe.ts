@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CardMutationWriter } from "../src/main/card-mutation-writer";
+import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import { createCard } from "../src/main/local-store/cards";
 import { getDatabasePath } from "../src/main/local-store/config";
 import {
@@ -33,7 +33,7 @@ const run = async (): Promise<void> => {
     path.join(os.tmpdir(), "nodex-property-worker-runtime-"),
   );
   process.env.NODEX_DIR = tempDir;
-  let writer: CardMutationWriter | undefined;
+  let writer: BlockMutationWriter | undefined;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Property worker" });
@@ -95,7 +95,7 @@ const run = async (): Promise<void> => {
 
     const events: BoardChangeEvent[] = [];
     const eventCount = (): number => events.length;
-    writer = new CardMutationWriter({
+    writer = new BlockMutationWriter({
       publishBoardEvent: (event) => events.push(event),
     });
     const prepared = await writer.prepareOwnedBlockDocument(

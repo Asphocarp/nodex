@@ -501,19 +501,19 @@ On March 16, 2026, release CI failed after a successful package because the work
 ### Electron packages stay lean only when renderer libraries remain in `devDependencies`
 On March 16, 2026, Nodex's packaged app had grown to roughly 800 MB installed because `app.asar` was shipping a full raw renderer `node_modules` tree on top of the already-bundled `out/renderer` assets. With `electron-vite`, renderer-only libraries still need to be installed to build, but they do not need to remain in `dependencies` unless main/preload loads them at runtime. Keep only true main-process runtime packages in `dependencies` (for Nodex: Hono server pieces, `better-sqlite3`, `node-pty`, `smol-toml`), move bundled renderer libraries to `devDependencies`, and explicitly exclude dead package artifacts like `@types`, tests, snapshots, source maps, and published `src/` trees from the packaged app.
 
-### Bun test file order makes `mock.module()` leaks a cross-file hazard for shared renderer modules
-Under Bun's sequential test runner, `mock.module()` replacements can bleed into later files because `mock.restore()` does not revert module mocks. In Nodex, an old workbench thread dev-story test mocked `./tools/file-change-tool-call`, and a later `ThreadItemRenderer` test silently rendered that stub on Ubuntu, dropping the expected filename label. Avoid `mock.module()` for shared renderer modules that later tests import; prefer rendering the real component with representative mock data, and keep root `tsconfig.json` path aliases available so isolated renderer tests do not depend on unrelated earlier mocks just to resolve `@/...` imports.
+### Vitest mocks should stop at feature-local dependency boundaries
+Vitest isolates test files, but module mocks and mutable singletons can still leak within a worker or make results depend on import order. Prefer rendering the real shared component with representative data. When a true external boundary must be replaced, put it behind a feature-local `*-deps.ts` facade, use `vi.mock` for that facade, and reset spies/timers/global state in `afterEach`.
 
-The same rule applies to shared transport, editor package entrypoints, and re-export facades. Do not mock `src/renderer/lib/api`, `@blocknote/react`, `@/lib/nfm-link-actions`, `@/lib/use-file-link-opener`, or reusable surface modules from a focused component test. Put the external boundary behind a feature-local `*-deps.ts` module and mock that local facade instead. If the facade re-exports runtime values from modules that are also tested directly, prefer local imported bindings over bare `export { ... } from` re-exports, and keep the test mock self-contained rather than spreading the real facade into the mock object.
+Do not mock broad shared entrypoints such as `src/renderer/lib/api`, `@blocknote/react`, `@/lib/nfm-link-actions`, `@/lib/use-file-link-opener`, or reusable surface modules from a focused component test. Those mocks replace more of the module graph than the behavior under test and can hide integration failures. If a facade re-exports runtime values from Modules that are also tested directly, prefer local imported bindings over a bare re-export and keep the mock self-contained rather than spreading the real facade into it.
 
-### GitHub-only Bun flakes on macOS need exact-SHA `act` reproduction plus full-suite order perturbation
-For renderer flakes that only fail on GitHub cloud, a green local `pnpm test`, a green local `act` run on `HEAD`, or even a green `act` run of the exact workflow does not clear the issue. In Nodex, the March 30, 2026 Ubuntu release-workflow failures only reproduced locally after all of the following matched the cloud run together:
+### GitHub-only Vitest flakes need exact-SHA `act` reproduction plus order perturbation
+For renderer flakes that only fail on GitHub cloud, a green local focused test, a green `act` run on `HEAD`, or even a green run of another Vitest project does not clear the issue. Reproduce with all of the following matched to the cloud run:
 
 - use the exact failing commit SHA in a detached worktree, not the current branch tip
 - use the repo's `.actrc` runner mapping: `linux/amd64` plus `ghcr.io/catthehacker/ubuntu:act-24.04`
 - on Apple Silicon, explicitly pass `--container-architecture linux/amd64`
 - run the exact workflow/job first so the container has the same installed dependency tree and checkout shape
-- rerun the full suite inside that exact `act` job container with `pnpm test --randomize --seed <n>`
+- rerun the affected Vitest project inside that exact `act` job container with shuffle and a fixed seed
 
 The successful local reproduction ladder was:
 
@@ -531,18 +531,16 @@ act workflow_dispatch \
 
 docker exec <act-container-id> bash -lc '
   cd /abs/path/to/.repro-<sha>
-  export PATH=/root/.bun/bin:$PATH
-  pnpm test --randomize --seed 1
+  pnpm exec vitest run --config vitest.renderer.config.ts \
+    --sequence.shuffle --sequence.seed=1
 '
 ```
 
-On the exact failing SHA `696736bbfd0777a10afe20ae543c26b02eb51191`, that randomized rerun inside the `act` container reproduced the same GitHub-cloud failures, including renderer layout tests and `shared input > renders the thin Nodex form-input contract`.
-
-The important lesson is that default `act` execution can stay green while the cloud flake is still real. The difference is usually execution order and shared renderer global state, not just package versions. Treat GitHub-only Bun flake reproduction as a strict ladder:
+The important lesson is that default `act` execution can stay green while the cloud flake is still real. The difference is usually test-project runtime, execution order, and shared renderer global state, not just package versions. Treat GitHub-only Vitest flake reproduction as a strict ladder:
 
 1. Read the exact GitHub run metadata first: `head_sha`, runner label, and runner image version.
 2. Re-run the exact workflow locally with `.actrc` and no `--bind`.
-3. If that still passes, rerun the full suite inside the resulting `act` job container with `--randomize --seed ...`.
+3. If that still passes, rerun the exact Vitest project inside the resulting `act` job container with `--sequence.shuffle --sequence.seed=...`.
 4. If more fidelity is needed than `act-24.04`, move up to `catthehacker/ubuntu:full-24.04` or a real Ubuntu 24.04 x86_64 VM, because GitHub-hosted runners are fresh VMs and `act` is still a Docker approximation.
 
 ### Renderer transport detection must be runtime-based, not cached at module import
@@ -564,7 +562,7 @@ Renderer crashes can come from read-model width, not only from React render cost
 
 After a card mutation ack, prefer summary-bearing `BoardChangeEvent` patches over broad `board:summary:get` invalidation. If an event already carries the affected `CardSummary`, `kanban-store` and low-frequency board query caches can update in place without fetching the whole board. Reserve coalesced summary refetches for delete/move/import/history events that cannot be represented from the event envelope alone.
 
-Do not optimize a whole-description Card save transport after title/body authority has moved to Yjs. The former staged `card:description:update:*` path reduced structured-clone spikes but still preserved the fundamental last-writer-wins snapshot seam. Remove that path: mounted editors emit incremental Yjs updates, explicit NFM import uses the generation/head-CAS Document mutation, and ordinary `card:update` rejects `title`/`description` before the FIFO writer.
+Do not optimize or revive a whole-description Card save transport after title/body authority has moved to Yjs. The former staged description path reduced structured-clone spikes but still preserved the fundamental last-writer-wins snapshot seam. Mounted editors emit incremental Yjs updates, explicit NFM import uses the generation/head-CAS Document mutation, and Card lifecycle/properties use separate typed commands. Schema v70 has no whole-Card update endpoint or content-bearing Card table.
 
 ### Metadata draft overlays must never become content projections
 If a Card Stage metadata draft is projected into another surface, keep the producer and consumer graph one-way and subscribe at the smallest presentational leaf. Title/body are excluded: their only live cross-surface representation comes from Document synchronization and committed materializations, never a renderer overlay merged back into Card Stage props.
@@ -883,7 +881,7 @@ When a renderer utility consumes a semantic token like `bg-token-input-backgroun
 Compiled utility CSS is an output, not a second hand-maintained renderer utility mirror. Keep `theme-source.css`, `theme-token-bridge.css`, and `theme-surface.css` as the authored renderer source, then let Tailwind compile the utility surface directly from those files plus the scanned renderer/story inputs. This keeps the utility layer aligned with the authored source of truth instead of drifting behind a parallel vendored dump.
 
 ### Randomized renderer tests should not trust global DOM constructors or shared parser imports
-`pnpm test --randomize --seed ...` exposed two test-suite fragilities:
+`pnpm exec vitest run --config vitest.renderer.config.ts --sequence.shuffle --sequence.seed=...` exposed two test-suite fragilities:
 
 - `instanceof HTMLElement` / `instanceof HTMLDivElement` is not reliable in a long-running happy-dom suite when some tests temporarily replace `window` or other browser globals. Prefer existence checks, `nodeType === Node.ELEMENT_NODE`, or realm-aware constructor checks via `node.ownerDocument.defaultView`.
 - If a component test needs to stub diff parsing or diff rendering, route those dependencies through the component's own adapter seam instead of importing shared parser/renderer modules directly in the test path. For `review-diff-panel`, moving `parsePatchFiles` behind `review-diff-panel-deps.ts` and injecting a local test parser removed randomized-order pollution from shared module state.

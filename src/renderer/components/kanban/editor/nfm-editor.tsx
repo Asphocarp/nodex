@@ -35,7 +35,6 @@ import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-control
 import { NfmTextActionMenuRuntimeProvider } from "./nfm-text-action-menu-runtime";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
-import { ChipPropertyEditor } from "./chip-property-editor";
 import { toast } from "@/components/ui/toast";
 import {
   NodexPopover,
@@ -115,17 +114,7 @@ import {
   type EditorForExternalBlockDrop,
   runInEditorTransaction,
 } from "./external-block-drag-session";
-import {
-  applyCardToggleMetaEdit,
-  updateCardToggleSnapshotForMetaEdit,
-} from "./card-toggle-snapshot";
-import {
-  isProjectedCardToggleBlock,
-  isProjectionMutationActive,
-  stripProjectedSubtrees,
-} from "./projection-card-toggle";
 import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
-import { shouldRejectProjectedOwnerStructureChange } from "./projection-structure-guard";
 import {
   buildThreadSectionPromptInput,
   createEmptyThreadSectionBlock,
@@ -149,7 +138,6 @@ import {
   blockNoteToNfm,
   applyToggleStatesFromDom,
 } from "@/lib/nfm";
-import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
 import type { CodexThreadSummary } from "@/lib/types";
 import {
   materializeLocalResourceAsset,
@@ -185,14 +173,6 @@ import {
   buildCardBlockRelocationRequest,
   executeCardBlockRelocation,
 } from "./nfm-editor-card-relocation";
-
-interface ActiveChipEdit {
-  propertyType: Exclude<MetaChipPropertyType, "tag">;
-  cardId: string;
-  blockId: string;
-  token: string;
-  anchorRect: DOMRect;
-}
 
 interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
   isFocused?: () => boolean;
@@ -251,35 +231,11 @@ interface NfmEditorInstanceProps extends NfmEditorCommonProps {
   editorInstanceKey: string;
 }
 
-interface NfmEditorChangeBlock {
-  id?: string;
-  type?: string;
-  props?: Record<string, unknown>;
-}
-
-interface NfmEditorChange {
-  type: "insert" | "delete" | "move" | "update";
-  block: NfmEditorChangeBlock;
-  prevBlock?: NfmEditorChangeBlock;
-}
-
 interface InlineViewHostContextRuntimeEditor {
   nodexSourceCardContext?: {
     projectId: string;
     cardId: string;
   } | null;
-}
-
-interface RuntimeBlockLike {
-  id?: string;
-  type?: string;
-  props?: Record<string, unknown>;
-  children?: unknown[];
-}
-
-interface EditorForInlineViewDrop {
-  getBlock: (id: string) => RuntimeBlockLike | undefined;
-  getParentBlock: (id: string) => RuntimeBlockLike | undefined;
 }
 
 interface SendBlocksSelection {
@@ -380,24 +336,6 @@ function buildThreadSectionThreadMap(
   );
 }
 
-function blockHasProjectedAncestor(
-  editor: EditorForInlineViewDrop,
-  blockId: string,
-): boolean {
-  let currentId: string | undefined = blockId;
-
-  while (typeof currentId === "string" && currentId.length > 0) {
-    const current = editor.getBlock(currentId);
-    if (!current) return false;
-    if (isProjectedCardToggleBlock(current)) return true;
-
-    const parent = editor.getParentBlock(currentId);
-    currentId = typeof parent?.id === "string" ? parent.id : undefined;
-  }
-
-  return false;
-}
-
 export function NfmEditor(props: NfmEditorProps) {
   const source = props.source;
   const editorInstanceKey = getNfmEditorInstanceKey({
@@ -450,9 +388,6 @@ function NfmEditorInstance({
   const [replaceQuery, setReplaceQuery] = useState("");
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
-  const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(
-    null,
-  );
   const [pasteResourceDialog, setPasteResourceDialog] =
     useState<PasteResourceDialogState | null>(null);
   const [threadSectionPicker, setThreadSectionPicker] =
@@ -734,11 +669,10 @@ function NfmEditorInstance({
 
   const serializeEditorToNfm = useCallback((): string => {
     if (!editor) return "";
-    const strippedDocument = stripProjectedSubtrees(editor.document);
-    const nfmBlocks = blockNoteToNfm(strippedDocument);
+    const nfmBlocks = blockNoteToNfm(editor.document);
     if (containerRef.current) {
       applyToggleStatesFromDom(
-        strippedDocument,
+        editor.document,
         nfmBlocks,
         containerRef.current,
       );
@@ -767,10 +701,10 @@ function NfmEditorInstance({
     async (blockId: string) => {
       if (!editor) return null;
 
-      const strippedDocument = stripProjectedSubtrees(
-        editor.document,
-      ) as ThreadSectionBlockLike[];
-      const sendPlan = resolveThreadSectionSendPlan(strippedDocument, blockId);
+      const sendPlan = resolveThreadSectionSendPlan(
+        editor.document as ThreadSectionBlockLike[],
+        blockId,
+      );
       if (!sendPlan) return null;
 
       const promptBlocks = deriveThreadSectionPromptBlocks(sendPlan.section);
@@ -1225,28 +1159,6 @@ function NfmEditorInstance({
     pasteResourcePending,
   ]);
 
-  useEffect(() => {
-    const runtime = editor as unknown as {
-      onBeforeChange?: (
-        listener: (event: {
-          getChanges: () => NfmEditorChange[];
-        }) => boolean | void,
-      ) => () => void;
-    };
-
-    if (typeof runtime.onBeforeChange !== "function") return;
-
-    const unsubscribe = runtime.onBeforeChange(({ getChanges }) => {
-      if (isProjectionMutationActive()) return;
-
-      if (shouldRejectProjectedOwnerStructureChange(getChanges())) {
-        return false;
-      }
-    });
-
-    return unsubscribe;
-  }, [editor]);
-
   // Handle content changes from the editor
   const handleChange = useCallback(() => {
     if (!editor) return;
@@ -1617,92 +1529,6 @@ function NfmEditorInstance({
     };
   }, [editor]);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const handleChipClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-
-      const chip = target.closest<HTMLElement>("[data-chip-property]");
-      if (!chip) return;
-
-      const propertyType = chip.dataset.chipProperty as
-        MetaChipPropertyType | undefined;
-      const cardId = chip.dataset.chipCardId;
-      const blockId = chip.dataset.chipBlockId;
-      const token = chip.dataset.chipToken;
-
-      if (!propertyType || !cardId || !blockId || !token) return;
-      if (propertyType === "tag") return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      setActiveChipEdit({
-        propertyType,
-        cardId,
-        blockId,
-        token,
-        anchorRect: chip.getBoundingClientRect(),
-      });
-    };
-
-    el.addEventListener("click", handleChipClick, true);
-    return () => el.removeEventListener("click", handleChipClick, true);
-  }, []);
-
-  const handleChipSelect = useCallback(
-    (propertyType: string, _cardId: string, value: string, blockId: string) => {
-      const runtime = editor as unknown as {
-        getBlock: (
-          id: string,
-        ) => { type?: string; props?: Record<string, unknown> } | undefined;
-        updateBlock: (
-          id: string,
-          update: { props: Record<string, unknown> },
-        ) => void;
-      };
-
-      if (typeof runtime.getBlock !== "function") return;
-      if (typeof runtime.updateBlock !== "function") return;
-
-      const block = runtime.getBlock(blockId);
-      if (!block || block.type !== "cardToggle") return;
-
-      const props =
-        typeof block.props === "object" && block.props ? block.props : {};
-      const currentMeta = typeof props.meta === "string" ? props.meta : "";
-      const currentSnapshot =
-        typeof props.snapshot === "string" ? props.snapshot : "";
-      const nextMeta = applyCardToggleMetaEdit(
-        currentMeta,
-        propertyType as "priority" | "estimate" | "status",
-        value,
-      );
-      if (nextMeta === currentMeta) return;
-
-      const nextSnapshot = updateCardToggleSnapshotForMetaEdit(
-        currentSnapshot,
-        propertyType as "priority" | "estimate" | "status",
-        value,
-      );
-      runtime.updateBlock(blockId, {
-        props: {
-          ...props,
-          meta: nextMeta,
-          snapshot: nextSnapshot,
-        },
-      });
-    },
-    [editor],
-  );
-
-  const handleChipEditorClose = useCallback(() => {
-    setActiveChipEdit(null);
-  }, []);
-
   const handleConvertDividerToThreadSection = useCallback(
     (blockId: string) => {
       const block = editor.getBlock(blockId);
@@ -1721,22 +1547,13 @@ function NfmEditorInstance({
       const container = containerRef.current;
       if (!container) return null;
 
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop &
-        EditorForInlineViewDrop;
+      const dropEditor = editor as unknown as EditorForExternalBlockDrop;
       const selection = resolveSendBlockSelection(
         dropEditor,
         container,
         fallbackBlockId,
       );
       if (selection.blockIds.length === 0) return null;
-
-      if (
-        selection.blockIds.some((blockId) =>
-          blockHasProjectedAncestor(dropEditor, blockId),
-        )
-      ) {
-        return null;
-      }
 
       return {
         blockIds: selection.blockIds,
@@ -1854,15 +1671,12 @@ function NfmEditorInstance({
         throw new Error("No blocks selected.");
       }
 
-      const transferableBlocks = stripProjectedSubtrees(
-        selection.blocks,
-      ) as DragSessionBlock[];
       const promptInput = buildCodexPromptInputFromBlockNoteBlocks(
-        transferableBlocks,
+        selection.blocks,
         (nfmBlocks) => {
           if (!containerRef.current) return;
           applyToggleStatesFromDom(
-            transferableBlocks,
+            selection.blocks,
             nfmBlocks,
             containerRef.current,
           );
@@ -1904,7 +1718,7 @@ function NfmEditorInstance({
         const dropEditor = editor as unknown as EditorForExternalBlockDrop;
         const toggleBlock = createSendToThreadToggleBlock({
           threadId,
-          children: transferableBlocks,
+          children: selection.blocks,
         });
 
         const toggleStorageKey = `toggle-${toggleBlock.id}`;
@@ -2312,23 +2126,6 @@ function NfmEditorInstance({
           </ThreadMentionRuntimeProvider>
         </ThreadSectionRuntimeProvider>
       </BlockReferenceRuntimeProvider>
-      {activeChipEdit && (
-        <ChipPropertyEditor
-          propertyType={activeChipEdit.propertyType}
-          currentToken={activeChipEdit.token}
-          cardId={activeChipEdit.cardId}
-          anchorRect={activeChipEdit.anchorRect}
-          onSelect={(propertyType, cardId, value) => {
-            handleChipSelect(
-              propertyType,
-              cardId,
-              value,
-              activeChipEdit.blockId,
-            );
-          }}
-          onClose={handleChipEditorClose}
-        />
-      )}
       {pasteResourceDialog && (
         <PasteResourceDialog
           open={pasteResourceDialog !== null}

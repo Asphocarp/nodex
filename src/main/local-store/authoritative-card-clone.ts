@@ -701,23 +701,9 @@ export const cloneAuthoritativeCardInTransaction = (
       updateId: `card-clone-genesis:${operationId}`,
       clientSessionId: input.clientSessionId ?? "authoritative-card-clone",
       update: Y.encodeStateAsUpdate(detached.document),
+      finalAuthority: "ydoc_primary",
     });
     inject("after_document_genesis");
-    const cutover = database
-      .prepare(
-        `
-        UPDATE documents
-        SET authority = 'ydoc_primary', updated_at = ?
-        WHERE id = ? AND project_id = ? AND generation = 1
-          AND head_seq = ? AND readiness = 'ready' AND authority = 'legacy_shadow'
-      `,
-      )
-      .run(createdAt, documentId, input.projectId, genesis.headSeq);
-    if (cutover.changes !== 1) {
-      throw new AuthoritativeCardCloneError(
-        `Document ${documentId} changed before primary cutover`,
-      );
-    }
     inject("after_authority_cutover");
 
     refreshScheduledCardIndexProjection(

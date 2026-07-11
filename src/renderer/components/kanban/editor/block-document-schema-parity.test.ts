@@ -2,9 +2,10 @@ import { describe, expect, test } from "vitest";
 import {
   blockDocumentCustomBlockConfigs,
   blockDocumentCustomInlineContentConfigs,
+  legacyBlockDocumentCustomBlockConfigs,
 } from "../../../../shared/block-documents/blocknote-schema-config";
 import { headlessBlockDocumentSchema } from "../../../../shared/block-documents/headless-blocknote-schema";
-import { toggleListSchema } from "./toggle-list-schema";
+import { nfmSchema } from "./nfm-schema";
 
 const sortedKeys = (value: object): string => Object.keys(value).sort().join(",");
 
@@ -36,12 +37,9 @@ const configSignature = (input: unknown): string => {
 };
 
 describe("Block Document schema parity", () => {
-  test("shares every custom config with the renderer schema", () => {
-    expect(sortedKeys(headlessBlockDocumentSchema.blockSchema)).toBe(
-      sortedKeys(toggleListSchema.blockSchema),
-    );
+  test("shares every writable custom config with the renderer schema", () => {
     expect(sortedKeys(headlessBlockDocumentSchema.inlineContentSchema)).toBe(
-      sortedKeys(toggleListSchema.inlineContentSchema),
+      sortedKeys(nfmSchema.inlineContentSchema),
     );
 
     for (const type of Object.keys(blockDocumentCustomBlockConfigs) as Array<
@@ -49,7 +47,7 @@ describe("Block Document schema parity", () => {
     >) {
       const config = blockDocumentCustomBlockConfigs[type];
       expect(headlessBlockDocumentSchema.blockSchema[type]).toBe(config);
-      expect(toggleListSchema.blockSchema[type]).toBe(config);
+      expect(nfmSchema.blockSchema[type]).toBe(config);
     }
 
     for (const type of Object.keys(blockDocumentCustomInlineContentConfigs) as Array<
@@ -59,9 +57,23 @@ describe("Block Document schema parity", () => {
       expect(configSignature(headlessBlockDocumentSchema.inlineContentSpecs[type].config)).toBe(
         configSignature(config),
       );
-      expect(configSignature(toggleListSchema.inlineContentSpecs[type].config)).toBe(
+      expect(configSignature(nfmSchema.inlineContentSpecs[type].config)).toBe(
         configSignature(config),
       );
+    }
+  });
+
+  test("keeps foreign-body configs decode-only", () => {
+    const writableBlockSchema = nfmSchema.blockSchema as Readonly<
+      Record<string, unknown>
+    >;
+    for (const type of Object.keys(legacyBlockDocumentCustomBlockConfigs) as Array<
+      keyof typeof legacyBlockDocumentCustomBlockConfigs
+    >) {
+      expect(headlessBlockDocumentSchema.blockSchema[type]).toBe(
+        legacyBlockDocumentCustomBlockConfigs[type],
+      );
+      expect(writableBlockSchema[type]).toBe(undefined);
     }
   });
 });

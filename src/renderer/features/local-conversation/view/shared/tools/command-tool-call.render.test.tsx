@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-settings";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
@@ -750,9 +750,9 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(disclosure)).toBe(true);
 
     fireEvent.click(disclosure as HTMLButtonElement);
-    await settleAsyncRender();
-
-    expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
+    await waitFor(() => {
+      expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
+    });
     expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
   });
 

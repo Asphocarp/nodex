@@ -23,8 +23,6 @@ import {
   CalendarDays,
   Clock,
   FileText,
-  Link2,
-  ListTree,
   SendHorizontal,
   Settings2,
 } from "lucide-react";
@@ -36,7 +34,6 @@ import {
   NodexDropdownSurface,
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { getDefaultToggleListInlineViewProps } from "@/lib/toggle-list/inline-view-props";
 import { useAllBoards } from "@/lib/use-all-boards";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -82,13 +79,6 @@ import { dateMentionPayloadToProps } from "./date-mention-chip";
 interface NfmSlashMenuProps {
   projectId: string;
   allowCardReferences?: boolean;
-  /**
-   * Legacy editors may insert an unresolved picker Block. Collaborative
-   * Documents must use the fully resolved @Card flow until a picker can choose
-   * a target before the insertion transaction.
-   */
-  allowUnresolvedCardReferenceBlock?: boolean;
-  allowLegacyDatabaseViews?: boolean;
 }
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
@@ -378,14 +368,7 @@ export function NfmSuggestionMenuSurface({
 
 export function getNfmSlashMenuCustomItems(
   editor: unknown,
-  projectId: string,
-  options: {
-    readonly allowCardReferences?: boolean;
-    readonly allowLegacyDatabaseViews?: boolean;
-  } = {},
 ): DefaultReactSuggestionItem[] {
-  const allowCardReferences = options.allowCardReferences ?? true;
-  const allowLegacyDatabaseViews = options.allowLegacyDatabaseViews ?? true;
   const tableItem = {
     key: "table",
     title: "Table",
@@ -396,38 +379,6 @@ export function getNfmSlashMenuCustomItems(
     icon: <NfmSideMenuTableHeaderIcon className="size-4" />,
     onItemClick: () => {
       insertBlock(editor, createDefaultNfmTableBlock());
-    },
-  };
-
-  const toggleListItem = {
-    key: "toggle_list_inline_view",
-    title: "Toggle List Inline View",
-    subtext: "Embed a project's toggle-list section",
-    aliases: ["toggle-list", "project view", "inline toggle"],
-    group: "Others",
-    badge: "/toggle-list",
-    icon: <ListTree size={16} />,
-    onItemClick: () => {
-      insertBlock(editor, {
-        type: "toggleListInlineView",
-        props: getDefaultToggleListInlineViewProps(projectId || "default"),
-      });
-    },
-  };
-
-  const cardRefItem = {
-    key: "card_reference",
-    title: "Card Reference",
-    subtext: "Embed a single card with inline editing",
-    aliases: ["card", "card-reference", "card ref", "card-ref", "embed card"],
-    group: "Others",
-    badge: "/card",
-    icon: <Link2 size={16} />,
-    onItemClick: () => {
-      insertBlock(editor, {
-        type: "cardRef",
-        props: { targetBlockId: "", displayHint: "" },
-      });
     },
   };
 
@@ -482,8 +433,6 @@ export function getNfmSlashMenuCustomItems(
 
   return [
     tableItem,
-    ...(allowLegacyDatabaseViews ? [toggleListItem] : []),
-    ...(allowCardReferences ? [cardRefItem] : []),
     threadSectionItem,
     agentConfigItem,
   ];
@@ -492,8 +441,6 @@ export function getNfmSlashMenuCustomItems(
 export function NfmSlashMenu({
   projectId,
   allowCardReferences = true,
-  allowUnresolvedCardReferenceBlock = true,
-  allowLegacyDatabaseViews = false,
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
 
@@ -506,21 +453,14 @@ export function NfmSlashMenu({
       return filterSuggestionItems(
         [
           ...defaults,
-          ...getNfmSlashMenuCustomItems(editor, projectId, {
-            allowCardReferences:
-              allowCardReferences && allowUnresolvedCardReferenceBlock,
-            allowLegacyDatabaseViews,
-          }),
+          ...getNfmSlashMenuCustomItems(editor),
         ],
         query,
       );
     },
     [
       allowCardReferences,
-      allowLegacyDatabaseViews,
-      allowUnresolvedCardReferenceBlock,
       editor,
-      projectId,
     ],
   );
 

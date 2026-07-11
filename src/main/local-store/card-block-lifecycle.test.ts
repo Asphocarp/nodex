@@ -7,12 +7,16 @@ import {
   parseCardLifecycleMutationRequest,
   type CardLifecycleMutationRequest,
 } from "../../shared/card-lifecycle";
+import { ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION } from "../../shared/block-documents";
+import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { createUuidV7 } from "../../shared/card-id";
+import { createExplicitDocumentBearingBlock } from "./additional-document-bearing-blocks";
 import { readAuthoritativeCardById } from "./card-read-store";
 import {
   applyCardLifecycleMutation,
   readCardLifecyclePreflightSnapshot,
   verifyCardDocumentContinuity,
+  type ApplyCardLifecycleMutationOptions,
   type CardLifecycleMutationFaultPoint,
 } from "./card-block-lifecycle";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -105,10 +109,12 @@ const committed = (
   fixture: Fixture,
   operationId: string,
   operation: Readonly<Record<string, unknown>>,
+  options: ApplyCardLifecycleMutationOptions = {},
 ) => {
   const result = applyCardLifecycleMutation(
     fixture.database,
     request(fixture, operationId, operation),
+    options,
   );
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
@@ -134,6 +140,38 @@ const readBlock = (
     readonly metadata_revision: number;
     readonly location_revision: number;
   };
+
+const paragraph = (id: string, text: string): BlockTreeNode => ({
+  id,
+  type: "paragraph",
+  props: {},
+  content: [{ type: "text", text, styles: {} }],
+  children: [],
+});
+
+const readBlockLifecycles = (
+  fixture: Fixture,
+  blockIds: readonly string[],
+): Readonly<Record<string, { readonly lifecycle: string; readonly revision: number }>> => {
+  const read = fixture.database.prepare(
+    `
+    SELECT lifecycle, metadata_revision
+    FROM blocks WHERE id = ? AND project_id = ?
+  `,
+  );
+  return Object.fromEntries(
+    blockIds.map((blockId) => {
+      const row = read.get(blockId, fixture.projectId) as {
+        readonly lifecycle: string;
+        readonly metadata_revision: number;
+      };
+      return [
+        blockId,
+        { lifecycle: row.lifecycle, revision: row.metadata_revision },
+      ];
+    }),
+  );
+};
 
 const detachMembership = (fixture: Fixture, cardId: string): void => {
   const now = "2026-07-11T12:00:00.000Z";
@@ -176,6 +214,37 @@ const detachMembership = (fixture: Fixture, cardId: string): void => {
 };
 
 describe("authoritative Card lifecycle kernel", () => {
+  sqliteTest(
+    "rejects legacy foreign-body projections before primary genesis",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const result = applyCardLifecycleMutation(
+          fixture.database,
+          request(fixture, "reject-foreign-body", {
+            ...createOperation(cardId),
+            nfm: [
+              '<card-toggle card="legacy-target" meta="[P1]">',
+              "\tProjected title",
+              "\tProjected body",
+              "</card-toggle>",
+            ].join("\n"),
+          }),
+        );
+        expect(result.ok).toBe(false);
+        expect(
+          result.ok
+            ? ""
+            : result.error.message.includes("legacy foreign-body projections"),
+        ).toBe(true);
+        expect(
+          fixture.database.prepare("SELECT 1 FROM blocks WHERE id = ?").get(cardId) ===
+            undefined,
+        ).toBe(true);
+      });
+    },
+  );
+
   sqliteTest(
     "creates, moves, archives, deletes, and restores one Card without a cards row",
     async () => {
@@ -307,6 +376,367 @@ describe("authoritative Card lifecycle kernel", () => {
         );
         expect(duplicate.ok).toBe(true);
         if (duplicate.ok) expect(duplicate.value.duplicate).toBe(true);
+      });
+    },
+  );
+
+  sqliteTest(
+    "tombstones and restores the exact current indexed closure across nested Documents",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const cardBodyId = "lifecycle:card-body";
+        committed(
+          fixture,
+          "create-closure",
+          createOperation(cardId, "Nested closure"),
+          { allocateBodyBlockId: () => cardBodyId },
+        );
+        createExplicitDocumentBearingBlock(fixture.database, {
+          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
+          kind: "create_explicit_document_bearing_block",
+          operationId: "closure:create-first",
+          projectId: fixture.projectId,
+          storeEpoch: fixture.storeEpoch,
+          clientSessionId: "card-lifecycle-test",
+          actor: { kind: "test" },
+          blockKind: "large_document",
+          blockId: "lifecycle:nested-one",
+          documentId: "document:lifecycle:nested-one",
+          displayName: "Nested one",
+          blockTree: [paragraph("lifecycle:nested-one-body", "First body")],
+          location: {
+            kind: "document",
+            hostDocumentId: `document:${cardId}`,
+            expectedHostGeneration: 1,
+            expectedHostHeadSeq: 1,
+          },
+        });
+        createExplicitDocumentBearingBlock(fixture.database, {
+          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
+          kind: "create_explicit_document_bearing_block",
+          operationId: "closure:create-second",
+          projectId: fixture.projectId,
+          storeEpoch: fixture.storeEpoch,
+          clientSessionId: "card-lifecycle-test",
+          actor: { kind: "test" },
+          blockKind: "large_document",
+          blockId: "lifecycle:nested-two",
+          documentId: "document:lifecycle:nested-two",
+          displayName: "Nested two",
+          blockTree: [paragraph("lifecycle:nested-two-body", "Second body")],
+          location: {
+            kind: "document",
+            hostDocumentId: "document:lifecycle:nested-one",
+            expectedHostGeneration: 1,
+            expectedHostHeadSeq: 1,
+          },
+        });
+
+        const staleBlockId = "lifecycle:stale-unindexed";
+        fixture.database
+          .prepare(
+            `
+            INSERT INTO blocks (
+              id, project_id, type, lifecycle, location_kind,
+              containing_document_id, location_revision, metadata_revision,
+              created_at, updated_at
+            ) VALUES (?, ?, 'paragraph', 'deleted', 'document', ?, 1, 2, ?, ?)
+          `,
+          )
+          .run(
+            staleBlockId,
+            fixture.projectId,
+            `document:${cardId}`,
+            "2026-07-12T00:00:00.000Z",
+            "2026-07-12T00:00:00.000Z",
+          );
+
+        const closureBlockIds = [
+          cardId,
+          cardBodyId,
+          "lifecycle:nested-one",
+          "lifecycle:nested-one-body",
+          "lifecycle:nested-two",
+          "lifecycle:nested-two-body",
+        ].sort((left, right) => left.localeCompare(right));
+        const closureDocumentIds = [
+          `document:${cardId}`,
+          "document:lifecycle:nested-one",
+          "document:lifecycle:nested-two",
+        ].sort((left, right) => left.localeCompare(right));
+        const deleted = committed(fixture, "delete-closure", {
+          kind: "delete_card",
+          cardId,
+          expectedMetadataRevision: 1,
+          expectedLocationRevision: 1,
+        });
+        expect(
+          Object.values(readBlockLifecycles(fixture, closureBlockIds)).every(
+            (candidate) =>
+              candidate.lifecycle === "deleted" && candidate.revision === 2,
+          ),
+        ).toBe(true);
+        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.lifecycle).toBe(
+          "deleted",
+        );
+        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.revision).toBe(
+          2,
+        );
+
+        const deleteLedger = fixture.database
+          .prepare(
+            `
+            SELECT mutation.target_block_ids_json, change.payload_json
+            FROM block_mutations mutation
+            INNER JOIN change_log change ON change.seq = mutation.change_log_seq
+            WHERE mutation.mutation_id = 'delete-closure'
+          `,
+          )
+          .get() as {
+          readonly target_block_ids_json: string;
+          readonly payload_json: string;
+        };
+        const deletePayload = JSON.parse(deleteLedger.payload_json) as {
+          readonly tombstonedBlockIds: readonly string[];
+          readonly indexedDocumentIds: readonly string[];
+        };
+        const expectedTargets = [
+          ...closureBlockIds,
+          ...(deleted.databaseBlockId ? [deleted.databaseBlockId] : []),
+        ].sort((left, right) => left.localeCompare(right));
+        expect(deleteLedger.target_block_ids_json).toBe(
+          JSON.stringify(expectedTargets),
+        );
+        expect(JSON.stringify(deletePayload.tombstonedBlockIds)).toBe(
+          JSON.stringify(closureBlockIds),
+        );
+        expect(JSON.stringify(deletePayload.indexedDocumentIds)).toBe(
+          JSON.stringify(closureDocumentIds),
+        );
+
+        const restored = committed(fixture, "restore-closure", {
+          kind: "restore_card",
+          cardId,
+          deleteOperationId: "delete-closure",
+          expectedMetadataRevision: deleted.metadataRevision,
+          expectedLocationRevision: deleted.locationRevision,
+          membership: {
+            membershipId: deleted.membershipId,
+            databaseBlockId: deleted.databaseBlockId,
+            viewId: deleted.viewId,
+            status: "draft",
+          },
+        });
+        expect(restored.lifecycle).toBe("active");
+        expect(
+          Object.values(readBlockLifecycles(fixture, closureBlockIds)).every(
+            (candidate) =>
+              candidate.lifecycle === "active" && candidate.revision === 3,
+          ),
+        ).toBe(true);
+        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.lifecycle).toBe(
+          "deleted",
+        );
+        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.revision).toBe(
+          2,
+        );
+
+        const restorePayload = JSON.parse(
+          (
+            fixture.database
+              .prepare(
+                `
+                SELECT change.payload_json
+                FROM block_mutations mutation
+                INNER JOIN change_log change ON change.seq = mutation.change_log_seq
+                WHERE mutation.mutation_id = 'restore-closure'
+              `,
+              )
+              .get() as { readonly payload_json: string }
+          ).payload_json,
+        ) as { readonly restoredBlockIds: readonly string[] };
+        expect(JSON.stringify(restorePayload.restoredBlockIds)).toBe(
+          JSON.stringify(closureBlockIds),
+        );
+      });
+    },
+  );
+
+  sqliteTest(
+    "rejects restore when the current indexed closure diverges from delete evidence",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        committed(
+          fixture,
+          "create-closure-drift",
+          createOperation(cardId),
+          { allocateBodyBlockId: () => "closure-drift:body" },
+        );
+        const deleted = committed(fixture, "delete-closure-drift", {
+          kind: "delete_card",
+          cardId,
+          expectedMetadataRevision: 1,
+          expectedLocationRevision: 1,
+        });
+        const now = "2026-07-12T01:00:00.000Z";
+        fixture.database
+          .prepare(
+            `
+            INSERT INTO blocks (
+              id, project_id, type, lifecycle, location_kind,
+              containing_document_id, location_revision, metadata_revision,
+              created_at, updated_at
+            ) VALUES ('closure-drift:injected', ?, 'paragraph', 'active',
+              'document', ?, 1, 1, ?, ?)
+          `,
+          )
+          .run(fixture.projectId, deleted.documentId, now, now);
+        fixture.database
+          .prepare(
+            `
+            INSERT INTO document_block_index (
+              document_id, block_id, parent_block_id, ordinal,
+              block_type, text, projected_seq
+            ) VALUES (?, 'closure-drift:injected', NULL, 999,
+              'paragraph', 'injected', ?)
+          `,
+          )
+          .run(deleted.documentId, deleted.documentHeadSeq);
+
+        const restore = applyCardLifecycleMutation(
+          fixture.database,
+          request(fixture, "restore-closure-drift", {
+            kind: "restore_card",
+            cardId,
+            deleteOperationId: "delete-closure-drift",
+            expectedMetadataRevision: deleted.metadataRevision,
+            expectedLocationRevision: deleted.locationRevision,
+            membership: {
+              membershipId: deleted.membershipId,
+              databaseBlockId: deleted.databaseBlockId,
+              viewId: deleted.viewId,
+              status: "draft",
+            },
+          }),
+        );
+        expect(restore.ok).toBe(false);
+        if (!restore.ok) expect(restore.error.code).toBe("delete_evidence_invalid");
+        expect(readBlock(fixture, cardId).lifecycle).toBe("deleted");
+        expect(
+          readBlockLifecycles(fixture, ["closure-drift:body"])[
+            "closure-drift:body"
+          ]?.lifecycle,
+        ).toBe("deleted");
+      });
+    },
+  );
+
+  sqliteTest(
+    "rolls closure lifecycle transitions back and replays lost commit responses exactly",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const bodyId = "closure-fault:body";
+        committed(fixture, "create-closure-fault", createOperation(cardId), {
+          allocateBodyBlockId: () => bodyId,
+        });
+        const deleteRequest = request(fixture, "delete-closure-fault", {
+          kind: "delete_card",
+          cardId,
+          expectedMetadataRevision: 1,
+          expectedLocationRevision: 1,
+        });
+        let deleteRolledBack = false;
+        try {
+          applyCardLifecycleMutation(fixture.database, deleteRequest, {
+            faultInjector: (point) => {
+              if (point === "after_authority") throw new Error("rollback delete");
+            },
+          });
+        } catch {
+          deleteRolledBack = true;
+        }
+        expect(deleteRolledBack).toBe(true);
+        expect(readBlock(fixture, cardId).metadata_revision).toBe(1);
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.lifecycle).toBe(
+          "active",
+        );
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.revision).toBe(1);
+
+        let deleteResponseLost = false;
+        try {
+          applyCardLifecycleMutation(fixture.database, deleteRequest, {
+            faultInjector: (point) => {
+              if (point === "after_commit") throw new Error("lost delete response");
+            },
+          });
+        } catch {
+          deleteResponseLost = true;
+        }
+        expect(deleteResponseLost).toBe(true);
+        const deleteReplay = applyCardLifecycleMutation(
+          fixture.database,
+          deleteRequest,
+        );
+        expect(deleteReplay.ok).toBe(true);
+        if (!deleteReplay.ok) return;
+        expect(deleteReplay.value.duplicate).toBe(true);
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.revision).toBe(2);
+
+        const restoreRequest = request(fixture, "restore-closure-fault", {
+          kind: "restore_card",
+          cardId,
+          deleteOperationId: "delete-closure-fault",
+          expectedMetadataRevision: deleteReplay.value.metadataRevision,
+          expectedLocationRevision: deleteReplay.value.locationRevision,
+          membership: {
+            membershipId: deleteReplay.value.membershipId,
+            databaseBlockId: deleteReplay.value.databaseBlockId,
+            viewId: deleteReplay.value.viewId,
+            status: "draft",
+          },
+        });
+        let restoreRolledBack = false;
+        try {
+          applyCardLifecycleMutation(fixture.database, restoreRequest, {
+            faultInjector: (point) => {
+              if (point === "after_authority") throw new Error("rollback restore");
+            },
+          });
+        } catch {
+          restoreRolledBack = true;
+        }
+        expect(restoreRolledBack).toBe(true);
+        expect(readBlock(fixture, cardId).lifecycle).toBe("deleted");
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.lifecycle).toBe(
+          "deleted",
+        );
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.revision).toBe(2);
+
+        let restoreResponseLost = false;
+        try {
+          applyCardLifecycleMutation(fixture.database, restoreRequest, {
+            faultInjector: (point) => {
+              if (point === "after_commit") throw new Error("lost restore response");
+            },
+          });
+        } catch {
+          restoreResponseLost = true;
+        }
+        expect(restoreResponseLost).toBe(true);
+        const restoreReplay = applyCardLifecycleMutation(
+          fixture.database,
+          restoreRequest,
+        );
+        expect(restoreReplay.ok).toBe(true);
+        if (!restoreReplay.ok) return;
+        expect(restoreReplay.value.duplicate).toBe(true);
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.lifecycle).toBe(
+          "active",
+        );
+        expect(readBlockLifecycles(fixture, [bodyId])[bodyId]?.revision).toBe(3);
       });
     },
   );

@@ -189,7 +189,6 @@ function isToggleCollapsed(outerEl: HTMLElement): boolean {
 
 export function isToggleDropTargetBlock(block: ToggleDropTargetBlock): boolean {
   if (block.type === "toggleListItem") return true;
-  if (block.type === "cardToggle") return true;
   return block.type === "heading" && block.props?.isToggleable === true;
 }
 

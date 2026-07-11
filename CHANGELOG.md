@@ -97,6 +97,7 @@ All notable changes to this project will be documented in this file.
 - Right-panel DB View and Card Stage actions now use the same dense searchable picker chrome as NFM move-to, scoped to DB or card destinations.
 
 ### Removed
+- Removed the legacy Card snapshot tables and whole-Card write APIs after one-time v69 finalization; Card commands and read models now operate only on Block, Document, and Database authority.
 - Removed the old `KANBAN_*` server environment variable aliases.
 - Removed the floating Manage Projects popover entry points.
 - Removed legacy project slugs, project-level workspace paths, and runtime alias compatibility from the project model.
@@ -110,7 +111,6 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Whole-store backup and restore now freeze collaborative and managed-asset writes at one consistent boundary, recover interrupted database/assets swaps without mixing snapshots, and automatically reload open Cards without replaying pre-restore edits.
 - Card title and body edits now synchronize through the Card's collaborative document, so two windows can edit the same Card without delayed whole-Card overwrites; reconnect and restart preserve the merged result.
-- Fixed Card delete undo and create redo failing while restoring the persisted Card row.
 - Fixed Scheduled edit navigation so valid pending detail edits save before switching tabs, opening another scheduled task, running toolbar actions, or opening a previous run chat.
 - Fixed recent Workbench session switching so sidebar rows use lightweight summaries, warmed session details and DB View boards are reused across projects, DB View scroll restores before paint, Card Stage tab switches keep mounted scroll/editor state, and hidden full-width right-panel thread pages no longer resume idle threads.
 - Fixed Review so Git-backed diffs load metadata before file bodies, binary and oversized files render as metadata placeholders instead of decoded text, and non-renderable file bodies are skipped during diff rendering, full-file loading, and search.
@@ -127,7 +127,6 @@ All notable changes to this project will be documented in this file.
 - Fixed search-backed pickers so quick typing followed by Enter or click no longer submits stale command, chat, card, destination, file, or content-search results from the previous query.
 - Fixed the NFM text-selection toolbar so collapsing a rich-text selection to a cursor no longer reopens the legacy formatting toolbar.
 - Fixed the NFM side-menu `Card in` flyout so hovering the row opens the DB picker reliably.
-- Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.
 - Fixed packaged production builds so backend logs are not written by default; diagnostics remain opt-in through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
 - Fixed Browser tabs so Electron page navigation is owned by the main-process webview lifecycle instead of competing renderer and main navigations, while the address bar, page actions, local-server cards, loaded page stage, and app tab strip now use the shipped compact panel contract, including a clickable no-drag address bar inside the draggable toolbar.
 - Fixed full-width right-panel mode so the panel header hides the thread header while keeping the persistent top-right panel toggles visible.

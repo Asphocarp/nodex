@@ -31,14 +31,19 @@ import {
 import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
-import { cardMutationWriter } from "./card-mutation-writer";
+import { blockMutationWriter } from "./block-mutation-writer";
 import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
 import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
+import {
+  startBlockRetentionMaintenanceScheduler,
+  type BlockRetentionMaintenanceScheduler,
+} from "./block-retention-maintenance-scheduler";
 import { readBlockStoreEpoch } from "./local-store/block-store-metadata";
 import {
   getAppUpdateSettings,
   getBackupSettings,
   getCommandKeymapState,
+  getHistorySettings,
   getLocalStoreDir,
   getWindowRestoreSettings,
   getPort,
@@ -131,6 +136,7 @@ let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
+let blockRetentionMaintenanceScheduler: BlockRetentionMaintenanceScheduler | null = null;
 let mediaPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
@@ -138,7 +144,7 @@ const logger = getLogger({ subsystem: "app" });
 const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
   () =>
     startBlockDocumentCompactionScheduler({
-      writer: cardMutationWriter,
+      writer: blockMutationWriter,
       readStoreEpoch: () => readBlockStoreEpoch(getDb()),
       onResult: (result) => {
         if (result.selectedDocumentCount === 0) return;
@@ -155,6 +161,37 @@ const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
       },
     }),
 );
+
+const startBlockRetentionMaintenanceRuntime = (): void => {
+  if (blockRetentionMaintenanceScheduler) return;
+  blockRetentionMaintenanceScheduler = startBlockRetentionMaintenanceScheduler({
+    writer: blockMutationWriter,
+    readStoreEpoch: () => readBlockStoreEpoch(getDb()),
+    readRetentionCount: () => getHistorySettings().retentionCount,
+    onResult: (result) => {
+      if (
+        result.collectedCandidateCount === 0 &&
+        result.coveredCandidateCount === 0 &&
+        result.retainedCandidateCount === 0 &&
+        result.failedCandidateCount === 0
+      ) {
+        return;
+      }
+      logger.info("Block retention maintenance pass completed", {
+        collectedCandidateCount: result.collectedCandidateCount,
+        coveredCandidateCount: result.coveredCandidateCount,
+        retainedCandidateCount: result.retainedCandidateCount,
+        failedCandidateCount: result.failedCandidateCount,
+        collectedBlockCount: result.collectedBlockCount,
+      });
+    },
+    onError: (error) => {
+      logger.warn("Block retention maintenance pass deferred", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  });
+};
 const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
 
 function shouldManageElectronWindowBackdrop(): boolean {
@@ -891,6 +928,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     },
   });
   blockDocumentCompactionRuntime.start();
+  startBlockRetentionMaintenanceRuntime();
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();
@@ -1062,6 +1100,8 @@ function beginMainRuntimeShutdown(): void {
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
   blockDocumentCompactionRuntime.dispose();
+  blockRetentionMaintenanceScheduler?.dispose();
+  blockRetentionMaintenanceScheduler = null;
   stopAutoBackupScheduler();
   if (stopReminderScheduler) {
     stopReminderScheduler();
@@ -1115,8 +1155,8 @@ function shutdownMainRuntime(): Promise<void> {
 
   runtimeShutdownPromise = Promise.all([
     settleRuntimeShutdownStep(
-      "Card mutation writer",
-      () => cardMutationWriter.shutdown(),
+      "Block mutation writer",
+      () => blockMutationWriter.shutdown(),
     ),
     settleRuntimeShutdownStep(
       "Codex service",

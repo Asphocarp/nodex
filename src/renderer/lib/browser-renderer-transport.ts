@@ -989,33 +989,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       if (!res.ok) return [];
       return res.json();
     }
-    case "card:update": {
-      const [projectId, status, cardId, updates, sessionId, expectedRevision] =
-        args as [string, string, string, object, string?, number?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status,
-          cardId,
-          ...updates,
-          sessionId,
-          expectedRevision,
-        }),
-      });
-      if (!res.ok) {
-        if (res.status === 404 || res.status === 409) {
-          return res.json();
-        }
-        const error = await res.json().catch(() => ({}));
-        const message =
-          typeof error.error === "string"
-            ? error.error
-            : `Request failed: ${res.status}`;
-        throw new Error(message);
-      }
-      return res.json();
-    }
     case "card:get": {
       const [projectId, cardId, status] = args as [string, string, string?];
       const params = new URLSearchParams({ cardId });
@@ -1025,17 +998,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       if (!res.ok) return null;
       return res.json();
-    }
-    case "card:move": {
-      const [input] = args as [{ projectId: string; sessionId?: string }];
-      const { projectId, ...rest } = input;
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/move`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rest),
-      });
-      const data = await res.json();
-      return data.success ?? false;
     }
     case "window-sessions:bootstrap": {
       return createBrowserWindowSessionBootstrap(browserWindowSessionLayout);

@@ -12,10 +12,12 @@ import {
   inspectCanvasDocument,
 } from "../src/shared/block-documents";
 import {
-  collectBlockRetentionGc,
   planBlockRetentionGc,
   type BlockRetentionGcBlockerKind,
 } from "../src/main/local-store/block-retention-gc";
+import { maintainBlockRetention } from "../src/main/local-store/block-retention-maintenance";
+import { readBlockStoreEpoch } from "../src/main/local-store/block-store-metadata";
+import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import {
   closeDatabase,
   getDb,
@@ -158,12 +160,11 @@ const main = async (): Promise<void> => {
     const project = createProject({ name: "Block retention GC probe" });
 
     seedBlock({ id: "probe:clean", projectId: project.id });
-    const clean = collectBlockRetentionGc(getDb(), {
+    const clean = maintainBlockRetention(getDb(), {
       projectId: project.id,
-      rootBlockIds: ["probe:clean"],
       policy: { retainNewestDeletedBlocks: 0 },
-    });
-    invariant(clean.status === "collected", "Clean tombstone was not collected");
+    }).candidates.find((candidate) => candidate.rootBlockId === "probe:clean");
+    invariant(clean?.status === "collected", "Clean tombstone was not collected");
 
     seedOwnedCardDocument({
       ownerBlockId: "probe:owner",
@@ -175,15 +176,16 @@ const main = async (): Promise<void> => {
       projectId: project.id,
       documentId: "document:probe-owner",
     });
-    const closure = collectBlockRetentionGc(getDb(), {
+    const closure = maintainBlockRetention(getDb(), {
       projectId: project.id,
-      rootBlockIds: ["probe:owner"],
       policy: { retainNewestDeletedBlocks: 0 },
-    });
+    }).candidates.find((candidate) => candidate.rootBlockId === "probe:owner");
+    const closureCollected =
+      closure?.status === "collected" ? closure : null;
     invariant(
-      closure.status === "collected" &&
-        closure.deletedBlockIds.length === 2 &&
-        closure.deletedDocumentIds.length === 1,
+      closureCollected !== null &&
+        closureCollected.deletedBlockIds.length === 2 &&
+        closureCollected.deletedDocumentIds.length === 1,
       "Owned Document closure was not collected in one transaction",
     );
 
@@ -197,20 +199,26 @@ const main = async (): Promise<void> => {
       projectId: project.id,
       documentId: "document:probe-fault-owner",
     });
-    const fault = collectBlockRetentionGc(
+    const fault = maintainBlockRetention(
       getDb(),
       {
         projectId: project.id,
-        rootBlockIds: ["probe:fault-owner"],
         policy: { retainNewestDeletedBlocks: 0 },
       },
       {
-        faultInjector: (point) => {
-          if (point === "after_block_delete") throw new Error("probe fault");
+        faultInjector: (point, rootBlockId) => {
+          if (
+            rootBlockId === "probe:fault-owner" &&
+            point === "after_block_delete"
+          ) {
+            throw new Error("probe fault");
+          }
         },
       },
+    ).candidates.find(
+      (candidate) => candidate.rootBlockId === "probe:fault-owner",
     );
-    invariant(fault.status === "failed", "Injected GC fault did not fail");
+    invariant(fault?.status === "failed", "Injected GC fault did not fail");
     invariant(
       Boolean(
         getDb()
@@ -484,6 +492,102 @@ const main = async (): Promise<void> => {
       "Document-bearing Block without ownership was not retained",
     );
 
+    seedBlock({ id: "probe:writer-maintenance", projectId: project.id });
+    const storeEpoch = readBlockStoreEpoch(getDb());
+    invariant(storeEpoch, "Block retention probe has no store epoch");
+    const writer = new BlockMutationWriter();
+    try {
+      const envelope = await writer.maintainStoreBlockRetention({
+        storeEpoch,
+        retainNewestDeletedBlocks: 0,
+      });
+      const writerCandidate = envelope.result.projectResults
+        .find(
+          (entry) =>
+            entry.status === "completed" && entry.projectId === project.id,
+        );
+      invariant(
+        writerCandidate?.status === "completed" &&
+          writerCandidate.result.candidates.some(
+            (candidate) =>
+              candidate.rootBlockId === "probe:writer-maintenance" &&
+              candidate.status === "collected",
+          ),
+        "FIFO writer did not collect the eligible retention candidate",
+      );
+      invariant(
+        Boolean(
+          getDb()
+            .prepare(
+              "SELECT 1 FROM retired_block_identities WHERE block_id = ?",
+            )
+            .get("probe:writer-maintenance"),
+        ),
+        "FIFO retention did not preserve the retired Block identity",
+      );
+
+      const deletedProject = createProject({ name: "FIFO delete probe" });
+      const deletedProjectBlockIds = (
+        getDb()
+          .prepare(
+            "SELECT id FROM blocks WHERE project_id = ? ORDER BY id",
+          )
+          .all(deletedProject.id) as readonly { readonly id: string }[]
+      ).map((row) => row.id);
+      const deletedProjectDocumentIds = (
+        getDb()
+          .prepare(
+            "SELECT id FROM documents WHERE project_id = ? ORDER BY id",
+          )
+          .all(deletedProject.id) as readonly { readonly id: string }[]
+      ).map((row) => row.id);
+      const deletion = await writer.deleteProject(deletedProject.id);
+      invariant(
+        deletion.result.deleted &&
+          deletion.result.retiredBlockCount ===
+            deletedProjectBlockIds.length &&
+          JSON.stringify(deletion.result.deletedDocumentIds) ===
+            JSON.stringify(deletedProjectDocumentIds),
+        "FIFO Project deletion did not return its exact retired closure",
+      );
+      invariant(
+        !getDb()
+          .prepare("SELECT 1 FROM projects WHERE id = ?")
+          .get(deletedProject.id),
+        "FIFO Project deletion did not remove the Project",
+      );
+      const retiredProjectBlockCount = (
+        getDb()
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM retired_block_identities
+             WHERE project_id = ?`,
+          )
+          .get(deletedProject.id) as { readonly count: number }
+      ).count;
+      invariant(
+        retiredProjectBlockCount === deletedProjectBlockIds.length,
+        "FIFO Project deletion did not retire every Block identity",
+      );
+      let retiredProjectIdRejected = false;
+      try {
+        seedBlock({
+          id: deletedProjectBlockIds[0] ?? "missing-retired-block",
+          projectId: project.id,
+        });
+      } catch (error) {
+        retiredProjectIdRejected =
+          error instanceof Error &&
+          error.message.includes("retired Block identity cannot be reused");
+      }
+      invariant(
+        retiredProjectIdRejected,
+        "A Block identity from a deleted Project was reusable",
+      );
+    } finally {
+      await writer.shutdown();
+    }
+
     process.stdout.write(
       `${JSON.stringify({
         cleanCollected: true,
@@ -496,6 +600,8 @@ const main = async (): Promise<void> => {
         crossProjectHistoricalReferenceRetained: true,
         unknownForeignKeyFailClosed: true,
         missingOwnershipFailClosed: true,
+        writerMaintenanceCollectedAndRetiredIdentity: true,
+        writerProjectDeletionRetiredIdentity: true,
       })}\n`,
     );
   } finally {

@@ -1,4 +1,4 @@
-import { cardMutationWriter } from "./card-mutation-writer";
+import { blockMutationWriter } from "./block-mutation-writer";
 import { documentSyncHub } from "./document-sync-runtime";
 import {
   beginDatabaseMaintenance,
@@ -11,7 +11,7 @@ import { getLogger } from "./logging/logger";
 const logger = getLogger({ subsystem: "backup", component: "store-maintenance" });
 
 export const wholeStoreMaintenance = new WholeStoreMaintenanceCoordinator({
-  writer: cardMutationWriter,
+  writer: blockMutationWriter,
   beginStoreMaintenance: () => storeMaintenanceGate.beginMaintenance(),
   beginDatabaseMaintenance,
   closeMainDatabase: closeDatabase,

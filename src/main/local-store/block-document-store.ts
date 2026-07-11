@@ -287,10 +287,7 @@ export interface InitializeBlockDocumentGenesis {
   readonly finalAuthority?: DocumentAuthority;
 }
 
-export type InitializeCardDocumentGenesis = Omit<
-  InitializeBlockDocumentGenesis,
-  "finalAuthority"
->;
+export type InitializeCardDocumentGenesis = InitializeBlockDocumentGenesis;
 
 export type DocumentUpdateAck = DocumentSyncApplyAck;
 

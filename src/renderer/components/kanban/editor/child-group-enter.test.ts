@@ -65,7 +65,6 @@ function makeParentEditor(
         paragraph: { content: "inline" },
         heading: { content: "inline" },
         toggleListItem: { content: "inline" },
-        cardToggle: { content: "inline" },
         image: { content: "none" },
         [blockType]: { content: blockInline ? "inline" : "none" },
       },
@@ -159,7 +158,6 @@ function makeChildEditor(
         paragraph: { content: "inline" },
         heading: { content: "inline" },
         toggleListItem: { content: "inline" },
-        cardToggle: { content: "inline" },
         image: { content: "none" },
         [parentType]: { content: parentInline ? "inline" : "none" },
       },
@@ -244,7 +242,6 @@ function makeToggleFallbackEditor(
       blockSchema: {
         paragraph: { content: "inline" },
         toggleListItem: { content: "inline" },
-        cardToggle: { content: "inline" },
         heading: { content: "inline" },
       },
     },

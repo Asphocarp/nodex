@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import { CardMutationWriter } from "../src/main/card-mutation-writer";
+import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
@@ -108,8 +108,8 @@ const run = async (): Promise<void> => {
     path.join(os.tmpdir(), "nodex-document-operation-transport-runtime-"),
   );
   process.env.NODEX_DIR = tempDir;
-  let writer: CardMutationWriter | undefined;
-  let restartedWriter: CardMutationWriter | undefined;
+  let writer: BlockMutationWriter | undefined;
+  let restartedWriter: BlockMutationWriter | undefined;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document operation transport" });
@@ -121,7 +121,7 @@ const run = async (): Promise<void> => {
 
     const boardEvents: BoardChangeEvent[] = [];
     const boardEventCount = (): number => boardEvents.length;
-    writer = new CardMutationWriter({
+    writer = new BlockMutationWriter({
       publishBoardEvent: (event) => boardEvents.push(event),
     });
     const prepared = await writer.prepareOwnedBlockDocument(
@@ -363,7 +363,7 @@ const run = async (): Promise<void> => {
     await writer.shutdown();
     writer = undefined;
 
-    restartedWriter = new CardMutationWriter();
+    restartedWriter = new BlockMutationWriter();
     const restartSync = await restartedWriter.syncBlockDocument({
       documentId: descriptor.documentId,
       clientSessionId: "restart-inspection",

@@ -130,13 +130,13 @@ Most entries also include child logger bindings and call-specific fields. Typica
 - `status`
 - `error`
 
-Card mutation acknowledgement logs may also include:
+Block/Document mutation acknowledgement logs may also include:
 
-- `workerDurationMs`: total time spent inside the card mutation worker for the request
+- `workerDurationMs`: total time spent inside the Block mutation worker for the request
 - `queueWaitMs`: time from main enqueue to worker execution/ack accounting
 - `transactionMs`: synchronous local-store mutation duration measured in the worker
 - `mainEventLoopLagMaxMs`: maximum main-process event-loop delay sampled while awaiting the worker ack
-- `descriptionBytes`: UTF-8 size for transitional batch import/drop payloads when available; ordinary Card updates never carry content
+- `updateBytes`: encoded Yjs update size for Document mutations when available
 - `summaryBytes`: approximate returned summary size when available
 
 Example:
@@ -305,15 +305,16 @@ Codex-specific logging policy:
 - snoozes
 - tick failures
 
-### Card Mutations
+### Block and Document Mutations
 
-[src/main/ipc-handlers.ts](src/main/ipc-handlers.ts), [src/main/http-server.ts](src/main/http-server.ts), and [src/main/card-mutation-writer.ts](src/main/card-mutation-writer.ts) log:
+[src/main/ipc-handlers.ts](src/main/ipc-handlers.ts), [src/main/http-server.ts](src/main/http-server.ts), and [src/main/block-mutation-writer.ts](src/main/block-mutation-writer.ts) log:
 
-- `card update ack served` for normal metadata updates through `card:update`
-- worker queue, transaction, and main-event-loop lag metrics for durable card mutations
-- bounded payload sizes for update acknowledgements and summary payloads
+- worker queue, transaction, and main-event-loop lag metrics for Card lifecycle, Block property, Database, Document, relocation, transfer, history, and maintenance commands
+- durable Document generation/head/update-size evidence without title/body content
+- bounded acknowledgement and authority-derived summary sizes where available
+- typed retry/conflict/failure codes without raw mutation payloads
 
-Content logs must never include raw Card title/body bytes. Document sync/mutation logs use bounded update size, durable head, queue, and transaction evidence; transitional batch import/drop logs may retain only `descriptionBytes` as size telemetry.
+Content logs must never include raw Card title/body bytes, NFM bodies, Yjs update bytes, or local recovery artifacts. Document sync/mutation logs may include only bounded byte counts, durable generation/head, update identity, queue/transaction timing, and typed outcome evidence. `Card` in a log field is the product alias for the affected Block, not evidence of a Card snapshot write path.
 
 ## Using the Logger in New Backend Code
 

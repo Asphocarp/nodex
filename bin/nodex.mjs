@@ -2925,7 +2925,7 @@ function printCommandHelp(cmd) {
 
   Execute a read-only SQL query. Parameters replace ? placeholders.
   Default output format is JSON Lines.
-  Example: nodex query "SELECT * FROM cards WHERE priority = ?" p1-high
+  Example: nodex query "SELECT * FROM blocks WHERE type = ?" card
   Use --table for aligned text output.`,
 
     schema: `Usage: nodex schema

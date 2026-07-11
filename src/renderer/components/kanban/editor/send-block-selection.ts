@@ -1,4 +1,3 @@
-import { resolveTopLevelDraggedBlocks } from "./block-drop-card-mapper";
 import { resolveDraggedBlockIds } from "./drag-source-resolver";
 import type {
   DragSessionBlock,
@@ -9,6 +8,24 @@ export interface SendBlockSelection {
   blockIds: string[];
   blocks: DragSessionBlock[];
 }
+
+const resolveTopLevelBlocks = (
+  editor: EditorForExternalBlockDrop,
+  blockIds: readonly string[],
+): DragSessionBlock[] => {
+  const selectedIds = new Set(blockIds);
+  return blockIds
+    .filter((id) => {
+      let parent = editor.getParentBlock(id);
+      while (parent) {
+        if (selectedIds.has(parent.id)) return false;
+        parent = editor.getParentBlock(parent.id);
+      }
+      return true;
+    })
+    .map((id) => editor.getBlock(id))
+    .filter((block): block is DragSessionBlock => block !== undefined);
+};
 
 /**
  * Resolves a stable top-level block selection for menu-driven "send block(s)"
@@ -29,7 +46,7 @@ export function resolveSendBlockSelection(
     return { blockIds: [], blocks: [] };
   }
 
-  const topLevelBlocks = resolveTopLevelDraggedBlocks(editor, uniqueIds);
+  const topLevelBlocks = resolveTopLevelBlocks(editor, uniqueIds);
   return {
     blockIds: topLevelBlocks.map((block) => block.id),
     blocks: topLevelBlocks,

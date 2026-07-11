@@ -159,7 +159,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Sidebar project headers can be reordered by dragging the header row. Normal project groups persist their order in `project_order`; pinned project groups render inside the single `Pinned` section above Projects and persist their order in `pinned_project_order`.
 - Dragging a normal project header onto the pinned section pins that project and leaves normal project order unchanged. The Projects section excludes pinned projects while preserving their normal order for later unpinning.
 - The Projects header exposes compact actions: the project-group action is hidden when it does not apply, shows `Collapse all` when more than one visible project folder is expanded, and then shows `Reopen previous` to restore that previous expanded set after collapsing all; `Project sidebar options` opens a menu with `Archive all chats`, `Organize pins`, `Organize sidebar`, and `Sort by`; unsupported entries are disabled, `Organize pins` is the live pin-organization selector, and the supported current sort mode shows `Manual order` as selected. `Add new project` opens a submenu with `Start from scratch` and `Use an existing folder`, both using the project-add glyph. `Start from scratch` opens the local project setup dialog with optional name/source collection. `Use an existing folder` opens the native folder picker, names the project from the folder basename, and stores that folder as the first source.
-- CASCADE delete removes all cards and history for a project
+- Project deletion enters the same durable FIFO as Card/Document edits, permanently retires every Block ID in the Space, and removes the Project-scoped Block/Document/Database graph plus rebuildable projections in one guarded transaction. After commit, mounted surfaces for those Documents are selectively reset; a queued old edit can only commit before deletion or fail against the removed identity, and no deleted ID can be reused.
 - Codex thread links are session-owned. Cards can mention threads and send selected content to chats, but they do not own durable Codex threads.
 
 #### 2. Kanban Board View
@@ -177,8 +177,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Kanban card property chips (priority/estimate/tags/assignee) render inline with the card title by default, and Settings can move them above the title or below the body
 - Right-clicking a Kanban card opens a Radix context menu with a searchable action list; production shows only real actions: `Copy deeplink` copies an `nodex://cards/<card-id>` deeplink to the target card, `Delete` removes the card, and clicking `Move to` advances the same menu into a searchable in-place project picker that atomically transfers the Card into the same workflow column of the selected Project's primary Database View. Every open editor for the Card or a recursively owned Document briefly flushes and freezes first; failure leaves the Card entirely in the source Project, while success removes the source row, publishes the target summary, and resynchronizes all moved Documents without changing stable IDs. Reference-only actions such as favorite/icon/property/layout/open/duplicate appear only in development or Storybook as disabled rows with a `Mock` badge.
 - Real-time updates when data changes
-- Card updates include revision-based stale-write detection: stale edits return typed `conflict` results instead of silent last-write-wins
-- Stale metadata edits return field/path-level conflicts and refresh the canonical read model. Card Stage never retries title/body as a whole-Card overwrite.
+- Card lifecycle, property, Database, and Document edits use separate typed commands. Stale scalar metadata edits return field/path-level conflicts; set-like properties preserve add/remove intent. Title/body merge through Yjs and are never retried as a whole-Card overwrite.
 - Header task search supports token-contains matching across title/description/tags/assignee/agent status/id in Kanban, All Tasks, and Toggle List views
 - Kanban card drag-and-drop stays available while search or toolbar filters are active; reordering maps the visible drop slot back into the underlying board order so hidden non-matching cards keep their relative position
 - When a non-default toolbar sort is active in Kanban view, cards remain draggable across columns, but same-column manual re-ranking is disabled because the active sort, not board order, owns the visible ordering
@@ -186,7 +185,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 3. Toggle-List View
 - Third project page tab (`Toggle List`) renders summary/reference rows; expanding a visible row opens that Card's own collaborative editor and provider
-- Each top-level toggle row maps to one card: editable title in row header, with description mapped to child blocks
+- Each top-level toggle row maps to one Card summary/reference. Expanding it mounts that Card's own title/body Document rather than mapping the description into row children.
 - Toggle-list editor uses the same shared slash-menu controller as Card Stage (defaults + custom blocks) to keep insertion UX aligned
 - Inline Card and Database View references are reference-only Blocks. Collapsed rows render summary projections; expanding a visible row lazily mounts that Card's independent collaborative Document, never a copied child subtree in the host editor.
 - Reference expansion is window-local and a small renderer-wide activation budget bounds live nested providers. Self references do not recursively mount, and cross-Project references use the target Project's workspace context.
@@ -204,21 +203,21 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Row properties render as Notion-like chips (priority/estimate/status) matching existing board/card-stage visual language
 - Toggle-list editor surface reuses the same `nfm-editor` styling layer used by Card Stage for consistent typography/spacing/toggle visuals
 - Toggle-list Card title/body edits use each Card's own mutation/Document authority, while board updates refresh summary rows through the shared project subscription.
-- Structural guard blocks manual insert/delete/reorder/type-change of top-level card rows; structure is rule-driven
+- Top-level rows are Database query results, not host-editor children; membership and View operations own their structure/order.
 - Supported DB view filter/sort/display settings persist per project and per view in renderer localStorage
 
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
-- Atomic transactions for data integrity
-- Schema v53 with UUID-v7 card ids, description revision storage, Codex thread-link metadata keyed by `thread_id`, managed-worktree provenance, recurring reminder state, and project-scoped realtime/history state
+- Schema v70 stores Block identity, owned Yjs Documents, Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. The content-bearing Card/history/description snapshot tables are absent.
+- One asynchronous `BlockMutationWriter` serializes Block/Card-domain `better-sqlite3` transactions outside the Electron main event loop.
 
 #### 5. Card Properties
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | string | Yes | Canonical lowercase UUID-v7 |
-| `title` | string | Yes | Task name (max 2,000 chars) |
-| `description` | string | No | [Notion-flavored Markdown (NFM)](../references/notion-flavored-markdown-spec.md) details (default: ""), including `<image ...>` blocks, inline `<attachment kind="text|file|folder" mode="materialized|link" ... />` chips with local or managed asset URIs, inline `<mention-thread uuid="..." />` Codex thread references, and inline `<mention-date ... />` date mentions (max 1,000,000 chars) |
+| `id` | string | Yes | Canonical lowercase UUID-v7 Block identity; Card has no separate storage ID |
+| `title` | string | Yes | Product read of `Y.Text("title")` (max 2,000 chars); edits use the Card Document |
+| `description` | string | No | Read/export projection of `Y.XmlFragment("body")` as [NFM](../references/notion-flavored-markdown-spec.md), including image/attachment/thread/date syntax (max 1,000,000 projected chars); never a collaborative write field |
 | `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
 | `estimate` | enum | No | xs, s, m, l, xl |
 | `tags` | string[] | No | Custom labels (default: [], max 64 tags, each max 64 chars) |
@@ -237,9 +236,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | `runInBaseBranch` | string | No | Optional base branch for new worktree creation (`runInTarget=newWorktree`) |
 | `runInWorktreePath` | string | No | Persisted managed worktree path used for sticky reuse when `runInTarget=newWorktree` |
 | `runInEnvironmentPath` | string | No | Optional repo-relative `.codex/environments/*.toml` path used when creating a new managed worktree; selected in Card Stage and edited in Settings -> Local environments |
-| `revision` | number | Yes | Monotonic per-card revision used by optimistic stale-write detection (`card:update expectedRevision`) |
+| `revision` | number | Yes | Compatibility read of the Card Block metadata revision; individual mutable properties carry field/path revisions |
 | `created` | datetime | Yes | Creation timestamp (ISO 8601) |
-| `order` | number | Yes | Sort order within column (0-indexed) |
+| `order` | number | Yes | Compatibility read of the primary Database View position; durable ordering is View-specific fractional rank |
 
 #### 6. Inline Card Creator
 - Notion-style inline form in each column
@@ -253,13 +252,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Notion-style slide-out panel for card details
 - Always-editable fields (no edit mode toggle)
 - Card is the user-facing term for a document-bearing Block; Card Stage never introduces a second Page identity
-- Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content. Only `ydoc_primary` mounts the editor; any non-primary migration result stays outside Card Stage on a retryable fail-closed diagnostic surface
+- Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content. Only a ready, schema-compatible `ydoc_primary` descriptor mounts the editor; any invalid descriptor stays outside Card Stage on a retryable fail-closed diagnostic surface
 - On a primary Card, every mounted writable surface owns an independent Y.Doc client/session, completes state-vector synchronization before mounting content, binds title to `Y.Text("title")`, and binds BlockNote to `Y.XmlFragment("body")`
 - Synced Block sources are not another Card/Page: each is a system-managed body-only collaborative Document whose library placement is omitted from normal Card/Database navigation, while visible occurrences are childless references to the same source Block. The typed ownership command is available through renderer IPC/HTTP and CLI. A collapsed occurrence creates no provider; expanding a visible occurrence mounts the source's independent collaborative editor without copying its body into the host Card
 - Reusable Template library sources, explicit Large Document shells, explicit Large Code shells, and non-primary Canvas owners use the same production command boundary. Templates have an authoritative human name, childless references, and copy-on-instantiate semantics with fresh Block IDs. Template and Large shells contain no foreign body and open their independently synchronized block-tree body through the shared lazy owned-Document surface. Canvas scene Documents remain in Canvas view and never mount a BlockNote body editor. A source can be deleted only after a global exact-head scan proves that no Project references any Block in its recursively owned closure; deletion retains Documents/history until GC. Ordinary paragraphs never promote automatically
-- The pending production promotion/demotion path must preserve selected subtree IDs, allocate deterministic fresh IDs only for copies, obtain host/source flush fences through the collaboration Hub, and either commit the sole-occurrence demotion completely or leave both Documents unchanged. Clients never submit writer fence proofs directly
-- Primary title/body edits are Yjs transactions and never run the 250ms whole-NFM serialization, 1.5s description save, external whole-body replacement, or description conflict overwrite path. Ordinary Card update IPC/HTTP accepts metadata only; the removed description-staging route cannot bypass the Document, while explicit NFM import requires the current Document generation/head CAS. NFM is otherwise a read/export materialization
-- A Card that cannot complete one-way migration remains on that fail-closed diagnostic surface. There is no legacy snapshot editor, snapshot autosave, or whole-Card overwrite recovery, and authority is never inferred from `Card.description`.
+- Promotion/demotion preserves selected subtree IDs, allocates fresh IDs only for copies, obtains host/source flush fences through the collaboration Hub, and either commits a sole-occurrence demotion completely or leaves both Documents unchanged. Clients never submit writer fence proofs directly.
+- Primary title/body edits are Yjs transactions and never run whole-NFM autosave, external whole-body replacement, or description conflict overwrite. Lifecycle and metadata use separate typed commands; explicit NFM import requires current Document generation/head CAS and produces a forward Yjs transaction.
+- A descriptor that is not ready/primary/schema-compatible remains on a fail-closed diagnostic surface. There is no legacy snapshot editor or whole-Card overwrite recovery, and authority is never inferred from `Card.description`.
 - Title/body undo tracks only the current surface's local origins. Remote edits merge visibly but do not enter that surface's undo stack
 - Awareness distinguishes mounted windows/sessions and is advisory rather than a lock. Retained inactive Card tabs keep content synchronization alive while clearing their own presence
 - Close/deactivation persistence is bounded and combines durable provider flush with a disposable local checkpoint. Normal fast ACKs stay visually quiet; delayed pending, offline, error, and reset states show compact retry/reload status
@@ -326,7 +325,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Attachment chips stay inline with surrounding paragraph content, show only concise label/icon chrome, reveal a short hover hint, and open a click popover with metadata plus `Open`, `Reveal`, `Copy path`, and `Open original` actions when an original path exists
 - Detailed attachment-chip rules and examples: [NFM Editor Attachment Chip Behavior](./nfm-editor-attachment-chip-behavior.md)
 - Slash menu (`/`) for inserting block types
-- `@Card` inserts a fully resolved canonical Card reference with `targetBlockId` plus a bounded display hint. Collaborative `/card` stays hidden until its picker can choose a target before the Y.Doc transaction; only the explicit legacy editor may create the old unresolved picker Block. Legacy `Toggle List Inline View` insertion is unavailable in collaborative Documents; migrated inline queries use `databaseViewRef` and a durable View definition.
+- `@Card` inserts a fully resolved canonical Card reference with `targetBlockId` plus a bounded display hint. `/card` stays hidden until its picker can choose a target before the Y.Doc transaction; no writable surface may create an unresolved Card reference. Legacy `Toggle List Inline View` insertion is unavailable; migrated inline queries use `databaseViewRef` and a durable View definition.
 - `Database View Reference` is a childless custom Block that stores `databaseViewId` and renders the durable query's ordered summary rows.
 - Reference row headers reuse existing property chip styles (`priority`, `estimate`, `status`) on the same title line.
 - Reference Blocks render full-width with shallow, chrome-light rows; expansion indents the independently mounted target Document without changing the host Block tree.
@@ -404,7 +403,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Users can complete or skip a specific occurrence from Calendar quick actions and from Card Stage.
 - Completing an occurrence creates a new current-content Card with status `done` and `archived=true`; archived events remain visible on Calendar with muted styling.
 - Complete, skip, and scoped update are idempotent logical commands. Every caller supplies and retains an `operationId`; retrying the same command after a lost response, app restart, or IPC/HTTP switch returns the first committed or rejected result without cloning or advancing again. Reusing that ID for a different Card, occurrence, scope, update, or command kind returns a typed collision.
-- Missing/unscheduled targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Card, schedule, exception, projection, or change-log entry is written. Cards created by complete/detach/split use a deterministic command-derived UUID-v7 and clone the source's current collaborative title/body and relational properties without creating a legacy compatibility row.
+- Missing/unscheduled targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Card, schedule, exception, projection, or change-log entry is written. Cards created by complete/detach/split use a deterministic command-derived UUID-v7 and clone the source's current collaborative title/body and relational properties without creating another storage aggregate.
 - Recurrence logs are not exposed in product UI or API.
 - Occurrence schedule edits support scope: `this`, `this-and-future` (series split), and `all`.
 - For recurring event drag/resize from Calendar, the app prompts with explicit scope choices before persisting. On the first occurrence in the current series, it shows `Only this occurrence` and `All occurrences`; on non-first occurrences, it shows `Only this occurrence` and `This and future`.
@@ -512,7 +511,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - **Codex Runtime**: main-process `codex app-server --listen stdio://` JSON-RPC bridge
 - **Transport**: Dual-mode — IPC when in Electron, HTTP fetch when in browser
 - **Codex Transport**: Electron IPC only (browser runtime unsupported in this phase)
-- **Package Manager**: Bun
+- **Package Manager**: pnpm (pinned through `packageManager`)
+- **Development Runtime**: Node 24.15.0
+- **Tests**: Vitest projects for Node, Electron-main, renderer, browser, and integration behavior; Playwright for Electron/browser E2E
 - **Local Assets**: Uploaded images are stored under `~/.nodex/assets/` and served via flat asset HTTP routes
 - **Backups**: Whole-store snapshots are stored under `~/.nodex/backups/<backup-id>/`
 
@@ -556,7 +557,10 @@ nodex/
 │   │       ├── database.ts     # SQLite connection, init, and legacy filename migration
 │   │       ├── projects.ts     # Project CRUD and run context
 │   │       ├── project-sessions.ts # Session tree, tabs, and thread links
-│   │       ├── cards.ts        # Temporary legacy Card compatibility writes during Block-first cutover
+│   │       ├── cards.ts        # Card-named create/read facade over Block/Document authority
+│   │       ├── block-document-store.ts # Y.Doc update/snapshot/receipt authority
+│   │       ├── block-property-mutations.ts # Field/path property authority
+│   │       ├── database-kernel.ts # Database/membership/property/View authority
 │   │       ├── board-read-model.ts # Board summary/detail/search reads
 │   │       ├── card-occurrences.ts # Calendar occurrence actions
 │   │       ├── backups.ts      # Backup create/list/restore + auto scheduler
@@ -564,7 +568,7 @@ nodex/
 │   │       ├── notifier.ts     # EventEmitter for local-store changes
 │   │       ├── schema.ts       # Latest database schema bootstrap + version guard
 │   │       ├── card-history.ts # Canonical merged Card history read model
-│   │       └── history.ts      # Temporary legacy history compatibility paths
+│   │       └── block-first-finalization.ts # v69→v70 migration-only fixed point
 │   ├── preload/
 │   │   └── index.ts            # contextBridge: exposes window.api (invoke, on, serverUrl, assetPathPrefix)
 │   └── renderer/               # React SPA (Vite dev server on port 51284)
@@ -594,11 +598,8 @@ nodex/
 │       │   │       ├── nfm-slash-menu.tsx # Shared slash-menu controller (defaults + custom items)
 │       │   │       ├── nfm-formatting-toolbar.tsx # Shared formatting toolbar composition
 │       │   │       ├── callout-block.tsx  # Shared custom callout block spec (used by multiple schemas)
-│       │   │       ├── card-toggle-block.tsx # Custom BlockNote card row toggle block
-│       │   │       ├── toggle-list-inline-view-block.tsx # Inert legacy migration renderer
 │       │   │       ├── database-view-ref-block.tsx # Canonical durable Database View reference
 │       │   │       ├── card-ref-block.tsx # Canonical Card reference + lazy target surface
-│       │   │       ├── projection-card-toggle.ts # Legacy snapshot/drop decoding during migration
 │       │   │       ├── copy-image.ts      # Clipboard helpers for image block copy action
 │       │   │       ├── copy-image-button.tsx # Custom image floating toolbar action
 │       │   │       ├── search-extension.ts # ProseMirror decoration plugin for in-editor find
@@ -709,41 +710,47 @@ nodex/
 | PUT | `/api/project-sessions/[sessionId]/thread` | Attach or update a session-owned thread link |
 | DELETE | `/api/project-sessions/[sessionId]/thread` | Detach the session-owned thread link |
 
-#### Board Routes (project-scoped)
+#### Card and Board Routes (project-scoped)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/projects/[projectId]/board` | Fetch all columns and cards |
-| POST | `/api/projects/[projectId]/board` | Create new card (request body capped at 2MB; oversized requests return 413; optional `id` must already be a canonical lowercase UUID-v7 or the server generates one) |
+| GET | `/api/projects/[projectId]/board-summary` | Fetch the bounded primary Database View summary without full Card bodies |
 | GET | `/api/projects/[projectId]/column` | Fetch a single board status group (query: `?id=<status>`) |
-| GET | `/api/projects/[projectId]/card` | Fetch single card (query: `?cardId=Y` or `?status=X&cardId=Y`) |
-| PUT | `/api/projects/[projectId]/card` | Update card properties (`status` optional and server-resolved when omitted; optional `expectedRevision` enables stale-write detection; stale writes return `409` with `{status:\"conflict\", card}`; request body capped at 2MB; oversized requests return 413) |
-| DELETE | `/api/projects/[projectId]/card` | Delete card (query: `?cardId=Y` or `?status=X&cardId=Y`, optional `&sessionId=Z`) |
+| GET | `/api/projects/[projectId]/card` | Read one Card product projection assembled from current Block/Document/Database authority |
+| POST | `/api/projects/[projectId]/cards/details` | Read bounded selected Card detail projections |
+| POST | `/api/projects/[projectId]/card-lifecycle-mutations` | Create, archive/restore, or tombstone a Card Block and owned Document through one idempotent lifecycle command |
+| GET | `/api/projects/[projectId]/card-lifecycle-preflight` | Read exact lifecycle/ownership evidence needed to compile a lifecycle command |
+| POST | `/api/projects/[sourceProjectId]/card-transfers` | Atomically transfer a top-level Card and recursively owned Document closure to another Project |
+| POST | `/api/cards/search` | Search exact-head Block/Document units across selected Projects and return bounded excerpts |
 | GET | `/api/projects/[projectId]/calendar/occurrences` | List calendar occurrences in a time window (`?start=ISO&end=ISO&search=...`) |
 | POST | `/api/projects/[projectId]/card-occurrence/complete` | Complete one occurrence (body: `{operationId, cardId, occurrenceStart, source, sessionId?}`) |
 | POST | `/api/projects/[projectId]/card-occurrence/skip` | Skip one occurrence (body: `{operationId, cardId, occurrenceStart, source, sessionId?}`) |
 | PUT | `/api/projects/[projectId]/card-occurrence` | Update occurrence timing with scope (body: `{operationId, cardId, occurrenceStart, source, scope, updates, sessionId?}`) |
-| PUT | `/api/projects/[projectId]/move` | Move card between statuses (`fromStatus` optional — server resolves; when provided, returns 409 if card not in expected status; supports optional `newOrder`; omit to append to end) |
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
 | GET | `/api/projects/[projectId]/cards/[cardBlockId]/history` | Cursor-paginated canonical Card timeline merged from Document checkpoints and Block mutation/relocation evidence |
 | POST | `/api/projects/[projectId]/query` | Execute read-only SQL query |
 | GET | `/api/projects/[projectId]/schema` | Get database schema |
+
+The former board-create, Card-delete, and description-write snapshot endpoints return `410 Gone` and identify the lifecycle or Document mutation replacement. No HTTP route accepts a whole-Card update.
 
 #### Block Document Routes (project-scoped)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects/[projectId]/blocks/[ownerBlockId]/document` | Read the exact owned-Document descriptor without changing authority |
-| POST | `/api/projects/[projectId]/blocks/[ownerBlockId]/document/prepare` | Drain migration state and return the exact owned descriptor; only `ydoc_primary` may mount Card Stage |
+| POST | `/api/projects/[projectId]/blocks/[ownerBlockId]/document/prepare` | Validate and return the exact ready owned descriptor; only `ydoc_primary` may mount Card Stage |
 | GET | `/api/projects/[projectId]/documents/[documentId]/events` | Subscribe to targeted update and Awareness events before synchronization |
 | POST | `/api/projects/[projectId]/documents/[documentId]/sync` | Send a state vector and receive the missing binary update plus current durable head |
 | POST | `/api/projects/[projectId]/documents/[documentId]/updates` | Submit one idempotent binary update; success is acknowledged only after SQLite commit |
 | POST | `/api/projects/[projectId]/documents/[documentId]/awareness` | Publish bounded ephemeral presence; it never mutates content or SQLite |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocations` | Move stable Block subtrees to another Card Document through a session-bound lease and one atomic SQLite commit |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocation-leases/[leaseId]/responses` | ACK/NACK a surface-local relocation freeze after its pending edits are durable |
+| POST | `/api/projects/[projectId]/documents/[documentId]/mutations` | Apply a stable-ID title/insert/update/delete/move or CAS-gated NFM replacement batch |
+| GET/POST | `/api/projects/[projectId]/documents/[documentId]/versions...` | List/get/checkpoint immutable Document versions and forward-restore one version through a write fence |
 | POST | `/api/projects/[projectId]/block-property-mutations` | Apply a versioned field-level intrinsic/Database property batch with scalar CAS or set add/remove intent and an immutable typed receipt |
 | GET | `/api/projects/[projectId]/databases/management` | Read the Database catalog plus all active Card membership/position authority under one store epoch and change cursor |
 | POST | `/api/projects/[projectId]/database-mutations` | Apply exact-revision schema, membership, value, View, or selected-View position operations with one immutable receipt |
+| POST | `/api/projects/[projectId]/document-commands` | Create/promote/demote/instantiate/tombstone registered Synced, Template, Large, or Canvas Document owners |
 
 #### Asset Routes
 
@@ -755,7 +762,7 @@ nodex/
 
 ### Database Schema
 
-Schema v59-v65 supplies the Block-first migration foundation and complete Card Document materializations: `blocks` preserves Card identity, `documents` / `block_documents` own one Document per Card, checksummed binary update/snapshot/receipt tables persist collaborative authority, and Database capability/membership/view/property records model rows without copying Cards. Schema v63 adds a resumable per-reference ledger; v64 adds immutable atomic-relocation and recovery evidence; v65 adds durable version/mutation evidence plus rebuildable Card/search/asset projections. Startup reaches a shadow/reference fixed point, repairs missing current secondary projections through the writer, and only then advances eligible Cards monotonically to `ydoc_primary`; migration failure remains explicit and blocks readiness. Full Card and bounded Board/reference/notification-summary reads combine the current materialization and relational properties in one SQLite snapshot, while Card search joins current Document units with relational status; all reject stale projection coordinates instead of falling back to legacy content or metadata. A v58 store receives a verified SQLite-and-assets safety backup, and each numbered schema migration commits atomically.
+Schema v70 is Block-first. `blocks` is the live content identity registry; `retired_block_identities` permanently reserves application IDs removed by physical retention; `documents` plus `block_documents` own independently synchronized Y.Docs; Database capability/membership/property/View tables model rows without copying Cards; immutable receipt/change/version/relocation records preserve retry and history evidence; and materialization/search/asset/Card/schedule records are rebuildable projections with exact authority coordinates. A supported v69 store finalizes before runtime by draining shadow content, converting every foreign body to a stable reference or recovered Card, repairing projections, and atomically dropping `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and transfer fence. Failure leaves v69 intact and blocks readiness.
 
 ```sql
 -- Current schema (simplified excerpt)
@@ -830,98 +837,78 @@ CREATE TABLE project_session_threads (
   linked_at TEXT NOT NULL
 );
 
--- Cards table
-CREATE TABLE cards (
-  id TEXT PRIMARY KEY,              -- canonical lowercase UUID-v7
+-- Block identity and location
+CREATE TABLE blocks (
+  id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  status TEXT NOT NULL,             -- draft | backlog | in_progress | in_review | done
-  archived INTEGER NOT NULL DEFAULT 0,
-  title TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  description_revision_id INTEGER,  -- latest materialized description revision
-  priority TEXT,                    -- nullable priority tier
-  estimate TEXT,                    -- nullable: xs, s, m, l, xl
-  tags TEXT NOT NULL DEFAULT '[]',  -- JSON array
-  due_date TEXT,                    -- YYYY-MM-DD
-  assignee TEXT,
-  agent_blocked INTEGER NOT NULL DEFAULT 0,
-  agent_status TEXT,
-  run_in_target TEXT NOT NULL DEFAULT 'local_project',
-  run_in_local_path TEXT,
-  run_in_base_branch TEXT,
-  run_in_worktree_path TEXT,
-  run_in_environment_path TEXT,
-  created TEXT NOT NULL,            -- ISO datetime
-  "order" INTEGER NOT NULL          -- position within (project_id, archived, status)
-);
-
-CREATE INDEX idx_cards_project_archived_status_order ON cards(project_id, archived, status, "order");
-
-CREATE TABLE description_blocks (
-  hash TEXT PRIMARY KEY,
-  content TEXT NOT NULL,            -- canonical serialized top-level NFM block
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE description_revisions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  card_id TEXT NOT NULL,
-  parent_revision_id INTEGER,
-  kind TEXT NOT NULL,               -- 'snapshot' | 'delta'
-  block_hashes_json TEXT,           -- snapshot only
-  ops_json TEXT,                    -- delta only
+  type TEXT NOT NULL,
+  lifecycle TEXT NOT NULL,          -- active | archived | deleted
+  location_kind TEXT NOT NULL,      -- space | document
+  containing_document_id TEXT,
+  location_revision INTEGER NOT NULL,
+  metadata_revision INTEGER NOT NULL,
   created_at TEXT NOT NULL,
-  CHECK (kind IN ('snapshot', 'delta'))
+  updated_at TEXT NOT NULL,
+  UNIQUE (id, project_id)
 );
 
--- History table
-CREATE TABLE history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  operation TEXT NOT NULL,          -- 'create', 'update', 'delete', 'move'
-  card_id TEXT NOT NULL,
+-- Independently synchronized Yjs authority
+CREATE TABLE documents (
+  id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  status TEXT NOT NULL,
-  archived INTEGER NOT NULL DEFAULT 0,
-  timestamp TEXT NOT NULL,          -- ISO 8601
-  previous_values TEXT,             -- JSON: changed fields before
-  new_values TEXT,                  -- JSON: changed fields after
-  from_status TEXT,                 -- move only
-  to_status TEXT,                   -- move only
-  from_archived INTEGER,            -- move only
-  to_archived INTEGER,              -- move only
-  from_order INTEGER,               -- move only
-  to_order INTEGER,                 -- move only
-  card_snapshot TEXT,               -- JSON: full card for create/delete
-  previous_description_revision_id INTEGER,
-  new_description_revision_id INTEGER,
-  snapshot_description_revision_id INTEGER,
-  session_id TEXT,                  -- browser session UUID
-  group_id TEXT,                    -- grouped action UUID
-  is_undone INTEGER NOT NULL DEFAULT 0,
-  undo_of INTEGER,                  -- links to undone entry
-  CHECK (operation IN ('create', 'update', 'delete', 'move'))
+  generation INTEGER NOT NULL,
+  head_seq INTEGER NOT NULL,
+  schema_key TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  readiness TEXT NOT NULL,          -- pending_genesis | ready | failed
+  authority TEXT NOT NULL,          -- ydoc_primary in v70 runtime
+  state_vector BLOB NOT NULL,
+  state_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (id, project_id)
 );
 
-CREATE INDEX idx_history_project ON history(project_id);
-CREATE INDEX idx_history_card ON history(card_id);
-CREATE INDEX idx_history_timestamp ON history(timestamp DESC);
-CREATE INDEX idx_history_session ON history(session_id);
-CREATE INDEX idx_history_group ON history(project_id, group_id);
-
--- Internal full-card checkpoints for retained card history reconstruction
-CREATE TABLE card_history_snapshots (
-  history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  card_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  archived INTEGER NOT NULL DEFAULT 0,
-  card_snapshot TEXT NOT NULL,      -- JSON: full card except raw description
-  description_revision_id INTEGER,
-  created_at TEXT NOT NULL
+CREATE TABLE block_documents (
+  block_id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (block_id, project_id) REFERENCES blocks(id, project_id),
+  FOREIGN KEY (document_id, project_id) REFERENCES documents(id, project_id)
 );
 
-CREATE INDEX idx_card_history_snapshots_project_card_history
-  ON card_history_snapshots(project_id, card_id, history_id);
+CREATE TABLE document_updates (
+  document_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  update_id TEXT NOT NULL,
+  client_session_id TEXT NOT NULL,
+  base_head_seq INTEGER NOT NULL,
+  update_blob BLOB NOT NULL,        -- row is compactable after verified snapshot
+  update_hash TEXT NOT NULL,
+  committed_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, generation, seq),
+  UNIQUE (document_id, update_id)
+);
+
+CREATE TABLE document_update_receipts (
+  document_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  update_id TEXT NOT NULL,
+  update_hash TEXT NOT NULL,
+  update_byte_length INTEGER NOT NULL,
+  committed_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, generation, seq),
+  UNIQUE (document_id, update_id)
+);
+
+-- Database capability, membership, typed property values, Views, and
+-- View-specific positions are relational authority. Document materializations,
+-- Card read models, search units, schedule rows, and asset refs are rebuildable.
+-- document_versions, block_mutations, block_relocations, change_log, and
+-- recovery artifacts are durable history/retry evidence.
 
 -- Codex thread metadata; session ownership lives in project_session_threads
 CREATE TABLE codex_threads (
@@ -1000,7 +987,7 @@ Card Stage Y.Doc transaction → durable FIFO Document apply → SQLite commit/A
     → other mounted surfaces apply remote origin; board summaries patch from projection
 ```
 
-Each surface subscribes before its state-vector handshake. Missed or reordered realtime events are repaired by a later handshake; a fast successful ACK shows no save indicator. Browser clients use the equivalent binary POST + Document SSE Adapter. Neither path rewrites `cards.title` or `cards.description` for a primary Card.
+Each surface subscribes before its state-vector handshake. Missed or reordered realtime events are repaired by a later handshake; a fast successful ACK shows no save indicator. Browser clients use the equivalent binary POST + Document SSE Adapter. Both transports reach the same Document authority and no Card snapshot write exists.
 
 Agent-facing body edits use ordered stable-ID Document operations (`set title`, `insert`, `update`, `delete`, and `move`) against the current Card Document. A batch either commits its Yjs update, Block registry/indexes, projections, mutation receipt, and change cursor together or changes nothing. Identity-destructive operations require mounted editors to flush and freeze behind a short write fence; stale overlapping edits are retained as recovery artifacts rather than silently overwritten. Whole NFM input is an explicit compare-and-swap import that compiles into these operations and never reconstructs the Y.Doc from a projection.
 
@@ -1157,7 +1144,7 @@ port = 51283
 backup_auto_enabled = false
 backup_interval_hours = 6
 backup_retention = 28
-history_retention = 1000
+history_retention = 1000 # retained newest deleted Block roots; legacy config key
 ```
 
 **Dev/production separation**: Use project-level `.nodex/config.toml` for dev settings (different port/dir) and `~/.nodex/config.toml` for production. When running `nodex --dev` from a project directory, the project-level config takes priority. When the Electron app is launched directly (e.g., from Dock), only `~/.nodex/config.toml` is read.
@@ -1171,7 +1158,7 @@ NODEX_PORT=51283        # Port (default: 51283)
 NODEX_BACKUP_AUTO_ENABLED=false   # Enable auto backups (default: false)
 NODEX_BACKUP_INTERVAL_HOURS=6    # Auto backup interval in hours (default: 6)
 NODEX_BACKUP_RETENTION=28        # Auto backup retention count (default: 28)
-NODEX_HISTORY_RETENTION=1000    # Max history entries per project (default: 1000, 0 = unlimited)
+NODEX_HISTORY_RETENTION=1000    # Retain newest deleted Block roots per project (legacy key; 0 keeps no count-protected tombstones)
 NODEX_SENTRY_ENABLED=false       # Enable opt-in Sentry diagnostics (default: false)
 SENTRY_DSN=...                   # Override the Sentry DSN
 SENTRY_ENVIRONMENT=production    # Override diagnostics environment
@@ -1282,16 +1269,16 @@ nodex backups restore <backup-id> --yes
 | Create project | `nodex projects add <id> <name>` | POST `/api/projects` |
 | Rename project | `nodex projects mv <old> <new>` | PUT `/api/projects/[projectId]` |
 | Delete project | `nodex projects rm <id>` | DELETE `/api/projects/[projectId]` |
-| List cards | `nodex ls [status]` | GET `/api/projects/[projectId]/board` |
+| List cards | `nodex ls [status]` | GET `/api/projects/[projectId]/board-summary` or `/column` |
 | Get card | `nodex get <id>` | GET `/api/projects/[projectId]/card?cardId=Y` |
-| Create card | `nodex add <status> <title>` | POST `/api/projects/[projectId]/board` |
-| Update card | `nodex update <id> [opts]` | PUT `/api/projects/[projectId]/card` |
+| Create card | `nodex add <status> <title>` | POST `/api/projects/[projectId]/card-lifecycle-mutations` plus typed properties |
+| Update card | `nodex update <id> [opts]` | Block property mutation and/or Document mutation APIs |
 | Read Card Document boundary | `nodex block descriptor <id>` | POST `/api/projects/[projectId]/blocks/[cardId]/document/prepare` |
 | Apply stable-ID Block operations | `nodex block apply <id> <json>` | POST `/api/projects/[projectId]/documents/[documentId]/mutations` |
 | Import/export collaborative body | `nodex block replace/export ...` | Document mutation API / authoritative Card read projection |
 | Change document-bearing ownership | `nodex block command <json>` | POST `/api/projects/[projectId]/document-commands` |
-| Delete card | `nodex rm <id>` | DELETE `/api/projects/[projectId]/card?cardId=Y` |
-| Move card | `nodex mv <id> <from> <to> [opts]` | PUT `/api/projects/[projectId]/move` (atomic: 409 if card not in `fromStatus`) + optional PUT `/api/projects/[projectId]/card` (property updates) |
+| Delete card | `nodex rm <id>` | POST `/api/projects/[projectId]/card-lifecycle-mutations` |
+| Move card | `nodex mv <id> <from> <to> [opts]` | GET primary View snapshot + POST `/api/projects/[projectId]/database-mutations` |
 | Card history | `nodex history <id>` | GET `/api/projects/[projectId]/cards/[cardBlockId]/history` with a source-specific cursor |
 | SQL query | `nodex query "<sql>"` | POST `/api/projects/[projectId]/query` |
 | Schema | `nodex schema` | GET `/api/projects/[projectId]/schema` |
@@ -1299,7 +1286,7 @@ nodex backups restore <backup-id> --yes
 | Create backup | `nodex backups create` | POST `/api/backups` |
 | Restore backup | `nodex backups restore <id> --yes` | POST `/api/backups/[backupId]/restore` |
 
-The server auto-resolves `status` for get/update/delete, so agents only need the card ID. `mv` requires explicit `<from> <to>` statuses for atomic claim semantics (409 if the card already moved). Metadata claims remain one server-side transaction. Title/body commands first resolve the Card's owned Document boundary, then send an exact generation/head CAS mutation; callers that need retry after a lost response supply both `--mutation-id` and the original `--expected-head`. `nodex update --title/--description` uses this same Y.Doc path and never writes those fields through the compatibility Card endpoint.
+Card commands keep product terminology while compiling to Block-first authority. `mv` requires explicit `<from> <to>` status intent and commits status plus View position as one Database mutation; a stale captured revision fails the whole request. Title/body commands resolve the owned Document and send an exact generation/head mutation; callers retry a lost response with the same mutation ID and expected head. `nodex update --title/--description` uses that Y.Doc path, while metadata options compile to field/path property mutations.
 
 ### Output Format
 
@@ -1467,7 +1454,9 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 | **Agent** | AI coding assistant (e.g., Claude Code) that interacts via API |
 | **Card** | The user-facing document-like Block; its Card ID is its Block ID and it owns one collaborative Document |
 | **Column** | A vertical list representing a workflow stage |
-| **Project** | An independent kanban board with its own cards and history |
+| **Block** | The single persistent application identity for content, including Cards, Databases, ordinary body nodes, and references |
+| **Document** | An independently synchronized Y.Doc owned by a registered document-bearing Block |
+| **Project** | The Space, filesystem/execution, and data-isolation boundary for Blocks, Documents, Databases, and agent work |
 | **Card Stage** | Panel for viewing/editing Card properties and its independently synchronized title/body Document |
 | **SSE** | Server-Sent Events for real-time updates (browser mode) |
 | **IPC** | Inter-Process Communication between Electron main and renderer |
@@ -1476,4 +1465,4 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 | **Preload** | Electron script that bridges main ↔ renderer via contextBridge |
 | **Session ID** | UUID identifying one client session for audit, presence, and exact mutation attempts |
 | **History Panel** | App-shell modal showing a Card's canonical timeline and retained Document checkpoint previews |
-| **Delta** | Partial record of changed fields (vs full snapshot) |
+| **Mutation receipt** | Immutable evidence that one logical Block/Document/Database command committed or was durably rejected |

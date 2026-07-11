@@ -198,8 +198,6 @@ function resolveSingleBlockScopeTitle(block: NfmSideMenuTargetBlockDescriptor) {
   if (block.type === "callout") return "Callout";
   if (block.type === "table") return "Table";
   if (block.type === "cardRef") return "Card reference";
-  if (block.type === "cardToggle") return "Card";
-  if (block.type === "toggleListInlineView") return "Toggle list view";
   if (block.type === "threadSection") return "Thread section";
   return "Block";
 }

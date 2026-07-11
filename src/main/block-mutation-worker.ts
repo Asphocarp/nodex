@@ -38,6 +38,8 @@ import {
   readCardLifecyclePreflightSnapshot,
 } from "./local-store/card-block-lifecycle";
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
+import { maintainStoreBlockRetention } from "./local-store/block-retention-maintenance-store";
+import { deleteProjectBlockFirst } from "./local-store/project-deletion";
 import { applyAdditionalDocumentCommand } from "./local-store/additional-document-command-kernel";
 import {
   applyDocumentOperationBatch,
@@ -83,23 +85,23 @@ import type {
 } from "../shared/card-history-transport";
 import type { Card, CardSummary } from "../shared/types";
 import type {
-  CardMutationMetrics,
-  CardMutationWorkerMessage,
-  CardMutationWorkerRequest,
-  CardMutationWorkerResponse,
-  CardMutationWorkerResult,
-} from "./card-mutation-worker-protocol";
+  BlockMutationMetrics,
+  BlockMutationWorkerMessage,
+  BlockMutationWorkerRequest,
+  BlockMutationWorkerResponse,
+  BlockMutationWorkerResult,
+} from "./block-mutation-worker-protocol";
 
 const blockDocumentRuntime = new BlockDocumentRuntime(
   createSqliteBlockDocumentRuntimeAuthority(getDb),
 );
 
 
-function postMessage(message: CardMutationWorkerMessage): void {
+function postMessage(message: BlockMutationWorkerMessage): void {
   parentPort?.postMessage(message);
 }
 
-function postResponse(response: CardMutationWorkerResponse): void {
+function postResponse(response: BlockMutationWorkerResponse): void {
   postMessage(response);
 }
 
@@ -459,7 +461,7 @@ function normalizeEvent(event: LocalBoardChangeEvent): BoardChangeEvent {
 
 async function enrichEvents(
   events: readonly LocalBoardChangeEvent[],
-  metrics: CardMutationMetrics,
+  metrics: BlockMutationMetrics,
 ): Promise<BoardChangeEvent[]> {
   const enriched: BoardChangeEvent[] = [];
 
@@ -482,8 +484,8 @@ async function enrichEvents(
 }
 
 async function runRequest(
-  request: CardMutationWorkerRequest,
-): Promise<CardMutationWorkerResult> {
+  request: BlockMutationWorkerRequest,
+): Promise<BlockMutationWorkerResult> {
   switch (request.type) {
     case "completeCardOccurrence":
       return await cardOccurrences.completeCardOccurrence(
@@ -656,6 +658,10 @@ async function runRequest(
       );
     case "compactEligibleBlockDocuments":
       return compactEligibleBlockDocuments(getDb(), request.payload);
+    case "maintainStoreBlockRetention":
+      return maintainStoreBlockRetention(getDb(), request.payload);
+    case "deleteProject":
+      return deleteProjectBlockFirst(getDb(), request.payload.projectId);
     case "readDatabaseCatalog":
       return readDatabaseCatalogSnapshot(
         getDb(),
@@ -911,7 +917,7 @@ async function runRequest(
 }
 
 async function handleRequest(
-  request: CardMutationWorkerRequest,
+  request: BlockMutationWorkerRequest,
 ): Promise<void> {
   const workerStartedAtEpochMs = Date.now();
   const workerStartedAt = performance.now();
@@ -926,7 +932,7 @@ async function handleRequest(
     const result = await runRequest(request);
     dbNotifier.removeListener("board-changed", onBoardChanged);
 
-    const metrics: CardMutationMetrics = {
+    const metrics: BlockMutationMetrics = {
       mutationId: request.mutationId,
       queueWaitMs: Math.max(
         0,
@@ -952,7 +958,7 @@ async function handleRequest(
     });
 
     if (request.type === "shutdown") {
-      postLog("info", "Card mutation worker shut down");
+      postLog("info", "Block mutation worker shut down");
     }
   } catch (error) {
     dbNotifier.removeListener("board-changed", onBoardChanged);
@@ -980,7 +986,7 @@ async function handleRequest(
 
 let requestQueue = Promise.resolve();
 
-parentPort?.on("message", (message: CardMutationWorkerRequest) => {
+parentPort?.on("message", (message: BlockMutationWorkerRequest) => {
   requestQueue = requestQueue.then(
     () => handleRequest(message),
     () => handleRequest(message),

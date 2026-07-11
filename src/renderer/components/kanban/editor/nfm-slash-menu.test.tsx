@@ -196,30 +196,16 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 describe("NfmSlashMenu", () => {
-  test("collaborative mode keeps canonical Card references but omits legacy Database projections", () => {
-    const items = getNfmSlashMenuCustomItems({}, "project-1", {
-      allowCardReferences: true,
-      allowLegacyDatabaseViews: false,
-    });
+  test("slash commands never create unresolved Card or legacy Database references", () => {
+    const items = getNfmSlashMenuCustomItems({});
     const keys = items
       .map((item) => (item as { key?: string }).key ?? "")
       .join(",");
 
-    expect(keys.includes("card_reference")).toBe(true);
+    expect(keys.includes("card_reference")).toBe(false);
     expect(keys.includes("toggle_list_inline_view")).toBe(false);
-
-    const restrictedItems = getNfmSlashMenuCustomItems({}, "project-1", {
-      allowCardReferences: false,
-      allowLegacyDatabaseViews: false,
-    });
-    const restrictedKeys = restrictedItems
-      .map((item) => (item as { key?: string }).key ?? "")
-      .join(",");
-
-    expect(restrictedKeys.includes("card_reference")).toBe(false);
-    expect(restrictedKeys.includes("toggle_list_inline_view")).toBe(false);
-    expect(restrictedKeys.includes("thread_section")).toBe(true);
-    expect(restrictedKeys.includes("agent_config")).toBe(true);
+    expect(keys.includes("thread_section")).toBe(true);
+    expect(keys.includes("agent_config")).toBe(true);
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
@@ -417,7 +403,7 @@ describe("NfmSlashMenu", () => {
       },
     };
 
-    const item = getNfmSlashMenuCustomItems(editor, "default").find((candidate) => candidate.title === "Agent Config");
+    const item = getNfmSlashMenuCustomItems(editor).find((candidate) => candidate.title === "Agent Config");
     expect(item !== undefined).toBe(true);
     if (!item) return;
 

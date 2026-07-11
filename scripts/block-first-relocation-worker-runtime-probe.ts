@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import { CardMutationWriter } from "../src/main/card-mutation-writer";
+import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import {
   compactBlockDocument,
   initializeCardDocumentGenesis,
@@ -137,7 +137,7 @@ const run = async (): Promise<void> => {
     path.join(os.tmpdir(), "nodex-relocation-worker-runtime-"),
   );
   process.env.NODEX_DIR = tempDir;
-  let writer: CardMutationWriter | undefined;
+  let writer: BlockMutationWriter | undefined;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Relocation worker probe" });
@@ -161,7 +161,7 @@ const run = async (): Promise<void> => {
     closeDatabase();
 
     const boardEvents: BoardChangeEvent[] = [];
-    writer = new CardMutationWriter({
+    writer = new BlockMutationWriter({
       publishBoardEvent: (event) => boardEvents.push(event),
     });
     const sourceBefore = await writer.syncBlockDocument({
@@ -293,7 +293,7 @@ const run = async (): Promise<void> => {
     await writer.shutdown();
     writer = undefined;
 
-    const restartedWriter = new CardMutationWriter();
+    const restartedWriter = new BlockMutationWriter();
     writer = restartedWriter;
     const restartedLookup = await restartedWriter.readCommittedRelocation(
       intent,

@@ -35,12 +35,11 @@ import { parseNfm } from "../../shared/nfm/parser";
 import { serializeNfm } from "../../shared/nfm/serializer";
 import type { NfmBlock, NfmCardToggle } from "../../shared/nfm/types";
 import type {
-  Card,
   CardCreateInput,
   Estimate,
   Priority,
 } from "../../shared/types";
-import { createCard } from "./cards";
+import { summarizeCardDescription } from "../../shared/card-summary";
 import {
   applyLegacyShadowDocumentUpdate,
   loadLegacyShadowBlockDocumentForMigration,
@@ -55,6 +54,7 @@ import * as descriptionRevisionService from "./description-revisions";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
 
+/** Pre-v70 fixed-point migration only; v70 runtime never owns foreign bodies. */
 const DEFAULT_BATCH_LIMIT = 50;
 const MIGRATION_CLIENT_SESSION_ID = "foreign-reference-migration";
 
@@ -150,7 +150,7 @@ export interface ForeignReferenceMigrationDependencies {
     readonly projectId: string;
     readonly status: CardStatus;
     readonly card: CardCreateInput;
-  }) => Promise<Card>;
+  }) => Promise<unknown>;
   readonly upsertInlineDatabaseView?: (
     input: UpsertLegacyInlineDatabaseViewInput,
     database: Database.Database,
@@ -361,8 +361,24 @@ const readTargetCard = (
   const row = database
     .prepare(
       `
-    SELECT block.id, block.project_id, block.type, block.lifecycle, card.title
+    SELECT
+      block.id,
+      block.project_id,
+      block.type,
+      block.lifecycle,
+      COALESCE(materialization.title, card.title) AS title
     FROM blocks block
+    LEFT JOIN block_documents ownership
+      ON ownership.block_id = block.id
+     AND ownership.project_id = block.project_id
+    LEFT JOIN documents document
+      ON document.id = ownership.document_id
+     AND document.project_id = ownership.project_id
+     AND document.readiness = 'ready'
+    LEFT JOIN document_materializations materialization
+      ON materialization.document_id = document.id
+     AND materialization.generation = document.generation
+     AND materialization.projected_seq = document.head_seq
     LEFT JOIN cards card ON card.id = block.id
     WHERE block.id = ?
     LIMIT 1
@@ -911,11 +927,95 @@ const markLedgersFailed = (
   update.run(message, now, hostDocumentId);
 };
 
-const createDefaultRecoveredCard = async (input: {
+const legacyRunTarget = (
+  target: CardCreateInput["runInTarget"],
+): string => {
+  if (target === "newWorktree") return "new_worktree";
+  if (target === "cloud") return "cloud";
+  return "local_project";
+};
+
+/**
+ * Foreign-body recovery is deliberately a v69 migration write. Inserting the
+ * temporary compatibility row lets the transitional triggers create a
+ * legacy-shadow Card shell and enqueue its body for the next fixed-point pass.
+ * Public Card creation must never use this path because primary genesis
+ * rejects legacy foreign bodies.
+ */
+const createDefaultRecoveredCard = async (
+  database: Database.Database,
+  input: {
   readonly projectId: string;
   readonly status: CardStatus;
   readonly card: CardCreateInput;
-}): Promise<Card> => createCard(input.projectId, input.status, input.card);
+  },
+): Promise<void> => {
+  const cardId = input.card.id;
+  if (!cardId) {
+    throw new ForeignReferenceMigrationStoreError(
+      "Recovered Card requires a reserved identity",
+    );
+  }
+  const description = input.card.description ?? "";
+  const summary = summarizeCardDescription(description);
+  const nextOrder = database
+    .prepare(
+      `
+      SELECT COALESCE(MAX("order"), -1) + 1 AS next_order
+      FROM cards
+      WHERE project_id = ? AND status = ? AND archived = 0
+    `,
+    )
+    .get(input.projectId, input.status) as { readonly next_order: number };
+  const now = new Date().toISOString();
+  database
+    .prepare(
+      `
+      INSERT INTO cards (
+        id, project_id, status, title, description,
+        description_preview, description_length, has_description,
+        priority, estimate, tags, due_date, assignee,
+        agent_blocked, agent_status, run_in_target, run_in_local_path,
+        run_in_base_branch, run_in_worktree_path, run_in_environment_path,
+        scheduled_start, scheduled_end, is_all_day, recurrence_json,
+        reminders_json, schedule_timezone, created, "order"
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?
+      )
+    `,
+    )
+    .run(
+      cardId,
+      input.projectId,
+      input.status,
+      input.card.title,
+      description,
+      summary.descriptionPreview,
+      summary.descriptionLength,
+      summary.hasDescription ? 1 : 0,
+      input.card.priority ?? null,
+      input.card.estimate ?? null,
+      JSON.stringify(input.card.tags ?? []),
+      input.card.dueDate?.toISOString().slice(0, 10) ?? null,
+      input.card.assignee?.trim() || null,
+      input.card.agentBlocked ? 1 : 0,
+      input.card.agentStatus?.trim() || null,
+      legacyRunTarget(input.card.runInTarget),
+      input.card.runInLocalPath?.trim() || null,
+      input.card.runInBaseBranch?.trim() || null,
+      input.card.runInWorktreePath?.trim() || null,
+      input.card.runInEnvironmentPath?.trim() || null,
+      input.card.scheduledStart?.toISOString() ?? null,
+      input.card.scheduledEnd?.toISOString() ?? null,
+      input.card.isAllDay ? 1 : 0,
+      input.card.recurrence ? JSON.stringify(input.card.recurrence) : null,
+      JSON.stringify(input.card.reminders ?? []),
+      input.card.scheduleTimezone?.trim() || null,
+      now,
+      nextOrder.next_order,
+    );
+};
 
 const resolveCardProjection = async (
   database: Database.Database,
@@ -1320,7 +1420,8 @@ export const migrateLegacyForeignReferences = async (
   synchronizeLegacyMaterializations(database);
   const dependencies = {
     createRecoveredCard:
-      options.dependencies?.createRecoveredCard ?? createDefaultRecoveredCard,
+      options.dependencies?.createRecoveredCard ??
+      ((input) => createDefaultRecoveredCard(database, input)),
     upsertInlineDatabaseView:
       options.dependencies?.upsertInlineDatabaseView ??
       ((

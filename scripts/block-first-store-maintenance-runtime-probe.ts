@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import * as Y from "yjs";
-import { cardMutationWriter } from "../src/main/card-mutation-writer";
+import { blockMutationWriter } from "../src/main/block-mutation-writer";
 import { documentSyncHub } from "../src/main/document-sync-runtime";
 import * as backupService from "../src/main/local-store/backups";
 import { createProject } from "../src/main/local-store/projects";
@@ -247,7 +247,7 @@ const run = async (): Promise<void> => {
     });
     closeDatabase();
 
-    const prepared = await cardMutationWriter.prepareOwnedBlockDocument(
+    const prepared = await blockMutationWriter.prepareOwnedBlockDocument(
       project.id,
       card.id,
     );
@@ -344,13 +344,13 @@ const run = async (): Promise<void> => {
     invariant(!fs.existsSync(path.join(assetsPath, "after.txt")), "New asset crossed restore");
 
     const restoredDescriptor = (
-      await cardMutationWriter.getOwnedBlockDocumentDescriptor(project.id, card.id)
+      await blockMutationWriter.getOwnedBlockDocumentDescriptor(project.id, card.id)
     ).result;
     invariant(
       restoredDescriptor.storeEpoch !== descriptor.storeEpoch,
       "Restore did not rotate store epoch",
     );
-    const stale = await cardMutationWriter.applyBlockDocumentUpdate({
+    const stale = await blockMutationWriter.applyBlockDocumentUpdate({
       documentId: descriptor.documentId,
       storeEpoch: descriptor.storeEpoch,
       generation: descriptor.generation,
@@ -382,7 +382,7 @@ const run = async (): Promise<void> => {
     }
     invariant(rollbackRejected, "Corrupt restore unexpectedly committed");
     const afterFailure = (
-      await cardMutationWriter.getOwnedBlockDocumentDescriptor(project.id, card.id)
+      await blockMutationWriter.getOwnedBlockDocumentDescriptor(project.id, card.id)
     ).result;
     invariant(
       afterFailure.storeEpoch === restoredDescriptor.storeEpoch,
@@ -393,7 +393,7 @@ const run = async (): Promise<void> => {
     documents.forEach((document) => document.destroy());
     providers.splice(0);
     documents.splice(0);
-    await cardMutationWriter.shutdown();
+    await blockMutationWriter.shutdown();
     closeDatabase();
 
     const recoveryResults: string[] = [];
@@ -435,7 +435,7 @@ const run = async (): Promise<void> => {
   } finally {
     providers.forEach((provider) => provider.destroy());
     documents.forEach((document) => document.destroy());
-    await cardMutationWriter.shutdown().catch(() => undefined);
+    await blockMutationWriter.shutdown().catch(() => undefined);
     closeDatabase();
     if (previousDir === undefined) delete process.env.NODEX_DIR;
     else process.env.NODEX_DIR = previousDir;

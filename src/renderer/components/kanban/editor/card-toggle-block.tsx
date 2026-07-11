@@ -43,15 +43,6 @@ export const createCardToggleBlockSpec = createBlockSpec(
 
         chip.appendChild(document.createTextNode(token));
 
-        if (propertyType !== "tag") {
-          chip.classList.add(
-            "cursor-pointer",
-            "transition-[filter,box-shadow]",
-            "duration-swift",
-            "ease-linear",
-          );
-          chip.dataset.chipEditable = "true";
-        }
         meta.appendChild(chip);
       }
 
@@ -68,14 +59,6 @@ export const createCardToggleBlockSpec = createBlockSpec(
         editor,
         line,
       );
-
-      // Mark projected card toggles so CSS can style the caret differently
-      if (block.props.projectionOwnerId) {
-        const inner = toggleWrapper.dom.querySelector(".bn-toggle-wrapper");
-        if (inner instanceof HTMLElement) {
-          inner.dataset.projected = "true";
-        }
-      }
 
       return { ...toggleWrapper, contentDOM: title };
     },

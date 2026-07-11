@@ -43,7 +43,7 @@ describe("workbench settings search catalog", () => {
     expect(hasSectionResult("more-properties toggle", "card")).toBe(true);
     expect(hasSectionResult("auto-create branch detached", "worktrees")).toBe(true);
     expect(hasSectionResult("CODEX_SOURCE_TREE_PATH", "local-environments")).toBe(true);
-    expect(hasSectionResult("pruning unlimited", "backups")).toBe(true);
+    expect(hasSectionResult("collect unreferenced tombstone", "backups")).toBe(true);
   });
 
   test("uses runtime project names as hidden local-environment terms", () => {

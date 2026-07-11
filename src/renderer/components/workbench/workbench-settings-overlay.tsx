@@ -1797,7 +1797,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
       <SectionBlock title="History retention">
         <SettingRow
           label="History retention"
-          description="Per-project history rows kept before pruning. Use 0 for unlimited."
+          description="Newest deleted Block records kept per Project before safe collection. Use 0 to collect every unreferenced tombstone."
         >
           <div className="flex items-center gap-2">
             <Input
@@ -1808,12 +1808,14 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               onChange={(event) => historyForm.setFieldValue("retentionCount", event.target.value)}
               className="w-20 text-right"
             />
-            <span className="text-sm text-token-text-secondary">rows</span>
+            <span className="text-sm text-token-text-secondary">records</span>
           </div>
         </SettingRow>
         <div className="flex items-center justify-between gap-3 p-3">
           <div className="text-sm text-token-text-secondary">
-            {hasHistoryEnvOverride ? "Value locked by env var." : "Applied on future writes."}
+            {hasHistoryEnvOverride
+              ? "Value locked by env var."
+              : "Applied by background maintenance."}
           </div>
           <NodexButton
             variant="primary"

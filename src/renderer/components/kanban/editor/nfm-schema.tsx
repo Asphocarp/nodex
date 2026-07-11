@@ -9,14 +9,12 @@ import { editorCodeBlockOptions } from "./code-block-options";
 import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
 import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
-import { createCardToggleBlockSpec } from "./card-toggle-block";
 import { createCardRefBlockSpec } from "./card-ref-block";
 import { createDateMentionInlineContentSpec } from "./date-mention-chip";
 import { createDatabaseViewRefBlockSpec } from "./database-view-ref-block";
 import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
-import { createToggleListInlineViewBlockSpec } from "./toggle-list-inline-view-block";
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 import {
   createLargeCodeBlockSpec,
@@ -39,8 +37,6 @@ export const nfmSchema = BlockNoteSchema.create({
     image: imageBlockSpec,
     callout: createCalloutBlock(),
     threadSection: createThreadSectionBlockSpec(),
-    cardToggle: createCardToggleBlockSpec(),
-    toggleListInlineView: createToggleListInlineViewBlockSpec(),
     databaseViewRef: createDatabaseViewRefBlockSpec(),
     cardRef: createCardRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),

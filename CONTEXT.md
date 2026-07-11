@@ -1,12 +1,12 @@
 # Nodex Domain Context
 
-This document defines the canonical domain language for Nodex. It describes the accepted Block-first target model, even while the implementation is migrating from the legacy Card-first schema. During the migration, code that contradicts these definitions is migration debt rather than an alternate model.
+This document defines the canonical Block-first domain language for Nodex. Schema v70 implements this model directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store before normal runtime begins; they are migration code, not an alternate authority.
 
 ## Product boundary
 
 Nodex is a local-first workspace for durable content and agent work. A Project provides the filesystem, execution, and data-isolation boundary. Content inside that boundary is modeled as Blocks. The user-facing name for a document-like Block is Card.
 
-The migration from the legacy model is tracked in `.generated/block-first/EXECPLAN.md`. Accepted system-wide decisions live in `docs/adr/`.
+Accepted system-wide decisions live in `docs/adr/`. The completed development spike and its evidence remain in `.generated/block-first/` as implementation history.
 
 ## Canonical terms
 
@@ -20,13 +20,15 @@ A Block is the only persistent content identity. Every content object has one gl
 
 Yjs internal client and struct identifiers are implementation details. They never replace `blockId` and are not exposed as application identity.
 
+Physical retention may remove the live Block row only after global reachability is disproved. The application ID then remains forever in `retired_block_identities`; no create, import, clone, relocation, or migration may reuse it. Deleting a whole Project is the only bulk physical-removal path: it runs through `BlockMutationWriter`, permanently retires every Block identity in that Space inside the deletion transaction, then revokes only those Documents from the live sync Hub after commit.
+
 ### Card
 
 A Card is the user-facing name for a document-bearing Block. A Card has no separate storage identity: the Card ID is its Block ID. Every Card owns exactly one Document containing its collaborative title and body.
 
 A Card can be placed directly in a Space, nested in another Document, or shown through references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
 
-Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read-model snapshot as proof of content authority. Only an exact `ydoc_primary` descriptor may mount Card Stage; a non-primary migration result fails closed before the editor boundary and can only retry preparation.
+Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready `ydoc_primary` descriptor may mount Card Stage; schema v70 has no snapshot-editor fallback.
 
 ### Document
 
@@ -116,23 +118,23 @@ Reference expansion is window-local. The renderer bounds simultaneously mounted 
 
 A projection is rebuildable data derived from the authoritative Block, Document, and Database records. NFM, plain text, previews, search units, asset references, Card read models, and scheduled-card indexes are projections. A projection can lag, be discarded, and be rebuilt. It must never be used to reconstruct an already-existing Yjs Document.
 
-Schema v62 is the first persisted property/projection foundation: `block_properties` holds Card-intrinsic agent/run/recurrence/reminder state, Database membership values hold status/priority/estimate/tags/dates/assignee, and `scheduled_card_index` is the typed scheduler read model. Schema v63 adds the resumable foreign-reference migration ledger and converts legacy Card/query snapshots into canonical `targetBlockId`/`databaseViewId` references before cutover. Schema v66 makes recurrence exceptions, reminder receipts, and reminder snoozes children of the owning Card Block rather than the compatibility `cards` row; their composite Project/Block foreign keys cascade with Block identity, and typed guards reject behavior records for non-Card Blocks. Each stable source records a semantic fingerprint, so an identical crash retry resumes one occurrence while changed live content advances to a new recovery without overwriting the prior Card. During BF-03/BF-07 migration only, legacy Card metadata is a one-way write seam into these records; it is not a second target identity or a content authority.
+The v70 property/projection foundation keeps Card-intrinsic agent/run/recurrence/reminder state in `block_properties`, Database membership values in typed relational records, and scheduler reads in `scheduled_card_index`. Recurrence exceptions and reminder evidence belong to the owning Card Block. Projection coordinates must match the current metadata revision or Document generation/head before a reader may use them.
 
-Schema v65 separates durable secondary evidence from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. None of these tables writes into `cards`, Y.Doc state, or property authority through a trigger.
+Durable secondary evidence is separate from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. No projection writes back into Y.Doc or property authority.
 
-Schema v69 makes stable Block/Document identity, rather than the current Project coordinate, the foreign-key edge for retained relocation, recovery, version, membership, and Canvas-reference evidence. It also retires the compatibility trigger that attempted cross-Project moves by rewriting a partial Card shell. Schema v70 removes compatibility Card storage and the transfer fence entirely; Project transfer mutates only Block/Document/Database authority and rebuildable projections.
+Historical schema v69 made stable Block/Document identity, rather than the current Project coordinate, the foreign-key edge for retained relocation, recovery, version, membership, and Canvas-reference evidence. Its startup finalizer drains shadow content and foreign-body references to a fixed point, repairs projections, verifies every owned Card Document, and atomically advances to v70 while dropping `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and the transfer fence. Project transfer in v70 mutates only Block/Document/Database authority and rebuildable projections.
 
 A structured property mutation is a versioned, project/store-scoped field-intent batch with one immutable `mutationId`. Scalar fields compare their own property revision rather than a whole-Card revision; set-like values apply add/remove intent against the current set. The property values, any coupled View grouping, one `metadataRevision` advance per affected Card, full Card/schedule projections, change-log cursor, and accepted or rejected receipt are one SQLite transaction. Retrying the same canonical request replays its prior outcome; the same ID can never name different intent.
 
 Scheduler and Calendar reads begin with `scheduled_card_index`, never the wide Card row. An index row is visible only when its source metadata revision equals the current Card Block revision; title/body additionally require the ready `ydoc_primary` Document's exact current materialization. Invalid or stale index/content coordinates fail closed, and the index can be rebuilt completely from Database plus intrinsic Block properties.
 
-For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes the result back through the legacy Card title/body or metadata mutation paths.
+The materialization committed with each Card Document head supplies title, NFM, preview, references, and assets to Card-named read models. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes a projection back into content or metadata authority.
 
 ### NFM
 
 NFM is Nodex's public text interchange format. It is used for genesis import, explicit compare-and-swap replacement, export, and materialized reads. NFM does not preserve every internal identity and is never a collaborative write authority.
 
-Ordinary Card update transports accept metadata only. They reject `title` and `description` before enqueue, and the retired whole-description HTTP endpoint returns `410 Gone` with the canonical Document-mutation replacement. A whole-body NFM import must use `ReplaceDocumentFromNfm` with the current Document generation and head; renderer editing always emits Yjs updates instead.
+There is no ordinary whole-Card update transport. Card lifecycle, Block/Database properties, and Document content use separate typed commands. Retired Card creation/deletion/description endpoints return `410 Gone` with their authoritative replacements. A whole-body NFM import must use `ReplaceDocumentFromNfm` with the current Document generation and head; renderer editing always emits Yjs updates instead.
 
 ### Mutation
 
@@ -140,7 +142,7 @@ A mutation is a durable user or agent intent applied by the single SQLite writer
 
 Every logical operation that may be retried after losing its response has a caller-generated operation identity. Canonical intent, not the transport attempt, determines equality: actor and client session are immutable first-seen audit fields and never participate in the logical hash. A committed operation records one canonical Block change; a deterministic precondition rejection records only an immutable rejected receipt and no authority change. Exact retry returns the same result after restart or transport switching, while any semantic reuse of the identity is a typed collision.
 
-Occurrence complete/skip/update is one such operation family. It mutates schedule/recurrence through typed Block/Database property authority and, when it creates an archived, detached, or future Card, clones the current source Y.Doc plus relational properties without reading or writing a compatibility Card row. The created Card UUID-v7 is derived from the logical operation, so a pre-commit retry also targets the same identity.
+Occurrence complete/skip/update is one such operation family. It mutates schedule/recurrence through typed Block/Database property authority and, when it creates an archived, detached, or future Card, clones the current source Y.Doc plus relational properties without creating another Card storage aggregate. The created Card UUID-v7 is derived from the logical operation, so a pre-commit retry also targets the same identity.
 
 A Document operation batch addresses application Block IDs, not Yjs struct IDs. It may set the title or insert, update, delete, and move Blocks in order. The writer validates the entire batch on a detached current-head clone before committing one relative Yjs update and its registry, projections, mutation receipt, and change-log evidence atomically. Operations that replace or remove existing Yjs structs require a short trusted write fence and record every invalidated Block/subtree ID; an offline update that crosses such a barrier may merge only when its derived touched IDs are disjoint. Otherwise Nodex persists a recovery artifact and requires reload. A tombstoned Block ID is never a valid create/import identity.
 
@@ -187,14 +189,14 @@ The writer requires target properties to represent every source value, tombstone
 
 1. `blocks.id` is the single application identity for content. A Card ID is a Block ID.
 2. Every active Block belongs to exactly one Project/Space and has exactly one content location: directly in that Space or in one containing Document.
-3. Every Card owns exactly one active Document. Registered Synced Block sources may own one body-only Document; ordinary body Blocks do not own Documents.
+3. Every Card owns exactly one active Document. Registered Synced Block, Template, Large Document/Code, and Canvas owners use their registered Document schema; ordinary body Blocks do not own Documents.
 4. One active Card has at most one owning Database membership.
 5. A reference never changes the target's location or membership and never embeds the target's body in the host Y.Doc.
 6. A committed Document update is unique by `(documentId, updateId)` and is acknowledged only after its SQLite transaction commits. Its immutable receipt outlives compactable binary tail payloads, so late retries retain the original committed sequence. An update whose Yjs dependencies are not yet present is rejected for retry and does not advance the durable head.
 7. `headSeq` orders local persistence; a Yjs state vector represents causal content state. Neither substitutes for the other.
 8. Each mounted writable surface creates an independent Yjs client identity, including two surfaces opened by the same user in different windows.
 9. Restoring history creates a new forward update in the current Document. It never rewinds or replaces the Yjs update log.
-10. Deletion first tombstones identity. Ordinary create/import never reuses it; explicit history restore may reactivate the same Block and owned Document. Physical garbage collection waits until reference and history retention permits it.
+10. Deletion first tombstones identity. Ordinary create/import never reuses it; explicit history restore may reactivate the same Block and owned Document. Physical collection keeps the newest configured tombstone count and proceeds only after exact reference/history/recovery reachability permits the entire ownership closure.
 11. Cross-Document relocation commits source update, target update, registry changes, indexes, ledger, history, and change log in one SQLite transaction.
 12. NFM and all other projections can be rebuilt from authority. Authority is never rebuilt from an existing projection except during one-time genesis migration.
 13. A retryable logical operation ID is required at its calling boundary. Transport actor/session changes do not change semantic equality; exact retry cannot advance authority twice, and a durable rejection has no change-log cursor.
@@ -238,11 +240,11 @@ Presence, cursors, selections, open toggles, search terms, focus, and relocation
 - Say **projection** for derived NFM, preview, search, asset, schedule, and read-model data.
 - Do not introduce another document-like product entity alongside Card.
 
-## Code orientation during migration
+## Code orientation
 
-The remaining Card-first migration machinery is confined to schema/startup conversion and compatibility read assembly in `src/main`. Renderer Card Stage and NFM editing have no legacy content-authority branch: they receive a prepared Document or render a fail-closed migration diagnostic.
+Card-first migration machinery is confined to the v69→v70 schema/startup finalizer in `src/main`; its backing tables do not exist after finalization. Card-named read models are projections assembled from Block/Document/Database authority. Renderer Card Stage and NFM editing receive a prepared Document or render a fail-closed descriptor diagnostic, with no snapshot-authority branch.
 
-The Block-first migration adds shared Block/Document Interfaces under `src/shared/`, persistence Implementations under `src/main/local-store/`, and a transport-neutral renderer provider behind `src/renderer/lib/api.ts`. Card Stage's authority boundary and writable surface live under `src/renderer/components/block-documents/`; the surface runtime and descriptor validation live under `src/renderer/lib/`. The exact paths and phased cutover are maintained in `.generated/block-first/EXECPLAN.md`.
+Shared Block/Document Interfaces live under `src/shared/`, persistence Implementations under `src/main/local-store/`, and the transport-neutral renderer provider behind `src/renderer/lib/api.ts`. Card Stage's authority boundary and writable surface live under `src/renderer/components/block-documents/`; surface runtime and descriptor validation live under `src/renderer/lib/`. The completed spike evidence and phased cutover history remain in `.generated/block-first/EXECPLAN.md`.
 
 ## Decision index
 

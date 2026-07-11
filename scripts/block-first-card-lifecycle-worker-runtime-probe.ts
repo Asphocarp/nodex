@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CardMutationWriter } from "../src/main/card-mutation-writer";
+import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import { applyCardLifecycleMutation } from "../src/main/local-store/card-block-lifecycle";
 import { readBlockStoreEpoch } from "../src/main/local-store/block-store-metadata";
 import {
@@ -60,8 +60,8 @@ const createOperation = (
 const createWriter = (
   events: BoardChangeEvent[],
   databaseEvents: DatabaseChangeEvent[],
-): CardMutationWriter =>
-  new CardMutationWriter({
+): BlockMutationWriter =>
+  new BlockMutationWriter({
     publishBoardEvent: (event) => events.push(event),
     publishDatabaseEvent: (event) => databaseEvents.push(event),
   });
@@ -75,7 +75,7 @@ const main = async (): Promise<void> => {
     path.join(os.tmpdir(), "nodex-card-lifecycle-worker-runtime-"),
   );
   process.env.NODEX_DIR = directory;
-  let writer: CardMutationWriter | undefined;
+  let writer: BlockMutationWriter | undefined;
 
   try {
     await initializeDatabase();

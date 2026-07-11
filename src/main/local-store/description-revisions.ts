@@ -2,6 +2,12 @@ import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { extractPlainText, parseNfm, serializeNfm } from "../../shared/nfm";
 
+/**
+ * Pre-v70 migration codec only. Runtime Card history and editing use
+ * Document versions/Yjs updates; no production mutation path may import this
+ * Module after Block-first finalization.
+ */
+
 interface DescriptionRevisionRow {
   id: number;
   card_id: string;

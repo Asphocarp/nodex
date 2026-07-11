@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import type { CodexMcpToolCallView, CodexTranscriptEntry, ProtocolMcpResourceReadResponse } from "../../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
@@ -258,9 +258,9 @@ describe("McpToolCall", () => {
     expect(Boolean(summaryButton.querySelector(".loading-shimmer-pure-text"))).toBe(true);
 
     fireEvent.click(summaryButton);
-    await settleAsyncRender();
-
-    expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
+    await waitFor(() => {
+      expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
+    });
     expect(textContent(container).includes("Partial tool content")).toBe(true);
   });
 
@@ -328,15 +328,21 @@ describe("McpToolCall", () => {
     );
 
     fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
-    await settleAsyncRender();
-
-    expect(Boolean(textContent(container).includes("Available Libraries:"))).toBe(true);
+    await waitFor(() => {
+      expect(textContent(container).includes("Available Libraries:")).toBe(
+        true,
+      );
+    });
     expect(Boolean(getByText("plaintext"))).toBe(true);
 
     fireEvent.click(getByRole("button", { name: "Show raw tool call output" }));
-    await settleAsyncRender();
-
-    expect(Boolean(getByText("Raw context7.resolve-library-id tool call output"))).toBe(true);
+    await waitFor(() => {
+      expect(
+        Boolean(
+          getByText("Raw context7.resolve-library-id tool call output"),
+        ),
+      ).toBe(true);
+    });
     expect(Boolean(getByText(/call_9L9LUlz6nkg1Jp2LA4mrAL8o/))).toBe(true);
     expect(textContent(container).includes("pluginId")).toBe(false);
     expect(textContent(container).includes("mcpAppResourceUri")).toBe(false);
@@ -356,8 +362,9 @@ describe("McpToolCall", () => {
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
 
     fireEvent.click(summaryButton);
-    await settleAsyncRender();
-    expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
+    await waitFor(() => {
+      expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
+    });
 
     const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
       .find((element) => textContent(element).includes("Auto-review approved")) ?? null;

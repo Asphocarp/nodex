@@ -52,7 +52,6 @@ function isModifiableBlock(block: ModifyShortcutBlock | undefined): boolean {
   if (block.type === "checkListItem") return true;
   if (block.type === "image") return true;
   if (block.type === "cardRef") return true;
-  if (block.type === "cardToggle") return true;
   if (block.type === "threadSection") return true;
   return isToggleLikeBlock(block);
 }
@@ -126,27 +125,12 @@ function resolveCardTarget(
   actions: ModifyShortcutActions,
   block: ModifyShortcutBlock,
 ): OpenModifyShortcutCardInput | null {
-  if (block.type === "cardRef") {
-    const cardId = readStringProp(block.props, "cardId");
-    if (!cardId) return null;
-
-    return {
-      projectId: readStringProp(block.props, "sourceProjectId") || actions.projectId,
-      cardId,
-      titleSnapshot: readBlockText(block),
-    };
-  }
-
-  if (block.type !== "cardToggle") return null;
-
-  const cardId = readStringProp(block.props, "cardId") || readStringProp(block.props, "projectionCardId");
+  if (block.type !== "cardRef") return null;
+  const cardId = readStringProp(block.props, "targetBlockId");
   if (!cardId) return null;
 
   return {
-    projectId:
-      readStringProp(block.props, "sourceProjectId")
-      || readStringProp(block.props, "projectionSourceProjectId")
-      || actions.projectId,
+    projectId: readStringProp(block.props, "sourceProjectId") || actions.projectId,
     cardId,
     titleSnapshot: readBlockText(block),
   };
@@ -176,16 +160,13 @@ export function modifyCurrentBlock(
     return true;
   }
 
-  if (block.type === "cardRef" || block.type === "cardToggle") {
+  if (block.type === "cardRef") {
     const cardTarget = resolveCardTarget(actions, block);
     if (cardTarget && actions.openCard) {
       void actions.openCard(cardTarget);
       return true;
     }
 
-    if (block.type === "cardToggle") {
-      return handleToggleBlock(editor, block);
-    }
     return false;
   }
 

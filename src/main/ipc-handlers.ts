@@ -88,8 +88,8 @@ import {
   writeWorkspaceFile,
 } from "./workspace-files-service";
 import { dbNotifier } from "./local-store/notifier";
-import { cardMutationWriter } from "./card-mutation-writer";
-import { assertCardUpdateExcludesDocumentContent } from "../shared/card-content-authority";
+import { blockMutationWriter } from "./block-mutation-writer";
+import { projectDeletionRuntime } from "./project-deletion-runtime";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -722,7 +722,7 @@ export function registerIpcHandlers(
     "block-document:owned:get",
     async (_, projectId, ownerBlockId) =>
       (
-        await cardMutationWriter.getOwnedBlockDocumentDescriptor(
+        await blockMutationWriter.getOwnedBlockDocumentDescriptor(
           projectId,
           ownerBlockId,
         )
@@ -731,7 +731,7 @@ export function registerIpcHandlers(
   registerHandle(
     "block-document:owned:prepare",
     async (_, projectId, ownerBlockId) =>
-      await cardMutationWriter.prepareOwnedBlockDocument(
+      await blockMutationWriter.prepareOwnedBlockDocument(
         projectId,
         ownerBlockId,
       ),
@@ -831,7 +831,7 @@ export function registerIpcHandlers(
       };
     },
     applyMutation: async (request) =>
-      (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
+      (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
   });
 
   registerCardMetadataPropertySnapshotIpcHandler({
@@ -879,29 +879,29 @@ export function registerIpcHandlers(
       };
     },
     applyMutation: async (request) =>
-      (await cardMutationWriter.applyDatabaseMutation(request)).result,
+      (await blockMutationWriter.applyDatabaseMutation(request)).result,
     readDescriptor: async (projectId, databaseBlockId) =>
       (
-        await cardMutationWriter.readDatabaseDescriptor(
+        await blockMutationWriter.readDatabaseDescriptor(
           projectId,
           databaseBlockId,
         )
       ).result,
     readCatalog: async (projectId) =>
-      (await cardMutationWriter.readDatabaseCatalog(projectId)).result,
+      (await blockMutationWriter.readDatabaseCatalog(projectId)).result,
     readManagement: async (projectId) =>
-      (await cardMutationWriter.readDatabaseManagement(projectId)).result,
+      (await blockMutationWriter.readDatabaseManagement(projectId)).result,
     readPrimaryDescriptor: async (projectId) =>
-      (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId))
+      (await blockMutationWriter.readPrimaryDatabaseDescriptor(projectId))
         .result,
     readPrimaryViewSnapshot: async (projectId) =>
-      (await cardMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
+      (await blockMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
         .result,
     readViewSnapshot: async (projectId, viewId) =>
-      (await cardMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
+      (await blockMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
         .result,
     queryView: async (projectId, viewId) =>
-      (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
+      (await blockMutationWriter.queryDatabaseView(projectId, viewId)).result,
   });
 
   registerCardLifecyclePreflightIpcHandler({
@@ -911,7 +911,7 @@ export function registerIpcHandlers(
       );
     },
     readPreflight: async (projectId, cardId) =>
-      (await cardMutationWriter.readCardLifecyclePreflight(projectId, cardId))
+      (await blockMutationWriter.readCardLifecyclePreflight(projectId, cardId))
         .result,
   });
 
@@ -933,7 +933,7 @@ export function registerIpcHandlers(
       };
     },
     applyMutation: async (request) =>
-      (await cardMutationWriter.applyCardLifecycleMutation(request)).result,
+      (await blockMutationWriter.applyCardLifecycleMutation(request)).result,
   });
 
   registerDocumentMutationIpcHandler({
@@ -1049,9 +1049,9 @@ export function registerIpcHandlers(
       };
     },
     createCheckpoint: (request) =>
-      cardMutationWriter.createDocumentVersionCheckpoint(request),
-    listVersions: (request) => cardMutationWriter.listDocumentVersions(request),
-    getVersion: (request) => cardMutationWriter.getDocumentVersion(request),
+      blockMutationWriter.createDocumentVersionCheckpoint(request),
+    listVersions: (request) => blockMutationWriter.listDocumentVersions(request),
+    getVersion: (request) => blockMutationWriter.getDocumentVersion(request),
     restoreVersion: (request) =>
       documentSyncHub.applyDocumentMutation(request),
   });
@@ -1062,7 +1062,7 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    listHistory: (request) => cardMutationWriter.listCardHistory(request),
+    listHistory: (request) => blockMutationWriter.listCardHistory(request),
   });
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
@@ -1120,8 +1120,8 @@ export function registerIpcHandlers(
     });
   });
 
-  registerHandle("projects:delete", (_, projectId: string) =>
-    projectsStore.deleteProject(projectId),
+  registerHandle("projects:delete", async (_, projectId: string) =>
+    await projectDeletionRuntime.deleteProject(projectId),
   );
 
   // Project sessions
@@ -1510,46 +1510,6 @@ export function registerIpcHandlers(
   });
 
   registerHandle(
-    "card:update",
-    async (
-      _,
-      projectId,
-      columnId,
-      cardId,
-      updates,
-      sessionId?,
-      expectedRevision?,
-    ) => {
-      assertCardUpdateExcludesDocumentContent(updates);
-      const startedAt = performance.now();
-      const envelope = await cardMutationWriter.updateCard(
-        projectId,
-        columnId || undefined,
-        cardId,
-        updates,
-        sessionId,
-        expectedRevision,
-      );
-      const result = envelope.result;
-      ipcPayloadLogger.info("card update ack served", {
-        channel: "card:update",
-        projectId,
-        cardId,
-        status: result.status,
-        changedFields:
-          result.status === "updated" ? result.changedFields : undefined,
-        approxPayloadBytes: approximateJsonPayloadBytes(result),
-        durationMs: Math.round(performance.now() - startedAt),
-        workerDurationMs: envelope.metrics.workerDurationMs,
-        queueWaitMs: envelope.metrics.queueWaitMs,
-        transactionMs: envelope.metrics.transactionMs,
-        mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-      });
-      return result;
-    },
-  );
-
-  registerHandle(
     "card:get",
     (_, projectId: string, cardId: string, status?: string) =>
       cardsStore.getCard(
@@ -1558,11 +1518,6 @@ export function registerIpcHandlers(
         status as Parameters<typeof cardsStore.getCard>[2],
       ),
   );
-
-  registerHandle("card:move", async (_, input) => {
-    const { result } = await cardMutationWriter.moveCard(input);
-    return result === "moved";
-  });
 
   registerHandle(
     "calendar:occurrences",
@@ -1582,7 +1537,7 @@ export function registerIpcHandlers(
     "card:occurrence:complete",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceIpcInput(input);
-      const envelope = await cardMutationWriter.completeCardOccurrence(
+      const envelope = await blockMutationWriter.completeCardOccurrence(
         projectId,
         input,
         sessionId,
@@ -1595,7 +1550,7 @@ export function registerIpcHandlers(
     "card:occurrence:skip",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceIpcInput(input);
-      const envelope = await cardMutationWriter.skipCardOccurrence(
+      const envelope = await blockMutationWriter.skipCardOccurrence(
         projectId,
         input,
         sessionId,
@@ -1608,7 +1563,7 @@ export function registerIpcHandlers(
     "card:occurrence:update",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceUpdateIpcInput(input);
-      const envelope = await cardMutationWriter.updateCardOccurrence(
+      const envelope = await blockMutationWriter.updateCardOccurrence(
         projectId,
         input,
         sessionId,

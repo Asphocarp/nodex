@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { AutomaticApprovalReviewRow, AutomaticApprovalReviewSurface } from "./automatic-approval-review-surface";
@@ -50,8 +50,9 @@ describe("AutomaticApprovalReviewSurface", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(trigger);
-    await settleAsyncRender();
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    });
 
     const reviewTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
       .find((button) => textContent(button).includes("Auto-review approved")) ?? null;
@@ -121,8 +122,9 @@ describe("AutomaticApprovalReviewSurface", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(trigger);
-    await settleAsyncRender();
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    });
     expect(textContent(container).includes("Auto-reviewing")).toBe(true);
     expect(textContent(container).includes("Medium risk")).toBe(false);
   });

@@ -114,7 +114,6 @@ import {
   type SideMenuSelectionIntent,
 } from "./nfm-side-menu-selection";
 import { createSideMenuFreezeController } from "./side-menu-freeze-controller";
-import { resolveCardRefOwnerDragBlock } from "./side-menu-drag-target";
 
 interface SideMenuBlock {
   id?: string;
@@ -1954,10 +1953,7 @@ export function NfmSideMenu() {
   const lastPointerActivationAtRef = useRef<number | null>(null);
   const sideMenuOpenController = useNfmSideMenuOpenController();
 
-  const dragTargetBlock = useMemo(
-    () => (block ? resolveCardRefOwnerDragBlock(runtimeEditor as Parameters<typeof resolveCardRefOwnerDragBlock>[0], block) : block),
-    [block, runtimeEditor],
-  ) as SideMenuBlock | undefined;
+  const dragTargetBlock = block;
 
   const dataAttributes = useMemo(() => {
     if (!block) return {};

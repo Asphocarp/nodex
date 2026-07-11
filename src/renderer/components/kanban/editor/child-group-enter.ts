@@ -85,7 +85,6 @@ function isInlineParentBlock(
 
 function isToggleBlock(type: string, block?: BlockWithChildren): boolean {
   if (type === "toggleListItem") return true;
-  if (type === "cardToggle") return true;
   if (type === "heading" && block?.props?.isToggleable === true) return true;
   return false;
 }
@@ -115,7 +114,7 @@ export function handleParentEnterSplitToFirstChild(
 export function handleToggleEnterToChild(
   editor: EditorForChildGroupEnter,
 ): boolean {
-  // 1. Must be a toggle block (toggleListItem / cardToggle / toggle heading)
+  // 1. Must be a toggle list item or toggle heading.
   const cursor = editor.getTextCursorPosition();
   const block = editor.getBlock(cursor.block.id);
   if (!block || !isToggleBlock(cursor.block.type, block)) return false;

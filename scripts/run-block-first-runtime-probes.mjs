@@ -47,6 +47,7 @@ const workerProbes = new Set([
   "block-first-database-transport-runtime-probe",
   "block-first-relocation-worker-runtime-probe",
   "block-first-additional-document-command-worker-runtime-probe",
+  "block-first-block-retention-gc-runtime-probe",
 ]);
 
 const requestedProbes = process.argv.slice(2).filter((argument) => argument !== "--");
@@ -85,8 +86,8 @@ function runProbe(probePath) {
 
 fs.mkdirSync(outputDir, { recursive: true });
 await bundle(
-  "src/main/card-mutation-worker.ts",
-  path.join(outputDir, "card-mutation-worker.js"),
+  "src/main/block-mutation-worker.ts",
+  path.join(outputDir, "block-mutation-worker.js"),
   "cjs",
 );
 

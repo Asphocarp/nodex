@@ -498,13 +498,13 @@ const SETTINGS_SEARCH_PANELS = {
         entries: [
           entry(
             "History retention",
-            "Per-project history rows kept before pruning. Use 0 for unlimited.",
-            ["rows"],
+            "Newest deleted Block records kept per Project before safe collection. Use 0 to collect every unreferenced tombstone.",
+            ["records"],
           ),
         ],
         messages: [
           "Value locked by env var.",
-          "Applied on future writes.",
+          "Applied by background maintenance.",
           "Apply",
         ],
       },

@@ -61,13 +61,18 @@ import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
+import type {
+  MaintainStoreBlockRetentionInput,
+  MaintainStoreBlockRetentionResult,
+} from "./local-store/block-retention-maintenance-store";
+import type { ProjectDeletionResult } from "./local-store/project-deletion";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
 } from "../shared/types";
 
-export interface CardMutationMetrics {
+export interface BlockMutationMetrics {
   mutationId: string;
   queueWaitMs: number;
   workerDurationMs: number;
@@ -78,14 +83,14 @@ export interface CardMutationMetrics {
 }
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
-interface CardMutationWorkerRequestBase {
+interface BlockMutationWorkerRequestBase {
   id: number;
   mutationId: string;
   queuedAtEpochMs: number;
 }
 
-export type CardMutationWorkerRequest =
-  | (CardMutationWorkerRequestBase & {
+export type BlockMutationWorkerRequest =
+  | (BlockMutationWorkerRequestBase & {
       type: "completeCardOccurrence";
       payload: {
         projectId: string;
@@ -93,7 +98,7 @@ export type CardMutationWorkerRequest =
         sessionId?: string;
       };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "skipCardOccurrence";
       payload: {
         projectId: string;
@@ -101,7 +106,7 @@ export type CardMutationWorkerRequest =
         sessionId?: string;
       };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "updateCardOccurrence";
       payload: {
         projectId: string;
@@ -109,134 +114,142 @@ export type CardMutationWorkerRequest =
         sessionId?: string;
       };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "repairDocumentSecondaryProjections";
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyBlockPropertyMutation";
       payload: BlockPropertyMutationRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyDatabaseMutation";
       payload: DatabaseMutationRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyCardLifecycleMutation";
       payload: CardLifecycleMutationRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "readCardLifecyclePreflight";
       payload: { readonly projectId: string; readonly cardId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "compactEligibleBlockDocuments";
       payload: CompactEligibleBlockDocumentsInput;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
+      type: "maintainStoreBlockRetention";
+      payload: MaintainStoreBlockRetentionInput;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "deleteProject";
+      payload: { readonly projectId: string };
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "readDatabaseCatalog";
       payload: { readonly projectId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "readDatabaseManagement";
       payload: { readonly projectId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "readDatabaseDescriptor";
       payload: { readonly projectId: string; readonly databaseBlockId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "readPrimaryDatabaseDescriptor";
       payload: { readonly projectId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "readPrimaryDatabaseViewSnapshot";
       payload: { readonly projectId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "readDatabaseViewSnapshot";
       payload: { readonly projectId: string; readonly viewId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "queryDatabaseView";
       payload: { readonly projectId: string; readonly viewId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "syncBlockDocument";
       payload: DocumentSyncRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "getBlockDocumentProjectId";
       payload: { readonly documentId: string };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "getOwnedBlockDocumentDescriptor";
       payload: {
         readonly projectId: string;
         readonly ownerBlockId: string;
       };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "prepareOwnedBlockDocument";
       payload: {
         readonly projectId: string;
         readonly ownerBlockId: string;
       };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyBlockDocumentUpdate";
       payload: DocumentSyncApplyRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyDocumentMutation";
       payload: {
         readonly request: DocumentMutationRequest;
         readonly writeFence?: DocumentWriteFenceProof;
       };
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyAdditionalDocumentCommand";
       payload: AdditionalDocumentCommandRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "createDocumentVersionCheckpoint";
       payload: CreateDocumentVersionCheckpoint;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "listDocumentVersions";
       payload: ListDocumentVersions;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "getDocumentVersion";
       payload: GetDocumentVersion;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "listCardHistory";
       payload: ListCardHistoryRequest;
     })
-  | (CardMutationWorkerRequestBase & {
-    type: "relocateBlocks";
-    payload: RelocateBlocks;
-  })
-  | (CardMutationWorkerRequestBase & {
-    type: "prepareRelocationCommand";
-    payload: RelocationIntent;
-  })
-  | (CardMutationWorkerRequestBase & {
-    type: "readCommittedRelocation";
-    payload: RelocationIntent;
-  })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
+      type: "relocateBlocks";
+      payload: RelocateBlocks;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareRelocationCommand";
+      payload: RelocationIntent;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "readCommittedRelocation";
+      payload: RelocationIntent;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "prepareCardProjectTransfer";
       payload: CardProjectTransferIntent;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "applyCardProjectTransfer";
       payload: CardProjectTransferRequest;
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "writerBarrier";
     })
-  | (CardMutationWorkerRequestBase & {
+  | (BlockMutationWorkerRequestBase & {
       type: "shutdown";
     });
 
@@ -256,7 +269,7 @@ export type BlockDocumentWorkerResult =
   | CardProjectTransferCommandResult
   | CardProjectTransferCommandResult<CardProjectTransferPreparation>;
 
-export type CardMutationWorkerResult =
+export type BlockMutationWorkerResult =
   | CardOccurrenceMutationResult
   | BlockDocumentWorkerResult
   | OwnedBlockDocumentDescriptor
@@ -266,6 +279,8 @@ export type CardMutationWorkerResult =
   | CardLifecycleMutationCommandResult
   | CardLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult
+  | MaintainStoreBlockRetentionResult
+  | ProjectDeletionResult
   | DatabaseCatalogSnapshotCommandResult
   | DatabaseManagementSnapshotCommandResult
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
@@ -276,22 +291,22 @@ export type CardMutationWorkerResult =
   | AdditionalDocumentCommandResult
   | undefined;
 
-export type CardMutationWorkerResponse =
+export type BlockMutationWorkerResponse =
   | {
       id: number;
       ok: true;
-      result: CardMutationWorkerResult;
+      result: BlockMutationWorkerResult;
       events: BoardChangeEvent[];
-      metrics: CardMutationMetrics;
+      metrics: BlockMutationMetrics;
     }
   | {
       id: number;
       ok: false;
       error: string;
-      metrics?: Partial<CardMutationMetrics>;
+      metrics?: Partial<BlockMutationMetrics>;
     };
 
-export type CardMutationWorkerEvent = {
+export type BlockMutationWorkerEvent = {
   type: "log";
   payload: {
     level: "debug" | "info" | "warn" | "error";
@@ -300,5 +315,5 @@ export type CardMutationWorkerEvent = {
   };
 };
 
-export type CardMutationWorkerMessage =
-  CardMutationWorkerResponse | CardMutationWorkerEvent;
+export type BlockMutationWorkerMessage =
+  BlockMutationWorkerResponse | BlockMutationWorkerEvent;

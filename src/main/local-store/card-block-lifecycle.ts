@@ -42,7 +42,10 @@ import {
   planFractionalRank,
   type FractionalRankedItem,
 } from "../../shared/fractional-rank";
-import { initializeCardDocumentGenesis } from "./block-document-store";
+import {
+  BlockDocumentStoreError,
+  initializeCardDocumentGenesis,
+} from "./block-document-store";
 import { rebuildCardReadModelProjection } from "./card-read-store";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
 import {
@@ -191,6 +194,19 @@ interface DeleteEvidence {
   readonly status: CardStatus | null;
   readonly metadataRevision: number;
   readonly locationRevision: number;
+  readonly tombstonedBlocks: readonly IndexedClosureBlock[];
+  readonly indexedDocumentIds: readonly string[];
+}
+
+interface IndexedClosureBlock {
+  readonly id: string;
+  readonly lifecycle: "active" | "archived" | "deleted";
+  readonly metadataRevision: number;
+}
+
+interface IndexedBlockClosure {
+  readonly blocks: readonly IndexedClosureBlock[];
+  readonly documentIds: readonly string[];
 }
 
 interface AuthorityCommit {
@@ -348,6 +364,172 @@ const readOwnedDocument = (
     `Card ${request.operation.cardId} does not own a current primary Card Document`,
     request,
   );
+};
+
+/**
+ * Resolve only Blocks represented by the current exact-head indexes. Historical
+ * registry rows intentionally stay outside this closure: removing a Block from
+ * a Y.Doc tombstones its identity but does not make that tombstone part of a
+ * later Card delete/restore.
+ *
+ * A current indexed Block may itself own a Document, so the walk follows
+ * ownership recursively. The single SQLite writer transaction keeps every
+ * checked head and index coordinate stable for the caller.
+ */
+const readCurrentIndexedBlockClosure = (
+  database: Database.Database,
+  request: CardLifecycleMutationRequest,
+  root: BlockRow,
+): IndexedBlockClosure => {
+  const blocks = new Map<string, IndexedClosureBlock>([
+    [
+      root.id,
+      {
+        id: root.id,
+        lifecycle: root.lifecycle,
+        metadataRevision: root.metadata_revision,
+      },
+    ],
+  ]);
+  const documentIds = new Set<string>();
+  const pendingOwnerIds = [root.id];
+
+  while (pendingOwnerIds.length > 0) {
+    const ownerBlockId = pendingOwnerIds.shift();
+    if (!ownerBlockId) continue;
+    const document = database
+      .prepare(
+        `
+        SELECT
+          document.id, document.generation, document.head_seq,
+          document.readiness, document.authority,
+          materialization.generation AS materialization_generation,
+          materialization.projected_seq AS materialization_projected_seq,
+          scene.generation AS scene_generation,
+          scene.projected_seq AS scene_projected_seq
+        FROM block_documents ownership
+        INNER JOIN documents document
+          ON document.id = ownership.document_id
+         AND document.project_id = ownership.project_id
+        LEFT JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        LEFT JOIN canvas_scene_materializations scene
+          ON scene.document_id = document.id
+        WHERE ownership.block_id = ? AND ownership.project_id = ?
+      `,
+      )
+      .get(ownerBlockId, request.projectId) as
+      | {
+          readonly id: string;
+          readonly generation: number;
+          readonly head_seq: number;
+          readonly readiness: string;
+          readonly authority: string;
+          readonly materialization_generation: number | null;
+          readonly materialization_projected_seq: number | null;
+          readonly scene_generation: number | null;
+          readonly scene_projected_seq: number | null;
+        }
+      | undefined;
+    if (!document) continue;
+    if (documentIds.has(document.id)) {
+      return reject(
+        "document_state_corrupt",
+        `Document ${document.id} is reachable more than once from Card ${root.id}`,
+        request,
+      );
+    }
+    const materializationCoordinates = [
+      document.materialization_generation === null ||
+      document.materialization_projected_seq === null
+        ? null
+        : {
+            generation: document.materialization_generation,
+            headSeq: document.materialization_projected_seq,
+          },
+      document.scene_generation === null ||
+      document.scene_projected_seq === null
+        ? null
+        : {
+            generation: document.scene_generation,
+            headSeq: document.scene_projected_seq,
+          },
+    ].filter(
+      (
+        coordinate,
+      ): coordinate is { readonly generation: number; readonly headSeq: number } =>
+        coordinate !== null,
+    );
+    if (
+      document.readiness !== "ready" ||
+      document.authority !== "ydoc_primary" ||
+      document.generation < 1 ||
+      document.head_seq < 1 ||
+      materializationCoordinates.length !== 1 ||
+      materializationCoordinates[0]?.generation !== document.generation ||
+      materializationCoordinates[0]?.headSeq !== document.head_seq
+    ) {
+      return reject(
+        "document_state_corrupt",
+        `Owned Document ${document.id} lacks one exact-head primary materialization`,
+        request,
+      );
+    }
+    documentIds.add(document.id);
+
+    const indexedBlocks = database
+      .prepare(
+        `
+        SELECT
+          entry.block_id, entry.projected_seq,
+          block.lifecycle, block.metadata_revision,
+          block.location_kind, block.containing_document_id
+        FROM document_block_index entry
+        INNER JOIN blocks block
+          ON block.id = entry.block_id
+         AND block.project_id = ?
+        WHERE entry.document_id = ?
+        ORDER BY entry.block_id
+      `,
+      )
+      .all(request.projectId, document.id) as readonly {
+      readonly block_id: string;
+      readonly projected_seq: number;
+      readonly lifecycle: "active" | "archived" | "deleted";
+      readonly metadata_revision: number;
+      readonly location_kind: "space" | "document";
+      readonly containing_document_id: string | null;
+    }[];
+    for (const indexed of indexedBlocks) {
+      if (
+        indexed.projected_seq !== document.head_seq ||
+        indexed.location_kind !== "document" ||
+        indexed.containing_document_id !== document.id ||
+        blocks.has(indexed.block_id)
+      ) {
+        return reject(
+          "document_state_corrupt",
+          `Document ${document.id} has a stale or ambiguous current Block index`,
+          request,
+        );
+      }
+      blocks.set(indexed.block_id, {
+        id: indexed.block_id,
+        lifecycle: indexed.lifecycle,
+        metadataRevision: indexed.metadata_revision,
+      });
+      pendingOwnerIds.push(indexed.block_id);
+    }
+  }
+
+  return {
+    blocks: [...blocks.values()].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    ),
+    documentIds: [...documentIds].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  };
 };
 
 const readPrimaryDatabase = (
@@ -870,22 +1052,8 @@ const createCard = (
       updateId: genesisUpdateId(request.operationId),
       clientSessionId: request.clientSessionId ?? "authoritative-card-create",
       update: genesis.update,
+      finalAuthority: "ydoc_primary",
     });
-    const cutover = database
-      .prepare(
-        `
-        UPDATE documents
-        SET authority = 'ydoc_primary', updated_at = ?
-        WHERE id = ? AND project_id = ? AND generation = 1
-          AND head_seq = ? AND readiness = 'ready' AND authority = 'legacy_shadow'
-      `,
-      )
-      .run(now, documentId, request.projectId, genesisAck.headSeq);
-    if (cutover.changes !== 1) {
-      throw new Error(
-        `Card Document ${documentId} changed before primary cutover`,
-      );
-    }
     options.faultInjector?.("after_document_genesis");
 
     database
@@ -1294,6 +1462,62 @@ const makeExistingCommit = (
   };
 };
 
+interface IndexedLifecycleTransition {
+  readonly id: string;
+  readonly expectedMetadataRevision: number;
+  readonly committedMetadataRevision: number;
+}
+
+const indexedBlockMetadataRevisionKey = (blockId: string): string =>
+  `indexedBlockMetadata:${blockId}`;
+
+const withIndexedLifecycleEvidence = (
+  commit: AuthorityCommit,
+  input: {
+    readonly indexedBlockIds: readonly string[];
+    readonly indexedDocumentIds: readonly string[];
+    readonly transitions: readonly IndexedLifecycleTransition[];
+    readonly operation: "delete" | "restore";
+    readonly payloadKey: "tombstonedBlockIds" | "restoredBlockIds";
+  },
+): AuthorityCommit => ({
+  ...commit,
+  targetBlockIds: uniqueSorted([
+    ...commit.targetBlockIds,
+    ...input.indexedBlockIds,
+  ]),
+  fieldIntents: [
+    ...commit.fieldIntents,
+    ...input.transitions.map((transition) => ({
+      path: `blocks.${transition.id}.lifecycle`,
+      operation: input.operation,
+    })),
+  ],
+  expectedRevisions: {
+    ...commit.expectedRevisions,
+    ...Object.fromEntries(
+      input.transitions.map((transition) => [
+        indexedBlockMetadataRevisionKey(transition.id),
+        transition.expectedMetadataRevision,
+      ]),
+    ),
+  },
+  committedRevisions: {
+    ...commit.committedRevisions,
+    ...Object.fromEntries(
+      input.transitions.map((transition) => [
+        indexedBlockMetadataRevisionKey(transition.id),
+        transition.committedMetadataRevision,
+      ]),
+    ),
+  },
+  changePayload: {
+    ...commit.changePayload,
+    indexedDocumentIds: input.indexedDocumentIds,
+    [input.payloadKey]: input.indexedBlockIds,
+  },
+});
+
 const deleteCard = (
   database: Database.Database,
   request: CardLifecycleMutationRequest & {
@@ -1335,6 +1559,24 @@ const deleteCard = (
     "location",
   );
   const document = readOwnedDocument(database, request);
+  const indexedClosure = readCurrentIndexedBlockClosure(
+    database,
+    request,
+    block,
+  );
+  const indexedContentBlocks = indexedClosure.blocks.filter(
+    (candidate) => candidate.id !== block.id,
+  );
+  const nonActiveContentBlock = indexedContentBlocks.find(
+    (candidate) => candidate.lifecycle !== "active",
+  );
+  if (nonActiveContentBlock) {
+    return reject(
+      "document_state_corrupt",
+      `Current indexed Block ${nonActiveContentBlock.id} is ${nonActiveContentBlock.lifecycle}, not active`,
+      request,
+    );
+  }
   const membership = readActiveMembership(database, request);
   const primaryView = readPrimaryViewForMembership(
     database,
@@ -1408,7 +1650,34 @@ const deleteCard = (
   if (updated.changes !== 1) {
     throw new Error(`Card ${block.id} changed during deletion`);
   }
-  return makeExistingCommit(database, request, {
+  const tombstoneContentBlock = database.prepare(
+    `
+    UPDATE blocks
+    SET lifecycle = 'deleted', metadata_revision = metadata_revision + 1,
+        updated_at = ?
+    WHERE id = ? AND project_id = ? AND lifecycle = 'active'
+      AND metadata_revision = ?
+  `,
+  );
+  const contentTransitions = indexedContentBlocks.map((contentBlock) => {
+    const tombstoned = tombstoneContentBlock.run(
+      now,
+      contentBlock.id,
+      request.projectId,
+      contentBlock.metadataRevision,
+    );
+    if (tombstoned.changes !== 1) {
+      throw new Error(
+        `Indexed Block ${contentBlock.id} changed during Card deletion`,
+      );
+    }
+    return {
+      id: contentBlock.id,
+      expectedMetadataRevision: contentBlock.metadataRevision,
+      committedMetadataRevision: contentBlock.metadataRevision + 1,
+    };
+  });
+  const commit = makeExistingCommit(database, request, {
     block: {
       ...block,
       lifecycle: "deleted",
@@ -1448,6 +1717,13 @@ const deleteCard = (
       previousViewRankKey: primaryView.rankKey,
     },
   });
+  return withIndexedLifecycleEvidence(commit, {
+    indexedBlockIds: indexedClosure.blocks.map((candidate) => candidate.id),
+    indexedDocumentIds: indexedClosure.documentIds,
+    transitions: contentTransitions,
+    operation: "delete",
+    payloadKey: "tombstonedBlockIds",
+  });
 };
 
 const parseStringArray = (value: string): readonly string[] | null => {
@@ -1459,6 +1735,60 @@ const parseStringArray = (value: string): readonly string[] | null => {
       new Set(parsed).size === parsed.length
     ) {
       return parsed;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const readCanonicalStringArray = (value: unknown): readonly string[] | null => {
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === "string")
+  ) {
+    return null;
+  }
+  const sorted = uniqueSorted(value);
+  if (
+    sorted.length !== value.length ||
+    sorted.some((entry, index) => entry !== value[index])
+  ) {
+    return null;
+  }
+  return value;
+};
+
+const sameStringArray = (
+  left: readonly string[] | null,
+  right: readonly string[],
+): boolean =>
+  left?.length === right.length &&
+  left.every((entry, index) => entry === right[index]);
+
+const parseRevisionRecord = (
+  value: string,
+): Readonly<Record<string, number>> | null => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    const entries = Object.entries(parsed);
+    if (
+      entries.every(
+        ([key, revision]) =>
+          key.length > 0 &&
+          typeof revision === "number" &&
+          Number.isSafeInteger(revision) &&
+          revision >= 0,
+      )
+    ) {
+      return Object.fromEntries(entries) as Readonly<Record<string, number>>;
     }
   } catch {
     return null;
@@ -1482,6 +1812,7 @@ const readDeleteEvidence = (
         mutation.request_hash, mutation.target_block_ids_json,
         mutation.affected_document_ids_json,
         mutation.affected_database_block_ids_json,
+        mutation.expected_revisions_json, mutation.committed_revisions_json,
         mutation.outcome, mutation.result_json, mutation.change_log_seq,
         change.project_id AS change_project_id,
         change.store_epoch AS change_store_epoch,
@@ -1505,6 +1836,8 @@ const readDeleteEvidence = (
         readonly target_block_ids_json: string;
         readonly affected_document_ids_json: string;
         readonly affected_database_block_ids_json: string;
+        readonly expected_revisions_json: string;
+        readonly committed_revisions_json: string;
         readonly outcome: string;
         readonly result_json: string;
         readonly change_log_seq: number;
@@ -1570,6 +1903,16 @@ const readDeleteEvidence = (
   const databaseBlockIds = parseStringArray(
     row.affected_database_block_ids_json,
   );
+  const expectedRevisions = parseRevisionRecord(row.expected_revisions_json);
+  const committedRevisions = parseRevisionRecord(
+    row.committed_revisions_json,
+  );
+  const tombstonedBlockIds = readCanonicalStringArray(
+    payload.tombstonedBlockIds,
+  );
+  const indexedDocumentIds = readCanonicalStringArray(
+    payload.indexedDocumentIds,
+  );
   if (!storedResult.ok) {
     return reject(
       "delete_evidence_invalid",
@@ -1583,11 +1926,57 @@ const readDeleteEvidence = (
   const removedDatabaseBlockId = payload.removedDatabaseBlockId;
   const removedViewId = payload.removedViewId;
   const previousStatus = payload.previousStatus;
+  const currentClosure = readCurrentIndexedBlockClosure(
+    database,
+    request,
+    block,
+  );
+  const currentBlockIds = currentClosure.blocks.map((candidate) => candidate.id);
+  const currentContentBlocks = currentClosure.blocks.filter(
+    (candidate) => candidate.id !== block.id,
+  );
+  const indexedRevisionKeys = currentContentBlocks.map((candidate) =>
+    indexedBlockMetadataRevisionKey(candidate.id),
+  );
+  const storedExpectedIndexedKeys = Object.keys(expectedRevisions ?? {})
+    .filter((key) => key.startsWith("indexedBlockMetadata:"))
+    .sort((left, right) => left.localeCompare(right));
+  const storedCommittedIndexedKeys = Object.keys(committedRevisions ?? {})
+    .filter((key) => key.startsWith("indexedBlockMetadata:"))
+    .sort((left, right) => left.localeCompare(right));
+  const expectedTargetBlockIds = uniqueSorted([
+    ...currentBlockIds,
+    ...(typeof removedDatabaseBlockId === "string"
+      ? [removedDatabaseBlockId]
+      : []),
+  ]);
+  const contentTombstonesMatch = currentContentBlocks.every((candidate) => {
+    const key = indexedBlockMetadataRevisionKey(candidate.id);
+    const expected = expectedRevisions?.[key];
+    const committed = committedRevisions?.[key];
+    return (
+      candidate.lifecycle === "deleted" &&
+      typeof expected === "number" &&
+      committed === expected + 1 &&
+      candidate.metadataRevision === committed
+    );
+  });
   const evidenceMatches =
-    targetBlockIds?.includes(block.id) === true &&
+    sameStringArray(targetBlockIds, expectedTargetBlockIds) &&
+    sameStringArray(tombstonedBlockIds, currentBlockIds) &&
+    sameStringArray(indexedDocumentIds, currentClosure.documentIds) &&
+    sameStringArray(storedExpectedIndexedKeys, indexedRevisionKeys) &&
+    sameStringArray(storedCommittedIndexedKeys, indexedRevisionKeys) &&
+    contentTombstonesMatch &&
     documentIds?.length === 1 &&
     documentIds[0] === document.document_id &&
     databaseBlockIds !== null &&
+    expectedRevisions !== null &&
+    committedRevisions !== null &&
+    expectedRevisions.blockMetadata === receipt.metadataRevision - 1 &&
+    committedRevisions.blockMetadata === receipt.metadataRevision &&
+    expectedRevisions.blockLocation === receipt.locationRevision - 1 &&
+    committedRevisions.blockLocation === receipt.locationRevision &&
     payload.mutationKind === MUTATION_KIND &&
     payload.requestHash === row.request_hash &&
     payload.operation === "delete_card" &&
@@ -1640,6 +2029,8 @@ const readDeleteEvidence = (
     status: previousStatus as CardStatus | null,
     metadataRevision: receipt.metadataRevision,
     locationRevision: receipt.locationRevision,
+    tombstonedBlocks: currentClosure.blocks,
+    indexedDocumentIds: currentClosure.documentIds,
   };
 };
 
@@ -1907,6 +2298,35 @@ const restoreCard = (
   if (updatedBlock.changes !== 1) {
     throw new Error(`Card ${block.id} changed during restore`);
   }
+  const restoreContentBlock = database.prepare(
+    `
+    UPDATE blocks
+    SET lifecycle = 'active', metadata_revision = metadata_revision + 1,
+        updated_at = ?
+    WHERE id = ? AND project_id = ? AND lifecycle = 'deleted'
+      AND metadata_revision = ?
+  `,
+  );
+  const contentTransitions = deleteEvidence.tombstonedBlocks
+    .filter((candidate) => candidate.id !== block.id)
+    .map((contentBlock) => {
+      const restored = restoreContentBlock.run(
+        now,
+        contentBlock.id,
+        request.projectId,
+        contentBlock.metadataRevision,
+      );
+      if (restored.changes !== 1) {
+        throw new Error(
+          `Indexed Block ${contentBlock.id} changed during Card restore`,
+        );
+      }
+      return {
+        id: contentBlock.id,
+        expectedMetadataRevision: contentBlock.metadataRevision,
+        committedMetadataRevision: contentBlock.metadataRevision + 1,
+      };
+    });
   database
     .prepare(
       `
@@ -1957,7 +2377,7 @@ const restoreCard = (
         now,
       );
   }
-  return makeExistingCommit(database, request, {
+  const commit = makeExistingCommit(database, request, {
     block: {
       ...block,
       lifecycle: deleteEvidence.previousLifecycle,
@@ -1993,6 +2413,15 @@ const restoreCard = (
       rebalancedTopLevelPlacements: topLevelRank.rebalanced,
       rebalancedViewPositions: viewRank?.rebalanced ?? 0,
     },
+  });
+  return withIndexedLifecycleEvidence(commit, {
+    indexedBlockIds: deleteEvidence.tombstonedBlocks.map(
+      (candidate) => candidate.id,
+    ),
+    indexedDocumentIds: deleteEvidence.indexedDocumentIds,
+    transitions: contentTransitions,
+    operation: "restore",
+    payloadKey: "restoredBlockIds",
   });
 };
 
@@ -2332,7 +2761,10 @@ export const applyCardLifecycleMutation = (
         executeAuthority(database, request, now, options),
       )();
     } catch (error) {
-      if (error instanceof BlockDocumentCodecError) {
+      if (
+        error instanceof BlockDocumentCodecError ||
+        error instanceof BlockDocumentStoreError
+      ) {
         return persistRejection(
           database,
           request,

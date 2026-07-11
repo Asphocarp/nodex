@@ -71,47 +71,52 @@ import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
+import type {
+  MaintainStoreBlockRetentionInput,
+  MaintainStoreBlockRetentionResult,
+} from "./local-store/block-retention-maintenance-store";
+import type { ProjectDeletionResult } from "./local-store/project-deletion";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
 } from "../shared/types";
 import type {
-  CardMutationMetrics,
-  CardMutationWorkerEvent,
-  CardMutationWorkerMessage,
-  CardMutationWorkerRequest,
-  CardMutationWorkerResponse,
-  CardMutationWorkerResult,
+  BlockMutationMetrics,
+  BlockMutationWorkerEvent,
+  BlockMutationWorkerMessage,
+  BlockMutationWorkerRequest,
+  BlockMutationWorkerResponse,
+  BlockMutationWorkerResult,
   CardOccurrenceMutationResult,
-} from "./card-mutation-worker-protocol";
+} from "./block-mutation-worker-protocol";
 
 const LONG_MUTATION_WARN_MS = 1_000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
 
 const logger = getLogger({
   subsystem: "ipc",
-  component: "card-mutation-writer",
+  component: "block-mutation-writer",
 });
 
-type CardMutationWorkerRequestInput =
-  CardMutationWorkerRequest extends infer Request
+type BlockMutationWorkerRequestInput =
+  BlockMutationWorkerRequest extends infer Request
     ? Request extends { id: number }
       ? Omit<Request, "id" | "mutationId" | "queuedAtEpochMs">
       : never
     : never;
 
-export interface CardMutationEnvelope<T> {
+export interface BlockMutationEnvelope<T> {
   result: T;
   events: BoardChangeEvent[];
-  metrics: CardMutationMetrics;
+  metrics: BlockMutationMetrics;
 }
 
-export interface CardMutationWorkerLike {
-  postMessage(message: CardMutationWorkerRequest): void;
+export interface BlockMutationWorkerLike {
+  postMessage(message: BlockMutationWorkerRequest): void;
   on(
     event: "message",
-    listener: (message: CardMutationWorkerMessage) => void,
+    listener: (message: BlockMutationWorkerMessage) => void,
   ): void;
   on(event: "error", listener: (error: Error) => void): void;
   on(event: "exit", listener: (code: number) => void): void;
@@ -119,33 +124,33 @@ export interface CardMutationWorkerLike {
   terminate(): unknown;
 }
 
-export type CardMutationWriterShutdownDeadline = (
+export type BlockMutationWriterShutdownDeadline = (
   callback: () => void,
   timeoutMs: number,
 ) => () => void;
 
-export interface CardMutationWriterOptions {
-  createWorker?: () => CardMutationWorkerLike;
+export interface BlockMutationWriterOptions {
+  createWorker?: () => BlockMutationWorkerLike;
   publishBoardEvent?: (
     event: BoardChangeEvent,
-    metrics: CardMutationMetrics,
+    metrics: BlockMutationMetrics,
   ) => void;
   publishDatabaseEvent?: (
     event: DatabaseChangeEvent,
-    metrics: CardMutationMetrics,
+    metrics: BlockMutationMetrics,
   ) => void;
-  scheduleShutdownDeadline?: CardMutationWriterShutdownDeadline;
+  scheduleShutdownDeadline?: BlockMutationWriterShutdownDeadline;
   shutdownTimeoutMs?: number;
 }
 
 interface PendingRequest {
-  request: CardMutationWorkerRequest;
-  resolve: (response: CardMutationWorkerResponse) => void;
+  request: BlockMutationWorkerRequest;
+  resolve: (response: BlockMutationWorkerResponse) => void;
   reject: (error: Error) => void;
   warnTimer: ReturnType<typeof setTimeout>;
 }
 
-export class CardMutationWriter {
+export class BlockMutationWriter {
   private worker: Worker | null = null;
   private lifecycle: "accepting" | "draining" | "suspended" | "stopped" =
     "accepting";
@@ -156,13 +161,13 @@ export class CardMutationWriter {
   private nextRequestId = 1;
   private pending = new Map<number, PendingRequest>();
 
-  constructor(private readonly options: CardMutationWriterOptions = {}) {}
+  constructor(private readonly options: BlockMutationWriterOptions = {}) {}
 
   async completeCardOccurrence(
     projectId: string,
     input: CardOccurrenceActionInput,
     sessionId?: string,
-  ): Promise<CardMutationEnvelope<CardOccurrenceMutationResult>> {
+  ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
     return await this.executeTyped<CardOccurrenceMutationResult>({
       type: "completeCardOccurrence",
       payload: { projectId, input, sessionId },
@@ -173,7 +178,7 @@ export class CardMutationWriter {
     projectId: string,
     input: CardOccurrenceActionInput,
     sessionId?: string,
-  ): Promise<CardMutationEnvelope<CardOccurrenceMutationResult>> {
+  ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
     return await this.executeTyped<CardOccurrenceMutationResult>({
       type: "skipCardOccurrence",
       payload: { projectId, input, sessionId },
@@ -184,7 +189,7 @@ export class CardMutationWriter {
     projectId: string,
     input: CardOccurrenceUpdateInput,
     sessionId?: string,
-  ): Promise<CardMutationEnvelope<CardOccurrenceMutationResult>> {
+  ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
     return await this.executeTyped<CardOccurrenceMutationResult>({
       type: "updateCardOccurrence",
       payload: { projectId, input, sessionId },
@@ -192,7 +197,7 @@ export class CardMutationWriter {
   }
 
   async repairDocumentSecondaryProjections(): Promise<
-    CardMutationEnvelope<RepairDocumentSecondaryProjectionsResult>
+    BlockMutationEnvelope<RepairDocumentSecondaryProjectionsResult>
   > {
     return await this.executeTyped<RepairDocumentSecondaryProjectionsResult>({
       type: "repairDocumentSecondaryProjections",
@@ -201,7 +206,7 @@ export class CardMutationWriter {
 
   async applyBlockPropertyMutation(
     request: BlockPropertyMutationRequest,
-  ): Promise<CardMutationEnvelope<BlockPropertyMutationCommandResult>> {
+  ): Promise<BlockMutationEnvelope<BlockPropertyMutationCommandResult>> {
     return await this.executeTyped<BlockPropertyMutationCommandResult>({
       type: "applyBlockPropertyMutation",
       payload: request,
@@ -210,7 +215,7 @@ export class CardMutationWriter {
 
   async applyDatabaseMutation(
     request: DatabaseMutationRequest,
-  ): Promise<CardMutationEnvelope<DatabaseMutationCommandResult>> {
+  ): Promise<BlockMutationEnvelope<DatabaseMutationCommandResult>> {
     const envelope = await this.executeTyped<DatabaseMutationCommandResult>({
       type: "applyDatabaseMutation",
       payload: request,
@@ -235,7 +240,7 @@ export class CardMutationWriter {
 
   async applyCardLifecycleMutation(
     request: CardLifecycleMutationRequest,
-  ): Promise<CardMutationEnvelope<CardLifecycleMutationCommandResult>> {
+  ): Promise<BlockMutationEnvelope<CardLifecycleMutationCommandResult>> {
     const envelope =
       await this.executeTyped<CardLifecycleMutationCommandResult>({
         type: "applyCardLifecycleMutation",
@@ -262,7 +267,7 @@ export class CardMutationWriter {
   async readCardLifecyclePreflight(
     projectId: string,
     cardId: string,
-  ): Promise<CardMutationEnvelope<CardLifecyclePreflightResult>> {
+  ): Promise<BlockMutationEnvelope<CardLifecyclePreflightResult>> {
     return await this.executeTyped<CardLifecyclePreflightResult>({
       type: "readCardLifecyclePreflight",
       payload: { projectId, cardId },
@@ -271,10 +276,28 @@ export class CardMutationWriter {
 
   async compactEligibleBlockDocuments(
     input: CompactEligibleBlockDocumentsInput,
-  ): Promise<CardMutationEnvelope<CompactEligibleBlockDocumentsResult>> {
+  ): Promise<BlockMutationEnvelope<CompactEligibleBlockDocumentsResult>> {
     return await this.executeTyped<CompactEligibleBlockDocumentsResult>({
       type: "compactEligibleBlockDocuments",
       payload: input,
+    });
+  }
+
+  async maintainStoreBlockRetention(
+    input: MaintainStoreBlockRetentionInput,
+  ): Promise<BlockMutationEnvelope<MaintainStoreBlockRetentionResult>> {
+    return await this.executeTyped<MaintainStoreBlockRetentionResult>({
+      type: "maintainStoreBlockRetention",
+      payload: input,
+    });
+  }
+
+  async deleteProject(
+    projectId: string,
+  ): Promise<BlockMutationEnvelope<ProjectDeletionResult>> {
+    return await this.executeTyped<ProjectDeletionResult>({
+      type: "deleteProject",
+      payload: { projectId },
     });
   }
 
@@ -282,7 +305,7 @@ export class CardMutationWriter {
     projectId: string,
     databaseBlockId: string,
   ): Promise<
-    CardMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
+    BlockMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
   > {
     return await this.executeTyped<
       DatabaseReadCommandResult<GeneralDatabaseDescriptor>
@@ -294,7 +317,7 @@ export class CardMutationWriter {
 
   async readDatabaseCatalog(
     projectId: string,
-  ): Promise<CardMutationEnvelope<DatabaseCatalogSnapshotCommandResult>> {
+  ): Promise<BlockMutationEnvelope<DatabaseCatalogSnapshotCommandResult>> {
     return await this.executeTyped<DatabaseCatalogSnapshotCommandResult>({
       type: "readDatabaseCatalog",
       payload: { projectId },
@@ -303,7 +326,7 @@ export class CardMutationWriter {
 
   async readDatabaseManagement(
     projectId: string,
-  ): Promise<CardMutationEnvelope<DatabaseManagementSnapshotCommandResult>> {
+  ): Promise<BlockMutationEnvelope<DatabaseManagementSnapshotCommandResult>> {
     return await this.executeTyped<DatabaseManagementSnapshotCommandResult>({
       type: "readDatabaseManagement",
       payload: { projectId },
@@ -313,7 +336,7 @@ export class CardMutationWriter {
   async readPrimaryDatabaseDescriptor(
     projectId: string,
   ): Promise<
-    CardMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
+    BlockMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
   > {
     return await this.executeTyped<
       DatabaseReadCommandResult<GeneralDatabaseDescriptor>
@@ -325,7 +348,7 @@ export class CardMutationWriter {
 
   async readPrimaryDatabaseViewSnapshot(
     projectId: string,
-  ): Promise<CardMutationEnvelope<PrimaryDatabaseViewSnapshotCommandResult>> {
+  ): Promise<BlockMutationEnvelope<PrimaryDatabaseViewSnapshotCommandResult>> {
     return await this.executeTyped<PrimaryDatabaseViewSnapshotCommandResult>({
       type: "readPrimaryDatabaseViewSnapshot",
       payload: { projectId },
@@ -335,7 +358,7 @@ export class CardMutationWriter {
   async readDatabaseViewSnapshot(
     projectId: string,
     viewId: string,
-  ): Promise<CardMutationEnvelope<DatabaseViewSnapshotCommandResult>> {
+  ): Promise<BlockMutationEnvelope<DatabaseViewSnapshotCommandResult>> {
     return await this.executeTyped<DatabaseViewSnapshotCommandResult>({
       type: "readDatabaseViewSnapshot",
       payload: { projectId, viewId },
@@ -346,7 +369,7 @@ export class CardMutationWriter {
     projectId: string,
     viewId: string,
   ): Promise<
-    CardMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseViewQuery>>
+    BlockMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseViewQuery>>
   > {
     return await this.executeTyped<
       DatabaseReadCommandResult<GeneralDatabaseViewQuery>
@@ -383,7 +406,7 @@ export class CardMutationWriter {
   async getOwnedBlockDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<CardMutationEnvelope<OwnedBlockDocumentDescriptor>> {
+  ): Promise<BlockMutationEnvelope<OwnedBlockDocumentDescriptor>> {
     return await this.executeTyped<OwnedBlockDocumentDescriptor>({
       type: "getOwnedBlockDocumentDescriptor",
       payload: { projectId, ownerBlockId },
@@ -603,7 +626,7 @@ export class CardMutationWriter {
       return Promise.resolve();
     }
     if (this.lifecycle === "stopped" || this.shutdownPromise) {
-      return Promise.reject(new Error("Card mutation writer is stopped"));
+      return Promise.reject(new Error("Block mutation writer is stopped"));
     }
 
     this.lifecycle = "draining";
@@ -651,9 +674,9 @@ export class CardMutationWriter {
     cancelDeadline = this.scheduleShutdownDeadline(() => {
       const timeoutMs = this.shutdownTimeoutMs();
       const error = new Error(
-        `Card mutation writer did not suspend within ${timeoutMs}ms`,
+        `Block mutation writer did not suspend within ${timeoutMs}ms`,
       );
-      logger.error("Card mutation writer maintenance suspend timed out", {
+      logger.error("Block mutation writer maintenance suspend timed out", {
         pendingCount: this.pending.size,
         timeoutMs,
       });
@@ -667,7 +690,7 @@ export class CardMutationWriter {
   resumeAfterMaintenance(): void {
     if (this.lifecycle === "stopped") return;
     if (this.lifecycle !== "suspended") {
-      throw new Error("Card mutation writer is not suspended for maintenance");
+      throw new Error("Block mutation writer is not suspended for maintenance");
     }
     this.maintenanceSuspendPromise = null;
     this.lifecycle = "accepting";
@@ -714,9 +737,9 @@ export class CardMutationWriter {
     this.cancelShutdownDeadline = this.scheduleShutdownDeadline(() => {
       const timeoutMs = this.shutdownTimeoutMs();
       const error = new Error(
-        `Card mutation writer did not drain within ${timeoutMs}ms`,
+        `Block mutation writer did not drain within ${timeoutMs}ms`,
       );
-      logger.error("Card mutation writer graceful shutdown timed out", {
+      logger.error("Block mutation writer graceful shutdown timed out", {
         pendingCount: this.pending.size,
         timeoutMs,
       });
@@ -753,9 +776,9 @@ export class CardMutationWriter {
   }
 
   private async executeTyped<T>(
-    input: CardMutationWorkerRequestInput,
+    input: BlockMutationWorkerRequestInput,
     options?: { readonly allowDuringDrain?: boolean },
-  ): Promise<CardMutationEnvelope<T>> {
+  ): Promise<BlockMutationEnvelope<T>> {
     const envelope = await this.execute(input, options);
     return {
       ...envelope,
@@ -764,11 +787,11 @@ export class CardMutationWriter {
   }
 
   private async execute(
-    input: CardMutationWorkerRequestInput,
+    input: BlockMutationWorkerRequestInput,
     options?: { readonly allowDuringDrain?: boolean },
-  ): Promise<CardMutationEnvelope<CardMutationWorkerResult>> {
+  ): Promise<BlockMutationEnvelope<BlockMutationWorkerResult>> {
     if (this.lifecycle !== "accepting" && !options?.allowDuringDrain) {
-      throw new Error("Card mutation writer is shutting down");
+      throw new Error("Block mutation writer is shutting down");
     }
     const worker = this.ensureWorker();
     const id = this.nextRequestId;
@@ -779,14 +802,14 @@ export class CardMutationWriter {
       id,
       mutationId: randomUUID(),
       queuedAtEpochMs: Date.now(),
-    } as CardMutationWorkerRequest;
+    } as BlockMutationWorkerRequest;
 
     const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
     eventLoopDelay.enable();
-    const response = await new Promise<CardMutationWorkerResponse>(
+    const response = await new Promise<BlockMutationWorkerResponse>(
       (resolve, reject) => {
         const warnTimer = setTimeout(() => {
-          logger.warn("Card mutation still running", {
+          logger.warn("Block mutation still running", {
             mutationId: request.mutationId,
             requestType: request.type,
             elapsedMs: Date.now() - request.queuedAtEpochMs,
@@ -825,7 +848,7 @@ export class CardMutationWriter {
     if (this.worker) return this.worker;
 
     this.worker = this.createWorker();
-    this.worker.on("message", (message: CardMutationWorkerMessage) =>
+    this.worker.on("message", (message: BlockMutationWorkerMessage) =>
       this.handleWorkerMessage(message),
     );
     this.worker.on("error", (error) => {
@@ -841,15 +864,15 @@ export class CardMutationWriter {
       }
       const message =
         code === 0
-          ? "Card mutation worker exited unexpectedly"
-          : `Card mutation worker exited with code ${code}`;
+          ? "Block mutation worker exited unexpectedly"
+          : `Block mutation worker exited with code ${code}`;
       this.handleWorkerFailure(new Error(message));
     });
-    logger.info("Started card mutation worker");
+    logger.info("Started Block mutation worker");
     return this.worker;
   }
 
-  private handleWorkerMessage(message: CardMutationWorkerMessage): void {
+  private handleWorkerMessage(message: BlockMutationWorkerMessage): void {
     if ("type" in message) {
       this.handleWorkerEvent(message);
       return;
@@ -865,7 +888,7 @@ export class CardMutationWriter {
     pending.resolve(message);
   }
 
-  private handleWorkerEvent(event: CardMutationWorkerEvent): void {
+  private handleWorkerEvent(event: BlockMutationWorkerEvent): void {
     if (event.payload.level === "debug") {
       logger.debug(event.payload.message, event.payload.data);
       return;
@@ -882,7 +905,7 @@ export class CardMutationWriter {
   }
 
   private handleWorkerFailure(error: Error): void {
-    logger.warn("Card mutation worker failed", { error: error.message });
+    logger.warn("Block mutation worker failed", { error: error.message });
     this.gracefulExitExpected = false;
     if (this.worker) {
       this.worker.removeAllListeners();
@@ -900,7 +923,7 @@ export class CardMutationWriter {
       return this.options.createWorker() as Worker;
     }
 
-    const workerUrl = new URL("./card-mutation-worker.js", import.meta.url);
+    const workerUrl = new URL("./block-mutation-worker.js", import.meta.url);
     return new Worker(workerUrl, {
       env: {
         ...process.env,
@@ -911,7 +934,7 @@ export class CardMutationWriter {
 
   private publishBoardEvents(
     events: readonly BoardChangeEvent[],
-    metrics: CardMutationMetrics,
+    metrics: BlockMutationMetrics,
   ): void {
     for (const event of events) {
       try {
@@ -951,7 +974,7 @@ export class CardMutationWriter {
 
   private publishDatabaseEvent(
     event: DatabaseChangeEvent,
-    metrics: CardMutationMetrics,
+    metrics: BlockMutationMetrics,
   ): void {
     try {
       if (this.options.publishDatabaseEvent) {
@@ -970,4 +993,4 @@ export class CardMutationWriter {
   }
 }
 
-export const cardMutationWriter = new CardMutationWriter();
+export const blockMutationWriter = new BlockMutationWriter();

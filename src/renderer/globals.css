@@ -505,12 +505,6 @@
   margin-top: 0.25em;
 }
 
-/* Projected card toggle: hollow triangle caret (outline-only) */
-.bn-toggle-wrapper[data-projected="true"] .bn-toggle-button::before {
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.835 3.25a.8.8 0 0 0-.69 1.203l5.164 8.854a.8.8 0 0 0 1.382 0l5.165-8.854a.8.8 0 0 0-.691-1.203z' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.835 3.25a.8.8 0 0 0-.69 1.203l5.164 8.854a.8.8 0 0 0 1.382 0l5.165-8.854a.8.8 0 0 0-.691-1.203z' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
-}
-
 /* ===== Side Menu ===== */
 
 /*
@@ -1155,16 +1149,6 @@
   font-size: 16px;
 }
 
-/* Editable chip hover (card-toggle-block.tsx sets data-chip-editable) */
-[data-chip-editable]:hover {
-  filter: brightness(0.93);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-.dark [data-chip-editable]:hover {
-  filter: brightness(1.18);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
 /* Toggle-list checkbox checkmark (::after can't be expressed in Tailwind) */
 .nodex-toggle-list-checkbox:checked::after {
   content: "";
@@ -1176,66 +1160,6 @@
   border: solid white;
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
-}
-
-/* ===== Inline Toggle-List Card Editor (BlockNote targeting) ===== */
-
-.nfm-editor .bn-block-content[data-content-type="toggleListInlineView"] {
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 0;
-}
-
-/*
- * BlockNote renders .bn-block-group as a sibling of .bn-block-content,
- * so the active frame must live on .bn-block to cover both.
- * Constrain the first combinator to the owner's direct .react-renderer
- * so ancestor .bn-block containers don't overmatch via :has(...).
- */
-.nfm-editor
-  .bn-block:has(
-    > .react-renderer
-      .bn-block-content[data-content-type="toggleListInlineView"]
-      [data-inline-view-shell]
-  ) {
-  border-radius: 10px;
-  box-shadow: 0 0 0 1px transparent;
-}
-
-.nfm-editor
-  .bn-block:has(
-    > .react-renderer
-      .bn-block-content[data-content-type="toggleListInlineView"]
-      [data-inline-view-shell][data-active="true"]
-  ) {
-  box-shadow: 0 0 0 1px var(--border);
-}
-
-.nfm-editor
-  .bn-block-content[data-content-type="toggleListInlineView"]
-  ~ .bn-block-group,
-.nfm-editor .bn-block-content[data-content-type="cardRef"] ~ .bn-block-group {
-  margin-left: 0;
-}
-
-.nfm-editor
-  .bn-block-content[data-content-type="toggleListInlineView"]
-  ~ .bn-block-group
-  > .bn-block-outer::before,
-.nfm-editor
-  .bn-block-content[data-content-type="cardRef"]
-  ~ .bn-block-group
-  > .bn-block-outer::before {
-  content: none;
-}
-
-/* fix extra margin-left caused by `.bn-block-group .bn-block-group {margin-left: 24px;}` */
-.node-toggleListInlineView + .bn-block-group {
-  margin-left: 0;
-}
-.node-cardRef + .bn-block-group {
-  margin-left: 0;
 }
 
 /* ===== Terminal Panel ===== */

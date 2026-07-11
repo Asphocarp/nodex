@@ -23,7 +23,6 @@ import { getDb } from "./database";
 import { dbNotifier } from "./notifier";
 import { insertInitialDatabaseViewSession } from "./project-session-defaults";
 import {
-  deleteBlockFoundationForProject,
   ensureBlockFoundationForProject,
 } from "./schema";
 import { ensurePrimaryCanvasDocument } from "./primary-canvas-document";
@@ -359,22 +358,6 @@ export function setPinnedProjectOrder(input: ProjectPinnedOrderInput): Project[]
 
   dbNotifier.notifyProjectsChanged("pin");
   return listProjects();
-}
-
-export function deleteProject(projectId: string): boolean {
-  const canonicalProjectId = resolveProjectId(projectId);
-  if (!canonicalProjectId) return false;
-
-  const database = getDb();
-  const deleteProjectTransaction = database.transaction(() => {
-    deleteBlockFoundationForProject(database, canonicalProjectId);
-    return database.prepare("DELETE FROM projects WHERE id = ?").run(canonicalProjectId);
-  });
-  const result = deleteProjectTransaction();
-  if (result.changes > 0) {
-    dbNotifier.notifyProjectsChanged("delete", canonicalProjectId);
-  }
-  return result.changes > 0;
 }
 
 export function resolveProjectRunContext(projectId: string): ProjectRunContext {

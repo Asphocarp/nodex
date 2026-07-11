@@ -203,7 +203,6 @@ import type {
   UpdateWorktreeEnvironmentConfigInput,
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
-  CardUpdateResult,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   Card,
@@ -217,7 +216,6 @@ import type {
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
   CreateBackupInput,
-  MoveCardInput,
   Project,
   ProjectCreateInput,
   ProjectOrderInput,
@@ -287,7 +285,6 @@ import type {
   WorkspacePathsExistInput,
   WorkspacePathsExistResult,
 } from "./types";
-import type { CardMetadataPatch } from "./card-content-authority";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -720,24 +717,9 @@ export interface IpcApi {
     args: [input: CardSearchInput];
     result: CardSearchResult[];
   };
-  "card:update": {
-    args: [
-      projectId: string,
-      status: Card["status"] | undefined,
-      cardId: string,
-      updates: CardMetadataPatch,
-      sessionId?: string,
-      expectedRevision?: number,
-    ];
-    result: CardUpdateResult;
-  };
   "card:get": {
     args: [projectId: string, cardId: string, status?: Card["status"]];
     result: Card | null;
-  };
-  "card:move": {
-    args: [input: MoveCardInput & { projectId: string; sessionId?: string }];
-    result: boolean;
   };
   "cards:project-transfer": {
     args: [

@@ -140,7 +140,7 @@ describe("modifyCurrentBlock", () => {
     const editor = makeEditor({
       id: "card-ref-1",
       type: "cardRef",
-      props: { sourceProjectId: "project-2", cardId: "card-1" },
+      props: { sourceProjectId: "project-2", targetBlockId: "card-1" },
     });
 
     const handled = modifyCurrentBlock(editor, {
@@ -155,60 +155,6 @@ describe("modifyCurrentBlock", () => {
       projectId: "project-2",
       cardId: "card-1",
     }));
-  });
-
-  test("opens a card toggle target before falling back to toggle", () => {
-    let opened = "";
-    let clicked = false;
-    const button = {
-      click: () => {
-        clicked = true;
-      },
-    } as HTMLButtonElement;
-    const editor = makeEditor({
-      id: "card-toggle-1",
-      type: "cardToggle",
-      props: { sourceProjectId: "project-2", cardId: "card-1" },
-      content: [{ type: "text", text: "Card title", styles: {} }],
-    }, {
-      domElement: makeToggleRoot("card-toggle-1", button),
-    });
-
-    const handled = modifyCurrentBlock(editor, {
-      projectId: "project-1",
-      openCard: (input) => {
-        opened = JSON.stringify(input);
-      },
-    });
-
-    expect(handled).toBe(true);
-    expect(clicked).toBe(false);
-    expect(opened).toBe(JSON.stringify({
-      projectId: "project-2",
-      cardId: "card-1",
-      titleSnapshot: "Card title",
-    }));
-  });
-
-  test("falls back to toggling a card toggle without a card target", () => {
-    let clicked = false;
-    const button = {
-      click: () => {
-        clicked = true;
-      },
-    } as HTMLButtonElement;
-    const editor = makeEditor({
-      id: "card-toggle-1",
-      type: "cardToggle",
-      props: {},
-    }, {
-      domElement: makeToggleRoot("card-toggle-1", button),
-    });
-
-    const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
-
-    expect(handled).toBe(true);
-    expect(clicked).toBe(true);
   });
 
   test("opens a bound thread section", () => {

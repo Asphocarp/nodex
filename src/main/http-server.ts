@@ -23,7 +23,8 @@ import {
   updateThreadNotificationSettings,
 } from "./local-store/config";
 import { dbNotifier } from "./local-store/notifier";
-import { cardMutationWriter } from "./card-mutation-writer";
+import { blockMutationWriter } from "./block-mutation-writer";
+import { projectDeletionRuntime } from "./project-deletion-runtime";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -34,7 +35,6 @@ import type {
   CardOccurrenceUpdateInput,
   CardSearchInput,
   CardsDetailsInput,
-  MoveCardToProjectInput,
 } from "../shared/types";
 import {
   CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
@@ -225,14 +225,14 @@ app.onError((error, c) => {
 registerDocumentSyncHttpRoutes(app, {
   hub: documentSyncHub,
   getDocumentProjectId: (documentId) =>
-    cardMutationWriter.getBlockDocumentProjectId(documentId),
+    blockMutationWriter.getBlockDocumentProjectId(documentId),
   getOwnedBlockDocumentDescriptor: async (projectId, ownerBlockId) =>
-    (await cardMutationWriter.getOwnedBlockDocumentDescriptor(
+    (await blockMutationWriter.getOwnedBlockDocumentDescriptor(
       projectId,
       ownerBlockId,
     )).result,
   prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
-    await cardMutationWriter.prepareOwnedBlockDocument(
+    await blockMutationWriter.prepareOwnedBlockDocument(
       projectId,
       ownerBlockId,
     ),
@@ -245,7 +245,7 @@ registerReferenceReadHttpRoutes(app, {
 
 registerBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (request) =>
-    (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
+    (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
 });
 
 registerCardMetadataPropertySnapshotHttpRoute(app, {
@@ -255,39 +255,39 @@ registerCardMetadataPropertySnapshotHttpRoute(app, {
 
 registerDatabaseKernelHttpRoutes(app, {
   applyMutation: async (request) =>
-    (await cardMutationWriter.applyDatabaseMutation(request)).result,
+    (await blockMutationWriter.applyDatabaseMutation(request)).result,
   readDescriptor: async (projectId, databaseBlockId) =>
     (
-      await cardMutationWriter.readDatabaseDescriptor(
+      await blockMutationWriter.readDatabaseDescriptor(
         projectId,
         databaseBlockId,
       )
     ).result,
   readCatalog: async (projectId) =>
-    (await cardMutationWriter.readDatabaseCatalog(projectId)).result,
+    (await blockMutationWriter.readDatabaseCatalog(projectId)).result,
   readManagement: async (projectId) =>
-    (await cardMutationWriter.readDatabaseManagement(projectId)).result,
+    (await blockMutationWriter.readDatabaseManagement(projectId)).result,
   readPrimaryDescriptor: async (projectId) =>
-    (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
+    (await blockMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
   readPrimaryViewSnapshot: async (projectId) =>
-    (await cardMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
+    (await blockMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
       .result,
   readViewSnapshot: async (projectId, viewId) =>
-    (await cardMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
+    (await blockMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
       .result,
   queryView: async (projectId, viewId) =>
-    (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
+    (await blockMutationWriter.queryDatabaseView(projectId, viewId)).result,
 });
 
 registerCardLifecyclePreflightHttpRoute(app, {
   readPreflight: async (projectId, cardId) =>
-    (await cardMutationWriter.readCardLifecyclePreflight(projectId, cardId))
+    (await blockMutationWriter.readCardLifecyclePreflight(projectId, cardId))
       .result,
 });
 
 registerCardLifecycleHttpRoute(app, {
   applyMutation: async (request) =>
-    (await cardMutationWriter.applyCardLifecycleMutation(request)).result,
+    (await blockMutationWriter.applyCardLifecycleMutation(request)).result,
 });
 
 registerDocumentMutationHttpRoute(app, {
@@ -301,14 +301,14 @@ registerAdditionalDocumentCommandHttpRoute(app, {
 
 registerDocumentHistoryHttpRoutes(app, {
   createCheckpoint: (request) =>
-    cardMutationWriter.createDocumentVersionCheckpoint(request),
-  listVersions: (request) => cardMutationWriter.listDocumentVersions(request),
-  getVersion: (request) => cardMutationWriter.getDocumentVersion(request),
+    blockMutationWriter.createDocumentVersionCheckpoint(request),
+  listVersions: (request) => blockMutationWriter.listDocumentVersions(request),
+  getVersion: (request) => blockMutationWriter.getDocumentVersion(request),
   restoreVersion: (request) => documentSyncHub.applyDocumentMutation(request),
 });
 
 registerCardHistoryHttpRoute(app, {
-  listHistory: (request) => cardMutationWriter.listCardHistory(request),
+  listHistory: (request) => blockMutationWriter.listCardHistory(request),
 });
 
 app.post(
@@ -685,8 +685,10 @@ app.put("/api/projects/:projectId/pinned", async (c) => {
   }
 });
 
-app.delete("/api/projects/:projectId", (c) => {
-  const success = projectsStore.deleteProject(c.req.param("projectId"));
+app.delete("/api/projects/:projectId", async (c) => {
+  const success = await projectDeletionRuntime.deleteProject(
+    c.req.param("projectId"),
+  );
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
@@ -1372,7 +1374,7 @@ app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
     };
-    const { result } = await cardMutationWriter.completeCardOccurrence(
+    const { result } = await blockMutationWriter.completeCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1396,7 +1398,7 @@ app.post("/api/projects/:projectId/card-occurrence/skip", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
     };
-    const { result } = await cardMutationWriter.skipCardOccurrence(
+    const { result } = await blockMutationWriter.skipCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1425,7 +1427,7 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
       scope: parseOccurrenceScope(body.scope),
       updates: updates as CardOccurrenceUpdateInput["updates"],
     };
-    const { result } = await cardMutationWriter.updateCardOccurrence(
+    const { result } = await blockMutationWriter.updateCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,

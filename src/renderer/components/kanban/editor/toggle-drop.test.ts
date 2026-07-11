@@ -159,29 +159,6 @@ describe("isSyntheticDnDEvent", () => {
 });
 
 describe("isToggleDropTargetBlock", () => {
-  test("accepts cardToggle blocks", () => {
-    expect(
-      isToggleDropTargetBlock({
-        type: "cardToggle",
-        props: {},
-      }),
-    ).toBe(true);
-  });
-
-  test("accepts projected cardToggle blocks used by inline embeds", () => {
-    expect(
-      isToggleDropTargetBlock({
-        type: "cardToggle",
-        props: {
-          projectionOwnerId: "owner-1",
-          projectionKind: "cardRef",
-          projectionSourceProjectId: "default",
-          projectionCardId: "card-1",
-        },
-      }),
-    ).toBe(true);
-  });
-
   test("accepts toggle headings and rejects non-toggle headings", () => {
     expect(
       isToggleDropTargetBlock({

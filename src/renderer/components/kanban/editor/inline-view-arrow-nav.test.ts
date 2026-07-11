@@ -222,7 +222,7 @@ describe("inline view arrow navigation", () => {
       {
         getTextCursorPosition: () => ({
           block: { id: "para-1", type: "paragraph" },
-          nextBlock: { id: "inline-1", type: "toggleListInlineView" },
+          nextBlock: { id: "inline-1", type: "databaseViewRef" },
           prevBlock: undefined,
         }),
         transact: (fn) =>
@@ -242,7 +242,7 @@ describe("inline view arrow navigation", () => {
         getTextCursorPosition: () => ({
           block: { id: "para-2", type: "paragraph" },
           nextBlock: undefined,
-          prevBlock: { id: "inline-1", type: "toggleListInlineView" },
+          prevBlock: { id: "inline-1", type: "databaseViewRef" },
         }),
         transact: (fn) =>
           fn({
@@ -267,7 +267,7 @@ describe("inline view arrow navigation", () => {
       {
         getTextCursorPosition: () => ({
           block: { id: "para-1", type: "paragraph" },
-          nextBlock: { id: "inline-1", type: "toggleListInlineView" },
+          nextBlock: { id: "inline-1", type: "databaseViewRef" },
           prevBlock: undefined,
         }),
         transact: (fn) =>
@@ -297,7 +297,7 @@ describe("inline view arrow navigation", () => {
     const upHandled = handleArrowFromInlineBlockSelection(
       {
         getTextCursorPosition: () => ({
-          block: { id: "inline-1", type: "toggleListInlineView" },
+          block: { id: "inline-1", type: "databaseViewRef" },
           nextBlock: { id: "para-2", type: "paragraph" },
           prevBlock: { id: "para-1", type: "paragraph" },
         }),
@@ -316,7 +316,7 @@ describe("inline view arrow navigation", () => {
     const downHandled = handleArrowFromInlineBlockSelection(
       {
         getTextCursorPosition: () => ({
-          block: { id: "inline-1", type: "toggleListInlineView" },
+          block: { id: "inline-1", type: "databaseViewRef" },
           nextBlock: { id: "para-2", type: "paragraph" },
           prevBlock: { id: "para-1", type: "paragraph" },
         }),
@@ -343,7 +343,7 @@ describe("inline view arrow navigation", () => {
       {
         getTextCursorPosition: () => ({
           block: { id: "para-1", type: "paragraph" },
-          nextBlock: { id: "inline-1", type: "toggleListInlineView" },
+          nextBlock: { id: "inline-1", type: "databaseViewRef" },
           prevBlock: undefined,
         }),
         transact: (fn) =>

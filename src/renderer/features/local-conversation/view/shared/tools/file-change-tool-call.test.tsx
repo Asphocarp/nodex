@@ -714,8 +714,9 @@ describe("FileChangeToolCall", () => {
     expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("false");
 
     fireEvent.click(reviewButton as HTMLElement);
-    await settleAsyncRender();
-    expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("true");
+    await waitFor(() => {
+      expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("true");
+    });
     expect(Boolean(textContent(container).includes("This edit is high risk."))).toBe(true);
   });
 });

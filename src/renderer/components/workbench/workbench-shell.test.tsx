@@ -30,6 +30,7 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import { resetCardDetailStoreForTests } from "@/lib/card-detail-store";
+import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
 import {
   APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS,
@@ -74,6 +75,7 @@ import type {
   WorkbenchPanelTabCycleDirection,
   WorkbenchSidebarToggleCommandSource,
 } from "../../../shared/window-navigation";
+import type { DatabaseViewSnapshotCommandResult } from "../../../shared/database-query";
 import {
   findNearestProjectSessionPanelLeafToRight,
   insertProjectSessionPanelLeaf,
@@ -997,6 +999,88 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
   };
 }
 
+function makePrimaryDatabaseViewSnapshot(
+  projectId: string,
+  databaseViewId: string,
+): DatabaseViewSnapshotCommandResult {
+  const databaseBlockId = `database:${projectId}:primary`;
+  const statusPropertyId = `database-property:${projectId}:status`;
+  const timestamp = "2026-06-07T00:00:00.000Z";
+  const database = {
+    blockId: databaseBlockId,
+    projectId,
+    name: "Tasks",
+    isPrimary: true,
+    schemaKey: "nodex.database",
+    schemaRevision: 1,
+    metadataRevision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const statusProperty = {
+    id: statusPropertyId,
+    databaseBlockId,
+    key: "status",
+    name: "Status",
+    valueType: "select" as const,
+    config: {},
+    rankKey: "a",
+    lifecycle: "active" as const,
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const view = {
+    id: databaseViewId,
+    databaseBlockId,
+    projectId,
+    name: "Primary board",
+    kind: "kanban" as const,
+    config: {
+      schemaKey: "nodex.database-view" as const,
+      schemaVersion: 1 as const,
+      filter: { kind: "group" as const, operator: "and" as const, children: [] },
+      sort: [{
+        field: { kind: "manual" as const },
+        direction: "asc" as const,
+        nulls: "last" as const,
+      }],
+      group: { propertyId: statusPropertyId },
+      display: { propertyIds: [statusPropertyId], showTitle: true },
+    },
+    isPrimary: true,
+    revision: 1,
+    rankKey: "a",
+    lifecycle: "active" as const,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const wrap = <T,>(value: T) => ({
+    version: 1 as const,
+    projectId,
+    storeEpoch: "workbench-test-store",
+    changeLogSeq: 1,
+    value,
+  });
+
+  return {
+    ok: true,
+    value: {
+      descriptor: wrap({
+        database,
+        properties: [statusProperty],
+        views: [view],
+      }),
+      query: wrap({
+        database,
+        properties: [statusProperty],
+        view,
+        rows: [],
+      }),
+    },
+  };
+}
+
 function makeScheduledAutomation(
   overrides: Partial<CodexScheduledAutomation> = {},
 ): CodexScheduledAutomation {
@@ -1787,6 +1871,12 @@ function renderWorkbench({
         projectlessThreadIds: [],
         generatedAt: 1,
       };
+    }
+    if (channel === "database-views:snapshot") {
+      return makePrimaryDatabaseViewSnapshot(
+        String(args[0] ?? "alpha"),
+        String(args[1] ?? "database-view:alpha:primary-kanban"),
+      );
     }
     if (channel === "board:summary:get") {
       const projectId = String(args[0] ?? "alpha");
@@ -3035,6 +3125,14 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await waitFor(() => {
       expect(getRetainedSessionIds(screen.container).includes(alphaHome.id)).toBe(true);
+    });
+    await waitFor(() => {
+      expect(
+        getKanbanProjectStore(
+          "alpha",
+          "database-view:alpha:primary-kanban",
+        ).getSnapshot().databaseView?.databaseViewId,
+      ).toBe("database-view:alpha:primary-kanban");
     });
 
     const alphaSearch = within(getActiveRetainedSessionRoot(screen.container))

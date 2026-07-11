@@ -46,6 +46,7 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "retired_block_identities",
   "card_project_transfer_write_fences",
   "block_search_units_fts",
   "block_search_units",
@@ -1832,6 +1833,64 @@ function createBlockFoundationSchema(db: Database.Database): void {
 }
 
 /**
+ * Permanent application-ID tombstones. Physical retention GC may remove a
+ * Block row, but its globally stable identity must never name new content.
+ * Provenance deliberately has no Project FK so Project deletion cannot make a
+ * retired identity reusable.
+ */
+function createRetiredBlockIdentitySchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS retired_block_identities (
+      block_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      block_type TEXT NOT NULL,
+      retention_root_block_id TEXT NOT NULL,
+      retired_at TEXT NOT NULL,
+      CHECK (length(block_id) BETWEEN 1 AND 512 AND block_id = trim(block_id)),
+      CHECK (length(project_id) BETWEEN 1 AND 512 AND project_id = trim(project_id)),
+      CHECK (length(block_type) BETWEEN 1 AND 512 AND block_type = trim(block_type)),
+      CHECK (
+        length(retention_root_block_id) BETWEEN 1 AND 512
+        AND retention_root_block_id = trim(retention_root_block_id)
+      ),
+      CHECK (length(retired_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_retired_block_identities_project_time
+      ON retired_block_identities(project_id, retired_at, block_id);
+
+    CREATE TRIGGER IF NOT EXISTS blocks_reject_retired_identity
+      BEFORE INSERT ON blocks
+      WHEN EXISTS (
+        SELECT 1 FROM retired_block_identities retired
+        WHERE retired.block_id = NEW.id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'retired Block identity cannot be reused');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS blocks_identity_is_immutable
+      BEFORE UPDATE OF id ON blocks
+      WHEN NEW.id IS NOT OLD.id
+      BEGIN
+        SELECT RAISE(ABORT, 'Block identity is immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS retired_block_identities_are_immutable_update
+      BEFORE UPDATE ON retired_block_identities
+      BEGIN
+        SELECT RAISE(ABORT, 'retired Block identity evidence is immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS retired_block_identities_are_immutable_delete
+      BEFORE DELETE ON retired_block_identities
+      BEGIN
+        SELECT RAISE(ABORT, 'retired Block identity evidence is immutable');
+      END;
+  `);
+}
+
+/**
  * Durable BF-07 read-model and operation foundations.
  *
  * These tables deliberately have no triggers back into `cards`, Documents, or
@@ -3492,6 +3551,7 @@ export function createBlockFirstPreFinalizationSchema(
 
   `);
   createBlockFoundationSchema(db);
+  createRetiredBlockIdentitySchema(db);
   createCardBehaviorRecordSchema(db);
   createLegacyCardShadowOutboxSchema(db);
   createForeignReferenceMigrationSchema(db);
@@ -3699,7 +3759,45 @@ export function ensureBlockFoundationForProject(
 export function deleteBlockFoundationForProject(
   db: Database.Database,
   projectId: string,
+  retiredAt: string,
 ): void {
+  const parsedRetiredAt = Date.parse(retiredAt);
+  if (
+    !Number.isFinite(parsedRetiredAt) ||
+    new Date(parsedRetiredAt).toISOString() !== retiredAt
+  ) {
+    throw new TypeError(
+      "Project Block retirement requires a canonical ISO timestamp",
+    );
+  }
+
+  const blockCount = (
+    db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM blocks WHERE project_id = ?",
+      )
+      .get(projectId) as { readonly count: number }
+  ).count;
+  const retired = db
+    .prepare(
+      `
+      INSERT INTO retired_block_identities (
+        block_id, project_id, block_type, retention_root_block_id, retired_at
+      )
+      -- A whole-Space deletion has no owning Block root. Treat every identity
+      -- as its own deterministic retirement root so provenance survives after
+      -- both the Block and Project rows have gone away.
+      SELECT id, project_id, type, id, ?
+      FROM blocks
+      WHERE project_id = ?
+      ORDER BY id
+    `,
+    )
+    .run(retiredAt, projectId);
+  if (retired.changes !== blockCount) {
+    throw new Error("Project Block identities changed during retirement");
+  }
+
   db.prepare("DELETE FROM block_documents WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM blocks WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM documents WHERE project_id = ?").run(projectId);
@@ -7959,6 +8057,10 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
+    // v70 is unreleased and remains the one-way Block-first cutover version.
+    // Keep this additive invariant idempotent so databases produced by an
+    // earlier v70 development build receive the permanent identity registry.
+    createRetiredBlockIdentitySchema(db);
     seedDefaultProjectIfMissing(db);
     const projects = db
       .prepare("SELECT id, created FROM projects")

@@ -1,21 +1,21 @@
-import { cardMutationWriter } from "./card-mutation-writer";
+import { blockMutationWriter } from "./block-mutation-writer";
 import { DocumentSyncHub } from "./document-sync-hub";
 
 /** One process-wide realtime plane shared by Electron and browser clients. */
 export const documentSyncHub = new DocumentSyncHub({
-  sync: (request) => cardMutationWriter.syncBlockDocument(request),
-  applyUpdate: (request) => cardMutationWriter.applyBlockDocumentUpdate(request),
+  sync: (request) => blockMutationWriter.syncBlockDocument(request),
+  applyUpdate: (request) => blockMutationWriter.applyBlockDocumentUpdate(request),
   applyDocumentMutation: (request, writeFence) =>
-    cardMutationWriter.applyDocumentMutation(request, writeFence),
+    blockMutationWriter.applyDocumentMutation(request, writeFence),
   lookupCommittedRelocation: (intent) =>
-    cardMutationWriter.readCommittedRelocation(intent),
+    blockMutationWriter.readCommittedRelocation(intent),
   prepareRelocationCommand: (intent) =>
-    cardMutationWriter.prepareRelocationCommand(intent),
-  relocateBlocks: (command) => cardMutationWriter.relocateBlocks(command),
+    blockMutationWriter.prepareRelocationCommand(intent),
+  relocateBlocks: (command) => blockMutationWriter.relocateBlocks(command),
   applyAdditionalDocumentCommand: (request) =>
-    cardMutationWriter.applyAdditionalDocumentCommand(request),
+    blockMutationWriter.applyAdditionalDocumentCommand(request),
   prepareCardProjectTransfer: (intent) =>
-    cardMutationWriter.prepareCardProjectTransfer(intent),
+    blockMutationWriter.prepareCardProjectTransfer(intent),
   applyCardProjectTransfer: (request) =>
-    cardMutationWriter.applyCardProjectTransfer(request),
+    blockMutationWriter.applyCardProjectTransfer(request),
 });

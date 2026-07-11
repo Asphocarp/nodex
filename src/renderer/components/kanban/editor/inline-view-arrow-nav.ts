@@ -296,7 +296,7 @@ export function handleArrowIntoInlineSummary(
 ): boolean {
   const cursor = editor.getTextCursorPosition();
   const candidate = direction === "prev" ? cursor.prevBlock : cursor.nextBlock;
-  if (!candidate || candidate.type !== "toggleListInlineView") return false;
+  if (!candidate || candidate.type !== "databaseViewRef") return false;
   if (!isCursorAtBlockBoundary(editor, direction)) return false;
 
   return focusInlineSummaryBoundary(candidate.id, direction);
@@ -307,6 +307,6 @@ export function handleArrowFromInlineBlockSelection(
   direction: InlineArrowDirection,
 ): boolean {
   const cursor = editor.getTextCursorPosition();
-  if (cursor.block.type !== "toggleListInlineView") return false;
+  if (cursor.block.type !== "databaseViewRef") return false;
   return focusInlineSummaryBoundary(cursor.block.id, direction);
 }

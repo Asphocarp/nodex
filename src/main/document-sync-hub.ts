@@ -1559,6 +1559,45 @@ export class DocumentSyncHub {
     });
   }
 
+  /**
+   * Invalidates only Documents physically removed with a Project. The delete
+   * itself is serialized by the durable writer; this post-commit reset drops
+   * the old Hub authorization so a mounted surface cannot keep submitting
+   * updates for an identity that no longer exists.
+   */
+  resetForDeletedDocuments(
+    documentIds: readonly string[],
+    storeEpoch: string,
+  ): void {
+    const deletedDocumentIds = new Set(documentIds);
+    if (deletedDocumentIds.size === 0) return;
+
+    for (const [leaseId, lease] of this.relocationLeaseBoundaries) {
+      const touchesDeletedDocument = [...lease.documents.keys()].some(
+        (documentId) => deletedDocumentIds.has(documentId),
+      );
+      if (touchesDeletedDocument) this.cancelRelocationLease(leaseId);
+    }
+
+    const subscriptions = [...this.subscriptions.values()].filter(
+      (subscription) => deletedDocumentIds.has(subscription.documentId),
+    );
+    for (const subscription of subscriptions) {
+      safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
+        {
+          kind: "store-reset",
+          documentId: subscription.documentId,
+          storeEpoch,
+        } satisfies DocumentSyncRealtimeEvent,
+      ]);
+    }
+    subscriptions.forEach((subscription) => {
+      if (this.subscriptions.has(subscription.key)) {
+        this.removeSubscription(subscription);
+      }
+    });
+  }
+
   private createRelocationLeaseId(): string {
     this.relocationLeaseSequence += 1;
     return `document-relocation-lease:${this.relocationLeaseSequence.toString(36)}`;
