@@ -23,10 +23,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 65;
+export const CURRENT_SCHEMA_VERSION = 66;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -2804,6 +2804,256 @@ function setUserVersion(db: Database.Database, version: number): void {
   db.pragma(`user_version = ${version}`);
 }
 
+interface CardBehaviorRecordTableNames {
+  readonly recurrenceExceptions: string;
+  readonly reminderReceipts: string;
+  readonly reminderSnoozes: string;
+}
+
+const CARD_BEHAVIOR_RECORD_TABLES: CardBehaviorRecordTableNames = {
+  recurrenceExceptions: "recurrence_exceptions",
+  reminderReceipts: "reminder_receipts",
+  reminderSnoozes: "reminder_snoozes",
+};
+
+const V66_CARD_BEHAVIOR_RECORD_TABLES: CardBehaviorRecordTableNames = {
+  recurrenceExceptions: "recurrence_exceptions_v66",
+  reminderReceipts: "reminder_receipts_v66",
+  reminderSnoozes: "reminder_snoozes_v66",
+};
+
+const CARD_BEHAVIOR_OWNER_TRIGGER_DEFINITIONS = [
+  {
+    tableName: "recurrence_exceptions",
+    blockIdColumn: "card_id",
+    label: "recurrence exception",
+  },
+  {
+    tableName: "reminder_receipts",
+    blockIdColumn: "card_id",
+    label: "reminder receipt",
+  },
+  {
+    tableName: "reminder_snoozes",
+    blockIdColumn: "card_id",
+    label: "reminder snooze",
+  },
+  {
+    tableName: "scheduled_card_index",
+    blockIdColumn: "card_block_id",
+    label: "scheduled Card index",
+  },
+] as const;
+
+function createCardBehaviorRecordTables(
+  db: Database.Database,
+  tables: CardBehaviorRecordTableNames,
+): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${tables.recurrenceExceptions} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      occurrence_start TEXT NOT NULL,
+      exception_type TEXT NOT NULL,
+      override_start TEXT,
+      override_end TEXT,
+      override_reminders_json TEXT,
+      created TEXT NOT NULL,
+      FOREIGN KEY (card_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (exception_type IN ('skip', 'override_time'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ${tables.reminderReceipts} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      occurrence_start TEXT NOT NULL,
+      reminder_offset_minutes INTEGER NOT NULL,
+      delivered_at TEXT NOT NULL,
+      FOREIGN KEY (card_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ${tables.reminderSnoozes} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      occurrence_start TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      consumed_at TEXT,
+      FOREIGN KEY (card_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE
+    );
+  `);
+}
+
+function createCardBehaviorRecordIndexesAndTriggers(
+  db: Database.Database,
+): void {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_recurrence_exceptions_unique
+      ON recurrence_exceptions(project_id, card_id, occurrence_start);
+    CREATE INDEX IF NOT EXISTS idx_recurrence_exceptions_lookup
+      ON recurrence_exceptions(project_id, card_id, occurrence_start);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_reminder_receipts_unique
+      ON reminder_receipts(
+        project_id, card_id, occurrence_start, reminder_offset_minutes
+      );
+    CREATE INDEX IF NOT EXISTS idx_reminder_receipts_lookup
+      ON reminder_receipts(project_id, delivered_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_reminder_snoozes_lookup
+      ON reminder_snoozes(project_id, due_at, consumed_at);
+  `);
+
+  for (const definition of CARD_BEHAVIOR_OWNER_TRIGGER_DEFINITIONS) {
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS ${definition.tableName}_require_card_block_insert
+        BEFORE INSERT ON ${definition.tableName}
+        WHEN NOT EXISTS (
+          SELECT 1
+          FROM blocks block
+          WHERE block.id = NEW.${definition.blockIdColumn}
+            AND block.project_id = NEW.project_id
+            AND block.type = 'card'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, '${definition.label} owner must be a Card Block in the same Project');
+        END;
+
+      CREATE TRIGGER IF NOT EXISTS ${definition.tableName}_require_card_block_update
+        BEFORE UPDATE OF ${definition.blockIdColumn}, project_id
+        ON ${definition.tableName}
+        WHEN NOT EXISTS (
+          SELECT 1
+          FROM blocks block
+          WHERE block.id = NEW.${definition.blockIdColumn}
+            AND block.project_id = NEW.project_id
+            AND block.type = 'card'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, '${definition.label} owner must be a Card Block in the same Project');
+        END;
+    `);
+  }
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS card_behavior_records_guard_block_retype
+      BEFORE UPDATE OF type ON blocks
+      WHEN NEW.type <> 'card'
+        AND (
+          EXISTS (
+            SELECT 1 FROM recurrence_exceptions behavior
+            WHERE behavior.card_id = OLD.id
+              AND behavior.project_id = OLD.project_id
+          )
+          OR EXISTS (
+            SELECT 1 FROM reminder_receipts behavior
+            WHERE behavior.card_id = OLD.id
+              AND behavior.project_id = OLD.project_id
+          )
+          OR EXISTS (
+            SELECT 1 FROM reminder_snoozes behavior
+            WHERE behavior.card_id = OLD.id
+              AND behavior.project_id = OLD.project_id
+          )
+          OR EXISTS (
+            SELECT 1 FROM scheduled_card_index behavior
+            WHERE behavior.card_block_id = OLD.id
+              AND behavior.project_id = OLD.project_id
+          )
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'a Block with Card behavior dependencies must remain type card');
+      END;
+  `);
+}
+
+function dropCardBehaviorRecordTriggers(db: Database.Database): void {
+  for (const definition of CARD_BEHAVIOR_OWNER_TRIGGER_DEFINITIONS) {
+    db.exec(`
+      DROP TRIGGER IF EXISTS ${definition.tableName}_require_card_block_insert;
+      DROP TRIGGER IF EXISTS ${definition.tableName}_require_card_block_update;
+    `);
+  }
+  db.exec("DROP TRIGGER IF EXISTS card_behavior_records_guard_block_retype");
+}
+
+function assertCardBehaviorRecordOwners(
+  db: Database.Database,
+  tables: CardBehaviorRecordTableNames,
+): void {
+  for (const [label, tableName] of [
+    ["recurrence exception", tables.recurrenceExceptions],
+    ["reminder receipt", tables.reminderReceipts],
+    ["reminder snooze", tables.reminderSnoozes],
+  ] as const) {
+    const invalid = db
+      .prepare(
+        `
+        SELECT behavior.card_id, behavior.project_id
+        FROM ${tableName} behavior
+        LEFT JOIN blocks block
+          ON block.id = behavior.card_id
+         AND block.project_id = behavior.project_id
+        WHERE block.id IS NULL OR block.type <> 'card'
+        LIMIT 1
+      `,
+      )
+      .get() as
+      { readonly card_id: string; readonly project_id: string } | undefined;
+    if (!invalid) continue;
+    throw new Error(
+      `Cannot migrate ${label} for ${invalid.card_id}: owner is not a Card Block in Project ${invalid.project_id}`,
+    );
+  }
+
+  const invalidSchedule = db
+    .prepare(
+      `
+      SELECT schedule.card_block_id, schedule.project_id
+      FROM scheduled_card_index schedule
+      LEFT JOIN blocks block
+        ON block.id = schedule.card_block_id
+       AND block.project_id = schedule.project_id
+      WHERE block.id IS NULL OR block.type <> 'card'
+      LIMIT 1
+    `,
+    )
+    .get() as
+    { readonly card_block_id: string; readonly project_id: string } | undefined;
+  if (!invalidSchedule) return;
+  throw new Error(
+    `Cannot migrate scheduled Card index for ${invalidSchedule.card_block_id}: owner is not a Card Block in Project ${invalidSchedule.project_id}`,
+  );
+}
+
+function assertCardBehaviorForeignKeys(db: Database.Database): void {
+  for (const tableName of [
+    "recurrence_exceptions",
+    "reminder_receipts",
+    "reminder_snoozes",
+    "scheduled_card_index",
+  ]) {
+    const violations = db
+      .prepare(`PRAGMA foreign_key_check(${tableName})`)
+      .all();
+    if (violations.length === 0) continue;
+    throw new Error(
+      `Card behavior migration left foreign-key violations in ${tableName}`,
+    );
+  }
+}
+
+function createCardBehaviorRecordSchema(db: Database.Database): void {
+  createCardBehaviorRecordTables(db, CARD_BEHAVIOR_RECORD_TABLES);
+  createCardBehaviorRecordIndexesAndTriggers(db);
+}
+
 function createLatestSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -3229,51 +3479,6 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_card_history_snapshots_project_card_history
       ON card_history_snapshots(project_id, card_id, history_id);
 
-    CREATE TABLE IF NOT EXISTS recurrence_exceptions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-      occurrence_start TEXT NOT NULL,
-      exception_type TEXT NOT NULL,
-      override_start TEXT,
-      override_end TEXT,
-      override_reminders_json TEXT,
-      created TEXT NOT NULL,
-      CHECK (exception_type IN ('skip', 'override_time'))
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_recurrence_exceptions_unique
-      ON recurrence_exceptions(project_id, card_id, occurrence_start);
-    CREATE INDEX IF NOT EXISTS idx_recurrence_exceptions_lookup
-      ON recurrence_exceptions(project_id, card_id, occurrence_start);
-
-    CREATE TABLE IF NOT EXISTS reminder_receipts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-      occurrence_start TEXT NOT NULL,
-      reminder_offset_minutes INTEGER NOT NULL,
-      delivered_at TEXT NOT NULL
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_reminder_receipts_unique
-      ON reminder_receipts(project_id, card_id, occurrence_start, reminder_offset_minutes);
-    CREATE INDEX IF NOT EXISTS idx_reminder_receipts_lookup
-      ON reminder_receipts(project_id, delivered_at DESC);
-
-    CREATE TABLE IF NOT EXISTS reminder_snoozes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-      occurrence_start TEXT NOT NULL,
-      due_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      consumed_at TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_reminder_snoozes_lookup
-      ON reminder_snoozes(project_id, due_at, consumed_at);
-
     CREATE TABLE IF NOT EXISTS canvas (
       project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
       elements TEXT NOT NULL DEFAULT '[]',
@@ -3283,6 +3488,7 @@ function createLatestSchema(db: Database.Database): void {
     );
   `);
   createBlockFoundationSchema(db);
+  createCardBehaviorRecordSchema(db);
   createLegacyCardShadowOutboxSchema(db);
   createForeignReferenceMigrationSchema(db);
   createAtomicBlockRelocationSchema(db);
@@ -6234,6 +6440,65 @@ function migrateSchema64To65(db: Database.Database): void {
   migrate();
 }
 
+function migrateSchema65To66(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    dropCardBehaviorRecordTriggers(db);
+    db.exec(`
+      DROP TABLE IF EXISTS ${V66_CARD_BEHAVIOR_RECORD_TABLES.recurrenceExceptions};
+      DROP TABLE IF EXISTS ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderReceipts};
+      DROP TABLE IF EXISTS ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderSnoozes};
+    `);
+    createCardBehaviorRecordTables(db, V66_CARD_BEHAVIOR_RECORD_TABLES);
+    db.exec(`
+      INSERT INTO ${V66_CARD_BEHAVIOR_RECORD_TABLES.recurrenceExceptions} (
+        id, project_id, card_id, occurrence_start, exception_type,
+        override_start, override_end, override_reminders_json, created
+      )
+      SELECT
+        id, project_id, card_id, occurrence_start, exception_type,
+        override_start, override_end, override_reminders_json, created
+      FROM recurrence_exceptions;
+
+      INSERT INTO ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderReceipts} (
+        id, project_id, card_id, occurrence_start,
+        reminder_offset_minutes, delivered_at
+      )
+      SELECT
+        id, project_id, card_id, occurrence_start,
+        reminder_offset_minutes, delivered_at
+      FROM reminder_receipts;
+
+      INSERT INTO ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderSnoozes} (
+        id, project_id, card_id, occurrence_start,
+        due_at, created_at, consumed_at
+      )
+      SELECT
+        id, project_id, card_id, occurrence_start,
+        due_at, created_at, consumed_at
+      FROM reminder_snoozes;
+    `);
+    assertCardBehaviorRecordOwners(db, V66_CARD_BEHAVIOR_RECORD_TABLES);
+
+    db.exec(`
+      DROP TABLE recurrence_exceptions;
+      DROP TABLE reminder_receipts;
+      DROP TABLE reminder_snoozes;
+
+      ALTER TABLE ${V66_CARD_BEHAVIOR_RECORD_TABLES.recurrenceExceptions}
+        RENAME TO recurrence_exceptions;
+      ALTER TABLE ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderReceipts}
+        RENAME TO reminder_receipts;
+      ALTER TABLE ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderSnoozes}
+        RENAME TO reminder_snoozes;
+    `);
+    createCardBehaviorRecordSchema(db);
+    assertCardBehaviorRecordOwners(db, CARD_BEHAVIOR_RECORD_TABLES);
+    assertCardBehaviorForeignKeys(db);
+    setUserVersion(db, 66);
+  });
+  migrate.immediate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -6585,6 +6850,16 @@ function runMigrations(
       }
       migrateSchema64To65(db);
       fromVersion = 65;
+      continue;
+    }
+    if (target === 66) {
+      if (fromVersion !== 65) {
+        throw new Error(
+          `Unsupported Nodex database migration target 66 from ${fromVersion}`,
+        );
+      }
+      migrateSchema65To66(db);
+      fromVersion = 66;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
