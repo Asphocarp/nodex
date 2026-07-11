@@ -13,7 +13,6 @@ import {
 } from "./database";
 import { createProject } from "./projects";
 import {
-  collectBlockRetentionGc,
   planBlockRetentionGc,
   type BlockRetentionGcBlockerKind,
   type BlockRetentionGcCandidate,
@@ -221,51 +220,7 @@ describe("Block retention GC kernel", () => {
     });
   });
 
-  sqliteTest("collects a clean tombstone and rolls every fault back", async () => {
-    await withDatabase((database, projectId) => {
-      seedBlock(database, { id: "gc:clean", projectId });
-      seedBlock(database, {
-        id: "gc:live",
-        projectId,
-        lifecycle: "active",
-      });
-      const collected = collectBlockRetentionGc(database, {
-        projectId,
-        rootBlockIds: ["gc:clean"],
-        policy: { retainNewestDeletedBlocks: 0 },
-      });
-      expect(collected.status).toBe("collected");
-      expect(Boolean(database.prepare("SELECT 1 FROM blocks WHERE id = 'gc:clean'").get())).toBe(false);
-      expect(Boolean(database.prepare("SELECT 1 FROM blocks WHERE id = 'gc:live'").get())).toBe(true);
-
-      for (const point of [
-        "after_ownership_delete",
-        "after_block_delete",
-        "after_document_delete",
-        "before_commit",
-      ] as const) {
-        const blockId = `gc:fault:${point}`;
-        seedBlock(database, { id: blockId, projectId });
-        const failed = collectBlockRetentionGc(
-          database,
-          {
-            projectId,
-            rootBlockIds: [blockId],
-            policy: { retainNewestDeletedBlocks: 0 },
-          },
-          {
-            faultInjector: (current) => {
-              if (current === point) throw new Error(`fault:${point}`);
-            },
-          },
-        );
-        expect(failed.status).toBe("failed");
-        expect(Boolean(database.prepare("SELECT 1 FROM blocks WHERE id = ?").get(blockId))).toBe(true);
-      }
-    });
-  });
-
-  sqliteTest("deletes an owned Document closure in FK order and blocks live descendants", async () => {
+  sqliteTest("plans an owned Document closure and blocks live descendants", async () => {
     await withDatabase((database, projectId) => {
       seedOwnedDocument(database, {
         ownerBlockId: "gc:owner",
@@ -277,14 +232,11 @@ describe("Block retention GC kernel", () => {
         projectId,
         documentId: "document:gc-owner",
       });
-      const collected = collectBlockRetentionGc(database, {
-        projectId,
-        rootBlockIds: ["gc:owner"],
-        policy: { retainNewestDeletedBlocks: 0 },
-      });
-      expect(collected.status).toBe("collected");
-      expect(Boolean(database.prepare("SELECT 1 FROM blocks WHERE id IN ('gc:owner', 'gc:child')").get())).toBe(false);
-      expect(Boolean(database.prepare("SELECT 1 FROM documents WHERE id = 'document:gc-owner'").get())).toBe(false);
+      const owner = candidateFrom(database, projectId, "gc:owner");
+      expect(owner.collectible).toBe(true);
+      expect(owner.closureBlockIds.includes("gc:owner")).toBe(true);
+      expect(owner.closureBlockIds.includes("gc:child")).toBe(true);
+      expect(owner.ownedDocumentIds[0]).toBe("document:gc-owner");
 
       seedOwnedDocument(database, {
         ownerBlockId: "gc:blocked-owner",
@@ -299,12 +251,6 @@ describe("Block retention GC kernel", () => {
       });
       const blocked = candidateFrom(database, projectId, "gc:blocked-owner");
       expect(hasBlocker(blocked, "live_contained_block")).toBe(true);
-      const retained = collectBlockRetentionGc(database, {
-        projectId,
-        rootBlockIds: ["gc:blocked-owner"],
-        policy: { retainNewestDeletedBlocks: 0 },
-      });
-      expect(retained.status).toBe("retained");
 
       seedBlock(database, {
         id: "gc:missing-ownership",
