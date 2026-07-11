@@ -3,11 +3,14 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
   MAX_BLOCK_ID_LENGTH,
+  CANVAS_BLOCK_TYPE,
   MAX_CARD_DOCUMENT_STATE_BYTES,
   MAX_CARD_DOCUMENT_UPDATE_BYTES,
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
+  canonicalCanvasSceneFingerprint,
   type ApplyDocumentUpdate,
   type BlockId,
+  type CanvasSceneMaterialization,
   type DocumentHead,
   type DocumentId,
   type DocumentAuthority,
@@ -22,10 +25,12 @@ import {
 import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
 import {
   BlockDocumentSchemaError,
-  getBlockDocumentSchemaAdapter,
-  inspectOwnedBlockDocument,
+  getRegisteredBlockDocumentSchemaAdapter,
+  inspectRegisteredOwnedBlockDocument,
   toPersistedBlockDocumentMaterialization,
-  type BlockDocumentSchemaAdapter,
+  type RegisteredBlockDocumentSchemaAdapter,
+  type RegisteredOwnedDocumentMaterialization,
+  type RegisteredOwnedDocumentInspection,
   type OwnedDocumentInspection,
 } from "../../shared/block-documents/document-schema-adapters";
 import {
@@ -53,6 +58,7 @@ import {
 } from "./block-document-change-set";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
+import { persistCanvasSceneMaterialization } from "./canvas-scene-materializations";
 
 interface DocumentRow {
   readonly document_id: string;
@@ -315,6 +321,8 @@ export interface StrictDocumentUpdateCommitPolicy {
   readonly allowPendingSyncedReferenceTargetIds?: readonly BlockId[];
   /** Trusted typed owner rows staged in the host by the same outer transaction. */
   readonly allowStagedDocumentBearingBlockIds?: readonly BlockId[];
+  /** Trusted server-generated genesis/restore seam; never bind from transport. */
+  readonly maxTrustedUpdateBytes?: number;
 }
 
 export interface DocumentSyncStep {
@@ -479,9 +487,11 @@ const assertGeneration = (row: DocumentRow, generation: number): void => {
   );
 };
 
-const getSchemaAdapter = (row: DocumentRow): BlockDocumentSchemaAdapter => {
+const getSchemaAdapter = (
+  row: DocumentRow,
+): RegisteredBlockDocumentSchemaAdapter => {
   try {
-    return getBlockDocumentSchemaAdapter({
+    return getRegisteredBlockDocumentSchemaAdapter({
       ownerType: row.owner_type,
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
@@ -576,38 +586,41 @@ const validateOwnedDocumentContent = (
   document: Y.Doc,
   row: DocumentRow,
   code: DocumentValidationErrorCode,
-): OwnedDocumentInspection => {
+): RegisteredOwnedDocumentInspection => {
   try {
     const adapter = getSchemaAdapter(row);
-    const inspection = inspectOwnedBlockDocument(document, {
+    const inspection = inspectRegisteredOwnedBlockDocument(document, {
       ownerType: row.owner_type,
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
     });
-    if (
-      inspection.envelope.body.toString().length >
-      adapter.limits.maxBodyXmlLength
-    ) {
-      throw validationFailure(
-        code,
-        `Block document body exceeds ${adapter.limits.maxBodyXmlLength} XML characters`,
-      );
-    }
-    if (inspection.blocks.length > adapter.limits.maxBlocks) {
-      throw validationFailure(
-        code,
-        `Block document exceeds ${adapter.limits.maxBlocks} Blocks`,
-      );
-    }
-    if (
-      inspection.blocks.some(
-        (block) => block.path.length > adapter.limits.maxXmlPathDepth,
-      )
-    ) {
-      throw validationFailure(
-        code,
-        `Block document exceeds XML path depth ${adapter.limits.maxXmlPathDepth}`,
-      );
+    if (adapter.contentModel === "block_tree") {
+      const blockInspection = inspection as OwnedDocumentInspection;
+      if (
+        blockInspection.envelope.body.toString().length >
+        adapter.limits.maxBodyXmlLength
+      ) {
+        throw validationFailure(
+          code,
+          `Block document body exceeds ${adapter.limits.maxBodyXmlLength} XML characters`,
+        );
+      }
+      if (blockInspection.blocks.length > adapter.limits.maxBlocks) {
+        throw validationFailure(
+          code,
+          `Block document exceeds ${adapter.limits.maxBlocks} Blocks`,
+        );
+      }
+      if (
+        blockInspection.blocks.some(
+          (block) => block.path.length > adapter.limits.maxXmlPathDepth,
+        )
+      ) {
+        throw validationFailure(
+          code,
+          `Block document exceeds XML path depth ${adapter.limits.maxXmlPathDepth}`,
+        );
+      }
     }
     const state = Y.encodeStateAsUpdate(document);
     if (state.byteLength > adapter.limits.maxStateBytes) {
@@ -736,6 +749,7 @@ const TYPED_CREATION_BLOCK_TYPES = new Set([
   REUSABLE_TEMPLATE_SOURCE_TYPE,
   LARGE_DOCUMENT_BLOCK_TYPE,
   LARGE_CODE_BLOCK_TYPE,
+  CANVAS_BLOCK_TYPE,
 ]);
 
 const validateRegisteredDocumentReferences = (
@@ -832,6 +846,26 @@ const validateRegisteredDocumentReferences = (
     throw new BlockDocumentStoreError(
       code,
       `Document reference ${block.id} does not target a readable ${sourceContract.ownerType} source in Project ${row.project_id}`,
+    );
+  }
+};
+
+const validateRegisteredCanvasReferences = (
+  database: Database.Database,
+  row: DocumentRow,
+  materialization: CanvasSceneMaterialization,
+  code: "document_state_corrupt" | "invalid_document_update",
+): void => {
+  const readTarget = database.prepare(`
+    SELECT id
+    FROM blocks
+    WHERE id = ? AND project_id = ? AND type = 'card'
+  `);
+  for (const reference of materialization.cardReferences) {
+    if (readTarget.get(reference.targetBlockId, row.project_id)) continue;
+    throw new BlockDocumentStoreError(
+      code,
+      `Canvas element ${reference.sourceElementId} does not target a Card Block in Project ${row.project_id}`,
     );
   }
 };
@@ -1081,20 +1115,34 @@ const loadDocumentFromRow = (
       row,
       "document_state_corrupt",
     );
-    const blocks = inspection.blocks;
-    validateRegisteredBlocks(
-      database,
-      row,
-      blocks,
-      "document_state_corrupt",
-      allowAbsentActiveBlockIds,
-    );
-    validateRegisteredDocumentReferences(
-      database,
-      row,
-      toPersistedBlockDocumentMaterialization(inspection.materialization),
-      "document_state_corrupt",
-    );
+    if (!("blocks" in inspection)) {
+      if (allowAbsentActiveBlockIds.size > 0) {
+        throw new BlockDocumentStoreError(
+          "document_state_corrupt",
+          "Scene Documents cannot stage Block-tree identities",
+        );
+      }
+      validateRegisteredCanvasReferences(
+        database,
+        row,
+        inspection.materialization,
+        "document_state_corrupt",
+      );
+    } else {
+      validateRegisteredBlocks(
+        database,
+        row,
+        inspection.blocks,
+        "document_state_corrupt",
+        allowAbsentActiveBlockIds,
+      );
+      validateRegisteredDocumentReferences(
+        database,
+        row,
+        toPersistedBlockDocumentMaterialization(inspection.materialization),
+        "document_state_corrupt",
+      );
+    }
     const actualStateVector = Y.encodeStateVector(document);
     if (!bytesEqual(actualStateVector, row.state_vector)) {
       throw new BlockDocumentStoreError(
@@ -1130,6 +1178,19 @@ const validateIncomingUpdate = (update: Uint8Array): void => {
   throw new BlockDocumentStoreError(
     "invalid_document_update",
     `Yjs update exceeds ${MAX_CARD_DOCUMENT_UPDATE_BYTES} bytes`,
+  );
+};
+
+const validateTrustedUpdate = (
+  update: Uint8Array,
+  maximumBytes: number,
+): void => {
+  if (update.byteLength > 0 && update.byteLength <= maximumBytes) return;
+  throw new BlockDocumentStoreError(
+    "invalid_document_update",
+    update.byteLength === 0
+      ? "Yjs update must not be empty"
+      : `Trusted Yjs update exceeds ${maximumBytes} bytes`,
   );
 };
 
@@ -1967,7 +2028,6 @@ export const initializeBlockDocumentGenesis = (
   database: Database.Database,
   input: InitializeBlockDocumentGenesis,
 ): DocumentUpdateAck => {
-  validateIncomingUpdate(input.update);
   requireNonEmpty(input.documentId, "documentId");
   requireNonEmpty(input.updateId, "updateId");
   requireNonEmpty(input.clientSessionId, "clientSessionId");
@@ -1975,6 +2035,7 @@ export const initializeBlockDocumentGenesis = (
   const preflightRow = readDocumentRow(database, input.documentId);
   assertGeneration(preflightRow, input.generation);
   const adapter = getSchemaAdapter(preflightRow);
+  validateTrustedUpdate(input.update, adapter.limits.maxStateBytes);
   assertReadableDocumentOwner(preflightRow);
   const finalAuthority = input.finalAuthority ?? "legacy_shadow";
   const genesisDocument = new Y.Doc({ guid: input.documentId });
@@ -1982,7 +2043,7 @@ export const initializeBlockDocumentGenesis = (
   let genesisOwnerTouched = false;
   let genesisStateVector: Uint8Array;
   let genesisSnapshot: Uint8Array;
-  let genesisMaterialization: CardDocumentMaterialization;
+  let genesisMaterialization: RegisteredOwnedDocumentMaterialization;
   try {
     try {
       Y.applyUpdate(genesisDocument, input.update, "document-genesis");
@@ -1995,10 +2056,12 @@ export const initializeBlockDocumentGenesis = (
         preflightRow,
         "invalid_document_update",
       );
-      genesisBlocks = inspection.blocks;
+      genesisBlocks = "blocks" in inspection ? inspection.blocks : [];
       genesisOwnerTouched =
-        inspection.materialization.kind === "card" &&
-        inspection.materialization.title.length > 0;
+        !("blocks" in inspection) ||
+        (inspection.materialization.kind === "card" &&
+          inspection.materialization.title.length > 0);
+      genesisMaterialization = inspection.materialization;
     } catch (error) {
       if (error instanceof BlockDocumentStoreError) {
         throw error;
@@ -2011,15 +2074,9 @@ export const initializeBlockDocumentGenesis = (
     }
     genesisStateVector = Y.encodeStateVector(genesisDocument);
     genesisSnapshot = Y.encodeStateAsUpdate(genesisDocument);
-    genesisMaterialization = toPersistedBlockDocumentMaterialization(
-      inspectOwnedBlockDocument(genesisDocument, {
-        ownerType: adapter.ownerType,
-        schemaKey: adapter.schemaKey,
-        schemaVersion: adapter.schemaVersion,
-      }).materialization,
-    );
     if (
       finalAuthority === "ydoc_primary" &&
+      genesisMaterialization.kind !== "canvas_scene" &&
       genesisMaterialization.references.some(isLegacyForeignBodyReference)
     ) {
       throw new BlockDocumentStoreError(
@@ -2102,20 +2159,40 @@ export const initializeBlockDocumentGenesis = (
         ...genesisBlocks.map((block) => block.id),
       ].sort((left, right) => left.localeCompare(right)),
     );
-    validateRegisteredDocumentReferences(
-      database,
-      row,
-      genesisMaterialization,
-      "invalid_document_update",
-    );
-    reconcileDocumentBlocks(database, row, genesisBlocks, 1, now);
-    persistCardDocumentMaterialization(database, {
-      documentId: input.documentId,
-      generation: input.generation,
-      projectedSeq: 1,
-      materialization: genesisMaterialization,
-      updatedAt: now,
-    });
+    if (genesisMaterialization.kind === "canvas_scene") {
+      validateRegisteredCanvasReferences(
+        database,
+        row,
+        genesisMaterialization,
+        "invalid_document_update",
+      );
+      persistCanvasSceneMaterialization(database, {
+        documentId: input.documentId,
+        ownerBlockId: row.owner_block_id,
+        projectId: row.project_id,
+        generation: input.generation,
+        projectedSeq: 1,
+        materialization: genesisMaterialization,
+        updatedAt: now,
+      });
+    } else {
+      const blockMaterialization =
+        toPersistedBlockDocumentMaterialization(genesisMaterialization);
+      validateRegisteredDocumentReferences(
+        database,
+        row,
+        blockMaterialization,
+        "invalid_document_update",
+      );
+      reconcileDocumentBlocks(database, row, genesisBlocks, 1, now);
+      persistCardDocumentMaterialization(database, {
+        documentId: input.documentId,
+        generation: input.generation,
+        projectedSeq: 1,
+        materialization: blockMaterialization,
+        updatedAt: now,
+      });
+    }
     insertDocumentUpdateReceipt(database, {
       documentId: input.documentId,
       generation: input.generation,
@@ -2225,7 +2302,14 @@ const applyBlockDocumentUpdateForAuthority = (
   allowReservedUpdateId: boolean,
   strictCommitPolicy?: StrictDocumentUpdateCommitPolicy,
 ): DocumentUpdateAck => {
-  validateIncomingUpdate(input.update);
+  if (strictCommitPolicy?.maxTrustedUpdateBytes === undefined) {
+    validateIncomingUpdate(input.update);
+  } else {
+    validateTrustedUpdate(
+      input.update,
+      strictCommitPolicy.maxTrustedUpdateBytes,
+    );
+  }
   requireNonEmpty(input.documentId, "documentId");
   requireNonEmpty(input.updateId, "updateId");
   requireNonEmpty(input.clientSessionId, "clientSessionId");
@@ -2246,7 +2330,7 @@ const applyBlockDocumentUpdateForAuthority = (
     const row = readDocumentRow(database, input.documentId);
     assertReady(row);
     assertGeneration(row, input.generation);
-    getSchemaAdapter(row);
+    const documentAdapter = getSchemaAdapter(row);
     if (allowInactiveOwner) {
       assertCardOwnerForInternalMigration(row);
     } else {
@@ -2326,12 +2410,14 @@ const applyBlockDocumentUpdateForAuthority = (
     }
 
     const staleStructuralInspection =
-      inspectStaleUpdateAcrossStructuralBarriers(
-        database,
-        row,
-        input,
-        clientTouchedBlockIds,
-      );
+      documentAdapter.contentModel === "block_tree"
+        ? inspectStaleUpdateAcrossStructuralBarriers(
+            database,
+            row,
+            input,
+            clientTouchedBlockIds,
+          )
+        : null;
     if (staleStructuralInspection?.rejectionReason) {
       return persistRecoveryArtifact(
         database,
@@ -2354,13 +2440,19 @@ const applyBlockDocumentUpdateForAuthority = (
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
       };
-      const beforeChangeState = captureBlockDocumentChangeState(
-        document,
-        schema,
-      );
+      const beforeChangeState =
+        documentAdapter.contentModel === "block_tree"
+          ? captureBlockDocumentChangeState(document, schema)
+          : null;
+      const beforeSceneFingerprint =
+        documentAdapter.contentModel === "scene_graph"
+          ? canonicalCanvasSceneFingerprint(
+              documentAdapter.inspect(document).materialization,
+            )
+          : null;
       let blocks: readonly ScannedDocumentBlock[];
       let derivedTouchedBlockIds: readonly BlockId[];
-      let materialization: CardDocumentMaterialization;
+      let materialization: RegisteredOwnedDocumentMaterialization;
       try {
         Y.applyUpdate(document, input.update, "remote-document-update");
         assertNoPendingDependencies(
@@ -2372,12 +2464,25 @@ const applyBlockDocumentUpdateForAuthority = (
           row,
           "invalid_document_update",
         );
-        blocks = inspection.blocks;
-        derivedTouchedBlockIds = deriveBlockDocumentTouchedIds({
-          ownerBlockId: row.owner_block_id,
-          before: beforeChangeState,
-          after: captureBlockDocumentChangeState(document, schema),
-        });
+        blocks = "blocks" in inspection ? inspection.blocks : [];
+        if (!("blocks" in inspection)) {
+          const changed =
+            beforeSceneFingerprint !==
+            canonicalCanvasSceneFingerprint(inspection.materialization);
+          derivedTouchedBlockIds = changed ? [row.owner_block_id] : [];
+        } else {
+          if (!beforeChangeState) {
+            throw new BlockDocumentStoreError(
+              "document_state_corrupt",
+              "Block-tree Document lost its change-state baseline",
+            );
+          }
+          derivedTouchedBlockIds = deriveBlockDocumentTouchedIds({
+            ownerBlockId: row.owner_block_id,
+            before: beforeChangeState,
+            after: captureBlockDocumentChangeState(document, schema),
+          });
+        }
         if (staleStructuralInspection) {
           const currentTouchedBlockIds = new Set(derivedTouchedBlockIds);
           const structurallyVisible =
@@ -2396,11 +2501,10 @@ const applyBlockDocumentUpdateForAuthority = (
             );
           }
         }
-        materialization = toPersistedBlockDocumentMaterialization(
-          inspection.materialization,
-        );
+        materialization = inspection.materialization;
         if (
           authority === "ydoc_primary" &&
+          materialization.kind !== "canvas_scene" &&
           materialization.references.some(isLegacyForeignBodyReference)
         ) {
           throw new BlockDocumentStoreError(
@@ -2433,21 +2537,43 @@ const applyBlockDocumentUpdateForAuthority = (
       }
       const now = new Date().toISOString();
       const derivedTouchedBlockIdsJson = JSON.stringify(derivedTouchedBlockIds);
-      validateRegisteredDocumentReferences(
-        database,
-        row,
-        materialization,
-        "invalid_document_update",
-        new Set(strictCommitPolicy?.allowPendingSyncedReferenceTargetIds ?? []),
-      );
-      reconcileDocumentBlocks(database, row, blocks, nextHeadSeq, now);
-      persistCardDocumentMaterialization(database, {
-        documentId: input.documentId,
-        generation: input.generation,
-        projectedSeq: nextHeadSeq,
-        materialization,
-        updatedAt: now,
-      });
+      if (materialization.kind === "canvas_scene") {
+        validateRegisteredCanvasReferences(
+          database,
+          row,
+          materialization,
+          "invalid_document_update",
+        );
+        persistCanvasSceneMaterialization(database, {
+          documentId: input.documentId,
+          ownerBlockId: row.owner_block_id,
+          projectId: row.project_id,
+          generation: input.generation,
+          projectedSeq: nextHeadSeq,
+          materialization,
+          updatedAt: now,
+        });
+      } else {
+        const blockMaterialization =
+          toPersistedBlockDocumentMaterialization(materialization);
+        validateRegisteredDocumentReferences(
+          database,
+          row,
+          blockMaterialization,
+          "invalid_document_update",
+          new Set(
+            strictCommitPolicy?.allowPendingSyncedReferenceTargetIds ?? [],
+          ),
+        );
+        reconcileDocumentBlocks(database, row, blocks, nextHeadSeq, now);
+        persistCardDocumentMaterialization(database, {
+          documentId: input.documentId,
+          generation: input.generation,
+          projectedSeq: nextHeadSeq,
+          materialization: blockMaterialization,
+          updatedAt: now,
+        });
+      }
       const updateHash = hashBytes(input.update);
       insertDocumentUpdateReceipt(database, {
         documentId: input.documentId,
@@ -2689,17 +2815,26 @@ export const compactBlockDocument = (
           verificationDocument,
           "document_state_corrupt",
         );
-        const blocks = validateOwnedDocumentContent(
+        const inspection = validateOwnedDocumentContent(
           verificationDocument,
           row,
           "document_state_corrupt",
-        ).blocks;
-        validateRegisteredBlocks(
-          database,
-          row,
-          blocks,
-          "document_state_corrupt",
         );
+        if (!("blocks" in inspection)) {
+          validateRegisteredCanvasReferences(
+            database,
+            row,
+            inspection.materialization,
+            "document_state_corrupt",
+          );
+        } else {
+          validateRegisteredBlocks(
+            database,
+            row,
+            inspection.blocks,
+            "document_state_corrupt",
+          );
+        }
         if (
           !bytesEqual(
             Y.encodeStateVector(verificationDocument),

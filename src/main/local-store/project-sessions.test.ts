@@ -82,6 +82,42 @@ function runValidation(fn: () => void): string | null {
   }
 }
 
+function readPrimaryDatabaseViewId(targetProjectId: string): string {
+  const row = getDb().prepare(`
+    SELECT view.id
+    FROM database_views view
+    INNER JOIN database_capabilities capability
+      ON capability.block_id = view.database_block_id
+      AND capability.project_id = view.project_id
+      AND capability.is_primary = 1
+    WHERE view.project_id = ?
+      AND view.is_primary = 1
+      AND view.lifecycle = 'active'
+    LIMIT 1
+  `).get(targetProjectId) as { readonly id: string } | undefined;
+  if (!row) throw new Error(`Missing primary Database View for Project ${targetProjectId}`);
+  return row.id;
+}
+
+function insertSecondaryDatabaseView(targetProjectId: string, viewId: string): void {
+  const primary = getDb().prepare(`
+    SELECT database_block_id, config_json
+    FROM database_views
+    WHERE id = ? AND project_id = ?
+  `).get(readPrimaryDatabaseViewId(targetProjectId), targetProjectId) as {
+    readonly database_block_id: string;
+    readonly config_json: string;
+  } | undefined;
+  if (!primary) throw new Error(`Missing primary Database for Project ${targetProjectId}`);
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    INSERT INTO database_views (
+      id, database_block_id, project_id, name, kind, config_json,
+      is_primary, revision, rank_key, lifecycle, created_at, updated_at
+    ) VALUES (?, ?, ?, 'List', 'list', ?, 0, 1, 'zzzzzzzz', 'active', ?, ?)
+  `).run(viewId, primary.database_block_id, targetProjectId, primary.config_json, now, now);
+}
+
 describe("project session service", () => {
   test("creates an ordinary pinned Database View session for every new project", async () => {
     const ran = await withTempDatabase(async () => {
@@ -102,7 +138,11 @@ describe("project session service", () => {
       expect(defaultSessions[0]?.tabs[0]?.panelId).toBe("right");
       expect(defaultSessions[0]?.tabs[0]?.kind).toBe("db_view");
       expect(JSON.stringify(defaultSessions[0]?.tabs[0]?.config)).toBe(
-        JSON.stringify({ projectId: defaultProject.id, view: "kanban" }),
+        JSON.stringify({
+          projectId: defaultProject.id,
+          databaseViewId: readPrimaryDatabaseViewId(defaultProject.id),
+          view: "kanban",
+        }),
       );
 
       const alphaProject = createProject({ name: "Alpha", sources: ["/tmp/alpha"] });
@@ -579,10 +619,13 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("dedupes DB tabs by target project and singleton tabs by kind", async () => {
+  test("dedupes DB tabs by durable View identity and singleton tabs by kind", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Fixed tabs" });
       const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
+      const primaryViewId = readPrimaryDatabaseViewId(projectId);
+      const secondaryViewId = "database-view:project-session:secondary";
+      insertSecondaryDatabaseView(projectId, secondaryViewId);
 
       const dbView = createProjectSessionTab({
         sessionId: session.id,
@@ -590,7 +633,7 @@ describe("project session service", () => {
         panelId: "right",
         kind: "db_view",
         title: "DB View",
-        config: { projectId: projectId, view: "kanban" },
+        config: { projectId: projectId, databaseViewId: primaryViewId, view: "kanban" },
       });
       const duplicateDbView = createProjectSessionTab({
         sessionId: session.id,
@@ -598,9 +641,18 @@ describe("project session service", () => {
         panelId: "right",
         kind: "db_view",
         title: "Another DB View",
-        config: { projectId: projectId, view: "list" },
+        config: { projectId: projectId, databaseViewId: primaryViewId, view: "list" },
       });
       expect(duplicateDbView.id).toBe(dbView.id);
+      const secondaryDbView = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "Secondary DB View",
+        config: { projectId: projectId, databaseViewId: secondaryViewId, view: "list" },
+      });
+      expect(secondaryDbView.id === dbView.id).toBeFalse();
       const betaDbView = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -666,13 +718,222 @@ describe("project session service", () => {
       expect(terminalOne.id === terminalTwo.id).toBeFalse();
 
       const updated = getProjectSession(session.id);
-      expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(2);
+      expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(3);
       expect(updated?.tabs.filter((tab) => tab.kind === "review").length).toBe(1);
       expect(updated?.tabs.filter((tab) => tab.kind === "browser").length).toBe(2);
       expect(updated?.tabs.filter((tab) => tab.kind === "terminal").length).toBe(2);
       if (updated?.panels.bottom.layout.root.type === "leaf") {
         expect(updated.panels.bottom.layout.root.activeTabId).toBe(terminalTwo.id);
       }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("rejects missing, deleted, and cross-Project Database View identities", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "View validation",
+      });
+      const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
+      const betaViewId = readPrimaryDatabaseViewId(betaProject.id);
+      const deletedViewId = "database-view:project-session:deleted";
+      insertSecondaryDatabaseView(projectId, deletedViewId);
+      getDb().prepare(`
+        UPDATE database_views
+        SET lifecycle = 'deleted', updated_at = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), deletedViewId);
+
+      const crossProjectError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId,
+          panelId: "right",
+          kind: "db_view",
+          title: "Wrong Project",
+          config: { projectId, databaseViewId: betaViewId, view: "kanban" },
+        });
+      });
+      const missingError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId,
+          panelId: "right",
+          kind: "db_view",
+          title: "Missing View",
+          config: { projectId, databaseViewId: "database-view:missing", view: "list" },
+        });
+      });
+      const deletedError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId,
+          panelId: "right",
+          kind: "db_view",
+          title: "Deleted View",
+          config: { projectId, databaseViewId: deletedViewId, view: "list" },
+        });
+      });
+
+      const validTab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "Primary View",
+        config: {
+          projectId,
+          databaseViewId: readPrimaryDatabaseViewId(projectId),
+          view: "kanban",
+        },
+      });
+      const rejectedUpdate = runValidation(() => {
+        updateProjectSessionTab(validTab.id, {
+          config: { projectId, databaseViewId: betaViewId, view: "list" },
+        });
+      });
+
+      expect(crossProjectError?.includes("was not found in Project") ?? false).toBeTrue();
+      expect(missingError?.includes("was not found in Project") ?? false).toBeTrue();
+      expect(deletedError?.includes("was not found in Project") ?? false).toBeTrue();
+      expect(rejectedUpdate?.includes("was not found in Project") ?? false).toBeTrue();
+      expect(
+        (getProjectSession(session.id)?.tabs[0]?.config as { databaseViewId?: string })
+          .databaseViewId,
+      ).toBe(readPrimaryDatabaseViewId(projectId));
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("round-trips and restarts arbitrary Database View tabs by stable identity", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "Durable View",
+      });
+      const viewId = "database-view:project-session:restart";
+      insertSecondaryDatabaseView(projectId, viewId);
+      const tab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "Research list",
+        config: { projectId, databaseViewId: viewId, view: "list" },
+      });
+      const storedBeforeRestart = getDb().prepare(`
+        SELECT config_json
+        FROM project_session_tabs
+        WHERE id = ?
+      `).get(tab.id) as { readonly config_json: string };
+      expect(storedBeforeRestart.config_json).toBe(JSON.stringify({
+        projectId,
+        databaseViewId: viewId,
+        view: "list",
+      }));
+
+      closeDatabase();
+      await initializeDatabase();
+      const reloaded = getProjectSession(session.id)?.tabs.find(
+        (candidate) => candidate.id === tab.id,
+      );
+      expect(JSON.stringify(reloaded?.config)).toBe(storedBeforeRestart.config_json);
+
+      const duplicate = createProjectSessionTab({
+        sessionId: session.id,
+        projectId,
+        panelId: "bottom",
+        kind: "db_view",
+        title: "Same identity",
+        config: { projectId, databaseViewId: viewId, view: "kanban" },
+      });
+      expect(duplicate.id).toBe(tab.id);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("normalizes a legacy overview config once only through the active primary View", async () => {
+    const ran = await withTempDatabase(async () => {
+      const overviewTab = getDb().prepare(`
+        SELECT tab.id
+        FROM project_session_tabs tab
+        INNER JOIN project_sessions session ON session.id = tab.session_id
+        WHERE session.project_id = ? AND tab.kind = 'db_view'
+        ORDER BY session.created_at, tab.created_at
+        LIMIT 1
+      `).get(projectId) as { readonly id: string };
+      getDb().prepare(`
+        UPDATE project_session_tabs
+        SET config_json = ?
+        WHERE id = ?
+      `).run(JSON.stringify({ projectId, view: "kanban" }), overviewTab.id);
+      const rawBefore = getDb().prepare(`
+        SELECT tab.id, tab.config_json, tab.updated_at
+        FROM project_session_tabs tab
+        INNER JOIN project_sessions session ON session.id = tab.session_id
+        WHERE session.project_id = ? AND tab.kind = 'db_view'
+        ORDER BY session.created_at, tab.created_at
+        LIMIT 1
+      `).get(projectId) as {
+        readonly id: string;
+        readonly config_json: string;
+        readonly updated_at: string;
+      };
+      expect(rawBefore.config_json).toBe(JSON.stringify({ projectId, view: "kanban" }));
+
+      const overview = listProjectSessions(projectId)[0];
+      const normalized = getDb().prepare(`
+        SELECT config_json, updated_at
+        FROM project_session_tabs
+        WHERE id = ?
+      `).get(rawBefore.id) as {
+        readonly config_json: string;
+        readonly updated_at: string;
+      };
+      const expected = JSON.stringify({
+        projectId,
+        databaseViewId: readPrimaryDatabaseViewId(projectId),
+        view: "kanban",
+      });
+      expect(JSON.stringify(overview?.tabs[0]?.config)).toBe(expected);
+      expect(normalized.config_json).toBe(expected);
+
+      listProjectSessions(projectId);
+      const afterSecondRead = getDb().prepare(`
+        SELECT config_json, updated_at
+        FROM project_session_tabs
+        WHERE id = ?
+      `).get(rawBefore.id) as {
+        readonly config_json: string;
+        readonly updated_at: string;
+      };
+      expect(afterSecondRead.config_json).toBe(normalized.config_json);
+      expect(afterSecondRead.updated_at).toBe(normalized.updated_at);
+
+      getDb().prepare(`
+        UPDATE database_views
+        SET lifecycle = 'deleted', updated_at = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), readPrimaryDatabaseViewId(projectId));
+      const unresolvedSession = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "No primary mapping",
+      });
+      const unresolvedError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: unresolvedSession.id,
+          projectId,
+          panelId: "right",
+          kind: "db_view",
+          title: "Legacy DB View",
+          config: { projectId, view: "kanban" },
+        });
+      });
+      expect(unresolvedError?.includes("cannot resolve one active primary View") ?? false).toBeTrue();
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -741,7 +1002,11 @@ describe("project session service", () => {
       const sessions = listProjectSessions(project.id);
       const overview = sessions[0];
       expect(JSON.stringify(overview?.tabs[0]?.config)).toBe(
-        JSON.stringify({ projectId: project.id, view: "kanban" }),
+        JSON.stringify({
+          projectId: project.id,
+          databaseViewId: readPrimaryDatabaseViewId(project.id),
+          view: "kanban",
+        }),
       );
 
       const updated = updateProject(project.id, { name: "Beta" });
@@ -752,7 +1017,11 @@ describe("project session service", () => {
       expect(updatedSessions[0]?.projectId).toBe(project.id);
       expect(updatedSessions[0]?.tabs[0]?.projectId).toBe(project.id);
       expect(JSON.stringify(updatedSessions[0]?.tabs[0]?.config)).toBe(
-        JSON.stringify({ projectId: project.id, view: "kanban" }),
+        JSON.stringify({
+          projectId: project.id,
+          databaseViewId: readPrimaryDatabaseViewId(project.id),
+          view: "kanban",
+        }),
       );
     });
 

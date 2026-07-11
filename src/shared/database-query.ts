@@ -138,3 +138,17 @@ export interface DatabaseReadCommandError {
 export type DatabaseReadCommandResult<T> =
   | { readonly ok: true; readonly value: DatabaseReadSnapshot<T> }
   | { readonly ok: false; readonly error: DatabaseReadCommandError };
+
+/**
+ * Descriptor and primary View query captured under one authority read. Keeping
+ * the two ordinary read snapshots makes existing compilers reusable while the
+ * shared epoch/cursor proves that no writer ran between them.
+ */
+export interface PrimaryDatabaseViewSnapshot {
+  readonly descriptor: DatabaseReadSnapshot<GeneralDatabaseDescriptor>;
+  readonly query: DatabaseReadSnapshot<GeneralDatabaseViewQuery>;
+}
+
+export type PrimaryDatabaseViewSnapshotCommandResult =
+  | { readonly ok: true; readonly value: PrimaryDatabaseViewSnapshot }
+  | { readonly ok: false; readonly error: DatabaseReadCommandError };

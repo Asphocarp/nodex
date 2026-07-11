@@ -2,7 +2,10 @@ import type {
   BlockTreeNode,
   BlockTreeValue,
 } from "./block-document-codec";
-import type { OwnedDocumentMaterialization } from "./document-schema-adapters";
+import type {
+  RegisteredOwnedDocumentMaterialization,
+} from "./document-schema-adapters";
+import type { CanvasForwardRestorePlan } from "./canvas-document";
 import type { BlockId, DocumentId } from "./contracts";
 import type { DocumentBlockOperation } from "./document-operations";
 
@@ -40,7 +43,7 @@ export interface DocumentVersionSummary {
   readonly stateVectorHash: string;
   readonly materializationHash: string;
   readonly byteLength: number;
-  readonly materializationKind: OwnedDocumentMaterialization["kind"];
+  readonly materializationKind: RegisteredOwnedDocumentMaterialization["kind"];
   readonly title: string | null;
   readonly preview: string;
   readonly blockCount: number;
@@ -50,7 +53,7 @@ export interface DocumentVersionSummary {
 export interface DocumentVersionCheckpoint extends DocumentVersionSummary {
   readonly fullUpdate: Uint8Array;
   readonly stateVector: Uint8Array;
-  readonly materialization: OwnedDocumentMaterialization;
+  readonly materialization: RegisteredOwnedDocumentMaterialization;
 }
 
 export interface CreatedDocumentVersionCheckpoint {
@@ -65,7 +68,7 @@ export interface CreatedDocumentVersionSummary {
 
 export interface DocumentVersionDetail {
   readonly summary: DocumentVersionSummary;
-  readonly materialization: OwnedDocumentMaterialization;
+  readonly materialization: RegisteredOwnedDocumentMaterialization;
 }
 
 export interface DocumentVersionCursor {
@@ -100,7 +103,7 @@ export interface PrepareDocumentVersionRestore {
   readonly actor: DocumentVersionActor;
 }
 
-export interface DocumentVersionRestorePlan {
+interface DocumentVersionRestorePlanBase {
   readonly version: typeof DOCUMENT_VERSION_CONTRACT_VERSION;
   readonly kind: "document_version_restore";
   readonly mutationId: string;
@@ -112,11 +115,26 @@ export interface DocumentVersionRestorePlan {
   readonly clientSessionId?: string;
   readonly actor: DocumentVersionActor;
   readonly sourceVersion: DocumentVersionSummary;
+  readonly requiresWriteFence: true;
+}
+
+export interface BlockTreeDocumentVersionRestorePlan
+  extends DocumentVersionRestorePlanBase {
+  readonly contentModel: "block_tree";
   readonly targetTitle?: string;
   readonly targetBlockTree: readonly BlockTreeNode[];
   readonly operations: readonly DocumentBlockOperation[];
-  readonly requiresWriteFence: true;
 }
+
+export interface CanvasDocumentVersionRestorePlan
+  extends DocumentVersionRestorePlanBase {
+  readonly contentModel: "scene_graph";
+  readonly forwardRestore: CanvasForwardRestorePlan;
+}
+
+export type DocumentVersionRestorePlan =
+  | BlockTreeDocumentVersionRestorePlan
+  | CanvasDocumentVersionRestorePlan;
 
 export type PreparedDocumentVersionRestore =
   | {

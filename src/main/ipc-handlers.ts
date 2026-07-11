@@ -15,7 +15,6 @@ import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
 import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
-import * as canvasService from "./local-store/canvas";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
 import * as historyStore from "./local-store/history";
@@ -195,6 +194,7 @@ import { parseDocumentRelocationRequest } from "../shared/block-documents/reloca
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
 import {
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+  PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
 } from "./database-kernel-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
@@ -876,7 +876,10 @@ export function registerIpcHandlers(
 
   registerDatabaseKernelIpcHandlers({
     registerHandle: (channel, listener) => {
-      if (channel === PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL) {
+      if (
+        channel === PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL ||
+        channel === PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
+      ) {
         registerHandle(channel, (event, projectId) =>
           listener(event, projectId) as
             | IpcApi[typeof channel]["result"]
@@ -912,6 +915,9 @@ export function registerIpcHandlers(
       ).result,
     readPrimaryDescriptor: async (projectId) =>
       (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId))
+        .result,
+    readPrimaryViewSnapshot: async (projectId) =>
+      (await cardMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
         .result,
     queryView: async (projectId, viewId) =>
       (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
@@ -1580,11 +1586,6 @@ export function registerIpcHandlers(
     return result === "moved";
   });
 
-  registerHandle("card:move-many", async (_, input) => {
-    const { result } = await cardMutationWriter.moveCards(input);
-    return result === "moved";
-  });
-
   registerHandle("card:move-to-project", async (_, input) => {
     const { result } = await cardMutationWriter.moveCardToProject(input);
     if (result === "wrong_column")
@@ -2013,15 +2014,6 @@ export function registerIpcHandlers(
 
   registerHandle("open-file", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),
-  );
-
-  // Canvas
-  registerHandle("canvas:get", (_, projectId: string) =>
-    canvasService.getCanvas(projectId),
-  );
-
-  registerHandle("canvas:save", (_, projectId: string, data) =>
-    canvasService.saveCanvas(projectId, data),
   );
 
   registerHandle("window:show-emoji-panel", () => {

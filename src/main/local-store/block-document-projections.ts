@@ -1,11 +1,19 @@
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
 import type Database from "better-sqlite3";
 import type {
   BlockId,
   DocumentId,
 } from "../../shared/block-documents/contracts";
-import { getBlockDocumentSchemaAdapter } from "../../shared/block-documents/document-schema-adapters";
+import type { CanvasFileSnapshot } from "../../shared/block-documents/canvas-document";
+import {
+  getBlockDocumentSchemaAdapter,
+  getRegisteredBlockDocumentSchemaAdapter,
+} from "../../shared/block-documents/document-schema-adapters";
+import { parseAssetSource } from "../../shared/assets";
 import { tokenizeSearchQuery } from "../../shared/search-text";
+import { MAX_IMAGE_UPLOAD_BYTES, resolveAssetPath } from "./assets";
+import { readCanvasSceneMaterialization } from "./canvas-scene-materializations";
 
 const DOCUMENT_PROJECTION_VERSION = 1;
 const MAX_SEARCH_LIMIT = 200;
@@ -104,7 +112,7 @@ export interface DocumentAssetRefProjection {
   readonly blockId: BlockId;
   readonly generation: number;
   readonly projectedSeq: number;
-  readonly role: "image" | "attachment";
+  readonly role: "image" | "attachment" | "canvas_file";
   readonly ordinal: number;
   readonly assetUri: string;
   readonly assetHash: string | null;
@@ -169,7 +177,7 @@ interface AssetRow {
   readonly block_id: string;
   readonly document_generation: number;
   readonly projected_seq: number;
-  readonly role: "image" | "attachment";
+  readonly role: "image" | "attachment" | "canvas_file";
   readonly ordinal: number;
   readonly asset_uri: string;
   readonly asset_hash: string | null;
@@ -521,7 +529,7 @@ const documentUnitKey = (
  * materialization and Block index. The caller owns the authority transaction;
  * projection failure therefore rolls back the Y.Doc head that caused it.
  */
-export const replaceDocumentSecondaryProjections = (
+const replaceBlockTreeDocumentSecondaryProjections = (
   database: Database.Database,
   input: ReplaceDocumentSecondaryProjectionInput,
 ): DocumentSecondaryProjectionResult => {
@@ -559,6 +567,12 @@ export const replaceDocumentSecondaryProjections = (
 
   database
     .prepare("DELETE FROM block_asset_refs WHERE document_id = ?")
+    .run(source.document_id);
+  database
+    .prepare("DELETE FROM canvas_scene_file_refs WHERE document_id = ?")
+    .run(source.document_id);
+  database
+    .prepare("DELETE FROM canvas_card_references WHERE document_id = ?")
     .run(source.document_id);
   database
     .prepare(
@@ -654,6 +668,321 @@ export const replaceDocumentSecondaryProjections = (
   };
 };
 
+interface RegisteredProjectionSourceRow {
+  readonly document_id: string;
+  readonly project_id: string;
+  readonly schema_key: string;
+  readonly schema_version: number;
+  readonly generation: number;
+  readonly head_seq: number;
+  readonly readiness: string;
+  readonly owner_block_id: string | null;
+  readonly owner_type: string | null;
+}
+
+const readRegisteredProjectionSource = (
+  database: Database.Database,
+  input: ReplaceDocumentSecondaryProjectionInput,
+): {
+  readonly row: RegisteredProjectionSourceRow & {
+    readonly owner_block_id: string;
+    readonly owner_type: string;
+  };
+  readonly contentModel: "block_tree" | "scene_graph";
+} => {
+  const documentId = requireIdentity(input.documentId, "documentId");
+  const row = database
+    .prepare(
+      `
+      SELECT document.id AS document_id, document.project_id,
+        document.schema_key, document.schema_version, document.generation,
+        document.head_seq, document.readiness,
+        ownership.block_id AS owner_block_id, owner.type AS owner_type
+      FROM documents document
+      LEFT JOIN block_documents ownership
+        ON ownership.document_id = document.id
+        AND ownership.project_id = document.project_id
+      LEFT JOIN blocks owner
+        ON owner.id = ownership.block_id
+        AND owner.project_id = ownership.project_id
+      WHERE document.id = ?
+    `,
+    )
+    .get(documentId) as RegisteredProjectionSourceRow | undefined;
+  if (!row) {
+    throw new DocumentSecondaryProjectionError(
+      "document_not_found",
+      `Document ${documentId} does not exist`,
+    );
+  }
+  if (row.readiness !== "ready") {
+    throw new DocumentSecondaryProjectionError(
+      "document_not_ready",
+      `Document ${documentId} is not ready for projection`,
+    );
+  }
+  if (row.owner_block_id === null || row.owner_type === null) {
+    throw new DocumentSecondaryProjectionError(
+      "projection_source_corrupt",
+      `Document ${documentId} has no owner`,
+    );
+  }
+  requireExpectedCoordinate(
+    row.generation,
+    input.expectedGeneration,
+    "generation",
+    documentId,
+  );
+  requireExpectedCoordinate(
+    row.head_seq,
+    input.expectedProjectedSeq,
+    "projectedSeq",
+    documentId,
+  );
+  try {
+    const adapter = getRegisteredBlockDocumentSchemaAdapter({
+      ownerType: row.owner_type,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+    return {
+      row: row as RegisteredProjectionSourceRow & {
+        readonly owner_block_id: string;
+        readonly owner_type: string;
+      },
+      contentModel: adapter.contentModel,
+    };
+  } catch (error) {
+    throw new DocumentSecondaryProjectionError(
+      "projection_source_corrupt",
+      `Document ${documentId} has no registered secondary projector for ${row.owner_type}/${row.schema_key}@${row.schema_version}`,
+      { cause: error },
+    );
+  }
+};
+
+export interface ExistingCanvasSceneFileProjection {
+  readonly file_id: string;
+  readonly asset_uri: string;
+  readonly managed_file_name: string;
+  readonly asset_hash: string;
+  readonly byte_length: number;
+}
+
+export interface CanvasSceneFileProjectionPlanEntry {
+  readonly fileId: string;
+  readonly mimeType: string;
+  readonly assetUri: string;
+  readonly managedFileName: string;
+  readonly reusableAssetHash: string | null;
+  readonly reusableByteLength: number | null;
+  readonly requiresAssetRead: boolean;
+}
+
+/** Managed asset names are immutable, so unchanged refs reuse prior evidence. */
+export const planCanvasSceneFileProjections = (
+  files: Readonly<Record<string, CanvasFileSnapshot>>,
+  existing: readonly ExistingCanvasSceneFileProjection[],
+): readonly CanvasSceneFileProjectionPlanEntry[] => {
+  const existingByFileId = new Map(existing.map((row) => [row.file_id, row]));
+  return Object.entries(files)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([fileId, file]) => {
+      const parsed = parseAssetSource(file.source);
+      if (!parsed) {
+        throw new DocumentSecondaryProjectionError(
+          "projection_source_corrupt",
+          `Canvas file ${fileId} has no canonical managed asset source`,
+        );
+      }
+      const previous = existingByFileId.get(fileId);
+      const reusable = previous?.asset_uri === file.source ? previous : null;
+      return {
+        fileId,
+        mimeType: file.mimeType,
+        assetUri: file.source,
+        managedFileName: parsed.fileName,
+        reusableAssetHash: reusable?.asset_hash ?? null,
+        reusableByteLength: reusable?.byte_length ?? null,
+        requiresAssetRead: reusable === null,
+      };
+    });
+};
+
+const replaceCanvasSceneSecondaryProjections = (
+  database: Database.Database,
+  source: RegisteredProjectionSourceRow & {
+    readonly owner_block_id: string;
+    readonly owner_type: string;
+  },
+): DocumentSecondaryProjectionResult => {
+  const stored = readCanvasSceneMaterialization(
+    database,
+    source.document_id,
+  );
+  if (
+    !stored ||
+    stored.ownerBlockId !== source.owner_block_id ||
+    stored.projectId !== source.project_id ||
+    stored.generation !== source.generation ||
+    stored.projectedSeq !== source.head_seq ||
+    stored.schemaVersion !== source.schema_version
+  ) {
+    throw new DocumentSecondaryProjectionError(
+      "projection_source_stale",
+      `Canvas Document ${source.document_id} materialization does not match its durable head`,
+    );
+  }
+  const existingFileProjections = database
+    .prepare(
+      `
+      SELECT file_id, asset_uri, managed_file_name, asset_hash, byte_length
+      FROM canvas_scene_file_refs
+      WHERE document_id = ?
+      ORDER BY file_id
+    `,
+    )
+    .all(source.document_id) as readonly ExistingCanvasSceneFileProjection[];
+  const fileProjectionPlan = planCanvasSceneFileProjections(
+    stored.materialization.files,
+    existingFileProjections,
+  );
+  database
+    .prepare("DELETE FROM block_asset_refs WHERE document_id = ?")
+    .run(source.document_id);
+  database
+    .prepare("DELETE FROM canvas_scene_file_refs WHERE document_id = ?")
+    .run(source.document_id);
+  database
+    .prepare("DELETE FROM canvas_card_references WHERE document_id = ?")
+    .run(source.document_id);
+  database
+    .prepare(
+      "DELETE FROM block_search_units WHERE document_id = ? AND source_revision IS NULL",
+    )
+    .run(source.document_id);
+  database
+    .prepare(
+      `
+      INSERT INTO block_search_units (
+        unit_key, project_id, block_id, owner_block_id, document_id,
+        document_generation, projected_seq, source_revision,
+        projection_version, source_kind, field_key, text, text_hash, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'document_marker', 'marker', ?, ?, ?)
+    `,
+    )
+    .run(
+      documentUnitKey(
+        source.document_id,
+        source.owner_block_id,
+        "document_marker",
+        "marker",
+      ),
+      source.project_id,
+      source.owner_block_id,
+      source.owner_block_id,
+      source.document_id,
+      source.generation,
+      source.head_seq,
+      DOCUMENT_PROJECTION_VERSION,
+      stored.materialization.plainText,
+      sha256(stored.materialization.plainText),
+      stored.updatedAt,
+    );
+  const insertFile = database.prepare(`
+    INSERT INTO canvas_scene_file_refs (
+      document_id, file_id, owner_block_id, project_id,
+      document_generation, projected_seq, mime_type, asset_uri,
+      managed_file_name, asset_hash, byte_length, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const file of fileProjectionPlan) {
+    let assetHash = file.reusableAssetHash;
+    let byteLength = file.reusableByteLength;
+    const assetPath = resolveAssetPath(file.managedFileName);
+    try {
+      const stats = fs.lstatSync(assetPath);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new TypeError("Managed Canvas asset is not a regular file");
+      }
+      if (stats.size > MAX_IMAGE_UPLOAD_BYTES) {
+        throw new TypeError("Managed Canvas asset exceeds the image limit");
+      }
+      if (file.requiresAssetRead || stats.size !== byteLength) {
+        const bytes = fs.readFileSync(assetPath);
+        assetHash = createHash("sha256").update(bytes).digest("hex");
+        byteLength = bytes.byteLength;
+      }
+    } catch (error) {
+      throw new DocumentSecondaryProjectionError(
+        "projection_source_corrupt",
+        `Canvas file ${file.fileId} references missing managed asset ${file.managedFileName}`,
+        { cause: error },
+      );
+    }
+    if (assetHash === null || byteLength === null) {
+      throw new DocumentSecondaryProjectionError(
+        "projection_source_corrupt",
+        `Canvas file ${file.fileId} has no durable asset evidence`,
+      );
+    }
+    insertFile.run(
+      source.document_id,
+      file.fileId,
+      source.owner_block_id,
+      source.project_id,
+      source.generation,
+      source.head_seq,
+      file.mimeType,
+      file.assetUri,
+      file.managedFileName,
+      assetHash,
+      byteLength,
+      stored.updatedAt,
+    );
+  }
+  const insertCardReference = database.prepare(`
+    INSERT INTO canvas_card_references (
+      document_id, source_element_id, target_block_id, owner_block_id,
+      project_id, document_generation, projected_seq, title_hint, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const reference of stored.materialization.cardReferences) {
+    insertCardReference.run(
+      source.document_id,
+      reference.sourceElementId,
+      reference.targetBlockId,
+      source.owner_block_id,
+      source.project_id,
+      source.generation,
+      source.head_seq,
+      reference.titleHint ?? null,
+      stored.updatedAt,
+    );
+  }
+  return {
+    projectId: source.project_id,
+    ownerBlockId: source.owner_block_id,
+    documentId: source.document_id,
+    generation: source.generation,
+    projectedSeq: source.head_seq,
+    searchUnitCount: 1,
+    assetRefCount: Object.keys(stored.materialization.files).length,
+  };
+};
+
+/** Dispatch secondary projections without routing scene Documents through NFM. */
+export const replaceDocumentSecondaryProjections = (
+  database: Database.Database,
+  input: ReplaceDocumentSecondaryProjectionInput,
+): DocumentSecondaryProjectionResult => {
+  const source = readRegisteredProjectionSource(database, input);
+  if (source.contentModel === "block_tree") {
+    return replaceBlockTreeDocumentSecondaryProjections(database, input);
+  }
+  return replaceCanvasSceneSecondaryProjections(database, source.row);
+};
+
 /** Rebuild one disposable projection atomically from SQLite authority. */
 export const rebuildDocumentSecondaryProjections = (
   database: Database.Database,
@@ -693,9 +1022,15 @@ export const rebuildProjectDocumentSecondaryProjections = (
             SELECT id FROM documents
             WHERE project_id = ?
           )
-      `,
+        `,
         )
         .run(projectId, projectId);
+      database
+        .prepare("DELETE FROM canvas_scene_file_refs WHERE project_id = ?")
+        .run(projectId);
+      database
+        .prepare("DELETE FROM canvas_card_references WHERE project_id = ?")
+        .run(projectId);
       database
         .prepare(
           `
@@ -818,12 +1153,10 @@ export const searchDocumentBlockUnits = (
     "block_search_units_fts MATCH ?",
     "unit.project_id = ?",
     "unit.document_id IS NOT NULL",
-    "unit.source_kind IN ('document_title', 'document_block')",
+    "unit.source_kind IN ('document_title', 'document_block', 'document_marker')",
     "document.readiness = 'ready'",
     "document.generation = unit.document_generation",
     "document.head_seq = unit.projected_seq",
-    "materialization.generation = unit.document_generation",
-    "materialization.projected_seq = unit.projected_seq",
     "source.lifecycle <> 'deleted'",
     "owner.lifecycle <> 'deleted'",
   ];
@@ -865,8 +1198,6 @@ export const searchDocumentBlockUnits = (
       INNER JOIN documents document
         ON document.id = unit.document_id
         AND document.project_id = unit.project_id
-      INNER JOIN document_materializations materialization
-        ON materialization.document_id = document.id
       INNER JOIN blocks source
         ON source.id = unit.block_id
         AND source.project_id = unit.project_id
@@ -909,9 +1240,6 @@ export const listDocumentAssetRefs = (
     "document.readiness = 'ready'",
     "document.generation = asset.document_generation",
     "document.head_seq = asset.projected_seq",
-    "materialization.generation = asset.document_generation",
-    "materialization.projected_seq = asset.projected_seq",
-    "block_index.projected_seq = asset.projected_seq",
     "source.lifecycle <> 'deleted'",
     "owner.lifecycle <> 'deleted'",
   ];
@@ -933,6 +1261,23 @@ export const listDocumentAssetRefs = (
   const rows = database
     .prepare(
       `
+      WITH asset AS (
+        SELECT
+          project_id, owner_block_id, document_id, block_id,
+          document_generation, projected_seq, role, ordinal,
+          asset_uri, asset_hash
+        FROM block_asset_refs
+        UNION ALL
+        SELECT
+          project_id, owner_block_id, document_id,
+          owner_block_id AS block_id, document_generation, projected_seq,
+          'canvas_file' AS role,
+          ROW_NUMBER() OVER (
+            PARTITION BY document_id ORDER BY file_id
+          ) - 1 AS ordinal,
+          asset_uri, asset_hash
+        FROM canvas_scene_file_refs
+      )
       SELECT
         asset.project_id,
         asset.owner_block_id,
@@ -944,15 +1289,10 @@ export const listDocumentAssetRefs = (
         asset.ordinal,
         asset.asset_uri,
         asset.asset_hash
-      FROM block_asset_refs asset
+      FROM asset
       INNER JOIN documents document
         ON document.id = asset.document_id
         AND document.project_id = asset.project_id
-      INNER JOIN document_materializations materialization
-        ON materialization.document_id = document.id
-      INNER JOIN document_block_index block_index
-        ON block_index.document_id = asset.document_id
-        AND block_index.block_id = asset.block_id
       INNER JOIN blocks source
         ON source.id = asset.block_id
         AND source.project_id = asset.project_id

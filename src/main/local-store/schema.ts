@@ -23,14 +23,15 @@ import {
   insertDatabaseViewTab,
   insertInitialDatabaseViewSession,
   makeInitialDatabaseViewPanelStateJson,
+  seededPrimaryDatabaseViewId,
 } from "./project-session-defaults";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 67;
+export const CURRENT_SCHEMA_VERSION = 68;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -64,6 +65,9 @@ const RESETTABLE_TABLES = [
   "database_properties",
   "database_capabilities",
   "scheduled_card_index",
+  "canvas_card_references",
+  "canvas_scene_file_refs",
+  "canvas_scene_materializations",
   "document_block_index",
   "document_materializations",
   "document_snapshots",
@@ -357,10 +361,6 @@ function makeLegacyCardMetadataProjectionSql(
 
 function primaryDatabaseBlockId(projectId: string): string {
   return `database:${projectId}:primary`;
-}
-
-function primaryDatabaseViewId(projectId: string): string {
-  return `database-view:${projectId}:primary-kanban`;
 }
 
 function cardDocumentId(cardId: string): string {
@@ -3529,13 +3529,6 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_card_history_snapshots_project_card_history
       ON card_history_snapshots(project_id, card_id, history_id);
 
-    CREATE TABLE IF NOT EXISTS canvas (
-      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-      elements TEXT NOT NULL DEFAULT '[]',
-      app_state TEXT NOT NULL DEFAULT '{}',
-      files TEXT NOT NULL DEFAULT '{}',
-      updated TEXT NOT NULL
-    );
   `);
   createBlockFoundationSchema(db);
   createCardBehaviorRecordSchema(db);
@@ -3543,6 +3536,98 @@ function createLatestSchema(db: Database.Database): void {
   createForeignReferenceMigrationSchema(db);
   createAtomicBlockRelocationSchema(db);
   createBlockSecondaryAuthorityFoundationSchema(db);
+  createCanvasSceneMaterializationSchema(db);
+}
+
+function createCanvasSceneMaterializationSchema(
+  db: Database.Database,
+): void {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_block_documents_owner_document_project
+      ON block_documents(block_id, document_id, project_id);
+
+    CREATE TABLE IF NOT EXISTS canvas_scene_materializations (
+      document_id TEXT PRIMARY KEY,
+      owner_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+      elements_json TEXT NOT NULL,
+      app_state_json TEXT NOT NULL,
+      files_json TEXT NOT NULL,
+      card_refs_json TEXT NOT NULL,
+      plain_text TEXT NOT NULL,
+      preview TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (owner_block_id, document_id, project_id)
+        REFERENCES block_documents(block_id, document_id, project_id)
+        ON DELETE CASCADE,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE CASCADE,
+      CHECK (json_valid(elements_json) AND json_type(elements_json) = 'array'),
+      CHECK (json_valid(app_state_json) AND json_type(app_state_json) = 'object'),
+      CHECK (json_valid(files_json) AND json_type(files_json) = 'object'),
+      CHECK (json_valid(card_refs_json) AND json_type(card_refs_json) = 'array')
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_canvas_scene_materializations_freshness
+      ON canvas_scene_materializations(generation, projected_seq);
+
+    CREATE TABLE IF NOT EXISTS canvas_scene_file_refs (
+      document_id TEXT NOT NULL,
+      file_id TEXT NOT NULL,
+      owner_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      document_generation INTEGER NOT NULL CHECK (document_generation >= 1),
+      projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      mime_type TEXT NOT NULL,
+      asset_uri TEXT NOT NULL,
+      managed_file_name TEXT NOT NULL,
+      asset_hash TEXT NOT NULL,
+      byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, file_id),
+      FOREIGN KEY (owner_block_id, document_id, project_id)
+        REFERENCES block_documents(block_id, document_id, project_id)
+        ON DELETE CASCADE,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE CASCADE,
+      CHECK (length(file_id) BETWEEN 1 AND 512),
+      CHECK (length(mime_type) BETWEEN 1 AND 256),
+      CHECK (length(asset_uri) BETWEEN 1 AND 4096),
+      CHECK (length(managed_file_name) BETWEEN 1 AND 512),
+      CHECK (length(asset_hash) = 64 AND asset_hash NOT GLOB '*[^0-9a-f]*')
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_canvas_scene_file_refs_owner
+      ON canvas_scene_file_refs(project_id, owner_block_id, file_id);
+
+    CREATE TABLE IF NOT EXISTS canvas_card_references (
+      document_id TEXT NOT NULL,
+      source_element_id TEXT NOT NULL,
+      target_block_id TEXT NOT NULL,
+      owner_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      document_generation INTEGER NOT NULL CHECK (document_generation >= 1),
+      projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      title_hint TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, source_element_id),
+      FOREIGN KEY (target_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (owner_block_id, document_id, project_id)
+        REFERENCES block_documents(block_id, document_id, project_id)
+        ON DELETE CASCADE,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE CASCADE,
+      CHECK (length(source_element_id) BETWEEN 1 AND 512),
+      CHECK (title_hint IS NULL OR length(title_hint) <= 512)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_canvas_card_references_target
+      ON canvas_card_references(project_id, target_block_id, document_id);
+  `);
 }
 
 function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
@@ -3593,7 +3678,7 @@ export function ensureBlockFoundationForProject(
   ensureBlockStoreMetadata(db, now);
 
   const databaseBlockId = primaryDatabaseBlockId(projectId);
-  const viewId = primaryDatabaseViewId(projectId);
+  const viewId = seededPrimaryDatabaseViewId(projectId);
 
   db.prepare(
     `
@@ -3740,7 +3825,7 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
   for (const card of cards) {
     const documentId = cardDocumentId(card.id);
     const databaseBlockId = primaryDatabaseBlockId(card.project_id);
-    const viewId = primaryDatabaseViewId(card.project_id);
+    const viewId = seededPrimaryDatabaseViewId(card.project_id);
     const lifecycle = card.archived === 1 ? "archived" : "active";
     const rankKey = legacyRankKey(card.order);
 
@@ -7044,7 +7129,7 @@ function materializeV67DatabaseViewConfigs(db: Database.Database): void {
       view.database_is_primary === 1 &&
       view.is_primary === 1 &&
       view.database_block_id === primaryDatabaseBlockId(view.project_id) &&
-      view.id === primaryDatabaseViewId(view.project_id);
+      view.id === seededPrimaryDatabaseViewId(view.project_id);
     if (!isSeededPrimary) continue;
     update.run(makePrimaryDatabaseViewConfig(view.project_id), view.id);
   }
@@ -7164,7 +7249,7 @@ function assertV67GeneralDatabaseIntegrity(db: Database.Database): void {
       view.database_is_primary === 1 &&
       view.is_primary === 1 &&
       view.database_block_id === primaryDatabaseBlockId(view.project_id) &&
-      view.id === primaryDatabaseViewId(view.project_id);
+      view.id === seededPrimaryDatabaseViewId(view.project_id);
     if (
       view.database_is_primary === 1 &&
       view.is_primary === 1 &&
@@ -7282,6 +7367,14 @@ function migrateSchema66To67(db: Database.Database): void {
     materializeV67DatabaseViewConfigs(db);
     assertV67GeneralDatabaseIntegrity(db);
     setUserVersion(db, 67);
+  });
+  migrate.immediate();
+}
+
+function migrateSchema67To68(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createCanvasSceneMaterializationSchema(db);
+    setUserVersion(db, 68);
   });
   migrate.immediate();
 }
@@ -7657,6 +7750,16 @@ function runMigrations(
       }
       migrateSchema66To67(db);
       fromVersion = 67;
+      continue;
+    }
+    if (target === 68) {
+      if (fromVersion !== 67) {
+        throw new Error(
+          `Unsupported Nodex database migration target 68 from ${fromVersion}`,
+        );
+      }
+      migrateSchema67To68(db);
+      fromVersion = 68;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

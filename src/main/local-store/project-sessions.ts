@@ -49,6 +49,7 @@ import type {
   PanelId,
   ProjectSession,
   ProjectSessionCreateInput,
+  ProjectSessionDbViewTabConfig,
   ProjectSessionListOptions,
   ProjectSessionSummary,
   ProjectSessionPanelLayout,
@@ -76,6 +77,10 @@ import type {
   CodexThreadActiveFlag,
   CodexThreadStatusType,
 } from "../../shared/types";
+import {
+  readGeneralDatabaseDescriptor,
+  readPrimaryGeneralDatabaseDescriptor,
+} from "./database-query";
 import {
   getCodexThread,
   upsertCodexThread,
@@ -116,6 +121,10 @@ interface DbProjectSessionTab {
   created_at: string;
   updated_at: string;
 }
+
+type ResolvedProjectSessionDbViewTabConfig = ProjectSessionDbViewTabConfig & {
+  readonly databaseViewId: string;
+};
 
 interface DbProjectSessionThread {
   session_id: string;
@@ -266,7 +275,93 @@ function stringifyPanels(panels: Record<PanelId, ProjectSessionPanelState>): str
   return JSON.stringify(ProjectSessionPanelsSchema.parse(panels));
 }
 
-function rowToTab(row: DbProjectSessionTab): ProjectSessionTab {
+function resolveActiveDatabaseViewConfig(
+  database: ReturnType<typeof getDb>,
+  config: ProjectSessionDbViewTabConfig,
+): ResolvedProjectSessionDbViewTabConfig {
+  const projectId = requireProjectId(config.projectId);
+  if (!config.databaseViewId) {
+    const descriptor = readPrimaryGeneralDatabaseDescriptor(projectId, database);
+    const primaryViews = descriptor?.views.filter(
+      (view) => view.lifecycle === "active" && view.isPrimary,
+    ) ?? [];
+    if (primaryViews.length !== 1) {
+      throw new Error(
+        `Legacy Database View tab cannot resolve one active primary View for Project ${projectId}`,
+      );
+    }
+    const primaryView = primaryViews[0];
+    if (!primaryView) {
+      throw new Error(
+        `Legacy Database View tab cannot resolve one active primary View for Project ${projectId}`,
+      );
+    }
+    return {
+      projectId,
+      databaseViewId: primaryView.id,
+      view: config.view,
+    };
+  }
+
+  const pointer = database.prepare(`
+    SELECT database_block_id
+    FROM database_views
+    WHERE id = ? AND project_id = ?
+    LIMIT 1
+  `).get(config.databaseViewId, projectId) as {
+    readonly database_block_id: string;
+  } | undefined;
+  const descriptor = pointer
+    ? readGeneralDatabaseDescriptor(projectId, pointer.database_block_id, database)
+    : null;
+  const activeView = descriptor?.views.find(
+    (view) => view.id === config.databaseViewId && view.lifecycle === "active",
+  );
+  if (!activeView) {
+    throw new Error(
+      `Active Database View ${config.databaseViewId} was not found in Project ${projectId}`,
+    );
+  }
+
+  return {
+    projectId,
+    databaseViewId: activeView.id,
+    view: config.view,
+  };
+}
+
+function parseStoredProjectSessionTabConfig(
+  database: ReturnType<typeof getDb>,
+  row: DbProjectSessionTab,
+): { readonly config: ProjectSessionTabConfig; readonly updatedAt: string } {
+  const parsed = parseProjectSessionTabConfig(row.kind, parseJson(row.config_json));
+  if (row.kind !== "db_view") {
+    return { config: parsed, updatedAt: row.updated_at };
+  }
+
+  const resolved = resolveActiveDatabaseViewConfig(
+    database,
+    parsed as ProjectSessionDbViewTabConfig,
+  );
+  if ((parsed as ProjectSessionDbViewTabConfig).databaseViewId) {
+    return { config: resolved, updatedAt: row.updated_at };
+  }
+
+  const configJson = JSON.stringify(resolved);
+  const updatedAt = new Date().toISOString();
+  database.prepare(`
+    UPDATE project_session_tabs
+    SET config_json = ?, updated_at = ?
+    WHERE id = ? AND config_json = ?
+  `).run(configJson, updatedAt, row.id, row.config_json);
+  return { config: resolved, updatedAt };
+}
+
+function rowToTab(
+  row: DbProjectSessionTab,
+  database: ReturnType<typeof getDb> = getDb(),
+): ProjectSessionTab {
+  const normalized = parseStoredProjectSessionTabConfig(database, row);
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -275,11 +370,11 @@ function rowToTab(row: DbProjectSessionTab): ProjectSessionTab {
     kind: row.kind as ProjectSessionTab["kind"],
     title: row.title,
     order: row.order,
-    config: parseProjectSessionTabConfig(row.kind, parseJson(row.config_json)),
+    config: normalized.config,
     stateKey: row.state_key,
     state: parseJson(row.state_json),
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    updatedAt: normalized.updatedAt,
   };
 }
 
@@ -375,7 +470,7 @@ function buildSession(row: DbProjectSession): ProjectSession {
       ORDER BY CASE panel_id WHEN 'right' THEN 0 ELSE 1 END ASC, "order" ASC, created_at ASC
     `)
     .all(row.id) as DbProjectSessionTab[];
-  const tabs = tabRows.map(rowToTab);
+  const tabs = tabRows.map((tabRow) => rowToTab(tabRow, database));
   const threadRow = database
     .prepare(`
       SELECT
@@ -990,14 +1085,15 @@ function persistPanelStatesAndOrders(
 }
 
 function getTabsForSession(sessionId: string): ProjectSessionTab[] {
-  return (getDb()
+  const database = getDb();
+  return (database
     .prepare(`
       SELECT *
       FROM project_session_tabs
       WHERE session_id = ?
       ORDER BY CASE panel_id WHEN 'right' THEN 0 ELSE 1 END ASC, "order" ASC, created_at ASC
     `)
-    .all(sessionId) as DbProjectSessionTab[]).map(rowToTab);
+    .all(sessionId) as DbProjectSessionTab[]).map((row) => rowToTab(row, database));
 }
 
 function findProjectSessionPanelLeafForOrderedTabs(
@@ -1043,17 +1139,23 @@ function findSingletonTab(session: ProjectSession, kind: ProjectSessionTabCreate
   return session.tabs.find((tab) => tab.kind === kind) ?? null;
 }
 
-function findDbViewTabForProject(session: ProjectSession, targetProjectId: string): ProjectSessionTab | null {
+function findDbViewTab(
+  session: ProjectSession,
+  databaseViewId: string,
+  excludedTabId?: string,
+): ProjectSessionTab | null {
   return session.tabs.find((tab) =>
     tab.kind === "db_view"
-    && "projectId" in tab.config
-    && tab.config.projectId === targetProjectId
+    && tab.id !== excludedTabId
+    && "databaseViewId" in tab.config
+    && tab.config.databaseViewId === databaseViewId
   ) ?? null;
 }
 
 export function createProjectSessionTab(input: ProjectSessionTabCreateInput): ProjectSessionTab {
   const parsed = ProjectSessionTabCreateInputSchema.parse(input);
   const projectId = ensureProjectExists(parsed.projectId);
+  const database = getDb();
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
   if (session.projectId === null) {
@@ -1072,9 +1174,14 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
     return getProjectSession(parsed.sessionId)?.tabs.find((tab) => tab.id === existingSingleton.id) ?? existingSingleton;
   }
 
+  let config = parsed.config;
   if (parsed.kind === "db_view") {
-    const targetProjectId = ensureProjectExists(parsed.config.projectId);
-    const existingDbView = findDbViewTabForProject(session, targetProjectId);
+    const resolved = resolveActiveDatabaseViewConfig(
+      database,
+      parsed.config as ProjectSessionDbViewTabConfig,
+    );
+    config = resolved;
+    const existingDbView = findDbViewTab(session, resolved.databaseViewId);
     if (existingDbView) {
       const panels = updatePanelStateForTabs(session, existingDbView.panelId, session.tabs, existingDbView.id, {
         collapsed: false,
@@ -1084,7 +1191,6 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
     }
   }
 
-  const database = getDb();
   const now = new Date().toISOString();
   const maxOrder = database
     .prepare('SELECT MAX("order") AS maxOrder FROM project_session_tabs WHERE session_id = ? AND panel_id = ?')
@@ -1110,7 +1216,7 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
       parsed.panelId,
       parsed.kind,
       parsed.title,
-      stringifyProjectSessionTabConfig(projectId, parsed.config),
+      stringifyProjectSessionTabConfig(projectId, config),
       (maxOrder?.maxOrder ?? -1) + 1,
       now,
       now,
@@ -1143,8 +1249,29 @@ export function updateProjectSessionTab(tabId: string, input: ProjectSessionTabU
     values.push(parsed.title);
   }
   if (parsed.config !== undefined) {
+    const config = row.kind === "db_view"
+      ? resolveActiveDatabaseViewConfig(
+        database,
+        parsed.config as ProjectSessionDbViewTabConfig,
+      )
+      : parsed.config;
+    if (row.kind === "db_view") {
+      const session = getProjectSession(row.session_id);
+      const duplicate = session
+        ? findDbViewTab(
+          session,
+          (config as ResolvedProjectSessionDbViewTabConfig).databaseViewId,
+          tabId,
+        )
+        : null;
+      if (duplicate) {
+        throw new Error(
+          `Database View ${(config as ResolvedProjectSessionDbViewTabConfig).databaseViewId} is already open in this session`,
+        );
+      }
+    }
     fields.push("config_json = ?");
-    values.push(stringifyProjectSessionTabConfig(row.project_id, parsed.config));
+    values.push(stringifyProjectSessionTabConfig(row.project_id, config));
   }
   if (parsed.stateKey !== undefined) {
     fields.push("state_key = ?");

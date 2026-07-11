@@ -2,12 +2,13 @@ import type { BoardSummary, CardSummary } from "./types";
 import { buildCardDeepLink } from "./card-deeplink";
 
 /** Marker stored in Excalidraw element customData to identify Nodex cards. */
-const CARD_ELEMENT_TYPE = "nodex-card";
+const CARD_ELEMENT_TYPE = "nodex-card-reference";
+const LEGACY_CARD_ELEMENT_TYPE = "nodex-card";
 
 interface CardCustomData {
   type: typeof CARD_ELEMENT_TYPE;
-  cardId: string;
-  columnId: string;
+  targetBlockId: string;
+  titleHint?: string;
 }
 
 interface ExcalidrawElementLike {
@@ -29,7 +30,6 @@ const DEFAULT_CARD_COLOR = "#f8f9fa";
 /** Build an ExcalidrawElementSkeleton representing a card on the canvas. */
 export function createCardElement(
   card: CardSummary,
-  columnId: string,
   position: { x: number; y: number },
 ) {
   const label = card.title.length > 60 ? `${card.title.slice(0, 57)}...` : card.title;
@@ -55,8 +55,8 @@ export function createCardElement(
     },
     customData: {
       type: CARD_ELEMENT_TYPE,
-      cardId: card.id,
-      columnId,
+      targetBlockId: card.id,
+      titleHint: card.title,
     } satisfies CardCustomData,
   };
 }
@@ -68,14 +68,26 @@ function asElementRecord(element: unknown): ExcalidrawElementLike | null {
 
 /** Type guard: does this Excalidraw element represent an Nodex card? */
 export function isCardElement(element: unknown): boolean {
-  return asElementRecord(element)?.customData?.type === CARD_ELEMENT_TYPE;
+  const type = asElementRecord(element)?.customData?.type;
+  return type === CARD_ELEMENT_TYPE || type === LEGACY_CARD_ELEMENT_TYPE;
 }
 
 /** Extract cardId from an Nodex card element. Returns null for non-card elements. */
 export function getCardIdFromElement(element: unknown): string | null {
   if (!isCardElement(element)) return null;
-  const cardId = asElementRecord(element)?.customData?.cardId;
+  const customData = asElementRecord(element)?.customData;
+  const cardId = customData?.targetBlockId ?? customData?.cardId;
   return typeof cardId === "string" ? cardId : null;
+}
+
+/** Disposable display hint; opening a reference never depends on Database membership. */
+export function getCardTitleHintFromElement(element: unknown): string | undefined {
+  if (!isCardElement(element)) return undefined;
+  const record = asElementRecord(element);
+  const titleHint = record?.customData?.titleHint;
+  if (typeof titleHint === "string" && titleHint.length > 0) return titleHint;
+  const label = record?.label?.text;
+  return typeof label === "string" && label.length > 0 ? label : undefined;
 }
 
 export function collectPlacedCardIds(elements: readonly unknown[]): Set<string> {
@@ -100,16 +112,21 @@ export function syncPlacedCardIds(previous: Set<string>, elements: readonly unkn
   return haveSameCardIds(previous, next) ? previous : next;
 }
 
-/** Build a card lookup map from a board summary: cardId → { card, columnId } */
-function buildCardMap(board: BoardSummary): Map<string, { card: CardSummary; columnId: string }> {
-  const map = new Map<string, { card: CardSummary; columnId: string }>();
+/** Build a card lookup map from a board summary. Database placement is not Canvas content. */
+function buildCardMap(board: BoardSummary): Map<string, CardSummary> {
+  const map = new Map<string, CardSummary>();
   for (const col of board.columns) {
     for (const card of col.cards) {
-      map.set(card.id, { card, columnId: col.id });
+      map.set(card.id, card);
     }
   }
   return map;
 }
+
+export type UpdateCanvasElement = (
+  element: ExcalidrawElementLike,
+  updates: Readonly<Record<string, unknown>>,
+) => ExcalidrawElementLike;
 
 /**
  * Given the current Excalidraw elements array and fresh board data,
@@ -119,6 +136,7 @@ function buildCardMap(board: BoardSummary): Map<string, { card: CardSummary; col
 export function updateCardElements(
   elements: readonly ExcalidrawElementLike[],
   board: BoardSummary,
+  updateElement: UpdateCanvasElement,
 ): ExcalidrawElementLike[] | null {
   const cardMap = buildCardMap(board);
   let changed = false;
@@ -126,37 +144,43 @@ export function updateCardElements(
   const updated = elements.map((el) => {
     if (!isCardElement(el)) return el;
 
-    const cardId = (el.customData as unknown as CardCustomData).cardId;
-    const entry = cardMap.get(cardId);
-    if (!entry) return el; // card was deleted, leave element as-is
+    const cardId = getCardIdFromElement(el);
+    if (!cardId) return el;
+    const card = cardMap.get(cardId);
+    if (!card) return el; // card was deleted, leave element as-is
 
     const expectedLabel =
-      entry.card.title.length > 60
-        ? `${entry.card.title.slice(0, 57)}...`
-        : entry.card.title;
-    const expectedBg = entry.card.priority
-      ? (PRIORITY_COLORS[entry.card.priority] ?? DEFAULT_CARD_COLOR)
+      card.title.length > 60
+        ? `${card.title.slice(0, 57)}...`
+        : card.title;
+    const expectedBg = card.priority
+      ? (PRIORITY_COLORS[card.priority] ?? DEFAULT_CARD_COLOR)
       : DEFAULT_CARD_COLOR;
 
     const currentLabel = (el.label as { text?: string } | undefined)?.text;
     const currentBg = el.backgroundColor as string | undefined;
-    const currentColumnId = (el.customData as unknown as CardCustomData).columnId;
+    const customData = el.customData as unknown as CardCustomData;
 
     if (
       currentLabel === expectedLabel &&
       currentBg === expectedBg &&
-      currentColumnId === entry.columnId
+      customData.type === CARD_ELEMENT_TYPE &&
+      customData.targetBlockId === cardId &&
+      customData.titleHint === card.title
     ) {
       return el;
     }
 
     changed = true;
-    return {
-      ...el,
+    return updateElement(el, {
       backgroundColor: expectedBg,
       label: { ...el.label, text: expectedLabel },
-      customData: { ...el.customData, columnId: entry.columnId },
-    };
+      customData: {
+        type: CARD_ELEMENT_TYPE,
+        targetBlockId: cardId,
+        titleHint: card.title,
+      },
+    });
   });
 
   return changed ? updated : null;

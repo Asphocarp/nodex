@@ -45,6 +45,7 @@ import {
   queryDatabaseViewSnapshot,
   readDatabaseDescriptorSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
+  readPrimaryDatabaseViewSnapshot,
 } from "./local-store/database-kernel";
 import {
   applyCardLifecycleMutation,
@@ -200,6 +201,7 @@ const isLegacyAuthorityMutation = (
     case "compactEligibleBlockDocuments":
     case "readDatabaseDescriptor":
     case "readPrimaryDatabaseDescriptor":
+    case "readPrimaryDatabaseViewSnapshot":
     case "queryDatabaseView":
     case "applyDocumentMutation":
     case "createDocumentVersionCheckpoint":
@@ -1406,6 +1408,11 @@ async function runRequest(
       );
     case "readPrimaryDatabaseDescriptor":
       return readPrimaryDatabaseDescriptorSnapshot(
+        getDb(),
+        request.payload.projectId,
+      );
+    case "readPrimaryDatabaseViewSnapshot":
+      return readPrimaryDatabaseViewSnapshot(
         getDb(),
         request.payload.projectId,
       );

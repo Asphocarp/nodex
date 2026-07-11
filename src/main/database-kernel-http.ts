@@ -8,6 +8,7 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "../shared/database-query";
 import {
   bindDatabaseMutationToProject,
@@ -33,6 +34,9 @@ export interface DatabaseKernelHttpDependencies {
   readonly readPrimaryDescriptor: (
     projectId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
+  readonly readPrimaryViewSnapshot: (
+    projectId: string,
+  ) => Promise<PrimaryDatabaseViewSnapshotCommandResult>;
   readonly queryView: (
     projectId: string,
     viewId: string,
@@ -127,6 +131,39 @@ export const registerDatabaseKernelHttpRoutes = (
         );
       } catch (error) {
         result = readFailure(error);
+      }
+      return context.json(result, databaseReadHttpStatus(result));
+    },
+  );
+
+  app.get(
+    "/api/projects/:projectId/database-views/primary/snapshot",
+    async (context) => {
+      context.header("Cache-Control", "no-store");
+      const bound = bindDatabaseReadIdentity(
+        context.req.param("projectId"),
+        "primary-view",
+      );
+      if (!bound.ok) {
+        const result: PrimaryDatabaseViewSnapshotCommandResult = bound;
+        return context.json(result, databaseReadHttpStatus(result));
+      }
+      let result: PrimaryDatabaseViewSnapshotCommandResult;
+      try {
+        result = await dependencies.readPrimaryViewSnapshot(
+          bound.value.projectId,
+        );
+      } catch (error) {
+        result = {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            error instanceof Error
+              ? error.message
+              : "The primary Database View snapshot is unavailable",
+            true,
+          ),
+        };
       }
       return context.json(result, databaseReadHttpStatus(result));
     },

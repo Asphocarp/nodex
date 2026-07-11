@@ -333,7 +333,7 @@ describe("general Database schema v67", () => {
           try {
             expect(
               migrated.pragma("user_version", { simple: true }) as number,
-            ).toBe(67);
+            ).toBe(CURRENT_SCHEMA_VERSION);
             expect(schemaHasTemporaryReference(migrated)).toBeFalse();
             expect(JSON.stringify(migrated.pragma("foreign_key_check"))).toBe(
               "[]",

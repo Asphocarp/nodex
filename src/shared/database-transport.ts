@@ -12,6 +12,9 @@ import {
 import type {
   DatabaseReadCommandError,
   DatabaseReadCommandResult,
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "./database-query";
 
 const MAX_ID_LENGTH = 512;
@@ -214,8 +217,10 @@ export const bindDatabaseReadIdentity = (
   }
 };
 
-export const databaseReadHttpStatus = <T>(
-  result: DatabaseReadCommandResult<T>,
+export const databaseReadHttpStatus = (
+  result:
+    | { readonly ok: true }
+    | { readonly ok: false; readonly error: DatabaseReadCommandError },
 ): 200 | 400 | 404 | 409 | 500 => {
   if (result.ok) return 200;
   if (result.error.code === "project_not_found") return 404;
@@ -352,6 +357,58 @@ export const parseDatabaseReadCommandResult = <T>(
       storeEpoch: snapshot.storeEpoch,
       changeLogSeq: Number(snapshot.changeLogSeq),
       value: jsonValue,
+    },
+  };
+};
+
+export const parsePrimaryDatabaseViewSnapshotCommandResult = (
+  value: unknown,
+): PrimaryDatabaseViewSnapshotCommandResult => {
+  if (!isRecord(value)) {
+    throw new TypeError(
+      "Primary Database View snapshot result must be an object",
+    );
+  }
+  if (value.ok === false) {
+    const parsed = parseDatabaseReadCommandResult<never>(value);
+    if (!parsed.ok) return parsed;
+    throw new TypeError("Primary Database View snapshot error is invalid");
+  }
+  if (
+    value.ok !== true ||
+    !hasExactKeys(value, ["ok", "value"]) ||
+    !isRecord(value.value) ||
+    !hasExactKeys(value.value, ["descriptor", "query"])
+  ) {
+    throw new TypeError(
+      "Primary Database View snapshot result has an invalid envelope",
+    );
+  }
+  const descriptor = parseDatabaseReadCommandResult<GeneralDatabaseDescriptor>({
+    ok: true,
+    value: value.value.descriptor,
+  });
+  const query = parseDatabaseReadCommandResult<GeneralDatabaseViewQuery>({
+    ok: true,
+    value: value.value.query,
+  });
+  if (!descriptor.ok || !query.ok) {
+    throw new TypeError("Primary Database View snapshot is invalid");
+  }
+  if (
+    descriptor.value.projectId !== query.value.projectId ||
+    descriptor.value.storeEpoch !== query.value.storeEpoch ||
+    descriptor.value.changeLogSeq !== query.value.changeLogSeq
+  ) {
+    throw new TypeError(
+      "Primary Database View snapshot does not share one authority cursor",
+    );
+  }
+  return {
+    ok: true,
+    value: {
+      descriptor: descriptor.value,
+      query: query.value,
     },
   };
 };

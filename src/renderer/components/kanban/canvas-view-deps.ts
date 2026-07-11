@@ -1,10 +1,14 @@
-import { useCanvasState } from "@/lib/use-canvas-state";
 import { useKanban } from "@/lib/use-kanban";
 import { useTheme } from "@/lib/use-theme";
+import { RegisteredOwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
+import { OwnedBlockDocumentSurface } from "@/components/block-documents/block-document-surface";
 
-export type { CanvasInitialData } from "@/lib/use-canvas-state";
-
-export { useCanvasState, useKanban, useTheme };
+export {
+  OwnedBlockDocumentSurface,
+  RegisteredOwnedBlockDocumentBoundary,
+  useKanban,
+  useTheme,
+};
 
 export function loadExcalidraw() {
   return import("@excalidraw/excalidraw");

@@ -45,6 +45,7 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "../shared/database-query";
 import type {
   CardLifecycleMutationCommandResult,
@@ -515,6 +516,15 @@ export class CardMutationWriter {
       DatabaseReadCommandResult<GeneralDatabaseDescriptor>
     >({
       type: "readPrimaryDatabaseDescriptor",
+      payload: { projectId },
+    });
+  }
+
+  async readPrimaryDatabaseViewSnapshot(
+    projectId: string,
+  ): Promise<CardMutationEnvelope<PrimaryDatabaseViewSnapshotCommandResult>> {
+    return await this.executeTyped<PrimaryDatabaseViewSnapshotCommandResult>({
+      type: "readPrimaryDatabaseViewSnapshot",
       payload: { projectId },
     });
   }

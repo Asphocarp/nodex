@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import * as Y from "yjs";
 import {
   canonicalizeDocumentOperationIntent,
   canonicalizeDocumentVersionRestoreIntent,
@@ -29,7 +30,10 @@ import {
 } from "../../shared/block-documents/document-operation-engine";
 import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
 import {
-  getBlockDocumentSchemaAdapter,
+  applyCanvasForwardRestorePlan,
+  openCanvasDocument,
+} from "../../shared/block-documents/canvas-document";
+import {
   getRegisteredBlockDocumentSchemaAdapter,
   inspectOwnedBlockDocument,
   toPersistedBlockDocumentMaterialization,
@@ -132,6 +136,7 @@ interface PreparedMutation {
   readonly writeFenceBlockIds: readonly string[];
   readonly titleChanged: boolean;
   readonly coordination: "merge_friendly" | "write_fence";
+  readonly trustedMaxUpdateBytes?: number;
 }
 
 interface StoredChangeLogRow {
@@ -1039,6 +1044,48 @@ const prepareNfmReplacement = (
   };
 };
 
+const prepareCanvasVersionRestore = (
+  document: Y.Doc,
+  ownerBlockId: string,
+  trustedMaxUpdateBytes: number,
+  restore: Extract<
+    import("../../shared/block-documents/document-history").DocumentVersionRestorePlan,
+    { readonly contentModel: "scene_graph" }
+  >,
+): PreparedMutation => {
+  const sourceState = Y.encodeStateAsUpdate(document);
+  const sourceStateVector = Y.encodeStateVector(document);
+  const working = new Y.Doc({ guid: document.guid });
+  try {
+    Y.applyUpdate(working, sourceState);
+    applyCanvasForwardRestorePlan(
+      openCanvasDocument({ documentId: document.guid, document: working }),
+      restore.forwardRestore,
+      `canvas-history-restore:${restore.mutationId}`,
+    );
+    const update = Y.encodeStateAsUpdate(working, sourceStateVector);
+    if (update.byteLength <= 2) {
+      throw new DocumentOperationEngineError(
+        "no_change",
+        "Canvas history restore produced no forward update",
+      );
+    }
+    return {
+      update,
+      createdBlockIds: [],
+      deletedBlockIds: [],
+      updatedBlockIds: [ownerBlockId],
+      movedBlockIds: [],
+      writeFenceBlockIds: [ownerBlockId],
+      titleChanged: false,
+      coordination: "write_fence",
+      trustedMaxUpdateBytes,
+    };
+  } finally {
+    working.destroy();
+  }
+};
+
 const persistChangeLog = (
   database: Database.Database,
   request: MutationRequestBase,
@@ -1256,6 +1303,9 @@ const applyPreparedMutation = (
           options.allowPendingSyncedReferenceTargetIds,
         allowStagedDocumentBearingBlockIds:
           options.allowStagedDocumentBearingBlockIds,
+        ...(prepared.trustedMaxUpdateBytes === undefined
+          ? {}
+          : { maxTrustedUpdateBytes: prepared.trustedMaxUpdateBytes }),
       },
     );
     const stored = readStoredMutation(database, request.mutationId);
@@ -1403,12 +1453,24 @@ const applyMutationInTransaction = (
       schemaKey: loaded.head.schemaKey,
       schemaVersion: loaded.head.schemaVersion,
     };
-    const adapter = getBlockDocumentSchemaAdapter(schema);
+    const adapter = getRegisteredBlockDocumentSchemaAdapter(schema);
 
     let prepared: PreparedMutation;
     let beforeApply: (() => void) | undefined;
     try {
       if (evidence.mutationKind === "document_operation_batch") {
+        if (adapter.contentModel !== "block_tree") {
+          return rejectAndPersist(
+            database,
+            request,
+            evidence,
+            makeError(
+              "invalid_operation",
+              `Document schema ${adapter.schemaKey}@${adapter.schemaVersion} does not support block operation batches`,
+              request,
+            ),
+          );
+        }
         prepared = prepareOperationBatch(
           request as DocumentOperationBatch,
           loaded.document,
@@ -1450,22 +1512,31 @@ const applyMutationInTransaction = (
             request,
           );
         }
-        prepared = prepareOperationBatch(
-          {
-            ...restoreRequest,
-            operations: restore.plan.operations,
-          },
-          loaded.document,
-          loaded.head.ownerBlockId,
-          schema,
-          true,
-        );
-        assertRestoreIdsAreRetainedTombstones(
-          database,
-          request,
-          prepared.createdBlockIds,
-          restore.plan.targetBlockTree,
-        );
+        if (restore.plan.contentModel === "scene_graph") {
+          prepared = prepareCanvasVersionRestore(
+            loaded.document,
+            loaded.head.ownerBlockId,
+            adapter.limits.maxStateBytes,
+            restore.plan,
+          );
+        } else {
+          prepared = prepareOperationBatch(
+            {
+              ...restoreRequest,
+              operations: restore.plan.operations,
+            },
+            loaded.document,
+            loaded.head.ownerBlockId,
+            schema,
+            true,
+          );
+          assertRestoreIdsAreRetainedTombstones(
+            database,
+            request,
+            prepared.createdBlockIds,
+            restore.plan.targetBlockTree,
+          );
+        }
         beforeApply = () => {
           createDocumentVersionCheckpoint(database, {
             version: DOCUMENT_OPERATION_CONTRACT_VERSION,

@@ -35,6 +35,10 @@ import { createProject } from "../src/main/local-store/projects";
 import { openCardDocument } from "../src/shared/block-documents";
 import { materializeCardDocument } from "../src/shared/block-documents/block-document-codec";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
+import type {
+  OwnedDocumentMaterialization,
+  RegisteredOwnedDocumentMaterialization,
+} from "../src/shared/block-documents/document-schema-adapters";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -42,6 +46,13 @@ const invariant: (condition: unknown, message: string) => asserts condition = (
 ) => {
   if (condition) return;
   throw new Error(message);
+};
+
+const requireBlockTreeMaterialization = (
+  materialization: RegisteredOwnedDocumentMaterialization,
+): OwnedDocumentMaterialization => {
+  if (materialization.kind !== "canvas_scene") return materialization;
+  throw new Error("Block-tree history probe received a Canvas materialization");
 };
 
 const readStoreEpoch = (): string => {
@@ -157,12 +168,15 @@ const main = async (): Promise<void> => {
       now: () => "2026-07-11T01:00:00.000Z",
     });
     invariant(!created.duplicate, "First checkpoint was reported as duplicate");
+    const createdMaterialization = requireBlockTreeMaterialization(
+      created.checkpoint.materialization,
+    );
     invariant(
       created.checkpoint.title === "Checkpoint title" &&
-        created.checkpoint.materialization.nfm === "Checkpoint body",
+        createdMaterialization.nfm === "Checkpoint body",
       "Checkpoint did not materialize exact current title/body",
     );
-    const stableBlockIds = created.checkpoint.materialization.blockTree.map(
+    const stableBlockIds = createdMaterialization.blockTree.map(
       (block) => block.id,
     );
     const duplicate = createDocumentVersionCheckpoint(getDb(), createRequest, {
@@ -274,6 +288,7 @@ const main = async (): Promise<void> => {
     const prepared = prepareDocumentVersionRestore(getDb(), restoreRequest);
     invariant(
       prepared.kind === "operation_plan" &&
+        prepared.plan.contentModel === "block_tree" &&
         prepared.plan.requiresWriteFence &&
         prepared.plan.targetBlockTree.map((block) => block.id).join(",") ===
           stableBlockIds.join(","),
@@ -382,11 +397,14 @@ const main = async (): Promise<void> => {
       documentId: descriptor.documentId,
       versionId: created.checkpoint.versionId,
     });
+    const restartedMaterialization = requireBlockTreeMaterialization(
+      restarted.materialization,
+    );
     invariant(
       restarted.checkpointHash === created.checkpoint.checkpointHash &&
         restarted.materializationHash ===
           created.checkpoint.materializationHash &&
-        restarted.materialization.blockTree
+        restartedMaterialization.blockTree
           .map((block) => block.id)
           .join(",") === stableBlockIds.join(","),
       "Checkpoint did not survive restart and authority compaction",
@@ -470,7 +488,10 @@ const main = async (): Promise<void> => {
       { writeFence: replacementFence },
     );
     invariant(replacement.ok, "Large target replacement did not commit");
-    const retainedBlock = largeCheckpoint.checkpoint.materialization.blockTree[0];
+    const largeMaterialization = requireBlockTreeMaterialization(
+      largeCheckpoint.checkpoint.materialization,
+    );
+    const retainedBlock = largeMaterialization.blockTree[0];
     invariant(retainedBlock, "Large checkpoint has no retained Block identity");
     const ordinaryReuse = applyDocumentOperationBatch(getDb(), {
       version: DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -506,6 +527,7 @@ const main = async (): Promise<void> => {
     );
     invariant(
       largePlan.kind === "operation_plan" &&
+        largePlan.plan.contentModel === "block_tree" &&
         largePlan.plan.operations.length > 512,
       "Large restore did not retain its trusted oversized internal plan",
     );
@@ -534,7 +556,7 @@ const main = async (): Promise<void> => {
     try {
       invariant(
         materializeCardDocument(restoredLargeDocument.document).blockTree.length ===
-          largeCheckpoint.checkpoint.materialization.blockTree.length,
+          largeMaterialization.blockTree.length,
         "Oversized restore did not reproduce the immutable BlockTree",
       );
     } finally {

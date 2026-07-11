@@ -55,6 +55,8 @@ export type BlockDocumentSurfaceRelocationPreparer = (
   event: BlockDocumentSurfaceRelocationPreparation,
 ) => void | Promise<void>;
 
+export type BlockDocumentSurfacePersistPreparer = () => void | Promise<void>;
+
 /** Surface-scoped write fence. Event metadata preserves future move seams. */
 export interface BlockDocumentSurfaceWriteFence {
   readonly getWriteFrozen: () => boolean;
@@ -287,6 +289,8 @@ export class BlockDocumentSurfaceRuntime {
   private readonly listeners = new Set<() => void>();
   private readonly relocationPreparers =
     new Set<BlockDocumentSurfaceRelocationPreparer>();
+  private readonly persistPreparers =
+    new Set<BlockDocumentSurfacePersistPreparer>();
   private readonly readyWaiters = new Set<ReadyWaiter>();
   private readonly unsubscribeProviderStatus: () => void;
 
@@ -375,6 +379,16 @@ export class BlockDocumentSurfaceRuntime {
     }
     this.relocationPreparers.add(preparer);
     return () => this.relocationPreparers.delete(preparer);
+  };
+
+  registerPersistPreparer = (
+    preparer: BlockDocumentSurfacePersistPreparer,
+  ): (() => void) => {
+    if (this.closed || this.closing) {
+      throw new Error("Block Document surface is closed");
+    }
+    this.persistPreparers.add(preparer);
+    return () => this.persistPreparers.delete(preparer);
   };
 
   connect = (): Promise<void> => {
@@ -554,6 +568,7 @@ export class BlockDocumentSurfaceRuntime {
       this.closing = false;
       this.refreshStatus();
       this.relocationPreparers.clear();
+      this.persistPreparers.clear();
       this.listeners.clear();
     }
 
@@ -575,13 +590,18 @@ export class BlockDocumentSurfaceRuntime {
   private async persistOwnedDocument(): Promise<BlockDocumentSurfacePersistResult> {
     const flushState: CloseTaskState = { completed: false, failed: false };
     const checkpointState: CloseTaskState = { completed: false, failed: false };
+    const prepare = Promise.all(
+      [...this.persistPreparers].map((preparer) =>
+        Promise.resolve().then(() => preparer()),
+      ),
+    );
     const tasks = [
       observeCloseTask(
-        Promise.resolve().then(() => this.provider.flush()),
+        prepare.then(() => this.provider.flush()),
         flushState,
       ),
       observeCloseTask(
-        Promise.resolve().then(() => this.provider.checkpoint()),
+        prepare.then(() => this.provider.checkpoint()),
         checkpointState,
       ),
     ];

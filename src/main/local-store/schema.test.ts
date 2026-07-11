@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
+import { seededPrimaryDatabaseViewId } from "./project-session-defaults";
 import { CURRENT_SCHEMA_VERSION, getSchemaMigrationTargets } from "./schema";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
@@ -67,6 +68,7 @@ describe("schema initialization", () => {
       65,
       66,
       67,
+      68,
     ];
     const expectedTargetsAfter = (version: number) => JSON.stringify(
       supportedTargets.filter((target) => target > version),
@@ -536,7 +538,13 @@ describe("schema initialization", () => {
       expect(databaseViewTab?.id.startsWith("overview:") ?? true).toBeFalse();
       expect(databaseViewTab?.panel_id).toBe("right");
       expect(databaseViewTab?.kind).toBe("db_view");
-      expect(databaseViewTab?.config_json).toBe(JSON.stringify({ projectId: defaultProjectId, view: "kanban" }));
+      expect(databaseViewTab?.config_json).toBe(
+        JSON.stringify({
+          projectId: defaultProjectId,
+          databaseViewId: seededPrimaryDatabaseViewId(defaultProjectId),
+          view: "kanban",
+        }),
+      );
 
       const parsedPanelState = JSON.parse(databaseViewSession?.panel_state_json ?? "{}") as {
         right?: { collapsed?: boolean; layout?: { version?: number }; size?: { fullWidth?: boolean } };
@@ -1614,6 +1622,7 @@ describe("schema initialization", () => {
         `).all() as Array<{ name: string }>;
         const tableNames = tableRows.map((row) => row.name);
         expect(tableNames.includes("project_id_aliases")).toBeFalse();
+        expect(tableNames.includes("canvas")).toBeFalse();
 
         const oldProjectRows = migrated.prepare(`
           SELECT COUNT(*) AS count
@@ -1651,7 +1660,6 @@ describe("schema initialization", () => {
         for (const tableName of [
           "cards",
           "history",
-          "canvas",
           "recurrence_exceptions",
           "reminder_receipts",
           "reminder_snoozes",
@@ -1672,6 +1680,20 @@ describe("schema initialization", () => {
           `).get(alphaProjectId) as { count: number };
           expect(canonicalCount.count > 0).toBeTrue();
         }
+
+        const countCanvasOwners = migrated.prepare(`
+          SELECT COUNT(*) AS count
+          FROM blocks
+          WHERE type = 'canvas' AND project_id = ?
+        `);
+        const alphaCanvasOwners = countCanvasOwners.get(alphaProjectId) as {
+          count: number;
+        };
+        const betaCanvasOwners = countCanvasOwners.get(betaProjectId) as {
+          count: number;
+        };
+        expect(alphaCanvasOwners.count).toBe(1);
+        expect(betaCanvasOwners.count).toBe(1);
 
         const overview = migrated.prepare(`
           SELECT id, panel_state_json
@@ -2003,7 +2025,13 @@ describe("schema initialization", () => {
       `).get(`overview:${alphaProjectId}`) as { panel_id: string; kind: string; config_json: string } | undefined;
       expect(overviewTab?.panel_id).toBe("right");
       expect(overviewTab?.kind).toBe("db_view");
-      expect(overviewTab?.config_json).toBe(JSON.stringify({ projectId: alphaProjectId, view: "kanban" }));
+      expect(overviewTab?.config_json).toBe(
+        JSON.stringify({
+          projectId: alphaProjectId,
+          databaseViewId: seededPrimaryDatabaseViewId(alphaProjectId),
+          view: "kanban",
+        }),
+      );
 
       const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
       expect(JSON.stringify(foreignKeyProblems)).toBe("[]");
@@ -2878,7 +2906,13 @@ describe("schema initialization", () => {
         expect(alphaDatabaseViewTab?.panel_id).toBe("right");
         expect(alphaDatabaseViewTab?.kind).toBe("db_view");
         expect(alphaDatabaseViewTab?.title).toBe("DB View");
-        expect(alphaDatabaseViewTab?.config_json).toBe(JSON.stringify({ projectId: "alpha", view: "kanban" }));
+        expect(alphaDatabaseViewTab?.config_json).toBe(
+          JSON.stringify({
+            projectId: "alpha",
+            databaseViewId: seededPrimaryDatabaseViewId("alpha"),
+            view: "kanban",
+          }),
+        );
 
         const oldOverviewLinkCount = migrated.prepare(`
           SELECT COUNT(*) AS count

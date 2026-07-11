@@ -41,6 +41,7 @@ import {
   type DatabaseReadSnapshot,
   type GeneralDatabaseDescriptor,
   type GeneralDatabaseViewQuery,
+  type PrimaryDatabaseViewSnapshotCommandResult,
 } from "../../shared/database-query";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
 
@@ -3358,6 +3359,42 @@ export const readPrimaryDatabaseDescriptorSnapshot = (
   readDatabaseSnapshot(database, projectId, () =>
     readPrimaryGeneralDatabaseDescriptor(projectId, database),
   );
+
+export const readPrimaryDatabaseViewSnapshot = (
+  database: Database.Database,
+  projectId: string,
+): PrimaryDatabaseViewSnapshotCommandResult => {
+  const captured = readDatabaseSnapshot(database, projectId, () => {
+    const descriptor = readPrimaryGeneralDatabaseDescriptor(projectId, database);
+    const primaryView = descriptor?.views.find(
+      (view) => view.lifecycle === "active" && view.isPrimary && view.kind === "kanban",
+    );
+    return {
+      descriptor,
+      query: primaryView
+        ? queryGeneralDatabaseView(projectId, primaryView.id, database)
+        : null,
+    };
+  });
+  if (!captured.ok) return captured;
+
+  const { version, storeEpoch, changeLogSeq } = captured.value;
+  const value = captured.value.value;
+  const wrap = <T>(snapshotValue: T | null): DatabaseReadSnapshot<T> => ({
+    version,
+    projectId,
+    storeEpoch,
+    changeLogSeq,
+    value: snapshotValue,
+  });
+  return {
+    ok: true,
+    value: {
+      descriptor: wrap(value?.descriptor ?? null),
+      query: wrap(value?.query ?? null),
+    },
+  };
+};
 
 export const queryDatabaseViewSnapshot = (
   database: Database.Database,

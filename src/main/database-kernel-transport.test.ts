@@ -8,12 +8,14 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "../shared/database-query";
 import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import {
   DATABASE_DESCRIPTOR_IPC_CHANNEL,
   DATABASE_MUTATION_IPC_CHANNEL,
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+  PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
   DATABASE_VIEW_QUERY_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
 } from "./database-kernel-ipc";
@@ -62,6 +64,21 @@ const viewQuery = (): DatabaseReadCommandResult<GeneralDatabaseViewQuery> => ({
   },
 });
 
+const primaryViewSnapshot = (): PrimaryDatabaseViewSnapshotCommandResult => {
+  const descriptorResult = descriptor();
+  const queryResult = viewQuery();
+  if (!descriptorResult.ok || !queryResult.ok) {
+    throw new Error("Database transport fixture is invalid");
+  }
+  return {
+    ok: true,
+    value: {
+      descriptor: descriptorResult.value,
+      query: queryResult.value,
+    },
+  };
+};
+
 describe("Database IPC/HTTP transport", () => {
   test("rebinds spoofable audit identity and preserves exact retry semantics across IPC and HTTP", async () => {
     const received: DatabaseMutationRequest[] = [];
@@ -102,6 +119,7 @@ describe("Database IPC/HTTP transport", () => {
       applyMutation: apply,
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
+      readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
       queryView: async () => viewQuery(),
     });
 
@@ -127,6 +145,7 @@ describe("Database IPC/HTTP transport", () => {
       applyMutation: apply,
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
+      readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
       queryView: async () => viewQuery(),
     });
     const response = await app.request(
@@ -173,6 +192,7 @@ describe("Database IPC/HTTP transport", () => {
       },
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
+      readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
       queryView: async () => viewQuery(),
     });
     const app = new Hono();
@@ -182,6 +202,7 @@ describe("Database IPC/HTTP transport", () => {
       },
       readDescriptor: async () => descriptor(),
       readPrimaryDescriptor: async () => descriptor(),
+      readPrimaryViewSnapshot: async () => primaryViewSnapshot(),
       queryView: async () => viewQuery(),
     });
 
@@ -202,6 +223,18 @@ describe("Database IPC/HTTP transport", () => {
       await app.request("/api/projects/project-1/databases/primary")
     ).json();
     expect(JSON.stringify(ipcPrimary)).toBe(JSON.stringify(httpPrimary));
+
+    const ipcPrimaryViewSnapshot = await handlers.get(
+      PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
+    )?.("trusted", "project-1");
+    const httpPrimaryViewSnapshot = await (
+      await app.request(
+        "/api/projects/project-1/database-views/primary/snapshot",
+      )
+    ).json();
+    expect(JSON.stringify(ipcPrimaryViewSnapshot)).toBe(
+      JSON.stringify(httpPrimaryViewSnapshot),
+    );
 
     const ipcQuery = await handlers.get(DATABASE_VIEW_QUERY_IPC_CHANNEL)?.(
       "trusted",

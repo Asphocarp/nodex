@@ -26,6 +26,7 @@ import {
   deleteBlockFoundationForProject,
   ensureBlockFoundationForProject,
 } from "./schema";
+import { ensurePrimaryCanvasDocument } from "./primary-canvas-document";
 
 interface DbProjectRow {
   id: string;
@@ -241,6 +242,7 @@ export function createProject(input: ProjectCreateInput): Project {
     insertProjectSources(database, projectId, sources, now);
     insertInitialDatabaseViewSession(database, projectId, now, { shiftExisting: false });
     ensureBlockFoundationForProject(database, projectId, now);
+    ensurePrimaryCanvasDocument(database, projectId);
   });
   txn();
 

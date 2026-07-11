@@ -39,6 +39,7 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "../shared/database-query";
 import type {
   CardLifecycleMutationCommandResult,
@@ -299,6 +300,10 @@ export type CardMutationWorkerRequest =
       payload: { readonly projectId: string };
     })
   | (CardMutationWorkerRequestBase & {
+      type: "readPrimaryDatabaseViewSnapshot";
+      payload: { readonly projectId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "queryDatabaseView";
       payload: { readonly projectId: string; readonly viewId: string };
     })
@@ -416,6 +421,7 @@ export type CardMutationWorkerResult =
   | CompactEligibleBlockDocumentsResult
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
   | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
+  | PrimaryDatabaseViewSnapshotCommandResult
   | DocumentOperationCommandResult
   | undefined;
 

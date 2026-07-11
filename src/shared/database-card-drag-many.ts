@@ -5,10 +5,9 @@ import {
   type SetDatabasePropertyValueEntry,
 } from "./database-kernel";
 import type {
-  DatabaseReadSnapshot,
   GeneralDatabaseDescriptor,
   GeneralDatabasePropertyDefinition,
-  GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshot,
 } from "./database-query";
 import type { MoveCardsInput } from "./types";
 
@@ -40,10 +39,7 @@ export class DatabaseCardDragManyError extends Error {
   }
 }
 
-export interface DatabaseCardDragManySnapshot {
-  readonly descriptor: DatabaseReadSnapshot<GeneralDatabaseDescriptor>;
-  readonly query: DatabaseReadSnapshot<GeneralDatabaseViewQuery>;
-}
+export type DatabaseCardDragManySnapshot = PrimaryDatabaseViewSnapshot;
 
 export interface CompiledDatabaseCardDragMany {
   readonly databaseBlockId: string;

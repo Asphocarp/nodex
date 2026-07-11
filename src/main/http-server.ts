@@ -5,7 +5,6 @@ import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
-import * as canvasService from "./local-store/canvas";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
 import * as historyStore from "./local-store/history";
@@ -266,6 +265,9 @@ registerDatabaseKernelHttpRoutes(app, {
     ).result,
   readPrimaryDescriptor: async (projectId) =>
     (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
+  readPrimaryViewSnapshot: async (projectId) =>
+    (await cardMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
+      .result,
   queryView: async (projectId, viewId) =>
     (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
 });
@@ -1579,17 +1581,6 @@ app.put("/api/projects/:projectId/move", async (c) => {
   return c.json({ success: true });
 });
 
-app.put("/api/projects/:projectId/move-many", async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = await c.req.json();
-  const { result } = await cardMutationWriter.moveCards({ ...body, projectId });
-  if (result === "wrong_column") {
-    return c.json({ error: "One or more cards are no longer in the expected column" }, 409);
-  }
-  if (result === "not_found") return c.json({ error: "One or more cards were not found" }, 404);
-  return c.json({ success: true });
-});
-
 app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
   const sourceProjectId = c.req.param("projectId");
   const body = await c.req.json().catch(() => ({}));
@@ -1664,50 +1655,6 @@ app.post("/api/projects/:projectId/card-editor-drop", cardWriteBodyLimit, async 
     return c.json({ error: (err as Error).message }, 400);
   }
 });
-
-// === Canvas routes ===
-
-app.get("/api/projects/:projectId/canvas", (c) => {
-  const projectId = c.req.param("projectId");
-  const data = canvasService.getCanvas(projectId);
-  if (!data) return c.json(null);
-  return c.json(data);
-});
-
-/** 20 MB limit for canvas payload (includes embedded image files) */
-const CANVAS_BODY_LIMIT = 20 * 1024 * 1024;
-
-app.put(
-  "/api/projects/:projectId/canvas",
-  bodyLimit({
-    maxSize: CANVAS_BODY_LIMIT,
-    onError: (c) => c.json({ error: "Canvas payload exceeds 20MB limit" }, 413),
-  }),
-  async (c) => {
-    const projectId = c.req.param("projectId");
-    if (!projectsStore.getProject(projectId)) {
-      return c.json({ error: "Project not found" }, 404);
-    }
-    const body = await c.req.json();
-    if (typeof body.elements !== "string" || typeof body.appState !== "string") {
-      return c.json({ error: "elements and appState must be JSON strings" }, 400);
-    }
-    if (body.files !== undefined && typeof body.files !== "string") {
-      return c.json({ error: "files must be a JSON string when provided" }, 400);
-    }
-    try {
-      canvasService.saveCanvas(projectId, {
-        elements: body.elements,
-        appState: body.appState,
-        files: typeof body.files === "string" ? body.files : "{}",
-        updated: typeof body.updated === "string" ? body.updated : new Date().toISOString(),
-      });
-      return c.json({ success: true });
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 400);
-    }
-  },
-);
 
 // === SSE events ===
 

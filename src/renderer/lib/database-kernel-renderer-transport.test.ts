@@ -175,6 +175,25 @@ describe("Database renderer transport", () => {
       {
         ok: true,
         value: {
+          descriptor: {
+            version: 1,
+            projectId: request.projectId,
+            storeEpoch: request.storeEpoch,
+            changeLogSeq: 4,
+            value: null,
+          },
+          query: {
+            version: 1,
+            projectId: request.projectId,
+            storeEpoch: request.storeEpoch,
+            changeLogSeq: 4,
+            value: null,
+          },
+        },
+      },
+      {
+        ok: true,
+        value: {
           version: 1,
           projectId: request.projectId,
           storeEpoch: request.storeEpoch,
@@ -212,6 +231,11 @@ describe("Database renderer transport", () => {
         request.projectId,
       )) as { readonly ok: boolean };
       expect(primary.ok).toBeTrue();
+      const primaryViewSnapshot = (await browserRendererTransport.invoke(
+        "database-views:primary:snapshot",
+        request.projectId,
+      )) as { readonly ok: boolean };
+      expect(primaryViewSnapshot.ok).toBeTrue();
       const query = (await browserRendererTransport.invoke(
         "database-views:query",
         request.projectId,
@@ -234,6 +258,11 @@ describe("Database renderer transport", () => {
       ).toBeTrue();
       expect(
         urls[3]?.endsWith(
+          "/api/projects/project%2Fone/database-views/primary/snapshot",
+        ),
+      ).toBeTrue();
+      expect(
+        urls[4]?.endsWith(
           "/api/projects/project%2Fone/database-views/view%2Fone/query",
         ),
       ).toBeTrue();

@@ -44,6 +44,7 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "./database-query";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
@@ -200,7 +201,6 @@ import type {
   CardEditorDropResult,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
-  CanvasData,
   Card,
   CardInput,
   CardSummary,
@@ -216,7 +216,6 @@ import type {
   MoveCardInput,
   MoveCardToProjectInput,
   MoveCardToProjectResult,
-  MoveCardsInput,
   Project,
   ProjectCreateInput,
   ProjectOrderInput,
@@ -609,6 +608,10 @@ export interface IpcApi {
     args: [projectId: string];
     result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
   };
+  "database-views:primary:snapshot": {
+    args: [projectId: string];
+    result: PrimaryDatabaseViewSnapshotCommandResult;
+  };
   "database-views:query": {
     args: [projectId: string, viewId: string];
     result: DatabaseReadCommandResult<GeneralDatabaseViewQuery>;
@@ -853,10 +856,6 @@ export interface IpcApi {
     args: [input: MoveCardInput & { projectId: string; sessionId?: string }];
     result: boolean;
   };
-  "card:move-many": {
-    args: [input: MoveCardsInput & { projectId: string; sessionId?: string }];
-    result: boolean;
-  };
   "card:move-to-project": {
     args: [input: MoveCardToProjectInput & { sessionId?: string }];
     result: MoveCardToProjectResult;
@@ -1071,8 +1070,6 @@ export interface IpcApi {
     args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
     result: boolean;
   };
-  "canvas:get": { args: [projectId: string]; result: CanvasData | null };
-  "canvas:save": { args: [projectId: string, data: CanvasData]; result: void };
   "asset:resolve-path": { args: [source: string]; result: string | null };
   "clipboard:write-image": {
     args: [input: { source: string }];

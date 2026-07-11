@@ -3,10 +3,16 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { type BlockTreeValue } from "../../shared/block-documents/block-document-codec";
 import {
+  getRegisteredBlockDocumentSchemaAdapterForSchema,
   getBlockDocumentSchemaAdapterForSchema,
-  inspectOwnedBlockDocument,
-  type OwnedDocumentMaterialization,
+  inspectRegisteredOwnedBlockDocument,
+  type RegisteredOwnedDocumentMaterialization,
 } from "../../shared/block-documents/document-schema-adapters";
+import {
+  canonicalCanvasSceneFingerprint,
+  canonicalCanvasSceneSemanticFingerprint,
+  compileCanvasForwardRestorePlan,
+} from "../../shared/block-documents/canvas-document";
 import { compileBlockTreeReplacementOperations } from "../../shared/block-documents/document-operation-engine";
 import {
   DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -325,28 +331,32 @@ const assertStoreEpoch = (
 };
 
 const materializationHash = (
-  materialization: OwnedDocumentMaterialization,
-): string =>
-  createHash("sha256")
-    .update(
-      stableStringifyTrustedValue({
-        schemaVersion: materialization.schemaVersion,
-        kind: materialization.kind,
-        ...(materialization.kind === "card"
-          ? { title: materialization.title }
-          : {}),
-        blockTree: materialization.blockTree,
-        nfm: materialization.nfm,
-        plainText: materialization.plainText,
-        preview: materialization.preview,
-        references: materialization.references,
-        assetRefs: materialization.assetRefs,
-      }),
-    )
-    .digest("hex");
+  materialization: RegisteredOwnedDocumentMaterialization,
+): string => {
+  const canonical =
+    materialization.kind === "canvas_scene"
+      ? canonicalCanvasSceneFingerprint(materialization)
+      : stableStringifyTrustedValue({
+          schemaVersion: materialization.schemaVersion,
+          kind: materialization.kind,
+          ...(materialization.kind === "card"
+            ? { title: materialization.title }
+            : {}),
+          blockTree: materialization.blockTree,
+          nfm: materialization.nfm,
+          plainText: materialization.plainText,
+          preview: materialization.preview,
+          references: materialization.references,
+          assetRefs: materialization.assetRefs,
+        });
+  return createHash("sha256").update(canonical).digest("hex");
+};
 
 const countBlocks = (
-  blocks: OwnedDocumentMaterialization["blockTree"],
+  blocks: Exclude<
+    RegisteredOwnedDocumentMaterialization,
+    { readonly kind: "canvas_scene" }
+  >["blockTree"],
 ): number =>
   blocks.reduce((count, block) => count + 1 + countBlocks(block.children), 0);
 
@@ -439,13 +449,13 @@ const decodeVersionRow = (
         `Document version ${row.version_id} state vector does not match`,
       );
     }
-    let materialization: OwnedDocumentMaterialization;
+    let materialization: RegisteredOwnedDocumentMaterialization;
     try {
-      const adapter = getBlockDocumentSchemaAdapterForSchema({
+      const adapter = getRegisteredBlockDocumentSchemaAdapterForSchema({
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
       });
-      materialization = inspectOwnedBlockDocument(document, {
+      materialization = inspectRegisteredOwnedBlockDocument(document, {
         ownerType: adapter.ownerType,
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
@@ -453,7 +463,7 @@ const decodeVersionRow = (
     } catch (error) {
       throw new DocumentVersionStoreError(
         "document_version_corrupt",
-        `Document version ${row.version_id} is not a valid Card Document: ${error instanceof Error ? error.message : String(error)}`,
+        `Document version ${row.version_id} is not a valid registered Document: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     if (materialization.schemaVersion !== row.schema_version) {
@@ -480,7 +490,10 @@ const decodeVersionRow = (
       materializationKind: materialization.kind,
       title: materialization.kind === "card" ? materialization.title : null,
       preview: materialization.preview,
-      blockCount: countBlocks(materialization.blockTree),
+      blockCount:
+        materialization.kind === "canvas_scene"
+          ? materialization.elements.length
+          : countBlocks(materialization.blockTree),
       createdAt: row.created_at,
       fullUpdate: asBytes(row.full_update_blob),
       stateVector: asBytes(stateVector),
@@ -753,11 +766,14 @@ export const createDocumentVersionCheckpoint = (
         );
       }
       const ownerType = loaded.ownerType;
-      const materialization = inspectOwnedBlockDocument(loaded.document, {
+      const materialization = inspectRegisteredOwnedBlockDocument(
+        loaded.document,
+        {
         ownerType,
         schemaKey: loaded.head.schemaKey,
         schemaVersion: loaded.head.schemaVersion,
-      }).materialization;
+        },
+      ).materialization;
       const checkpointHash = hashBytes(fullUpdate);
       const stateVectorHash = hashBytes(stateVector);
       const semanticHash = materializationHash(materialization);
@@ -1023,18 +1039,19 @@ export const prepareDocumentVersionRestore = (
           `Version ${version.versionId} uses ${version.schemaKey}@${version.schemaVersion}; current Document uses ${loaded.head.schemaKey}@${loaded.head.schemaVersion}`,
         );
       }
-      const adapter = getBlockDocumentSchemaAdapterForSchema({
-        schemaKey: loaded.head.schemaKey,
-        schemaVersion: loaded.head.schemaVersion,
-      });
+      const registeredAdapter =
+        getRegisteredBlockDocumentSchemaAdapterForSchema({
+          schemaKey: loaded.head.schemaKey,
+          schemaVersion: loaded.head.schemaVersion,
+        });
       const ownerType = loaded.ownerType;
-      if (adapter.ownerType !== ownerType) {
+      if (registeredAdapter.ownerType !== ownerType) {
         throw new DocumentVersionStoreError(
           "document_version_schema_mismatch",
           `Document owner ${ownerType} does not match ${loaded.head.schemaKey}@${loaded.head.schemaVersion}`,
         );
       }
-      const current = inspectOwnedBlockDocument(loaded.document, {
+      const current = inspectRegisteredOwnedBlockDocument(loaded.document, {
         ownerType,
         schemaKey: loaded.head.schemaKey,
         schemaVersion: loaded.head.schemaVersion,
@@ -1046,8 +1063,71 @@ export const prepareDocumentVersionRestore = (
         );
       }
       const sourceVersion = toSummary(version);
+      const planBase = {
+        version: DOCUMENT_VERSION_CONTRACT_VERSION,
+        kind: "document_version_restore" as const,
+        mutationId: input.mutationId,
+        projectId: input.projectId,
+        storeEpoch: input.storeEpoch,
+        documentId: input.documentId,
+        generation: input.generation,
+        expectedHeadSeq: input.expectedHeadSeq,
+        ...(input.clientSessionId
+          ? { clientSessionId: input.clientSessionId }
+          : {}),
+        actor,
+        sourceVersion,
+        requiresWriteFence: true as const,
+      } as const;
+      if (
+        current.kind === "canvas_scene" &&
+        version.materialization.kind === "canvas_scene"
+      ) {
+        if (registeredAdapter.contentModel !== "scene_graph") {
+          throw new DocumentVersionStoreError(
+            "document_version_schema_mismatch",
+            `Canvas version ${version.versionId} is registered through a non-scene Document Adapter`,
+          );
+        }
+        if (
+          canonicalCanvasSceneSemanticFingerprint(current) ===
+          canonicalCanvasSceneSemanticFingerprint(version.materialization)
+        ) {
+          return { kind: "already_current", sourceVersion };
+        }
+        const plan: DocumentVersionRestorePlan = {
+          ...planBase,
+          contentModel: "scene_graph",
+          forwardRestore: compileCanvasForwardRestorePlan({
+            current,
+            target: version.materialization,
+            restoreIdentity: input.mutationId,
+          }),
+        };
+        return { kind: "operation_plan", plan };
+      }
+      if (
+        registeredAdapter.contentModel === "scene_graph" ||
+        current.kind === "canvas_scene" ||
+        version.materialization.kind === "canvas_scene"
+      ) {
+        throw new DocumentVersionStoreError(
+          "document_version_schema_mismatch",
+          "Canvas history restore requires matching scene-graph materializations",
+        );
+      }
       if (materializationHash(current) === version.materializationHash) {
         return { kind: "already_current", sourceVersion };
+      }
+      const adapter = getBlockDocumentSchemaAdapterForSchema({
+        schemaKey: loaded.head.schemaKey,
+        schemaVersion: loaded.head.schemaVersion,
+      });
+      if (adapter.ownerType !== ownerType) {
+        throw new DocumentVersionStoreError(
+          "document_version_schema_mismatch",
+          `Document owner ${ownerType} does not match ${loaded.head.schemaKey}@${loaded.head.schemaVersion}`,
+        );
       }
       const operations = [
         ...(current.kind !== "card" ||
@@ -1066,25 +1146,13 @@ export const prepareDocumentVersionRestore = (
         ),
       ];
       const plan: DocumentVersionRestorePlan = {
-        version: DOCUMENT_VERSION_CONTRACT_VERSION,
-        kind: "document_version_restore",
-        mutationId: input.mutationId,
-        projectId: input.projectId,
-        storeEpoch: input.storeEpoch,
-        documentId: input.documentId,
-        generation: input.generation,
-        expectedHeadSeq: input.expectedHeadSeq,
-        ...(input.clientSessionId
-          ? { clientSessionId: input.clientSessionId }
-          : {}),
-        actor,
-        sourceVersion,
+        ...planBase,
+        contentModel: "block_tree",
         ...(version.materialization.kind === "card"
           ? { targetTitle: version.materialization.title }
           : {}),
         targetBlockTree: version.materialization.blockTree,
         operations,
-        requiresWriteFence: true,
       };
       return { kind: "operation_plan", plan };
     } finally {

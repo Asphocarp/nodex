@@ -46,6 +46,8 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- Canvas scenes now synchronize through an independent per-Project Y.Doc, so concurrent windows merge Excalidraw edits instead of overwriting a whole-scene snapshot; image files use verified managed assets and Card shapes remain stable references.
+- Multi-Card Kanban drags now commit status, property, and manual View position changes as one atomic Database operation, with exact retry and all-or-nothing conflict recovery.
 - Moving Blocks between collaborative Cards now uses one atomic cross-Document transaction: active editors briefly flush and freeze, application Block IDs stay stable, and a failed move leaves both Cards unchanged instead of saving competing body snapshots.
 - Full Card detail, Board, reference, and notification-summary reads now assemble current collaborative content and relational properties from their authoritative records, so stale legacy Card columns cannot reappear after a remote edit or restart.
 - Card search now indexes committed collaborative Document title/body units and resolves current relational status, so remote edits become searchable immediately and stale legacy content cannot reappear after restart.

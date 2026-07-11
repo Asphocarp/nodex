@@ -5,6 +5,7 @@ export * from "./synced-block-document";
 export * from "./additional-document-bearing-blocks";
 export * from "./body-only-block-document";
 export * from "./additional-document-bearing-operations";
+export * from "./canvas-document";
 export * from "./document-schema-adapters";
 export * from "./contracts";
 export * from "./document-sync";

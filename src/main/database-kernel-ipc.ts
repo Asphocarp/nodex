@@ -6,6 +6,7 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "../shared/database-query";
 import {
   bindDatabaseMutationToProject,
@@ -21,6 +22,8 @@ export const DATABASE_DESCRIPTOR_IPC_CHANNEL =
   "databases:descriptor:get" as const;
 export const PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL =
   "databases:primary:get" as const;
+export const PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL =
+  "database-views:primary:snapshot" as const;
 export const DATABASE_VIEW_QUERY_IPC_CHANNEL = "database-views:query" as const;
 
 export interface DatabaseKernelIpcDependencies {
@@ -29,6 +32,7 @@ export interface DatabaseKernelIpcDependencies {
       | typeof DATABASE_MUTATION_IPC_CHANNEL
       | typeof DATABASE_DESCRIPTOR_IPC_CHANNEL
       | typeof PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL
+      | typeof PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
       | typeof DATABASE_VIEW_QUERY_IPC_CHANNEL,
     listener: (
       event: unknown,
@@ -49,6 +53,9 @@ export interface DatabaseKernelIpcDependencies {
   readonly readPrimaryDescriptor: (
     projectId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
+  readonly readPrimaryViewSnapshot: (
+    projectId: string,
+  ) => Promise<PrimaryDatabaseViewSnapshotCommandResult>;
   readonly queryView: (
     projectId: string,
     viewId: string,
@@ -114,6 +121,33 @@ export const registerDatabaseKernelIpcHandlers = (
             true,
           ),
         } satisfies DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
+      }
+    },
+  );
+
+  dependencies.registerHandle(
+    PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
+    async (event, projectId) => {
+      if (!dependencies.resolveTrustedIdentity(event)) {
+        return untrustedRead<never>();
+      }
+      const bound = bindDatabaseReadIdentity(projectId, "primary-view");
+      if (!bound.ok) return bound;
+      try {
+        return await dependencies.readPrimaryViewSnapshot(
+          bound.value.projectId,
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            error instanceof Error
+              ? error.message
+              : "The primary Database View snapshot is unavailable",
+            true,
+          ),
+        } satisfies PrimaryDatabaseViewSnapshotCommandResult;
       }
     },
   );

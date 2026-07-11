@@ -421,6 +421,13 @@ export type ProjectSessionSingletonTabKind =
 
 export interface ProjectSessionDbViewTabConfig {
   projectId: string;
+  /**
+   * Durable Database View identity. This is optional only at the input type
+   * boundary while persisted pre-Block-first overview configs are normalized;
+   * ProjectSession storage always resolves and returns it.
+   */
+  databaseViewId?: string;
+  /** Window presentation mode. It never participates in tab identity. */
   view: ProjectSessionDbView;
 }
 
@@ -1251,13 +1258,6 @@ export interface RestoreBackupResult {
   success: boolean;
   restoredBackupId: string;
   safetyBackupId?: string;
-}
-
-export interface CanvasData {
-  elements: string;
-  appState: string;
-  files: string;
-  updated: string;
 }
 
 export type CodexThreadStatusType =

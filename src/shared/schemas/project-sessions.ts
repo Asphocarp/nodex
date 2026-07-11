@@ -39,6 +39,7 @@ const titleSchema = z.string().trim().min(1).max(MAX_PROJECT_SESSION_TITLE_LENGT
 
 export const ProjectSessionDbViewTabConfigSchema = z.object({
   projectId: z.string().min(1),
+  databaseViewId: z.string().min(1).optional(),
   view: WorkbenchViewSchema,
 }) satisfies z.ZodType<ProjectSessionDbViewTabConfig>;
 

@@ -5,6 +5,7 @@ import { migrateLegacyDatabaseFileName } from "./database-file-migration";
 import { backfillCardHistorySnapshots } from "./history";
 import { ensureDatabase, type EnsureDatabaseOptions } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
+import { ensurePrimaryCanvasDocuments } from "./primary-canvas-document";
 
 let db: Database.Database | null = null;
 const DATABASE_MAINTENANCE_LEASE_ENV =
@@ -93,5 +94,6 @@ export function closeDatabase(): void {
 export async function initializeDatabase(options?: EnsureDatabaseOptions): Promise<void> {
   recoverInterruptedStoreRestore();
   ensureDatabase(options);
+  ensurePrimaryCanvasDocuments(getDb());
   backfillCardHistorySnapshots();
 }

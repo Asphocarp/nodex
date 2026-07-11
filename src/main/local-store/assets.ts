@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "node:crypto";
 
 import { getLocalStoreDir } from "./assets-deps";
 import {
@@ -163,6 +164,53 @@ function writeAssetBytes(fileName: string, bytes: Buffer): string {
   fs.mkdirSync(getAssetsRootPath(), { recursive: true });
   fs.writeFileSync(absolutePath, bytes);
   return absolutePath;
+}
+
+const decodeInlineImageDataUrl = (
+  dataUrl: string,
+): { readonly bytes: Buffer; readonly mimeType: string } => {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/u.exec(dataUrl);
+  if (!match?.[1] || !match[2]) {
+    throw new Error("Canvas image must be a base64 data URL");
+  }
+  const mimeType = normalizeMimeType(match[1]);
+  if (!isSupportedImageMimeType(mimeType)) {
+    throw new Error(`Unsupported Canvas image type: ${mimeType}`);
+  }
+  const bytes = Buffer.from(match[2].replace(/\s+/gu, ""), "base64");
+  if (bytes.byteLength > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error("Canvas image exceeds 10MB upload limit");
+  }
+  return { bytes, mimeType };
+};
+
+/** One-way legacy migration seam; managed filename is crash-idempotent. */
+export function materializeInlineCanvasImage(
+  dataUrl: string,
+): { readonly source: string; readonly fileName: string; readonly mimeType: string } {
+  const mutation = storeMaintenanceGate.beginMutation();
+  try {
+    const { bytes, mimeType } = decodeInlineImageDataUrl(dataUrl);
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
+    const fileName = `canvas-${hash}${extension}`;
+    const absolutePath = resolveFlatAssetPath(fileName);
+    if (fs.existsSync(absolutePath)) {
+      const stats = fs.lstatSync(absolutePath);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error("Managed Canvas asset must be a regular file");
+      }
+      const existing = fs.readFileSync(absolutePath);
+      if (createHash("sha256").update(existing).digest("hex") !== hash) {
+        throw new Error("Managed Canvas asset hash collision");
+      }
+    } else {
+      writeAssetBytes(fileName, bytes);
+    }
+    return { source: getAssetSource(fileName), fileName, mimeType };
+  } finally {
+    mutation.release();
+  }
 }
 
 function inferMimeTypeFromLocalPath(localPath: string): string {

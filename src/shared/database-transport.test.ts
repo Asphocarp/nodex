@@ -3,6 +3,7 @@ import {
   bindDatabaseMutationToProject,
   parseDatabaseMutationCommandResult,
   parseDatabaseReadCommandResult,
+  parsePrimaryDatabaseViewSnapshotCommandResult,
 } from "./database-transport";
 
 const fails = (run: () => void): boolean => {
@@ -113,5 +114,34 @@ describe("Database transport codecs", () => {
     expect(result.ok ? result.value.operationKinds.join(",") : "error").toBe(
       "set_value,position_card",
     );
+  });
+
+  test("accepts only a primary View snapshot captured under one cursor", () => {
+    const read = (changeLogSeq: number) => ({
+      version: 1,
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      changeLogSeq,
+      value: null,
+    });
+    const parsed = parsePrimaryDatabaseViewSnapshotCommandResult({
+      ok: true,
+      value: {
+        descriptor: read(7),
+        query: read(7),
+      },
+    });
+    expect(parsed.ok ? parsed.value.descriptor.changeLogSeq : -1).toBe(7);
+    expect(
+      fails(() =>
+        parsePrimaryDatabaseViewSnapshotCommandResult({
+          ok: true,
+          value: {
+            descriptor: read(7),
+            query: read(8),
+          },
+        }),
+      ),
+    ).toBeTrue();
   });
 });

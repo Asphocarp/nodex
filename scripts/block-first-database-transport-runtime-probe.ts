@@ -8,6 +8,7 @@ import { registerDatabaseKernelHttpRoutes } from "../src/main/database-kernel-ht
 import {
   DATABASE_MUTATION_IPC_CHANNEL,
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+  PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
 } from "../src/main/database-kernel-ipc";
 import { createCard } from "../src/main/local-store/cards";
@@ -209,6 +210,8 @@ const run = async (): Promise<void> => {
           .result,
       readPrimaryDescriptor: async (projectId) =>
         (await writer!.readPrimaryDatabaseDescriptor(projectId)).result,
+      readPrimaryViewSnapshot: async (projectId) =>
+        (await writer!.readPrimaryDatabaseViewSnapshot(projectId)).result,
       queryView: async (projectId, viewId) =>
         (await writer!.queryDatabaseView(projectId, viewId)).result,
     });
@@ -221,6 +224,8 @@ const run = async (): Promise<void> => {
           .result,
       readPrimaryDescriptor: async (projectId) =>
         (await writer!.readPrimaryDatabaseDescriptor(projectId)).result,
+      readPrimaryViewSnapshot: async (projectId) =>
+        (await writer!.readPrimaryDatabaseViewSnapshot(projectId)).result,
       queryView: async (projectId, viewId) =>
         (await writer!.queryDatabaseView(projectId, viewId)).result,
     });
@@ -341,6 +346,25 @@ const run = async (): Promise<void> => {
         ipcPrimary.value.value?.database.blockId === primary.database_block_id &&
         JSON.stringify(ipcPrimary) === JSON.stringify(httpPrimary),
       "Primary Database descriptor diverged between IPC and HTTP",
+    );
+    const ipcPrimaryView = (await ipcHandlers.get(
+      PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
+    )?.("trusted-window", project.id)) as Awaited<
+      ReturnType<CardMutationWriter["readPrimaryDatabaseViewSnapshot"]>
+    >["result"];
+    const httpPrimaryViewResponse = await http.request(
+      `/api/projects/${encodeURIComponent(project.id)}/database-views/primary/snapshot`,
+    );
+    const httpPrimaryView =
+      (await httpPrimaryViewResponse.json()) as typeof ipcPrimaryView;
+    invariant(
+      ipcPrimaryView.ok &&
+        httpPrimaryView.ok &&
+        ipcPrimaryView.value.descriptor.changeLogSeq ===
+          ipcPrimaryView.value.query.changeLogSeq &&
+        ipcPrimaryView.value.query.value?.view.id === primary.view_id &&
+        JSON.stringify(ipcPrimaryView) === JSON.stringify(httpPrimaryView),
+      "Primary Database View snapshot was not one IPC/HTTP authority cursor",
     );
 
     const stale = await writer.applyDatabaseMutation(
@@ -466,6 +490,7 @@ const run = async (): Promise<void> => {
         typedConflict: true,
         rollback: true,
         descriptorAndQuery: true,
+        compositeSnapshot: true,
         zeroMembership: true,
         epochFence: true,
       })}\n`,

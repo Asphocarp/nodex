@@ -50,6 +50,15 @@ import {
   createBodyOnlyBlockDocument,
   type BodyOnlyBlockDocumentEnvelope,
 } from "./body-only-block-document";
+import {
+  CANVAS_BLOCK_TYPE,
+  CANVAS_DOCUMENT_SCHEMA_KEY,
+  CANVAS_DOCUMENT_SCHEMA_VERSION,
+  createCanvasDocument,
+  inspectCanvasDocument,
+  type CanvasDocumentEnvelope,
+  type CanvasSceneMaterialization,
+} from "./canvas-document";
 
 export interface CommonOwnedDocumentMaterialization {
   readonly schemaVersion: number;
@@ -79,6 +88,12 @@ export type OwnedDocumentMaterialization =
   | SyncedBlockOwnedDocumentMaterialization
   | AdditionalBlockOwnedDocumentMaterialization;
 
+export type SceneGraphOwnedDocumentMaterialization = CanvasSceneMaterialization;
+
+export type RegisteredOwnedDocumentMaterialization =
+  | OwnedDocumentMaterialization
+  | SceneGraphOwnedDocumentMaterialization;
+
 export type BlockTreeOwnedDocumentEnvelope =
   | ({ readonly kind: "card" } & CardDocumentEnvelope)
   | ({ readonly kind: "synced_block" } & SyncedBlockDocumentEnvelope)
@@ -89,10 +104,8 @@ export type BlockTreeOwnedDocumentEnvelope =
  * `body` or title root: those adapters must define and validate their own Yjs
  * roots instead of pretending to be BlockNote documents.
  */
-export interface SceneGraphOwnedDocumentEnvelope {
+export interface SceneGraphOwnedDocumentEnvelope extends CanvasDocumentEnvelope {
   readonly kind: "scene_graph";
-  readonly documentId: DocumentId;
-  readonly document: Y.Doc;
 }
 
 export type OwnedDocumentEnvelope =
@@ -106,10 +119,7 @@ export interface OwnedDocumentInspection {
 
 export interface SceneGraphOwnedDocumentInspection {
   readonly envelope: SceneGraphOwnedDocumentEnvelope;
-  readonly materialization: {
-    readonly kind: "scene_graph";
-    readonly schemaVersion: number;
-  };
+  readonly materialization: SceneGraphOwnedDocumentMaterialization;
 }
 
 export type RegisteredOwnedDocumentInspection =
@@ -376,12 +386,42 @@ const largeCodeDocumentAdapter = createAdditionalBodyOnlyAdapter({
   validate: assertLargeCodeBody,
 });
 
+const canvasDocumentAdapter: SceneGraphDocumentSchemaAdapter = {
+  kind: "scene_graph",
+  contentModel: "scene_graph",
+  ownerType: CANVAS_BLOCK_TYPE,
+  schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+  capabilities: {
+    title: false,
+    blockTree: false,
+    nfmGenesis: false,
+    nfmReplace: false,
+  },
+  limits: {
+    maxUpdateBytes: MAX_CARD_DOCUMENT_UPDATE_BYTES,
+    maxStateBytes: MAX_CARD_DOCUMENT_STATE_BYTES,
+  },
+  create: (documentId) => ({
+    kind: "scene_graph",
+    ...createCanvasDocument({ documentId }),
+  }),
+  inspect: (document) => {
+    const inspection = inspectCanvasDocument(document);
+    return {
+      envelope: { kind: "scene_graph", ...inspection.envelope },
+      materialization: inspection.materialization,
+    };
+  },
+};
+
 const schemaAdapters: readonly RegisteredBlockDocumentSchemaAdapter[] = [
   cardDocumentAdapter,
   syncedBlockDocumentAdapter,
   reusableTemplateDocumentAdapter,
   largeDocumentAdapter,
   largeCodeDocumentAdapter,
+  canvasDocumentAdapter,
 ] as const;
 
 export const getRegisteredBlockDocumentSchemaAdapter = (input: {
@@ -429,6 +469,21 @@ export const getBlockDocumentSchemaAdapterForSchema = (input: {
       `Owned Document schema ${input.schemaKey}@${input.schemaVersion} uses ${matches[0].contentModel}, not the block-tree pipeline`,
     );
   }
+  throw new BlockDocumentSchemaError(
+    `Owned Document schema ${input.schemaKey}@${input.schemaVersion} is ${matches.length === 0 ? "not registered" : "ambiguous without an owner type"}`,
+  );
+};
+
+export const getRegisteredBlockDocumentSchemaAdapterForSchema = (input: {
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+}): RegisteredBlockDocumentSchemaAdapter => {
+  const matches = schemaAdapters.filter(
+    (candidate) =>
+      candidate.schemaKey === input.schemaKey &&
+      candidate.schemaVersion === input.schemaVersion,
+  );
+  if (matches.length === 1 && matches[0]) return matches[0];
   throw new BlockDocumentSchemaError(
     `Owned Document schema ${input.schemaKey}@${input.schemaVersion} is ${matches.length === 0 ? "not registered" : "ambiguous without an owner type"}`,
   );

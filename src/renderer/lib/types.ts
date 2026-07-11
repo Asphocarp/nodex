@@ -7,7 +7,6 @@ export type {
   CardRunInTarget,
   BoardSummary,
   BoardSummaryColumn,
-  CanvasData,
   ClipboardPasteInspectionResult,
   CardInput,
   CardCreateInput,

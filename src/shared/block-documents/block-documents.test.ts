@@ -168,7 +168,7 @@ describe("Card block document envelope", () => {
 describe("registered document-bearing Block envelopes", () => {
   test("keeps every owner/schema registration exact and unambiguous", () => {
     const adapters = listBlockDocumentSchemaAdapters();
-    expect(adapters.length).toBe(5);
+    expect(adapters.length).toBe(6);
     expect(
       adapters
         .map(
@@ -179,6 +179,7 @@ describe("registered document-bearing Block envelopes", () => {
         .join(","),
     ).toBe(
       [
+        "canvas/nodex.canvas@1:scene_graph",
         "card/nodex.card@1:block_tree",
         "largeCode/nodex.large-code@1:block_tree",
         "largeDocument/nodex.large-document@1:block_tree",

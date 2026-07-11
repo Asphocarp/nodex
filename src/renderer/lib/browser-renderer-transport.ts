@@ -40,6 +40,7 @@ import { parseBlockPropertyMutationCommandResult } from "../../shared/block-prop
 import {
   parseDatabaseMutationCommandResult,
   parseDatabaseReadCommandResult,
+  parsePrimaryDatabaseViewSnapshotCommandResult,
 } from "../../shared/database-transport";
 import type {
   GeneralDatabaseDescriptor,
@@ -844,6 +845,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         await response.json(),
       );
     }
+    case "database-views:primary:snapshot": {
+      const [projectId] = args as [string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-views/primary/snapshot`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parsePrimaryDatabaseViewSnapshotCommandResult(
+        await response.json(),
+      );
+    }
     case "database-views:query": {
       const [projectId, viewId] = args as [string, string];
       const response = await fetch(
@@ -1032,20 +1045,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(rest),
       });
-      const data = await res.json();
-      return data.success ?? false;
-    }
-    case "card:move-many": {
-      const [input] = args as [{ projectId: string; sessionId?: string }];
-      const { projectId, ...rest } = input;
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/move-many`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(rest),
-        },
-      );
       const data = await res.json();
       return data.success ?? false;
     }
@@ -2120,24 +2119,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "git:branch:watch:start":
     case "git:branch:watch:stop": {
-      return;
-    }
-    case "canvas:get": {
-      const [projectId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/canvas`));
-      return res.json();
-    }
-    case "canvas:save": {
-      const [projectId, data] = args as [
-        string,
-        { elements: string; appState: string; files: string; updated: string },
-      ];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/canvas`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      await res.json();
       return;
     }
     case "asset:resolve-path": {

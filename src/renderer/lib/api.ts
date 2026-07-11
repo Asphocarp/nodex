@@ -31,6 +31,7 @@ import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
+  PrimaryDatabaseViewSnapshotCommandResult,
 } from "../../shared/database-query";
 import type {
   DocumentMutationRequest,
@@ -221,6 +222,12 @@ export function readPrimaryDatabaseDescriptor(
   projectId: string,
 ): Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>> {
   return invoke("databases:primary:get", projectId);
+}
+
+export function readPrimaryDatabaseViewSnapshot(
+  projectId: string,
+): Promise<PrimaryDatabaseViewSnapshotCommandResult> {
+  return invoke("database-views:primary:snapshot", projectId);
 }
 
 export function queryDatabaseView(

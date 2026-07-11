@@ -6,6 +6,10 @@ import { makeProjectSessionPanelLayout } from "../../shared/project-session-pane
 export const INITIAL_DATABASE_VIEW_SESSION_TITLE = "Database View";
 export const INITIAL_DATABASE_VIEW_TAB_TITLE = "DB View";
 
+export function seededPrimaryDatabaseViewId(projectId: string): string {
+  return `database-view:${projectId}:primary-kanban`;
+}
+
 const DEFAULT_RIGHT_PANEL_WIDTH = 600;
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 280;
 
@@ -94,7 +98,11 @@ export function insertDatabaseViewTab(
     input.sessionId,
     input.projectId,
     INITIAL_DATABASE_VIEW_TAB_TITLE,
-    JSON.stringify({ projectId: input.projectId, view: "kanban" }),
+    JSON.stringify({
+      projectId: input.projectId,
+      databaseViewId: seededPrimaryDatabaseViewId(input.projectId),
+      view: "kanban",
+    }),
     input.now,
     input.now,
   );

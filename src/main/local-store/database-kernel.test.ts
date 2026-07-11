@@ -13,6 +13,7 @@ import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   applyDatabaseMutation,
   readPrimaryDatabaseDescriptorSnapshot,
+  readPrimaryDatabaseViewSnapshot,
   type DatabaseMutationFaultPoint,
 } from "./database-kernel";
 import {
@@ -241,6 +242,29 @@ describe("general Database kernel", () => {
       expect(primary.value.value.database.isPrimary).toBeTrue();
       expect(primary.value.value.database.blockId === "database-secondary").toBeFalse();
       expect(primary.value.storeEpoch).toBe(fixture.storeEpoch);
+    });
+  });
+
+  sqliteTest("captures the primary descriptor and View under one cursor", async () => {
+    await withFixture((fixture) => {
+      const snapshot = readPrimaryDatabaseViewSnapshot(
+        fixture.database,
+        fixture.projectId,
+      );
+      expect(snapshot.ok).toBeTrue();
+      if (!snapshot.ok) return;
+      expect(snapshot.value.descriptor.storeEpoch).toBe(fixture.storeEpoch);
+      expect(snapshot.value.query.storeEpoch).toBe(fixture.storeEpoch);
+      expect(snapshot.value.descriptor.changeLogSeq).toBe(
+        snapshot.value.query.changeLogSeq,
+      );
+      expect(snapshot.value.descriptor.value?.database.blockId).toBe(
+        snapshot.value.query.value?.database.blockId,
+      );
+      expect(snapshot.value.query.value?.view.id).toBe(
+        snapshot.value.descriptor.value?.views.find((view) => view.isPrimary)
+          ?.id,
+      );
     });
   });
 

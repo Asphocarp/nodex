@@ -45,7 +45,9 @@ Every mounted writable Document surface owns a fresh local Y.Doc/client identity
 
 ### Document-bearing Block
 
-A document-bearing Block owns a Document through `block_documents`. Card, the system-managed Synced Block source, Reusable Template source, explicit Large Document, and explicit Large Code are registered document-bearing types. Canvas scenes remain a later Adapter. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Document and are never promoted because of size.
+A document-bearing Block owns a Document through `block_documents`. Card, the system-managed Synced Block source, Reusable Template source, explicit Large Document, explicit Large Code, and Canvas are registered document-bearing types. Every Project has one deterministic primary Canvas Block whose `nodex.canvas@1` Document uses the separate `scene_graph` content model. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Document and are never promoted because of size.
+
+A Canvas Document stores Excalidraw element contenders, bounded durable app-state fields, ordering, and managed-file references in Yjs roots. Concurrent element updates resolve by Excalidraw version and version nonce; application Card references store only `targetBlockId` plus a disposable title hint. Binary image data is uploaded first and the Y.Doc retains only a `nodex://assets/*` URI. The legacy whole-scene Canvas row is a one-time startup import and is deleted only after every Project owns a ready primary Canvas Document.
 
 Document ownership changes only through an explicit promotion or demotion operation. It never changes automatically because content became large.
 
@@ -204,7 +206,7 @@ Restore treats SQLite, WAL state, and managed assets as one authority even thoug
 
 ## Non-domain state
 
-Presence, cursors, selections, open toggles, active Database View, search terms, focus, and relocation leases are not durable content. Project sessions, tabs, panels, and Codex thread ownership remain shell/execution concepts. Do not model them as Blocks.
+Presence, cursors, selections, open toggles, search terms, focus, and relocation leases are not durable content. Project sessions, tabs, panels, and Codex thread ownership remain shell/execution concepts and are not Blocks. A durable `db_view` tab points to one stable `databaseViewId`; its temporary search, selection, and display interaction state remains window-local.
 
 ## Naming rules
 
