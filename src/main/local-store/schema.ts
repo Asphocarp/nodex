@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 60;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60] as const;
+export const CURRENT_SCHEMA_VERSION = 61;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -44,6 +44,7 @@ const RESETTABLE_TABLES = [
   "document_materializations",
   "document_snapshots",
   "document_updates",
+  "document_update_receipts",
   "block_documents",
   "top_level_block_placements",
   "blocks",
@@ -99,6 +100,27 @@ function cardDocumentId(cardId: string): string {
 function legacyRankKey(order: number): string {
   const normalizedOrder = Number.isSafeInteger(order) && order >= 0 ? order : 0;
   return normalizedOrder.toString().padStart(20, "0");
+}
+
+function createDocumentUpdateReceiptSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS document_update_receipts (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      seq INTEGER NOT NULL CHECK (seq >= 1),
+      update_id TEXT NOT NULL,
+      client_session_id TEXT NOT NULL,
+      base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+      client_touched_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      derived_touched_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      derivation_version INTEGER NOT NULL DEFAULT 1 CHECK (derivation_version IN (0, 1)),
+      update_hash TEXT NOT NULL,
+      update_byte_length INTEGER NOT NULL CHECK (update_byte_length > 0),
+      committed_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, generation, seq),
+      UNIQUE (document_id, update_id)
+    ) WITHOUT ROWID;
+  `);
 }
 
 function createBlockFoundationSchema(db: Database.Database): void {
@@ -736,6 +758,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
         WHERE id = OLD.id;
       END;
   `);
+  createDocumentUpdateReceiptSchema(db);
 }
 
 const LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL = [
@@ -3626,6 +3649,59 @@ function migrateSchema59To60(db: Database.Database): void {
   migrate();
 }
 
+function migrateSchema60To61(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createDocumentUpdateReceiptSchema(db);
+    db.prepare(`
+      INSERT INTO document_update_receipts (
+        document_id, generation, seq, update_id, client_session_id,
+        base_head_seq, client_touched_block_ids_json,
+        derived_touched_block_ids_json, derivation_version,
+        update_hash, update_byte_length, committed_at
+      )
+      SELECT
+        update_row.document_id,
+        update_row.generation,
+        update_row.seq,
+        update_row.update_id,
+        update_row.client_session_id,
+        update_row.base_head_seq,
+        update_row.touched_block_ids_json,
+        '[]',
+        0,
+        update_row.update_hash,
+        length(update_row.update_blob),
+        update_row.committed_at
+      FROM document_updates update_row
+      WHERE true
+      ON CONFLICT(document_id, update_id) DO NOTHING
+    `).run();
+
+    const missingReceipt = db.prepare(`
+      SELECT update_row.document_id, update_row.update_id
+      FROM document_updates update_row
+      LEFT JOIN document_update_receipts receipt
+        ON receipt.document_id = update_row.document_id
+        AND receipt.update_id = update_row.update_id
+      WHERE receipt.document_id IS NULL
+        OR receipt.generation <> update_row.generation
+        OR receipt.seq <> update_row.seq
+        OR receipt.client_session_id <> update_row.client_session_id
+        OR receipt.base_head_seq <> update_row.base_head_seq
+        OR receipt.update_hash <> update_row.update_hash
+        OR receipt.update_byte_length <> length(update_row.update_blob)
+      LIMIT 1
+    `).get() as { document_id: string; update_id: string } | undefined;
+    if (missingReceipt) {
+      throw new Error(
+        `Document update receipt migration diverged for ${missingReceipt.document_id}/${missingReceipt.update_id}`,
+      );
+    }
+    setUserVersion(db, 61);
+  });
+  migrate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -3871,6 +3947,14 @@ function runMigrations(
       }
       migrateSchema59To60(db);
       fromVersion = 60;
+      continue;
+    }
+    if (target === 61) {
+      if (fromVersion !== 60) {
+        throw new Error(`Unsupported Nodex database migration target 61 from ${fromVersion}`);
+      }
+      migrateSchema60To61(db);
+      fromVersion = 61;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

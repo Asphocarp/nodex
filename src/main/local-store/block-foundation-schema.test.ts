@@ -20,6 +20,7 @@ const FOUNDATION_TABLES_IN_DELETE_ORDER = [
   "document_materializations",
   "document_snapshots",
   "document_updates",
+  "document_update_receipts",
   "block_documents",
   "top_level_block_placements",
   "blocks",

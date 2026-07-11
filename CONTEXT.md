@@ -125,7 +125,7 @@ Cross-Document relocation uses short-lived write fences and an ephemeral lease s
 3. Every Card owns exactly one active Document. Ordinary body Blocks do not own Documents.
 4. One active Card has at most one owning Database membership.
 5. A reference never changes the target's location or membership and never embeds the target's body in the host Y.Doc.
-6. A committed Document update is unique by `(documentId, updateId)` and is acknowledged only after its SQLite transaction commits. An update whose Yjs dependencies are not yet present is rejected for retry and does not advance the durable head.
+6. A committed Document update is unique by `(documentId, updateId)` and is acknowledged only after its SQLite transaction commits. Its immutable receipt outlives compactable binary tail payloads, so late retries retain the original committed sequence. An update whose Yjs dependencies are not yet present is rejected for retry and does not advance the durable head.
 7. `headSeq` orders local persistence; a Yjs state vector represents causal content state. Neither substitutes for the other.
 8. Each mounted writable surface creates an independent Yjs client identity, including two surfaces opened by the same user in different windows.
 9. Restoring history creates a new forward update in the current Document. It never rewinds or replaces the Yjs update log.

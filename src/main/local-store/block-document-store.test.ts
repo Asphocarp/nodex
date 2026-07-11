@@ -11,6 +11,7 @@ import {
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
+  compactBlockDocument,
   getBlockDocumentProjectId,
   getBlockDocumentRuntimeIdentity,
   getBlockDocumentSyncStep,
@@ -263,6 +264,21 @@ describe("BlockDocumentStore", () => {
         expect(ackA.storeEpoch).toBe(storeEpoch);
         expect(ackB.headSeq).toBe(3);
         expect(ackB.committedSeq).toBe(3);
+        const derivedTitleReceipt = database.prepare(`
+          SELECT client_touched_block_ids_json, derived_touched_block_ids_json,
+                 derivation_version
+          FROM document_update_receipts
+          WHERE document_id = ? AND update_id = 'client-a-1'
+        `).get(documentId) as {
+          client_touched_block_ids_json: string;
+          derived_touched_block_ids_json: string;
+          derivation_version: number;
+        };
+        expect(derivedTitleReceipt.client_touched_block_ids_json).toBe("[]");
+        expect(derivedTitleReceipt.derived_touched_block_ids_json).toBe(
+          '["block-document-store-card"]',
+        );
+        expect(derivedTitleReceipt.derivation_version).toBe(1);
 
         const duplicateB = applyBlockDocumentUpdate(database, {
           documentId,
@@ -398,6 +414,72 @@ describe("BlockDocumentStore", () => {
         expect(reloaded.head.headSeq).toBe(5);
         expect(openCardDocument(reloaded.document).title.toString().includes(" 1 2")).toBeTrue();
 
+        database.exec(`
+          CREATE TRIGGER corrupt_test_document_compaction_snapshot
+          AFTER INSERT ON document_snapshots
+          WHEN NEW.document_id = '${documentId}' AND NEW.snapshot_seq = 5
+          BEGIN
+            UPDATE document_snapshots
+            SET snapshot_hash = 'corrupt'
+            WHERE document_id = NEW.document_id
+              AND generation = NEW.generation
+              AND snapshot_seq = NEW.snapshot_seq;
+          END;
+        `);
+        expectThrowsCode(
+          () => compactBlockDocument(database, {
+            documentId,
+            expectedGeneration: 1,
+            expectedHeadSeq: 5,
+          }),
+          "document_state_corrupt",
+        );
+        database.exec("DROP TRIGGER corrupt_test_document_compaction_snapshot");
+        const snapshotAfterVerificationFailure = database.prepare(`
+          SELECT MAX(snapshot_seq) AS snapshot_seq
+          FROM document_snapshots
+          WHERE document_id = ?
+        `).get(documentId) as { snapshot_seq: number };
+        expect(snapshotAfterVerificationFailure.snapshot_seq).toBe(1);
+
+        database.exec(`
+          CREATE TRIGGER reject_test_document_compaction
+          BEFORE DELETE ON document_updates
+          BEGIN
+            SELECT RAISE(ABORT, 'injected compaction failure');
+          END;
+        `);
+        let compactionRejected = false;
+        try {
+          compactBlockDocument(database, {
+            documentId,
+            expectedGeneration: 1,
+            expectedHeadSeq: 5,
+          });
+        } catch (error) {
+          compactionRejected = (error as Error).message.includes(
+            "injected compaction failure",
+          );
+        }
+        database.exec("DROP TRIGGER reject_test_document_compaction");
+        expect(compactionRejected).toBeTrue();
+        const rolledBackSnapshot = database.prepare(`
+          SELECT MAX(snapshot_seq) AS snapshot_seq
+          FROM document_snapshots
+          WHERE document_id = ?
+        `).get(documentId) as { snapshot_seq: number };
+        expect(rolledBackSnapshot.snapshot_seq).toBe(1);
+
+        const compacted = compactBlockDocument(database, {
+          documentId,
+          expectedGeneration: 1,
+          expectedHeadSeq: 5,
+        });
+        expect(compacted.snapshotSeq).toBe(5);
+        expect(compacted.prunedUpdateCount).toBe(5);
+        expect(compacted.retainedReceiptCount).toBe(5);
+        expect(compacted.snapshotBytes > 0).toBeTrue();
+
         const lateDuplicateB = applyBlockDocumentUpdate(database, {
           documentId,
           storeEpoch,
@@ -411,6 +493,20 @@ describe("BlockDocumentStore", () => {
         expect(lateDuplicateB.committedSeq).toBe(3);
         expect(lateDuplicateB.headSeq).toBe(5);
         expect(lateDuplicateB.duplicate).toBeTrue();
+
+        expectThrowsCode(
+          () => applyBlockDocumentUpdate(database, {
+            documentId,
+            storeEpoch,
+            generation: 1,
+            updateId: "client-b-1",
+            clientSessionId: "window-b",
+            baseHeadSeq: 1,
+            touchedBlockIds: [],
+            update: updateA,
+          }),
+          "update_id_collision",
+        );
 
         expectThrowsCode(
           () => applyBlockDocumentUpdate(database, {
@@ -442,7 +538,15 @@ describe("BlockDocumentStore", () => {
         const updateCount = database
           .prepare("SELECT COUNT(*) AS count FROM document_updates WHERE document_id = ?")
           .get(documentId) as { count: number };
-        expect(updateCount.count).toBe(5);
+        expect(updateCount.count).toBe(0);
+        const receiptCount = database
+          .prepare("SELECT COUNT(*) AS count FROM document_update_receipts WHERE document_id = ?")
+          .get(documentId) as { count: number };
+        expect(receiptCount.count).toBe(5);
+        const snapshotCount = database
+          .prepare("SELECT COUNT(*) AS count FROM document_snapshots WHERE document_id = ?")
+          .get(documentId) as { count: number };
+        expect(snapshotCount.count).toBe(1);
         reloaded.document.destroy();
         database.close();
     } finally {

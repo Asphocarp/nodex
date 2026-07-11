@@ -10,6 +10,7 @@ import {
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
+  compactBlockDocument,
   getBlockDocumentSyncStep,
   initializeCardDocumentGenesis,
   loadBlockDocument,
@@ -45,6 +46,7 @@ const FOUNDATION_TABLES_IN_DELETE_ORDER = [
   "document_materializations",
   "document_snapshots",
   "document_updates",
+  "document_update_receipts",
   "block_documents",
   "top_level_block_placements",
   "blocks",
@@ -76,7 +78,8 @@ interface FoundationProbeResult {
 
 interface DocumentProbeResult {
   readonly headSeq: number;
-  readonly committedUpdates: number;
+  readonly retainedUpdatePayloads: number;
+  readonly retainedReceipts: number;
   readonly concurrentClientsConverged: boolean;
   readonly missingDependencyRejected: boolean;
   readonly hiddenRootRejected: boolean;
@@ -93,6 +96,11 @@ interface DocumentProbeResult {
   readonly restartVerified: boolean;
   readonly duplicateCommittedSeq: number;
   readonly duplicateObservedHeadSeq: number;
+  readonly serverDerivedTouchedIds: boolean;
+  readonly compactionSnapshotVerificationRollback: boolean;
+  readonly compactionRollbackVerified: boolean;
+  readonly compactionRestartVerified: boolean;
+  readonly snapshotTailReloadVerified: boolean;
 }
 
 interface ShadowOutboxProbeResult {
@@ -105,6 +113,12 @@ interface ShadowOutboxProbeResult {
   readonly expiredClaimReclaimed: boolean;
   readonly staleClaimFenced: boolean;
   readonly primaryLegacyWritesRejected: boolean;
+  readonly migrationRollbackVerified: boolean;
+}
+
+interface ReceiptMigrationProbeResult {
+  readonly migratedToVersion: number;
+  readonly backfillPreservedRequestSemantics: boolean;
   readonly migrationRollbackVerified: boolean;
 }
 
@@ -762,6 +776,128 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
     };
   });
 
+const seedV60DocumentUpdate = (
+  database: Database.Database,
+  update: Buffer,
+): string => {
+  const project = database
+    .prepare("SELECT id FROM projects ORDER BY created LIMIT 1")
+    .get() as { id: string };
+  const now = new Date().toISOString();
+  const blockId = "receipt-runtime-card";
+  const documentId = `document:${blockId}`;
+  database.prepare(`
+    INSERT INTO blocks (
+      id, project_id, type, lifecycle, location_kind, containing_document_id,
+      location_revision, metadata_revision, created_at, updated_at
+    ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+  `).run(blockId, project.id, now, now);
+  database.prepare(`
+    INSERT INTO documents (
+      id, project_id, generation, head_seq, schema_key, schema_version,
+      state_vector, state_hash, readiness, authority, created_at, updated_at
+    ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', '',
+              'pending_genesis', 'legacy_shadow', ?, ?)
+  `).run(documentId, project.id, now, now);
+  database.prepare(`
+    INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(blockId, documentId, project.id, now);
+  database.prepare(`
+    INSERT INTO document_updates (
+      document_id, generation, seq, update_id, client_session_id,
+      base_head_seq, touched_block_ids_json, update_blob, update_hash, committed_at
+    ) VALUES (?, 1, 1, 'receipt-runtime-update', 'legacy-client', 0,
+              '["client-hint"]', ?, ?, ?)
+  `).run(documentId, update, "a".repeat(64), now);
+  database.exec(`
+    DROP TABLE document_update_receipts;
+    PRAGMA user_version = 60;
+  `);
+  return documentId;
+};
+
+const runReceiptMigrationProbe = async (): Promise<ReceiptMigrationProbeResult> => {
+  const migrated = await withTemporaryStore(
+    "nodex-receipt-migration-runtime-",
+    async () => {
+      await initializeDatabase();
+      closeDatabase();
+      let database = new Database(getDatabasePath());
+      const documentId = seedV60DocumentUpdate(database, Buffer.from([1, 2, 3]));
+      database.close();
+
+      await initializeDatabase();
+      closeDatabase();
+      database = new Database(getDatabasePath(), { readonly: true });
+      const migratedToVersion = database.pragma("user_version", {
+        simple: true,
+      }) as number;
+      const receipt = database.prepare(`
+        SELECT client_touched_block_ids_json, derived_touched_block_ids_json,
+               derivation_version, update_hash, update_byte_length
+        FROM document_update_receipts
+        WHERE document_id = ? AND update_id = 'receipt-runtime-update'
+      `).get(documentId) as {
+        client_touched_block_ids_json: string;
+        derived_touched_block_ids_json: string;
+        derivation_version: number;
+        update_hash: string;
+        update_byte_length: number;
+      } | undefined;
+      database.close();
+      return {
+        migratedToVersion,
+        backfillPreservedRequestSemantics:
+          receipt?.client_touched_block_ids_json === '["client-hint"]' &&
+          receipt.derived_touched_block_ids_json === "[]" &&
+          receipt.derivation_version === 0 &&
+          receipt.update_hash === "a".repeat(64) &&
+          receipt.update_byte_length === 3,
+      };
+    },
+  );
+
+  const migrationRollbackVerified = await withTemporaryStore(
+    "nodex-receipt-rollback-runtime-",
+    async () => {
+      await initializeDatabase();
+      closeDatabase();
+      let database = new Database(getDatabasePath());
+      seedV60DocumentUpdate(database, Buffer.alloc(0));
+      database.close();
+
+      let migrationFailed = false;
+      try {
+        await initializeDatabase();
+      } catch {
+        migrationFailed = true;
+      } finally {
+        closeDatabase();
+      }
+      database = new Database(getDatabasePath(), { readonly: true });
+      const version = database.pragma("user_version", { simple: true }) as number;
+      const receiptTable = database.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type = 'table' AND name = 'document_update_receipts'
+      `).get();
+      database.close();
+      return migrationFailed && version === 60 && receiptTable === undefined;
+    },
+  );
+
+  invariant(migrated.migratedToVersion === 61, "v60 receipt migration did not reach v61");
+  invariant(
+    migrated.backfillPreservedRequestSemantics,
+    "v60 receipt migration lost idempotent request semantics",
+  );
+  invariant(migrationRollbackVerified, "failed v61 migration left partial receipt state");
+  return {
+    ...migrated,
+    migrationRollbackVerified,
+  };
+};
+
 const seedPendingCardDocument = (
   database: Database.Database,
 ): { documentId: string; storeEpoch: string } => {
@@ -1248,6 +1384,156 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     }
     invariant(duplicatePayloadNoopRejected, "idempotent payload with a new ID advanced head");
 
+    const titleReceipt = database.prepare(`
+      SELECT client_touched_block_ids_json, derived_touched_block_ids_json,
+             derivation_version
+      FROM document_update_receipts
+      WHERE document_id = ? AND update_id = 'client-a-1'
+    `).get(documentId) as {
+      client_touched_block_ids_json: string;
+      derived_touched_block_ids_json: string;
+      derivation_version: number;
+    } | undefined;
+    const serverDerivedTouchedIds =
+      titleReceipt?.client_touched_block_ids_json === "[]" &&
+      titleReceipt.derived_touched_block_ids_json ===
+        '["block-document-runtime-card"]' &&
+      titleReceipt.derivation_version === 1;
+    invariant(serverDerivedTouchedIds, "writer trusted client-declared touched Block IDs");
+
+    database.exec(`
+      CREATE TRIGGER corrupt_block_document_runtime_compaction_snapshot
+      AFTER INSERT ON document_snapshots
+      WHEN NEW.snapshot_seq = 7
+      BEGIN
+        UPDATE document_snapshots
+        SET snapshot_hash = 'corrupt'
+        WHERE document_id = NEW.document_id
+          AND generation = NEW.generation
+          AND snapshot_seq = NEW.snapshot_seq;
+      END;
+    `);
+    let compactionSnapshotVerificationRollback = false;
+    try {
+      compactBlockDocument(database, {
+        documentId,
+        expectedGeneration: 1,
+        expectedHeadSeq: 7,
+      });
+    } catch (error) {
+      compactionSnapshotVerificationRollback =
+        error instanceof BlockDocumentStoreError &&
+        error.code === "document_state_corrupt";
+    } finally {
+      database.exec(
+        "DROP TRIGGER corrupt_block_document_runtime_compaction_snapshot",
+      );
+    }
+    const snapshotAfterVerificationFailure = database.prepare(`
+      SELECT MAX(snapshot_seq) AS snapshot_seq
+      FROM document_snapshots
+      WHERE document_id = ?
+    `).get(documentId) as { snapshot_seq: number };
+    compactionSnapshotVerificationRollback =
+      compactionSnapshotVerificationRollback &&
+      snapshotAfterVerificationFailure.snapshot_seq === 1 &&
+      readDocumentUpdateCount(database, documentId) === 7;
+    invariant(
+      compactionSnapshotVerificationRollback,
+      "failed snapshot verification left partial compaction state",
+    );
+
+    database.exec(`
+      CREATE TRIGGER reject_block_document_runtime_compaction
+      BEFORE DELETE ON document_updates
+      BEGIN
+        SELECT RAISE(ABORT, 'injected document compaction failure');
+      END;
+    `);
+    let compactionRollbackVerified = false;
+    try {
+      compactBlockDocument(database, {
+        documentId,
+        expectedGeneration: 1,
+        expectedHeadSeq: 7,
+      });
+    } catch (error) {
+      compactionRollbackVerified =
+        error instanceof Error &&
+        error.message.includes("injected document compaction failure");
+    } finally {
+      database.exec("DROP TRIGGER reject_block_document_runtime_compaction");
+    }
+    const snapshotAfterRejectedCompaction = database.prepare(`
+      SELECT MAX(snapshot_seq) AS snapshot_seq
+      FROM document_snapshots
+      WHERE document_id = ?
+    `).get(documentId) as { snapshot_seq: number };
+    compactionRollbackVerified =
+      compactionRollbackVerified &&
+      snapshotAfterRejectedCompaction.snapshot_seq === 1 &&
+      readDocumentUpdateCount(database, documentId) === 7;
+    invariant(compactionRollbackVerified, "failed compaction changed durable state");
+
+    const compacted = compactBlockDocument(database, {
+      documentId,
+      expectedGeneration: 1,
+      expectedHeadSeq: 7,
+    });
+    invariant(
+      compacted.prunedUpdateCount === 7 &&
+        compacted.retainedReceiptCount === 7 &&
+        compacted.snapshotSeq === 7,
+      "verified compaction did not retain receipts and prune only covered payloads",
+    );
+    database.close();
+    database = new Database(getDatabasePath());
+    database.pragma("foreign_keys = ON");
+    const compactedReload = loadBlockDocument(database, documentId);
+    const compactedReplica = new Y.Doc({ guid: documentId });
+    const compactedSync = getBlockDocumentSyncStep(
+      database,
+      documentId,
+      Y.encodeStateVector(compactedReplica),
+    );
+    Y.applyUpdate(compactedReplica, compactedSync.update);
+    const compactionRestartVerified =
+      compactedReload.head.headSeq === 7 &&
+      openCardDocument(compactedReload.document).title.toString() === reloadedTitle &&
+      openCardDocument(compactedReplica).title.toString() === reloadedTitle &&
+      readDocumentUpdateCount(database, documentId) === 0;
+    invariant(compactionRestartVerified, "compacted snapshot did not survive restart/sync");
+    const postCompactionUpdate = captureOneUpdate(compactedReplica, () => {
+      const title = openCardDocument(compactedReplica).title;
+      title.insert(title.length, " tail");
+    });
+    const postCompactionAck = applyBlockDocumentUpdate(database, {
+      documentId,
+      storeEpoch,
+      generation: 1,
+      updateId: "post-compaction-tail",
+      clientSessionId: "window-after-compaction",
+      baseHeadSeq: 7,
+      touchedBlockIds: [],
+      update: postCompactionUpdate,
+    });
+    invariant(postCompactionAck.headSeq === 8, "post-compaction tail did not commit");
+    compactedReload.document.destroy();
+    compactedReplica.destroy();
+    database.close();
+    database = new Database(getDatabasePath());
+    database.pragma("foreign_keys = ON");
+    const tailReload = loadBlockDocument(database, documentId);
+    const tailReloadTitle = openCardDocument(tailReload.document).title.toString();
+    const snapshotTailReloadVerified =
+      tailReload.head.headSeq === 8 &&
+      tailReloadTitle === `${reloadedTitle} tail` &&
+      readDocumentUpdateCount(database, documentId) === 1;
+    invariant(
+      snapshotTailReloadVerified,
+      "restart did not reconstruct current snapshot plus update tail",
+    );
+
     database
       .prepare("UPDATE blocks SET lifecycle = 'archived' WHERE id = ?")
       .run("block-document-runtime-card");
@@ -1265,13 +1551,20 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     invariant(duplicateAck.duplicate, "committed update retry was not idempotent");
     const archivedDuplicateAcked = duplicateAck.duplicate;
     invariant(
-      duplicateAck.committedSeq === 3 && duplicateAck.headSeq === 7,
+      duplicateAck.committedSeq === 3 && duplicateAck.headSeq === 8,
       "duplicate ACK did not distinguish committed sequence from observed head",
     );
 
     const result: DocumentProbeResult = {
-      headSeq: reloaded.head.headSeq,
-      committedUpdates: readDocumentUpdateCount(database, documentId),
+      headSeq: tailReload.head.headSeq,
+      retainedUpdatePayloads: readDocumentUpdateCount(database, documentId),
+      retainedReceipts: (
+        database.prepare(`
+          SELECT COUNT(*) AS count
+          FROM document_update_receipts
+          WHERE document_id = ?
+        `).get(documentId) as { count: number }
+      ).count,
       concurrentClientsConverged,
       missingDependencyRejected,
       hiddenRootRejected,
@@ -1288,11 +1581,17 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       restartVerified,
       duplicateCommittedSeq: duplicateAck.committedSeq,
       duplicateObservedHeadSeq: duplicateAck.headSeq,
+      serverDerivedTouchedIds,
+      compactionSnapshotVerificationRollback,
+      compactionRollbackVerified,
+      compactionRestartVerified,
+      snapshotTailReloadVerified,
     };
 
     replicaA.destroy();
     replicaB.destroy();
     reloaded.document.destroy();
+    tailReload.document.destroy();
     deleteClient.destroy();
     dependentClient.destroy();
     clientA.destroy();
@@ -1305,9 +1604,10 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
 const run = async (): Promise<void> => {
   const foundation = await runFoundationProbe();
   const shadowOutbox = await runShadowOutboxProbe();
+  const receiptMigration = await runReceiptMigrationProbe();
   const documents = await runDocumentStoreProbe();
   process.stdout.write(
-    `${JSON.stringify({ foundation, shadowOutbox, documents })}\n`,
+    `${JSON.stringify({ foundation, shadowOutbox, receiptMigration, documents })}\n`,
   );
 };
 
