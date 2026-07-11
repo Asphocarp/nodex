@@ -53,6 +53,12 @@ import {
   shiftUntilDateByDays,
   type RecurrenceException,
 } from "./recurrence";
+import {
+  readAuthoritativeCardById,
+  readAuthoritativeCardColumn,
+  readAuthoritativeCardsByIds,
+  readAuthoritativeProjectCards,
+} from "./card-read-store";
 
 interface DbCard {
   id: string;
@@ -219,6 +225,12 @@ function resolveColumnId(
   return row?.status ?? null;
 }
 
+/**
+ * Compatibility mapper for legacy mutation/history paths only.
+ *
+ * Public Card reads must use card-read-store so a Y.Doc-primary Card can never
+ * expose stale title/body fields from the compatibility `cards` row.
+ */
 function rowToCard(row: DbCard): Card {
   const runInTarget = parseRunInTarget(row.run_in_target);
   return {
@@ -856,15 +868,10 @@ export async function readColumn(projectId: string, columnId: CardStatus): Promi
   const columnMeta = COLUMNS.find((c) => c.id === columnId);
   if (!columnMeta) throw new Error(`Unknown column: ${columnId}`);
 
-  const stmt = getDb().prepare(
-    'SELECT * FROM cards WHERE project_id = ? AND archived = 0 AND status = ? ORDER BY "order" ASC'
-  );
-  const rows = stmt.all(canonicalProjectId, columnId) as DbCard[];
-
   return {
     id: columnId,
     name: columnMeta.name,
-    cards: rows.map(rowToCard),
+    cards: readAuthoritativeCardColumn(getDb(), canonicalProjectId, columnId),
   };
 }
 
@@ -890,7 +897,12 @@ export async function readSummaryColumn(projectId: string, columnId: CardStatus)
 
 export async function getBoard(projectId: string): Promise<Board> {
   const canonicalProjectId = requireProjectId(projectId);
-  const columns = await Promise.all(COLUMNS.map((c) => readColumn(canonicalProjectId, c.id)));
+  const cards = readAuthoritativeProjectCards(getDb(), canonicalProjectId);
+  const columns = COLUMNS.map((column) => ({
+    id: column.id,
+    name: column.name,
+    cards: cards.filter((card) => card.status === column.id),
+  }));
   return { columns };
 }
 
@@ -904,18 +916,7 @@ export async function getCardsDetails(projectId: string, input: CardsDetailsInpu
   const canonicalProjectId = requireProjectId(projectId);
   const uniqueCardIds = Array.from(new Set(input.cardIds.map((cardId) => cardId.trim()).filter(Boolean)));
   if (uniqueCardIds.length === 0) return [];
-
-  const placeholders = uniqueCardIds.map(() => "?").join(", ");
-  const rows = getDb().prepare(
-    `SELECT * FROM cards
-     WHERE project_id = ? AND archived = 0 AND id IN (${placeholders})`,
-  ).all(canonicalProjectId, ...uniqueCardIds) as DbCard[];
-
-  const byId = new Map(rows.map((row) => [row.id, rowToCard(row)]));
-  return uniqueCardIds.flatMap((cardId) => {
-    const card = byId.get(cardId);
-    return card ? [card] : [];
-  });
+  return readAuthoritativeCardsByIds(getDb(), canonicalProjectId, uniqueCardIds);
 }
 
 export async function searchCards(input: CardSearchInput): Promise<CardSearchResult[]> {
@@ -2221,16 +2222,9 @@ export async function getCard(
   columnId?: CardStatus,
 ): Promise<Card | null> {
   projectId = requireProjectId(projectId);
-  const database = getDb();
-  const row = columnId
-    ? database
-        .prepare("SELECT * FROM cards WHERE id = ? AND project_id = ? AND status = ?")
-        .get(cardId, projectId, columnId) as DbCard | undefined
-    : database
-        .prepare("SELECT * FROM cards WHERE id = ? AND project_id = ?")
-        .get(cardId, projectId) as DbCard | undefined;
-
-  return row ? rowToCard(row) : null;
+  const card = readAuthoritativeCardById(getDb(), projectId, cardId);
+  if (!card || !columnId) return card;
+  return card.status === columnId ? card : null;
 }
 
 export function findCardLocationById(
