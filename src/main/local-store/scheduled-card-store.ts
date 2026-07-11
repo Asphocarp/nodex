@@ -509,7 +509,7 @@ export const refreshScheduledCardIndexProjection = (
     const row = rowsById.get(cardId);
     if (!row) continue;
     const scheduledStartText =
-      row.membership_id === null
+      row.membership_id === null || row.scheduled_start_json === null
         ? null
         : requireNullableProjectionString(
             cardId,
@@ -517,7 +517,7 @@ export const refreshScheduledCardIndexProjection = (
             row.scheduled_start_json,
           );
     const scheduledEndText =
-      row.membership_id === null
+      row.membership_id === null || row.scheduled_end_json === null
         ? null
         : requireNullableProjectionString(
             cardId,

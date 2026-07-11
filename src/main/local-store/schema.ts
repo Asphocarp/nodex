@@ -15,6 +15,10 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { deriveBlockDocumentRecordsFromNfm } from "../../shared/block-documents/derived-records";
 import {
+  parseGeneralDatabaseViewConfig,
+  type DatabaseViewFilterNode,
+} from "../../shared/database-kernel";
+import {
   INITIAL_DATABASE_VIEW_SESSION_TITLE,
   insertDatabaseViewTab,
   insertInitialDatabaseViewSession,
@@ -23,10 +27,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 66;
+export const CURRENT_SCHEMA_VERSION = 67;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -105,6 +109,16 @@ const RESETTABLE_TABLES = [
 
 const PRIMARY_DATABASE_SCHEMA_KEY = "nodex.database";
 const CARD_DOCUMENT_SCHEMA_KEY = "nodex.card";
+const FRACTIONAL_DATABASE_RANK_MAX = (1n << 128n) - 1n;
+
+function databaseFractionalRankForOrdinal(
+  ordinal: number,
+  total: number,
+): string {
+  const value =
+    (FRACTIONAL_DATABASE_RANK_MAX * BigInt(ordinal + 1)) / BigInt(total + 1);
+  return value.toString(16).padStart(32, "0");
+}
 
 type DatabasePropertyValueType =
   "select" | "multi_select" | "date" | "datetime" | "person";
@@ -124,7 +138,7 @@ const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDef
       name: "Status",
       valueType: "select",
       config: { options: CARD_STATUS_COLUMNS },
-      rankKey: "00000000",
+      rankKey: databaseFractionalRankForOrdinal(0, 8),
     },
     {
       key: "priority",
@@ -139,7 +153,7 @@ const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDef
           { id: "p4-later", name: "P4 - Later" },
         ],
       },
-      rankKey: "00000001",
+      rankKey: databaseFractionalRankForOrdinal(1, 8),
     },
     {
       key: "estimate",
@@ -154,42 +168,42 @@ const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDef
           { id: "xl", name: "XL" },
         ],
       },
-      rankKey: "00000002",
+      rankKey: databaseFractionalRankForOrdinal(2, 8),
     },
     {
       key: "tags",
       name: "Tags",
       valueType: "multi_select",
-      config: {},
-      rankKey: "00000003",
+      config: { options: [] },
+      rankKey: databaseFractionalRankForOrdinal(3, 8),
     },
     {
       key: "due_date",
       name: "Due date",
       valueType: "date",
       config: {},
-      rankKey: "00000004",
+      rankKey: databaseFractionalRankForOrdinal(4, 8),
     },
     {
       key: "scheduled_start",
       name: "Scheduled start",
       valueType: "datetime",
       config: {},
-      rankKey: "00000005",
+      rankKey: databaseFractionalRankForOrdinal(5, 8),
     },
     {
       key: "scheduled_end",
       name: "Scheduled end",
       valueType: "datetime",
       config: {},
-      rankKey: "00000006",
+      rankKey: databaseFractionalRankForOrdinal(6, 8),
     },
     {
       key: "assignee",
       name: "Assignee",
       valueType: "person",
       config: {},
-      rankKey: "00000007",
+      rankKey: databaseFractionalRankForOrdinal(7, 8),
     },
   ] as const;
 
@@ -197,6 +211,25 @@ const LEGACY_INTRINSIC_PROPERTY_COUNT = 11;
 
 function primaryDatabasePropertyId(projectId: string, key: string): string {
   return `${primaryDatabaseBlockId(projectId)}:property:${key}`;
+}
+
+function makePrimaryDatabaseViewConfig(projectId: string): string {
+  return JSON.stringify({
+    schemaKey: "nodex.database-view",
+    schemaVersion: 1,
+    filter: { kind: "group", operator: "and", children: [] },
+    sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+    group: { propertyId: primaryDatabasePropertyId(projectId, "status") },
+    display: {
+      propertyIds: [
+        primaryDatabasePropertyId(projectId, "status"),
+        primaryDatabasePropertyId(projectId, "priority"),
+        primaryDatabasePropertyId(projectId, "estimate"),
+        primaryDatabasePropertyId(projectId, "tags"),
+      ],
+      showTitle: true,
+    },
+  });
 }
 
 function makeLegacyCardMetadataProjectionSql(
@@ -1293,6 +1326,8 @@ function createBlockFoundationSchema(db: Database.Database): void {
       project_id TEXT NOT NULL,
       is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
       schema_key TEXT NOT NULL DEFAULT '${PRIMARY_DATABASE_SCHEMA_KEY}',
+      name TEXT NOT NULL DEFAULT 'Cards',
+      schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (block_id, project_id),
@@ -1337,7 +1372,10 @@ function createBlockFoundationSchema(db: Database.Database): void {
         ON UPDATE CASCADE ON DELETE CASCADE,
       CHECK (length(key) BETWEEN 1 AND 128),
       CHECK (length(name) BETWEEN 1 AND 256),
-      CHECK (value_type IN ('select', 'multi_select', 'date', 'datetime', 'person')),
+      CHECK (value_type IN (
+        'text', 'number', 'checkbox', 'select', 'multi_select',
+        'date', 'datetime', 'person'
+      )),
       CHECK (lifecycle IN ('active', 'deleted')),
       CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
     ) WITHOUT ROWID;
@@ -1353,6 +1391,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
       database_block_id TEXT NOT NULL,
       card_block_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
       created_at TEXT NOT NULL,
       removed_at TEXT,
       FOREIGN KEY (database_block_id, project_id)
@@ -1401,12 +1440,17 @@ function createBlockFoundationSchema(db: Database.Database): void {
       FOREIGN KEY (property_id, database_block_id, project_id)
         REFERENCES database_properties(id, database_block_id, project_id)
         ON UPDATE CASCADE ON DELETE CASCADE,
-      CHECK (value_type IN ('select', 'multi_select', 'date', 'datetime', 'person')),
+      CHECK (value_type IN (
+        'text', 'number', 'checkbox', 'select', 'multi_select',
+        'date', 'datetime', 'person'
+      )),
       CHECK (
         CASE
           WHEN json_valid(value_json) = 0 THEN 0
           WHEN json_type(value_json) = 'null' THEN 1
           WHEN value_type = 'multi_select' THEN json_type(value_json) = 'array'
+          WHEN value_type = 'number' THEN json_type(value_json) IN ('integer', 'real')
+          WHEN value_type = 'checkbox' THEN json_type(value_json) IN ('true', 'false')
           ELSE json_type(value_json) = 'text'
         END
       )
@@ -1485,17 +1529,22 @@ function createBlockFoundationSchema(db: Database.Database): void {
       kind TEXT NOT NULL,
       config_json TEXT NOT NULL DEFAULT '{}',
       is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      rank_key TEXT NOT NULL DEFAULT '00000000',
+      lifecycle TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (id, project_id),
       FOREIGN KEY (database_block_id, project_id)
         REFERENCES database_capabilities(block_id, project_id) ON DELETE CASCADE,
-      CHECK (kind IN ('kanban', 'list', 'calendar', 'canvas'))
+      CHECK (kind IN ('kanban', 'list', 'calendar', 'canvas')),
+      CHECK (lifecycle IN ('active', 'deleted')),
+      CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
     ) WITHOUT ROWID;
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_database_views_primary
       ON database_views(database_block_id)
-      WHERE is_primary = 1;
+      WHERE is_primary = 1 AND lifecycle = 'active';
 
     CREATE TABLE IF NOT EXISTS database_view_positions (
       view_id TEXT NOT NULL,
@@ -1503,6 +1552,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
       project_id TEXT NOT NULL,
       group_key TEXT,
       rank_key TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (view_id, block_id),
@@ -3559,10 +3609,16 @@ export function ensureBlockFoundationForProject(
     `
     INSERT INTO top_level_block_placements (
       block_id, project_id, rank_key, created_at, updated_at
-    ) VALUES (?, ?, '000000000000', ?, ?)
+    ) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(block_id) DO NOTHING
   `,
-  ).run(databaseBlockId, projectId, now, now);
+  ).run(
+    databaseBlockId,
+    projectId,
+    databaseFractionalRankForOrdinal(0, 1),
+    now,
+    now,
+  );
 
   db.prepare(
     `
@@ -3579,11 +3635,19 @@ export function ensureBlockFoundationForProject(
     `
     INSERT INTO database_views (
       id, database_block_id, project_id, name, kind, config_json,
-      is_primary, created_at, updated_at
-    ) VALUES (?, ?, ?, 'Kanban', 'kanban', '{}', 1, ?, ?)
+      is_primary, revision, rank_key, lifecycle, created_at, updated_at
+    ) VALUES (?, ?, ?, 'Kanban', 'kanban', ?, 1, 1, ?, 'active', ?, ?)
     ON CONFLICT(id) DO NOTHING
   `,
-  ).run(viewId, databaseBlockId, projectId, now, now);
+  ).run(
+    viewId,
+    databaseBlockId,
+    projectId,
+    makePrimaryDatabaseViewConfig(projectId),
+    databaseFractionalRankForOrdinal(0, 1),
+    now,
+    now,
+  );
 }
 
 export function deleteBlockFoundationForProject(
@@ -6499,6 +6563,729 @@ function migrateSchema65To66(db: Database.Database): void {
   migrate.immediate();
 }
 
+function rebuildV67DatabasePropertyTables(db: Database.Database): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS database_property_values_require_matching_type;
+    DROP TRIGGER IF EXISTS database_property_values_updates_require_matching_type;
+    DROP INDEX IF EXISTS idx_database_property_values_property;
+    DROP INDEX IF EXISTS idx_database_properties_active_key;
+    DROP INDEX IF EXISTS idx_database_properties_order;
+
+    ALTER TABLE database_property_values RENAME TO database_property_values_v66;
+    ALTER TABLE database_properties RENAME TO database_properties_v66;
+
+    CREATE TABLE database_properties (
+      id TEXT PRIMARY KEY,
+      database_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      rank_key TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, database_block_id, project_id),
+      FOREIGN KEY (database_block_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (length(key) BETWEEN 1 AND 128),
+      CHECK (length(name) BETWEEN 1 AND 256),
+      CHECK (value_type IN (
+        'text', 'number', 'checkbox', 'select', 'multi_select',
+        'date', 'datetime', 'person'
+      )),
+      CHECK (lifecycle IN ('active', 'deleted')),
+      CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX idx_database_properties_active_key
+      ON database_properties(database_block_id, key)
+      WHERE lifecycle = 'active';
+    CREATE INDEX idx_database_properties_order
+      ON database_properties(database_block_id, lifecycle, rank_key, id);
+
+    INSERT INTO database_properties (
+      id, database_block_id, project_id, key, name, value_type,
+      config_json, rank_key, lifecycle, schema_revision, created_at, updated_at
+    )
+    SELECT
+      id, database_block_id, project_id, key, name, value_type,
+      config_json, rank_key, lifecycle, schema_revision, created_at, updated_at
+    FROM database_properties_v66;
+
+    CREATE TABLE database_property_values (
+      membership_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      database_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (membership_id, property_id),
+      FOREIGN KEY (membership_id, database_block_id, project_id)
+        REFERENCES database_memberships(id, database_block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (property_id, database_block_id, project_id)
+        REFERENCES database_properties(id, database_block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (value_type IN (
+        'text', 'number', 'checkbox', 'select', 'multi_select',
+        'date', 'datetime', 'person'
+      )),
+      CHECK (
+        CASE
+          WHEN json_valid(value_json) = 0 THEN 0
+          WHEN json_type(value_json) = 'null' THEN 1
+          WHEN value_type = 'multi_select' THEN json_type(value_json) = 'array'
+          WHEN value_type = 'number' THEN json_type(value_json) IN ('integer', 'real')
+          WHEN value_type = 'checkbox' THEN json_type(value_json) IN ('true', 'false')
+          ELSE json_type(value_json) = 'text'
+        END
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX idx_database_property_values_property
+      ON database_property_values(property_id, membership_id);
+
+    INSERT INTO database_property_values (
+      membership_id, property_id, database_block_id, project_id,
+      value_type, value_json, revision, updated_at
+    )
+    SELECT
+      membership_id, property_id, database_block_id, project_id,
+      value_type, value_json, revision, updated_at
+    FROM database_property_values_v66;
+
+    DROP TABLE database_property_values_v66;
+    DROP TABLE database_properties_v66;
+
+    CREATE TRIGGER database_property_values_require_matching_type
+      BEFORE INSERT ON database_property_values
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM database_properties property
+        WHERE property.id = NEW.property_id
+          AND property.database_block_id = NEW.database_block_id
+          AND property.project_id = NEW.project_id
+          AND property.lifecycle = 'active'
+          AND property.value_type = NEW.value_type
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'database property value type does not match its definition');
+      END;
+
+    CREATE TRIGGER database_property_values_updates_require_matching_type
+      BEFORE UPDATE OF property_id, database_block_id, project_id, value_type
+      ON database_property_values
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM database_properties property
+        WHERE property.id = NEW.property_id
+          AND property.database_block_id = NEW.database_block_id
+          AND property.project_id = NEW.project_id
+          AND property.lifecycle = 'active'
+          AND property.value_type = NEW.value_type
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'database property value type does not match its definition');
+      END;
+  `);
+}
+
+interface V67DatabasePropertyOption {
+  readonly id: string;
+  readonly name: string;
+  readonly color?: string;
+}
+
+const parseV67DatabasePropertyOptions = (
+  configJson: string,
+  propertyId: string,
+): readonly V67DatabasePropertyOption[] => {
+  let value: unknown;
+  try {
+    value = JSON.parse(configJson) as unknown;
+  } catch {
+    throw new Error(`Database property ${propertyId} has invalid config JSON`);
+  }
+  if (!isJsonRecord(value)) {
+    throw new Error(`Database property ${propertyId} config must be an object`);
+  }
+  const keys = Object.keys(value);
+  if (keys.some((key) => key !== "options")) {
+    throw new Error(
+      `Database property ${propertyId} has unsupported schema version 1 config`,
+    );
+  }
+  if (value.options === undefined) return [];
+  if (!Array.isArray(value.options) || value.options.length > 10_000) {
+    throw new Error(
+      `Database property ${propertyId} has an invalid option registry`,
+    );
+  }
+  const seen = new Set<string>();
+  return value.options.map((rawOption, index) => {
+    if (!isJsonRecord(rawOption)) {
+      throw new Error(
+        `Database property ${propertyId} option ${index} must be an object`,
+      );
+    }
+    const optionKeys = Object.keys(rawOption);
+    if (
+      optionKeys.some(
+        (key) => key !== "id" && key !== "name" && key !== "color",
+      ) ||
+      typeof rawOption.id !== "string" ||
+      rawOption.id.length === 0 ||
+      rawOption.id !== rawOption.id.trim() ||
+      typeof rawOption.name !== "string" ||
+      rawOption.name.length === 0 ||
+      rawOption.name !== rawOption.name.trim() ||
+      (rawOption.color !== undefined && typeof rawOption.color !== "string")
+    ) {
+      throw new Error(
+        `Database property ${propertyId} option ${index} is invalid`,
+      );
+    }
+    if (seen.has(rawOption.id)) {
+      throw new Error(
+        `Database property ${propertyId} repeats option ID ${rawOption.id}`,
+      );
+    }
+    seen.add(rawOption.id);
+    return {
+      id: rawOption.id,
+      name: rawOption.name,
+      ...(rawOption.color === undefined ? {} : { color: rawOption.color }),
+    };
+  });
+};
+
+const v67DatabasePropertyUsedOptionIds = (
+  db: Database.Database,
+  property: {
+    readonly id: string;
+    readonly value_type: "select" | "multi_select";
+  },
+): readonly string[] => {
+  const values = db
+    .prepare(
+      `
+      SELECT value_json
+      FROM database_property_values
+      WHERE property_id = ?
+      ORDER BY membership_id
+    `,
+    )
+    .all(property.id) as Array<{ readonly value_json: string }>;
+  const ids = new Set<string>();
+  for (const row of values) {
+    let value: unknown;
+    try {
+      value = JSON.parse(row.value_json) as unknown;
+    } catch {
+      throw new Error(
+        `Database property ${property.id} has invalid persisted value JSON`,
+      );
+    }
+    if (value === null) continue;
+    if (property.value_type === "select") {
+      if (typeof value !== "string") {
+        throw new Error(
+          `Database property ${property.id} has a non-string select value`,
+        );
+      }
+      ids.add(value);
+      continue;
+    }
+    if (
+      !Array.isArray(value) ||
+      !value.every((entry) => typeof entry === "string")
+    ) {
+      throw new Error(
+        `Database property ${property.id} has an invalid multi-select value`,
+      );
+    }
+    for (const id of value) ids.add(id);
+  }
+  return [...ids].sort((left, right) => left.localeCompare(right));
+};
+
+function materializeV67DatabasePropertyConfigs(db: Database.Database): void {
+  const properties = db
+    .prepare(
+      `
+      SELECT id, database_block_id, project_id, key, value_type, config_json
+      FROM database_properties
+      WHERE lifecycle = 'active' AND value_type IN ('select', 'multi_select')
+      ORDER BY project_id, database_block_id, rank_key, id
+    `,
+    )
+    .all() as Array<{
+    readonly id: string;
+    readonly database_block_id: string;
+    readonly project_id: string;
+    readonly key: string;
+    readonly value_type: "select" | "multi_select";
+    readonly config_json: string;
+  }>;
+  const update = db.prepare(
+    "UPDATE database_properties SET config_json = ? WHERE id = ?",
+  );
+  for (const property of properties) {
+    const isPrimaryProperty =
+      property.database_block_id ===
+      primaryDatabaseBlockId(property.project_id);
+    const seededDefinition = isPrimaryProperty
+      ? PRIMARY_DATABASE_PROPERTY_DEFINITIONS.find(
+          (definition) => definition.key === property.key,
+        )
+      : undefined;
+    const fixedSeededOptions =
+      seededDefinition &&
+      (property.key === "status" ||
+        property.key === "priority" ||
+        property.key === "estimate")
+        ? parseV67DatabasePropertyOptions(
+            JSON.stringify(seededDefinition.config),
+            property.id,
+          )
+        : null;
+    const existingOptions =
+      fixedSeededOptions ??
+      parseV67DatabasePropertyOptions(property.config_json, property.id);
+    const optionsById = new Map(
+      existingOptions.map((option) => [option.id, option] as const),
+    );
+    const usedOptionIds = v67DatabasePropertyUsedOptionIds(db, property);
+    for (const optionId of usedOptionIds) {
+      if (optionsById.has(optionId)) continue;
+      if (fixedSeededOptions) {
+        throw new Error(
+          `Seeded Database property ${property.id} has orphan value ${optionId}`,
+        );
+      }
+      optionsById.set(optionId, { id: optionId, name: optionId });
+    }
+    if (optionsById.size > 10_000) {
+      throw new Error(
+        `Database property ${property.id} exceeds the option registry limit`,
+      );
+    }
+    const options =
+      fixedSeededOptions ??
+      [...optionsById.values()].sort((left, right) =>
+        left.id.localeCompare(right.id),
+      );
+    update.run(JSON.stringify({ options }), property.id);
+  }
+}
+
+function normalizeV67DatabaseRanks(db: Database.Database): void {
+  const groupBy = <T>(
+    values: readonly T[],
+    keyOf: (value: T) => string,
+  ): Map<string, T[]> => {
+    const groups = new Map<string, T[]>();
+    for (const value of values) {
+      const key = keyOf(value);
+      const group = groups.get(key);
+      if (group) {
+        group.push(value);
+      } else {
+        groups.set(key, [value]);
+      }
+    }
+    return groups;
+  };
+
+  const placements = db
+    .prepare(
+      `
+      SELECT block_id AS id, project_id
+      FROM top_level_block_placements
+      ORDER BY project_id, rank_key, block_id
+    `,
+    )
+    .all() as Array<{ readonly id: string; readonly project_id: string }>;
+  const placementsByProject = groupBy(
+    placements,
+    (placement) => placement.project_id,
+  );
+  const updatePlacement = db.prepare(
+    "UPDATE top_level_block_placements SET rank_key = ? WHERE block_id = ?",
+  );
+  for (const projectPlacements of placementsByProject.values()) {
+    projectPlacements.forEach((placement, index) => {
+      updatePlacement.run(
+        databaseFractionalRankForOrdinal(index, projectPlacements.length),
+        placement.id,
+      );
+    });
+  }
+
+  const properties = db
+    .prepare(
+      `
+      SELECT id, database_block_id
+      FROM database_properties
+      ORDER BY database_block_id, lifecycle, rank_key, id
+    `,
+    )
+    .all() as Array<{
+    readonly id: string;
+    readonly database_block_id: string;
+  }>;
+  const propertiesByDatabase = groupBy(
+    properties,
+    (property) => property.database_block_id,
+  );
+  const updateProperty = db.prepare(
+    "UPDATE database_properties SET rank_key = ? WHERE id = ?",
+  );
+  for (const databaseProperties of propertiesByDatabase.values()) {
+    databaseProperties.forEach((property, index) => {
+      updateProperty.run(
+        databaseFractionalRankForOrdinal(index, databaseProperties.length),
+        property.id,
+      );
+    });
+  }
+
+  const views = db
+    .prepare(
+      `
+      SELECT id, database_block_id
+      FROM database_views
+      ORDER BY database_block_id, is_primary DESC, created_at, id
+    `,
+    )
+    .all() as Array<{
+    readonly id: string;
+    readonly database_block_id: string;
+  }>;
+  const viewsByDatabase = groupBy(views, (view) => view.database_block_id);
+  const updateView = db.prepare(
+    "UPDATE database_views SET rank_key = ? WHERE id = ?",
+  );
+  for (const databaseViews of viewsByDatabase.values()) {
+    databaseViews.forEach((view, index) => {
+      updateView.run(
+        databaseFractionalRankForOrdinal(index, databaseViews.length),
+        view.id,
+      );
+    });
+  }
+
+  const positions = db
+    .prepare(
+      `
+      SELECT view_id, block_id, group_key
+      FROM database_view_positions
+      ORDER BY view_id, group_key, rank_key, block_id
+    `,
+    )
+    .all() as Array<{
+    readonly view_id: string;
+    readonly block_id: string;
+    readonly group_key: string | null;
+  }>;
+  const positionsByGroup = groupBy(positions, (position) =>
+    JSON.stringify([position.view_id, position.group_key]),
+  );
+  const updatePosition = db.prepare(
+    `UPDATE database_view_positions SET rank_key = ? WHERE view_id = ? AND block_id = ?`,
+  );
+  for (const groupPositions of positionsByGroup.values()) {
+    groupPositions.forEach((position, index) => {
+      updatePosition.run(
+        databaseFractionalRankForOrdinal(index, groupPositions.length),
+        position.view_id,
+        position.block_id,
+      );
+    });
+  }
+}
+
+function materializeV67DatabaseViewConfigs(db: Database.Database): void {
+  const views = db
+    .prepare(
+      `
+      SELECT
+        view.id,
+        view.project_id,
+        view.database_block_id,
+        view.is_primary,
+        capability.is_primary AS database_is_primary
+      FROM database_views view
+      INNER JOIN database_capabilities capability
+        ON capability.block_id = view.database_block_id
+       AND capability.project_id = view.project_id
+      WHERE view.lifecycle = 'active'
+      ORDER BY view.project_id, view.id
+    `,
+    )
+    .all() as Array<{
+    readonly id: string;
+    readonly project_id: string;
+    readonly database_block_id: string;
+    readonly is_primary: number;
+    readonly database_is_primary: number;
+  }>;
+  const update = db.prepare(
+    "UPDATE database_views SET config_json = ? WHERE id = ?",
+  );
+  for (const view of views) {
+    const isSeededPrimary =
+      view.database_is_primary === 1 &&
+      view.is_primary === 1 &&
+      view.database_block_id === primaryDatabaseBlockId(view.project_id) &&
+      view.id === primaryDatabaseViewId(view.project_id);
+    if (!isSeededPrimary) continue;
+    update.run(makePrimaryDatabaseViewConfig(view.project_id), view.id);
+  }
+}
+
+const v67ViewFilterPropertyIds = (
+  filter: DatabaseViewFilterNode,
+): readonly string[] => {
+  if (filter.kind === "clause") return [filter.propertyId];
+  return filter.children.flatMap(v67ViewFilterPropertyIds);
+};
+
+function assertV67GeneralDatabaseIntegrity(db: Database.Database): void {
+  const invalidCapability = db
+    .prepare(
+      `
+      SELECT capability.block_id
+      FROM database_capabilities capability
+      LEFT JOIN blocks block
+        ON block.id = capability.block_id
+       AND block.project_id = capability.project_id
+      WHERE block.id IS NULL OR block.type <> 'database'
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly block_id: string } | undefined;
+  if (invalidCapability) {
+    throw new Error(
+      `Database capability ${invalidCapability.block_id} has no Database Block owner`,
+    );
+  }
+
+  const activeDatabaseWithoutView = db
+    .prepare(
+      `
+      SELECT capability.block_id
+      FROM database_capabilities capability
+      INNER JOIN blocks block
+        ON block.id = capability.block_id
+       AND block.project_id = capability.project_id
+       AND block.lifecycle = 'active'
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM database_views view
+        WHERE view.database_block_id = capability.block_id
+          AND view.project_id = capability.project_id
+          AND view.lifecycle = 'active'
+      )
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly block_id: string } | undefined;
+  if (activeDatabaseWithoutView) {
+    throw new Error(
+      `Active Database ${activeDatabaseWithoutView.block_id} has no durable View`,
+    );
+  }
+
+  const activeViews = db
+    .prepare(
+      `
+      SELECT
+        view.id,
+        view.project_id,
+        view.database_block_id,
+        view.config_json,
+        view.is_primary,
+        capability.is_primary AS database_is_primary
+      FROM database_views view
+      INNER JOIN database_capabilities capability
+        ON capability.block_id = view.database_block_id
+       AND capability.project_id = view.project_id
+      WHERE view.lifecycle = 'active'
+    `,
+    )
+    .all() as Array<{
+    readonly id: string;
+    readonly project_id: string;
+    readonly database_block_id: string;
+    readonly config_json: string;
+    readonly is_primary: number;
+    readonly database_is_primary: number;
+  }>;
+  for (const view of activeViews) {
+    let rawConfig: unknown;
+    try {
+      rawConfig = JSON.parse(view.config_json) as unknown;
+    } catch {
+      throw new Error(`Database View ${view.id} has invalid config JSON`);
+    }
+    const schemaKey =
+      typeof rawConfig === "object" &&
+      rawConfig !== null &&
+      !Array.isArray(rawConfig) &&
+      "schemaKey" in rawConfig
+        ? rawConfig.schemaKey
+        : undefined;
+    const schemaVersion =
+      typeof rawConfig === "object" &&
+      rawConfig !== null &&
+      !Array.isArray(rawConfig) &&
+      "schemaVersion" in rawConfig
+        ? rawConfig.schemaVersion
+        : undefined;
+    if (
+      schemaKey === "nodex.database-view/legacy-inline" &&
+      schemaVersion === 1
+    ) {
+      continue;
+    }
+    if (schemaKey !== "nodex.database-view" || schemaVersion !== 1) {
+      throw new Error(
+        `Database View ${view.id} uses an unsupported durable config schema`,
+      );
+    }
+    const isSeededPrimary =
+      view.database_is_primary === 1 &&
+      view.is_primary === 1 &&
+      view.database_block_id === primaryDatabaseBlockId(view.project_id) &&
+      view.id === primaryDatabaseViewId(view.project_id);
+    if (
+      view.database_is_primary === 1 &&
+      view.is_primary === 1 &&
+      !isSeededPrimary
+    ) {
+      throw new Error(
+        `Primary Database View ${view.id} does not use its seeded stable identity`,
+      );
+    }
+    const config = parseGeneralDatabaseViewConfig(rawConfig);
+    const propertyIds = new Set([
+      ...v67ViewFilterPropertyIds(config.filter),
+      ...config.sort.flatMap((sort) =>
+        sort.field.kind === "property" ? [sort.field.propertyId] : [],
+      ),
+      ...(config.group ? [config.group.propertyId] : []),
+      ...config.display.propertyIds,
+    ]);
+    for (const propertyId of propertyIds) {
+      const matches = db
+        .prepare(
+          `
+          SELECT 1 FROM database_properties
+          WHERE id = ? AND database_block_id = ? AND lifecycle = 'active'
+        `,
+        )
+        .get(propertyId, view.database_block_id);
+      if (matches) continue;
+      throw new Error(
+        `Database View ${view.id} references property ${propertyId} outside its active schema`,
+      );
+    }
+  }
+
+  const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+  if (foreignKeyViolations.length > 0) {
+    throw new Error(
+      "Database schema v67 migration left foreign-key violations",
+    );
+  }
+  const integrity = db.pragma("integrity_check") as Array<{
+    readonly integrity_check: string;
+  }>;
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
+    throw new Error("Database schema v67 migration failed integrity_check");
+  }
+  const staleSchemaReference = db
+    .prepare(
+      `
+      SELECT name
+      FROM sqlite_schema
+      WHERE lower(sql) LIKE '%database_properties_v66%'
+         OR lower(sql) LIKE '%database_property_values_v66%'
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly name: string } | undefined;
+  if (!staleSchemaReference) return;
+  throw new Error(
+    `Database schema v67 retained a temporary-table reference in ${staleSchemaReference.name}`,
+  );
+}
+
+function migrateSchema66To67(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    if (!tableHasColumn(db, "database_capabilities", "name")) {
+      db.exec(
+        "ALTER TABLE database_capabilities ADD COLUMN name TEXT NOT NULL DEFAULT 'Cards'",
+      );
+    }
+    if (!tableHasColumn(db, "database_capabilities", "schema_revision")) {
+      db.exec(
+        "ALTER TABLE database_capabilities ADD COLUMN schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1)",
+      );
+    }
+    if (!tableHasColumn(db, "database_memberships", "revision")) {
+      db.exec(
+        "ALTER TABLE database_memberships ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)",
+      );
+    }
+    if (!tableHasColumn(db, "database_views", "revision")) {
+      db.exec(
+        "ALTER TABLE database_views ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)",
+      );
+    }
+    if (!tableHasColumn(db, "database_views", "rank_key")) {
+      db.exec(
+        "ALTER TABLE database_views ADD COLUMN rank_key TEXT NOT NULL DEFAULT '00000000'",
+      );
+    }
+    if (!tableHasColumn(db, "database_views", "lifecycle")) {
+      db.exec(
+        "ALTER TABLE database_views ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active', 'deleted'))",
+      );
+    }
+    if (!tableHasColumn(db, "database_view_positions", "revision")) {
+      db.exec(
+        "ALTER TABLE database_view_positions ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)",
+      );
+    }
+
+    rebuildV67DatabasePropertyTables(db);
+    materializeV67DatabasePropertyConfigs(db);
+    // SQLite rewrites trigger SQL when a referenced table is renamed. Rebuild
+    // the temporary Card migration seam so no trigger retains the v66 backup
+    // names after the authoritative property tables are swapped.
+    recreateV62CardProjectionTriggers(db);
+    db.exec(`
+      DROP INDEX IF EXISTS idx_database_views_primary;
+      CREATE UNIQUE INDEX idx_database_views_primary
+        ON database_views(database_block_id)
+        WHERE is_primary = 1 AND lifecycle = 'active';
+    `);
+    normalizeV67DatabaseRanks(db);
+    materializeV67DatabaseViewConfigs(db);
+    assertV67GeneralDatabaseIntegrity(db);
+    setUserVersion(db, 67);
+  });
+  migrate.immediate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -6860,6 +7647,16 @@ function runMigrations(
       }
       migrateSchema65To66(db);
       fromVersion = 66;
+      continue;
+    }
+    if (target === 67) {
+      if (fromVersion !== 66) {
+        throw new Error(
+          `Unsupported Nodex database migration target 67 from ${fromVersion}`,
+        );
+      }
+      migrateSchema66To67(db);
+      fromVersion = 67;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
