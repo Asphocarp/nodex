@@ -5,18 +5,25 @@ import {
   CARD_DOCUMENT_SCHEMA_KEY,
   CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
+  createSyncedBlockDocument,
+  SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+  SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+  SYNCED_BLOCK_SOURCE_TYPE,
   type DocumentSyncApplyRequest,
   type DocumentSyncCommandResult,
   type DocumentSyncRealtimeEvent,
   type DocumentSyncResponse,
 } from "../../../shared/block-documents";
+import { populateBlockDocumentBodyFromBlockTree } from "../../../shared/block-documents/block-document-codec";
 import { render } from "@/test/dom";
 import { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "@/lib/nodex-y-provider";
 import {
   BlockDocumentSurface,
+  OwnedBlockDocumentSurface,
   type BlockDocumentSurfaceDependencies,
   type PrimaryCardBlockDocumentDescriptor,
+  type PrimaryOwnedBlockDocumentDescriptor,
 } from "./block-document-surface";
 
 const descriptor = (): PrimaryCardBlockDocumentDescriptor => ({
@@ -36,10 +43,10 @@ const descriptor = (): PrimaryCardBlockDocumentDescriptor => ({
 });
 
 class SurfaceTestAdapter implements DocumentSyncAdapter {
-  readonly server = createCardDocument({
-    documentId: "document:card-1",
-    initialTitle: "Synced title",
-  });
+  readonly server: {
+    readonly documentId: string;
+    readonly document: Y.Doc;
+  };
   subscriptions = 0;
   unsubscriptions = 0;
   awarenessPublishes = 0;
@@ -48,6 +55,18 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
   private readonly listeners = new Set<
     (event: DocumentSyncRealtimeEvent) => void
   >();
+
+  constructor(
+    server: {
+      readonly documentId: string;
+      readonly document: Y.Doc;
+    } = createCardDocument({
+      documentId: "document:card-1",
+      initialTitle: "Synced title",
+    }),
+  ) {
+    this.server = server;
+  }
 
   sync = async (request: {
     readonly stateVector: Uint8Array;
@@ -59,10 +78,7 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
       generation: 1,
       headSeq: this.headSeq,
       stateVector: Y.encodeStateVector(this.server.document),
-      update: Y.encodeStateAsUpdate(
-        this.server.document,
-        request.stateVector,
-      ),
+      update: Y.encodeStateAsUpdate(this.server.document, request.stateVector),
     },
   });
 
@@ -120,6 +136,60 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
 }
 
 describe("BlockDocumentSurface", () => {
+  test("registry-dispatches a body-only Synced Block surface without inventing a title root", async () => {
+    const server = createSyncedBlockDocument({
+      documentId: "document:synced-source-1",
+      initializeBody: false,
+    });
+    populateBlockDocumentBodyFromBlockTree(server.body, [
+      {
+        id: "synced-paragraph",
+        type: "paragraph",
+        props: {},
+        content: [{ type: "text", text: "Shared body", styles: {} }],
+        children: [],
+      },
+    ]);
+    const adapter = new SurfaceTestAdapter(server);
+    const syncedDescriptor: PrimaryOwnedBlockDocumentDescriptor = {
+      ...descriptor(),
+      ownerBlockId: "synced-source-1",
+      ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+      documentId: server.documentId,
+      schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+    };
+    const view = render(
+      <OwnedBlockDocumentSurface
+        projectId="project-1"
+        descriptor={syncedDescriptor}
+        isActive
+        dependencies={{
+          createAdapter: () => adapter,
+          createRuntime: (options) =>
+            new BlockDocumentSurfaceRuntime({
+              ...options,
+              localCheckpointStore: null,
+            }),
+        }}
+      >
+        {(surface) => (
+          <div>
+            {surface.kind}:{[...surface.document.share.keys()].sort().join(",")}
+          </div>
+        )}
+      </OwnedBlockDocumentSurface>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("synced_block:body").textContent).toBe(
+        "synced_block:body",
+      );
+    });
+    view.unmount();
+    adapter.destroy();
+  });
+
   test("opens after sync, retains content sync without inactive presence, and clears its runtime ref on close", async () => {
     const adapter = new SurfaceTestAdapter();
     const runtimeRef: { current: BlockDocumentSurfaceRuntime | null } = {
@@ -156,8 +226,11 @@ describe("BlockDocumentSurface", () => {
     expect(runtime).not.toBeNull();
     expect(adapter.subscriptions).toBe(1);
     expect(
-      (runtime?.awareness.getLocalState()?.nodex as { clientSessionId?: string })
-        .clientSessionId,
+      (
+        runtime?.awareness.getLocalState()?.nodex as {
+          clientSessionId?: string;
+        }
+      ).clientSessionId,
     ).toBe(runtime?.clientSessionId);
 
     view.rerender(renderSurface(false));
@@ -206,7 +279,9 @@ describe("BlockDocumentSurface", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByRole("alert").textContent?.includes("Reload")).toBeTrue();
+      expect(
+        view.getByRole("alert").textContent?.includes("Reload"),
+      ).toBeTrue();
     });
     expect(adapter.subscriptions).toBe(0);
     adapter.destroy();

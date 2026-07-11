@@ -9,10 +9,17 @@ import {
   captureXmlSubtreeAt,
   cloneXmlSubtree,
   createCardDocument,
+  createSyncedBlockDocument,
   deleteXmlSubtreeAt,
   encodeXmlSubtree,
   insertPortableXmlSubtree,
+  getRegisteredBlockDocumentSchemaAdapter,
+  inspectRegisteredOwnedBlockDocument,
   openCardDocument,
+  SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+  SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+  SYNCED_BLOCK_SOURCE_TYPE,
+  SyncedBlockDocumentRootValidationError,
   scanBlockDocument,
 } from ".";
 
@@ -43,9 +50,7 @@ const createBlock = (
   return block;
 };
 
-const getOnlyElement = (
-  parent: Y.XmlFragment | Y.XmlElement,
-): Y.XmlElement => {
+const getOnlyElement = (parent: Y.XmlFragment | Y.XmlElement): Y.XmlElement => {
   const child = parent.toArray()[0];
   if (!(child instanceof Y.XmlElement)) {
     throw new TypeError("Expected one Y.XmlElement child");
@@ -103,12 +108,16 @@ describe("Card block document envelope", () => {
     const envelope = openCardDocument(reloaded);
 
     expect(envelope.title.toString()).toBe("Persisted title");
-    expect(assertValidBlockDocument(envelope.body)[0]?.id).toBe("persisted-block");
+    expect(assertValidBlockDocument(envelope.body)[0]?.id).toBe(
+      "persisted-block",
+    );
   });
 
   test("rejects an encoded non-text title root after typed Yjs root resolution", () => {
     const malformed = new Y.Doc({ guid: "malformed-title-source" });
-    malformed.getXmlFragment("title").insert(0, [new Y.XmlElement("paragraph")]);
+    malformed
+      .getXmlFragment("title")
+      .insert(0, [new Y.XmlElement("paragraph")]);
     const reloaded = new Y.Doc({ guid: "malformed-title-reloaded" });
     Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(malformed));
 
@@ -123,8 +132,12 @@ describe("Card block document envelope", () => {
   });
 
   test("rejects unsupported named roots carried by an encoded update", () => {
-    const source = createCardDocument({ documentId: "document-hidden-root-source" });
-    source.document.getMap("hidden").set("payload", "not part of the Card envelope");
+    const source = createCardDocument({
+      documentId: "document-hidden-root-source",
+    });
+    source.document
+      .getMap("hidden")
+      .set("payload", "not part of the Card envelope");
     const reloaded = new Y.Doc({ guid: "document-hidden-root-reloaded" });
     Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(source.document));
 
@@ -136,6 +149,49 @@ describe("Card block document envelope", () => {
     }
 
     expect(error instanceof CardDocumentRootValidationError).toBeTrue();
+  });
+});
+
+describe("registered document-bearing Block envelopes", () => {
+  test("dispatches a Synced Block as body-only block_tree content", () => {
+    const envelope = createSyncedBlockDocument({
+      documentId: "document-synced-source",
+    });
+    const adapter = getRegisteredBlockDocumentSchemaAdapter({
+      ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+      schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+    });
+    const inspection = inspectRegisteredOwnedBlockDocument(envelope.document, {
+      ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+      schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+    });
+
+    expect(adapter.contentModel).toBe("block_tree");
+    expect(inspection.envelope.kind).toBe("synced_block");
+    expect(JSON.stringify([...envelope.document.share.keys()])).toBe(
+      '["body"]',
+    );
+  });
+
+  test("rejects a Card title root in a Synced Block Document", () => {
+    const source = createSyncedBlockDocument({
+      documentId: "document-synced-with-title",
+    });
+    source.document.getText("title").insert(0, "not allowed");
+
+    let error: unknown;
+    try {
+      inspectRegisteredOwnedBlockDocument(source.document, {
+        ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+        schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof SyncedBlockDocumentRootValidationError).toBeTrue();
   });
 });
 
@@ -204,7 +260,9 @@ describe("Block document structural validation", () => {
   });
 
   test("rejects multiple root block groups", () => {
-    const envelope = createCardDocument({ documentId: "document-multiple-roots" });
+    const envelope = createCardDocument({
+      documentId: "document-multiple-roots",
+    });
     envelope.body.insert(1, [new Y.XmlElement("blockGroup")]);
 
     const scan = scanBlockDocument(envelope.body);
@@ -219,18 +277,24 @@ describe("Block document structural validation", () => {
     getFirstText(block).insertEmbed(0, { unsupported: true });
 
     const scan = scanBlockDocument(envelope.body);
-    expect(scan.issues.some((issue) => issue.code === "unsupported_xml_text_embed")).toBeTrue();
+    expect(
+      scan.issues.some((issue) => issue.code === "unsupported_xml_text_embed"),
+    ).toBeTrue();
   });
 
   test("rejects nested shared types in XML attributes before persistence", () => {
-    const envelope = createCardDocument({ documentId: "document-shared-attribute" });
+    const envelope = createCardDocument({
+      documentId: "document-shared-attribute",
+    });
     const group = getOnlyElement(envelope.body);
     const block = createBlock("shared-attribute-block", "Content");
     group.insert(0, [block]);
     block.setAttribute("invalid", new Y.Map() as unknown as string);
 
     const scan = scanBlockDocument(envelope.body);
-    expect(scan.issues.some((issue) => issue.code === "unsupported_xml_value")).toBeTrue();
+    expect(
+      scan.issues.some((issue) => issue.code === "unsupported_xml_value"),
+    ).toBeTrue();
   });
 });
 
@@ -247,7 +311,9 @@ describe("portable Y.Xml subtree codec", () => {
 
     expect(cloned instanceof Y.XmlElement).toBeTrue();
     if (!(cloned instanceof Y.XmlElement)) return;
-    expect(Object.prototype.hasOwnProperty.call(cloned.getAttributes(), "origin")).toBeTrue();
+    expect(
+      Object.prototype.hasOwnProperty.call(cloned.getAttributes(), "origin"),
+    ).toBeTrue();
     expect(cloned.getAttribute("origin") === undefined).toBeTrue();
   });
 

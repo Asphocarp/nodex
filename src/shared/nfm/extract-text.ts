@@ -46,6 +46,10 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       parts.push(block.displayHint || block.databaseViewId);
     }
 
+    if (block.type === "syncedBlockRef") {
+      parts.push(block.sourceBlockId);
+    }
+
     if (block.type === "cardToggle") {
       parts.push(block.cardId, block.meta);
     }

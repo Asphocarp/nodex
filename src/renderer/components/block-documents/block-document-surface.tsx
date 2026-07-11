@@ -7,7 +7,11 @@ import {
   type ReactNode,
 } from "react";
 import type { Awareness } from "y-protocols/awareness.js";
-import type { CardDocumentEnvelope } from "../../../shared/block-documents";
+import type {
+  CardDocumentEnvelope,
+  OwnedBlockDocumentDescriptor,
+} from "../../../shared/block-documents";
+import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/document-schema-adapters";
 import { NodexButton } from "@/components/ui/button";
 import { createDocumentSyncAdapter } from "@/lib/api";
 import {
@@ -27,6 +31,13 @@ export type PrimaryCardBlockDocumentDescriptor =
     readonly authority: "ydoc_primary";
   };
 
+export type PrimaryOwnedBlockDocumentDescriptor =
+  OwnedBlockDocumentDescriptor & {
+    readonly ownerLifecycle: "active";
+    readonly readiness: "ready";
+    readonly authority: "ydoc_primary";
+  };
+
 export type BlockDocumentLocalAwarenessState = Readonly<
   Record<string, unknown>
 >;
@@ -38,6 +49,14 @@ export interface BlockDocumentSurfaceValue extends CardDocumentEnvelope {
   readonly clientSessionId: string;
   readonly status: BlockDocumentSurfaceStatus;
 }
+
+export type OwnedBlockDocumentSurfaceValue = OwnedDocumentEnvelope & {
+  readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
+  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly awareness: Awareness;
+  readonly clientSessionId: string;
+  readonly status: BlockDocumentSurfaceStatus;
+};
 
 export interface BlockDocumentSurfaceDependencies {
   readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
@@ -61,6 +80,14 @@ export interface BlockDocumentSurfaceProps {
   readonly children: (surface: BlockDocumentSurfaceValue) => ReactNode;
 }
 
+export interface OwnedBlockDocumentSurfaceProps extends Omit<
+  BlockDocumentSurfaceProps,
+  "descriptor" | "children"
+> {
+  readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
+  readonly children: (surface: OwnedBlockDocumentSurfaceValue) => ReactNode;
+}
+
 interface SurfaceFailureProps {
   readonly error: Error;
   readonly resetRequired: boolean;
@@ -78,7 +105,8 @@ const createRuntime = (
 ): BlockDocumentSurfaceRuntime => new BlockDocumentSurfaceRuntime(options);
 
 function SurfacePending({ phase }: { readonly phase?: string }) {
-  const label = phase === "connecting" ? "Connecting card…" : "Opening card…";
+  const label =
+    phase === "connecting" ? "Connecting content…" : "Opening content…";
   return (
     <div
       role="status"
@@ -107,8 +135,8 @@ function SurfaceFailure({
     >
       <span className="min-w-0 text-token-description-foreground">
         {resetRequired
-          ? "This card needs to resync before editing can continue."
-          : "Couldn’t open this card’s collaborative document."}
+          ? "This content needs to resync before editing can continue."
+          : "Couldn’t open this collaborative content."}
       </span>
       <NodexButton
         type="button"
@@ -130,7 +158,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const makeActiveAwarenessState = (
   runtime: BlockDocumentSurfaceRuntime,
   projectId: string,
-  descriptor: PrimaryCardBlockDocumentDescriptor,
+  descriptor: PrimaryOwnedBlockDocumentDescriptor,
   configured: BlockDocumentLocalAwarenessState | undefined,
   retained: Record<string, unknown> | null,
 ): Record<string, unknown> => {
@@ -154,7 +182,7 @@ const makeActiveAwarenessState = (
 const useSurfaceAwareness = (
   runtime: BlockDocumentSurfaceRuntime,
   projectId: string,
-  descriptor: PrimaryCardBlockDocumentDescriptor,
+  descriptor: PrimaryOwnedBlockDocumentDescriptor,
   isActive: boolean,
   configured: BlockDocumentLocalAwarenessState | undefined,
 ): void => {
@@ -207,12 +235,12 @@ const useSurfaceAwareness = (
 interface ReadySurfaceProps {
   readonly runtime: BlockDocumentSurfaceRuntime;
   readonly projectId: string;
-  readonly descriptor: PrimaryCardBlockDocumentDescriptor;
+  readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
-  readonly children: BlockDocumentSurfaceProps["children"];
+  readonly children: OwnedBlockDocumentSurfaceProps["children"];
 }
 
 function ReadySurface({
@@ -259,7 +287,8 @@ function ReadySurface({
     if (status.phase !== "reset-required" || reloadInFlightRef.current) return;
     reloadInFlightRef.current = true;
     setReloading(true);
-    void runtime.reload()
+    void runtime
+      .reload()
       .finally(onReload)
       .catch(() => {
         reloadInFlightRef.current = false;
@@ -292,7 +321,7 @@ function ReadySurface({
   });
 }
 
-interface RuntimeOwnerProps extends BlockDocumentSurfaceProps {
+interface RuntimeOwnerProps extends OwnedBlockDocumentSurfaceProps {
   readonly restart: () => void;
 }
 
@@ -314,7 +343,8 @@ function RuntimeOwner({
   const [startupError, setStartupError] = useState<Error | null>(null);
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
-  const adapterFactory = dependencies.createAdapter ?? createDocumentSyncAdapter;
+  const adapterFactory =
+    dependencies.createAdapter ?? createDocumentSyncAdapter;
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
 
   useEffect(() => {
@@ -397,7 +427,7 @@ function RuntimeOwner({
 
 const surfaceIdentity = (
   projectId: string,
-  descriptor: PrimaryCardBlockDocumentDescriptor,
+  descriptor: PrimaryOwnedBlockDocumentDescriptor,
 ): string =>
   [
     projectId,
@@ -411,7 +441,9 @@ const surfaceIdentity = (
  * The authoritative roots are withheld until the initial state-vector sync and
  * schema validation have completed.
  */
-export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
+export function OwnedBlockDocumentSurface(
+  props: OwnedBlockDocumentSurfaceProps,
+) {
   const [revision, setRevision] = useState(0);
   const identity = surfaceIdentity(props.projectId, props.descriptor);
   return (
@@ -423,7 +455,28 @@ export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
   );
 }
 
+/** Card-named compatibility surface with a statically typed title root. */
+export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
+  return (
+    <OwnedBlockDocumentSurface {...props}>
+      {(surface) => {
+        if (surface.kind !== "card") {
+          throw new TypeError(
+            "Card surface resolved a non-Card Document schema",
+          );
+        }
+        return props.children({
+          ...surface,
+          descriptor: props.descriptor,
+        });
+      }}
+    </OwnedBlockDocumentSurface>
+  );
+}
+
 export const isPrimaryOwnedBlockDocumentModel = (
   model: OwnedBlockDocumentModel,
-): model is Extract<OwnedBlockDocumentModel, { readonly status: "ydoc_primary" }> =>
-  model.status === "ydoc_primary";
+): model is Extract<
+  OwnedBlockDocumentModel,
+  { readonly status: "ydoc_primary" }
+> => model.status === "ydoc_primary";

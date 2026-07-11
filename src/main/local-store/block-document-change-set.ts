@@ -10,6 +10,7 @@ import {
   type PortableXmlSubtree,
   type PortableXmlValue,
 } from "../../shared/block-documents";
+import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
 
 export interface BlockChangeDescriptor {
   readonly id: BlockId;
@@ -22,7 +23,7 @@ export interface BlockChangeDescriptor {
 }
 
 export interface BlockDocumentChangeState {
-  readonly title: string;
+  readonly title: string | null;
   readonly blocks: ReadonlyMap<BlockId, BlockChangeDescriptor>;
 }
 
@@ -106,8 +107,16 @@ const collectBlockContentHashes = (
 
 export const captureBlockDocumentChangeState = (
   document: Y.Doc,
+  schema?: {
+    readonly ownerType: string;
+    readonly schemaKey: string;
+    readonly schemaVersion: number;
+  },
 ): BlockDocumentChangeState => {
-  const envelope = assertValidCardDocumentRoots(document);
+  const inspection = schema
+    ? inspectOwnedBlockDocument(document, schema)
+    : null;
+  const envelope = inspection?.envelope ?? assertValidCardDocumentRoots(document);
   const scannedBlocks = assertValidBlockDocument(envelope.body);
   const contentHashes = collectBlockContentHashes(envelope.body);
   const childIdsByParent = new Map<BlockId, BlockId[]>();
@@ -134,7 +143,12 @@ export const captureBlockDocumentChangeState = (
     });
   });
   return {
-    title: envelope.title.toString(),
+    title:
+      inspection?.materialization.kind === "card"
+        ? inspection.materialization.title
+        : inspection
+          ? null
+          : assertValidCardDocumentRoots(document).title.toString(),
     blocks,
   };
 };

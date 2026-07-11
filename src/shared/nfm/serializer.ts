@@ -119,6 +119,13 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + `<database-view-ref ${attrs.join(" ")} />`);
         break;
       }
+      case "syncedBlockRef": {
+        lines.push(
+          prefix +
+            `<synced-block-ref source-block="${escapeXmlAttr(block.sourceBlockId)}" />`,
+        );
+        break;
+      }
       case "threadSection": {
         const attrs: string[] = [];
         if (block.label && block.label.length > 0) {

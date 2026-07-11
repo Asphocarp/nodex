@@ -1,10 +1,14 @@
 import * as Y from "yjs";
 import {
   createDetachedCardDocumentFromBlockTree,
-  materializeCardDocument,
   type BlockTreeNode,
   type CardDocumentMaterialization,
 } from "./block-document-codec";
+import {
+  getBlockDocumentSchemaAdapter,
+  inspectOwnedBlockDocument,
+  toPersistedBlockDocumentMaterialization,
+} from "./document-schema-adapters";
 import {
   BlockSubtreeOperationError,
   indexBlockDocumentTree,
@@ -12,7 +16,11 @@ import {
   relocateBlockSubtrees,
 } from "./block-subtree-relocation";
 import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
-import { createCardDocument } from "./card-document";
+import {
+  CARD_DOCUMENT_SCHEMA_KEY,
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  createCardDocument,
+} from "./card-document";
 import type {
   DocumentBlockOperation,
   DocumentBlockUpdatePatch,
@@ -53,6 +61,11 @@ export interface PrepareDocumentOperationUpdateInput {
   /** Current durable state. This source remains byte-for-byte read-only. */
   readonly document: Y.Doc;
   readonly operations: readonly DocumentBlockOperation[];
+  readonly schema?: {
+    readonly ownerType: string;
+    readonly schemaKey: string;
+    readonly schemaVersion: number;
+  };
   readonly transactionOrigin?: unknown;
 }
 
@@ -354,6 +367,8 @@ const insertBlock = (
     relocateBlockSubtrees({
       sourceDocument: candidate.document,
       targetDocument: document,
+      sourceBody: candidate.document.getXmlFragment("body"),
+      targetBody: document.getXmlFragment("body"),
       rootBlockIds: [operation.block.id],
       target: {
         ...(operation.parentBlockId
@@ -393,6 +408,8 @@ const deleteBlock = (
     relocateBlockSubtrees({
       sourceDocument: document,
       targetDocument: trash.document,
+      sourceBody: document.getXmlFragment("body"),
+      targetBody: trash.document.getXmlFragment("body"),
       rootBlockIds: [blockId],
       target: {},
       transactionOrigin: `document-operation:delete:${operationIndex}`,
@@ -441,6 +458,8 @@ const moveBlock = (
   relocateBlockSubtrees({
     sourceDocument: document,
     targetDocument: document,
+    sourceBody: document.getXmlFragment("body"),
+    targetBody: document.getXmlFragment("body"),
     rootBlockIds: [operation.blockId],
     target: {
       ...(operation.parentBlockId
@@ -509,10 +528,18 @@ const applyOperation = (
   semanticBlocks: Map<string, BlockTreeNode>,
   writeFenceBlockIds: Set<string>,
   titleWriteFence: { required: boolean },
+  supportsTitle: boolean,
 ): void => {
   try {
     switch (operation.kind) {
       case "set_title": {
+        if (!supportsTitle) {
+          throw new DocumentOperationEngineError(
+            "invalid_operation",
+            "This Document schema does not own a title root",
+            { operationIndex },
+          );
+        }
         const title = document.getText("title");
         if (title.toString() === operation.title) return;
         titleWriteFence.required = true;
@@ -565,9 +592,17 @@ const applyOperation = (
 export const prepareDocumentOperationUpdate = ({
   document,
   operations,
+  schema = {
+    ownerType: "card",
+    schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  },
   transactionOrigin = "document-operation-batch",
 }: PrepareDocumentOperationUpdateInput): PreparedDocumentOperationUpdate => {
-  const sourceMaterialization = materializeCardDocument(document);
+  const adapter = getBlockDocumentSchemaAdapter(schema);
+  const sourceMaterialization = toPersistedBlockDocumentMaterialization(
+    inspectOwnedBlockDocument(document, schema).materialization,
+  );
   const sourceState = Y.encodeStateAsUpdate(document);
   const sourceStateVector = Y.encodeStateVector(document);
   const working = new Y.Doc({ guid: document.guid });
@@ -595,10 +630,13 @@ export const prepareDocumentOperationUpdate = ({
           semanticBlocks,
           writeFenceBlockIds,
           titleWriteFence,
+          adapter.capabilities.title,
         ),
       );
     }, transactionOrigin);
-    const materialization = materializeCardDocument(working);
+    const materialization = toPersistedBlockDocumentMaterialization(
+      inspectOwnedBlockDocument(working, schema).materialization,
+    );
     if (
       stableStringify({
         title: sourceMaterialization.title,

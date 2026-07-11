@@ -3,15 +3,9 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
   assertValidBlockDocument,
-  assertValidCardDocumentRoots,
   canonicalizeRelocationIntent,
   canonicalizeRelocationRequest,
   makeRelocationDocumentUpdateId,
-  MAX_CARD_DOCUMENT_BLOCKS,
-  MAX_CARD_DOCUMENT_BODY_XML_LENGTH,
-  MAX_CARD_DOCUMENT_STATE_BYTES,
-  MAX_CARD_DOCUMENT_UPDATE_BYTES,
-  MAX_CARD_DOCUMENT_XML_PATH_DEPTH,
   parseRelocateBlocks,
   parseRelocationIntent,
   parseRelocationResult,
@@ -27,10 +21,14 @@ import {
   type RelocationResult,
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
+import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
 import {
-  materializeCardDocument,
-  type CardDocumentMaterialization,
-} from "../../shared/block-documents/block-document-codec";
+  BlockDocumentSchemaError,
+  getBlockDocumentSchemaAdapter,
+  inspectOwnedBlockDocument,
+  toPersistedBlockDocumentMaterialization,
+  type BlockDocumentSchemaAdapter,
+} from "../../shared/block-documents/document-schema-adapters";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import {
   BlockDocumentStoreError,
@@ -84,6 +82,8 @@ interface RelocationDocumentRow {
   readonly owner_block_id: string;
   readonly owner_type: string;
   readonly owner_lifecycle: string;
+  readonly schema_key: string;
+  readonly schema_version: number;
 }
 
 interface RelocationMemberRow {
@@ -202,7 +202,9 @@ const readRelocationDocumentRow = (
       document.authority,
       ownership.block_id AS owner_block_id,
       owner.type AS owner_type,
-      owner.lifecycle AS owner_lifecycle
+      owner.lifecycle AS owner_lifecycle,
+      document.schema_key,
+      document.schema_version
     FROM documents document
     JOIN block_documents ownership ON ownership.document_id = document.id
     JOIN blocks owner ON owner.id = ownership.block_id
@@ -237,15 +239,30 @@ const assertDocumentBoundary = (
       { relocationId: input.relocationId },
     );
   }
+  let adapter: BlockDocumentSchemaAdapter;
+  try {
+    adapter = getBlockDocumentSchemaAdapter({
+      ownerType: row.owner_type,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+  } catch (error) {
+    if (!(error instanceof BlockDocumentSchemaError)) throw error;
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `${side === "source" ? "Source" : "Target"} Document owner/schema is not registered`,
+      { cause: error, relocationId: input.relocationId },
+    );
+  }
   if (
     row.readiness !== "ready" ||
     row.authority !== "ydoc_primary" ||
-    row.owner_type !== "card" ||
-    row.owner_lifecycle !== "active"
+    row.owner_lifecycle !== "active" ||
+    adapter.ownerType !== row.owner_type
   ) {
     throw new BlockRelocationStoreError(
       "document_not_ready",
-      `${side === "source" ? "Source" : "Target"} Document is not an active Y.Doc-primary Card`,
+      `${side === "source" ? "Source" : "Target"} Document is not an active registered Y.Doc-primary Document`,
       { relocationId: input.relocationId },
     );
   }
@@ -279,15 +296,27 @@ const assertIntentDocumentBoundary = (
       { relocationId: intent.relocationId },
     );
   }
+  try {
+    getBlockDocumentSchemaAdapter({
+      ownerType: row.owner_type,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+  } catch (error) {
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `${side === "source" ? "Source" : "Target"} Document owner/schema is not registered`,
+      { cause: error, relocationId: intent.relocationId },
+    );
+  }
   if (
     row.readiness !== "ready" ||
     row.authority !== "ydoc_primary" ||
-    row.owner_type !== "card" ||
     row.owner_lifecycle !== "active"
   ) {
     throw new BlockRelocationStoreError(
       "document_not_ready",
-      `${side === "source" ? "Source" : "Target"} Document is not an active Y.Doc-primary Card`,
+      `${side === "source" ? "Source" : "Target"} Document is not an active registered Y.Doc-primary Document`,
       { relocationId: intent.relocationId },
     );
   }
@@ -343,6 +372,7 @@ const loadWorkingDocument = (
 
 const validateRelocatedDocument = (
   document: Y.Doc,
+  row: RelocationDocumentRow,
   relocationId: string,
 ): {
   readonly blocks: readonly ScannedDocumentBlock[];
@@ -351,36 +381,47 @@ const validateRelocatedDocument = (
   readonly stateVector: Uint8Array;
 } => {
   try {
-    const roots = assertValidCardDocumentRoots(document);
-    if (roots.body.toString().length > MAX_CARD_DOCUMENT_BODY_XML_LENGTH) {
+    const adapter = getBlockDocumentSchemaAdapter({
+      ownerType: row.owner_type,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+    const inspection = inspectOwnedBlockDocument(document, {
+      ownerType: row.owner_type,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+    if (inspection.envelope.body.toString().length > adapter.limits.maxBodyXmlLength) {
       throw new Error(
-        `body exceeds ${MAX_CARD_DOCUMENT_BODY_XML_LENGTH} XML characters`,
+        `body exceeds ${adapter.limits.maxBodyXmlLength} XML characters`,
       );
     }
-    const blocks = assertValidBlockDocument(roots.body);
-    if (blocks.length > MAX_CARD_DOCUMENT_BLOCKS) {
-      throw new Error(`body exceeds ${MAX_CARD_DOCUMENT_BLOCKS} Blocks`);
+    const blocks = inspection.blocks;
+    if (blocks.length > adapter.limits.maxBlocks) {
+      throw new Error(`body exceeds ${adapter.limits.maxBlocks} Blocks`);
     }
     if (
       blocks.some(
-        (block) => block.path.length > MAX_CARD_DOCUMENT_XML_PATH_DEPTH,
+        (block) => block.path.length > adapter.limits.maxXmlPathDepth,
       )
     ) {
       throw new Error(
-        `body exceeds XML path depth ${MAX_CARD_DOCUMENT_XML_PATH_DEPTH}`,
+        `body exceeds XML path depth ${adapter.limits.maxXmlPathDepth}`,
       );
     }
     if (document.store.pendingStructs || document.store.pendingDs) {
       throw new Error("document has unresolved Yjs dependencies");
     }
     const fullState = Y.encodeStateAsUpdate(document);
-    if (fullState.byteLength > MAX_CARD_DOCUMENT_STATE_BYTES) {
-      throw new Error(`state exceeds ${MAX_CARD_DOCUMENT_STATE_BYTES} bytes`);
+    if (fullState.byteLength > adapter.limits.maxStateBytes) {
+      throw new Error(`state exceeds ${adapter.limits.maxStateBytes} bytes`);
     }
-    const materialization = materializeCardDocument(document);
+    const materialization = toPersistedBlockDocumentMaterialization(
+      inspection.materialization,
+    );
     if (materialization.references.some(isLegacyForeignBodyReference)) {
       throw new Error(
-        "primary Card Document contains a legacy foreign-body projection",
+        "primary Document contains a legacy foreign-body projection",
       );
     }
     return {
@@ -394,7 +435,7 @@ const validateRelocatedDocument = (
     const detail = error instanceof Error ? `: ${error.message}` : "";
     throw new BlockRelocationStoreError(
       "document_state_corrupt",
-      `Relocation produced an invalid Card Document${detail}`,
+      `Relocation produced an invalid registered Document${detail}`,
       { cause: error, relocationId },
     );
   }
@@ -565,9 +606,11 @@ const prepareDocumentCommit = (input: {
   readonly baseHeadSeq: number;
   readonly updateId: string;
   readonly relocationId: string;
+  readonly row: RelocationDocumentRow;
 }): PreparedDocumentCommit => {
   const validated = validateRelocatedDocument(
     input.document,
+    input.row,
     input.relocationId,
   );
   const update = Y.encodeStateAsUpdate(
@@ -576,11 +619,16 @@ const prepareDocumentCommit = (input: {
   );
   if (
     update.byteLength < 1 ||
-    update.byteLength > MAX_CARD_DOCUMENT_UPDATE_BYTES
+    update.byteLength >
+      getBlockDocumentSchemaAdapter({
+        ownerType: input.row.owner_type,
+        schemaKey: input.row.schema_key,
+        schemaVersion: input.row.schema_version,
+      }).limits.maxUpdateBytes
   ) {
     throw new BlockRelocationStoreError(
       "invalid_relocation_target",
-      `Relocation update for ${input.documentId} must contain 1-${MAX_CARD_DOCUMENT_UPDATE_BYTES} bytes`,
+      `Relocation update for ${input.documentId} exceeds its registered schema limit`,
       { relocationId: input.relocationId },
     );
   }
@@ -1373,13 +1421,27 @@ export const prepareRelocationCommand = (
     );
     try {
       const sourceBlocks = assertValidBlockDocument(
-        assertValidCardDocumentRoots(sourceDocument).body,
+        inspectOwnedBlockDocument(sourceDocument, {
+          ownerType: sourceRow.owner_type,
+          schemaKey: sourceRow.schema_key,
+          schemaVersion: sourceRow.schema_version,
+        }).envelope.body,
       );
       let operation;
       try {
         operation = relocateBlockSubtrees({
           sourceDocument,
           targetDocument,
+          sourceBody: inspectOwnedBlockDocument(sourceDocument, {
+            ownerType: sourceRow.owner_type,
+            schemaKey: sourceRow.schema_key,
+            schemaVersion: sourceRow.schema_version,
+          }).envelope.body,
+          targetBody: inspectOwnedBlockDocument(targetDocument, {
+            ownerType: targetRow.owner_type,
+            schemaKey: targetRow.schema_key,
+            schemaVersion: targetRow.schema_version,
+          }).envelope.body,
           rootBlockIds: intent.rootBlockIds,
           target: {
             ...(intent.target.parentBlockId === undefined
@@ -1522,13 +1584,27 @@ export const relocateBlocksAtomically = (
       const sourcePreStateHash = sha256(sourcePreFullUpdate);
       const targetPreStateVector = Y.encodeStateVector(targetDocument);
       const sourceBlocksBefore = assertValidBlockDocument(
-        assertValidCardDocumentRoots(sourceDocument).body,
+        inspectOwnedBlockDocument(sourceDocument, {
+          ownerType: sourceRow.owner_type,
+          schemaKey: sourceRow.schema_key,
+          schemaVersion: sourceRow.schema_version,
+        }).envelope.body,
       );
       let operation;
       try {
         operation = relocateBlockSubtrees({
           sourceDocument,
           targetDocument,
+          sourceBody: inspectOwnedBlockDocument(sourceDocument, {
+            ownerType: sourceRow.owner_type,
+            schemaKey: sourceRow.schema_key,
+            schemaVersion: sourceRow.schema_version,
+          }).envelope.body,
+          targetBody: inspectOwnedBlockDocument(targetDocument, {
+            ownerType: targetRow.owner_type,
+            schemaKey: targetRow.schema_key,
+            schemaVersion: targetRow.schema_version,
+          }).envelope.body,
           rootBlockIds: input.rootBlockIds,
           target: {
             ...(target.parentBlockId === undefined
@@ -1562,6 +1638,7 @@ export const relocateBlocksAtomically = (
         baseHeadSeq: input.expectedSourceHeadSeq,
         updateId: sourceUpdateId,
         relocationId: input.relocationId,
+        row: sourceRow,
       });
       const targetCommit = prepareDocumentCommit({
         document: targetDocument,
@@ -1571,6 +1648,7 @@ export const relocateBlocksAtomically = (
         baseHeadSeq: target.expectedHeadSeq,
         updateId: targetUpdateId,
         relocationId: input.relocationId,
+        row: targetRow,
       });
       assertPostMoveRegistryShape(
         sourceCommit.blocks,

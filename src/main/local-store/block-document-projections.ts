@@ -4,6 +4,7 @@ import type {
   BlockId,
   DocumentId,
 } from "../../shared/block-documents/contracts";
+import { getBlockDocumentSchemaAdapter } from "../../shared/block-documents/document-schema-adapters";
 import { tokenizeSearchQuery } from "../../shared/search-text";
 
 const DOCUMENT_PROJECTION_VERSION = 1;
@@ -62,7 +63,10 @@ export interface RepairDocumentSecondaryProjectionsResult {
   readonly assetRefCount: number;
 }
 
-export type DocumentSearchSourceKind = "document_title" | "document_block";
+export type DocumentSearchSourceKind =
+  | "document_title"
+  | "document_block"
+  | "document_marker";
 
 export interface SearchDocumentBlockUnitsInput {
   readonly projectId: string;
@@ -110,10 +114,12 @@ interface ProjectionSourceRow {
   readonly document_id: string;
   readonly project_id: string;
   readonly schema_key: string;
+  readonly schema_version: number;
   readonly generation: number;
   readonly head_seq: number;
   readonly readiness: string;
   readonly owner_block_id: string | null;
+  readonly owner_type: string | null;
   readonly materialization_generation: number | null;
   readonly materialization_projected_seq: number | null;
   readonly title: string | null;
@@ -224,10 +230,12 @@ const readProjectionSource = (
         document.id AS document_id,
         document.project_id,
         document.schema_key,
+        document.schema_version,
         document.generation,
         document.head_seq,
         document.readiness,
         ownership.block_id AS owner_block_id,
+        owner.type AS owner_type,
         materialization.generation AS materialization_generation,
         materialization.projected_seq AS materialization_projected_seq,
         materialization.title,
@@ -238,6 +246,9 @@ const readProjectionSource = (
       LEFT JOIN block_documents ownership
         ON ownership.document_id = document.id
         AND ownership.project_id = document.project_id
+      LEFT JOIN blocks owner
+        ON owner.id = ownership.block_id
+        AND owner.project_id = ownership.project_id
       LEFT JOIN document_materializations materialization
         ON materialization.document_id = document.id
       WHERE document.id = ?
@@ -257,10 +268,23 @@ const readProjectionSource = (
       `Document ${documentId} is not ready for projection`,
     );
   }
-  if (row.schema_key !== "nodex.card") {
+  if (row.owner_type === null) {
     throw new DocumentSecondaryProjectionError(
       "projection_source_corrupt",
-      `Document ${documentId} has no registered secondary projector for ${row.schema_key}`,
+      `Document ${documentId} has no owner`,
+    );
+  }
+  try {
+    getBlockDocumentSchemaAdapter({
+      ownerType: row.owner_type,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+  } catch (error) {
+    throw new DocumentSecondaryProjectionError(
+      "projection_source_corrupt",
+      `Document ${documentId} has no registered secondary projector for ${row.owner_type}/${row.schema_key}@${row.schema_version}`,
+      { cause: error },
     );
   }
   if (
@@ -488,7 +512,7 @@ const documentUnitKey = (
   documentId: DocumentId,
   blockId: BlockId,
   sourceKind: DocumentSearchSourceKind,
-  fieldKey: "title" | "text",
+  fieldKey: "title" | "text" | "marker",
 ): string =>
   `document:${sha256(JSON.stringify([documentId, blockId, sourceKind, fieldKey]))}`;
 
@@ -509,6 +533,11 @@ export const replaceDocumentSecondaryProjections = (
   const generation = source.materialization_generation as number;
   const projectedSeq = source.materialization_projected_seq as number;
   const title = source.title as string;
+  const adapter = getBlockDocumentSchemaAdapter({
+    ownerType: source.owner_type as string,
+    schemaKey: source.schema_key,
+    schemaVersion: source.schema_version,
+  });
   const updatedAt = source.materialization_updated_at as string;
   const blockRows = readAndValidateBlockIndex(database, {
     ...source,
@@ -548,8 +577,8 @@ export const replaceDocumentSecondaryProjections = (
     documentUnitKey(
       source.document_id,
       ownerBlockId,
-      "document_title",
-      "title",
+      adapter.capabilities.title ? "document_title" : "document_marker",
+      adapter.capabilities.title ? "title" : "marker",
     ),
     source.project_id,
     ownerBlockId,
@@ -558,8 +587,8 @@ export const replaceDocumentSecondaryProjections = (
     generation,
     projectedSeq,
     DOCUMENT_PROJECTION_VERSION,
-    "document_title",
-    "title",
+    adapter.capabilities.title ? "document_title" : "document_marker",
+    adapter.capabilities.title ? "title" : "marker",
     title,
     sha256(title),
     updatedAt,
@@ -635,7 +664,7 @@ export const rebuildDocumentSecondaryProjections = (
     .immediate();
 
 /**
- * Rebuild all ready Card Document projections in a Project. Non-Document
+ * Rebuild all ready registered Document projections in a Project. Non-Document
  * search units remain untouched for later property/intrinsic projectors.
  */
 export const rebuildProjectDocumentSecondaryProjections = (
@@ -650,7 +679,7 @@ export const rebuildProjectDocumentSecondaryProjections = (
           `
         SELECT id
         FROM documents
-        WHERE project_id = ? AND schema_key = 'nodex.card' AND readiness = 'ready'
+        WHERE project_id = ? AND readiness = 'ready'
         ORDER BY id
       `,
         )
@@ -662,7 +691,7 @@ export const rebuildProjectDocumentSecondaryProjections = (
         WHERE project_id = ?
           AND document_id IN (
             SELECT id FROM documents
-            WHERE project_id = ? AND schema_key = 'nodex.card'
+            WHERE project_id = ?
           )
       `,
         )
@@ -674,7 +703,7 @@ export const rebuildProjectDocumentSecondaryProjections = (
         WHERE project_id = ? AND document_id IS NOT NULL
           AND document_id IN (
             SELECT id FROM documents
-            WHERE project_id = ? AND schema_key = 'nodex.card'
+            WHERE project_id = ?
           )
       `,
         )
@@ -700,7 +729,7 @@ export const rebuildProjectDocumentSecondaryProjections = (
 };
 
 /**
- * Backfill or repair only ready Card Documents whose current title marker is
+ * Backfill or repair ready registered Documents whose current marker is
  * absent. The marker is written atomically with every block/asset row, so one
  * current marker proves the whole secondary projection commit completed.
  */
@@ -721,12 +750,11 @@ export const repairDocumentSecondaryProjections = (
             ON marker.document_id = document.id
             AND marker.owner_block_id = ownership.block_id
             AND marker.block_id = ownership.block_id
-            AND marker.source_kind = 'document_title'
-            AND marker.field_key = 'title'
+            AND marker.source_kind IN ('document_title', 'document_marker')
+            AND marker.field_key IN ('title', 'marker')
             AND marker.document_generation = document.generation
             AND marker.projected_seq = document.head_seq
-          WHERE document.schema_key = 'nodex.card'
-            AND document.readiness = 'ready'
+          WHERE document.readiness = 'ready'
           ORDER BY document.id
         `,
         )

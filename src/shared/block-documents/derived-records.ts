@@ -216,6 +216,13 @@ const collectDerivedRecords = (
         databaseViewId: nfmBlock.databaseViewId,
         ...(displayHint !== undefined ? { displayHint } : {}),
       });
+    } else if (nfmBlock.type === "syncedBlockRef") {
+      assertCanonicalReferenceId(nfmBlock.sourceBlockId, "sourceBlockId");
+      references.push({
+        kind: "block",
+        sourceBlockId: block.id,
+        targetBlockId: nfmBlock.sourceBlockId,
+      });
     }
 
     collectDerivedRecords(

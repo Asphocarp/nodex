@@ -17,6 +17,7 @@ import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
 import { createToggleListInlineViewBlockSpec } from "./toggle-list-inline-view-block";
+import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 
 export const toggleListSchema = BlockNoteSchema.create({
   blockSpecs: {
@@ -37,6 +38,7 @@ export const toggleListSchema = BlockNoteSchema.create({
     toggleListInlineView: createToggleListInlineViewBlockSpec(),
     databaseViewRef: createDatabaseViewRefBlockSpec(),
     cardRef: createCardRefBlockSpec(),
+    syncedBlockRef: createSyncedBlockRefBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

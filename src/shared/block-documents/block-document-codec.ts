@@ -64,6 +64,16 @@ export interface CardDocumentMaterialization {
   readonly assetRefs: readonly BlockDocumentAssetReference[];
 }
 
+/**
+ * Common projection shape for every BlockNote-backed Document schema.
+ *
+ * `title` is a projection field, not proof that a schema owns a Y.Text root.
+ * Body-only schemas deliberately materialize it as an empty string so the
+ * existing relational projection remains rebuildable without inventing a
+ * hidden collaborative title root.
+ */
+export type BlockDocumentMaterialization = CardDocumentMaterialization;
+
 export interface CreateCardDocumentGenesisInput {
   readonly documentId: DocumentId;
   readonly title: string;
@@ -106,6 +116,37 @@ export class BlockDocumentCodecError extends Error {
 const headlessEditor = BlockNoteEditor.create({
   schema: headlessBlockDocumentSchema,
 });
+
+const ensureCanonicalBodyRoot = (body: Y.XmlFragment): void => {
+  if (body.length > 0) return;
+  body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
+};
+
+export const populateBlockDocumentBodyFromNfm = (
+  body: Y.XmlFragment,
+  nfm: string,
+  allocateBlockId: () => BlockId = createUuidV7,
+): void => {
+  const blockNoteBlocks = nfmToBlockNoteWithIds(parseNfm(nfm), allocateBlockId);
+  blocksToYXmlFragment(
+    headlessEditor,
+    blockNoteBlocks as (typeof headlessBlockDocumentSchema.Block)[],
+    body,
+  );
+  ensureCanonicalBodyRoot(body);
+};
+
+export const populateBlockDocumentBodyFromBlockTree = (
+  body: Y.XmlFragment,
+  blockTree: readonly BlockTreeNode[],
+): void => {
+  blocksToYXmlFragment(
+    headlessEditor,
+    blockTree as (typeof headlessBlockDocumentSchema.Block)[],
+    body,
+  );
+  ensureCanonicalBodyRoot(body);
+};
 
 const OMIT_VALUE = Symbol("omit-block-tree-value");
 
@@ -287,22 +328,32 @@ const buildPreview = (plainText: string): string => {
   return `${plainText.slice(0, 240).trimEnd()}...`;
 };
 
-export const materializeCardDocument = (
-  document: Y.Doc,
-): CardDocumentMaterialization => {
-  const envelope = assertValidCardDocumentRoots(document);
-  const scannedBlocks = assertValidBlockDocument(envelope.body);
-  assertCanonicalReferenceBlocksAreChildless(envelope.body);
+export interface MaterializeBlockDocumentBodyInput {
+  readonly body: Y.XmlFragment;
+  readonly schemaVersion: number;
+  readonly title?: string;
+  readonly schemaLabel: string;
+}
+
+/** DOM-neutral materializer shared by registered BlockNote Document schemas. */
+export const materializeBlockDocumentBody = ({
+  body,
+  schemaVersion,
+  title = "",
+  schemaLabel,
+}: MaterializeBlockDocumentBodyInput): BlockDocumentMaterialization => {
+  const scannedBlocks = assertValidBlockDocument(body);
+  assertCanonicalReferenceBlocksAreChildless(body);
   let blockNoteBlocks: readonly BlockNoteBlockValue[] = [];
   if (scannedBlocks.length > 0) {
     try {
       blockNoteBlocks = yXmlFragmentToBlocks(
         headlessEditor,
-        envelope.body,
+        body,
       ) as readonly BlockNoteBlockValue[];
     } catch (error) {
       throw new BlockDocumentCodecError(
-        "Card body cannot be decoded with the canonical BlockNote schema",
+        `${schemaLabel} body cannot be decoded with the canonical BlockNote schema`,
         { cause: error },
       );
     }
@@ -319,8 +370,8 @@ export const materializeCardDocument = (
   const plainText = extractPlainText(nfm);
 
   return {
-    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
-    title: envelope.title.toString(),
+    schemaVersion,
+    title,
     blockTree,
     nfm,
     plainText,
@@ -328,6 +379,18 @@ export const materializeCardDocument = (
     references,
     assetRefs,
   };
+};
+
+export const materializeCardDocument = (
+  document: Y.Doc,
+): CardDocumentMaterialization => {
+  const envelope = assertValidCardDocumentRoots(document);
+  return materializeBlockDocumentBody({
+    body: envelope.body,
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+    title: envelope.title.toString(),
+    schemaLabel: "Card",
+  });
 };
 
 export const createCardDocumentGenesis = ({
@@ -342,18 +405,7 @@ export const createCardDocumentGenesis = ({
     initializeBody: false,
   });
   try {
-    const blockNoteBlocks = nfmToBlockNoteWithIds(
-      parseNfm(nfm),
-      allocateBlockId,
-    );
-    blocksToYXmlFragment(
-      headlessEditor,
-      blockNoteBlocks as (typeof headlessBlockDocumentSchema.Block)[],
-      envelope.body,
-    );
-    if (envelope.body.length === 0) {
-      envelope.body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
-    }
+    populateBlockDocumentBodyFromNfm(envelope.body, nfm, allocateBlockId);
     const materialization = materializeCardDocument(envelope.document);
     return {
       document: envelope.document,
@@ -387,14 +439,7 @@ export const createDetachedCardDocumentFromBlockTree = ({
     initializeBody: false,
   });
   try {
-    blocksToYXmlFragment(
-      headlessEditor,
-      blockTree as (typeof headlessBlockDocumentSchema.Block)[],
-      envelope.body,
-    );
-    if (envelope.body.length === 0) {
-      envelope.body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
-    }
+    populateBlockDocumentBodyFromBlockTree(envelope.body, blockTree);
     const materialization = materializeCardDocument(envelope.document);
     const requested = flattenBlockTree(blockTree);
     const actual = flattenBlockTree(materialization.blockTree);

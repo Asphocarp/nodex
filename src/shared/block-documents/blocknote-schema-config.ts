@@ -51,6 +51,14 @@ export const databaseViewRefBlockConfig = {
   content: "none",
 } as const satisfies CustomBlockConfig;
 
+export const syncedBlockRefBlockConfig = {
+  type: "syncedBlockRef",
+  propSchema: {
+    sourceBlockId: { default: "" },
+  },
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
 export const threadSectionBlockConfig = {
   type: "threadSection",
   propSchema: {
@@ -129,6 +137,7 @@ export const blockDocumentCustomBlockConfigs = {
   toggleListInlineView: toggleListInlineViewBlockConfig,
   cardRef: cardRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
+  syncedBlockRef: syncedBlockRefBlockConfig,
 } as const;
 
 export const blockDocumentCustomInlineContentConfigs = {

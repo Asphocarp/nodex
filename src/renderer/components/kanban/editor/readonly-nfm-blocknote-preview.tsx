@@ -9,7 +9,7 @@ import {
 import type { PartialBlock } from "@blocknote/core";
 import { createReactBlockSpec, createReactInlineContentSpec, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { Bot, FileText, Link2, ListTree, Paperclip, Rows3, Settings2 } from "lucide-react";
+import { Bot, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, Settings2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
@@ -33,6 +33,7 @@ import {
   attachmentInlineContentConfig,
   cardRefBlockConfig,
   databaseViewRefBlockConfig,
+  syncedBlockRefBlockConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
   toggleListInlineViewBlockConfig,
@@ -117,6 +118,19 @@ const createReadonlyDatabaseViewRefBlockSpec = createReactBlockSpec(
         icon={Rows3}
         label="Database view"
         detail={String(block.props.displayHint || block.props.databaseViewId || "").trim()}
+      />
+    ),
+  },
+);
+
+const createReadonlySyncedBlockRefBlockSpec = createReactBlockSpec(
+  syncedBlockRefBlockConfig,
+  {
+    render: ({ block }) => (
+      <InertEmbedPlaceholder
+        icon={RefreshCw}
+        label="Synced block"
+        detail={String(block.props.sourceBlockId || "").trim()}
       />
     ),
   },
@@ -245,6 +259,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     cardToggle: createCardToggleBlockSpec(),
     cardRef: createReadonlyCardRefBlockSpec(),
     databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
+    syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),
     threadSection: createReadonlyThreadSectionBlockSpec(),
     toggleListInlineView: createReadonlyToggleListInlineViewBlockSpec(),
   },

@@ -107,6 +107,7 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
     return {
       storeEpoch: identity.storeEpoch,
       authority: identity.authority,
+      ownerType: "card",
       head: cloneHead(identity.head),
       document,
     };

@@ -7,6 +7,10 @@ import type {
   DocumentSyncCommandResult,
   DocumentSyncErrorCode,
 } from "../../shared/block-documents/document-sync";
+import {
+  BlockDocumentSchemaError,
+  getRegisteredBlockDocumentSchemaAdapter,
+} from "../../shared/block-documents/document-schema-adapters";
 
 export const CARD_BLOCK_DOCUMENT_SCHEMA_KEY = "nodex.card";
 export const CARD_BLOCK_DOCUMENT_SCHEMA_VERSION = 1;
@@ -21,6 +25,11 @@ export interface ReadyCardBlockDocumentDescriptor extends OwnedBlockDocumentDesc
   readonly ownerLifecycle: "active";
   readonly schemaKey: typeof CARD_BLOCK_DOCUMENT_SCHEMA_KEY;
   readonly schemaVersion: typeof CARD_BLOCK_DOCUMENT_SCHEMA_VERSION;
+  readonly readiness: "ready";
+}
+
+export interface ReadyRegisteredOwnedBlockDocumentDescriptor extends OwnedBlockDocumentDescriptor {
+  readonly ownerLifecycle: "active";
   readonly readiness: "ready";
 }
 
@@ -68,12 +77,41 @@ export type OwnedBlockDocumentModel =
       };
     });
 
+export type RegisteredOwnedBlockDocumentModel =
+  | (OwnedBlockDocumentRequestModel & {
+      readonly status: "loading";
+    })
+  | (OwnedBlockDocumentRequestModel & {
+      readonly status: "error";
+      readonly error: OwnedBlockDocumentErrorModel;
+    })
+  | (OwnedBlockDocumentRequestModel & {
+      readonly status: "legacy_shadow";
+      readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor & {
+        readonly authority: "legacy_shadow";
+      };
+    })
+  | (OwnedBlockDocumentRequestModel & {
+      readonly status: "ydoc_primary";
+      readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor & {
+        readonly authority: "ydoc_primary";
+      };
+    });
+
 export type OwnedBlockDocumentQuerySnapshot =
   | { readonly status: "pending" }
   | { readonly status: "error"; readonly error: unknown }
   | {
       readonly status: "success";
       readonly data: ReadyCardBlockDocumentDescriptor;
+    };
+
+export type RegisteredOwnedBlockDocumentQuerySnapshot =
+  | { readonly status: "pending" }
+  | { readonly status: "error"; readonly error: unknown }
+  | {
+      readonly status: "success";
+      readonly data: ReadyRegisteredOwnedBlockDocumentDescriptor;
     };
 
 export type OwnedBlockDocumentDescriptorFetcher = (
@@ -149,6 +187,38 @@ export const validateOwnedBlockDocumentDescriptor = (
   value: unknown,
 ): ReadyCardBlockDocumentDescriptor => {
   const requested = requireValidRequest(request);
+  if (
+    isRecord(value) &&
+    value.projectId === requested.projectId &&
+    value.ownerBlockId === requested.ownerBlockId &&
+    value.ownerType !== "card"
+  ) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "unsupported_owner_type",
+      "Card surfaces require a Card-owned Block Document",
+    );
+  }
+  const registered = validateRegisteredOwnedBlockDocumentDescriptor(
+    requested,
+    value,
+  );
+  if (
+    registered.schemaKey !== CARD_BLOCK_DOCUMENT_SCHEMA_KEY ||
+    registered.schemaVersion !== CARD_BLOCK_DOCUMENT_SCHEMA_VERSION
+  ) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "unsupported_document_schema",
+      `Card surfaces require ${CARD_BLOCK_DOCUMENT_SCHEMA_KEY}@${CARD_BLOCK_DOCUMENT_SCHEMA_VERSION}`,
+    );
+  }
+  return registered as ReadyCardBlockDocumentDescriptor;
+};
+
+export const validateRegisteredOwnedBlockDocumentDescriptor = (
+  request: OwnedBlockDocumentRequest,
+  value: unknown,
+): ReadyRegisteredOwnedBlockDocumentDescriptor => {
+  const requested = requireValidRequest(request);
   if (!isRecord(value)) {
     throw new OwnedBlockDocumentBoundaryError(
       "invalid_descriptor",
@@ -167,31 +237,40 @@ export const validateOwnedBlockDocumentDescriptor = (
       "Owned Block Document descriptor does not belong to the requested owner Block",
     );
   }
-  if (value.ownerType !== "card") {
-    throw new OwnedBlockDocumentBoundaryError(
-      "unsupported_owner_type",
-      "Card surfaces require a Card-owned Block Document",
-    );
-  }
   if (value.ownerLifecycle !== "active") {
     throw new OwnedBlockDocumentBoundaryError(
       "owner_not_active",
-      "Card surfaces require an active owner Block",
+      "Owned Block Document surfaces require an active owner Block",
     );
   }
   if (value.readiness !== "ready") {
     throw new OwnedBlockDocumentBoundaryError(
       "document_not_ready",
-      "Card surfaces require a ready owned Block Document",
+      "Owned Block Document surfaces require a ready Document",
     );
   }
   if (
-    value.schemaKey !== CARD_BLOCK_DOCUMENT_SCHEMA_KEY ||
-    value.schemaVersion !== CARD_BLOCK_DOCUMENT_SCHEMA_VERSION
+    typeof value.ownerType !== "string" ||
+    typeof value.schemaKey !== "string" ||
+    !Number.isSafeInteger(value.schemaVersion)
   ) {
     throw new OwnedBlockDocumentBoundaryError(
       "unsupported_document_schema",
-      `Card surfaces require ${CARD_BLOCK_DOCUMENT_SCHEMA_KEY}@${CARD_BLOCK_DOCUMENT_SCHEMA_VERSION}`,
+      "Owned Block Document descriptor has an invalid owner/schema identity",
+    );
+  }
+  try {
+    getRegisteredBlockDocumentSchemaAdapter({
+      ownerType: value.ownerType,
+      schemaKey: value.schemaKey,
+      schemaVersion: value.schemaVersion as number,
+    });
+  } catch (error) {
+    if (!(error instanceof BlockDocumentSchemaError)) throw error;
+    throw new OwnedBlockDocumentBoundaryError(
+      "unsupported_document_schema",
+      error.message,
+      { cause: error },
     );
   }
   if (
@@ -204,13 +283,14 @@ export const validateOwnedBlockDocumentDescriptor = (
     );
   }
   requireDescriptorCore(value);
-  return value as unknown as ReadyCardBlockDocumentDescriptor;
+  return value as unknown as ReadyRegisteredOwnedBlockDocumentDescriptor;
 };
 
-export const fetchOwnedBlockDocumentDescriptor = async (
+const fetchDescriptor = async <T>(
   request: OwnedBlockDocumentRequest,
   fetcher: OwnedBlockDocumentDescriptorFetcher,
-): Promise<ReadyCardBlockDocumentDescriptor> => {
+  validate: (request: OwnedBlockDocumentRequest, value: unknown) => T,
+): Promise<T> => {
   const requested = requireValidRequest(request);
   let descriptor: unknown;
   try {
@@ -225,8 +305,29 @@ export const fetchOwnedBlockDocumentDescriptor = async (
       { cause: error },
     );
   }
-  return validateOwnedBlockDocumentDescriptor(requested, descriptor);
+  return validate(requested, descriptor);
 };
+
+export const fetchOwnedBlockDocumentDescriptor = async (
+  request: OwnedBlockDocumentRequest,
+  fetcher: OwnedBlockDocumentDescriptorFetcher,
+): Promise<ReadyCardBlockDocumentDescriptor> => {
+  return fetchDescriptor(
+    request,
+    fetcher,
+    validateOwnedBlockDocumentDescriptor,
+  );
+};
+
+export const fetchRegisteredOwnedBlockDocumentDescriptor = (
+  request: OwnedBlockDocumentRequest,
+  fetcher: OwnedBlockDocumentDescriptorFetcher,
+): Promise<ReadyRegisteredOwnedBlockDocumentDescriptor> =>
+  fetchDescriptor(
+    request,
+    fetcher,
+    validateRegisteredOwnedBlockDocumentDescriptor,
+  );
 
 const toErrorModel = (error: unknown): OwnedBlockDocumentErrorModel => {
   if (error instanceof OwnedBlockDocumentBoundaryError) {
@@ -281,6 +382,46 @@ export const makeOwnedBlockDocumentModel = (
     descriptor: descriptor as ReadyCardBlockDocumentDescriptor & {
       authority: "ydoc_primary";
     },
+  };
+};
+
+export const makeRegisteredOwnedBlockDocumentModel = (
+  request: OwnedBlockDocumentRequest,
+  snapshot: RegisteredOwnedBlockDocumentQuerySnapshot,
+): RegisteredOwnedBlockDocumentModel => {
+  const identity = {
+    projectId: request.projectId,
+    ownerBlockId: request.ownerBlockId,
+  };
+  try {
+    requireValidRequest(request);
+  } catch (error) {
+    return { ...identity, status: "error", error: toErrorModel(error) };
+  }
+  if (snapshot.status === "pending") {
+    return { ...identity, status: "loading" };
+  }
+  if (snapshot.status === "error") {
+    return {
+      ...identity,
+      status: "error",
+      error: toErrorModel(snapshot.error),
+    };
+  }
+  if (snapshot.data.authority === "legacy_shadow") {
+    return {
+      ...identity,
+      status: "legacy_shadow",
+      descriptor: {
+        ...snapshot.data,
+        authority: "legacy_shadow",
+      },
+    };
+  }
+  return {
+    ...identity,
+    status: "ydoc_primary",
+    descriptor: { ...snapshot.data, authority: "ydoc_primary" },
   };
 };
 

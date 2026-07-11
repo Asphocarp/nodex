@@ -59,7 +59,7 @@ export interface BlockStructureScan {
 
 export interface ChildlessReferenceBlockViolation {
   readonly blockId: BlockId | null;
-  readonly blockType: "cardRef" | "databaseViewRef";
+  readonly blockType: "cardRef" | "databaseViewRef" | "syncedBlockRef";
 }
 
 export class BlockDocumentValidationError extends Error {
@@ -107,10 +107,14 @@ const readContentElement = (
 const isCanonicalChildlessReferenceContent = (
   content: Y.XmlElement | undefined,
 ): content is Y.XmlElement & {
-  readonly nodeName: "cardRef" | "databaseViewRef";
+  readonly nodeName: "cardRef" | "databaseViewRef" | "syncedBlockRef";
 } => {
   if (!content) return false;
   if (content.nodeName === "databaseViewRef") return true;
+  if (content.nodeName === "syncedBlockRef") {
+    const sourceBlockId = content.getAttribute("sourceBlockId");
+    return typeof sourceBlockId === "string" && sourceBlockId.trim().length > 0;
+  }
   if (content.nodeName !== "cardRef") return false;
   const targetBlockId = content.getAttribute("targetBlockId");
   return typeof targetBlockId === "string" && targetBlockId.trim().length > 0;

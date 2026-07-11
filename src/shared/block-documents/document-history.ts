@@ -1,8 +1,8 @@
 import type {
   BlockTreeNode,
   BlockTreeValue,
-  CardDocumentMaterialization,
 } from "./block-document-codec";
+import type { OwnedDocumentMaterialization } from "./document-schema-adapters";
 import type { BlockId, DocumentId } from "./contracts";
 import type { DocumentBlockOperation } from "./document-operations";
 
@@ -40,7 +40,8 @@ export interface DocumentVersionSummary {
   readonly stateVectorHash: string;
   readonly materializationHash: string;
   readonly byteLength: number;
-  readonly title: string;
+  readonly materializationKind: OwnedDocumentMaterialization["kind"];
+  readonly title: string | null;
   readonly preview: string;
   readonly blockCount: number;
   readonly createdAt: string;
@@ -49,7 +50,7 @@ export interface DocumentVersionSummary {
 export interface DocumentVersionCheckpoint extends DocumentVersionSummary {
   readonly fullUpdate: Uint8Array;
   readonly stateVector: Uint8Array;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: OwnedDocumentMaterialization;
 }
 
 export interface CreatedDocumentVersionCheckpoint {
@@ -64,7 +65,7 @@ export interface CreatedDocumentVersionSummary {
 
 export interface DocumentVersionDetail {
   readonly summary: DocumentVersionSummary;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: OwnedDocumentMaterialization;
 }
 
 export interface DocumentVersionCursor {
@@ -111,7 +112,7 @@ export interface DocumentVersionRestorePlan {
   readonly clientSessionId?: string;
   readonly actor: DocumentVersionActor;
   readonly sourceVersion: DocumentVersionSummary;
-  readonly targetTitle: string;
+  readonly targetTitle?: string;
   readonly targetBlockTree: readonly BlockTreeNode[];
   readonly operations: readonly DocumentBlockOperation[];
   readonly requiresWriteFence: true;

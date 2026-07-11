@@ -1,14 +1,14 @@
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness.js";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  assertValidBlockDocument,
-  assertValidCardDocumentRoots,
-  type CardDocumentEnvelope,
   type DocumentSyncRealtimeEvent,
   type OwnedBlockDocumentDescriptor,
 } from "../../shared/block-documents";
+import {
+  getRegisteredBlockDocumentSchemaAdapter,
+  inspectRegisteredOwnedBlockDocument,
+  type OwnedDocumentEnvelope,
+} from "../../shared/block-documents/document-schema-adapters";
 import {
   createDefaultDocumentLocalCheckpointStore,
   type DocumentLocalCheckpoint,
@@ -105,7 +105,8 @@ export type BlockDocumentSurfaceDocumentFactory = (
 
 export type BlockDocumentSurfaceOpenDocument = (
   document: Y.Doc,
-) => CardDocumentEnvelope;
+  descriptor: OwnedBlockDocumentDescriptor,
+) => OwnedDocumentEnvelope;
 
 export type BlockDocumentSurfaceCloseTimeoutScheduler = (
   callback: () => void,
@@ -127,7 +128,7 @@ export interface BlockDocumentSurfaceRuntimeOptions {
 }
 
 interface ReadyWaiter {
-  readonly resolve: (document: CardDocumentEnvelope) => void;
+  readonly resolve: (document: OwnedDocumentEnvelope) => void;
   readonly reject: (error: Error) => void;
 }
 
@@ -168,15 +169,11 @@ const validateDescriptor = (
   if (descriptor.ownerLifecycle !== "active") {
     throw new TypeError("Block Document surface requires an active owner");
   }
-  if (descriptor.ownerType !== "card") {
-    throw new TypeError("Block Document surface requires a Card owner");
-  }
-  if (
-    descriptor.schemaKey !== CARD_DOCUMENT_SCHEMA_KEY
-    || descriptor.schemaVersion !== CARD_DOCUMENT_SCHEMA_VERSION
-  ) {
-    throw new TypeError("Block Document surface received an unsupported schema");
-  }
+  getRegisteredBlockDocumentSchemaAdapter({
+    ownerType: descriptor.ownerType,
+    schemaKey: descriptor.schemaKey,
+    schemaVersion: descriptor.schemaVersion,
+  });
   return descriptor;
 };
 
@@ -188,13 +185,15 @@ const createProvider: BlockDocumentSurfaceProviderFactory = (
   options,
 ): BlockDocumentSurfaceProvider => new NodexYProvider(options);
 
-const openValidatedCardDocument: BlockDocumentSurfaceOpenDocument = (
+const openValidatedOwnedDocument: BlockDocumentSurfaceOpenDocument = (
   document,
-): CardDocumentEnvelope => {
-  const envelope = assertValidCardDocumentRoots(document);
-  assertValidBlockDocument(envelope.body);
-  return envelope;
-};
+  descriptor,
+): OwnedDocumentEnvelope =>
+  inspectRegisteredOwnedBlockDocument(document, {
+    ownerType: descriptor.ownerType,
+    schemaKey: descriptor.schemaKey,
+    schemaVersion: descriptor.schemaVersion,
+  }).envelope;
 
 const defaultCloseTimeoutScheduler: BlockDocumentSurfaceCloseTimeoutScheduler = (
   callback,
@@ -291,7 +290,7 @@ export class BlockDocumentSurfaceRuntime {
   private readonly readyWaiters = new Set<ReadyWaiter>();
   private readonly unsubscribeProviderStatus: () => void;
 
-  private readyDocument: CardDocumentEnvelope | null = null;
+  private readyDocument: OwnedDocumentEnvelope | null = null;
   private terminal: SurfaceTerminalState | null = null;
   private isolationPromise: Promise<void> | null = null;
   private connectPromise: Promise<void> | null = null;
@@ -304,7 +303,7 @@ export class BlockDocumentSurfaceRuntime {
 
   constructor(options: BlockDocumentSurfaceRuntimeOptions) {
     this.descriptor = validateDescriptor(options.descriptor);
-    this.openDocument = options.openDocument ?? openValidatedCardDocument;
+    this.openDocument = options.openDocument ?? openValidatedOwnedDocument;
     this.closeTimeoutMs = requirePositiveTimeout(options.closeTimeoutMs);
     this.scheduleCloseTimeout = options.scheduleCloseTimeout
       ?? defaultCloseTimeoutScheduler;
@@ -361,7 +360,7 @@ export class BlockDocumentSurfaceRuntime {
 
   getWriteFrozen = (): boolean => this.status.writeFrozen;
 
-  getReadyDocument = (): CardDocumentEnvelope | null => this.readyDocument;
+  getReadyDocument = (): OwnedDocumentEnvelope | null => this.readyDocument;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -397,13 +396,13 @@ export class BlockDocumentSurfaceRuntime {
     return this.connectPromise;
   };
 
-  whenReady = (): Promise<CardDocumentEnvelope> => {
+  whenReady = (): Promise<OwnedDocumentEnvelope> => {
     if (this.readyDocument) return Promise.resolve(this.readyDocument);
     if (this.terminal) return Promise.reject(this.terminal.error);
     if (this.closed || this.closing) {
       return Promise.reject(new Error("Block Document surface closed before ready"));
     }
-    return new Promise<CardDocumentEnvelope>((resolve, reject) => {
+    return new Promise<OwnedDocumentEnvelope>((resolve, reject) => {
       this.readyWaiters.add({ resolve, reject });
     });
   };
@@ -499,7 +498,7 @@ export class BlockDocumentSurfaceRuntime {
     }
     if (providerStatus.phase === "synced" && !this.readyDocument) {
       try {
-        this.readyDocument = this.openDocument(this.document);
+        this.readyDocument = this.openDocument(this.document, this.descriptor);
         this.resolveReadyWaiters(this.readyDocument);
       } catch (error) {
         this.enterTerminal(
@@ -627,7 +626,7 @@ export class BlockDocumentSurfaceRuntime {
     });
   }
 
-  private resolveReadyWaiters(document: CardDocumentEnvelope): void {
+  private resolveReadyWaiters(document: OwnedDocumentEnvelope): void {
     for (const waiter of this.readyWaiters) waiter.resolve(document);
     this.readyWaiters.clear();
   }

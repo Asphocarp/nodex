@@ -8,6 +8,7 @@ import type {
   NfmCallout,
   NfmImage,
   NfmThreadSection,
+  NfmSyncedBlockRef,
   NfmToggleListInlineView,
 } from "./types";
 import { NFM_COLORS } from "./types";
@@ -148,6 +149,15 @@ export function parseNfm(input: string): NfmBlock[] {
       const databaseViewRef = parseDatabaseViewRef(content.trim());
       if (databaseViewRef) {
         addBlock(databaseViewRef, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<synced-block-ref")) {
+      const syncedBlockRef = parseSyncedBlockRef(content.trim());
+      if (syncedBlockRef) {
+        addBlock(syncedBlockRef, indent);
         i++;
         continue;
       }
@@ -525,6 +535,16 @@ function parseDatabaseViewRef(line: string): NfmDatabaseViewRef | null {
     type: "databaseViewRef",
     databaseViewId,
     ...(displayHint !== undefined ? { displayHint } : {}),
+    children: [],
+  };
+}
+
+function parseSyncedBlockRef(line: string): NfmSyncedBlockRef | null {
+  const match = line.match(/^<synced-block-ref(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  return {
+    type: "syncedBlockRef",
+    sourceBlockId: getXmlAttr(match[1] ?? "", "source-block") ?? "",
     children: [],
   };
 }

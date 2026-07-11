@@ -29,6 +29,11 @@ import {
 } from "../../shared/block-documents/document-operation-engine";
 import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
 import {
+  getBlockDocumentSchemaAdapter,
+  inspectOwnedBlockDocument,
+  toPersistedBlockDocumentMaterialization,
+} from "../../shared/block-documents/document-schema-adapters";
+import {
   LegacyNfmShadowTranslationError,
   replaceCardDocumentBodyFromNfm,
 } from "../../shared/block-documents/legacy-nfm-shadow-translator";
@@ -61,6 +66,8 @@ export interface ApplyDocumentOperationOptions {
   readonly faultInjector?: (point: DocumentOperationFaultPoint) => void;
   /** Trusted coordinator evidence; never populate this from raw client input. */
   readonly writeFence?: DocumentWriteFenceProof;
+  /** Trusted promotion seam; target must be staged in the same outer transaction. */
+  readonly allowPendingSyncedReferenceTargetIds?: readonly string[];
 }
 
 interface StoredMutationRow {
@@ -863,12 +870,20 @@ const prepareOperationBatch = (
   request: DocumentOperationBatch,
   document: Parameters<typeof materializeCardDocument>[0],
   ownerBlockId: string,
+  schema: {
+    readonly ownerType: string;
+    readonly schemaKey: string;
+    readonly schemaVersion: number;
+  },
   forceWriteFence = false,
 ): PreparedMutation => {
-  const before = materializeCardDocument(document);
+  const before = toPersistedBlockDocumentMaterialization(
+    inspectOwnedBlockDocument(document, schema).materialization,
+  );
   const prepared = prepareDocumentOperationUpdate({
     document,
     operations: request.operations,
+    schema,
     transactionOrigin: `document-mutation:${request.mutationId}`,
   });
   return {
@@ -1154,6 +1169,8 @@ const applyPreparedMutation = (
             semanticTouchedBlockIds,
           );
         },
+        allowPendingSyncedReferenceTargetIds:
+          options.allowPendingSyncedReferenceTargetIds,
       },
     );
     const stored = readStoredMutation(database, request.mutationId);
@@ -1293,6 +1310,13 @@ const applyMutationInTransaction = (
       );
     }
 
+    const schema = {
+      ownerType: loaded.ownerType,
+      schemaKey: loaded.head.schemaKey,
+      schemaVersion: loaded.head.schemaVersion,
+    };
+    const adapter = getBlockDocumentSchemaAdapter(schema);
+
     let prepared: PreparedMutation;
     let beforeApply: (() => void) | undefined;
     try {
@@ -1301,9 +1325,22 @@ const applyMutationInTransaction = (
           request as DocumentOperationBatch,
           loaded.document,
           loaded.head.ownerBlockId,
+          schema,
         );
         assertCreatedIdsNeverExisted(database, request, prepared.createdBlockIds);
       } else if (evidence.mutationKind === "replace_document_from_nfm") {
+        if (!adapter.capabilities.nfmReplace) {
+          return rejectAndPersist(
+            database,
+            request,
+            evidence,
+            makeError(
+              "invalid_operation",
+              `Document schema ${adapter.schemaKey}@${adapter.schemaVersion} does not support whole-NFM replacement`,
+              request,
+            ),
+          );
+        }
         prepared = prepareNfmReplacement(
           request as ReplaceDocumentFromNfm,
           loaded.document,
@@ -1327,6 +1364,7 @@ const applyMutationInTransaction = (
           },
           loaded.document,
           loaded.head.ownerBlockId,
+          schema,
           true,
         );
         assertRestoreIdsAreRetainedTombstones(

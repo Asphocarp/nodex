@@ -25,6 +25,7 @@ const summary: DocumentVersionSummary = {
   stateVectorHash: "c".repeat(64),
   materializationHash: "d".repeat(64),
   byteLength: 42,
+  materializationKind: "card",
   title: "Checkpoint",
   preview: "Body",
   blockCount: 1,
@@ -44,6 +45,7 @@ const makeDependencies = (
     value: {
       summary,
       materialization: {
+        kind: "card",
         schemaVersion: 1,
         title: "Checkpoint",
         blockTree: [],

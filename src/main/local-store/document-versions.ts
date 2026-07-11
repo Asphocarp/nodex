@@ -1,11 +1,12 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
+import { type BlockTreeValue } from "../../shared/block-documents/block-document-codec";
 import {
-  materializeCardDocument,
-  type BlockTreeValue,
-  type CardDocumentMaterialization,
-} from "../../shared/block-documents/block-document-codec";
+  getBlockDocumentSchemaAdapterForSchema,
+  inspectOwnedBlockDocument,
+  type OwnedDocumentMaterialization,
+} from "../../shared/block-documents/document-schema-adapters";
 import { compileBlockTreeReplacementOperations } from "../../shared/block-documents/document-operation-engine";
 import {
   DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -324,13 +325,16 @@ const assertStoreEpoch = (
 };
 
 const materializationHash = (
-  materialization: CardDocumentMaterialization,
+  materialization: OwnedDocumentMaterialization,
 ): string =>
   createHash("sha256")
     .update(
       stableStringifyTrustedValue({
         schemaVersion: materialization.schemaVersion,
-        title: materialization.title,
+        kind: materialization.kind,
+        ...(materialization.kind === "card"
+          ? { title: materialization.title }
+          : {}),
         blockTree: materialization.blockTree,
         nfm: materialization.nfm,
         plainText: materialization.plainText,
@@ -342,7 +346,7 @@ const materializationHash = (
     .digest("hex");
 
 const countBlocks = (
-  blocks: CardDocumentMaterialization["blockTree"],
+  blocks: OwnedDocumentMaterialization["blockTree"],
 ): number =>
   blocks.reduce((count, block) => count + 1 + countBlocks(block.children), 0);
 
@@ -435,9 +439,17 @@ const decodeVersionRow = (
         `Document version ${row.version_id} state vector does not match`,
       );
     }
-    let materialization: CardDocumentMaterialization;
+    let materialization: OwnedDocumentMaterialization;
     try {
-      materialization = materializeCardDocument(document);
+      const adapter = getBlockDocumentSchemaAdapterForSchema({
+        schemaKey: row.schema_key,
+        schemaVersion: row.schema_version,
+      });
+      materialization = inspectOwnedBlockDocument(document, {
+        ownerType: adapter.ownerType,
+        schemaKey: row.schema_key,
+        schemaVersion: row.schema_version,
+      }).materialization;
     } catch (error) {
       throw new DocumentVersionStoreError(
         "document_version_corrupt",
@@ -465,7 +477,8 @@ const decodeVersionRow = (
       stateVectorHash: hashBytes(stateVector),
       materializationHash: materializationHash(materialization),
       byteLength: row.byte_length,
-      title: materialization.title,
+      materializationKind: materialization.kind,
+      title: materialization.kind === "card" ? materialization.title : null,
       preview: materialization.preview,
       blockCount: countBlocks(materialization.blockTree),
       createdAt: row.created_at,
@@ -495,6 +508,7 @@ const toSummary = (
   stateVectorHash: checkpoint.stateVectorHash,
   materializationHash: checkpoint.materializationHash,
   byteLength: checkpoint.byteLength,
+  materializationKind: checkpoint.materializationKind,
   title: checkpoint.title,
   preview: checkpoint.preview,
   blockCount: checkpoint.blockCount,
@@ -738,7 +752,12 @@ export const createDocumentVersionCheckpoint = (
           `Document ${input.documentId} state changed while checkpointing`,
         );
       }
-      const materialization = materializeCardDocument(loaded.document);
+      const ownerType = loaded.ownerType;
+      const materialization = inspectOwnedBlockDocument(loaded.document, {
+        ownerType,
+        schemaKey: loaded.head.schemaKey,
+        schemaVersion: loaded.head.schemaVersion,
+      }).materialization;
       const checkpointHash = hashBytes(fullUpdate);
       const stateVectorHash = hashBytes(stateVector);
       const semanticHash = materializationHash(materialization);
@@ -1004,13 +1023,36 @@ export const prepareDocumentVersionRestore = (
           `Version ${version.versionId} uses ${version.schemaKey}@${version.schemaVersion}; current Document uses ${loaded.head.schemaKey}@${loaded.head.schemaVersion}`,
         );
       }
-      const current = materializeCardDocument(loaded.document);
+      const adapter = getBlockDocumentSchemaAdapterForSchema({
+        schemaKey: loaded.head.schemaKey,
+        schemaVersion: loaded.head.schemaVersion,
+      });
+      const ownerType = loaded.ownerType;
+      if (adapter.ownerType !== ownerType) {
+        throw new DocumentVersionStoreError(
+          "document_version_schema_mismatch",
+          `Document owner ${ownerType} does not match ${loaded.head.schemaKey}@${loaded.head.schemaVersion}`,
+        );
+      }
+      const current = inspectOwnedBlockDocument(loaded.document, {
+        ownerType,
+        schemaKey: loaded.head.schemaKey,
+        schemaVersion: loaded.head.schemaVersion,
+      }).materialization;
+      if (current.kind !== version.materialization.kind) {
+        throw new DocumentVersionStoreError(
+          "document_version_schema_mismatch",
+          `Version ${version.versionId} materialization kind does not match the current Document`,
+        );
+      }
       const sourceVersion = toSummary(version);
       if (materializationHash(current) === version.materializationHash) {
         return { kind: "already_current", sourceVersion };
       }
       const operations = [
-        ...(current.title === version.materialization.title
+        ...(current.kind !== "card" ||
+        version.materialization.kind !== "card" ||
+        current.title === version.materialization.title
           ? []
           : [
               {
@@ -1037,7 +1079,9 @@ export const prepareDocumentVersionRestore = (
           : {}),
         actor,
         sourceVersion,
-        targetTitle: version.materialization.title,
+        ...(version.materialization.kind === "card"
+          ? { targetTitle: version.materialization.title }
+          : {}),
         targetBlockTree: version.materialization.blockTree,
         operations,
         requiresWriteFence: true,

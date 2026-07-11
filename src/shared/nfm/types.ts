@@ -141,6 +141,7 @@ export type NfmBlockType =
   | "image"
   | "toggleListInlineView"
   | "databaseViewRef"
+  | "syncedBlockRef"
   | "threadSection"
   | "cardToggle"
   | "cardRef"
@@ -259,6 +260,11 @@ export interface NfmDatabaseViewRef extends NfmBlockBase {
   displayHint?: string;
 }
 
+export interface NfmSyncedBlockRef extends NfmBlockBase {
+  type: "syncedBlockRef";
+  sourceBlockId: string;
+}
+
 export interface NfmThreadSection extends NfmBlockBase {
   type: "threadSection";
   label?: string;
@@ -324,6 +330,7 @@ export type NfmBlock =
   | NfmImage
   | NfmToggleListInlineView
   | NfmDatabaseViewRef
+  | NfmSyncedBlockRef
   | NfmThreadSection
   | NfmCardToggle
   | NfmCardRef

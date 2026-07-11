@@ -164,14 +164,13 @@ class MemoryCheckpointStore implements DocumentLocalCheckpointStore {
   };
 }
 
-const createFactory = (
-  providers: FakeSurfaceProvider[],
-  events: string[],
-) => (options: NodexYProviderOptions): FakeSurfaceProvider => {
-  const provider = new FakeSurfaceProvider(options, events);
-  providers.push(provider);
-  return provider;
-};
+const createFactory =
+  (providers: FakeSurfaceProvider[], events: string[]) =>
+  (options: NodexYProviderOptions): FakeSurfaceProvider => {
+    const provider = new FakeSurfaceProvider(options, events);
+    providers.push(provider);
+    return provider;
+  };
 
 const applyServerDocument = (document: Y.Doc, documentId: string): void => {
   const server = createCardDocument({
@@ -179,7 +178,11 @@ const applyServerDocument = (document: Y.Doc, documentId: string): void => {
     initialTitle: "Server title",
   });
   try {
-    Y.applyUpdate(document, Y.encodeStateAsUpdate(server.document), "server-sync");
+    Y.applyUpdate(
+      document,
+      Y.encodeStateAsUpdate(server.document),
+      "server-sync",
+    );
   } finally {
     server.document.destroy();
   }
@@ -197,7 +200,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
       createProvider: createFactory(providers, events),
       openDocument: (document) => {
         events.push("open");
-        return assertValidCardDocumentRoots(document);
+        return { kind: "card", ...assertValidCardDocumentRoots(document) };
       },
       localCheckpointStore: null,
     });
@@ -224,7 +227,12 @@ describe("BlockDocumentSurfaceRuntime", () => {
 
     const ready = runtime.whenReady();
     await runtime.connect();
-    expect((await ready).title.toString()).toBe("Server title");
+    const readyDocument = await ready;
+    expect(
+      readyDocument.kind === "card"
+        ? readyDocument.title.toString()
+        : "wrong-kind",
+    ).toBe("Server title");
     expect(runtime.getStatus().phase).toBe("ready");
     expect(runtime.getStatus().ready).toBeTrue();
     expect(events.join(",")).toBe(
@@ -277,7 +285,8 @@ describe("BlockDocumentSurfaceRuntime", () => {
     });
     const firstProvider = providers[0];
     const secondProvider = providers[1];
-    if (!firstProvider || !secondProvider) throw new Error("Expected providers");
+    if (!firstProvider || !secondProvider)
+      throw new Error("Expected providers");
     const preparations: string[] = [];
     const unregister = first.registerRelocationPreparer(async (event) => {
       preparations.push(`${event.leaseId}:${event.clientSessionId}`);
@@ -320,7 +329,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
     await Promise.all([first.close(), second.close()]);
   });
 
-  test("rejects a non-Card owner before allocating a collaborative surface", () => {
+  test("rejects an unregistered owner before allocating a collaborative surface", () => {
     let providersCreated = 0;
     let errorMessage = "";
     try {
@@ -335,7 +344,9 @@ describe("BlockDocumentSurfaceRuntime", () => {
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
-    expect(errorMessage).toBe("Block Document surface requires a Card owner");
+    expect(errorMessage).toBe(
+      "No owned Document Adapter is registered for database/nodex.card@1",
+    );
     expect(providersCreated).toBe(0);
   });
 
@@ -440,7 +451,9 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(result.timedOut).toBeTrue();
     expect(result.flush).toBe("timed-out");
     expect(result.checkpoint).toBe("timed-out");
-    expect(events.indexOf("provider-destroy") < events.indexOf("document-destroy")).toBeTrue();
+    expect(
+      events.indexOf("provider-destroy") < events.indexOf("document-destroy"),
+    ).toBeTrue();
     expect(runtime.getStatus().phase).toBe("closed");
   });
 

@@ -88,6 +88,9 @@ export interface BlockSubtreeInsertionTarget {
 export interface RelocateBlockSubtreesInput {
   readonly sourceDocument: Y.Doc;
   readonly targetDocument: Y.Doc;
+  /** Registered body roots let body-only schemas reuse the subtree codec. */
+  readonly sourceBody?: Y.XmlFragment;
+  readonly targetBody?: Y.XmlFragment;
   readonly rootBlockIds: readonly BlockId[];
   readonly target: BlockSubtreeInsertionTarget;
   readonly transactionOrigin?: unknown;
@@ -667,12 +670,16 @@ const assertTargetPlacement = (
 export const relocateBlockSubtrees = ({
   sourceDocument,
   targetDocument,
+  sourceBody: registeredSourceBody,
+  targetBody: registeredTargetBody,
   rootBlockIds,
   target,
   transactionOrigin,
 }: RelocateBlockSubtreesInput): BlockSubtreeRelocationResult => {
-  const sourceBody = assertValidCardDocumentRoots(sourceDocument).body;
-  const targetBody = assertValidCardDocumentRoots(targetDocument).body;
+  const sourceBody =
+    registeredSourceBody ?? assertValidCardDocumentRoots(sourceDocument).body;
+  const targetBody =
+    registeredTargetBody ?? assertValidCardDocumentRoots(targetDocument).body;
   const sameDocument = sourceDocument === targetDocument;
   const sourceIndex = indexBlockDocumentTree(sourceBody);
   const targetIndex = sameDocument

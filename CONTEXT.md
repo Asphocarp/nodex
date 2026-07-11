@@ -37,15 +37,19 @@ A Document is an independently loaded, persisted, synchronized, and undo-scoped 
 
 No additional named shared roots are valid. The body fragment contains one canonical root `blockGroup` so every persisted ready Document can be mounted by the editor schema.
 
+A Synced Block source Document uses `nodex.synced-block@1` and has only `Y.XmlFragment("body")`. It is not a Card and has no synthetic title root. Document schemas dispatch through an exact `(ownerType, schemaKey, schemaVersion, contentModel)` registration. BlockNote-backed Documents use `block_tree`; future scene/canvas Documents use a separate `scene_graph` Adapter with their own roots.
+
 The Yjs state vector expresses causal synchronization state. SQLite `headSeq` expresses only the local durable append order. Neither is a content-integrity digest; persisted updates, snapshots, and reconstructed full states carry separate hashes.
 
 Every mounted writable Document surface owns a fresh local Y.Doc/client identity. It completes a state-vector handshake before resolving and mounting the `title` and `body` roots. A retained inactive surface may keep content synchronization alive, but it clears its local Awareness state so a hidden tab does not appear present.
 
 ### Document-bearing Block
 
-A document-bearing Block owns a Document through `block_documents`. Card is the first required document-bearing type. Later types may include synced content groups, reusable templates, large code/documents, and canvas scenes. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Card's Document.
+A document-bearing Block owns a Document through `block_documents`. Card and the system-managed Synced Block source are registered document-bearing types. Later types may include reusable templates, large code/documents, and canvas scenes. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Card's Document.
 
 Document ownership changes only through an explicit promotion or demotion operation. It never changes automatically because content became large.
+
+Nodex intentionally models a Synced Block source as a hidden library resource. The source Block has a real Space placement so every active Block has one total relational location, but Card/Database/top-level navigation does not present it as another Card or page. Every visible occurrence, including the original promotion location, is a childless `syncedBlockRef` that stores only `sourceBlockId` and mounts the source Document independently. Exact owner lookup, history/search projection, reference expansion, and maintenance may address the source directly.
 
 ### Block shell
 
@@ -85,6 +89,8 @@ An inline Database View Block stores only its own `blockId` and a `databaseViewI
 ### Reference Block
 
 A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`. It presents another Block without changing that target's placement or membership. A collapsed Card reference reads a rebuildable summary. An expanded visible Card reference mounts the target Card's independent Document surface; the foreign body never becomes content of the host Document.
+
+A `syncedBlockRef` follows the same foreign-body rule and targets a `synced_block_source`. Promotion moves the selected subtree IDs into that source's body and allocates a new reference ID at the host location. Copy allocates fresh IDs recursively. Demotion is permitted only when exact-head projections prove a sole reference; one dual-Document fence then relocates the original IDs back, empties the source Y.Doc/projection at a new durable head, and tombstones the source resource and reference atomically.
 
 Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 
@@ -136,6 +142,7 @@ Schema v64 stores the immutable relocation request/result, moved-member set, sou
 | --- | --- |
 | Block identity, type, lifecycle, Space, and containing location | `blocks` |
 | Card title and body content | Card Y.Doc |
+| Synced Block source body | body-only Synced Block Y.Doc |
 | Ordinary Block hierarchy, order, and content | nearest Card Y.Doc |
 | Document ownership | `block_documents` |
 | Top-level Space placement | `top_level_block_placements` |
@@ -150,7 +157,7 @@ Schema v64 stores the immutable relocation request/result, moved-member set, sou
 
 1. `blocks.id` is the single application identity for content. A Card ID is a Block ID.
 2. Every active Block belongs to exactly one Project/Space and has exactly one content location: directly in that Space or in one containing Document.
-3. Every Card owns exactly one active Document. Ordinary body Blocks do not own Documents.
+3. Every Card owns exactly one active Document. Registered Synced Block sources may own one body-only Document; ordinary body Blocks do not own Documents.
 4. One active Card has at most one owning Database membership.
 5. A reference never changes the target's location or membership and never embeds the target's body in the host Y.Doc.
 6. A committed Document update is unique by `(documentId, updateId)` and is acknowledged only after its SQLite transaction commits. Its immutable receipt outlives compactable binary tail payloads, so late retries retain the original committed sequence. An update whose Yjs dependencies are not yet present is rejected for retry and does not advance the durable head.
@@ -161,6 +168,7 @@ Schema v64 stores the immutable relocation request/result, moved-member set, sou
 11. Cross-Document relocation commits source update, target update, registry changes, indexes, ledger, history, and change log in one SQLite transaction.
 12. NFM and all other projections can be rebuilt from authority. Authority is never rebuilt from an existing projection except during one-time genesis migration.
 13. A retryable logical operation ID is required at its calling boundary. Transport actor/session changes do not change semantic equality; exact retry cannot advance authority twice, and a durable rejection has no change-log cursor.
+14. Promotion/demotion of a Synced Block is fenced at every writable Document head. A source with more than one current reference cannot be demoted, and stale reference projections fail closed.
 
 ## Operation semantics
 

@@ -2,16 +2,26 @@ import { describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
 import {
+  SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+  SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+  SYNCED_BLOCK_SOURCE_TYPE,
+} from "../../shared/block-documents/synced-block-document";
+import {
   fetchOwnedBlockDocumentDescriptor,
+  fetchRegisteredOwnedBlockDocumentDescriptor,
   makeOwnedBlockDocumentModel,
   OwnedBlockDocumentBoundaryError,
   ownedBlockDocumentIdentity,
   unwrapOwnedBlockDocumentPreparationResult,
   validateOwnedBlockDocumentDescriptor,
+  validateRegisteredOwnedBlockDocumentDescriptor,
   type OwnedBlockDocumentErrorCode,
   type OwnedBlockDocumentRequest,
 } from "./owned-block-document";
-import { ownedBlockDocumentQueryOptions } from "./owned-block-document-query";
+import {
+  ownedBlockDocumentQueryOptions,
+  registeredOwnedBlockDocumentQueryOptions,
+} from "./owned-block-document-query";
 
 const REQUEST: OwnedBlockDocumentRequest = {
   projectId: "project-a",
@@ -63,6 +73,40 @@ describe("owned Block Document renderer boundary", () => {
         generation: 3,
       }),
     );
+  });
+
+  test("registry-dispatches body-only Synced Block descriptors without weakening the Card boundary", async () => {
+    const synced = makeDescriptor({
+      ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+      schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+      schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+    });
+    const registered = validateRegisteredOwnedBlockDocumentDescriptor(
+      REQUEST,
+      synced,
+    );
+    expect(registered.ownerType).toBe(SYNCED_BLOCK_SOURCE_TYPE);
+    expect(
+      captureBoundaryCode(() =>
+        validateOwnedBlockDocumentDescriptor(REQUEST, synced),
+      ),
+    ).toBe("unsupported_owner_type");
+
+    const fetched = await fetchRegisteredOwnedBlockDocumentDescriptor(
+      REQUEST,
+      async () => synced,
+    );
+    expect(fetched.schemaKey).toBe(SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const queried = await client.fetchQuery(
+      registeredOwnedBlockDocumentQueryOptions(REQUEST, {
+        fetchDescriptor: async () => synced,
+      }),
+    );
+    expect(queried.ownerType).toBe(SYNCED_BLOCK_SOURCE_TYPE);
   });
 
   test("rejects scope, owner, type, lifecycle, readiness, and schema drift", () => {

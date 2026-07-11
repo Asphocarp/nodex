@@ -247,6 +247,13 @@ function nfmBlockToBN(
         children: [],
       };
 
+    case "syncedBlockRef":
+      return {
+        type: "syncedBlockRef",
+        props: { sourceBlockId: block.sourceBlockId },
+        children: [],
+      };
+
     case "threadSection":
       return {
         type: "threadSection",
@@ -623,6 +630,13 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         children: [],
       };
     }
+
+    case "syncedBlockRef":
+      return {
+        type: "syncedBlockRef",
+        sourceBlockId: normalizeString(block.props?.sourceBlockId) ?? "",
+        children: [],
+      };
 
     case "cardRef": {
       const targetBlockId = normalizeString(block.props?.targetBlockId);

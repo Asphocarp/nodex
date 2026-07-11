@@ -20,6 +20,7 @@ import {
   dateMentionInlineContentConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
+  syncedBlockRefBlockConfig,
   toggleListInlineViewBlockConfig,
 } from "./blocknote-schema-config";
 
@@ -66,6 +67,7 @@ export const headlessBlockDocumentSchema = BlockNoteSchema.create({
     toggleListInlineView: createHeadlessBlockSpec(toggleListInlineViewBlockConfig),
     cardRef: createHeadlessBlockSpec(cardRefBlockConfig),
     databaseViewRef: createHeadlessBlockSpec(databaseViewRefBlockConfig),
+    syncedBlockRef: createHeadlessBlockSpec(syncedBlockRefBlockConfig),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

@@ -2,9 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import {
   useOwnedBlockDocument,
+  useRegisteredOwnedBlockDocument,
   type OwnedBlockDocumentQueryDependencies,
 } from "@/lib/owned-block-document-query";
-import type { OwnedBlockDocumentModel } from "@/lib/owned-block-document";
+import type {
+  OwnedBlockDocumentModel,
+  RegisteredOwnedBlockDocumentModel,
+} from "@/lib/owned-block-document";
 import { queryKeys } from "@/lib/query-keys";
 
 export interface OwnedBlockDocumentBoundaryControls {
@@ -25,6 +29,16 @@ export interface OwnedBlockDocumentBoundaryProps {
   ) => ReactNode;
 }
 
+export interface RegisteredOwnedBlockDocumentBoundaryProps extends Omit<
+  OwnedBlockDocumentBoundaryProps,
+  "children"
+> {
+  readonly children: (
+    model: RegisteredOwnedBlockDocumentModel,
+    controls: OwnedBlockDocumentBoundaryControls,
+  ) => ReactNode;
+}
+
 /**
  * The single renderer query boundary for a Block-owned document. Consumers
  * must branch on the explicit authority model; there is intentionally no
@@ -38,6 +52,29 @@ export function OwnedBlockDocumentBoundary({
 }: OwnedBlockDocumentBoundaryProps) {
   const queryClient = useQueryClient();
   const model = useOwnedBlockDocument(
+    { projectId, ownerBlockId },
+    dependencies,
+  );
+
+  const reload = async (): Promise<void> => {
+    await queryClient.resetQueries({
+      queryKey: queryKeys.blockDocuments.owned(projectId, ownerBlockId),
+      exact: true,
+    });
+  };
+
+  return children(model, { reload });
+}
+
+/** Registry-dispatched boundary for every supported document-bearing Block. */
+export function RegisteredOwnedBlockDocumentBoundary({
+  projectId,
+  ownerBlockId,
+  dependencies,
+  children,
+}: RegisteredOwnedBlockDocumentBoundaryProps) {
+  const queryClient = useQueryClient();
+  const model = useRegisteredOwnedBlockDocument(
     { projectId, ownerBlockId },
     dependencies,
   );
