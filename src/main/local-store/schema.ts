@@ -44,6 +44,7 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "card_project_transfer_write_fences",
   "block_search_units_fts",
   "block_search_units",
   "block_asset_refs",
@@ -1038,6 +1039,42 @@ function createAtomicBlockRelocationSchema(db: Database.Database): void {
   `);
 }
 
+function createCardProjectTransferFenceSchema(
+  db: Database.Database,
+): void {
+  db.exec(`
+    -- Compatibility Card rows are projections, but a few remaining readers
+    -- still expect their Project coordinate to follow the canonical Block.
+    -- Only the typed transfer kernel may open this short-lived write fence;
+    -- both the fence and the compatibility update live in its one transaction.
+    CREATE TABLE IF NOT EXISTS card_project_transfer_write_fences (
+      operation_id TEXT NOT NULL,
+      card_id TEXT NOT NULL UNIQUE REFERENCES cards(id) ON DELETE CASCADE,
+      source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      target_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (operation_id, card_id),
+      CHECK (length(operation_id) BETWEEN 1 AND 512),
+      CHECK (source_project_id <> target_project_id),
+      CHECK (length(created_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE TRIGGER IF NOT EXISTS cards_project_transfer_requires_write_fence
+      BEFORE UPDATE OF project_id ON cards
+      WHEN NEW.project_id <> OLD.project_id
+        AND NOT EXISTS (
+          SELECT 1
+          FROM card_project_transfer_write_fences fence
+          WHERE fence.card_id = OLD.id
+            AND fence.source_project_id = OLD.project_id
+            AND fence.target_project_id = NEW.project_id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'Card Project coordinate requires a typed transfer');
+      END;
+  `);
+}
+
 function createBlockFoundationSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS block_store_metadata (
@@ -1760,101 +1797,6 @@ function createBlockFoundationSchema(db: Database.Database): void {
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE id = 'document:' || NEW.id
           AND readiness = 'pending_genesis';
-
-        ${makeLegacyCardMetadataProjectionSql(
-          "NEW",
-          "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-        )}
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_cross_project_requires_pending
-      BEFORE UPDATE OF project_id ON cards
-      WHEN NEW.project_id <> OLD.project_id
-        AND (
-          EXISTS (
-            SELECT 1 FROM documents document
-            WHERE document.id = 'document:' || OLD.id
-              AND document.readiness <> 'pending_genesis'
-          )
-          OR EXISTS (
-            SELECT 1 FROM blocks child
-            WHERE child.containing_document_id = 'document:' || OLD.id
-          )
-        )
-      BEGIN
-        SELECT RAISE(ABORT, 'ready Card Documents require a typed cross-Project move');
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_cross_project_update
-      AFTER UPDATE OF project_id ON cards
-      WHEN NEW.project_id <> OLD.project_id
-      BEGIN
-        DELETE FROM database_view_positions WHERE block_id = NEW.id;
-        DELETE FROM database_memberships WHERE card_block_id = NEW.id;
-        DELETE FROM top_level_block_placements WHERE block_id = NEW.id;
-        DELETE FROM block_documents WHERE block_id = NEW.id;
-
-        UPDATE blocks
-        SET project_id = NEW.project_id,
-            lifecycle = CASE WHEN NEW.archived = 1 THEN 'archived' ELSE 'active' END,
-            location_kind = 'space',
-            containing_document_id = NULL,
-            location_revision = location_revision + 1,
-            metadata_revision = MAX(metadata_revision + 1, MAX(1, NEW.revision)),
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE id = NEW.id;
-
-        UPDATE documents
-        SET project_id = NEW.project_id,
-            genesis_source_revision = MAX(1, NEW.revision),
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE id = 'document:' || NEW.id;
-
-        INSERT INTO block_documents (block_id, document_id, project_id, created_at)
-        VALUES (
-          NEW.id,
-          'document:' || NEW.id,
-          NEW.project_id,
-          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        );
-
-        INSERT INTO top_level_block_placements (
-          block_id, project_id, rank_key, created_at, updated_at
-        ) VALUES (
-          NEW.id,
-          NEW.project_id,
-          '100000000000:' || NEW.status || ':' ||
-            printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
-          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        );
-
-        INSERT INTO database_memberships (
-          id, database_block_id, card_block_id, project_id, created_at, removed_at
-        ) VALUES (
-          'membership:' || NEW.id,
-          'database:' || NEW.project_id || ':primary',
-          NEW.id,
-          NEW.project_id,
-          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-          NULL
-        )
-        ON CONFLICT(id) DO UPDATE SET
-          database_block_id = excluded.database_block_id,
-          project_id = excluded.project_id,
-          removed_at = NULL;
-
-        INSERT INTO database_view_positions (
-          view_id, block_id, project_id, group_key, rank_key, created_at, updated_at
-        ) VALUES (
-          'database-view:' || NEW.project_id || ':primary-kanban',
-          NEW.id,
-          NEW.project_id,
-          NEW.status,
-          printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
-          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        );
 
         ${makeLegacyCardMetadataProjectionSql(
           "NEW",
@@ -7523,7 +7465,12 @@ function migrateSchema68To69(db: Database.Database): void {
   db.pragma("legacy_alter_table = ON");
   try {
     const migrate = db.transaction(() => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS cards_block_foundation_cross_project_requires_pending;
+        DROP TRIGGER IF EXISTS cards_block_foundation_after_cross_project_update;
+      `);
       rebuildV69ProjectTransferScopeTables(db);
+      createCardProjectTransferFenceSchema(db);
       assertV69ProjectTransferScopeSchema(db);
       setUserVersion(db, 69);
     });
@@ -7940,6 +7887,7 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     }
     db.pragma("auto_vacuum = INCREMENTAL");
     createLatestSchema(db);
+    createCardProjectTransferFenceSchema(db);
     setUserVersion(db, CURRENT_SCHEMA_VERSION);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");

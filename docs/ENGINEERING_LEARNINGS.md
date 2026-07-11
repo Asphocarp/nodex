@@ -710,6 +710,8 @@ For BlockNote nested child groups, applying Enter/Backspace behaviors beyond tog
 ### Never re-couple sidebar DB project switching to Thread/Card/Terminal routing
 The sidebar project switcher is DB-stage datasource selection only. Re-coupling it to Thread/Card/Terminal context causes cross-stage resets and stale cross-project writes. Keep `dbProjectId` scoped to DB view/search/cache, keep Threads on `threadsProjectId` (or active thread project), keep Card Stage entity-driven by its session project, and keep Terminal routing on each tab's `projectId`.
 
+Cross-Project stable-ID moves form a cyclic composite-foreign-key update across `blocks`, `documents`, ownership, and projections. Transaction-level FK deferral makes the final state atomic, but it does not defer application validation triggers. Delete rebuildable Document search/asset/Card projections before changing coordinates, move every ownership row, then rebuild projections from the unchanged Y.Doc head and run `foreign_key_check` before inserting the immutable receipt. Never solve this by enabling the legacy `cards.project_id` trigger: it sees only one Card row and cannot discover recursively owned Documents.
+
 ### Shared `localStorage` is the wrong restart-resume boundary for independent Electron windows
 Electron windows in the same session share origin `localStorage`, so moving workbench restore state there would make restart persistence work at the cost of collapsing independent multi-window sessions into one shared shell state. Keep live window state in `sessionStorage`, and persist durable reopen layouts through the main-process window-session catalog under profile-scoped `userData`.
 
