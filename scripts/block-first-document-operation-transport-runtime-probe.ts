@@ -124,18 +124,13 @@ const run = async (): Promise<void> => {
     writer = new CardMutationWriter({
       publishBoardEvent: (event) => boardEvents.push(event),
     });
-    const shadow = await writer.initializeBlockDocumentShadows();
-    invariant(
-      shadow.result.exhausted && shadow.result.errors === 0,
-      "Document shadow initialization did not settle",
-    );
     const prepared = await writer.prepareOwnedBlockDocument(
       project.id,
       card.id,
     );
     invariant(
       prepared.ok && prepared.value.authority === "ydoc_primary",
-      "Card did not cut over to Y.Doc authority",
+      "Card is not backed by Y.Doc authority",
     );
     const descriptor = prepared.value;
 

@@ -25,13 +25,15 @@ import {
   makeInitialDatabaseViewPanelStateJson,
   seededPrimaryDatabaseViewId,
 } from "./project-session-defaults";
+import { dropLegacyBlockFirstTables } from "./block-first-legacy-schema";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 69;
+export const CURRENT_SCHEMA_VERSION = 70;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+    70,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -3056,7 +3058,14 @@ function createCardBehaviorRecordSchema(db: Database.Database): void {
   createCardBehaviorRecordIndexesAndTriggers(db);
 }
 
-function createLatestSchema(db: Database.Database): void {
+/**
+ * Build the complete v69 migration schema. Fresh stores immediately pass this
+ * through the v70 legacy-table drop; the exported seam also lets the
+ * content-aware finalizer be verified against the exact predecessor schema.
+ */
+export function createBlockFirstPreFinalizationSchema(
+  db: Database.Database,
+): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -3691,16 +3700,6 @@ export function deleteBlockFoundationForProject(
   db: Database.Database,
   projectId: string,
 ): void {
-  // Delete Cards while their Project still exists so the legacy outbox can
-  // record each delete without violating its Project foreign key. The rows are
-  // then removed below with the rest of the Project-scoped migration ledger.
-  db.prepare("DELETE FROM cards WHERE project_id = ?").run(projectId);
-  db.prepare("DELETE FROM legacy_card_shadow_jobs WHERE project_id = ?").run(
-    projectId,
-  );
-  db.prepare("DELETE FROM legacy_card_shadow_heads WHERE project_id = ?").run(
-    projectId,
-  );
   db.prepare("DELETE FROM block_documents WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM blocks WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM documents WHERE project_id = ?").run(projectId);
@@ -4243,7 +4242,7 @@ function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
 }
 
 function migrateMainSchema26To31(db: Database.Database): void {
-  createLatestSchema(db);
+  createBlockFirstPreFinalizationSchema(db);
 
   if (tableExists(db, "codex_card_threads")) {
     if (!tableHasColumn(db, "codex_card_threads", "parent_thread_id")) {
@@ -7874,6 +7873,20 @@ function runMigrations(
       fromVersion = 69;
       continue;
     }
+    if (target === 70) {
+      if (fromVersion !== 69) {
+        throw new Error(
+          `Unsupported Nodex database migration target 70 from ${fromVersion}`,
+        );
+      }
+      // v70 removes content-bearing compatibility tables only after the
+      // asynchronous shadow/reference/cutover fixed point. initializeDatabase
+      // performs that content migration on the opened authority connection and
+      // advances user_version atomically with the final table drop.
+      createSchemaMigrationSafetyBackup(db, 69, 70);
+      fromVersion = 70;
+      continue;
+    }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
   }
   options.onMigrationProgress?.({ type: "Done" });
@@ -7886,9 +7899,8 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
       db.exec(`DROP TABLE IF EXISTS ${tableName}`);
     }
     db.pragma("auto_vacuum = INCREMENTAL");
-    createLatestSchema(db);
-    createCardProjectTransferFenceSchema(db);
-    setUserVersion(db, CURRENT_SCHEMA_VERSION);
+    createBlockFirstPreFinalizationSchema(db);
+    dropLegacyBlockFirstTables(db, CURRENT_SCHEMA_VERSION);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }

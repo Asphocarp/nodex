@@ -247,8 +247,6 @@ const run = async (): Promise<void> => {
     });
     closeDatabase();
 
-    const initialized = await cardMutationWriter.initializeBlockDocumentShadows();
-    invariant(initialized.result.exhausted, "Block Document genesis did not settle");
     const prepared = await cardMutationWriter.prepareOwnedBlockDocument(
       project.id,
       card.id,

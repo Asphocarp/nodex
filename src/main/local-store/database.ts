@@ -2,8 +2,12 @@ import Database from "better-sqlite3";
 import * as fs from "fs";
 import { getDatabasePath, getLocalStoreDir } from "./config";
 import { migrateLegacyDatabaseFileName } from "./database-file-migration";
-import { backfillCardHistorySnapshots } from "./history";
-import { ensureDatabase, type EnsureDatabaseOptions } from "./schema";
+import { finalizeBlockFirstAuthority } from "./block-first-finalization";
+import {
+  CURRENT_SCHEMA_VERSION,
+  ensureDatabase,
+  type EnsureDatabaseOptions,
+} from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
 import { ensurePrimaryCanvasDocuments } from "./primary-canvas-document";
 
@@ -94,6 +98,16 @@ export function closeDatabase(): void {
 export async function initializeDatabase(options?: EnsureDatabaseOptions): Promise<void> {
   recoverInterruptedStoreRestore();
   ensureDatabase(options);
-  ensurePrimaryCanvasDocuments(getDb());
-  backfillCardHistorySnapshots();
+  const database = getDb();
+  ensurePrimaryCanvasDocuments(database);
+  const schemaVersion = database.pragma("user_version", {
+    simple: true,
+  }) as number;
+  if (schemaVersion === CURRENT_SCHEMA_VERSION) return;
+  if (schemaVersion !== CURRENT_SCHEMA_VERSION - 1) {
+    throw new Error(
+      `Cannot finalize Block-first schema v${schemaVersion}; expected v${CURRENT_SCHEMA_VERSION - 1}`,
+    );
+  }
+  await finalizeBlockFirstAuthority(database, CURRENT_SCHEMA_VERSION);
 }

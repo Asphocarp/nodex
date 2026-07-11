@@ -298,10 +298,12 @@ describe("Block property mutation store", () => {
           projectId: fixture.projectId,
           blockId: fixture.cardId,
         });
-        expect(canonicalHistory.length).toBe(1);
-        expect(canonicalHistory[0]?.kind).toBe("block_mutation");
-        expect(canonicalHistory[0]?.mutationKind).toBe("property_batch");
-        const fieldChanges = canonicalHistory[0]?.payload.fieldChanges;
+        const propertyHistory = canonicalHistory.filter(
+          (entry) => entry.mutationKind === "property_batch",
+        );
+        expect(propertyHistory.length).toBe(1);
+        expect(propertyHistory[0]?.kind).toBe("block_mutation");
+        const fieldChanges = propertyHistory[0]?.payload.fieldChanges;
         expect(Array.isArray(fieldChanges)).toBe(true);
         if (!Array.isArray(fieldChanges)) {
           throw new Error("Property history is missing field changes");

@@ -238,12 +238,10 @@ const assertIdentityAvailable = (
       SELECT 'block' AS kind FROM blocks WHERE id = ?
       UNION ALL
       SELECT 'document' AS kind FROM documents WHERE id = ?
-      UNION ALL
-      SELECT 'legacy-card' AS kind FROM cards WHERE id = ?
       LIMIT 1
     `,
     )
-    .get(cardId, documentId, cardId) as { readonly kind: string } | undefined;
+    .get(cardId, documentId) as { readonly kind: string } | undefined;
   if (!collision) return;
   throw new AuthoritativeCardCloneError(
     `Card identity ${cardId} collides with an existing ${collision.kind}`,

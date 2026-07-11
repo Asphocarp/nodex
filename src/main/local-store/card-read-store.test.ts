@@ -9,10 +9,7 @@ import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "./block-document-cutover";
+import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
 import {
   CardReadStoreError,
   rebuildCardReadModelProjection,
@@ -25,7 +22,6 @@ import {
   readColumn,
 } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
 
 const supportsBetterSqlite3 = (): boolean => {
@@ -162,43 +158,12 @@ describe("authoritative Card reads", () => {
           agentStatus: "legacy-agent",
         });
         const database = getDb();
-        const shadow = runLegacyCardShadowProcessorProbe(database);
-        expect(shadow.allCurrentCardsReady).toBe(true);
-
         const descriptor = getOwnedBlockDocumentDescriptor(
           database,
           project.id,
           created.id,
         );
 
-        database
-          .prepare(
-            `
-        UPDATE document_materializations
-        SET title = 'Non-authoritative shadow title'
-        WHERE document_id = ?
-      `,
-          )
-          .run(descriptor.documentId);
-        expect((await getCard(project.id, created.id))?.title).toBe(
-          "Legacy title",
-        );
-        database
-          .prepare(
-            `
-        UPDATE document_materializations
-        SET title = 'Legacy title'
-        WHERE document_id = ?
-      `,
-          )
-          .run(descriptor.documentId);
-
-        cutoverCardDocumentToPrimary(database, {
-          projectId: project.id,
-          ownerBlockId: created.id,
-          expectedGeneration: descriptor.generation,
-          expectedHeadSeq: descriptor.headSeq,
-        });
         editPrimaryCardDocument(
           database,
           descriptor.documentId,
@@ -237,29 +202,13 @@ describe("authoritative Card reads", () => {
           )
           .run(created.id);
 
-        const legacy = database
-          .prepare(
-            `
-        SELECT title, description, priority, estimate, tags, assignee, agent_status
-        FROM cards WHERE id = ?
-      `,
-          )
-          .get(created.id) as {
-          title: string;
-          description: string;
-          priority: string | null;
-          estimate: string | null;
-          tags: string;
-          assignee: string | null;
-          agent_status: string | null;
-        };
-        expect(legacy.title).toBe("Legacy title");
-        expect(legacy.description).toBe("Legacy body");
-        expect(legacy.priority).toBe("p1-high");
-        expect(legacy.estimate).toBe("m");
-        expect(legacy.tags).toBe('["legacy"]');
-        expect(legacy.assignee).toBe("Legacy owner");
-        expect(legacy.agent_status).toBe("legacy-agent");
+        expect(
+          database
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+            )
+            .get() === undefined,
+        ).toBe(true);
 
         const byId = await getCard(project.id, created.id);
         const details = await getCardsDetails(project.id, {
@@ -341,18 +290,11 @@ describe("authoritative Card reads", () => {
           description: "Fresh body",
         });
         const database = getDb();
-        runLegacyCardShadowProcessorProbe(database);
         const descriptor = getOwnedBlockDocumentDescriptor(
           database,
           project.id,
           created.id,
         );
-        cutoverCardDocumentToPrimary(database, {
-          projectId: project.id,
-          ownerBlockId: created.id,
-          expectedGeneration: descriptor.generation,
-          expectedHeadSeq: descriptor.headSeq,
-        });
         database.transaction(() => {
           rebuildCardReadModelProjection(database, project.id, [created.id]);
         })();

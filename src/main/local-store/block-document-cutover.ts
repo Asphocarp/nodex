@@ -401,10 +401,10 @@ export const cutoverCardDocumentToPrimary = (
   const cutover = database.transaction((): OwnedBlockDocumentDescriptor => {
     const storeEpoch = readStoreEpoch(database);
     const row = readOwnedDocumentRow(database, projectId, ownerBlockId);
-    if (row.owner_type !== "card" || row.owner_lifecycle !== "active") {
+    if (row.owner_type !== "card" || row.owner_lifecycle === "deleted") {
       throw new BlockDocumentCutoverError(
         "owner_not_writable",
-        `Block ${ownerBlockId} is not an active Card`,
+        `Block ${ownerBlockId} is not a retained Card`,
       );
     }
     if (row.readiness !== "ready") {
@@ -466,9 +466,12 @@ export const cutoverCardDocumentToPrimary = (
 };
 
 /**
- * Monotonically cut over every active, ready Card that no longer embeds a
- * foreign body. A crash may stop between Cards; rerunning is idempotent and
- * can only advance legacy_shadow to ydoc_primary.
+ * Monotonically cut over every retained, ready Card that no longer embeds a
+ * foreign body. Archived Cards are read-only but keep the same owned
+ * Document authority; deleting their compatibility row before this cutover
+ * would otherwise strand that Document on legacy authority. A crash may stop
+ * between Cards; rerunning is idempotent and can only advance legacy_shadow
+ * to ydoc_primary.
  */
 export const cutoverEligibleCardDocumentsToPrimary = (
   database: Database.Database,
@@ -506,7 +509,7 @@ export const cutoverEligibleCardDocumentsToPrimary = (
     INNER JOIN block_documents ownership ON ownership.block_id = owner.id
     INNER JOIN documents document ON document.id = ownership.document_id
     WHERE owner.type = 'card'
-      AND owner.lifecycle = 'active'
+      AND owner.lifecycle IN ('active', 'archived')
       AND document.readiness = 'ready'
       ${ownerFilter}
     ORDER BY owner.project_id, owner.id

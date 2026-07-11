@@ -357,11 +357,11 @@ const readDatabaseViewRows = (
   const positionedCards = database.prepare(`
     SELECT
       membership.card_block_id AS block_id,
-      COALESCE(position.group_key, primary_position.group_key, card.status) AS group_key,
+      COALESCE(position.group_key, primary_position.group_key) AS group_key,
       COALESCE(
         position.rank_key,
         primary_position.rank_key,
-        printf('%020d', CASE WHEN card."order" >= 0 THEN card."order" ELSE 0 END)
+        'ffffffffffffffffffffffffffffffff'
       ) AS rank_key
     FROM database_memberships AS membership
     INNER JOIN blocks AS card_block
@@ -369,10 +369,6 @@ const readDatabaseViewRows = (
       AND card_block.project_id = membership.project_id
       AND card_block.type = 'card'
       AND card_block.lifecycle = 'active'
-    INNER JOIN cards AS card
-      ON card.id = card_block.id
-      AND card.project_id = card_block.project_id
-      AND card.archived = 0
     LEFT JOIN database_view_positions AS position
       ON position.view_id = ?
       AND position.project_id = membership.project_id
@@ -547,8 +543,11 @@ export const upsertLegacyInlineDatabaseView = (
         ?,
         membership.card_block_id,
         membership.project_id,
-        COALESCE(primary_position.group_key, card.status),
-        COALESCE(primary_position.rank_key, printf('%020d', card."order")),
+        primary_position.group_key,
+        COALESCE(
+          primary_position.rank_key,
+          'ffffffffffffffffffffffffffffffff'
+        ),
         ?,
         ?
       FROM database_memberships AS membership
@@ -557,10 +556,6 @@ export const upsertLegacyInlineDatabaseView = (
         AND card_block.project_id = membership.project_id
         AND card_block.type = 'card'
         AND card_block.lifecycle = 'active'
-      INNER JOIN cards AS card
-        ON card.id = card_block.id
-        AND card.project_id = card_block.project_id
-        AND card.archived = 0
       LEFT JOIN database_views AS primary_view
         ON primary_view.database_block_id = membership.database_block_id
         AND primary_view.project_id = membership.project_id

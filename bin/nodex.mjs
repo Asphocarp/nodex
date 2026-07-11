@@ -421,6 +421,190 @@ function apiDelete(path) {
   return apiFetch(path, { method: "DELETE" });
 }
 
+async function readCardMetadataSnapshot(config, cardId) {
+  const result = await apiGet(
+    `${apiPrefix(config)}/cards/${encodeURIComponent(cardId)}/metadata-property-snapshot`,
+  );
+  if (
+    result?.ok !== true ||
+    result.value?.projectId !== config.project ||
+    result.value?.cardBlockId !== cardId ||
+    typeof result.value?.storeEpoch !== "string" ||
+    !Array.isArray(result.value?.fields)
+  ) {
+    throw new Error(
+      result?.error?.message || "Server returned an invalid Card metadata snapshot",
+    );
+  }
+  return result.value;
+}
+
+function normalizeCliMetadataValue(field, value) {
+  if (field === "dueDate") {
+    if (value === null) return null;
+    if (value instanceof Date && Number.isFinite(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    if (typeof value === "string") return value.slice(0, 10);
+    throw new Error("Card dueDate must be a date or null");
+  }
+  if (field === "assignee") return typeof value === "string" ? value.trim() || null : value;
+  if (field === "agentStatus") return typeof value === "string" ? value.trim() || null : value;
+  return value;
+}
+
+function compileCliCardMetadataFields(snapshot, patch) {
+  const coordinates = new Map(snapshot.fields.map((field) => [field.field, field]));
+  const fields = [];
+  for (const [field, rawValue] of Object.entries(patch)) {
+    const coordinate = coordinates.get(field);
+    if (!coordinate) throw new Error(`Card metadata snapshot is missing ${field}`);
+    if (field === "tags") {
+      if (coordinate.scope !== "database") {
+        throw new Error("Card tags require an active Database membership");
+      }
+      const current = Array.isArray(coordinate.value) ? coordinate.value : [];
+      const target = [...new Set(rawValue)].sort();
+      const currentSet = new Set(current);
+      const targetSet = new Set(target);
+      const add = target.filter((tag) => !currentSet.has(tag));
+      const remove = current.filter((tag) => !targetSet.has(tag));
+      if (add.length === 0 && remove.length === 0) continue;
+      fields.push({
+        scope: "database",
+        cardBlockId: snapshot.cardBlockId,
+        databaseBlockId: coordinate.databaseBlockId,
+        propertyId: coordinate.propertyId,
+        operation: "add_remove",
+        add,
+        remove,
+      });
+      continue;
+    }
+    const value = normalizeCliMetadataValue(field, rawValue);
+    if (JSON.stringify(value) === JSON.stringify(coordinate.value)) continue;
+    if (coordinate.scope === "database") {
+      fields.push({
+        scope: "database",
+        cardBlockId: snapshot.cardBlockId,
+        databaseBlockId: coordinate.databaseBlockId,
+        propertyId: coordinate.propertyId,
+        operation: "set",
+        expectedRevision: coordinate.revision,
+        value,
+      });
+      continue;
+    }
+    fields.push({
+      scope: "intrinsic",
+      blockId: snapshot.cardBlockId,
+      propertyKey: {
+        agentBlocked: "agent.blocked",
+        agentStatus: "agent.status",
+      }[field],
+      operation: "set",
+      expectedRevision: coordinate.revision,
+      value,
+    });
+  }
+  return fields;
+}
+
+async function mutateCardMetadata(config, cardId, patch, mutationId) {
+  const snapshot = await readCardMetadataSnapshot(config, cardId);
+  const fields = compileCliCardMetadataFields(snapshot, patch);
+  if (fields.length === 0) return null;
+  const request = {
+    version: 1,
+    mutationId,
+    projectId: config.project,
+    storeEpoch: snapshot.storeEpoch,
+    ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
+    actor: { kind: "nodex_cli" },
+    fields,
+  };
+  const send = async () =>
+    apiPost(`${apiPrefix(config)}/block-property-mutations`, request);
+  let result;
+  try {
+    result = await send();
+  } catch {
+    result = await send();
+  }
+  if (result?.ok !== true) {
+    throw new Error(result?.error?.message || "Card metadata mutation failed");
+  }
+  return result.value;
+}
+
+async function moveCardInPrimaryDatabase(config, input, operationId) {
+  const result = await apiGet(
+    `${apiPrefix(config)}/database-views/primary/snapshot`,
+  );
+  const descriptorSnapshot = result?.value?.descriptor;
+  const querySnapshot = result?.value?.query;
+  const descriptor = descriptorSnapshot?.value;
+  const query = querySnapshot?.value;
+  if (
+    result?.ok !== true ||
+    !descriptor ||
+    !query ||
+    descriptorSnapshot.storeEpoch !== querySnapshot.storeEpoch ||
+    descriptorSnapshot.changeLogSeq !== querySnapshot.changeLogSeq
+  ) {
+    throw new Error(result?.error?.message || "Primary Database View is unavailable");
+  }
+  const view = descriptor.views.find(
+    (candidate) => candidate.lifecycle === "active" && candidate.isPrimary && candidate.kind === "kanban",
+  );
+  const statusProperty = descriptor.properties.find(
+    (property) => property.lifecycle === "active" && property.key === "status",
+  );
+  const row = query.rows.find((candidate) => candidate.card.blockId === input.cardId);
+  if (!view || !statusProperty || !row || query.view.id !== view.id) {
+    throw new Error(`Card ${input.cardId} is not in the primary Database View`);
+  }
+  const currentStatus = row.values[statusProperty.id]?.value;
+  if (currentStatus !== input.fromStatus) {
+    throw new Error(
+      `Card ${input.cardId} moved from ${input.fromStatus} to ${String(currentStatus)} before this command`,
+    );
+  }
+  const operations = [];
+  if (currentStatus !== input.toStatus) {
+    operations.push({
+      kind: "set_value",
+      cardBlockId: input.cardId,
+      databaseBlockId: descriptor.database.blockId,
+      propertyId: statusProperty.id,
+      expectedValueRevision: row.values[statusProperty.id]?.revision ?? 0,
+      value: input.toStatus,
+    });
+  }
+  const manual = view.config.sort.some((sort) => sort.field?.kind === "manual");
+  if (manual && (currentStatus !== input.toStatus || input.newOrder !== undefined)) {
+    const remaining = query.rows.filter(
+      (candidate) =>
+        candidate.card.blockId !== input.cardId &&
+        candidate.effectiveGroupKey === input.toStatus,
+    );
+    const targetIndex = input.newOrder === undefined
+      ? remaining.length
+      : Math.min(input.newOrder, remaining.length);
+    const beforeCardBlockId = remaining[targetIndex]?.card.blockId;
+    operations.push({
+      kind: "position_card",
+      viewId: view.id,
+      cardBlockId: input.cardId,
+      expectedPositionRevision: row.position?.revision ?? 0,
+      groupKey: input.toStatus,
+      ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+    });
+  }
+  if (operations.length === 0) return null;
+  return applyDatabaseOperations(config, descriptorSnapshot, operationId, operations);
+}
+
 async function readCardLifecyclePreflight(config, cardId) {
   const result = await apiGet(
     `${apiPrefix(config)}/card-lifecycle-preflight?cardId=${encodeURIComponent(cardId)}`,
@@ -1422,7 +1606,7 @@ async function readDatabaseManagementSnapshot(config) {
 }
 
 async function applyDatabaseOperations(config, snapshot, operationId, operations) {
-  const result = await apiPost(`${apiPrefix(config)}/database-mutations`, {
+  const request = {
     version: 1,
     operationId,
     projectId: config.project,
@@ -1430,7 +1614,15 @@ async function applyDatabaseOperations(config, snapshot, operationId, operations
     ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
     actor: { kind: "nodex_cli" },
     operations,
-  });
+  };
+  const send = async () =>
+    apiPost(`${apiPrefix(config)}/database-mutations`, request);
+  let result;
+  try {
+    result = await send();
+  } catch {
+    result = await send();
+  }
   if (result?.ok !== true) {
     throw new Error(result?.error?.message || "Database mutation failed");
   }
@@ -1805,8 +1997,16 @@ async function cmdUpdate(positional, flags, config) {
   if (!metadataChanged && title === undefined && nfm === undefined) {
     throw new Error("No Card update was specified");
   }
+  const { cardId: _cardId, sessionId: _sessionId, ...metadataPatch } = body;
+  void _cardId;
+  void _sessionId;
   const metadataResult = metadataChanged
-    ? await apiPut(`${prefix}/card`, body)
+    ? await mutateCardMetadata(
+        config,
+        cardId,
+        metadataPatch,
+        requireCanonicalMutationId(flags.mutationId),
+      )
     : null;
   const contentResult = title !== undefined || nfm !== undefined
     ? await mutateCardContent(config, cardId, {
@@ -1894,7 +2094,17 @@ async function cmdMv(positional, flags, config) {
   if (positional[3] !== undefined) body.newOrder = parseNonNegativeInt(positional[3], "order");
   if (config.sessionId) body.sessionId = config.sessionId;
 
-  const moveResult = await apiPut(`${prefix}/move`, body);
+  const operationId = requireCanonicalMutationId(flags.mutationId);
+  const moveResult = await moveCardInPrimaryDatabase(
+    config,
+    {
+      cardId,
+      fromStatus,
+      toStatus,
+      ...(body.newOrder === undefined ? {} : { newOrder: body.newOrder }),
+    },
+    operationId,
+  );
   const cardUpdates = {};
 
   const title = flags.title === undefined
@@ -1948,11 +2158,7 @@ async function cmdMv(positional, flags, config) {
   let contentResult = null;
 
   if (hasCardUpdates) {
-    await apiPut(`${prefix}/card`, {
-      cardId,
-      ...(config.sessionId ? { sessionId: config.sessionId } : {}),
-      ...cardUpdates,
-    });
+    await mutateCardMetadata(config, cardId, cardUpdates, operationId);
   }
   if (hasContentUpdates) {
     contentResult = await mutateCardContent(config, cardId, {
@@ -1974,7 +2180,7 @@ async function cmdMv(positional, flags, config) {
 
   if (flags.json) {
     jsonOut({
-      success: moveResult.success !== false,
+      success: moveResult !== false,
       cardId,
       toStatus,
       ...(cardAfterMove ? { card: cardAfterMove } : {}),

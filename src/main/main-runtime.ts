@@ -32,7 +32,6 @@ import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
 import { cardMutationWriter } from "./card-mutation-writer";
-import { prepareBlockDocumentAuthorityForStartup } from "./block-document-startup";
 import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
 import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
 import { readBlockStoreEpoch } from "./local-store/block-store-metadata";
@@ -891,14 +890,12 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
       publishDatabaseMigrationProgress(progress);
     },
   });
-  await prepareBlockDocumentAuthorityForStartup(cardMutationWriter);
   blockDocumentCompactionRuntime.start();
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();
 
   startHttpServer(serverPort);
-  scheduleCardReadModelBackfill(1_000);
 
   const backupSettings = getBackupSettings();
   configureAutoBackupScheduler({
@@ -1036,31 +1033,7 @@ let runtimeShutdownStarted = false;
 let runtimeShutdownCompleted = false;
 let runtimeShutdownPromise: Promise<void> | null = null;
 let runtimeQuitContinuationStarted = false;
-let cardReadModelBackfillTimer: ReturnType<typeof setTimeout> | null = null;
-
-const CARD_READ_MODEL_BACKFILL_BATCH_SIZE = 4;
-const CARD_READ_MODEL_BACKFILL_DELAY_MS = 500;
 const RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS = 15_000;
-
-function scheduleCardReadModelBackfill(delayMs = CARD_READ_MODEL_BACKFILL_DELAY_MS): void {
-  if (runtimeShutdownStarted) return;
-  if (cardReadModelBackfillTimer !== null) return;
-
-  cardReadModelBackfillTimer = setTimeout(() => {
-    cardReadModelBackfillTimer = null;
-    void cardMutationWriter.backfillCardReadModel(CARD_READ_MODEL_BACKFILL_BATCH_SIZE)
-      .then(({ result }) => {
-        if (result.remaining > 0) {
-          scheduleCardReadModelBackfill();
-        }
-      })
-      .catch((error) => {
-        logger.warn("Card read model backfill failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-  }, delayMs);
-}
 
 function handleSecondInstanceArgv(argv: string[]): boolean {
   const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
@@ -1088,10 +1061,6 @@ function beginMainRuntimeShutdown(): void {
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
-  if (cardReadModelBackfillTimer !== null) {
-    clearTimeout(cardReadModelBackfillTimer);
-    cardReadModelBackfillTimer = null;
-  }
   blockDocumentCompactionRuntime.dispose();
   stopAutoBackupScheduler();
   if (stopReminderScheduler) {

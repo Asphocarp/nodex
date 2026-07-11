@@ -8,7 +8,6 @@ import type {
   ReminderConfig,
 } from "../../shared/types";
 import { isCardStatus, type CardStatus } from "../../shared/card-status";
-import { summarizeCardDescription } from "../../shared/card-summary";
 import { assertValidCardInput } from "./card-input-validation";
 
 const DATABASE_PROPERTY_KEYS = [
@@ -42,7 +41,6 @@ type IntrinsicPropertyKey = (typeof INTRINSIC_PROPERTY_KEYS)[number];
 export type CardReadStoreErrorCode =
   | "card_document_missing"
   | "card_materialization_stale"
-  | "card_legacy_content_missing"
   | "card_database_membership_missing"
   | "card_database_property_missing"
   | "card_intrinsic_property_missing"
@@ -83,8 +81,6 @@ interface CardAuthorityRow {
   readonly materialized_nfm: string | null;
   readonly materialized_preview: string | null;
   readonly materialization_updated_at: string | null;
-  readonly legacy_title: string | null;
-  readonly legacy_description: string | null;
   readonly membership_id: string | null;
   readonly database_block_id: string | null;
   readonly view_id: string | null;
@@ -173,8 +169,6 @@ const CARD_AUTHORITY_SELECT = `
     materialization.nfm AS materialized_nfm,
     materialization.preview AS materialized_preview,
     materialization.updated_at AS materialization_updated_at,
-    legacy.title AS legacy_title,
-    legacy.description AS legacy_description,
     membership.id AS membership_id,
     membership.database_block_id,
     position.view_id,
@@ -193,9 +187,6 @@ const CARD_AUTHORITY_SELECT = `
     AND document.project_id = ownership.project_id
   LEFT JOIN document_materializations materialization
     ON materialization.document_id = document.id
-  LEFT JOIN cards legacy
-    ON legacy.id = card.id
-    AND legacy.project_id = card.project_id
   LEFT JOIN database_memberships membership
     ON membership.card_block_id = card.id
     AND membership.project_id = card.project_id
@@ -432,22 +423,12 @@ const resolveCardContent = (row: CardAuthorityRow): CardContent => {
     );
   }
 
-  if (row.document_authority === "legacy_shadow") {
-    if (row.legacy_title === null || row.legacy_description === null) {
-      return throwReadError(
-        "card_legacy_content_missing",
-        row.card_block_id,
-        "has no legacy content row while it remains legacy_shadow",
-      );
-    }
-    const summary = summarizeCardDescription(row.legacy_description);
-    return {
-      title: row.legacy_title,
-      description: row.legacy_description,
-      preview: summary.descriptionPreview,
-      length: summary.descriptionLength,
-      hasDescription: summary.hasDescription,
-    };
+  if (row.document_authority !== "ydoc_primary") {
+    return throwReadError(
+      "card_document_missing",
+      row.card_block_id,
+      `has unsupported Document authority ${row.document_authority}`,
+    );
   }
 
   const isCurrentMaterialization =

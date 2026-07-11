@@ -283,28 +283,6 @@ const main = async (): Promise<void> => {
       "Cross-Project exact-head reference was not retained",
     );
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
-        `INSERT INTO foreign_reference_migrations (
-          source_block_id, host_document_id, host_block_id, project_id,
-          legacy_kind, legacy_target_block_id, occurrence,
-          source_fingerprint, target_block_id, database_view_id,
-          recovered_card_id, status, attempt_count, last_error,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'card_ref', ?, 1, ?, ?, NULL, NULL,
-          'applied', 1, NULL, ?, ?)`,
-      )
-      .run(
-        "probe:cross-source",
-        "document:probe-cross-host",
-        "probe:cross-host",
-        crossProject.id,
-        "probe:cross-target",
-        "0".repeat(64),
-        "probe:cross-target",
-        now,
-        now,
-      );
     const hostSession = getDb()
       .prepare(
         "SELECT id FROM project_sessions WHERE project_id = ? AND archived = 0 LIMIT 1",
@@ -330,9 +308,9 @@ const main = async (): Promise<void> => {
       );
     const crossGlobalRoots = blockers(project.id, "probe:cross-target");
     invariant(
-      crossGlobalRoots.has("foreign_reference_migration") &&
+      crossGlobalRoots.has("block_tree_reference") &&
         crossGlobalRoots.has("session_target"),
-      "Cross-Project migration or session root was not retained",
+      "Cross-Project content or session root was not retained",
     );
 
     seedBlock({

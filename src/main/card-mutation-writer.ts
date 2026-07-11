@@ -71,11 +71,6 @@ import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
-import type {
-  CutoverCardDocumentInput,
-  CutoverEligibleCardDocumentsResult,
-} from "./local-store/block-document-cutover";
-import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   BlockDropImportInput,
@@ -93,7 +88,6 @@ import type {
   MoveCardsInput,
 } from "../shared/types";
 import type {
-  BlockDocumentShadowInitializationResult,
   CardMutationMetrics,
   CardMutationWorkerEvent,
   CardMutationWorkerMessage,
@@ -101,7 +95,6 @@ import type {
   CardMutationWorkerResponse,
   CardMutationWorkerResult,
   CardOccurrenceMutationResult,
-  CardReadModelBackfillResult,
 } from "./card-mutation-worker-protocol";
 import { assertCardUpdateExcludesDocumentContent } from "../shared/card-content-authority";
 
@@ -294,32 +287,6 @@ export class CardMutationWriter {
     return await this.executeTyped<CardOccurrenceMutationResult>({
       type: "updateCardOccurrence",
       payload: { projectId, input, sessionId },
-    });
-  }
-
-  async backfillCardReadModel(
-    limit?: number,
-  ): Promise<CardMutationEnvelope<CardReadModelBackfillResult>> {
-    return await this.executeTyped<CardReadModelBackfillResult>({
-      type: "backfillCardReadModel",
-      payload: { limit },
-    });
-  }
-
-  async initializeBlockDocumentShadows(): Promise<
-    CardMutationEnvelope<BlockDocumentShadowInitializationResult>
-  > {
-    return await this.executeTyped<BlockDocumentShadowInitializationResult>({
-      type: "initializeBlockDocumentShadows",
-    });
-  }
-
-  async migrateLegacyForeignReferences(
-    limit?: number,
-  ): Promise<CardMutationEnvelope<ForeignReferenceMigrationBatchResult>> {
-    return await this.executeTyped<ForeignReferenceMigrationBatchResult>({
-      type: "migrateLegacyForeignReferences",
-      payload: { limit },
     });
   }
 
@@ -533,24 +500,6 @@ export class CardMutationWriter {
       payload: { projectId, ownerBlockId },
     });
     return envelope.result;
-  }
-
-  async cutoverCardDocumentToPrimary(
-    input: CutoverCardDocumentInput,
-  ): Promise<CardMutationEnvelope<OwnedBlockDocumentDescriptor>> {
-    return await this.executeTyped<OwnedBlockDocumentDescriptor>({
-      type: "cutoverCardDocumentToPrimary",
-      payload: input,
-    });
-  }
-
-  async cutoverEligibleCardDocuments(
-    ownerBlockIds?: readonly string[],
-  ): Promise<CardMutationEnvelope<CutoverEligibleCardDocumentsResult>> {
-    return await this.executeTyped<CutoverEligibleCardDocumentsResult>({
-      type: "cutoverEligibleCardDocuments",
-      payload: { ownerBlockIds },
-    });
   }
 
   async applyBlockDocumentUpdate(

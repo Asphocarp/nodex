@@ -98,18 +98,13 @@ const run = async (): Promise<void> => {
     writer = new CardMutationWriter({
       publishBoardEvent: (event) => events.push(event),
     });
-    const shadows = await writer.initializeBlockDocumentShadows();
-    invariant(
-      shadows.result.exhausted && shadows.result.errors === 0,
-      "Worker did not settle Card Document genesis",
-    );
     const prepared = await writer.prepareOwnedBlockDocument(
       project.id,
       card.id,
     );
     invariant(
       prepared.ok && prepared.value.authority === "ydoc_primary",
-      "Worker did not cut the Card over to Document authority",
+      "Worker did not expose Card Document authority",
     );
 
     const priority = propertyCoordinates.priority;

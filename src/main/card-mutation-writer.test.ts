@@ -872,74 +872,6 @@ describe("CardMutationWriter", () => {
     if (result.ok) expect(result.value.headSeq).toBe(5);
   });
 
-  test("exposes the startup shadow parity result through the FIFO", async () => {
-    const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
-      createWorker: () => worker,
-      publishBoardEvent: () => undefined,
-    });
-
-    const pending = writer.initializeBlockDocumentShadows();
-    const request = worker.messages[0];
-    expect(request?.type).toBe("initializeBlockDocumentShadows");
-    if (!request) return;
-    worker.emitMessage({
-      id: request.id,
-      ok: true,
-      result: {
-        processed: 12,
-        applied: 10,
-        superseded: 2,
-        failed: 0,
-        errors: 0,
-        exhausted: true,
-      },
-      events: [],
-      metrics: makeMetrics(request.mutationId),
-    });
-
-    const envelope = await pending;
-    expect(envelope.result.processed).toBe(12);
-    expect(envelope.result.exhausted).toBe(true);
-  });
-
-  test("preserves resumable foreign-reference migration evidence through the FIFO", async () => {
-    const worker = new FakeWorker();
-    const writer = new CardMutationWriter({
-      createWorker: () => worker,
-      publishBoardEvent: () => undefined,
-    });
-
-    const pending = writer.migrateLegacyForeignReferences(25);
-    const request = worker.messages[0];
-    expect(request?.type).toBe("migrateLegacyForeignReferences");
-    if (!request || request.type !== "migrateLegacyForeignReferences") return;
-    expect(request.payload.limit).toBe(25);
-    worker.emitMessage({
-      id: request.id,
-      ok: true,
-      result: {
-        processedDocuments: 2,
-        migratedReferences: 3,
-        recoveredCards: 1,
-        databaseViewsCreated: 1,
-        failedDocuments: 0,
-        exhausted: false,
-        changedDocumentIds: ["document:one", "document:two"],
-        errors: [],
-      },
-      events: [],
-      metrics: makeMetrics(request.mutationId),
-    });
-
-    const envelope = await pending;
-    expect(envelope.result.migratedReferences).toBe(3);
-    expect(envelope.result.changedDocumentIds.join(",")).toBe(
-      "document:one,document:two",
-    );
-    expect(envelope.result.exhausted).toBe(false);
-  });
-
   test("resolves worker ack and republishes board events", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
@@ -1302,7 +1234,7 @@ describe("CardMutationWriter", () => {
         schemaKey: "nodex.card",
         schemaVersion: 1,
         readiness: "ready",
-        authority: "legacy_shadow",
+        authority: "ydoc_primary",
         stateVector: new Uint8Array([1, 2]),
       },
       events: [],
@@ -1310,29 +1242,7 @@ describe("CardMutationWriter", () => {
     });
     const descriptor = await descriptorPending;
     expect(descriptor.result.ownerBlockId).toBe("card-1");
-    expect(descriptor.result.authority).toBe("legacy_shadow");
-
-    const cutoverPending = writer.cutoverCardDocumentToPrimary({
-      projectId: "project-1",
-      ownerBlockId: "card-1",
-      expectedGeneration: 1,
-      expectedHeadSeq: 3,
-    });
-    const cutoverRequest = worker.messages[4];
-    expect(cutoverRequest?.type).toBe("cutoverCardDocumentToPrimary");
-    if (!cutoverRequest) return;
-    worker.emitMessage({
-      id: cutoverRequest.id,
-      ok: true,
-      result: {
-        ...descriptor.result,
-        authority: "ydoc_primary",
-      },
-      events: [],
-      metrics: makeMetrics(cutoverRequest.mutationId),
-    });
-    const cutover = await cutoverPending;
-    expect(cutover.result.authority).toBe("ydoc_primary");
+    expect(descriptor.result.authority).toBe("ydoc_primary");
   });
 
   test("preserves typed relocation binaries and compacted null replay through the FIFO", async () => {

@@ -688,7 +688,9 @@ describe("general Database kernel", () => {
         expect(summary?.content?.title).toBe("Block-only title");
         expect(
           fixture.database
-            .prepare("SELECT 1 FROM cards WHERE id = 'card-block-only'")
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+            )
             .get() === undefined,
         ).toBe(true);
         expect(

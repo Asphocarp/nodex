@@ -8,13 +8,9 @@ import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "./block-document-cutover";
+import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
 import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
 import {
   listAuthoritativeCalendarOccurrences,
@@ -114,31 +110,11 @@ describe("scheduled Card authority reads", () => {
         scheduleTimezone: "UTC",
       });
       const database = getDb();
-      const shadow = runLegacyCardShadowProcessorProbe(database);
-      expect(shadow.allCurrentCardsReady).toBe(true);
       const descriptor = getOwnedBlockDocumentDescriptor(
         database,
         project.id,
         card.id,
       );
-      let legacyAuthorityCode: string | null = null;
-      try {
-        readAuthoritativeScheduledCards(database, {
-          projectId: project.id,
-          windowStart: new Date("2030-01-01T00:00:00.000Z"),
-          windowEnd: new Date("2030-01-02T00:00:00.000Z"),
-        });
-      } catch (error) {
-        legacyAuthorityCode =
-          error instanceof ScheduledCardReadError ? error.code : "unexpected";
-      }
-      expect(legacyAuthorityCode).toBe("scheduled_materialization_stale");
-      cutoverCardDocumentToPrimary(database, {
-        projectId: project.id,
-        ownerBlockId: card.id,
-        expectedGeneration: descriptor.generation,
-        expectedHeadSeq: descriptor.headSeq,
-      });
       editPrimaryDocument(
         descriptor.documentId,
         "Current schedule title",

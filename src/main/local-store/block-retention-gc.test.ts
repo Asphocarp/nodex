@@ -528,28 +528,6 @@ describe("Block retention GC kernel", () => {
         ],
       });
       const now = new Date().toISOString();
-      database
-        .prepare(
-          `INSERT INTO foreign_reference_migrations (
-            source_block_id, host_document_id, host_block_id, project_id,
-            legacy_kind, legacy_target_block_id, occurrence,
-            source_fingerprint, target_block_id, database_view_id,
-            recovered_card_id, status, attempt_count, last_error,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 'card_ref', ?, 1, ?, ?, NULL, NULL,
-            'applied', 1, NULL, ?, ?)`,
-        )
-        .run(
-          "gc:cross-source",
-          "document:gc-cross-host",
-          "gc:cross-host",
-          hostProject.id,
-          "gc:cross-target",
-          "0".repeat(64),
-          "gc:cross-target",
-          now,
-          now,
-        );
       const hostSession = database
         .prepare("SELECT id FROM project_sessions WHERE project_id = ? AND archived = 0 LIMIT 1")
         .get(hostProject.id) as { readonly id: string };
@@ -573,7 +551,6 @@ describe("Block retention GC kernel", () => {
         );
       const live = candidateFrom(database, targetProjectId, "gc:cross-target");
       expect(hasBlocker(live, "block_tree_reference")).toBe(true);
-      expect(hasBlocker(live, "foreign_reference_migration")).toBe(true);
       expect(hasBlocker(live, "session_target")).toBe(true);
 
       seedBlock(database, {

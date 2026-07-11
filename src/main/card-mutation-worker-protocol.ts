@@ -61,11 +61,6 @@ import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
-import type {
-  CutoverCardDocumentInput,
-  CutoverEligibleCardDocumentsResult,
-} from "./local-store/block-document-cutover";
-import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   BlockDropImportInput,
@@ -92,33 +87,9 @@ export interface CardMutationMetrics {
   summaryBytes?: number;
   eventCount: number;
   mainEventLoopLagMaxMs?: number;
-  shadowJobsProcessed?: number;
-  shadowJobsApplied?: number;
-  shadowJobsSuperseded?: number;
-  shadowJobsFailed?: number;
-  shadowDrainErrors?: number;
-  shadowDrainExhausted?: boolean;
-  foreignReferenceDocumentsProcessed?: number;
-  foreignReferencesMigrated?: number;
-  foreignReferenceMigrationsFailed?: number;
-  foreignReferenceMigrationExhausted?: boolean;
 }
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
-export interface CardReadModelBackfillResult {
-  updated: number;
-  remaining: number;
-}
-
-export interface BlockDocumentShadowInitializationResult {
-  readonly processed: number;
-  readonly applied: number;
-  readonly superseded: number;
-  readonly failed: number;
-  readonly errors: number;
-  readonly exhausted: boolean;
-}
-
 interface CardMutationWorkerRequestBase {
   id: number;
   mutationId: string;
@@ -205,19 +176,6 @@ export type CardMutationWorkerRequest =
       };
     })
   | (CardMutationWorkerRequestBase & {
-      type: "backfillCardReadModel";
-      payload: {
-        limit?: number;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "initializeBlockDocumentShadows";
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "migrateLegacyForeignReferences";
-      payload: { readonly limit?: number };
-    })
-  | (CardMutationWorkerRequestBase & {
       type: "repairDocumentSecondaryProjections";
     })
   | (CardMutationWorkerRequestBase & {
@@ -289,14 +247,6 @@ export type CardMutationWorkerRequest =
         readonly projectId: string;
         readonly ownerBlockId: string;
       };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "cutoverCardDocumentToPrimary";
-      payload: CutoverCardDocumentInput;
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "cutoverEligibleCardDocuments";
-      payload: { readonly ownerBlockIds?: readonly string[] };
     })
   | (CardMutationWorkerRequestBase & {
       type: "applyBlockDocumentUpdate";
@@ -382,12 +332,8 @@ export type CardMutationWorkerResult =
   | BlockDropImportResult
   | CardEditorDropResult
   | CardOccurrenceMutationResult
-  | CardReadModelBackfillResult
-  | BlockDocumentShadowInitializationResult
   | BlockDocumentWorkerResult
   | OwnedBlockDocumentDescriptor
-  | CutoverEligibleCardDocumentsResult
-  | ForeignReferenceMigrationBatchResult
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
   | DatabaseMutationCommandResult

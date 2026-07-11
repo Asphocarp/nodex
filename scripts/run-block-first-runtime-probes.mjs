@@ -39,7 +39,6 @@ const probes = [
   "block-first-relocation-schema-runtime-probe",
   "block-first-relocation-runtime-probe",
   "block-first-relocation-worker-runtime-probe",
-  "block-first-card-worker-runtime-probe",
   "block-first-additional-document-command-runtime-probe",
   "block-first-additional-document-command-worker-runtime-probe",
   "block-first-block-retention-gc-runtime-probe",
@@ -55,7 +54,6 @@ const workerProbes = new Set([
   "block-first-store-maintenance-runtime-probe",
   "block-first-database-transport-runtime-probe",
   "block-first-relocation-worker-runtime-probe",
-  "block-first-card-worker-runtime-probe",
   "block-first-additional-document-command-worker-runtime-probe",
 ]);
 

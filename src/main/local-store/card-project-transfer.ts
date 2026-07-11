@@ -166,24 +166,6 @@ interface StoredMutationRow {
   readonly change_log_seq: number | null;
 }
 
-interface ForeignReferenceMigrationRow {
-  readonly source_block_id: string;
-  readonly host_document_id: string;
-  readonly host_block_id: string;
-  readonly legacy_kind: string;
-  readonly legacy_target_block_id: string | null;
-  readonly occurrence: number;
-  readonly source_fingerprint: string;
-  readonly target_block_id: string | null;
-  readonly database_view_id: string | null;
-  readonly recovered_card_id: string | null;
-  readonly status: string;
-  readonly attempt_count: number;
-  readonly last_error: string | null;
-  readonly created_at: string;
-  readonly updated_at: string;
-}
-
 interface TransferEvidence {
   readonly requestHash: string;
   readonly requestJson: string;
@@ -201,7 +183,6 @@ interface PreparedTransfer {
   readonly targetDatabase: TargetDatabaseRow;
   readonly targetView: TargetViewRow;
   readonly targetMemberships: readonly PreparedTargetMembership[];
-  readonly foreignReferenceMigrations: readonly ForeignReferenceMigrationRow[];
   readonly topLevelRanks: RankPlan;
   readonly viewRanksByStatus: ReadonlyMap<CardStatus, RankPlan>;
 }
@@ -1221,43 +1202,11 @@ const validateTarget = (
       request,
     );
   }
-  const closureBlockIds = new Set(closure.blocks.map((block) => block.id));
-  const migrationsBySource = new Map<string, ForeignReferenceMigrationRow>();
-  const readMigrations = database.prepare(
-    `SELECT
-       source_block_id, host_document_id, host_block_id, legacy_kind,
-       legacy_target_block_id, occurrence, source_fingerprint,
-       target_block_id, database_view_id, recovered_card_id, status,
-       attempt_count, last_error, created_at, updated_at
-     FROM foreign_reference_migrations
-     WHERE project_id = ? AND host_document_id = ?
-     ORDER BY source_block_id`,
-  );
-  for (const document of closure.documents) {
-    const rows = readMigrations.all(
-      request.sourceProjectId,
-      document.document_id,
-    ) as readonly ForeignReferenceMigrationRow[];
-    for (const row of rows) {
-      if (!closureBlockIds.has(row.source_block_id) || row.status !== "applied") {
-        reject(
-          "block_authority_conflict",
-          `Foreign-reference migration ${row.source_block_id} is not settled inside the transfer closure`,
-          request,
-        );
-      }
-      migrationsBySource.set(row.source_block_id, row);
-    }
-  }
   return {
     closure,
     targetDatabase,
     targetView,
     targetMemberships,
-    foreignReferenceMigrations: [...migrationsBySource.values()].sort(
-      (left, right) =>
-        left.source_block_id.localeCompare(right.source_block_id),
-    ),
     topLevelRanks,
     viewRanksByStatus,
   };
@@ -1324,23 +1273,8 @@ const moveProjectCoordinates = (
   database: Database.Database,
   request: CardProjectTransferRequest,
   closure: AuthorityClosure,
-  foreignReferenceMigrations: readonly ForeignReferenceMigrationRow[],
   now: string,
 ): void => {
-  const deleteMigration = database.prepare(
-    `DELETE FROM foreign_reference_migrations
-     WHERE source_block_id = ? AND project_id = ?`,
-  );
-  for (const migration of foreignReferenceMigrations) {
-    const deleted = deleteMigration.run(
-      migration.source_block_id,
-      request.sourceProjectId,
-    );
-    if (deleted.changes === 1) continue;
-    throw new Error(
-      `Foreign-reference migration changed during Card transfer: ${migration.source_block_id}`,
-    );
-  }
   const deletedPlacement = database
     .prepare(
       `DELETE FROM top_level_block_placements
@@ -1450,34 +1384,6 @@ const moveProjectCoordinates = (
       request.targetProjectId,
       document.document_id,
       request.sourceProjectId,
-    );
-  }
-  const insertMigration = database.prepare(
-    `INSERT INTO foreign_reference_migrations (
-       source_block_id, host_document_id, host_block_id, project_id,
-       legacy_kind, legacy_target_block_id, occurrence, source_fingerprint,
-       target_block_id, database_view_id, recovered_card_id, status,
-       attempt_count, last_error, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-  for (const migration of foreignReferenceMigrations) {
-    insertMigration.run(
-      migration.source_block_id,
-      migration.host_document_id,
-      migration.host_block_id,
-      request.targetProjectId,
-      migration.legacy_kind,
-      migration.legacy_target_block_id,
-      migration.occurrence,
-      migration.source_fingerprint,
-      migration.target_block_id,
-      migration.database_view_id,
-      migration.recovered_card_id,
-      migration.status,
-      migration.attempt_count,
-      migration.last_error,
-      migration.created_at,
-      migration.updated_at,
     );
   }
 };
@@ -2174,7 +2080,6 @@ export const applyCardProjectTransfer = (
         database,
         request,
         prepared.closure,
-        prepared.foreignReferenceMigrations,
         now,
       );
       inject("after_project_coordinates");

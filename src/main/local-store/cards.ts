@@ -67,6 +67,7 @@ import {
   readAuthoritativeProjectCards,
 } from "./card-read-store";
 import { searchAuthoritativeCards } from "./card-search-store";
+import { applyCardLifecycleMutation } from "./card-block-lifecycle";
 import {
   cloneAuthoritativeCardInTransaction,
   type AuthoritativeCardClonePropertyOverrides,
@@ -766,6 +767,13 @@ export async function searchCards(input: CardSearchInput): Promise<CardSearchRes
   });
 }
 
+/**
+ * Compatibility facade for call sites that still use the Card product term.
+ * The command itself is fully Block-first: one lifecycle transaction creates
+ * the Block identity, owned Y.Doc, primary Database membership/properties,
+ * View position, projections, and immutable receipt. It never writes a
+ * `cards` aggregate row.
+ */
 export async function createCard(
   projectId: string,
   columnId: CardStatus,
@@ -775,122 +783,102 @@ export async function createCard(
 ): Promise<Card> {
   const canonicalProjectId = requireProjectId(projectId);
   assertValidCardInput(input, "create");
-
   const database = getDb();
   const requestedId = normalizeCardIdInput(input.id);
-  const id = requestedId ?? createUuidV7();
-  const now = new Date();
-  const nowIso = now.toISOString();
+  const cardId = requestedId ?? createUuidV7();
+  const epoch = database
+    .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
+    .get() as { readonly store_epoch: string } | undefined;
+  if (!epoch) throw new Error("Block store epoch is unavailable");
 
-  const card = database.transaction(() => {
-    if (requestedId) {
-      assertCardIdAvailable(database, requestedId);
-    }
-
-    const order = (() => {
-      if (placement === "top") {
-        database
+  const status = input.status ?? columnId;
+  const topAnchor =
+    placement === "top"
+      ? (database
           .prepare(
-            `UPDATE cards SET "order" = "order" + 1
-             WHERE project_id = ? AND archived = 0 AND status = ?`,
+            `
+            SELECT placement.block_id
+            FROM top_level_block_placements placement
+            INNER JOIN blocks block
+              ON block.id = placement.block_id
+             AND block.project_id = placement.project_id
+            WHERE placement.project_id = ? AND block.lifecycle <> 'deleted'
+            ORDER BY placement.rank_key, placement.block_id
+            LIMIT 1
+          `,
           )
-          .run(canonicalProjectId, columnId);
-        return 0;
-      }
-
-      const maxOrderRow = database
-        .prepare('SELECT MAX("order") as maxOrder FROM cards WHERE project_id = ? AND archived = 0 AND status = ?')
-        .get(canonicalProjectId, columnId) as { maxOrder: number | null } | undefined;
-      return (maxOrderRow?.maxOrder ?? -1) + 1;
-    })();
-    const descriptionRevisionId = descriptionRevisionService.createInitialDescriptionRevision(
-      database,
-      id,
-      input.description || "",
-      nowIso,
-    );
-
-    database.prepare(`
-      INSERT INTO cards (
-        id, project_id, status, archived, title, description, description_revision_id, priority, estimate,
-        tags, due_date, scheduled_start, scheduled_end, is_all_day, recurrence_json, reminders_json, schedule_timezone,
-        assignee, agent_blocked, agent_status, run_in_target, run_in_local_path, run_in_base_branch, run_in_worktree_path, run_in_environment_path, created, "order"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      canonicalProjectId,
-      columnId,
-      0,
-      input.title,
-      input.description || "",
-      descriptionRevisionId,
-      input.priority ?? null,
-      input.estimate || null,
-      JSON.stringify(input.tags || []),
-      input.dueDate?.toISOString().split("T")[0] || null,
-      input.scheduledStart?.toISOString() ?? null,
-      input.scheduledEnd?.toISOString() ?? null,
-      input.isAllDay ? 1 : 0,
-      input.recurrence ? JSON.stringify(input.recurrence) : null,
-      JSON.stringify(input.reminders ?? []),
-      input.scheduleTimezone?.trim() || null,
-      input.assignee || null,
-      input.agentBlocked ? 1 : 0,
-      input.agentStatus || null,
-      toRunInTargetDbValue(input.runInTarget),
-      input.runInLocalPath?.trim() || null,
-      input.runInBaseBranch?.trim() || null,
-      input.runInWorktreePath?.trim() || null,
-      input.runInEnvironmentPath?.trim() || null,
-      nowIso,
-      order
-    );
-
-    const result: Card = {
-      id,
-      status: input.status ?? columnId,
-      archived: false,
+          .get(canonicalProjectId) as
+          | { readonly block_id: string }
+          | undefined)
+      : undefined;
+  const viewAnchor =
+    placement === "top"
+      ? (database
+          .prepare(
+            `
+            SELECT position.block_id
+            FROM database_view_positions position
+            INNER JOIN database_views view
+              ON view.id = position.view_id
+             AND view.project_id = position.project_id
+            WHERE position.project_id = ? AND view.is_primary = 1
+              AND view.lifecycle = 'active' AND position.group_key = ?
+            ORDER BY position.rank_key, position.block_id
+            LIMIT 1
+          `,
+          )
+          .get(canonicalProjectId, status) as
+          | { readonly block_id: string }
+          | undefined)
+      : undefined;
+  const result = applyCardLifecycleMutation(database, {
+    version: 1,
+    operationId: randomUUID(),
+    projectId: canonicalProjectId,
+    storeEpoch: epoch.store_epoch,
+    ...(sessionId ? { clientSessionId: sessionId } : {}),
+    actor: { source: "card_create_facade" },
+    operation: {
+      kind: "create_card",
+      cardId,
       title: input.title,
-      description: input.description || "",
-      priority: input.priority ?? undefined,
-      estimate: input.estimate ?? undefined,
-      tags: input.tags || [],
-      dueDate: input.dueDate ?? undefined,
-      scheduledStart: input.scheduledStart ?? undefined,
-      scheduledEnd: input.scheduledEnd ?? undefined,
+      nfm: input.description ?? "",
+      status,
+      priority: input.priority ?? null,
+      estimate: input.estimate ?? null,
+      tags: input.tags ?? [],
+      dueDate: input.dueDate?.toISOString().slice(0, 10) ?? null,
+      scheduledStart: input.scheduledStart?.toISOString() ?? null,
+      scheduledEnd: input.scheduledEnd?.toISOString() ?? null,
       isAllDay: Boolean(input.isAllDay),
-      recurrence: input.recurrence ?? undefined,
+      recurrence: input.recurrence ?? null,
       reminders: input.reminders ?? [],
-      scheduleTimezone: input.scheduleTimezone ?? undefined,
-      assignee: input.assignee,
-      agentBlocked: input.agentBlocked ?? false,
-      agentStatus: input.agentStatus,
+      scheduleTimezone: input.scheduleTimezone?.trim() || null,
+      assignee: input.assignee?.trim() || null,
+      agentBlocked: Boolean(input.agentBlocked),
+      agentStatus: input.agentStatus?.trim() || null,
       runInTarget: input.runInTarget ?? "localProject",
-      runInLocalPath: input.runInLocalPath?.trim() || undefined,
-      runInBaseBranch: input.runInBaseBranch?.trim() || undefined,
-      runInWorktreePath: input.runInWorktreePath?.trim() || undefined,
-      runInEnvironmentPath: input.runInEnvironmentPath?.trim() || undefined,
-      revision: 1,
-      created: now,
-      order,
-    };
-
-    historyService.clearRedoStack(canonicalProjectId, sessionId);
-    historyService.recordCreate(
-      result,
-      canonicalProjectId,
-      columnId,
-      descriptionRevisionId,
-      sessionId,
-    );
-
-    syncCardReadModel(database, id);
-
-    return result;
-  })();
-
-  dbNotifier.notifyChange(canonicalProjectId, "create", columnId, id);
-
+      runInLocalPath: input.runInLocalPath?.trim() || null,
+      runInBaseBranch: input.runInBaseBranch?.trim() || null,
+      runInWorktreePath: input.runInWorktreePath?.trim() || null,
+      runInEnvironmentPath: input.runInEnvironmentPath?.trim() || null,
+      ...(topAnchor ? { beforeBlockId: topAnchor.block_id } : {}),
+      ...(viewAnchor ? { beforeViewCardId: viewAnchor.block_id } : {}),
+    },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const card = readAuthoritativeCardById(
+    database,
+    canonicalProjectId,
+    result.value.cardId,
+  );
+  if (!card) {
+    throw new Error(`Created Card ${result.value.cardId} has no read model`);
+  }
+  dbNotifier.notifyChange(canonicalProjectId, "create", status, card.id, {
+    summary: readAuthoritativeCardSummaryById(database, card.id) ?? undefined,
+    mutationId: result.value.operationId,
+  });
   return card;
 }
 
@@ -2039,16 +2027,18 @@ export function findCardLocationById(
 ): { projectId: string; columnId: CardStatus } | null {
   const database = getDb();
   const row = database
-    .prepare("SELECT project_id, status FROM cards WHERE id = ? AND archived = 0")
-    .get(cardId) as { project_id: string; status: CardStatus } | undefined;
-
-  if (!row) {
-    return null;
-  }
+    .prepare(
+      `SELECT project_id FROM blocks
+       WHERE id = ? AND type = 'card' AND lifecycle = 'active'`,
+    )
+    .get(cardId) as { readonly project_id: string } | undefined;
+  if (!row) return null;
+  const summary = readAuthoritativeCardSummaryById(database, cardId);
+  if (!summary) return null;
 
   return {
     projectId: row.project_id,
-    columnId: row.status,
+    columnId: summary.status,
   };
 }
 
@@ -2059,10 +2049,8 @@ export function getCardSync(
 ): { title: string } | null {
   projectId = requireProjectId(projectId);
   const database = getDb();
-  const row = database
-    .prepare("SELECT title FROM cards WHERE id = ? AND project_id = ?")
-    .get(cardId, projectId) as { title: string } | undefined;
-  return row ?? null;
+  const card = readAuthoritativeCardById(database, projectId, cardId);
+  return card ? { title: card.title } : null;
 }
 
 function dateKeyInTimezone(date: Date, timezone?: string): string {

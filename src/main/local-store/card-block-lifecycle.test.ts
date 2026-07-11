@@ -195,8 +195,10 @@ describe("authoritative Card lifecycle kernel", () => {
 
         expect(
           fixture.database
-            .prepare("SELECT 1 FROM cards WHERE id = ?")
-            .get(firstId) === undefined,
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+            )
+            .get() === undefined,
         ).toBe(true);
         const card = readAuthoritativeCardById(
           fixture.database,

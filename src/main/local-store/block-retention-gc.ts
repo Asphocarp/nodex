@@ -45,7 +45,6 @@ export type BlockRetentionGcBlockerKind =
   | "block_tree_reference"
   | "database_view_reference"
   | "canvas_card_reference"
-  | "foreign_reference_migration"
   | "pending_recovery_artifact"
   | "retained_recovery_artifact"
   | "retained_document_version"
@@ -57,9 +56,6 @@ export type BlockRetentionGcBlockerKind =
   | "active_database_dependent"
   | "session_target"
   | "session_state_corrupt"
-  | "legacy_card_record"
-  | "legacy_history_evidence"
-  | "legacy_shadow_work"
   | "card_behavior_evidence"
   | "store_foreign_key_corrupt"
   | "unclassified_foreign_key_root";
@@ -212,7 +208,6 @@ const KNOWN_INBOUND_AUTHORITY_TABLES = new Set([
   "document_update_receipts",
   "document_updates",
   "document_versions",
-  "foreign_reference_migrations",
   "recurrence_exceptions",
   "reminder_receipts",
   "reminder_snoozes",
@@ -839,81 +834,6 @@ const readDatabaseViewIds = (
   );
 };
 
-const analyzeForeignReferenceRoots = (
-  database: Database.Database,
-  closure: GcClosure,
-  databaseViewIds: ReadonlySet<string>,
-  collector: BlockerCollector,
-): void => {
-  const rows = database
-    .prepare(
-      `
-      SELECT source_block_id, host_document_id, host_block_id,
-        project_id,
-        legacy_target_block_id, target_block_id, database_view_id,
-        recovered_card_id, status,
-        EXISTS (
-          SELECT 1 FROM blocks source
-          WHERE source.id = foreign_reference_migrations.source_block_id
-            AND source.project_id = foreign_reference_migrations.project_id
-            AND source.location_kind = 'document'
-            AND source.containing_document_id = foreign_reference_migrations.host_document_id
-        ) AS source_scope_valid,
-        EXISTS (
-          SELECT 1 FROM block_documents ownership
-          WHERE ownership.block_id = foreign_reference_migrations.host_block_id
-            AND ownership.document_id = foreign_reference_migrations.host_document_id
-            AND ownership.project_id = foreign_reference_migrations.project_id
-        ) AS host_scope_valid
-      FROM foreign_reference_migrations
-      ORDER BY source_block_id
-    `,
-    )
-    .all() as readonly {
-    readonly source_block_id: string;
-    readonly host_document_id: string;
-    readonly host_block_id: string;
-    readonly project_id: string;
-    readonly legacy_target_block_id: string | null;
-    readonly target_block_id: string | null;
-    readonly database_view_id: string | null;
-    readonly recovered_card_id: string | null;
-    readonly status: string;
-    readonly source_scope_valid: number;
-    readonly host_scope_valid: number;
-  }[];
-  for (const row of rows) {
-    if (row.source_scope_valid !== 1 || row.host_scope_valid !== 1) {
-      collector.add("projection_unverifiable", {
-        source: "foreign_reference_migrations",
-        identity: row.source_block_id,
-        relation: "migration_host_scope_corrupt",
-        documentId: row.host_document_id,
-      });
-      continue;
-    }
-    const relations = [
-      ["source_block", row.source_block_id, closure.blockIds],
-      ["host_block", row.host_block_id, closure.blockIds],
-      ["legacy_target_block", row.legacy_target_block_id, closure.blockIds],
-      ["target_block", row.target_block_id, closure.blockIds],
-      ["recovered_card", row.recovered_card_id, closure.blockIds],
-      ["database_view", row.database_view_id, databaseViewIds],
-      ["host_document", row.host_document_id, closure.documentIds],
-    ] as const;
-    for (const [relation, identity, ids] of relations) {
-      if (!identity || !ids.has(identity)) continue;
-      collector.add("foreign_reference_migration", {
-        source: "foreign_reference_migrations",
-        identity: row.source_block_id,
-        relation,
-        status: row.status,
-        documentId: row.host_document_id,
-      });
-    }
-  }
-};
-
 const analyzeRecoveryRoots = (
   database: Database.Database,
   projectId: string,
@@ -1444,7 +1364,7 @@ const analyzeRelationalRoots = (
     databaseViewIds,
     collector,
   );
-  analyzeLegacyRoots(database, projectId, closure, collector);
+  analyzeCardBehaviorRoots(database, projectId, closure, collector);
 };
 
 const analyzeSessionRoots = (
@@ -1557,7 +1477,7 @@ const addRowsAsBlockers = (
   }
 };
 
-const analyzeLegacyRoots = (
+const analyzeCardBehaviorRoots = (
   database: Database.Database,
   projectId: string,
   closure: GcClosure,
@@ -1566,59 +1486,6 @@ const analyzeLegacyRoots = (
   const ids = [...closure.blockIds];
   if (ids.length === 0) return;
   const inBlocks = placeholders(ids.length);
-  const legacyCards = database
-    .prepare(
-      `SELECT id AS identity, 'compatibility_card' AS relation
-       FROM cards WHERE project_id = ? AND id IN (${inBlocks})`,
-    )
-    .all(projectId, ...ids) as readonly {
-    readonly identity: string;
-    readonly relation: string;
-  }[];
-  addRowsAsBlockers(
-    legacyCards,
-    "legacy_card_record",
-    "cards",
-    collector,
-  );
-  const histories = database
-    .prepare(
-      `SELECT CAST(id AS TEXT) AS identity, 'legacy_history' AS relation
-       FROM history WHERE project_id = ? AND card_id IN (${inBlocks})
-       UNION ALL
-       SELECT CAST(history_id AS TEXT), 'legacy_card_snapshot'
-       FROM card_history_snapshots
-       WHERE project_id = ? AND card_id IN (${inBlocks})`,
-    )
-    .all(projectId, ...ids, projectId, ...ids) as readonly {
-    readonly identity: string;
-    readonly relation: string;
-  }[];
-  addRowsAsBlockers(
-    histories,
-    "legacy_history_evidence",
-    "history",
-    collector,
-  );
-  const shadowRows = database
-    .prepare(
-      `SELECT card_id AS identity, 'shadow_head' AS relation
-       FROM legacy_card_shadow_heads
-       WHERE project_id = ? AND card_id IN (${inBlocks})
-       UNION ALL
-       SELECT id, 'shadow_job' FROM legacy_card_shadow_jobs
-       WHERE project_id = ? AND card_id IN (${inBlocks})`,
-    )
-    .all(projectId, ...ids, projectId, ...ids) as readonly {
-    readonly identity: string;
-    readonly relation: string;
-  }[];
-  addRowsAsBlockers(
-    shadowRows,
-    "legacy_shadow_work",
-    "legacy_card_shadow_jobs",
-    collector,
-  );
   const behaviors = database
     .prepare(
       `SELECT CAST(id AS TEXT) AS identity, 'recurrence_exception' AS relation
@@ -1875,12 +1742,6 @@ const planCandidate = (
   );
   analyzeStoreIntegrity(database, projectId, closure, collector);
   analyzeDocumentProjectionRoots(
-    database,
-    closure,
-    databaseViewIds,
-    collector,
-  );
-  analyzeForeignReferenceRoots(
     database,
     closure,
     databaseViewIds,

@@ -168,6 +168,7 @@ interface DatabasePropertyRow {
   readonly value_type: DatabasePropertyValueType;
   readonly config_json: string;
   readonly config: Readonly<Record<string, DatabaseJsonValue>>;
+  readonly schema_revision: number;
 }
 
 interface MembershipRow {
@@ -403,7 +404,7 @@ const readRequiredDatabaseProperties = (
   const rows = database
     .prepare(
       `
-      SELECT id, key, value_type, config_json
+      SELECT id, key, value_type, config_json, schema_revision
       FROM database_properties
       WHERE database_block_id = ? AND project_id = ?
         AND lifecycle = 'active' AND key IN (${placeholders})
@@ -467,6 +468,98 @@ const readRequiredDatabaseProperties = (
     );
   }
   return properties;
+};
+
+const registerCreateTagOptions = (
+  database: Database.Database,
+  request: CardLifecycleMutationRequest & {
+    readonly operation: CreateCardBlockOperation;
+  },
+  property: DatabasePropertyRow,
+  now: string,
+): {
+  readonly property: DatabasePropertyRow;
+  readonly createdOptionIds: readonly string[];
+} => {
+  const rawOptions = property.config.options;
+  if (!Array.isArray(rawOptions)) {
+    return reject(
+      "database_schema_invalid",
+      `Primary Database tags property ${property.id} has no option registry`,
+      request,
+    );
+  }
+  const options = rawOptions.map((rawOption) => {
+    if (
+      typeof rawOption !== "object" ||
+      rawOption === null ||
+      Array.isArray(rawOption) ||
+      typeof rawOption.id !== "string" ||
+      typeof rawOption.name !== "string"
+    ) {
+      return reject(
+        "database_schema_invalid",
+        `Primary Database tags property ${property.id} has an invalid option`,
+        request,
+      );
+    }
+    return rawOption;
+  });
+  const existingIds = new Set(options.map((option) => option.id as string));
+  const createdOptionIds = [...new Set(request.operation.tags)]
+    .filter((tag) => !existingIds.has(tag))
+    .sort((left, right) => left.localeCompare(right));
+  if (createdOptionIds.length === 0) {
+    return { property, createdOptionIds };
+  }
+  if (options.length + createdOptionIds.length > 10_000) {
+    return reject(
+      "database_schema_invalid",
+      `Primary Database tags property ${property.id} exceeds the option registry limit`,
+      request,
+    );
+  }
+  const nextOptions = [
+    ...options,
+    ...createdOptionIds.map((tag) => ({ id: tag, name: tag })),
+  ].sort((left, right) =>
+    String(left.id).localeCompare(String(right.id)),
+  );
+  const config = parseDatabasePropertyConfig(property.value_type, {
+    ...property.config,
+    options: nextOptions,
+  });
+  const configJson = stableStringifyBlockPropertyJson(config);
+  const updated = database
+    .prepare(
+      `
+      UPDATE database_properties
+      SET config_json = ?, schema_revision = schema_revision + 1, updated_at = ?
+      WHERE id = ? AND project_id = ? AND lifecycle = 'active'
+        AND schema_revision = ?
+    `,
+    )
+    .run(
+      configJson,
+      now,
+      property.id,
+      request.projectId,
+      property.schema_revision,
+    );
+  if (updated.changes !== 1) {
+    throw new Error(
+      `Primary Database tags property ${property.id} changed during Card creation`,
+    );
+  }
+  return {
+    property: {
+      ...property,
+      config,
+      config_json: configJson,
+      schema_revision: property.schema_revision + 1,
+    },
+    createdOptionIds,
+  };
 };
 
 const readPlacementItems = (
@@ -676,12 +769,29 @@ const createCard = (
 ): AuthorityCommit => {
   assertIdentityAvailable(database, request);
   const primary = readPrimaryDatabase(database, request);
-  const properties = readRequiredDatabaseProperties(
+  const properties = new Map(
+    readRequiredDatabaseProperties(
     database,
     request,
     primary.database_block_id,
     primary.view_config_json,
+    ),
   );
+  const tagsProperty = properties.get("tags");
+  if (!tagsProperty) {
+    return reject(
+      "database_schema_invalid",
+      "Primary Database is missing its tags property",
+      request,
+    );
+  }
+  const registeredTags = registerCreateTagOptions(
+    database,
+    request,
+    tagsProperty,
+    now,
+  );
+  properties.set("tags", registeredTags.property);
   const topLevelRank = allocateTopLevelRank(
     database,
     request,
@@ -892,6 +1002,10 @@ const createCard = (
         { path: `blocks.${cardId}`, operation: "create" },
         { path: `documents.${documentId}`, operation: "genesis" },
         { path: `memberships.${membershipId}`, operation: "create" },
+        ...registeredTags.createdOptionIds.map((optionId) => ({
+          path: `databases.${primary.database_block_id}.properties.${tagsProperty.id}.options.${optionId}`,
+          operation: "add",
+        })),
       ],
       expectedRevisions: {
         blockMetadata: 0,
@@ -917,6 +1031,7 @@ const createCard = (
         viewRankKey: viewRank.rankKey,
         rebalancedTopLevelPlacements: topLevelRank.rebalanced,
         rebalancedViewPositions: viewRank.rebalanced,
+        createdTagOptionIds: registeredTags.createdOptionIds,
       },
     };
   } finally {
