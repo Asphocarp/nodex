@@ -1,10 +1,18 @@
 import { invoke } from "@/lib/api";
-import type { CardInput, CardUpdateMutationResult, CardUpdateResult } from "@/lib/types";
+import type { CardInput, CardUpdateMutationResult } from "@/lib/types";
 import type { CardStageHandlers } from "@/lib/use-card-stage";
 import { createUuidV7 } from "../../../shared/card-id";
 import { isCardStatus } from "../../../shared/card-status";
 import { commitCardLifecycleIntent } from "@/lib/card-lifecycle-runtime";
 import { commitPrimaryDatabaseCardDrag } from "@/lib/primary-database-card-drag-runtime";
+import {
+  commitCardMetadataPropertyPatch,
+  isCardMetadataPropertyPatch,
+} from "@/lib/card-metadata-property-runtime";
+import {
+  CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+  findCardDocumentPatchFields,
+} from "../../../shared/card-content-authority";
 
 export function makeRemoteCardStageHandlers(projectId: string): CardStageHandlers {
   return {
@@ -12,8 +20,25 @@ export function makeRemoteCardStageHandlers(projectId: string): CardStageHandler
       // no-op for remote-opened sessions
     },
     onUpdate: async (columnId: string, cardId: string, updates: Partial<CardInput>) => {
-      const result = await invoke("card:update", projectId, columnId, cardId, updates) as CardUpdateResult;
-      return result as CardUpdateMutationResult;
+      void columnId;
+      if (findCardDocumentPatchFields(updates).length > 0) {
+        return {
+          status: "error",
+          error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+        } satisfies CardUpdateMutationResult;
+      }
+      if (!isCardMetadataPropertyPatch(updates)) {
+        return {
+          status: "error",
+          error: "No mutable Card metadata was specified",
+        } satisfies CardUpdateMutationResult;
+      }
+      return await commitCardMetadataPropertyPatch({
+        projectId,
+        cardBlockId: cardId,
+        mutationId: createUuidV7(),
+        patch: updates,
+      });
     },
     onDelete: async (columnId: string, cardId: string) => {
       void columnId;

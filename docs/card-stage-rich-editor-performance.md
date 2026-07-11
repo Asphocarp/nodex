@@ -36,11 +36,11 @@ Full card bodies are loaded through explicit detail paths:
 - Toggle-list, inline toggle-list, and `cardRef` projections compute visible card ids from summary state, then hydrate those ids through `cards:details:get`.
 - Command palette description matches come from `cards:search`, which queries the card FTS read model and returns ids and bounded excerpts instead of full descriptions.
 
-This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Successful `card:update` and `card:description:update:*` acknowledgements carry only `CardSummary` plus revision metadata; conflict acknowledgements are the only update path that returns a full `Card`. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
+This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Successful `card:update` acknowledgements are metadata-only and carry `CardSummary` plus revision metadata. Title/body changes use binary Document acknowledgements and projection-driven summary fanout; they never return a full body snapshot. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
 
 ## Durable Save Worker
 
-Long-description saves must also avoid blocking the Electron main process. Description-only Card Stage autosaves use the staged `card:description:update:*` transport: the renderer sends small chunks with yields between chunks, main appends them to a temporary file, and `CardMutationWriter` asks the worker to read that file and perform the durable update. Non-description card updates still use `card:update`.
+Long-description saves must also avoid blocking the Electron main process. A primary Card surface sends incremental binary Yjs updates through its provider; the single FIFO worker validates and durably appends those updates before acknowledging them. There is no whole-description staging file or ordinary `card:update` content path. Explicit NFM replacement is a rare import command with current Document generation/head CAS, not an autosave mechanism. Metadata-only compatibility updates may still use `card:update` while their callers finish moving to Block property operations.
 
 The writer enqueues card-domain mutations into a single FIFO `worker_threads` writer. The worker opens its own SQLite connection, runs the synchronous `better-sqlite3` transaction, captures the local-store board mutation events, refreshes the persisted summary/search read model, and returns the mutation result plus events and timing metrics after the write is durable.
 
@@ -236,7 +236,7 @@ The durable write layer is separate from both renderer timers. Card Stage may en
 - Card Stage save/has-changes logic must read the latest description ref, not stale React state.
 - Save requests must not clear freeform dirty flags until the returned card matches the current draft.
 - Card-domain durable writes must go through `CardMutationWriter`; there must be no synchronous Electron main-process card write fallback.
-- Description-only Card Stage autosaves must use staged `card:description:update:*`, not JSON `card:update`.
+- Primary Card title/body changes must use Yjs Document updates, never JSON `card:update`; explicit whole-body NFM import must use the generation/head-CAS Document mutation.
 - Active Card Stage editors must not use board-summary revision changes to automatically rehydrate and replace the full description.
 - Durable Card Stage tab switches must not remount the retained editor body or reset native scroll while the tab remains open in the mounted panel leaf.
 - Preview-to-durable Card Stage promotion must preserve focus and selection because it keeps the same client tab id and retained wrapper identity.

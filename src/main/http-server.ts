@@ -25,13 +25,6 @@ import {
 import { dbNotifier } from "./local-store/notifier";
 import { cardMutationWriter } from "./card-mutation-writer";
 import {
-  abortCardDescriptionStaging,
-  appendCardDescriptionChunk,
-  cleanupCardDescriptionStagingFile,
-  consumeCardDescriptionStaging,
-  startCardDescriptionStaging,
-} from "./card-description-staging";
-import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
   readGitBranchState,
@@ -41,11 +34,15 @@ import type {
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   CardEditorDropInput,
-  CardInput,
   CardSearchInput,
   CardsDetailsInput,
   MoveCardToProjectInput,
 } from "../shared/types";
+import {
+  CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+  findCardDocumentPatchFields,
+  type CardMetadataPatch,
+} from "../shared/card-content-authority";
 import { MAX_CARD_WRITE_BODY_BYTES } from "../shared/card-limits";
 import {
   MAX_IMAGE_UPLOAD_BYTES,
@@ -1356,6 +1353,16 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
     if (typeof cardId !== "string") {
       return c.json({ error: "Missing cardId" }, 400);
     }
+    const documentFields = findCardDocumentPatchFields(updates);
+    if (documentFields.length > 0) {
+      return c.json(
+        {
+          error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+          rejectedFields: documentFields,
+        },
+        410,
+      );
+    }
     const normalizedStatus = parseOptionalCardStatus(status);
     const normalizedSessionId = typeof sessionId === "string" ? sessionId : undefined;
     const normalizedExpectedRevision = typeof expectedRevision === "number"
@@ -1367,7 +1374,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       projectId,
       normalizedStatus,
       cardId,
-      updates as Partial<CardInput>,
+      updates as CardMetadataPatch,
       normalizedSessionId,
       normalizedExpectedRevision,
     );
@@ -1378,16 +1385,12 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       cardId,
       status: result.status,
       changedFields: result.status === "updated" ? result.changedFields : undefined,
-      descriptionBytes: typeof updates.description === "string"
-        ? Buffer.byteLength(updates.description, "utf8")
-        : undefined,
       approxPayloadBytes: approximatePayloadBytes(result),
       durationMs: Date.now() - startedAt,
       workerDurationMs: envelope.metrics.workerDurationMs,
       queueWaitMs: envelope.metrics.queueWaitMs,
       transactionMs: envelope.metrics.transactionMs,
       mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-      revisionKind: envelope.metrics.revisionKind,
     });
     if (result.status === "not_found") {
       return c.json(result, 404);
@@ -1401,81 +1404,15 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
   }
 });
 
-app.put("/api/projects/:projectId/card/description", cardWriteBodyLimit, async (c) => {
-  const projectId = c.req.param("projectId");
-  const cardId = c.req.query("cardId");
-  if (typeof cardId !== "string" || cardId.length === 0) {
-    return c.json({ error: "Missing cardId" }, 400);
-  }
-
-  const status = parseOptionalCardStatus(c.req.query("status") || undefined);
-  const sessionId = c.req.query("sessionId") || undefined;
-  const expectedRevisionRaw = c.req.query("expectedRevision");
-  const expectedRevision = expectedRevisionRaw
-    ? Number.parseInt(expectedRevisionRaw, 10)
-    : undefined;
-  const normalizedExpectedRevision = Number.isInteger(expectedRevision)
-    ? expectedRevision
-    : undefined;
-  const startedAt = Date.now();
-  let stagingId: string | null = null;
-  let stagedFilePath: string | null = null;
-
-  try {
-    const description = await c.req.text();
-    const started = await startCardDescriptionStaging({
-      projectId,
-      columnId: status,
-      cardId,
-      sessionId,
-      expectedRevision: normalizedExpectedRevision,
-    });
-    stagingId = started.stagingId;
-    await appendCardDescriptionChunk(stagingId, description);
-    const staged = consumeCardDescriptionStaging(stagingId);
-    stagingId = null;
-    stagedFilePath = staged.filePath;
-
-    const envelope = await cardMutationWriter.updateCardDescriptionFromFile(
-      projectId,
-      status,
-      cardId,
-      staged.filePath,
-      sessionId,
-      normalizedExpectedRevision,
-    );
-    const result = envelope.result;
-    logger.info("card description update ack served", {
-      route: "PUT /api/projects/:projectId/card/description",
-      projectId,
-      cardId,
-      status: result.status,
-      descriptionBytes: staged.bytes,
-      approxPayloadBytes: approximatePayloadBytes(result),
-      durationMs: Date.now() - startedAt,
-      workerDurationMs: envelope.metrics.workerDurationMs,
-      queueWaitMs: envelope.metrics.queueWaitMs,
-      transactionMs: envelope.metrics.transactionMs,
-      mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-      revisionKind: envelope.metrics.revisionKind,
-    });
-    if (result.status === "not_found") {
-      return c.json(result, 404);
-    }
-    if (result.status === "conflict") {
-      return c.json(result, 409);
-    }
-    return c.json(result);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  } finally {
-    if (stagingId) {
-      await abortCardDescriptionStaging(stagingId);
-    }
-    if (stagedFilePath) {
-      await cleanupCardDescriptionStagingFile(stagedFilePath);
-    }
-  }
+app.put("/api/projects/:projectId/card/description", cardWriteBodyLimit, (c) => {
+  return c.json(
+    {
+      error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+      replacement:
+        "POST /api/projects/:projectId/documents/:documentId/mutations",
+    },
+    410,
+  );
 });
 
 app.delete("/api/projects/:projectId/card", async (c) => {

@@ -98,6 +98,7 @@ import type {
   CardOccurrenceMutationResult,
   CardReadModelBackfillResult,
 } from "./card-mutation-worker-protocol";
+import { assertCardUpdateExcludesDocumentContent } from "../shared/card-content-authority";
 
 const LONG_MUTATION_WARN_MS = 1_000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -192,6 +193,7 @@ export class CardMutationWriter {
     sessionId?: string,
     expectedRevision?: number,
   ): Promise<CardMutationEnvelope<CardUpdateResult>> {
+    assertCardUpdateExcludesDocumentContent(updates);
     return await this.executeTyped<CardUpdateResult>({
       type: "updateCard",
       payload: {
@@ -199,27 +201,6 @@ export class CardMutationWriter {
         columnId,
         cardId,
         updates,
-        sessionId,
-        expectedRevision,
-      },
-    });
-  }
-
-  async updateCardDescriptionFromFile(
-    projectId: string,
-    columnId: Card["status"] | undefined,
-    cardId: string,
-    descriptionFilePath: string,
-    sessionId?: string,
-    expectedRevision?: number,
-  ): Promise<CardMutationEnvelope<CardUpdateResult>> {
-    return await this.executeTyped<CardUpdateResult>({
-      type: "updateCardDescriptionFromFile",
-      payload: {
-        projectId,
-        columnId,
-        cardId,
-        descriptionFilePath,
         sessionId,
         expectedRevision,
       },

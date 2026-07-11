@@ -92,4 +92,39 @@ describe("http server startup options", () => {
     );
     expect(responses.every((response) => response.status === 404)).toBe(true);
   });
+
+  test("retires ordinary Card title and body snapshot HTTP writes", async () => {
+    const options = getHttpServerOptions(51283);
+    const responses = await Promise.all([
+      options.fetch(
+        new Request("http://127.0.0.1:51283/api/projects/project-1/card", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cardId: "card-1", title: "stale title" }),
+        }),
+      ),
+      options.fetch(
+        new Request(
+          "http://127.0.0.1:51283/api/projects/project-1/card/description?cardId=card-1",
+          {
+            method: "PUT",
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+            body: "stale body",
+          },
+        ),
+      ),
+    ]);
+    const payloads = await Promise.all(
+      responses.map(async (response) => await response.json() as {
+        error?: string;
+        replacement?: string;
+      }),
+    );
+
+    expect(responses.every((response) => response.status === 410)).toBe(true);
+    expect(payloads.every((payload) => payload.error?.includes("Card Document"))).toBe(true);
+    expect(payloads[1]?.replacement).toBe(
+      "POST /api/projects/:projectId/documents/:documentId/mutations",
+    );
+  });
 });

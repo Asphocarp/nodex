@@ -1,7 +1,5 @@
 import { parentPort } from "node:worker_threads";
 import { performance } from "node:perf_hooks";
-import * as fs from "node:fs";
-import * as fsp from "node:fs/promises";
 import { closeDatabase, getDb } from "./local-store/database";
 import {
   dbNotifier,
@@ -184,7 +182,6 @@ const isLegacyAuthorityMutation = (
   switch (request.type) {
     case "createCard":
     case "updateCard":
-    case "updateCardDescriptionFromFile":
     case "deleteCard":
     case "moveCard":
     case "moveCards":
@@ -1048,21 +1045,6 @@ function approximatePayloadBytes(value: unknown): number {
 function descriptionBytesForRequest(
   request: CardMutationWorkerRequest,
 ): number | undefined {
-  if (
-    request.type === "updateCard" &&
-    typeof request.payload.updates.description === "string"
-  ) {
-    return Buffer.byteLength(request.payload.updates.description, "utf8");
-  }
-
-  if (request.type === "updateCardDescriptionFromFile") {
-    try {
-      return fs.statSync(request.payload.descriptionFilePath).size;
-    } catch {
-      return undefined;
-    }
-  }
-
   if (request.type === "importBlockDropAsCards") {
     const descriptions = [
       ...request.payload.input.cards.map((card) => card.description),
@@ -1093,23 +1075,6 @@ function descriptionBytesForRequest(
   }
 
   return undefined;
-}
-
-function readLatestDescriptionRevisionKind(
-  cardId: string,
-): "snapshot" | "delta" | undefined {
-  const row = getDb()
-    .prepare(
-      `
-    SELECT description_revisions.kind
-    FROM cards
-    LEFT JOIN description_revisions ON description_revisions.id = cards.description_revision_id
-    WHERE cards.id = ?
-  `,
-    )
-    .get(cardId) as { kind: "snapshot" | "delta" | null } | undefined;
-
-  return row?.kind ?? undefined;
 }
 
 function shouldReadSummary(event: BoardChangeEvent): boolean {
@@ -1188,20 +1153,6 @@ async function runRequest(
         request.payload.sessionId,
         request.payload.expectedRevision,
       );
-    case "updateCardDescriptionFromFile": {
-      const description = await fsp.readFile(
-        request.payload.descriptionFilePath,
-        "utf8",
-      );
-      return await cardsStore.updateCard(
-        request.payload.projectId,
-        request.payload.columnId,
-        request.payload.cardId,
-        { description },
-        request.payload.sessionId,
-        request.payload.expectedRevision,
-      );
-    }
     case "deleteCard":
       return await cardsStore.deleteCard(
         request.payload.projectId,
@@ -1826,12 +1777,6 @@ async function handleRequest(
       summaryBytes:
         result && typeof result === "object" && "summary" in result
           ? approximatePayloadBytes(result.summary)
-          : undefined,
-      revisionKind:
-        (request.type === "updateCard" &&
-          "description" in request.payload.updates) ||
-        request.type === "updateCardDescriptionFromFile"
-          ? readLatestDescriptionRevisionKind(request.payload.cardId)
           : undefined,
       eventCount: 0,
       shadowJobsProcessed: shadow.processed || undefined,

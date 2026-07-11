@@ -125,19 +125,6 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
 
 let browserWindowSessionLayout = createDefaultWorkbenchLayoutSnapshot();
 let browserCommandKeybindingOverrides: CommandKeybindingOverrides = {};
-const browserCardDescriptionStaging = new Map<
-  string,
-  {
-    input: {
-      projectId: string;
-      columnId?: string;
-      cardId: string;
-      sessionId?: string;
-      expectedRevision?: number;
-    };
-    chunks: string[];
-  }
->();
 
 function createBrowserWindowSessionBootstrap(
   layout: WorkbenchLayoutSnapshot,
@@ -1002,65 +989,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         if (res.status === 404 || res.status === 409) {
           return res.json();
         }
-        const error = await res.json().catch(() => ({}));
-        const message =
-          typeof error.error === "string"
-            ? error.error
-            : `Request failed: ${res.status}`;
-        throw new Error(message);
-      }
-      return res.json();
-    }
-    case "card:description:update:start": {
-      const [input] = args as [
-        {
-          projectId: string;
-          columnId?: string;
-          cardId: string;
-          sessionId?: string;
-          expectedRevision?: number;
-        },
-      ];
-      const stagingId = crypto.randomUUID();
-      browserCardDescriptionStaging.set(stagingId, { input, chunks: [] });
-      return { stagingId };
-    }
-    case "card:description:update:chunk": {
-      const [stagingId, chunk] = args as [string, string];
-      const entry = browserCardDescriptionStaging.get(stagingId);
-      if (!entry) throw new Error("Unknown card description staging id");
-      entry.chunks.push(chunk);
-      return {
-        ok: true,
-        bytes: entry.chunks.reduce((sum, value) => sum + value.length, 0),
-      };
-    }
-    case "card:description:update:abort": {
-      const [stagingId] = args as [string];
-      return browserCardDescriptionStaging.delete(stagingId);
-    }
-    case "card:description:update:finish": {
-      const [stagingId] = args as [string];
-      const entry = browserCardDescriptionStaging.get(stagingId);
-      if (!entry) throw new Error("Unknown card description staging id");
-      browserCardDescriptionStaging.delete(stagingId);
-      const params = new URLSearchParams({ cardId: entry.input.cardId });
-      if (entry.input.columnId) params.set("status", entry.input.columnId);
-      if (entry.input.sessionId) params.set("sessionId", entry.input.sessionId);
-      if (typeof entry.input.expectedRevision === "number") {
-        params.set("expectedRevision", String(entry.input.expectedRevision));
-      }
-      const res = await fetch(
-        toApiUrl(
-          `/api/projects/${entry.input.projectId}/card/description?${params.toString()}`,
-        ),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-          body: entry.chunks.join(""),
-        },
-      );
-      if (!res.ok && res.status !== 404 && res.status !== 409) {
         const error = await res.json().catch(() => ({}));
         const message =
           typeof error.error === "string"

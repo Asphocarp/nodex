@@ -85,7 +85,6 @@ export interface CardMutationMetrics {
   transactionMs: number;
   descriptionBytes?: number;
   summaryBytes?: number;
-  revisionKind?: "snapshot" | "delta";
   eventCount: number;
   mainEventLoopLagMaxMs?: number;
   shadowJobsProcessed?: number;
@@ -139,17 +138,6 @@ export type CardMutationWorkerRequest =
         columnId?: Card["status"];
         cardId: string;
         updates: Partial<CardInput>;
-        sessionId?: string;
-        expectedRevision?: number;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "updateCardDescriptionFromFile";
-      payload: {
-        projectId: string;
-        columnId?: Card["status"];
-        cardId: string;
-        descriptionFilePath: string;
         sessionId?: string;
         expectedRevision?: number;
       };

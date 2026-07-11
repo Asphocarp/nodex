@@ -3,7 +3,6 @@ import {
   resolveRendererTransport,
 } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
-import type { Card, CardUpdateResult } from "./types";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type {
   OwnedBlockDocumentDescriptor,
@@ -287,59 +286,6 @@ export function queryDatabaseView(
   viewId: string,
 ): Promise<DatabaseReadCommandResult<GeneralDatabaseViewQuery>> {
   return invoke("database-views:query", projectId, viewId);
-}
-
-const CARD_DESCRIPTION_UPDATE_CHUNK_SIZE = 16 * 1024;
-
-function yieldToInput(): Promise<void> {
-  return new Promise((resolve) => {
-    globalThis.setTimeout(resolve, 0);
-  });
-}
-
-function getDescriptionChunkEnd(description: string, start: number): number {
-  const initialEnd = Math.min(
-    description.length,
-    start + CARD_DESCRIPTION_UPDATE_CHUNK_SIZE,
-  );
-  if (initialEnd >= description.length || initialEnd <= start)
-    return initialEnd;
-
-  const previousCodeUnit = description.charCodeAt(initialEnd - 1);
-  if (previousCodeUnit < 0xd800 || previousCodeUnit > 0xdbff) return initialEnd;
-  return initialEnd - 1;
-}
-
-export async function updateCardDescription(input: {
-  projectId: string;
-  columnId?: Card["status"];
-  cardId: string;
-  description: string;
-  sessionId?: string;
-  expectedRevision?: number;
-}): Promise<CardUpdateResult> {
-  const { description, ...startInput } = input;
-  const { stagingId } = await invoke(
-    "card:description:update:start",
-    startInput,
-  );
-  try {
-    for (let index = 0; index < description.length;) {
-      const chunkEnd = getDescriptionChunkEnd(description, index);
-      const chunk = description.slice(index, chunkEnd);
-      await invoke("card:description:update:chunk", stagingId, chunk);
-      await yieldToInput();
-      index = chunkEnd;
-    }
-    return await invoke("card:description:update:finish", stagingId);
-  } catch (error) {
-    try {
-      await invoke("card:description:update:abort", stagingId);
-    } catch {
-      // Best-effort cleanup; surface the original save failure.
-    }
-    throw error;
-  }
 }
 
 export function subscribeBoardChanges(

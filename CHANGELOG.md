@@ -119,7 +119,6 @@ All notable changes to this project will be documented in this file.
 - Fixed multi-window Thread request responses so approval, permission, user-input, MCP, and notification actions route by the owning thread before falling back to local request lookup, and mark the thread for resume instead of direct-answering when the previous owner is unavailable.
 - Fixed live assistant, plan, and reasoning streaming so out-of-order delta notifications no longer create fake transcript rows before the matching item starts.
 - Fixed active Thread recovery paths so owner helper failures and reconnect refreshes no longer overwrite live partial transcript text with stale fallback snapshots.
-- Fixed Card Stage long-description saves so description autosaves use staged chunk transport, durable writes run in the card worker, and board/search views read persisted summary indexes instead of reparsing full descriptions while `Saving...` is shown.
 - Fixed new Codex session rows so generated and manually renamed thread titles replace the initial `New thread` label in the sidebar.
 - Fixed fast NFM `@now` mention entry so pressing Enter before async picker results finish no longer inserts a stale `@no` item.
 - Fixed search-backed pickers so quick typing followed by Enter or click no longer submits stale command, chat, card, destination, file, or content-search results from the previous query.

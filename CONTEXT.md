@@ -124,6 +124,8 @@ For a Y.Doc-primary Card, the materialization committed with each Document head 
 
 NFM is Nodex's public text interchange format. It is used for genesis import, explicit compare-and-swap replacement, export, and materialized reads. NFM does not preserve every internal identity and is never a collaborative write authority.
 
+Ordinary Card update transports accept metadata only. They reject `title` and `description` before enqueue, and the retired whole-description HTTP endpoint returns `410 Gone` with the canonical Document-mutation replacement. A whole-body NFM import must use `ReplaceDocumentFromNfm` with the current Document generation and head; renderer editing always emits Yjs updates instead.
+
 ### Mutation
 
 A mutation is a durable user or agent intent applied by the single SQLite writer. Document updates, property edits, membership changes, and placements are different mutation families but share idempotency, project scoping, durable acknowledgement, history, and change-log rules.

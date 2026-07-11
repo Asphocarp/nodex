@@ -18,6 +18,10 @@ import {
 } from "./kanban-optimistic-ops";
 import { createUuidV7 } from "../../shared/card-id";
 import { isCardStatus } from "../../shared/card-status";
+import {
+  CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+  findCardDocumentPatchFields,
+} from "../../shared/card-content-authority";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -37,7 +41,7 @@ import type {
   MoveCardToProjectResult,
   MoveCardsInput,
 } from "./types";
-import { invoke, updateCardDescription } from "./api";
+import { invoke } from "./api";
 import { getKanbanProjectStore } from "./kanban-store";
 import { getCardDetail, setCardDetail } from "./card-detail-store";
 import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
@@ -95,22 +99,15 @@ function normalizeOccurrenceUpdatesToCardPatch(
   return patch;
 }
 
-function hasOwnField<T extends object>(value: T, field: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(value, field);
-}
-
 function buildCommittedCardDetailFromUpdate(
   existing: Card | null,
   result: Extract<CardUpdateResult, { status: "updated" }>,
-  updates: Partial<CardInput>,
 ): Card | null {
-  if (!existing && !hasOwnField(updates, "description")) return null;
+  if (!existing) return null;
 
   return {
     ...result.summary,
-    description: hasOwnField(updates, "description")
-      ? updates.description ?? ""
-      : existing?.description ?? "",
+    description: existing.description,
   };
 }
 
@@ -196,46 +193,29 @@ export function useKanban(options: UseKanbanOptions) {
       if (!requireWritableSelectedView()) {
         return { status: "error", error: "The selected Database View is read-only" };
       }
+      const documentFields = findCardDocumentPatchFields(updates);
+      if (documentFields.length > 0) {
+        return {
+          status: "error",
+          error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+        };
+      }
+      if (!isCardMetadataPropertyPatch(updates)) {
+        return { status: "error", error: "No mutable Card metadata was specified" };
+      }
       const conflictKeys = conflictKeysForPatch(cardId, updates);
-      const expectedRevision = store.getSnapshot().cardIndex.get(cardId)?.revision;
-      const descriptionOnlyUpdate = hasOwnField(updates, "description")
-        && Object.keys(updates).length === 1;
-      const metadataOnlyUpdate = isCardMetadataPropertyPatch(updates);
-      const metadataMutationId = metadataOnlyUpdate ? createUuidV7() : null;
+      const metadataMutationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<CardUpdateResult>({
         kind: "card:update",
         conflictKeys,
         apply: buildPatchCardTransform(columnId, cardId, updates, { bumpRevision: true }),
-        runRemote: async () => {
-          if (descriptionOnlyUpdate) {
-            return await updateCardDescription({
-              projectId,
-              columnId: columnId as Card["status"],
-              cardId,
-              description: updates.description ?? "",
-              sessionId,
-              expectedRevision,
-            });
-          }
-          if (metadataMutationId) {
-            return await commitCardMetadataPropertyPatch({
-              projectId,
-              cardBlockId: cardId,
-              mutationId: metadataMutationId,
-              clientSessionId: sessionId,
-              patch: updates,
-            });
-          }
-          return (await invoke(
-            "card:update",
-            projectId,
-            columnId,
-            cardId,
-            updates,
-            sessionId,
-            expectedRevision,
-          )) as CardUpdateResult;
-        },
+        runRemote: async () => await commitCardMetadataPropertyPatch({
+          projectId,
+          cardBlockId: cardId,
+          mutationId: metadataMutationId,
+          clientSessionId: sessionId,
+          patch: updates,
+        }),
         refreshOnSuccess: false,
       });
 
@@ -258,7 +238,6 @@ export function useKanban(options: UseKanbanOptions) {
         const committedDetail = buildCommittedCardDetailFromUpdate(
           getCardDetail(projectId, cardId),
           result,
-          updates,
         );
         if (committedDetail) {
           setCardDetail(projectId, committedDetail, { acceptEqualRevision: true });

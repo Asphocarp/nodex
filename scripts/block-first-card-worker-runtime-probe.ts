@@ -317,19 +317,28 @@ try {
     "Genesis projection lagged",
   );
 
-  const translated = await firstWriter.updateCard(
-    project.id,
-    "draft",
-    created.result.id,
-    {
-      title: "Worker translated",
-      description: "Alpha\nBeta\nGamma",
-    },
-  );
-  invariant(translated.result.status === "updated", "Legacy update failed");
+  let ordinaryContentUpdateRejected = false;
+  try {
+    await firstWriter.updateCard(project.id, "draft", created.result.id, {
+      title: "Rejected whole title",
+      description: "Rejected whole body",
+    });
+  } catch (error) {
+    ordinaryContentUpdateRejected =
+      error instanceof Error && error.message.includes("Card Document");
+  }
   invariant(
-    translated.metrics.shadowJobsApplied === 1,
-    "Update did not drain shadow",
+    ordinaryContentUpdateRejected,
+    "Ordinary Card update accepted a title/body snapshot",
+  );
+  enqueueLegacyUpdate(created.result.id, {
+    title: "Worker translated",
+    description: "Alpha\nBeta\nGamma",
+  });
+  const translated = await firstWriter.initializeBlockDocumentShadows();
+  invariant(
+    translated.result.applied === 1,
+    "Migration drain did not translate the legacy fixture",
   );
   const afterTranslation = readPersistedCardDocument(created.result.id);
   invariant(
@@ -453,7 +462,7 @@ try {
     project.id,
     "in_progress",
     afterFailure.result.id,
-    { title: "Gracefully drained", description: "Healthy body\nQueued edit" },
+    { priority: "p1-high" },
   );
   const shutdown = resilientWriter.shutdown();
   const queuedResult = await queuedUpdate;
@@ -464,12 +473,16 @@ try {
   await shutdown;
   const gracefullyDrained = readPersistedCardDocument(afterFailure.result.id);
   invariant(
-    gracefullyDrained.title === "Gracefully drained",
-    "Shutdown lost queued title",
+    gracefullyDrained.title === "FIFO remains healthy",
+    "Metadata update changed the Card Document title",
   );
   invariant(
-    gracefullyDrained.nfm === "Healthy body\nQueued edit",
-    "Shutdown lost queued Document translation",
+    gracefullyDrained.nfm === "Healthy body",
+    "Metadata update changed the Card Document body",
+  );
+  invariant(
+    readCardSummaryById(afterFailure.result.id)?.priority === "p1-high",
+    "Shutdown lost the accepted metadata mutation",
   );
 
   const documentBoardEvents: BoardChangeEvent[] = [];
@@ -863,11 +876,12 @@ try {
   process.stdout.write(
     `${JSON.stringify({
       createAckedReadyParity: true,
-      legacyUpdatePreservedIds: true,
+      ordinaryContentUpdateRejected: true,
+      explicitLegacyMigrationPreservedIds: true,
       currentMutationBypassedLargeBacklog: true,
       restartDrainedPending: true,
       terminalFailureDidNotPoisonFifo: true,
-      gracefulShutdownDrainedShadow: true,
+      gracefulShutdownDrainedAcceptedMutation: true,
       publicDocumentCommandsDidNotDrainShadow: true,
       shutdownDidNotDrainShadow: true,
       descriptorAndCutoverStayedProjectScoped: true,

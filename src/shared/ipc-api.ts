@@ -202,14 +202,12 @@ import type {
   BlockDropImportResult,
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
-  CardDescriptionUpdateStartInput,
   CardUpdateResult,
   CardEditorDropInput,
   CardEditorDropResult,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   Card,
-  CardInput,
   CardSummary,
   CardsDetailsInput,
   CardSearchInput,
@@ -292,6 +290,7 @@ import type {
   WorkspacePathsExistInput,
   WorkspacePathsExistResult,
 } from "./types";
+import type { CardMetadataPatch } from "./card-content-authority";
 import type {
   CrossWindowDragClaimInput,
   CrossWindowDragClaimResult,
@@ -733,27 +732,11 @@ export interface IpcApi {
       projectId: string,
       status: Card["status"] | undefined,
       cardId: string,
-      updates: Partial<CardInput>,
+      updates: CardMetadataPatch,
       sessionId?: string,
       expectedRevision?: number,
     ];
     result: CardUpdateResult;
-  };
-  "card:description:update:start": {
-    args: [input: CardDescriptionUpdateStartInput];
-    result: { stagingId: string };
-  };
-  "card:description:update:chunk": {
-    args: [stagingId: string, chunk: string];
-    result: { ok: true; bytes: number };
-  };
-  "card:description:update:finish": {
-    args: [stagingId: string];
-    result: CardUpdateResult;
-  };
-  "card:description:update:abort": {
-    args: [stagingId: string];
-    result: boolean;
   };
   "card:get": {
     args: [projectId: string, cardId: string, status?: Card["status"]];

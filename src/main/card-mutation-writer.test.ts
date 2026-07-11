@@ -112,6 +112,37 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
 }
 
 describe("CardMutationWriter", () => {
+  test("rejects Card title and body snapshots before creating a worker", async () => {
+    let workerCreations = 0;
+    const writer = new CardMutationWriter({
+      createWorker: () => {
+        workerCreations += 1;
+        return new FakeWorker();
+      },
+    });
+    const messages: string[] = [];
+
+    for (const patch of [
+      { title: "stale title" },
+      { description: "stale body" },
+    ]) {
+      try {
+        await writer.updateCard(
+          "project-1",
+          "draft",
+          "card-1",
+          patch,
+        );
+      } catch (error) {
+        messages.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    expect(workerCreations).toBe(0);
+    expect(messages.length).toBe(2);
+    expect(messages.every((message) => message.includes("Card Document"))).toBe(true);
+  });
+
   test("preserves an additional Document command and strict receipt through the FIFO", async () => {
     const worker = new FakeWorker();
     const writer = new CardMutationWriter({
@@ -802,8 +833,10 @@ describe("CardMutationWriter", () => {
       },
     });
 
-    const summary = makeSummary();
-    const pending = writer.updateCard("project-1", "draft", "card-1", { title: "Next" });
+    const summary = makeSummary({ priority: "p1-high" });
+    const pending = writer.updateCard("project-1", "draft", "card-1", {
+      priority: "p1-high",
+    });
     const request = worker.messages[0];
     expect(request?.type).toBe("updateCard");
     if (!request) return;
@@ -817,7 +850,7 @@ describe("CardMutationWriter", () => {
         cardId: "card-1",
         revision: 2,
         summary,
-        changedFields: ["title"],
+        changedFields: ["priority"],
         didMutate: true,
       },
       events: [{

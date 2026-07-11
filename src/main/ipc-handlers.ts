@@ -89,13 +89,7 @@ import {
 } from "./workspace-files-service";
 import { dbNotifier } from "./local-store/notifier";
 import { cardMutationWriter } from "./card-mutation-writer";
-import {
-  abortCardDescriptionStaging,
-  appendCardDescriptionChunk,
-  cleanupCardDescriptionStagingFile,
-  consumeCardDescriptionStaging,
-  startCardDescriptionStaging,
-} from "./card-description-staging";
+import { assertCardUpdateExcludesDocumentContent } from "../shared/card-content-authority";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -1542,6 +1536,7 @@ export function registerIpcHandlers(
       sessionId?,
       expectedRevision?,
     ) => {
+      assertCardUpdateExcludesDocumentContent(updates);
       const startedAt = performance.now();
       const envelope = await cardMutationWriter.updateCard(
         projectId,
@@ -1559,70 +1554,16 @@ export function registerIpcHandlers(
         status: result.status,
         changedFields:
           result.status === "updated" ? result.changedFields : undefined,
-        descriptionBytes:
-          typeof updates.description === "string"
-            ? Buffer.byteLength(updates.description, "utf8")
-            : undefined,
         approxPayloadBytes: approximateJsonPayloadBytes(result),
         durationMs: Math.round(performance.now() - startedAt),
         workerDurationMs: envelope.metrics.workerDurationMs,
         queueWaitMs: envelope.metrics.queueWaitMs,
         transactionMs: envelope.metrics.transactionMs,
         mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-        revisionKind: envelope.metrics.revisionKind,
       });
       return result;
     },
   );
-
-  registerHandle(
-    "card:description:update:start",
-    async (_, input) => await startCardDescriptionStaging(input),
-  );
-
-  registerHandle(
-    "card:description:update:chunk",
-    async (_, stagingId, chunk) =>
-      await appendCardDescriptionChunk(stagingId, chunk),
-  );
-
-  registerHandle(
-    "card:description:update:abort",
-    async (_, stagingId) => await abortCardDescriptionStaging(stagingId),
-  );
-
-  registerHandle("card:description:update:finish", async (_, stagingId) => {
-    const startedAt = performance.now();
-    const staged = consumeCardDescriptionStaging(stagingId);
-    try {
-      const envelope = await cardMutationWriter.updateCardDescriptionFromFile(
-        staged.projectId,
-        staged.columnId,
-        staged.cardId,
-        staged.filePath,
-        staged.sessionId,
-        staged.expectedRevision,
-      );
-      const result = envelope.result;
-      ipcPayloadLogger.info("card description update ack served", {
-        channel: "card:description:update:finish",
-        projectId: staged.projectId,
-        cardId: staged.cardId,
-        status: result.status,
-        descriptionBytes: staged.bytes,
-        approxPayloadBytes: approximateJsonPayloadBytes(result),
-        durationMs: Math.round(performance.now() - startedAt),
-        workerDurationMs: envelope.metrics.workerDurationMs,
-        queueWaitMs: envelope.metrics.queueWaitMs,
-        transactionMs: envelope.metrics.transactionMs,
-        mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-        revisionKind: envelope.metrics.revisionKind,
-      });
-      return result;
-    } finally {
-      await cleanupCardDescriptionStagingFile(staged.filePath);
-    }
-  });
 
   registerHandle(
     "card:get",
