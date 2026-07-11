@@ -3,10 +3,8 @@ import {
   buildCompleteOrSkipOccurrenceTransform,
   buildCreateCardTransform,
   buildDeleteCardTransform,
-  buildImportBlockDropTransform,
   buildMoveCardTransform,
   buildMoveCardsTransform,
-  buildCardEditorDropTransform,
   buildPatchCardTransform,
   conflictKeyForCard,
   conflictKeysForCreate,
@@ -23,11 +21,7 @@ import {
   findCardDocumentPatchFields,
 } from "../../shared/card-content-authority";
 import type {
-  BlockDropImportInput,
-  BlockDropImportResult,
   CalendarOccurrence,
-  CardEditorDropInput,
-  CardEditorDropResult,
   Card,
   CardCreateInput,
   CardCreatePlacement,
@@ -429,66 +423,6 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, store],
   );
 
-  const importBlockDrop = useCallback(
-    async (input: BlockDropImportInput): Promise<BlockDropImportResult | null> => {
-      if (!requireWritableSelectedView()) return null;
-      const cardsWithId = input.cards.map((card) => ensureCreateInputId(card));
-      const optimisticCards = cardsWithId.map((card) => createOptimisticCard(card));
-      const optimisticInput: BlockDropImportInput = {
-        ...input,
-        cards: cardsWithId,
-      };
-
-      const outcome = await store.runOptimisticMutation<BlockDropImportResult>({
-        kind: "card:import-block-drop",
-        conflictKeys: [
-          `column:${input.targetStatus}:cards`,
-          ...input.sourceUpdates.map((update) => conflictKeyForCard(update.cardId)),
-          ...optimisticCards.map((card) => conflictKeyForCard(card.id)),
-        ],
-        apply: buildImportBlockDropTransform(optimisticInput, optimisticCards),
-        runRemote: async () => (await invoke(
-          "card:import-block-drop",
-          projectId,
-          optimisticInput,
-          sessionId,
-        )) as BlockDropImportResult,
-      });
-
-      if (!outcome.ok) return null;
-      onMutation?.();
-      return outcome.result ?? null;
-    },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
-  );
-
-  const applyCardEditorDrop = useCallback(
-    async (
-      input: CardEditorDropInput,
-    ): Promise<CardEditorDropResult | null> => {
-      if (!requireWritableSelectedView()) return null;
-      const outcome = await store.runOptimisticMutation<CardEditorDropResult>({
-        kind: "card:apply-editor-drop",
-        conflictKeys: [
-          ...input.targetUpdates.map((update) => conflictKeyForCard(update.cardId)),
-          ...input.sourceCards.map((entry) => conflictKeyForCard(entry.cardId)),
-        ],
-        apply: buildCardEditorDropTransform(input, projectId),
-        runRemote: async () => (await invoke(
-          "card:apply-editor-drop",
-          projectId,
-          input,
-          sessionId,
-        )) as CardEditorDropResult,
-      });
-
-      if (!outcome.ok) return null;
-      onMutation?.();
-      return outcome.result ?? null;
-    },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
-  );
-
   const listCalendarOccurrences = useCallback(
     async (
       windowStart: Date,
@@ -644,8 +578,6 @@ export function useKanban(options: UseKanbanOptions) {
     moveCard,
     moveCards,
     moveCardToProject,
-    importBlockDrop,
-    applyCardEditorDrop,
     listCalendarOccurrences,
     completeOccurrence,
     skipOccurrence,

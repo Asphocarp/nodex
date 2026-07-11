@@ -1048,18 +1048,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "window-sessions:update-bounds": {
       return undefined;
     }
-    case "card:import-block-drop": {
-      const [projectId, input, sessionId] = args as [string, object, string?];
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card-import-block-drop`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...input, sessionId }),
-        },
-      );
-      return res.json();
-    }
     case "calendar:occurrences": {
       const [projectId, windowStart, windowEnd, searchQuery] = args as [
         string,
@@ -1153,18 +1141,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
             occurrenceStart: input.occurrenceStart.toISOString(),
             sessionId,
           }),
-        },
-      );
-      return res.json();
-    }
-    case "card:apply-editor-drop": {
-      const [projectId, input, sessionId] = args as [string, object, string?];
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card-editor-drop`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...input, sessionId }),
         },
       );
       return res.json();
@@ -2404,25 +2380,6 @@ function subscribePersistedAtomUpdates(
   return () => {};
 }
 
-function subscribeCrossWindowDragActiveChanges(
-  callback: (
-    preview:
-      import("../../shared/cross-window-drag").CrossWindowDragPreview | null,
-  ) => void,
-): () => void {
-  void callback;
-  return () => {};
-}
-
-function subscribeCrossWindowDragSourceResults(
-  callback: (
-    result: import("../../shared/cross-window-drag").CrossWindowDragSourceResult,
-  ) => void,
-): () => void {
-  void callback;
-  return () => {};
-}
-
 async function getWindowFocusState(): Promise<boolean> {
   return typeof document !== "undefined"
     ? document.visibilityState !== "hidden"
@@ -2765,8 +2722,6 @@ export const browserRendererTransport = {
   subscribeCodexScheduledAutomationChanges,
   subscribeCodexAutomationRunsUpdates,
   subscribePersistedAtomUpdates,
-  subscribeCrossWindowDragActiveChanges,
-  subscribeCrossWindowDragSourceResults,
   getWindowFocusState,
   subscribeWindowFocusChanges,
 };

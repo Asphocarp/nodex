@@ -107,33 +107,6 @@ export const HttpDatabaseViewReferenceQuerySchema = z.object({
 
 export const HttpCardBodySchema = UnknownRecordSchema.transform((body) => normalizeCardBodyObject(body));
 
-export const HttpNestedCardInputSchema = z.unknown().transform((value) => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
-  return HttpCardBodySchema.parse(value);
-});
-
-const HttpSourceUpdateSchema = UnknownRecordSchema.transform((body) => ({
-  ...body,
-  updates: HttpNestedCardInputSchema.parse(body.updates),
-}));
-
-export const HttpBlockDropImportBodySchema = UnknownRecordSchema.transform((body) => ({
-  ...body,
-  cards: Array.isArray(body.cards)
-    ? body.cards.map((card) => HttpNestedCardInputSchema.parse(card))
-    : body.cards,
-  sourceUpdates: Array.isArray(body.sourceUpdates)
-    ? body.sourceUpdates.map((item) => HttpSourceUpdateSchema.parse(item))
-    : body.sourceUpdates,
-}));
-
-export const HttpCardEditorDropBodySchema = UnknownRecordSchema.transform((body) => ({
-  ...body,
-  targetUpdates: Array.isArray(body.targetUpdates)
-    ? body.targetUpdates.map((item) => HttpSourceUpdateSchema.parse(item))
-    : body.targetUpdates,
-}));
-
 export function parseOptionalCardStatus(value: unknown): CardStatus | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (!isCardStatus(value)) {

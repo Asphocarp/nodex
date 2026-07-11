@@ -5,7 +5,6 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
-  type MutableRefObject,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -15,16 +14,12 @@ import { NfmEditor } from "./editor/nfm-editor";
 import { BlockDocumentSurface } from "@/components/block-documents/block-document-surface";
 import { BlockDocumentSyncStatus } from "@/components/block-documents/block-document-sync-status";
 import { CollaborativeCardTitle } from "@/components/block-documents/collaborative-card-title";
-import { cn } from "@/lib/utils";
 import { CardStageInlinePropertyStrip } from "./card-stage/inline-property-strip";
 import { CardStagePropertiesSection } from "./card-stage/properties-section";
 import { CardStageRawContent } from "./card-stage/raw-content";
 import { CardStageToolbar } from "./card-stage/toolbar";
 import { useCardStageController } from "./card-stage/use-card-stage-controller";
-import type {
-  CardStageDescriptionFlushHandle,
-  CardStageProps,
-} from "./card-stage/types";
+import type { CardStageProps } from "./card-stage/types";
 import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { materializeCardDocument } from "../../../shared/block-documents/block-document-codec";
@@ -40,107 +35,30 @@ const CARD_STAGE_SCROLL_CONTAINER_STYLE = {
 } satisfies CSSProperties;
 
 interface CardStageDescriptionEditorProps {
-  projectId: string;
-  projectName?: string | null;
-  projectWorkspacePath?: string | null;
-  cardId: string;
-  columnId: string;
-  content: string;
-  showRawContent: boolean;
-  onChange: (value: string) => void;
-  onPendingChange: () => void;
-  onBlur: () => void;
-  flushHandleRef: MutableRefObject<CardStageDescriptionFlushHandle | null>;
-  sessionId?: string | null;
-  sessionThread: CardStageProps["sessionThread"];
-  canStartThreadInSession: CardStageProps["canStartThreadInSession"];
-  linkedCodexThreads: CardStageProps["linkedCodexThreads"];
-  onOpenCodexThread: CardStageProps["onOpenCodexThread"];
-  onOpenCard: CardStageProps["onOpenCard"];
-  onStartNewSessionThreadFromEditor: CardStageProps["onStartNewSessionThreadFromEditor"];
-  onSendThreadSectionPrompt: CardStageProps["onSendThreadSectionPrompt"];
-  isActivePanelTab: boolean;
-  headingRailPortalElement: HTMLElement | null;
-  scrollContainerRef: RefObject<HTMLDivElement | null>;
-}
-
-const LegacyCardStageDescriptionEditor = memo(
-  function LegacyCardStageDescriptionEditor({
-    projectId,
-    projectName,
-    projectWorkspacePath,
-    cardId,
-    columnId,
-    content,
-    showRawContent,
-    onChange,
-    onPendingChange,
-    onBlur,
-    flushHandleRef,
-    sessionId,
-    sessionThread,
-    canStartThreadInSession,
-    linkedCodexThreads,
-    onOpenCodexThread,
-    onOpenCard,
-    onStartNewSessionThreadFromEditor,
-    onSendThreadSectionPrompt,
-    isActivePanelTab,
-    headingRailPortalElement,
-    scrollContainerRef,
-  }: CardStageDescriptionEditorProps) {
-    if (showRawContent) {
-      return <CardStageRawContent content={content} />;
-    }
-
-    return (
-      <NfmEditor
-        key={`${projectId}:${cardId}`}
-        projectId={projectId}
-        projectName={projectName}
-        projectWorkspacePath={projectWorkspacePath}
-        source={{
-          kind: "legacy-snapshot",
-          content,
-          onChange,
-          onPendingChange,
-          onBlur,
-          flushHandleRef,
-        }}
-        sourceCardContext={{
-          cardId,
-          columnId,
-        }}
-        sessionId={sessionId}
-        sessionThread={sessionThread}
-        canStartThreadInSession={canStartThreadInSession}
-        linkedCodexThreads={linkedCodexThreads}
-        onOpenCodexThread={onOpenCodexThread}
-        onOpenCard={onOpenCard}
-        onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
-        onSendThreadSectionPrompt={onSendThreadSectionPrompt}
-        isActivePanelTab={isActivePanelTab}
-        headingRail={{
-          portalElement: headingRailPortalElement,
-          scrollContainerRef,
-        }}
-        placeholder="Add a description..."
-      />
-    );
-  },
-);
-
-type CollaborativeCardStageDescriptionEditorProps = Omit<
-  CardStageDescriptionEditorProps,
-  "content" | "onChange" | "onPendingChange" | "onBlur" | "flushHandleRef"
-> & {
+  readonly projectId: string;
+  readonly projectName?: string | null;
+  readonly projectWorkspacePath?: string | null;
+  readonly cardId: string;
+  readonly columnId: string;
+  readonly showRawContent: boolean;
   readonly documentId: string;
   readonly generation: number;
   readonly document: Y.Doc;
   readonly body: Y.XmlFragment;
   readonly awareness: Awareness;
   readonly surfaceWriteFence: BlockDocumentSurfaceRuntime;
-};
+  readonly sessionId?: string | null;
+  readonly sessionThread: CardStageProps["sessionThread"];
+  readonly canStartThreadInSession: CardStageProps["canStartThreadInSession"];
+  readonly linkedCodexThreads: CardStageProps["linkedCodexThreads"];
+  readonly onOpenCodexThread: CardStageProps["onOpenCodexThread"];
+  readonly onOpenCard: CardStageProps["onOpenCard"];
+  readonly onStartNewSessionThreadFromEditor: CardStageProps["onStartNewSessionThreadFromEditor"];
+  readonly onSendThreadSectionPrompt: CardStageProps["onSendThreadSectionPrompt"];
+  readonly isActivePanelTab: boolean;
+  readonly headingRailPortalElement: HTMLElement | null;
+  readonly scrollContainerRef: RefObject<HTMLDivElement | null>;
+}
 
 const useLiveCardDocumentNfm = (document: Y.Doc): string => {
   const subscribe = useCallback(
@@ -165,8 +83,8 @@ function CollaborativeCardStageRawContent({
   return <CardStageRawContent content={useLiveCardDocumentNfm(document)} />;
 }
 
-const CollaborativeCardStageDescriptionEditor = memo(
-  function CollaborativeCardStageDescriptionEditor({
+const CardStageDescriptionEditor = memo(
+  function CardStageDescriptionEditor({
     projectId,
     projectName,
     projectWorkspacePath,
@@ -190,7 +108,7 @@ const CollaborativeCardStageDescriptionEditor = memo(
     isActivePanelTab,
     headingRailPortalElement,
     scrollContainerRef,
-  }: CollaborativeCardStageDescriptionEditorProps) {
+  }: CardStageDescriptionEditorProps) {
     if (showRawContent) {
       return <CollaborativeCardStageRawContent document={document} />;
     }
@@ -290,10 +208,7 @@ export function CardStage(props: CardStageProps) {
     }
   }, []);
   const controller = useCardStageController(props, {
-    persistDocument:
-      props.documentAuthority.kind === "ydoc_primary"
-        ? persistDocument
-        : undefined,
+    persistDocument,
   });
   const [headingRailPortalElement, setHeadingRailPortalElement] =
     useState<HTMLDivElement | null>(null);
@@ -322,34 +237,6 @@ export function CardStage(props: CardStageProps) {
         onToggleHistoryPanel={controller.onToggleHistoryPanel}
       />
 
-      {controller.updateConflict ? (
-        <div className="mx-4 mt-3 rounded-md border border-(--orange-border) bg-(--orange-bg)/50 px-3 py-2 text-sm text-(--foreground)">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-(--foreground-secondary)">
-              This card changed in another window. Choose how to proceed.
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={controller.handleReloadLatest}
-                className="rounded-sm border border-(--border) px-2 py-1 text-xs hover:bg-(--surface-hover)"
-              >
-                Reload Latest
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void controller.handleOverwriteMine();
-                }}
-                className="rounded-sm bg-(--foreground) px-2 py-1 text-xs text-(--background) hover:opacity-90"
-              >
-                Overwrite Mine
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div
         ref={setHeadingRailPortalElement}
         className="relative min-h-0 flex-1"
@@ -369,131 +256,75 @@ export function CardStage(props: CardStageProps) {
               controller.limitMainContentWidth ? "constrained" : "full"
             }
           >
-            {props.documentAuthority.kind === "ydoc_primary" ? (
-              <BlockDocumentSurface
-                projectId={props.projectId}
-                descriptor={props.documentAuthority.descriptor}
-                isActive={props.isActivePanelTab ?? true}
-                runtimeRef={documentRuntimeRef}
-                onReload={props.documentAuthority.reload}
-                localAwarenessState={{
-                  user: { name: "You", color: "#3b82f6" },
-                }}
-              >
-                {(surface) => (
-                  <CardStageContent
-                    controller={controller}
-                    title={
-                      <CollaborativeCardTitle
-                        title={surface.title}
-                        surfaceWriteFence={surface.runtime}
-                        onValueChange={controller.handleDocumentTitleChange}
-                        onKeyDown={(event) => {
-                          if (
-                            event.key === "Enter" &&
-                            !event.nativeEvent.isComposing
-                          ) {
-                            event.preventDefault();
-                          }
-                        }}
-                      />
-                    }
-                    syncStatus={
-                      <BlockDocumentSyncStatus
-                        runtime={surface.runtime}
-                        status={surface.status.provider}
-                      />
-                    }
-                    description={
-                      <CollaborativeCardStageDescriptionEditor
-                        projectId={props.projectId}
-                        projectName={props.projectName}
-                        projectWorkspacePath={props.projectWorkspacePath}
-                        cardId={card.id}
-                        columnId={controller.currentColumnId}
-                        showRawContent={controller.showRawContent}
-                        documentId={surface.documentId}
-                        generation={surface.descriptor.generation}
-                        document={surface.document}
-                        body={surface.body}
-                        awareness={surface.awareness}
-                        surfaceWriteFence={surface.runtime}
-                        sessionId={props.sessionId}
-                        sessionThread={props.sessionThread}
-                        canStartThreadInSession={props.canStartThreadInSession}
-                        linkedCodexThreads={props.linkedCodexThreads}
-                        onOpenCodexThread={props.onOpenCodexThread}
-                        onOpenCard={props.onOpenCard}
-                        onStartNewSessionThreadFromEditor={
-                          props.onStartNewSessionThreadFromEditor
+            <BlockDocumentSurface
+              projectId={props.projectId}
+              descriptor={props.documentAuthority.descriptor}
+              isActive={props.isActivePanelTab ?? true}
+              runtimeRef={documentRuntimeRef}
+              onReload={props.documentAuthority.reload}
+              dependencies={props.documentAuthority.surfaceDependencies}
+              localAwarenessState={{
+                user: { name: "You", color: "#3b82f6" },
+              }}
+            >
+              {(surface) => (
+                <CardStageContent
+                  controller={controller}
+                  title={
+                    <CollaborativeCardTitle
+                      title={surface.title}
+                      surfaceWriteFence={surface.runtime}
+                      onValueChange={controller.handleDocumentTitleChange}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
                         }
-                        onSendThreadSectionPrompt={
-                          props.onSendThreadSectionPrompt
-                        }
-                        isActivePanelTab={props.isActivePanelTab ?? true}
-                        headingRailPortalElement={headingRailPortalElement}
-                        scrollContainerRef={controller.scrollContainerRef}
-                      />
-                    }
-                  />
-                )}
-              </BlockDocumentSurface>
-            ) : (
-              <CardStageContent
-                controller={controller}
-                title={
-                  <textarea
-                    value={controller.title}
-                    onChange={(event) =>
-                      controller.handleTitleChange(event.target.value)
-                    }
-                    onBlur={controller.handleTitleBlur}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.preventDefault();
-                    }}
-                    rows={1}
-                    className={cn(
-                      "w-full resize-none overflow-hidden",
-                      "text-xl/snug-plus font-bold",
-                      "text-(--foreground)",
-                      "border-none px-0.5 pt-0.75",
-                      "bg-transparent focus-visible:ring-0 focus-visible:outline-none",
-                      "placeholder:text-(--foreground-disabled)",
-                      "field-sizing-content",
-                    )}
-                    placeholder="Untitled"
-                  />
-                }
-                description={
-                  <LegacyCardStageDescriptionEditor
-                    projectId={props.projectId}
-                    projectName={props.projectName}
-                    projectWorkspacePath={props.projectWorkspacePath}
-                    cardId={card.id}
-                    columnId={controller.currentColumnId}
-                    content={controller.description}
-                    showRawContent={controller.showRawContent}
-                    onChange={controller.handleDescriptionChange}
-                    onPendingChange={controller.handleDescriptionPendingChange}
-                    onBlur={controller.handleDescriptionBlur}
-                    flushHandleRef={controller.descriptionFlushHandleRef}
-                    sessionId={props.sessionId}
-                    sessionThread={props.sessionThread}
-                    canStartThreadInSession={props.canStartThreadInSession}
-                    linkedCodexThreads={props.linkedCodexThreads}
-                    onOpenCodexThread={props.onOpenCodexThread}
-                    onOpenCard={props.onOpenCard}
-                    onStartNewSessionThreadFromEditor={
-                      props.onStartNewSessionThreadFromEditor
-                    }
-                    onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
-                    isActivePanelTab={props.isActivePanelTab ?? true}
-                    headingRailPortalElement={headingRailPortalElement}
-                    scrollContainerRef={controller.scrollContainerRef}
-                  />
-                }
-              />
-            )}
+                      }}
+                    />
+                  }
+                  syncStatus={
+                    <BlockDocumentSyncStatus
+                      runtime={surface.runtime}
+                      status={surface.status.provider}
+                    />
+                  }
+                  description={
+                    <CardStageDescriptionEditor
+                      projectId={props.projectId}
+                      projectName={props.projectName}
+                      projectWorkspacePath={props.projectWorkspacePath}
+                      cardId={card.id}
+                      columnId={controller.currentColumnId}
+                      showRawContent={controller.showRawContent}
+                      documentId={surface.documentId}
+                      generation={surface.descriptor.generation}
+                      document={surface.document}
+                      body={surface.body}
+                      awareness={surface.awareness}
+                      surfaceWriteFence={surface.runtime}
+                      sessionId={props.sessionId}
+                      sessionThread={props.sessionThread}
+                      canStartThreadInSession={props.canStartThreadInSession}
+                      linkedCodexThreads={props.linkedCodexThreads}
+                      onOpenCodexThread={props.onOpenCodexThread}
+                      onOpenCard={props.onOpenCard}
+                      onStartNewSessionThreadFromEditor={
+                        props.onStartNewSessionThreadFromEditor
+                      }
+                      onSendThreadSectionPrompt={
+                        props.onSendThreadSectionPrompt
+                      }
+                      isActivePanelTab={props.isActivePanelTab ?? true}
+                      headingRailPortalElement={headingRailPortalElement}
+                      scrollContainerRef={controller.scrollContainerRef}
+                    />
+                  }
+                />
+              )}
+            </BlockDocumentSurface>
           </div>
         </div>
       </div>

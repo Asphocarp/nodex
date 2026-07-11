@@ -1,21 +1,58 @@
-import { beforeEach, describe, expect, vi, test } from "vitest";
 import { act } from "@testing-library/react";
-import { render, textContent } from "../../test/dom";
-import type { Card, CardUpdateMutationResult } from "@/lib/types";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { ReactNode } from "react";
+
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   writeCardStageContentWidthPreference,
   writeCardStageShowRawContentPreference,
 } from "@/lib/card-stage-layout";
-import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import type { Card, CardUpdateMutationResult } from "@/lib/types";
+import { render, textContent } from "@/test/dom";
+import { createCardDocument } from "../../../shared/block-documents";
+import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
-let nfmEditorRenderCount = 0;
+let surfaceDocument = createCardDocument({
+  documentId: "document:card-1",
+  initialTitle: "Live title",
+});
 
 vi.mock("./editor/nfm-editor", () => ({
   NfmEditor: (props: Record<string, unknown>) => {
-    nfmEditorRenderCount += 1;
     lastNfmEditorProps = props;
-    return <div>Mock editor</div>;
+    return <div>Mock collaborative editor</div>;
+  },
+}));
+
+vi.mock("@/components/block-documents/block-document-sync-status", () => ({
+  BlockDocumentSyncStatus: () => null,
+}));
+
+vi.mock("@/components/block-documents/collaborative-card-title", () => ({
+  CollaborativeCardTitle: () => <div>Live title</div>,
+}));
+
+vi.mock("@/components/block-documents/block-document-surface", () => ({
+  BlockDocumentSurface: (props: {
+    descriptor: Record<string, unknown>;
+    runtimeRef?: { current: unknown };
+    children: (surface: Record<string, unknown>) => ReactNode;
+  }) => {
+    const runtime = {
+      descriptor: props.descriptor,
+      clientSessionId: "surface-1",
+      persist: async () => undefined,
+      getStatus: () => ({ reloadRequired: false }),
+    };
+    if (props.runtimeRef) props.runtimeRef.current = runtime;
+    return props.children({
+      ...surfaceDocument,
+      descriptor: props.descriptor,
+      runtime,
+      awareness: {},
+      status: { provider: { phase: "synced" } },
+    });
   },
 }));
 
@@ -32,8 +69,8 @@ function buildCard(overrides: Partial<Card> = {}): Card {
     id: "card-1",
     status: "in_progress",
     archived: false,
-    title: "Task",
-    description: "# Raw card\n\n- item",
+    title: "Stale projected title",
+    description: "Stale projected body",
     tags: [],
     agentBlocked: false,
     created: new Date("2026-01-01T00:00:00.000Z"),
@@ -60,192 +97,109 @@ function buildUpdateAck(card: Card = buildCard({ revision: 2 })): CardUpdateMuta
   };
 }
 
+function documentAuthority() {
+  return {
+    kind: "ydoc_primary" as const,
+    descriptor: {
+      projectId: "default",
+      ownerBlockId: "card-1",
+      ownerType: "card" as const,
+      ownerLifecycle: "active" as const,
+      documentId: "document:card-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 1,
+      schemaKey: "nodex.card" as const,
+      schemaVersion: 1 as const,
+      readiness: "ready" as const,
+      authority: "ydoc_primary" as const,
+      stateVector: new Uint8Array(),
+    },
+    reload: async () => undefined,
+  };
+}
+
+function renderStage() {
+  const { CardStage } = requireCardStage();
+  return render(
+    <NodexTooltipProvider>
+      <CardStage
+        onClose={() => undefined}
+        card={buildCard()}
+        columnId="in_progress"
+        columnName="In progress"
+        projectId="default"
+        projectName="Default"
+        documentAuthority={documentAuthority()}
+        availableTags={[]}
+        onUpdate={async () => buildUpdateAck()}
+        onDelete={async () => undefined}
+        onMove={async () => undefined}
+      />
+    </NodexTooltipProvider>,
+  );
+}
+
+let loadedCardStage: typeof import("./card-stage") | null = null;
+function requireCardStage(): typeof import("./card-stage") {
+  if (!loadedCardStage) throw new Error("Card Stage module has not loaded");
+  return loadedCardStage;
+}
+
 describe("card stage", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
     lastNfmEditorProps = null;
-    nfmEditorRenderCount = 0;
+    surfaceDocument.document.destroy();
+    surfaceDocument = createCardDocument({
+      documentId: "document:card-1",
+      initialTitle: "Live title",
+    });
+    populateBlockDocumentBodyFromNfm(
+      surfaceDocument.body,
+      "# Live collaborative body\n\n- item",
+    );
+    loadedCardStage = await import("./card-stage");
   });
 
-  test("renders the rich editor when raw mode is disabled", async () => {
+  test("mounts the rich editor only from the collaborative Document source", () => {
     writeCardStageContentWidthPreference(true);
     writeCardStageShowRawContentPreference(false);
-    const { CardStage, CARD_STAGE_SCROLL_CONTAINER_TEST_ID } = await import("./card-stage");
-    const onOpenCard = () => undefined;
-    const { container, getByText, queryByText } = render(
-      <NodexTooltipProvider>
-        <CardStage
-          onClose={() => undefined}
-          card={buildCard()}
-          columnId="in_progress"
-          columnName="In progress"
-          projectId="default"
-          projectName="Default"
-          documentAuthority={{ kind: "legacy_shadow" }}
-          availableTags={[]}
-          sessionId="session-current"
-          canStartThreadInSession
-          onOpenCard={onOpenCard}
-          onUpdate={async () => buildUpdateAck()}
-          onPatch={() => undefined}
-          onDelete={async () => undefined}
-          onMove={async () => undefined}
-        />
-      </NodexTooltipProvider>,
-    );
+    const { container, getByText } = renderStage();
 
-    expect(getByText("Mock editor").textContent).toBe("Mock editor");
-    expect(queryByText("Raw format")).toBe(null);
-    const scrollContainer = container.querySelector(`[data-testid="${CARD_STAGE_SCROLL_CONTAINER_TEST_ID}"]`) as HTMLElement | null;
-    expect(scrollContainer).not.toBeNull();
-    expect(scrollContainer?.style.getPropertyValue("overflow-anchor")).toBe("none");
-    const body = container.querySelector('[data-card-stage-body="true"]');
-    expect(body).not.toBeNull();
-    expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
-    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBe(true);
-    const editorProps = lastNfmEditorProps as {
-      source?: { flushHandleRef?: unknown };
-      projectName?: unknown;
-      sessionId?: unknown;
-      canStartThreadInSession?: unknown;
-      onOpenCard?: unknown;
-      headingRail?: {
-        portalElement?: unknown;
-        scrollContainerRef?: unknown;
-      };
-    } | null;
-    expect(typeof editorProps?.source?.flushHandleRef).toBe("object");
-    expect(editorProps?.projectName).toBe("Default");
-    expect(editorProps?.sessionId).toBe("session-current");
-    expect(editorProps?.canStartThreadInSession).toBe(true);
-    expect(editorProps?.onOpenCard).toBe(onOpenCard);
-    expect(typeof editorProps?.headingRail?.portalElement).toBe("object");
-    expect(typeof editorProps?.headingRail?.scrollContainerRef).toBe("object");
+    expect(getByText("Mock collaborative editor").textContent).toBe(
+      "Mock collaborative editor",
+    );
+    const source = lastNfmEditorProps?.source as Record<string, unknown>;
+    expect(source.kind).toBe("collaborative-document");
+    expect(source.documentId).toBe("document:card-1");
+    expect(Object.hasOwn(source, "content")).toBe(false);
+    expect(Object.hasOwn(source, "onChange")).toBe(false);
     expect(container.querySelector('[data-card-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
   });
 
-  test("full width expands the body lane without changing the card-stage surface", async () => {
+  test("raw mode reads the live Y.Doc projection, not Card.description", () => {
+    writeCardStageShowRawContentPreference(true);
+    const { container, getByText, queryByText } = renderStage();
+
+    expect(getByText("Raw format").textContent).toBe("Raw format");
+    expect(queryByText("Mock collaborative editor")).toBe(null);
+    expect(textContent(container).includes("Live collaborative body")).toBe(true);
+    expect(textContent(container).includes("Stale projected body")).toBe(false);
+  });
+
+  test("full width changes only the Card Stage presentation lane", async () => {
     writeCardStageContentWidthPreference(true);
     writeCardStageShowRawContentPreference(false);
-    const { CardStage } = await import("./card-stage");
-    const { container, getByRole } = render(
-      <NodexTooltipProvider>
-        <CardStage
-          onClose={() => undefined}
-          card={buildCard()}
-          columnId="in_progress"
-          columnName="In progress"
-          projectId="default"
-          documentAuthority={{ kind: "legacy_shadow" }}
-          availableTags={[]}
-          onUpdate={async () => buildUpdateAck()}
-          onPatch={() => undefined}
-          onDelete={async () => undefined}
-          onMove={async () => undefined}
-        />
-      </NodexTooltipProvider>,
-    );
-
-    const surface = container.querySelector('[data-card-stage-surface="true"]');
+    const { container, getByRole } = renderStage();
     const body = container.querySelector('[data-card-stage-body="true"]');
     const fullWidthButton = getByRole("button", { name: "Full width" });
 
-    expect(surface).not.toBeNull();
-    expect(surface?.className.includes("w-full")).toBe(true);
     expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
-    expect(fullWidthButton.getAttribute("aria-pressed")).toBe("false");
-
     await act(async () => {
       (fullWidthButton as HTMLButtonElement).click();
       await Promise.resolve();
     });
-
-    expect(surface?.className.includes("w-full")).toBe(true);
     expect(body?.getAttribute("data-card-stage-body-width")).toBe("full");
-    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBe(false);
-    expect(fullWidthButton.getAttribute("aria-pressed")).toBe("true");
-  });
-
-  test("renders read-only raw content when raw mode is enabled", async () => {
-    writeCardStageShowRawContentPreference(true);
-    const { CardStage } = await import("./card-stage");
-    const { container, getByText, queryByText } = render(
-      <NodexTooltipProvider>
-        <CardStage
-          onClose={() => undefined}
-          card={buildCard()}
-          columnId="in_progress"
-          columnName="In progress"
-          projectId="default"
-          documentAuthority={{ kind: "legacy_shadow" }}
-          availableTags={[]}
-          onUpdate={async () => buildUpdateAck()}
-          onPatch={() => undefined}
-          onDelete={async () => undefined}
-          onMove={async () => undefined}
-        />
-      </NodexTooltipProvider>,
-    );
-
-    expect(getByText("Raw format").textContent).toBe("Raw format");
-    expect(getByText("Read-only").textContent).toBe("Read-only");
-    expect(queryByText("Mock editor")).toBe(null);
-    expect(textContent(container).includes("# Raw card")).toBe(true);
-  });
-
-  test("does not rerender the rich editor when only saving state changes", async () => {
-    writeCardStageShowRawContentPreference(false);
-    const { CardStage } = await import("./card-stage");
-    let resolveUpdate: ((value: CardUpdateMutationResult) => void) | null = null;
-    const view = render(
-      <NodexTooltipProvider>
-        <CardStage
-          onClose={() => undefined}
-          card={buildCard()}
-          columnId="in_progress"
-          columnName="In progress"
-          projectId="default"
-          documentAuthority={{ kind: "legacy_shadow" }}
-          availableTags={[]}
-          onUpdate={async () => new Promise<CardUpdateMutationResult>((resolve) => {
-            resolveUpdate = resolve;
-          })}
-          onPatch={() => undefined}
-          onDelete={async () => undefined}
-          onMove={async () => undefined}
-        />
-      </NodexTooltipProvider>,
-    );
-
-    const editorSource = lastNfmEditorProps?.source as {
-      onChange?: (value: string) => void;
-      onBlur?: () => void;
-    } | undefined;
-    const onChange = editorSource?.onChange;
-    const onBlur = editorSource?.onBlur;
-    expect(typeof onChange).toBe("function");
-    expect(typeof onBlur).toBe("function");
-    const renderCountAfterMount = nfmEditorRenderCount;
-    expect(renderCountAfterMount > 0).toBe(true);
-
-    await act(async () => {
-      onChange?.("Updated body");
-      await Promise.resolve();
-    });
-    const renderCountAfterContentChange = nfmEditorRenderCount;
-
-    await act(async () => {
-      onBlur?.();
-      await Promise.resolve();
-    });
-
-    expect(view.getByText("Saving...").textContent).toBe("Saving...");
-    expect(nfmEditorRenderCount).toBe(renderCountAfterContentChange);
-
-    await act(async () => {
-      resolveUpdate?.(buildUpdateAck(buildCard({ description: "Updated body", revision: 2 })));
-      await Promise.resolve();
-    });
-    view.unmount();
   });
 });

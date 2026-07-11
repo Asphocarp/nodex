@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   parseBranchSelectorState,
@@ -14,7 +14,6 @@ import {
 } from "@/lib/card-stage-layout";
 import { loadScrollPosition, rememberScrollPosition, saveScrollPosition } from "@/lib/card-stage-scroll";
 import {
-  DESCRIPTION_SAVE_DEBOUNCE_MS,
   FIELD_SAVE_DEBOUNCE_MS,
   SCROLL_SAVE_DEBOUNCE_MS,
   TAG_BLUR_DELAY_MS,
@@ -37,16 +36,14 @@ import {
 } from "../../../lib/card-draft-store";
 import {
   buildCardStageDraftOverlay,
-  shouldPublishCardStagePatch,
 } from "./card-stage-draft-sync";
 import { normalizeRunInTarget, resolveDefaultRunInBaseBranch } from "./options";
-import type { CardStageDescriptionFlushHandle, CardStageProps, CardStageSessionSnapshot } from "./types";
+import type { CardStageProps, CardStageSessionSnapshot } from "./types";
 
 interface UseCardStageControllerResult {
   card: Card | null;
   projectWorkspacePath?: string | null;
   title: string;
-  description: string;
   priority?: Priority;
   estimate: string;
   dueDate: string;
@@ -94,14 +91,9 @@ interface UseCardStageControllerResult {
   contentShellClassName: string;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   setScrollContainerRef: (node: HTMLDivElement | null) => void;
-  descriptionFlushHandleRef: React.MutableRefObject<CardStageDescriptionFlushHandle | null>;
   tagInputRef: React.RefObject<HTMLInputElement | null>;
   tagDropdownRef: React.RefObject<HTMLDivElement | null>;
   schedule: ReturnType<typeof useScheduleState>;
-  updateConflict: {
-    columnId: string;
-    latestCard: Card;
-  } | null;
   onToggleHistoryPanel?: () => void;
   onOpenNewCodexThread?: () => void;
   onOpenCodexThread?: (threadId: string) => Promise<void>;
@@ -115,12 +107,7 @@ interface UseCardStageControllerResult {
   handleToggleContentWidth: () => void;
   handleToggleShowRawContent: () => void;
   handleScroll: () => void;
-  handleTitleChange: (value: string) => void;
-  handleTitleBlur: () => void;
   handleDocumentTitleChange: (value: string) => void;
-  handleDescriptionPendingChange: () => void;
-  handleDescriptionChange: (value: string) => void;
-  handleDescriptionBlur: () => void;
   handlePriorityChange: (next: Priority | null) => void;
   handleEstimateChange: (next: string) => void;
   handleDueDateChange: (next: string) => void;
@@ -135,8 +122,6 @@ interface UseCardStageControllerResult {
   handleAddTag: (value?: string) => void;
   handleRemoveTag: (tag: string) => void;
   handleTagInputBlur: () => void;
-  handleReloadLatest: () => void;
-  handleOverwriteMine: () => Promise<void>;
   handleRunInTargetChange: (nextTarget: CardRunInTarget) => Promise<void>;
   handlePickRunInLocalPath: () => Promise<void>;
   handleClearRunInLocalPath: () => void;
@@ -155,19 +140,10 @@ export interface CardStageControllerDependencies {
   readonly persistDocument?: () => Promise<void>;
 }
 
-type DraftFieldKey = "title" | "description" | "assignee" | "agentStatus";
+type DraftFieldKey = "assignee" | "agentStatus";
 type DraftDirtyState = Record<DraftFieldKey, boolean>;
 
-interface CardStageUpdateConflictState {
-  cardId: string;
-  columnId: string;
-  latestCard: Card;
-  attemptedUpdates: Partial<CardInput>;
-}
-
 interface CardStageFormState {
-  title: string;
-  description: string;
   priority: Priority | undefined;
   estimate: string;
   dueDate: string;
@@ -175,17 +151,6 @@ interface CardStageFormState {
   assignee: string;
   agentStatus: string;
   agentBlocked: boolean;
-}
-
-interface QueuedDescriptionSave {
-  cardId: string;
-  columnId: string;
-  value: string;
-}
-
-interface DescriptionSaveQueueState {
-  inFlight: QueuedDescriptionSave | null;
-  pending: QueuedDescriptionSave | null;
 }
 
 function toPriorityUpdate(
@@ -227,8 +192,6 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
 }
 
 function readFormDraftField(state: CardStageFormState, field: DraftFieldKey): string {
-  if (field === "title") return state.title;
-  if (field === "description") return state.description;
   if (field === "assignee") return state.assignee;
   return state.agentStatus;
 }
@@ -269,7 +232,6 @@ export function useCardStageController(
     projectWorkspacePath,
     availableTags,
     onUpdate,
-    onPatch,
     onDelete,
     onMove,
     onCompleteOccurrence,
@@ -283,12 +245,9 @@ export function useCardStageController(
     historyPanelActive = false,
     isActivePanelTab = true,
   } = props;
-  const hasLegacyContentAuthority = props.documentAuthority.kind === "legacy_shadow";
   const persistDocument = dependencies.persistDocument;
 
   const [title, setTitle] = useState(card?.title ?? "");
-  const [description, setDescription] = useState(card?.description ?? "");
-  const latestDescriptionRef = useRef(card?.description ?? "");
   const [priority, setPriority] = useState<Priority | undefined>(undefined);
   const [estimate, setEstimate] = useState<string>("none");
   const [dueDate, setDueDate] = useState("");
@@ -308,7 +267,6 @@ export function useCardStageController(
   const [runInEnvironmentBusy, setRunInEnvironmentBusy] = useState(false);
   const [savingCount, setSavingCount] = useState(0);
   const saving = savingCount > 0;
-  const [updateConflict, setUpdateConflict] = useState<CardStageUpdateConflictState | null>(null);
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
   const [tagInputActive, setTagInputActive] = useState(false);
   const [currentColumnId, setCurrentColumnId] = useState(columnId);
@@ -327,35 +285,20 @@ export function useCardStageController(
 
   const prevCardRef = useRef<{ card: Card; columnId: string } | null>(null);
   const currentCardIdRef = useRef<string | null>(null);
-  const descriptionSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const descriptionSaveQueueRef = useRef<DescriptionSaveQueueState>({
-    inFlight: null,
-    pending: null,
-  });
-  const drainDescriptionSaveQueueRef = useRef<() => void>(() => undefined);
-  const lastPersistedDescriptionRef = useRef(card?.description ?? "");
-  const titleSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const assigneeSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const agentStatusSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const descriptionFlushHandleRef = useRef<CardStageDescriptionFlushHandle | null>(null);
   const lastScrollRestoreCardRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const previousActivePanelTabRef = useRef(isActivePanelTab);
   const lastKnownScrollTopRef = useRef<{ cardId: string; scrollTop: number } | null>(null);
   const scrollRestoreVersionRef = useRef(0);
   const draftDirtyRef = useRef<DraftDirtyState>({
-    title: false,
-    description: false,
     assignee: false,
     agentStatus: false,
   });
-  const legacyContentAuthorityRef = useRef(hasLegacyContentAuthority);
-  legacyContentAuthorityRef.current = hasLegacyContentAuthority;
 
   const formStateRef = useRef<CardStageFormState>({
-    title: "",
-    description: "",
     priority: undefined as Priority | undefined,
     estimate: "none",
     dueDate: "",
@@ -364,18 +307,6 @@ export function useCardStageController(
     agentStatus: "",
     agentBlocked: false,
   });
-
-  useEffect(() => {
-    if (hasLegacyContentAuthority) return;
-    for (const ref of [descriptionSaveTimerRef, titleSaveTimerRef]) {
-      if (!ref.current) continue;
-      clearTimeout(ref.current);
-      ref.current = null;
-    }
-    descriptionSaveQueueRef.current.pending = null;
-    draftDirtyRef.current.title = false;
-    draftDirtyRef.current.description = false;
-  }, [hasLegacyContentAuthority]);
 
   const tagOptions = useMemo(() => {
     const normalizedInput = tagInput.trim().toLowerCase();
@@ -406,8 +337,6 @@ export function useCardStageController(
   }, []);
 
   const clearAllDraftDirty = useCallback(() => {
-    draftDirtyRef.current.title = false;
-    draftDirtyRef.current.description = false;
     draftDirtyRef.current.assignee = false;
     draftDirtyRef.current.agentStatus = false;
   }, []);
@@ -423,17 +352,6 @@ export function useCardStageController(
     };
   }, []);
 
-  const flushDescriptionEditorChange = useCallback(() => {
-    if (!hasLegacyContentAuthority) return latestDescriptionRef.current;
-    const flushed = descriptionFlushHandleRef.current?.flushPendingChange();
-    if (typeof flushed === "string") {
-      latestDescriptionRef.current = flushed;
-      formStateRef.current.description = flushed;
-      setDescription(flushed);
-    }
-    return latestDescriptionRef.current;
-  }, [hasLegacyContentAuthority]);
-
   const runUpdate = useCallback(
     async (
       nextColumnId: string,
@@ -447,19 +365,8 @@ export function useCardStageController(
           error: "Missing update result",
         };
       }
-      if (result.status === "updated") {
-        setUpdateConflict(null);
-        return result;
-      }
       if (result.status === "conflict") {
-        setUpdateConflict({
-          cardId: nextCardId,
-          columnId: result.card.status,
-          latestCard: result.card,
-          attemptedUpdates: updates,
-        });
         setCurrentColumnId(result.card.status);
-        return result;
       }
       return result;
     },
@@ -471,7 +378,7 @@ export function useCardStageController(
       result: CardUpdateMutationResult,
       expectedValues: Partial<Record<DraftFieldKey, string>>,
     ) => {
-      if (result.status !== "updated") return;
+      if (result.status === "error") return;
 
       for (const field of Object.keys(expectedValues) as DraftFieldKey[]) {
         const expectedValue = expectedValues[field];
@@ -498,61 +405,6 @@ export function useCardStageController(
     [clearDraftDirtyFromAck, runUpdate],
   );
 
-  const drainDescriptionSaveQueue = useCallback(() => {
-    if (!hasLegacyContentAuthority) return;
-    const queue = descriptionSaveQueueRef.current;
-    if (queue.inFlight || !queue.pending) return;
-
-    const request = queue.pending;
-    queue.pending = null;
-    queue.inFlight = request;
-
-    const endSaving = beginSaving();
-    runUpdate(request.columnId, request.cardId, { description: request.value })
-      .then((result) => {
-        if (result.status === "updated" && currentCardIdRef.current === request.cardId) {
-          lastPersistedDescriptionRef.current = request.value;
-        }
-        clearDraftDirtyFromAck(result, { description: request.value });
-      })
-      .finally(() => {
-        endSaving();
-        if (descriptionSaveQueueRef.current.inFlight === request) {
-          descriptionSaveQueueRef.current.inFlight = null;
-        }
-        drainDescriptionSaveQueueRef.current();
-      });
-  }, [beginSaving, clearDraftDirtyFromAck, hasLegacyContentAuthority, runUpdate]);
-
-  useEffect(() => {
-    drainDescriptionSaveQueueRef.current = drainDescriptionSaveQueue;
-  }, [drainDescriptionSaveQueue]);
-
-  const enqueueDescriptionSave = useCallback((value: string) => {
-    if (!card || !hasLegacyContentAuthority) return;
-
-    const request: QueuedDescriptionSave = {
-      cardId: card.id,
-      columnId,
-      value,
-    };
-    const queue = descriptionSaveQueueRef.current;
-    if (queue.inFlight) {
-      queue.pending = queue.inFlight.cardId === card.id && queue.inFlight.value === value
-        ? null
-        : request;
-      return;
-    }
-
-    if (value === lastPersistedDescriptionRef.current) {
-      clearDraftDirty("description");
-      return;
-    }
-
-    queue.pending = request;
-    drainDescriptionSaveQueueRef.current();
-  }, [card, clearDraftDirty, columnId, hasLegacyContentAuthority]);
-
   const saveProperty = useCallback(
     (updates: Partial<CardInput>) => {
       if (!card) return;
@@ -569,35 +421,8 @@ export function useCardStageController(
     onSkipOccurrence,
   });
 
-  const applyCardToDraftState = useCallback((nextCard: Card, nextColumnId: string) => {
-    clearAllDraftDirty();
-    if (hasLegacyContentAuthority) {
-      latestDescriptionRef.current = nextCard.description ?? "";
-      lastPersistedDescriptionRef.current = nextCard.description ?? "";
-      setTitle(nextCard.title);
-      setDescription(nextCard.description ?? "");
-    }
-    setPriority(nextCard.priority);
-    setEstimate(nextCard.estimate || "none");
-    setDueDate(nextCard.dueDate ? nextCard.dueDate.toISOString().split("T")[0] : "");
-    setTags(nextCard.tags);
-    setAssignee(nextCard.assignee || "");
-    setAgentStatus(nextCard.agentStatus || "");
-    setAgentBlocked(nextCard.agentBlocked);
-    setRunInTarget(normalizeRunInTarget(nextCard.runInTarget));
-    setRunInLocalPath(nextCard.runInLocalPath || "");
-    setRunInBaseBranch(nextCard.runInBaseBranch || "");
-    setRunInWorktreePath(nextCard.runInWorktreePath || "");
-    setRunInEnvironmentPath(nextCard.runInEnvironmentPath || "");
-    setCurrentColumnId(nextColumnId);
-    schedule.applyScheduleState(nextCard);
-    schedule.applyRecurrenceState(nextCard);
-  }, [clearAllDraftDirty, hasLegacyContentAuthority, schedule]);
-
   useEffect(() => {
     formStateRef.current = {
-      title,
-      description: latestDescriptionRef.current,
       priority,
       estimate,
       dueDate,
@@ -606,7 +431,7 @@ export function useCardStageController(
       agentStatus,
       agentBlocked,
     };
-  }, [title, description, priority, estimate, dueDate, tags, assignee, agentStatus, agentBlocked]);
+  }, [priority, estimate, dueDate, tags, assignee, agentStatus, agentBlocked]);
 
   useEffect(() => {
     if (!card) return;
@@ -620,14 +445,12 @@ export function useCardStageController(
     if (!card) return;
 
     const overlay = buildCardStageDraftOverlay(card, {
-      title: hasLegacyContentAuthority ? title : card.title,
-      description: hasLegacyContentAuthority ? description : card.description,
       assignee,
       agentStatus,
     });
 
     setCardDraftOverlay(projectId, card.id, overlay);
-  }, [agentStatus, assignee, card, description, hasLegacyContentAuthority, projectId, title]);
+  }, [agentStatus, assignee, card, projectId]);
 
   const rememberScrollTopForCard = useCallback((cardId: string | null, scrollTop: number) => {
     if (!cardId) return;
@@ -709,9 +532,6 @@ export function useCardStageController(
 
   useEffect(() => {
     const cardId = card?.id ?? null;
-    if (updateConflict && updateConflict.cardId !== cardId) {
-      setUpdateConflict(null);
-    }
     const prevCardId = currentCardIdRef.current;
     if (cardId === prevCardId) {
       if (!card) return;
@@ -724,27 +544,9 @@ export function useCardStageController(
       const nextRunInWorktreePath = card.runInWorktreePath || "";
       const nextRunInEnvironmentPath = card.runInEnvironmentPath || "";
 
-      const titleDirty = draftDirtyRef.current.title;
-      const descriptionDirty = draftDirtyRef.current.description;
-      const descriptionHasPendingEditorChange = hasLegacyContentAuthority
-        ? descriptionFlushHandleRef.current?.hasPendingChange() ?? false
-        : false;
       const assigneeDirty = draftDirtyRef.current.assignee;
       const agentStatusDirty = draftDirtyRef.current.agentStatus;
 
-      if (hasLegacyContentAuthority && (!titleDirty || state.title === card.title)) {
-        draftDirtyRef.current.title = false;
-        setTitle((current) => (current === card.title ? current : card.title));
-      }
-      if (hasLegacyContentAuthority &&
-        !descriptionHasPendingEditorChange
-        && (!descriptionDirty || state.description === card.description)
-      ) {
-        draftDirtyRef.current.description = false;
-        latestDescriptionRef.current = card.description ?? "";
-        lastPersistedDescriptionRef.current = card.description ?? "";
-        setDescription((current) => (current === card.description ? current : card.description));
-      }
       setPriority((current) => (current === card.priority ? current : card.priority));
       setEstimate((current) => (current === (card.estimate || "none") ? current : (card.estimate || "none")));
       setDueDate((current) => (current === nextDueDate ? current : nextDueDate));
@@ -774,12 +576,11 @@ export function useCardStageController(
       return;
     }
 
-    for (const ref of [descriptionSaveTimerRef, titleSaveTimerRef, assigneeSaveTimerRef, agentStatusSaveTimerRef]) {
+    for (const ref of [assigneeSaveTimerRef, agentStatusSaveTimerRef]) {
       if (!ref.current) continue;
       clearTimeout(ref.current);
       ref.current = null;
     }
-    descriptionSaveQueueRef.current.pending = null;
     clearAllDraftDirty();
 
     if (prevCardId) {
@@ -793,12 +594,7 @@ export function useCardStageController(
       const targetCard = prevCard.card;
       const targetDueDate = targetCard.dueDate ? targetCard.dueDate.toISOString().split("T")[0] : "";
 
-      const hasContentChanges = hasLegacyContentAuthority && (
-        state.title !== targetCard.title
-        || state.description !== targetCard.description
-      );
-      const hasAnyChanges = hasContentChanges
-        || state.priority !== targetCard.priority
+      const hasAnyChanges = state.priority !== targetCard.priority
         || state.estimate !== (targetCard.estimate || "none")
         || state.dueDate !== targetDueDate
         || state.assignee !== (targetCard.assignee || "")
@@ -806,11 +602,8 @@ export function useCardStageController(
         || state.agentBlocked !== targetCard.agentBlocked
         || JSON.stringify(state.tags) !== JSON.stringify(targetCard.tags);
 
-      if (hasAnyChanges && (!hasLegacyContentAuthority || state.title.trim())) {
+      if (hasAnyChanges) {
         void runUpdate(prevCard.columnId, targetCard.id, {
-          ...(hasLegacyContentAuthority
-            ? { title: state.title, description: state.description }
-            : {}),
           ...toPriorityUpdate(state.priority, targetCard.priority),
           estimate: state.estimate === "none" ? null : (state.estimate as Estimate),
           dueDate: state.dueDate ? new Date(state.dueDate) : undefined,
@@ -825,10 +618,7 @@ export function useCardStageController(
     currentCardIdRef.current = cardId;
 
     if (card) {
-      latestDescriptionRef.current = card.description ?? "";
-      lastPersistedDescriptionRef.current = card.description ?? "";
       setTitle(card.title);
-      setDescription(card.description ?? "");
       setPriority(card.priority);
       setEstimate(card.estimate || "none");
       setDueDate(card.dueDate ? card.dueDate.toISOString().split("T")[0] : "");
@@ -860,14 +650,11 @@ export function useCardStageController(
     card,
     clearAllDraftDirty,
     columnId,
-    hasLegacyContentAuthority,
     runUpdate,
-    projectId,
     readCurrentScrollTopForCard,
     saveScrollTopForCard,
     schedule.applyRecurrenceState,
     schedule.applyScheduleState,
-    updateConflict,
   ]);
 
   useLayoutEffect(() => {
@@ -905,78 +692,25 @@ export function useCardStageController(
 
   const hasChanges = useCallback(() => {
     if (!card) return false;
-    const latestDescription = latestDescriptionRef.current;
     const cardDueDate = card.dueDate ? card.dueDate.toISOString().split("T")[0] : "";
-    return (hasLegacyContentAuthority && (
-      title !== card.title
-      || latestDescription !== (card.description ?? "")
-    ))
-      || priority !== card.priority
+    return priority !== card.priority
       || estimate !== (card.estimate || "none")
       || dueDate !== cardDueDate
       || assignee !== (card.assignee || "")
       || agentStatus !== (card.agentStatus || "")
       || agentBlocked !== card.agentBlocked
       || JSON.stringify(tags) !== JSON.stringify(card.tags);
-  }, [card, title, priority, estimate, dueDate, assignee, agentStatus, agentBlocked, tags, hasLegacyContentAuthority]);
-
-  const handleTitleChange = useCallback(
-    (value: string) => {
-      if (!hasLegacyContentAuthority) return;
-      markDraftDirty("title");
-      formStateRef.current.title = value;
-      setTitle(value);
-
-      if (card && shouldPublishCardStagePatch({ title: value })) {
-        onPatch(columnId, card.id, { title: value });
-      }
-
-      if (titleSaveTimerRef.current) {
-        clearTimeout(titleSaveTimerRef.current);
-      }
-
-      titleSaveTimerRef.current = setTimeout(() => {
-        titleSaveTimerRef.current = null;
-        if (!legacyContentAuthorityRef.current) return;
-        if (!card || value === card.title || !value.trim()) return;
-        const endSaving = beginSaving();
-        runDraftFieldUpdate(columnId, card.id, "title", { title: value }, value).finally(endSaving);
-      }, FIELD_SAVE_DEBOUNCE_MS);
-    },
-    [beginSaving, card, columnId, hasLegacyContentAuthority, markDraftDirty, onPatch, runDraftFieldUpdate],
-  );
-
-  const handleTitleBlur = useCallback(() => {
-    if (!hasLegacyContentAuthority) return;
-    if (titleSaveTimerRef.current) {
-      clearTimeout(titleSaveTimerRef.current);
-      titleSaveTimerRef.current = null;
-    }
-
-    if (!card || !title.trim()) return;
-    if (title === card.title) {
-      clearDraftDirty("title");
-      return;
-    }
-    const endSaving = beginSaving();
-    runDraftFieldUpdate(columnId, card.id, "title", { title }, title).finally(endSaving);
-  }, [beginSaving, card, clearDraftDirty, columnId, hasLegacyContentAuthority, runDraftFieldUpdate, title]);
+  }, [card, priority, estimate, dueDate, assignee, agentStatus, agentBlocked, tags]);
 
   const handleDocumentTitleChange = useCallback((value: string) => {
-    if (hasLegacyContentAuthority) return;
-    formStateRef.current.title = value;
     setTitle(value);
-  }, [hasLegacyContentAuthority]);
+  }, []);
 
   const handleAssigneeChange = useCallback(
     (value: string) => {
       markDraftDirty("assignee");
       formStateRef.current.assignee = value;
       setAssignee(value);
-
-      if (card && shouldPublishCardStagePatch({ assignee: value })) {
-        onPatch(columnId, card.id, { assignee: value });
-      }
 
       if (assigneeSaveTimerRef.current) {
         clearTimeout(assigneeSaveTimerRef.current);
@@ -989,7 +723,7 @@ export function useCardStageController(
         runDraftFieldUpdate(columnId, card.id, "assignee", { assignee: value }, value).finally(endSaving);
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [beginSaving, card, columnId, markDraftDirty, onPatch, runDraftFieldUpdate],
+    [beginSaving, card, columnId, markDraftDirty, runDraftFieldUpdate],
   );
 
   const handleAssigneeBlur = useCallback(() => {
@@ -1013,10 +747,6 @@ export function useCardStageController(
       formStateRef.current.agentStatus = value;
       setAgentStatus(value);
 
-      if (card && shouldPublishCardStagePatch({ agentStatus: value })) {
-        onPatch(columnId, card.id, { agentStatus: value });
-      }
-
       if (agentStatusSaveTimerRef.current) {
         clearTimeout(agentStatusSaveTimerRef.current);
       }
@@ -1028,7 +758,7 @@ export function useCardStageController(
         runDraftFieldUpdate(columnId, card.id, "agentStatus", { agentStatus: value }, value).finally(endSaving);
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [beginSaving, card, columnId, markDraftDirty, onPatch, runDraftFieldUpdate],
+    [beginSaving, card, columnId, markDraftDirty, runDraftFieldUpdate],
   );
 
   const handleAgentStatusBlur = useCallback(() => {
@@ -1046,72 +776,11 @@ export function useCardStageController(
     runDraftFieldUpdate(columnId, card.id, "agentStatus", { agentStatus }, agentStatus).finally(endSaving);
   }, [agentStatus, beginSaving, card, clearDraftDirty, columnId, runDraftFieldUpdate]);
 
-  const handleDescriptionChange = useCallback(
-    (value: string) => {
-      if (!hasLegacyContentAuthority) return;
-      markDraftDirty("description");
-      latestDescriptionRef.current = value;
-      formStateRef.current.description = value;
-      startTransition(() => {
-        setDescription(value);
-      });
-
-      if (card && shouldPublishCardStagePatch({ description: value })) {
-        onPatch(columnId, card.id, { description: value });
-      }
-
-      const activeDescriptionSave = descriptionSaveQueueRef.current.inFlight;
-      if (card && activeDescriptionSave?.cardId === card.id) {
-        descriptionSaveQueueRef.current.pending = activeDescriptionSave.value === value
-          ? null
-          : {
-              cardId: card.id,
-              columnId,
-              value,
-            };
-      }
-
-      if (descriptionSaveTimerRef.current) {
-        clearTimeout(descriptionSaveTimerRef.current);
-      }
-
-      descriptionSaveTimerRef.current = setTimeout(() => {
-        descriptionSaveTimerRef.current = null;
-        if (!legacyContentAuthorityRef.current) return;
-        enqueueDescriptionSave(value);
-      }, DESCRIPTION_SAVE_DEBOUNCE_MS);
-    },
-    [card, columnId, enqueueDescriptionSave, hasLegacyContentAuthority, markDraftDirty, onPatch],
-  );
-
-  const handleDescriptionPendingChange = useCallback(() => {
-    if (!hasLegacyContentAuthority) return;
-    markDraftDirty("description");
-  }, [hasLegacyContentAuthority, markDraftDirty]);
-
-  const flushDescriptionSave = useCallback((value: string) => {
-    if (descriptionSaveTimerRef.current) {
-      clearTimeout(descriptionSaveTimerRef.current);
-      descriptionSaveTimerRef.current = null;
-    }
-
-    enqueueDescriptionSave(value);
-  }, [enqueueDescriptionSave]);
-
-  const handleDescriptionBlur = useCallback(() => {
-    if (!hasLegacyContentAuthority) return;
-    flushDescriptionSave(flushDescriptionEditorChange());
-  }, [flushDescriptionEditorChange, flushDescriptionSave, hasLegacyContentAuthority]);
-
   const handleSave = useCallback(async () => {
-    const latestDescription = hasLegacyContentAuthority
-      ? flushDescriptionEditorChange()
-      : latestDescriptionRef.current;
-    if (!card || (hasLegacyContentAuthority && !title.trim()) || !hasChanges()) return;
+    if (!card || !hasChanges()) return;
     const endSaving = beginSaving();
     try {
       const result = await runUpdate(columnId, card.id, {
-        ...(hasLegacyContentAuthority ? { title, description: latestDescription } : {}),
         ...toPriorityUpdate(priority, card.priority),
         estimate: estimate === "none" ? null : (estimate as Estimate),
         dueDate: dueDate ? new Date(dueDate) : undefined,
@@ -1120,11 +789,7 @@ export function useCardStageController(
         agentStatus,
         agentBlocked,
       });
-      if (hasLegacyContentAuthority && result.status === "updated") {
-        lastPersistedDescriptionRef.current = latestDescription;
-      }
       clearDraftDirtyFromAck(result, {
-        ...(hasLegacyContentAuthority ? { title, description: latestDescription } : {}),
         assignee,
         agentStatus,
       });
@@ -1134,10 +799,7 @@ export function useCardStageController(
   }, [
     beginSaving,
     card,
-    title,
-    hasLegacyContentAuthority,
     hasChanges,
-    flushDescriptionEditorChange,
     runUpdate,
     clearDraftDirtyFromAck,
     columnId,
@@ -1151,7 +813,7 @@ export function useCardStageController(
   ]);
 
   const cancelPendingFieldSaves = useCallback(() => {
-    for (const ref of [descriptionSaveTimerRef, titleSaveTimerRef, assigneeSaveTimerRef, agentStatusSaveTimerRef]) {
+    for (const ref of [assigneeSaveTimerRef, agentStatusSaveTimerRef]) {
       if (!ref.current) continue;
       clearTimeout(ref.current);
       ref.current = null;
@@ -1159,20 +821,15 @@ export function useCardStageController(
   }, []);
 
   const handlePersist = useCallback(async () => {
-    if (hasLegacyContentAuthority) flushDescriptionEditorChange();
     cancelPendingFieldSaves();
 
     saveCurrentScrollPosition();
 
     const metadataSave = hasChanges() ? handleSave() : Promise.resolve();
-    const documentSave = hasLegacyContentAuthority || !persistDocument
-      ? Promise.resolve()
-      : persistDocument();
+    const documentSave = persistDocument?.() ?? Promise.resolve();
     await Promise.all([metadataSave, documentSave]);
   }, [
     cancelPendingFieldSaves,
-    flushDescriptionEditorChange,
-    hasLegacyContentAuthority,
     hasChanges,
     handleSave,
     persistDocument,
@@ -1273,13 +930,12 @@ export function useCardStageController(
   }, []);
 
   const handleToggleShowRawContent = useCallback(() => {
-    if (hasLegacyContentAuthority) flushDescriptionEditorChange();
     setShowRawContent((current) => {
       const next = !current;
       writeCardStageShowRawContentPreference(next);
       return next;
     });
-  }, [flushDescriptionEditorChange, hasLegacyContentAuthority]);
+  }, []);
 
   const refreshRunInBranchState = useCallback(async () => {
     const requestedCwd = projectWorkspacePath?.trim();
@@ -1438,72 +1094,6 @@ export function useCardStageController(
     }, TAG_BLUR_DELAY_MS);
   }, [tagInput, tags]);
 
-  const buildConflictOverwriteUpdates = useCallback(
-    (base: Partial<CardInput>): Partial<CardInput> => {
-      const next: Partial<CardInput> = { ...base };
-      if (!hasLegacyContentAuthority) {
-        delete next.title;
-        delete next.description;
-      }
-      if (hasLegacyContentAuthority && Object.hasOwn(base, "title")) next.title = title;
-      if (hasLegacyContentAuthority && Object.hasOwn(base, "description")) {
-        next.description = flushDescriptionEditorChange();
-      }
-      if (Object.hasOwn(base, "priority")) next.priority = priority ?? null;
-      if (Object.hasOwn(base, "estimate")) {
-        next.estimate = estimate === "none" ? null : (estimate as Estimate);
-      }
-      if (Object.hasOwn(base, "dueDate")) {
-        next.dueDate = dueDate ? new Date(dueDate) : null;
-      }
-      if (Object.hasOwn(base, "tags")) next.tags = tags;
-      if (Object.hasOwn(base, "assignee")) next.assignee = assignee;
-      if (Object.hasOwn(base, "agentStatus")) next.agentStatus = agentStatus;
-      if (Object.hasOwn(base, "agentBlocked")) next.agentBlocked = agentBlocked;
-      if (Object.hasOwn(base, "runInTarget")) next.runInTarget = runInTarget;
-      if (Object.hasOwn(base, "runInLocalPath")) next.runInLocalPath = runInLocalPath || null;
-      if (Object.hasOwn(base, "runInBaseBranch")) next.runInBaseBranch = runInBaseBranch || null;
-      if (Object.hasOwn(base, "runInWorktreePath")) next.runInWorktreePath = runInWorktreePath || null;
-      if (Object.hasOwn(base, "runInEnvironmentPath")) next.runInEnvironmentPath = runInEnvironmentPath || null;
-      return next;
-    },
-    [
-      agentBlocked,
-      agentStatus,
-      assignee,
-      dueDate,
-      estimate,
-      flushDescriptionEditorChange,
-      hasLegacyContentAuthority,
-      priority,
-      runInBaseBranch,
-      runInEnvironmentPath,
-      runInLocalPath,
-      runInTarget,
-      runInWorktreePath,
-      tags,
-      title,
-    ],
-  );
-
-  const handleReloadLatest = useCallback(() => {
-    if (!updateConflict) return;
-    const latestCard = card?.id === updateConflict.cardId ? card : updateConflict.latestCard;
-    applyCardToDraftState(latestCard, updateConflict.columnId);
-    setUpdateConflict(null);
-  }, [applyCardToDraftState, card, updateConflict]);
-
-  const handleOverwriteMine = useCallback(async () => {
-    if (!updateConflict) return;
-    const endSaving = beginSaving();
-    try {
-      const overwriteUpdates = buildConflictOverwriteUpdates(updateConflict.attemptedUpdates);
-      await runUpdate(updateConflict.columnId, updateConflict.cardId, overwriteUpdates);
-    } finally {
-      endSaving();
-    }
-  }, [beginSaving, buildConflictOverwriteUpdates, runUpdate, updateConflict]);
-
   const hasThreadsRow = linkedCodexThreads.length > 0 || Boolean(onOpenNewCodexThread);
   const selectedRunInBaseBranch = runInBaseBranch.trim() || resolveDefaultRunInBaseBranch(runInBranchState);
   const runInLocalPathDisplay = runInLocalPath.trim();
@@ -1544,7 +1134,6 @@ export function useCardStageController(
     card,
     projectWorkspacePath,
     title,
-    description,
     priority,
     estimate,
     dueDate,
@@ -1592,13 +1181,9 @@ export function useCardStageController(
     contentShellClassName,
     scrollContainerRef,
     setScrollContainerRef,
-    descriptionFlushHandleRef,
     tagInputRef,
     tagDropdownRef,
     schedule,
-    updateConflict: updateConflict
-      ? { columnId: updateConflict.columnId, latestCard: updateConflict.latestCard }
-      : null,
     onToggleHistoryPanel,
     onOpenNewCodexThread,
     onOpenCodexThread,
@@ -1612,12 +1197,7 @@ export function useCardStageController(
     handleToggleContentWidth,
     handleToggleShowRawContent,
     handleScroll,
-    handleTitleChange,
-    handleTitleBlur,
     handleDocumentTitleChange,
-    handleDescriptionPendingChange,
-    handleDescriptionChange,
-    handleDescriptionBlur,
     handlePriorityChange,
     handleEstimateChange,
     handleDueDateChange,
@@ -1632,8 +1212,6 @@ export function useCardStageController(
     handleAddTag,
     handleRemoveTag,
     handleTagInputBlur,
-    handleReloadLatest,
-    handleOverwriteMine,
     handleRunInTargetChange,
     handlePickRunInLocalPath,
     handleClearRunInLocalPath,

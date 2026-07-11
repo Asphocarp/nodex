@@ -7,6 +7,7 @@ import type {
   CodexThreadSummary,
 } from "@/lib/types";
 import type { ReadyCardBlockDocumentDescriptor } from "@/lib/owned-block-document";
+import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
 
 export interface CardStageLinkedThread {
   threadId: string;
@@ -24,25 +25,20 @@ export interface CardStageSessionSnapshot {
   titleSnapshot: string;
 }
 
-export interface CardStageDescriptionFlushHandle {
-  flushPendingChange: () => string | null;
-  hasPendingChange: () => boolean;
-}
-
 /**
  * Makes the content authority impossible to infer from a Card read model.
- * Legacy Cards temporarily use the compatibility snapshot editor; primary
- * Cards must mount the owned Y.Doc identified by the prepared descriptor.
+ * Card Stage can only mount the owned Y.Doc identified by the prepared
+ * descriptor; a Card read-model projection is never an editor input.
  */
-export type CardStageDocumentAuthority =
-  | { readonly kind: "legacy_shadow" }
-  | {
-      readonly kind: "ydoc_primary";
-      readonly descriptor: ReadyCardBlockDocumentDescriptor & {
-        readonly authority: "ydoc_primary";
-      };
-      readonly reload: () => Promise<void>;
-    };
+export interface CardStageDocumentAuthority {
+  readonly kind: "ydoc_primary";
+  readonly descriptor: ReadyCardBlockDocumentDescriptor & {
+    readonly authority: "ydoc_primary";
+  };
+  readonly reload: () => Promise<void>;
+  /** In-memory transport seam for isolated fixtures and tests. */
+  readonly surfaceDependencies?: BlockDocumentSurfaceDependencies;
+}
 
 export interface CardStageProps {
   onClose: () => void;
@@ -63,11 +59,6 @@ export interface CardStageProps {
     cardId: string,
     updates: Partial<CardInput>,
   ) => Promise<CardUpdateMutationResult | void>;
-  onPatch: (
-    columnId: string,
-    cardId: string,
-    updates: Partial<CardInput>,
-  ) => void;
   onDelete: (columnId: string, cardId: string) => Promise<void>;
   onMove: (fromStatus: Card["status"], cardId: string, toStatus: Card["status"]) => Promise<void>;
   onCompleteOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;

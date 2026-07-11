@@ -26,7 +26,7 @@ A Card is the user-facing name for a document-bearing Block. A Card has no separ
 
 A Card can be placed directly in a Space, nested in another Document, or shown through references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
 
-Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read-model snapshot as proof of content authority. During migration the returned descriptor explicitly selects either the temporary legacy surface or the Y.Doc-primary surface.
+Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read-model snapshot as proof of content authority. Only an exact `ydoc_primary` descriptor may mount Card Stage; a non-primary migration result fails closed before the editor boundary and can only retry preparation.
 
 ### Document
 
@@ -240,7 +240,7 @@ Presence, cursors, selections, open toggles, search terms, focus, and relocation
 
 ## Code orientation during migration
 
-The legacy Card-first authority is primarily in `src/main/local-store/schema.ts`, `src/main/local-store/cards.ts`, `src/main/local-store/history.ts`, `src/main/card-mutation-writer.ts`, `src/main/card-mutation-worker.ts`, `src/renderer/components/kanban/card-stage/use-card-stage-controller.ts`, and `src/renderer/components/kanban/editor/nfm-editor.tsx`.
+The remaining Card-first migration machinery is confined to schema/startup conversion and compatibility read assembly in `src/main`. Renderer Card Stage and NFM editing have no legacy content-authority branch: they receive a prepared Document or render a fail-closed migration diagnostic.
 
 The Block-first migration adds shared Block/Document Interfaces under `src/shared/`, persistence Implementations under `src/main/local-store/`, and a transport-neutral renderer provider behind `src/renderer/lib/api.ts`. Card Stage's authority boundary and writable surface live under `src/renderer/components/block-documents/`; the surface runtime and descriptor validation live under `src/renderer/lib/`. The exact paths and phased cutover are maintained in `.generated/block-first/EXECPLAN.md`.
 

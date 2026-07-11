@@ -30,12 +30,11 @@ import {
   readGitBranchState,
 } from "./git-branch-service";
 import type {
-  BlockDropImportInput,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
-  CardEditorDropInput,
   CardSearchInput,
   CardsDetailsInput,
+  MoveCardToProjectInput,
 } from "../shared/types";
 import {
   CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
@@ -56,9 +55,7 @@ import {
 import { parseAssetSource } from "../shared/assets";
 import { getLogger } from "./logging/logger";
 import {
-  HttpBlockDropImportBodySchema,
   HttpCardBodySchema,
-  HttpCardEditorDropBodySchema,
   parseOptionalCardStatus,
 } from "../shared/schemas/http";
 import {
@@ -75,7 +72,6 @@ import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutatio
 import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
 import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
-import { registerCardProjectTransferHttpRoute } from "./card-project-transfer-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
 import {
   registerCardLifecycleHttpRoute,
@@ -303,10 +299,6 @@ registerDocumentMutationHttpRoute(app, {
 registerAdditionalDocumentCommandHttpRoute(app, {
   applyCommand: (request) =>
     documentSyncHub.applyAdditionalDocumentCommand(request),
-});
-
-registerCardProjectTransferHttpRoute(app, {
-  transfer: (intent) => documentSyncHub.transferCardProject(intent),
 });
 
 registerDocumentHistoryHttpRoutes(app, {
@@ -606,18 +598,6 @@ function parseOccurrenceScope(
 
 function normalizeCardBody(body: Record<string, unknown>): Record<string, unknown> {
   return HttpCardBodySchema.parse(body);
-}
-
-export function normalizeBlockDropImportBody(
-  body: Record<string, unknown>,
-): Record<string, unknown> {
-  return HttpBlockDropImportBodySchema.parse(body);
-}
-
-export function normalizeCardEditorDropBody(
-  body: Record<string, unknown>,
-): Record<string, unknown> {
-  return HttpCardEditorDropBodySchema.parse(body);
 }
 
 // === Project routes ===
@@ -1547,38 +1527,37 @@ app.put("/api/projects/:projectId/move", async (c) => {
   return c.json({ success: true });
 });
 
-app.post("/api/projects/:projectId/card-import-block-drop", cardWriteBodyLimit, async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = (await c.req.json()) as Record<string, unknown>;
-  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
+  const sourceProjectId = c.req.param("projectId");
+  const body = await c.req.json().catch(() => ({}));
 
-  const input = normalizeBlockDropImportBody({ ...body });
-  delete input.sessionId;
   try {
-    const { result } = await cardMutationWriter.importBlockDropAsCards(
-      projectId,
-      input as unknown as BlockDropImportInput,
-      sessionId,
-    );
-    return c.json(result, 201);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
+    if (!isRecord(body)) throw new Error("Invalid request body");
+    if (typeof body.cardId !== "string" || body.cardId.length === 0) {
+      throw new Error("Missing cardId");
+    }
+    if (typeof body.targetProjectId !== "string" || body.targetProjectId.length === 0) {
+      throw new Error("Missing targetProjectId");
+    }
 
-app.post("/api/projects/:projectId/card-editor-drop", cardWriteBodyLimit, async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = (await c.req.json()) as Record<string, unknown>;
-  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const input: MoveCardToProjectInput = {
+      cardId: body.cardId,
+      sourceProjectId,
+      sourceStatus: parseOptionalCardStatus(body.sourceStatus),
+      targetProjectId: body.targetProjectId,
+      targetStatus: parseOptionalCardStatus(body.targetStatus),
+    };
 
-  const input = normalizeCardEditorDropBody({ ...body });
-  delete input.sessionId;
-  try {
-    const { result } = await cardMutationWriter.applyCardEditorDrop(
-      projectId,
-      input as unknown as CardEditorDropInput,
-      sessionId,
-    );
+    const { result } = await cardMutationWriter.moveCardToProject(input);
+    if (result === "wrong_column") {
+      return c.json({ error: "Card is no longer in the expected column" }, 409);
+    }
+    if (result === "not_found") {
+      return c.json({ error: "Card not found" }, 404);
+    }
+    if (result === "target_project_not_found") {
+      return c.json({ error: "Target project not found" }, 404);
+    }
     return c.json(result, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);

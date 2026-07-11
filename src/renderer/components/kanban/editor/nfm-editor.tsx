@@ -43,15 +43,7 @@ import {
   NodexPopoverContent,
 } from "@/components/ui/popover";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
-import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
-import {
-  resolveNfmDeferredExternalContentSyncDecision,
-  resolveNfmExternalContentSyncDecision,
-  type NfmDeferredExternalContentSync,
-} from "./nfm-external-content-sync";
-import type { Card, CodexPromptInput } from "@/lib/types";
-import { useCardImportDropTarget } from "./use-card-import-drop-target";
-import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
+import type { CodexPromptInput } from "@/lib/types";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { NfmTableHandlesController } from "./nfm-table-handles";
 import { NfmHeadingNavigationRail } from "./nfm-heading-navigation-rail";
@@ -70,22 +62,6 @@ import {
   handleArrowFromInlineBlockSelection,
   handleArrowIntoInlineSummary,
 } from "./inline-view-arrow-nav";
-import {
-  insertCardTogglesAtPointer,
-  insertCardToggleAtPointer,
-  resolveCardDropAnchor,
-  resolveCardDropIndicatorPosition,
-  type EditorForCardDropInsert,
-} from "./card-drop-insert";
-import {
-  clearCardDropIndicator,
-  renderCardDropIndicator,
-} from "./card-drop-indicator";
-import { mapCardToDroppedCardToggleBlock } from "./card-drop-toggle-mapper";
-import {
-  mapDraggedBlocksToCardInputs,
-  resolveTopLevelDraggedBlocks,
-} from "./block-drop-card-mapper";
 import {
   NfmSideMenu,
   NfmSideMenuOpenProvider,
@@ -134,27 +110,11 @@ import {
   type ImageBlockLookupEditor,
   type ImageSelectionEditor,
 } from "./image-preview-shortcut";
-import { createCardStageDropAdapter } from "./external-drop-adapters";
 import {
   type DragSessionBlock,
   type EditorForExternalBlockDrop,
   runInEditorTransaction,
-  restoreEditorDocument,
-  snapshotEditorDocument,
 } from "./external-block-drag-session";
-import type { ExternalCardDragPayload } from "./external-card-drag-session";
-import type { CardDropApplyResult } from "./card-drop-target-registry";
-import { buildCardEditorDropRequest } from "../board-drop-routing";
-import type { DragTransferOperation } from "../../../../shared/cross-window-drag";
-import { resolveDraggedBlockIds } from "./drag-source-resolver";
-import {
-  inferInlineViewDropImport,
-  type InlineViewProjectedRow,
-} from "./inline-view-drop-inference";
-import {
-  materializeProjectedCardToggleBlock,
-  resolveProjectedCardDropSource,
-} from "./projected-card-drop";
 import {
   applyCardToggleMetaEdit,
   updateCardToggleSnapshotForMetaEdit,
@@ -162,7 +122,6 @@ import {
 import {
   isProjectedCardToggleBlock,
   isProjectionMutationActive,
-  splitEmbedChildren,
   stripProjectedSubtrees,
 } from "./projection-card-toggle";
 import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
@@ -183,33 +142,15 @@ import {
   ThreadMentionRuntimeProvider,
   type ThreadMentionRuntimeValue,
 } from "./thread-mention-chip";
-import { isBlockWithinOwnerTree } from "./block-tree-ancestry";
 import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
 import { invoke, prepareOwnedBlockDocument, relocateBlocks } from "@/lib/api";
-import { EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS } from "@/lib/timing";
 import {
-  parseNfm,
   serializeNfm,
-  nfmToBlockNote,
   blockNoteToNfm,
   applyToggleStatesFromDom,
 } from "@/lib/nfm";
-import {
-  parseToggleListInlineViewSettings,
-  type ToggleListInlineViewProps,
-} from "@/lib/toggle-list/inline-view-props";
-import {
-  TOGGLE_LIST_STATUS_ORDER,
-  type ToggleListStatusId,
-} from "@/lib/toggle-list/types";
-import { useKanban } from "@/lib/use-kanban";
-import { fetchCardDetails, setCardDetail } from "@/lib/card-detail-store";
 import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
-import type {
-  BlockDropImportSourceUpdate,
-  BoardSummary,
-  CodexThreadSummary,
-} from "@/lib/types";
+import type { CodexThreadSummary } from "@/lib/types";
 import {
   materializeLocalResourceAsset,
   resolveAssetSourceToHttpUrl,
@@ -233,7 +174,6 @@ import {
   createNfmEditorModeOptions,
   getNfmEditorInstanceKey,
   resolveNfmEditorBlockActionCapabilities,
-  routeNfmEditorDocumentChange,
   type NfmEditorSource,
 } from "./nfm-editor-source";
 import {
@@ -252,13 +192,6 @@ interface ActiveChipEdit {
   blockId: string;
   token: string;
   anchorRect: DOMRect;
-}
-
-interface ExternalSyncActivity {
-  hasPendingLocalChange: boolean;
-  isComposing: boolean;
-  isFocusedWithinEditor: boolean;
-  hasActiveLocalEdit: boolean;
 }
 
 interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
@@ -330,23 +263,6 @@ interface NfmEditorChange {
   prevBlock?: NfmEditorChangeBlock;
 }
 
-function isNfmEditorDocumentEmpty(
-  doc: Array<{ type?: string; content?: unknown; children?: unknown[] }>,
-): boolean {
-  const [onlyBlock] = doc;
-  const inlineContent = Array.isArray(onlyBlock?.content)
-    ? onlyBlock.content
-    : [];
-
-  return (
-    doc.length === 0 ||
-    (doc.length === 1 &&
-      onlyBlock?.type === "paragraph" &&
-      inlineContent.length === 0 &&
-      (!onlyBlock.children || onlyBlock.children.length === 0))
-  );
-}
-
 interface InlineViewHostContextRuntimeEditor {
   nodexSourceCardContext?: {
     projectId: string;
@@ -364,14 +280,6 @@ interface RuntimeBlockLike {
 interface EditorForInlineViewDrop {
   getBlock: (id: string) => RuntimeBlockLike | undefined;
   getParentBlock: (id: string) => RuntimeBlockLike | undefined;
-}
-
-interface InlineViewDropContext {
-  ownerBlockId: string;
-  sourceProjectId: string;
-  projectedRows: InlineViewProjectedRow[];
-  insertRowIndex: number;
-  settings: ReturnType<typeof parseToggleListInlineViewSettings>;
 }
 
 interface SendBlocksSelection {
@@ -432,29 +340,6 @@ function createNfmSendToThreadPreferredSessionTarget(
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asRuntimeBlock(value: unknown): RuntimeBlockLike | null {
-  if (!isRecord(value)) return null;
-  return value as RuntimeBlockLike;
-}
-
-function toStringProp(
-  props: Record<string, unknown> | undefined,
-  key: string,
-): string {
-  const value = props?.[key];
-  return typeof value === "string" ? value : "";
-}
-
-function toStatusId(value: string): ToggleListStatusId | undefined {
-  if (!TOGGLE_LIST_STATUS_ORDER.includes(value as ToggleListStatusId))
-    return undefined;
-  return value as ToggleListStatusId;
-}
-
 function toThreadSectionLinkedThreadState(
   thread: CardStageLinkedThread,
 ): ThreadSectionLinkedThreadState {
@@ -495,97 +380,6 @@ function buildThreadSectionThreadMap(
   );
 }
 
-function resolveInlineViewOwnerBlock(
-  editor: EditorForInlineViewDrop,
-  startBlockId: string,
-): RuntimeBlockLike | null {
-  let currentId: string | undefined = startBlockId;
-
-  while (typeof currentId === "string" && currentId.length > 0) {
-    const current = asRuntimeBlock(editor.getBlock(currentId));
-    if (!current) return null;
-    if (current.type === "toggleListInlineView") return current;
-
-    const parent = asRuntimeBlock(editor.getParentBlock(currentId));
-    currentId = typeof parent?.id === "string" ? parent.id : undefined;
-  }
-
-  return null;
-}
-
-function collectInlineViewProjectedRows(
-  ownerBlock: RuntimeBlockLike,
-): InlineViewProjectedRow[] {
-  if (typeof ownerBlock.id !== "string" || ownerBlock.id.length === 0)
-    return [];
-  const ownerChildren = Array.isArray(ownerBlock.children)
-    ? ownerBlock.children
-    : [];
-  const { projectedRows } = splitEmbedChildren(ownerChildren, ownerBlock.id);
-
-  const rows: InlineViewProjectedRow[] = [];
-  for (const projected of projectedRows) {
-    const row = asRuntimeBlock(projected);
-    if (!row || typeof row.id !== "string" || row.id.length === 0) continue;
-    if (!isRecord(row.props)) continue;
-
-    const cardId =
-      toStringProp(row.props, "projectionCardId") ||
-      toStringProp(row.props, "cardId");
-    if (!cardId) continue;
-
-    const sourceStatus = toStatusId(toStringProp(row.props, "sourceStatus"));
-    rows.push({
-      blockId: row.id,
-      cardId,
-      ...(sourceStatus ? { sourceStatus } : {}),
-    });
-  }
-
-  return rows;
-}
-
-function resolveInlineViewDropContext(
-  editor: EditorForInlineViewDrop,
-  anchor: ReturnType<typeof resolveCardDropAnchor>,
-): InlineViewDropContext | null {
-  if (!anchor) return null;
-  const owner = resolveInlineViewOwnerBlock(editor, anchor.blockId);
-  if (!owner || typeof owner.id !== "string" || owner.id.length === 0)
-    return null;
-
-  const projectedRows = collectInlineViewProjectedRows(owner);
-  const rowIndexById = new Map(
-    projectedRows.map((row, index) => [row.blockId, index]),
-  );
-
-  const anchorTargetsOwner = anchor.blockId === owner.id;
-  const anchorTargetsRowRoot = rowIndexById.has(anchor.blockId);
-  if (!anchorTargetsOwner && !anchorTargetsRowRoot) return null;
-
-  const insertRowIndex = anchorTargetsOwner
-    ? anchor.placement === "before"
-      ? 0
-      : projectedRows.length
-    : (rowIndexById.get(anchor.blockId) ?? projectedRows.length) +
-      (anchor.placement === "after" ? 1 : 0);
-
-  const ownerProps = isRecord(owner.props) ? owner.props : {};
-  const sourceProjectId =
-    toStringProp(ownerProps, "sourceProjectId") || "default";
-  const settings = parseToggleListInlineViewSettings(
-    ownerProps as Partial<ToggleListInlineViewProps>,
-  );
-
-  return {
-    ownerBlockId: owner.id,
-    sourceProjectId,
-    projectedRows,
-    insertRowIndex,
-    settings,
-  };
-}
-
 function blockHasProjectedAncestor(
   editor: EditorForInlineViewDrop,
   blockId: string,
@@ -604,16 +398,10 @@ function blockHasProjectedAncestor(
   return false;
 }
 
-function isBoardSummary(value: unknown): value is BoardSummary {
-  if (!isRecord(value)) return false;
-  return Array.isArray(value.columns);
-}
-
 export function NfmEditor(props: NfmEditorProps) {
   const source = props.source;
   const editorInstanceKey = getNfmEditorInstanceKey({
     projectId: props.projectId,
-    sourceCardId: props.sourceCardContext?.cardId,
     source,
   });
 
@@ -704,23 +492,6 @@ function NfmEditorInstance({
     Map<string, Promise<CodexThreadSummary | null>>
   >(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const suppressExternalDropRef = useRef(false);
-  const suppressExternalContentSyncRef = useRef(false);
-  const mutationAuditSessionId = useMutationAuditSessionId();
-  const { applyCardEditorDrop } = useKanban({
-    projectId,
-    sessionId: mutationAuditSessionId,
-  });
-
-  const sourceRef = useRef(source);
-  useEffect(() => {
-    sourceRef.current = source;
-  }, [source]);
-
-  const legacyContent =
-    source.kind === "legacy-snapshot" ? source.content : null;
-  const legacyFlushHandleRef =
-    source.kind === "legacy-snapshot" ? source.flushHandleRef : undefined;
 
   const threadSectionThreadMap = useMemo(
     () =>
@@ -790,38 +561,7 @@ function NfmEditorInstance({
   const extensions = useMemo(() => createNfmEditorExtensions(), []);
   const tiptapExtensions = useMemo(() => [createNfmLinkExtension()], []);
 
-  // Track toggle block IDs for localStorage cleanup
-  const toggleBlockIdsRef = useRef<string[]>([]);
-
-  // Parse initial content for the editor, pre-populating localStorage for toggle states
-  const initialContent = useMemo<
-    (typeof nfmSchema.PartialBlock)[] | undefined
-  >(() => {
-    if (legacyContent === null) return undefined;
-
-    // Clean up previous toggle localStorage entries
-    for (const id of toggleBlockIdsRef.current) {
-      localStorage.removeItem(`toggle-${id}`);
-    }
-    toggleBlockIdsRef.current = [];
-
-    if (!legacyContent.trim()) return undefined;
-    const blocks = parseNfm(legacyContent);
-    const toggleStates = new Map<string, boolean>();
-    const bnBlocks = nfmToBlockNote(blocks, toggleStates);
-
-    // Pre-populate localStorage so BlockNote's createToggleWrapper reads correct initial state
-    for (const [id, isOpen] of toggleStates) {
-      localStorage.setItem(`toggle-${id}`, isOpen ? "true" : "false");
-      toggleBlockIdsRef.current.push(id);
-    }
-
-    return bnBlocks.length > 0
-      ? (bnBlocks as unknown as (typeof nfmSchema.PartialBlock)[])
-      : undefined;
-  }, [editorInstanceKey]);
-
-  const editorModeOptions = createNfmEditorModeOptions(source, initialContent);
+  const editorModeOptions = createNfmEditorModeOptions(source);
 
   const editor = useCreateBlockNote(
     {
@@ -992,9 +732,6 @@ function NfmEditorInstance({
     });
   }, [editor, replaceQuery, syncSearchStats]);
 
-  // Track the last value we sent via onChange to avoid re-parsing our own changes
-  const lastEmittedRef = useRef(legacyContent ?? "");
-
   const serializeEditorToNfm = useCallback((): string => {
     if (!editor) return "";
     const strippedDocument = stripProjectedSubtrees(editor.document);
@@ -1008,220 +745,6 @@ function NfmEditorInstance({
     }
     return serializeNfm(nfmBlocks);
   }, [editor]);
-
-  const serializeCurrentEditorContent = useCallback((): string => {
-    if (!editor) return "";
-    if (isNfmEditorDocumentEmpty(editor.document)) return "";
-    return serializeEditorToNfm();
-  }, [editor, serializeEditorToNfm]);
-
-  const serializeCurrentEditorContentRef = useRef(
-    serializeCurrentEditorContent,
-  );
-  useEffect(() => {
-    serializeCurrentEditorContentRef.current = serializeCurrentEditorContent;
-  }, [serializeCurrentEditorContent]);
-
-  const serializedChangeEmitterRef = useRef<ReturnType<
-    typeof createNfmSerializedChangeEmitter
-  > | null>(null);
-  if (
-    source.kind === "legacy-snapshot" &&
-    !serializedChangeEmitterRef.current
-  ) {
-    serializedChangeEmitterRef.current = createNfmSerializedChangeEmitter({
-      debounceMs: EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS,
-      serialize: () => serializeCurrentEditorContentRef.current(),
-      emit: (value) => {
-        const currentSource = sourceRef.current;
-        if (currentSource.kind !== "legacy-snapshot") return;
-        currentSource.onChange(value);
-      },
-      getLastEmitted: () => lastEmittedRef.current,
-      setLastEmitted: (value) => {
-        lastEmittedRef.current = value;
-      },
-    });
-  }
-
-  const flushSerializedEmit = useCallback(
-    () => serializedChangeEmitterRef.current?.flush() ?? null,
-    [],
-  );
-
-  const scheduleSerializedEmit = useCallback(() => {
-    serializedChangeEmitterRef.current?.schedule();
-  }, []);
-
-  const cancelScheduledSerializedEmit = useCallback(() => {
-    serializedChangeEmitterRef.current?.cancel();
-  }, []);
-
-  const isComposingRef = useRef(false);
-  const deferredExternalContentSyncRef =
-    useRef<NfmDeferredExternalContentSync | null>(null);
-  const queuedExternalReplaceIdRef = useRef(0);
-
-  const getExternalSyncActivity = useCallback((): ExternalSyncActivity => {
-    if (sourceRef.current.kind !== "legacy-snapshot") {
-      return {
-        hasPendingLocalChange: false,
-        isComposing: false,
-        isFocusedWithinEditor: false,
-        hasActiveLocalEdit: false,
-      };
-    }
-
-    const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
-    const hasPendingLocalChange =
-      serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
-    const isComposing = isComposingRef.current;
-    const activeElement = document.activeElement;
-    const isFocusedWithinEditor = Boolean(
-      runtimeEditor.isFocused?.() ||
-      (activeElement instanceof Element &&
-        runtimeEditor.isWithinEditor?.(activeElement)),
-    );
-
-    return {
-      hasPendingLocalChange,
-      isComposing,
-      isFocusedWithinEditor,
-      hasActiveLocalEdit:
-        hasPendingLocalChange || isComposing || isFocusedWithinEditor,
-    };
-  }, [editor]);
-
-  const scheduleExternalContentReplacement = useCallback(
-    (nextContent: string) => {
-      if (sourceRef.current.kind !== "legacy-snapshot") return () => undefined;
-      if (!editor) return () => undefined;
-
-      cancelScheduledSerializedEmit();
-      deferredExternalContentSyncRef.current = null;
-      const replaceId = queuedExternalReplaceIdRef.current + 1;
-      queuedExternalReplaceIdRef.current = replaceId;
-
-      // Clean up previous toggle localStorage entries
-      for (const id of toggleBlockIdsRef.current) {
-        localStorage.removeItem(`toggle-${id}`);
-      }
-      toggleBlockIdsRef.current = [];
-
-      // Compute replacement blocks synchronously (localStorage must be populated
-      // before replaceBlocks so BlockNote reads correct toggle initial states).
-      let nextBlocks: (typeof nfmSchema.PartialBlock)[] | undefined;
-
-      if (!nextContent.trim()) {
-        nextBlocks = [];
-      } else {
-        const blocks = parseNfm(nextContent);
-        const toggleStates = new Map<string, boolean>();
-        const bnBlocks = nfmToBlockNote(blocks, toggleStates);
-
-        // Pre-populate localStorage for toggle state restoration
-        for (const [id, isOpen] of toggleStates) {
-          localStorage.setItem(`toggle-${id}`, isOpen ? "true" : "false");
-          toggleBlockIdsRef.current.push(id);
-        }
-
-        if (bnBlocks.length > 0) {
-          nextBlocks = bnBlocks as unknown as (typeof nfmSchema.PartialBlock)[];
-        }
-      }
-
-      if (nextBlocks === undefined) return () => undefined;
-
-      // Defer replaceBlocks to a microtask so Tiptap's ReactRenderer.flushSync
-      // (for custom block node views like toggleListInlineView) does not collide
-      // with React's active commit phase. Microtasks run before the next paint,
-      // so the update is invisible to users.
-      queueMicrotask(() => {
-        if (queuedExternalReplaceIdRef.current !== replaceId) return;
-        suppressExternalContentSyncRef.current = true;
-        try {
-          editor.transact((tr) => {
-            tr.setMeta("addToHistory", false);
-            editor.replaceBlocks(editor.document, nextBlocks);
-          });
-          lastEmittedRef.current = nextContent;
-        } finally {
-          suppressExternalContentSyncRef.current = false;
-        }
-      });
-
-      return () => {
-        if (queuedExternalReplaceIdRef.current === replaceId) {
-          queuedExternalReplaceIdRef.current += 1;
-        }
-      };
-    },
-    [cancelScheduledSerializedEmit, editor],
-  );
-
-  const reconcileDeferredExternalContentSync = useCallback(() => {
-    if (sourceRef.current.kind !== "legacy-snapshot") return;
-    const deferred = deferredExternalContentSyncRef.current;
-    if (!deferred) return;
-    const activity = getExternalSyncActivity();
-    const currentSerializedContent = activity.hasActiveLocalEdit
-      ? ""
-      : serializeCurrentEditorContentRef.current();
-    const decision = resolveNfmDeferredExternalContentSyncDecision({
-      deferred,
-      currentSerializedContent,
-      hasActiveLocalEdit: activity.hasActiveLocalEdit,
-    });
-
-    if (decision.action === "keep-deferred") {
-      return;
-    }
-
-    if (decision.action === "skip") {
-      deferredExternalContentSyncRef.current = null;
-      if (decision.cancelPending) {
-        cancelScheduledSerializedEmit();
-      }
-      lastEmittedRef.current = deferred.content;
-      return;
-    }
-
-    if (decision.action === "drop") {
-      deferredExternalContentSyncRef.current = null;
-      return;
-    }
-
-    scheduleExternalContentReplacement(deferred.content);
-  }, [
-    cancelScheduledSerializedEmit,
-    getExternalSyncActivity,
-    scheduleExternalContentReplacement,
-  ]);
-
-  useEffect(() => {
-    if (!legacyFlushHandleRef) return;
-
-    legacyFlushHandleRef.current = {
-      flushPendingChange: flushSerializedEmit,
-      hasPendingChange: () =>
-        serializedChangeEmitterRef.current?.hasPendingChange() ?? false,
-    };
-
-    return () => {
-      if (
-        legacyFlushHandleRef.current?.flushPendingChange === flushSerializedEmit
-      ) {
-        legacyFlushHandleRef.current = null;
-      }
-    };
-  }, [legacyFlushHandleRef, flushSerializedEmit]);
-
-  useEffect(
-    () => () => {
-      serializedChangeEmitterRef.current?.cancel();
-    },
-    [],
-  );
 
   const restoreEditorFocus = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1727,21 +1250,8 @@ function NfmEditorInstance({
   // Handle content changes from the editor
   const handleChange = useCallback(() => {
     if (!editor) return;
-    const currentSource = sourceRef.current;
-    if (currentSource.kind === "collaborative-document") {
-      routeNfmEditorDocumentChange(currentSource, scheduleSerializedEmit);
-      return;
-    }
-    if (
-      suppressExternalDropRef.current ||
-      suppressExternalContentSyncRef.current
-    ) {
-      cancelScheduledSerializedEmit();
-      return;
-    }
-
-    routeNfmEditorDocumentChange(currentSource, scheduleSerializedEmit);
-  }, [cancelScheduledSerializedEmit, editor, scheduleSerializedEmit]);
+    source.onDocumentChange?.();
+  }, [editor, source]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1832,53 +1342,6 @@ function NfmEditorInstance({
     serializeEditorToNfm,
   ]);
 
-  // Sync external content changes (card switching)
-  const prevContentRef = useRef(legacyContent ?? "");
-  useEffect(() => {
-    if (source.kind !== "legacy-snapshot") return;
-    if (!editor) return;
-    const content = source.content;
-    const previousContent = prevContentRef.current;
-    if (content === previousContent) return;
-    prevContentRef.current = content;
-    const currentSerializedContent = serializeCurrentEditorContentRef.current();
-    const activity = getExternalSyncActivity();
-    const decision = resolveNfmExternalContentSyncDecision({
-      incomingContent: content,
-      previousContent,
-      lastEmittedContent: lastEmittedRef.current,
-      currentSerializedContent,
-      hasActiveLocalEdit: activity.hasActiveLocalEdit,
-    });
-
-    if (decision.action === "skip") {
-      if (decision.cancelPending) {
-        cancelScheduledSerializedEmit();
-      }
-      deferredExternalContentSyncRef.current = null;
-      lastEmittedRef.current = content;
-      return;
-    }
-
-    if (decision.action === "defer") {
-      deferredExternalContentSyncRef.current = {
-        content,
-        baselineSerializedContent: currentSerializedContent,
-        shouldReplayWhenSafe:
-          !activity.hasPendingLocalChange && !activity.isComposing,
-      };
-      return;
-    }
-
-    return scheduleExternalContentReplacement(content);
-  }, [
-    cancelScheduledSerializedEmit,
-    editor,
-    getExternalSyncActivity,
-    scheduleExternalContentReplacement,
-    source,
-  ]);
-
   useEffect(() => {
     if (!editor) return;
     setNfmSearchQuery(editor, searchQuery);
@@ -1902,36 +1365,7 @@ function NfmEditorInstance({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const handleCompositionStart = () => {
-      isComposingRef.current = true;
-    };
-    const handleCompositionEnd = () => {
-      isComposingRef.current = false;
-      if (source.kind === "legacy-snapshot") {
-        queueMicrotask(reconcileDeferredExternalContentSync);
-      }
-    };
-    const handleBeforeInput = (event: InputEvent) => {
-      if (event.isComposing) {
-        isComposingRef.current = true;
-      }
-    };
-
-    el.addEventListener("compositionstart", handleCompositionStart, true);
-    el.addEventListener("compositionend", handleCompositionEnd, true);
-    el.addEventListener("beforeinput", handleBeforeInput, true);
-    return () => {
-      el.removeEventListener("compositionstart", handleCompositionStart, true);
-      el.removeEventListener("compositionend", handleCompositionEnd, true);
-      el.removeEventListener("beforeinput", handleBeforeInput, true);
-    };
-  }, [reconcileDeferredExternalContentSync, source.kind]);
-
-  useEffect(() => {
-    if (source.kind !== "collaborative-document" || !surfaceWriteFence) return;
+    if (!surfaceWriteFence) return;
     return surfaceWriteFence.registerRelocationPreparer(async () => {
       const container = containerRef.current;
       if (!container) return;
@@ -1940,85 +1374,13 @@ function NfmEditorInstance({
         container,
       );
     });
-  }, [editor, source.kind, surfaceWriteFence]);
+  }, [editor, surfaceWriteFence]);
 
   useEffect(() => {
     const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
     applyNfmEditorWriteFence(runtimeEditor, writeFrozen);
   }, [editor, writeFrozen]);
 
-  useEffect(() => {
-    if (source.kind !== "legacy-snapshot") return;
-    const el = containerRef.current;
-    if (!el || !editor) return;
-
-    const handleFocusOut = (event: FocusEvent) => {
-      const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
-      if (
-        event.relatedTarget instanceof Element &&
-        runtimeEditor.isWithinEditor?.(event.relatedTarget)
-      ) {
-        return;
-      }
-
-      queueMicrotask(reconcileDeferredExternalContentSync);
-    };
-
-    el.addEventListener("focusout", handleFocusOut, true);
-    return () => {
-      el.removeEventListener("focusout", handleFocusOut, true);
-    };
-  }, [editor, reconcileDeferredExternalContentSync, source.kind]);
-
-  // Detect toggle button clicks (which don't create ProseMirror transactions)
-  // and trigger save so toggle open/closed state is persisted via ▶/▼ markers
-  useEffect(() => {
-    if (source.kind !== "legacy-snapshot") return;
-    const el = containerRef.current;
-    if (!el || !editor) return;
-
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (
-          mutation.type === "attributes" &&
-          mutation.attributeName === "data-show-children" &&
-          (mutation.target as HTMLElement).classList.contains(
-            "bn-toggle-wrapper",
-          )
-        ) {
-          handleChange();
-          // Toggle clicks are discrete actions — flush save immediately
-          // (queueMicrotask defers until after React's batched state update)
-          queueMicrotask(() => {
-            flushSerializedEmit();
-            const currentSource = sourceRef.current;
-            if (currentSource.kind === "legacy-snapshot") {
-              currentSource.onBlur();
-            }
-          });
-          return;
-        }
-      }
-    });
-
-    observer.observe(el, {
-      attributes: true,
-      attributeFilter: ["data-show-children"],
-      subtree: true,
-    });
-
-    return () => observer.disconnect();
-  }, [editor, flushSerializedEmit, handleChange, source.kind]);
-
-  // Clean up toggle localStorage entries on unmount
-  useEffect(() => {
-    if (source.kind !== "legacy-snapshot") return;
-    return () => {
-      for (const id of toggleBlockIdsRef.current) {
-        localStorage.removeItem(`toggle-${id}`);
-      }
-    };
-  }, [source.kind]);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -2389,7 +1751,6 @@ function NfmEditorInstance({
       selection: SendBlocksSelection,
       {
         projectId: targetProjectId,
-        columnId: targetStatus,
         cardId: targetCardId,
       }: {
         projectId: string;
@@ -2407,224 +1768,57 @@ function NfmEditorInstance({
         throw new Error("Choose a different destination card.");
       }
 
-      const activeSource = sourceRef.current;
-      if (activeSource.kind === "collaborative-document") {
-        if (targetProjectId !== projectId) {
-          throw new Error(
-            "Moving Blocks between Cards in different Projects is not available yet.",
-          );
-        }
-        if (!surfaceWriteFence) {
-          throw new Error(
-            "The collaborative Card surface changed; reopen it before moving Blocks.",
-          );
-        }
-        if (surfaceWriteFence.getWriteFrozen()) {
-          throw new Error(
-            "This Card is already completing another Block move.",
-          );
-        }
-
-        const preparedTarget = await prepareOwnedBlockDocument(
-          targetProjectId,
-          targetCardId,
+      if (targetProjectId !== projectId) {
+        throw new Error(
+          "Moving Blocks between Cards in different Projects is not available yet.",
         );
-        if (!preparedTarget.ok) {
-          throw new Error(preparedTarget.error.message);
-        }
-        const request = buildCardBlockRelocationRequest({
-          projectId,
-          source: activeSource,
-          sourceCardId: sourceCardContext.cardId,
-          rootBlockIds: selection.blockIds,
-          targetCardId,
-          target: preparedTarget.value,
-          createRelocationId: () => crypto.randomUUID(),
-        });
-        const relocation = await executeCardBlockRelocation(
-          request,
-          relocateBlocks,
+      }
+      if (!surfaceWriteFence) {
+        throw new Error(
+          "The collaborative Card surface changed; reopen it before moving Blocks.",
         );
-        if (!relocation.ok) throw new Error(relocation.error.message);
-        return;
+      }
+      if (surfaceWriteFence.getWriteFrozen()) {
+        throw new Error(
+          "This Card is already completing another Block move.",
+        );
       }
 
-      const boardResult = await invoke("board:summary:get", targetProjectId);
-      if (!isBoardSummary(boardResult)) {
-        throw new Error("Unable to load destination card.");
-      }
-      const targetColumn = boardResult.columns.find(
-        (column) => column.id === targetStatus,
-      );
-      if (!targetColumn) {
-        throw new Error("Destination column not found.");
-      }
-      const targetCardSummary = targetColumn.cards.find(
-        (card) => card.id === targetCardId,
-      );
-      if (!targetCardSummary) {
-        throw new Error("Destination card not found.");
-      }
-      const targetCard = (await invoke(
-        "card:get",
+      const preparedTarget = await prepareOwnedBlockDocument(
         targetProjectId,
         targetCardId,
-        targetStatus,
-      )) as Card | null;
-      if (!targetCard) {
-        throw new Error("Destination card not found.");
+      );
+      if (!preparedTarget.ok) {
+        throw new Error(preparedTarget.error.message);
       }
-      setCardDetail(targetProjectId, targetCard);
-
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop;
-      cancelScheduledSerializedEmit();
-      const sourceSnapshot = snapshotEditorDocument(dropEditor);
-      const baselineSourceDescription = serializeEditorToNfm();
-      const targetBlocks = parseNfm(targetCard.description ?? "");
-      const transferableBlocks = stripProjectedSubtrees(
-        selection.blocks,
-      ) as DragSessionBlock[];
-      const movedBlocks = blockNoteToNfm(transferableBlocks);
-      const nextTargetDescription = serializeNfm([
-        ...targetBlocks,
-        ...movedBlocks,
-      ]);
-
-      suppressExternalDropRef.current = true;
-      try {
-        runInEditorTransaction(dropEditor, () => {
-          dropEditor.removeBlocks(selection.blockIds);
-        });
-
-        const nextSourceDescription = serializeEditorToNfm();
-        if (nextSourceDescription === baselineSourceDescription) {
-          restoreEditorDocument(dropEditor, sourceSnapshot);
-          throw new Error("Unable to move selected blocks.");
-        }
-
-        await invoke("card:import-block-drop", targetProjectId, {
-          targetStatus,
-          cards: [],
-          sourceUpdates: [
-            {
-              projectId,
-              columnId: sourceCardContext.columnId,
-              cardId: sourceCardContext.cardId,
-              updates: { description: nextSourceDescription },
-            },
-            {
-              projectId: targetProjectId,
-              columnId: targetStatus,
-              cardId: targetCardId,
-              updates: { description: nextTargetDescription },
-            },
-          ],
-          groupId: crypto.randomUUID(),
-        });
-        lastEmittedRef.current = nextSourceDescription;
-        if (targetProjectId === projectId) {
-          await fetchCardDetails(projectId, [
-            sourceCardContext.cardId,
-            targetCardId,
-          ]);
-        } else {
-          await Promise.all([
-            fetchCardDetails(projectId, [sourceCardContext.cardId]),
-            fetchCardDetails(targetProjectId, [targetCardId]),
-          ]);
-        }
-      } catch (error) {
-        restoreEditorDocument(dropEditor, sourceSnapshot);
-        throw error;
-      } finally {
-        suppressExternalDropRef.current = false;
-      }
+      const request = buildCardBlockRelocationRequest({
+        projectId,
+        source,
+        sourceCardId: sourceCardContext.cardId,
+        rootBlockIds: selection.blockIds,
+        targetCardId,
+        target: preparedTarget.value,
+        createRelocationId: () => crypto.randomUUID(),
+      });
+      const relocation = await executeCardBlockRelocation(
+        request,
+        relocateBlocks,
+      );
+      if (!relocation.ok) throw new Error(relocation.error.message);
     },
     [
-      cancelScheduledSerializedEmit,
-      editor,
       projectId,
-      serializeEditorToNfm,
+      source,
       sourceCardContext,
       surfaceWriteFence,
     ],
   );
 
-  const sendBlockSelectionToProject = useCallback(
-    async (
-      selection: SendBlocksSelection,
-      {
-        projectId: targetProjectId,
-        columnId: targetStatus,
-      }: {
-        projectId: string;
-        columnId: string;
-      },
-    ) => {
-      if (sourceRef.current.kind !== "legacy-snapshot") {
-        throw new Error(
-          "Moving blocks between Cards is not available for collaborative documents yet.",
-        );
-      }
-      if (!sourceCardContext) {
-        throw new Error("No blocks selected.");
-      }
-
-      const transferableBlocks = stripProjectedSubtrees(
-        selection.blocks,
-      ) as DragSessionBlock[];
-      const cards = mapDraggedBlocksToCardInputs(transferableBlocks);
-      if (cards.length === 0) {
-        throw new Error("Unable to build cards from the selected blocks.");
-      }
-
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop;
-      cancelScheduledSerializedEmit();
-      const sourceSnapshot = snapshotEditorDocument(dropEditor);
-      const baselineSourceDescription = serializeEditorToNfm();
-
-      suppressExternalDropRef.current = true;
-      try {
-        runInEditorTransaction(dropEditor, () => {
-          dropEditor.removeBlocks(selection.blockIds);
-        });
-
-        const nextSourceDescription = serializeEditorToNfm();
-        if (nextSourceDescription === baselineSourceDescription) {
-          restoreEditorDocument(dropEditor, sourceSnapshot);
-          throw new Error("Unable to move selected blocks.");
-        }
-
-        await invoke("card:import-block-drop", targetProjectId, {
-          targetStatus,
-          cards,
-          sourceUpdates: [
-            {
-              projectId,
-              columnId: sourceCardContext.columnId,
-              cardId: sourceCardContext.cardId,
-              updates: { description: nextSourceDescription },
-            },
-          ],
-          groupId: crypto.randomUUID(),
-        });
-        lastEmittedRef.current = nextSourceDescription;
-        await fetchCardDetails(projectId, [sourceCardContext.cardId]);
-      } catch (error) {
-        restoreEditorDocument(dropEditor, sourceSnapshot);
-        throw error;
-      } finally {
-        suppressExternalDropRef.current = false;
-      }
-    },
-    [
-      cancelScheduledSerializedEmit,
-      editor,
-      projectId,
-      serializeEditorToNfm,
-      sourceCardContext,
-    ],
-  );
+  const sendBlockSelectionToProject = useCallback(async () => {
+    throw new Error(
+      "Creating Cards from selected Blocks needs an explicit Block command and is not available from this menu yet.",
+    );
+  }, []);
 
   const moveBlocksToDestination = useCallback(
     async (destination: NfmMoveToDestination, fallbackBlockId: string) => {
@@ -2636,7 +1830,7 @@ function NfmEditorInstance({
       if (destination.kind === "card") {
         await appendSendBlockSelectionToCard(selection, destination);
       } else {
-        await sendBlockSelectionToProject(selection, destination);
+        await sendBlockSelectionToProject();
       }
 
       restoreEditorFocus();
@@ -2708,7 +1902,6 @@ function NfmEditorInstance({
 
       if (request.mode === "wrap-toggle") {
         const dropEditor = editor as unknown as EditorForExternalBlockDrop;
-        const sourceSnapshot = snapshotEditorDocument(dropEditor);
         const toggleBlock = createSendToThreadToggleBlock({
           threadId,
           children: transferableBlocks,
@@ -2716,19 +1909,12 @@ function NfmEditorInstance({
 
         const toggleStorageKey = `toggle-${toggleBlock.id}`;
         localStorage.setItem(toggleStorageKey, "false");
-        toggleBlockIdsRef.current.push(toggleBlock.id);
         try {
           runInEditorTransaction(dropEditor, () => {
             dropEditor.replaceBlocks(selection.blockIds, [toggleBlock]);
           });
-          scheduleSerializedEmit();
-          flushSerializedEmit();
         } catch (error) {
           localStorage.removeItem(toggleStorageKey);
-          toggleBlockIdsRef.current = toggleBlockIdsRef.current.filter(
-            (blockId) => blockId !== toggleBlock.id,
-          );
-          restoreEditorDocument(dropEditor, sourceSnapshot);
           throw error;
         }
       }
@@ -2744,64 +1930,17 @@ function NfmEditorInstance({
     [
       codexControl,
       editor,
-      flushSerializedEmit,
       onStartNewSessionThreadFromEditor,
       projectId,
       resolveSendBlocksSelection,
       restoreEditorFocus,
-      scheduleSerializedEmit,
       sourceCardContext,
     ],
   );
 
-  const sourceCardId = sourceCardContext?.cardId;
-  const sourceColumnId = sourceCardContext?.columnId;
-  const externalDropAdapter = useMemo(() => {
-    if (source.kind !== "legacy-snapshot") return null;
-    if (!sourceCardId || !sourceColumnId) return null;
-    return createCardStageDropAdapter(
-      {
-        projectId,
-        cardId: sourceCardId,
-        columnId: sourceColumnId,
-      },
-      () => {
-        const hadPendingChange =
-          serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
-        cancelScheduledSerializedEmit();
-        suppressExternalDropRef.current = true;
-        return (result, sourceUpdates) => {
-          if (result === "move") {
-            const sourceUpdate = sourceUpdates.find(
-              (update) =>
-                update.projectId === projectId &&
-                update.cardId === sourceCardId,
-            );
-            const nextDescription = sourceUpdate?.updates.description;
-            if (typeof nextDescription === "string") {
-              lastEmittedRef.current = nextDescription;
-            }
-          }
-          suppressExternalDropRef.current = false;
-          if (result !== "move" && hadPendingChange) {
-            scheduleSerializedEmit();
-          }
-        };
-      },
-    );
-  }, [
-    cancelScheduledSerializedEmit,
-    projectId,
-    scheduleSerializedEmit,
-    source.kind,
-    sourceCardId,
-    sourceColumnId,
-  ]);
-
   useEditorDragBehaviors({
     editor,
     containerRef,
-    externalDropAdapter,
   });
   const sideMenuSelectionGuardActive = useSideMenuSelectionGuard(containerRef);
   const sideMenuFloatingOptions = useMemo(
@@ -2809,383 +1948,6 @@ function NfmEditorInstance({
       getSideMenuSelectionGuardFloatingOptions(sideMenuSelectionGuardActive),
     [sideMenuSelectionGuardActive],
   );
-
-  const applyCardImportDrop = useCallback(
-    async (
-      payload: ExternalCardDragPayload,
-      pointer: { x: number; y: number },
-    ) => {
-      if (sourceRef.current.kind !== "legacy-snapshot") return null;
-      if (!sourceCardContext) return null;
-      const container = containerRef.current;
-      if (!container) return null;
-
-      const detailCards = await fetchCardDetails(
-        payload.projectId,
-        payload.cards.map((entry) => entry.card.id),
-      );
-      const detailById = new Map(detailCards.map((card) => [card.id, card]));
-      if (detailById.size !== payload.cards.length) return null;
-
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop;
-      const hadPendingChange =
-        serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
-      const lastEmittedBeforeDrop = lastEmittedRef.current;
-      cancelScheduledSerializedEmit();
-      const baselineDescription = serializeEditorToNfm();
-      const snapshot = snapshotEditorDocument(dropEditor);
-      const droppedBlocks = payload.cards.flatMap((entry) => {
-        const card = detailById.get(entry.card.id);
-        if (!card) return [];
-        return [
-          mapCardToDroppedCardToggleBlock(
-            card,
-            payload.projectId,
-            entry.columnId,
-            entry.columnName,
-          ),
-        ];
-      });
-      if (droppedBlocks.length !== payload.cards.length) return null;
-
-      suppressExternalDropRef.current = true;
-      try {
-        const inserted = insertCardTogglesAtPointer(
-          editor as unknown as EditorForCardDropInsert,
-          container,
-          pointer,
-          droppedBlocks,
-        );
-        if (!inserted) {
-          suppressExternalDropRef.current = false;
-          return null;
-        }
-
-        const nextDescription = serializeEditorToNfm();
-        if (nextDescription === baselineDescription) {
-          restoreEditorDocument(dropEditor, snapshot);
-          suppressExternalDropRef.current = false;
-          return null;
-        }
-
-        lastEmittedRef.current = nextDescription;
-        return {
-          targetUpdates: [
-            {
-              projectId,
-              columnId: sourceCardContext.columnId,
-              cardId: sourceCardContext.cardId,
-              updates: { description: nextDescription },
-            },
-          ],
-          rollback: () => {
-            restoreEditorDocument(dropEditor, snapshot);
-            lastEmittedRef.current = lastEmittedBeforeDrop;
-            if (hadPendingChange) scheduleSerializedEmit();
-          },
-          cleanup: () => {
-            suppressExternalDropRef.current = false;
-          },
-        };
-      } catch {
-        restoreEditorDocument(dropEditor, snapshot);
-        lastEmittedRef.current = lastEmittedBeforeDrop;
-        suppressExternalDropRef.current = false;
-        if (hadPendingChange) scheduleSerializedEmit();
-        return null;
-      }
-    },
-    [
-      cancelScheduledSerializedEmit,
-      editor,
-      projectId,
-      scheduleSerializedEmit,
-      serializeEditorToNfm,
-      sourceCardContext,
-    ],
-  );
-
-  const commitCardImportDrop = useCallback(
-    async (
-      payload: ExternalCardDragPayload,
-      result: CardDropApplyResult,
-      operation: DragTransferOperation,
-      groupId: string,
-    ): Promise<boolean> => {
-      const request = buildCardEditorDropRequest({
-        operation,
-        sourceProjectId: payload.projectId,
-        sourceCards: payload.cards.map((entry) => ({
-          cardId: entry.card.id,
-          status: entry.columnId,
-        })),
-        targetUpdates: result.targetUpdates,
-        groupId,
-      });
-      if (!request || request.targetProjectId !== projectId) return false;
-      return Boolean(await applyCardEditorDrop(request.input));
-    },
-    [applyCardEditorDrop, projectId],
-  );
-
-  const handleCardImportHover = useCallback(
-    (
-      hover: boolean,
-      pointer: { x: number; y: number } | null,
-      payload: ExternalCardDragPayload | null,
-      operation: DragTransferOperation = "move",
-    ) => {
-      void payload;
-      const container = containerRef.current;
-      if (!container) return;
-
-      if (!hover || !pointer) {
-        clearCardDropIndicator(container);
-        return;
-      }
-
-      const indicator = resolveCardDropIndicatorPosition(
-        editor as unknown as EditorForCardDropInsert,
-        container,
-        pointer,
-      );
-      renderCardDropIndicator(container, indicator, operation);
-    },
-    [editor],
-  );
-
-  useCardImportDropTarget({
-    containerRef,
-    enabled:
-      source.kind === "legacy-snapshot" && sourceCardContext !== undefined,
-    getTargetCardIds: () =>
-      sourceCardContext ? [sourceCardContext.cardId] : [],
-    applyDrop: applyCardImportDrop,
-    commitDrop: commitCardImportDrop,
-    setHover: handleCardImportHover,
-  });
-
-  const handleInlineEmbedDrop = useCallback(
-    async (event: DragEvent) => {
-      if (sourceRef.current.kind !== "legacy-snapshot") return;
-      if (!sourceCardContext) return;
-
-      const container = containerRef.current;
-      if (!container) return;
-
-      const dropEditor = editor as unknown as EditorForExternalBlockDrop &
-        EditorForCardDropInsert;
-      const draggedIds = resolveDraggedBlockIds(dropEditor, container);
-      if (draggedIds.length === 0) return;
-
-      const draggedBlocks = resolveTopLevelDraggedBlocks(
-        dropEditor,
-        draggedIds,
-      );
-      if (draggedBlocks.length === 0) return;
-      const pointer = { x: event.clientX, y: event.clientY };
-      const anchor = resolveCardDropAnchor(container, pointer);
-      if (draggedBlocks.length === 1) {
-        const draggedBlock = draggedBlocks[0];
-        if (!draggedBlock) return;
-
-        const dropSource = resolveProjectedCardDropSource(draggedBlock);
-        if (dropSource) {
-          if (
-            anchor &&
-            isBlockWithinOwnerTree(
-              (blockId) => dropEditor.getParentBlock(blockId),
-              dropSource.ownerBlockId,
-              anchor.blockId,
-            )
-          ) {
-            return;
-          }
-
-          event.preventDefault();
-          event.stopPropagation();
-
-          cancelScheduledSerializedEmit();
-          const baselineDescription = serializeEditorToNfm();
-          const snapshot = snapshotEditorDocument(dropEditor);
-          const droppedBlock = materializeProjectedCardToggleBlock(
-            draggedBlock,
-            dropSource,
-          );
-
-          suppressExternalDropRef.current = true;
-          try {
-            const inserted = insertCardToggleAtPointer(
-              dropEditor,
-              container,
-              pointer,
-              droppedBlock,
-            );
-            if (!inserted) {
-              restoreEditorDocument(dropEditor, snapshot);
-              return;
-            }
-
-            const nextDescription = serializeEditorToNfm();
-            if (nextDescription === baselineDescription) {
-              restoreEditorDocument(dropEditor, snapshot);
-              return;
-            }
-
-            const result = await applyCardEditorDrop({
-              operation: "move",
-              sourceProjectId: dropSource.sourceProjectId,
-              sourceCards: [
-                {
-                  cardId: dropSource.sourceCardId,
-                  status: dropSource.sourceStatus as Card["status"] | undefined,
-                },
-              ],
-              targetUpdates: [
-                {
-                  projectId,
-                  status: sourceCardContext.columnId as Card["status"],
-                  cardId: sourceCardContext.cardId,
-                  updates: { description: nextDescription },
-                },
-              ],
-              groupId: crypto.randomUUID(),
-            });
-
-            if (!result) {
-              restoreEditorDocument(dropEditor, snapshot);
-              return;
-            }
-
-            lastEmittedRef.current = nextDescription;
-            return;
-          } catch {
-            restoreEditorDocument(dropEditor, snapshot);
-            return;
-          } finally {
-            suppressExternalDropRef.current = false;
-          }
-        }
-      }
-
-      if (
-        draggedBlocks.some(
-          (block) => resolveProjectedCardDropSource(block) !== null,
-        )
-      ) {
-        return;
-      }
-
-      if (
-        draggedIds.some((blockId) =>
-          blockHasProjectedAncestor(dropEditor, blockId),
-        )
-      ) {
-        return;
-      }
-
-      const dropContext = resolveInlineViewDropContext(dropEditor, anchor);
-      if (!dropContext) return;
-      if (draggedIds.includes(dropContext.ownerBlockId)) return;
-      if (
-        draggedIds.some((blockId) =>
-          isBlockWithinOwnerTree(
-            (id) => dropEditor.getParentBlock(id),
-            blockId,
-            dropContext.ownerBlockId,
-          ),
-        )
-      ) {
-        return;
-      }
-
-      const cardsToCreate = mapDraggedBlocksToCardInputs(draggedBlocks);
-      if (cardsToCreate.length === 0) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const boardResult = await invoke(
-        "board:summary:get",
-        dropContext.sourceProjectId,
-      );
-      if (!isBoardSummary(boardResult)) return;
-
-      const inferredDrop = inferInlineViewDropImport({
-        settings: dropContext.settings,
-        projectedRows: dropContext.projectedRows,
-        insertRowIndex: dropContext.insertRowIndex,
-        board: boardResult,
-        cards: cardsToCreate,
-      });
-      if (inferredDrop.cards.length === 0) return;
-
-      cancelScheduledSerializedEmit();
-      const baselineDescription = serializeEditorToNfm();
-      const snapshot = snapshotEditorDocument(dropEditor);
-
-      suppressExternalDropRef.current = true;
-      try {
-        runInEditorTransaction(dropEditor, () => {
-          dropEditor.removeBlocks(draggedIds);
-        });
-
-        const nextDescription = serializeEditorToNfm();
-        if (nextDescription === baselineDescription) {
-          restoreEditorDocument(dropEditor, snapshot);
-          return;
-        }
-
-        const sourceUpdates: BlockDropImportSourceUpdate[] = [
-          {
-            projectId,
-            status: sourceCardContext.columnId as Card["status"],
-            cardId: sourceCardContext.cardId,
-            updates: { description: nextDescription },
-          },
-        ];
-
-        await invoke("card:import-block-drop", dropContext.sourceProjectId, {
-          targetStatus: inferredDrop.targetStatus,
-          ...(inferredDrop.insertIndex !== undefined
-            ? { insertIndex: inferredDrop.insertIndex }
-            : {}),
-          cards: inferredDrop.cards,
-          sourceUpdates,
-          groupId: crypto.randomUUID(),
-        });
-        lastEmittedRef.current = nextDescription;
-      } catch {
-        restoreEditorDocument(dropEditor, snapshot);
-      } finally {
-        suppressExternalDropRef.current = false;
-      }
-    },
-    [
-      editor,
-      applyCardEditorDrop,
-      projectId,
-      cancelScheduledSerializedEmit,
-      serializeEditorToNfm,
-      sourceCardContext,
-    ],
-  );
-
-  useEffect(() => {
-    if (source.kind !== "legacy-snapshot") return;
-    if (!sourceCardContext) return;
-    const container = containerRef.current;
-    if (!container) return;
-
-    const onDropCapture = (event: DragEvent) => {
-      void handleInlineEmbedDrop(event);
-    };
-
-    container.addEventListener("drop", onDropCapture, true);
-    return () => {
-      container.removeEventListener("drop", onDropCapture, true);
-    };
-  }, [handleInlineEmbedDrop, source.kind, sourceCardContext]);
 
   // The side-menu component identity must stay stable across NfmEditor renders.
   // BlockNote renders the side menu as `<Component/>` where Component is this
@@ -3195,7 +1957,6 @@ function NfmEditorInstance({
   // aborts native block drag-and-drop. Route volatile values through a ref so
   // the callback identity below never changes.
   const blockActionCapabilities = resolveNfmEditorBlockActionCapabilities(
-    source,
     sourceCardContext !== undefined,
   );
   const sideMenuHandlersRef = useRef({
@@ -3541,12 +2302,6 @@ function NfmEditorInstance({
                       <NfmSlashMenu
                         projectId={projectId}
                         allowCardReferences
-                        allowUnresolvedCardReferenceBlock={
-                          source.kind === "legacy-snapshot"
-                        }
-                        allowLegacyDatabaseViews={
-                          source.kind === "legacy-snapshot"
-                        }
                       />
                       <NfmTableHandlesController />
                     </NfmSideMenuOpenProvider>

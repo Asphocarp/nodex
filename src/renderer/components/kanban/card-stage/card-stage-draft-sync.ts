@@ -1,35 +1,16 @@
 import type { Card, CardInput } from "@/lib/types";
 
 export interface CardStageTextDraftState {
-  title: string;
-  description: string;
   assignee: string;
   agentStatus: string;
 }
 
-const LOCAL_ONLY_DRAFT_KEYS = new Set<keyof CardInput>([
-  "title",
-  "description",
-  "assignee",
-  "agentStatus",
-]);
-
-export function shouldPublishCardStagePatch(updates: Partial<CardInput>): boolean {
-  const keys = Object.keys(updates) as Array<keyof CardInput>;
-  if (keys.length === 0) return false;
-
-  return keys.some((key) => !LOCAL_ONLY_DRAFT_KEYS.has(key));
-}
-
 export function buildCardStageDraftOverlay(
-  card: Pick<Card, "title" | "description" | "assignee" | "agentStatus">,
+  card: Pick<Card, "assignee" | "agentStatus">,
   draft: CardStageTextDraftState,
-): Pick<Partial<CardInput>, "title" | "assignee" | "agentStatus"> {
-  const overlay: Pick<Partial<CardInput>, "title" | "assignee" | "agentStatus"> = {};
+): Pick<Partial<CardInput>, "assignee" | "agentStatus"> {
+  const overlay: Pick<Partial<CardInput>, "assignee" | "agentStatus"> = {};
 
-  if (draft.title !== card.title) {
-    overlay.title = draft.title;
-  }
   if (draft.assignee !== (card.assignee ?? "")) {
     overlay.assignee = draft.assignee;
   }

@@ -26,15 +26,6 @@ import {
   isKanbanCardDragData,
   type KanbanCardDragData,
 } from "./pragmatic-drag-data";
-import {
-  endCrossWindowDragSource,
-  startCrossWindowDrag,
-} from "@/lib/cross-window-drag";
-import {
-  CROSS_WINDOW_DRAG_TOKEN_VERSION,
-  encodeCrossWindowDragToken,
-  NODEX_KANBAN_CARDS_DRAG_MIME,
-} from "../../../shared/cross-window-drag";
 
 type CardEditableProperty = "priority" | "estimate";
 type CardPropertyBadgeLayout = "stacked" | "inline";
@@ -636,25 +627,6 @@ export function Card({
         activeDragDataRef.current = dragData;
         return dragData;
       },
-      getInitialDataForExternal: () => {
-        const dragData = buildDragData(card, columnId);
-        activeDragDataRef.current = dragData;
-        void startCrossWindowDrag({
-          version: CROSS_WINDOW_DRAG_TOKEN_VERSION,
-          sessionId: dragData.crossWindowSessionId,
-          kind: "cards",
-          payload: {
-            projectId: dragData.projectId,
-            cards: dragData.dragItems,
-          },
-          groupId: dragData.groupId,
-        });
-        return {
-          [NODEX_KANBAN_CARDS_DRAG_MIME]: encodeCrossWindowDragToken(
-            dragData.crossWindowSessionId,
-          ),
-        };
-      },
       onGenerateDragPreview: ({ location, nativeSetDragImage, source }) => {
         const dragData = isKanbanCardDragData(source.data)
           ? source.data
@@ -683,11 +655,8 @@ export function Card({
       onDragStart: () => {
         setDragState({ type: "dragging" });
       },
-      onDrop: ({ source }) => {
+      onDrop: () => {
         setDragState({ type: "idle" });
-        if (isKanbanCardDragData(source.data)) {
-          void endCrossWindowDragSource(source.data.crossWindowSessionId);
-        }
         activeDragDataRef.current = null;
       },
     });

@@ -16,10 +16,6 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type {
-  CrossWindowDragPreview,
-  CrossWindowDragSourceResult,
-} from "../../shared/cross-window-drag";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import type {
   OwnedBlockDocumentDescriptor,
@@ -353,30 +349,6 @@ export function createElectronRendererTransport(
         if (!payload || typeof payload.key !== "string") return;
         callback(payload);
       });
-    },
-    subscribeCrossWindowDragActiveChanges(
-      callback: (preview: CrossWindowDragPreview | null) => void,
-    ) {
-      return bridge.on(
-        "cross-window-drag:active-changed",
-        (...args: unknown[]) => {
-          callback(
-            (args[0] as CrossWindowDragPreview | null | undefined) ?? null,
-          );
-        },
-      );
-    },
-    subscribeCrossWindowDragSourceResults(
-      callback: (result: CrossWindowDragSourceResult) => void,
-    ) {
-      return bridge.on(
-        "cross-window-drag:source-result",
-        (...args: unknown[]) => {
-          const result = args[0] as CrossWindowDragSourceResult | undefined;
-          if (!result || typeof result.sessionId !== "string") return;
-          callback(result);
-        },
-      );
     },
     getWindowFocusState() {
       return bridge.invoke("electron-window:focus:get") as Promise<boolean>;

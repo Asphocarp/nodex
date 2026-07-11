@@ -1,6 +1,11 @@
 import type { BoardSummary, CardSummary, CardStatus } from "@/lib/types";
 import { resolveDragGroup, type CardSelectionState } from "./card-selection";
-import type { ExternalCardDragCard, ExternalCardDragItem } from "./editor/external-card-drag-session";
+
+export interface KanbanCardDragItem {
+  card: CardSummary;
+  columnId: CardStatus;
+  columnName: string;
+}
 
 export interface KanbanCardDragData extends Record<string | symbol, unknown> {
   type: "kanban-card";
@@ -8,10 +13,8 @@ export interface KanbanCardDragData extends Record<string | symbol, unknown> {
   projectId: string;
   sourceCardId: string;
   sourceColumnId: CardStatus;
-  sourceCard: ExternalCardDragCard;
-  dragItems: ExternalCardDragItem[];
-  crossWindowSessionId: string;
-  groupId: string;
+  sourceCard: CardSummary;
+  dragItems: KanbanCardDragItem[];
 }
 
 export interface KanbanCardDropTargetData extends Record<string | symbol, unknown> {
@@ -51,8 +54,6 @@ export function buildKanbanCardDragData(args: {
     sourceColumnId: args.columnId,
     sourceCard: args.activeCard,
     dragItems,
-    crossWindowSessionId: crypto.randomUUID(),
-    groupId: crypto.randomUUID(),
   };
 }
 
@@ -88,8 +89,6 @@ export function isKanbanCardDragData(value: unknown): value is KanbanCardDragDat
     && typeof candidate.sourceCardId === "string"
     && typeof candidate.sourceColumnId === "string"
     && typeof candidate.instanceId === "symbol"
-    && typeof candidate.crossWindowSessionId === "string"
-    && typeof candidate.groupId === "string"
     && Array.isArray(candidate.dragItems);
 }
 

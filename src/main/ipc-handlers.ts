@@ -178,7 +178,6 @@ import {
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
 import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
-import { CrossWindowDragCoordinator } from "./cross-window-drag-coordinator";
 import {
   type DocumentSyncClientTarget,
   DocumentSyncHub,
@@ -218,46 +217,6 @@ const rendererDiagnosticsLogger = getLogger({
   subsystem: "renderer",
   component: "diagnostics",
 });
-const crossWindowDragLifecycleBindings = new Set<number>();
-const crossWindowDragCoordinator = new CrossWindowDragCoordinator({
-  onActiveChanged: (preview) => {
-    safeBroadcastToWindows(
-      BrowserWindow.getAllWindows(),
-      "cross-window-drag:active-changed",
-      [preview],
-    );
-  },
-  onSourceResult: (sourceWebContentsId, result) => {
-    const sourceWindow = BrowserWindow.getAllWindows().find(
-      (window) => window.webContents.id === sourceWebContentsId,
-    );
-    safeSendToWebContents(
-      sourceWindow?.webContents,
-      "cross-window-drag:source-result",
-      [result],
-    );
-  },
-});
-
-function requireCrossWindowDragSender(event: IpcMainInvokeEvent): number {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  if (!window || event.sender.getType() !== "window") {
-    throw new Error("Cross-window drag requires an application window");
-  }
-  if (event.senderFrame !== event.sender.mainFrame) {
-    throw new Error("Cross-window drag IPC is restricted to the main frame");
-  }
-
-  const webContentsId = event.sender.id;
-  if (!crossWindowDragLifecycleBindings.has(webContentsId)) {
-    crossWindowDragLifecycleBindings.add(webContentsId);
-    event.sender.once("destroyed", () => {
-      crossWindowDragLifecycleBindings.delete(webContentsId);
-      crossWindowDragCoordinator.handleWebContentsDestroyed(webContentsId);
-    });
-  }
-  return webContentsId;
-}
 function boardCardCount(board: {
   columns: Array<{ cards: unknown[] }>;
 }): number {
@@ -1604,65 +1563,6 @@ export function registerIpcHandlers(
     const { result } = await cardMutationWriter.moveCard(input);
     return result === "moved";
   });
-
-  registerHandle(
-    "card:import-block-drop",
-    async (_, projectId: string, input, sessionId?: string) => {
-      const envelope = await cardMutationWriter.importBlockDropAsCards(
-        projectId,
-        input,
-        sessionId,
-      );
-      return envelope.result;
-    },
-  );
-
-  registerHandle("cross-window-drag:start", (event, input) =>
-    crossWindowDragCoordinator.start(
-      requireCrossWindowDragSender(event),
-      input,
-    ),
-  );
-  registerHandle("cross-window-drag:active:get", (event) => {
-    requireCrossWindowDragSender(event);
-    return crossWindowDragCoordinator.getActive();
-  });
-  registerHandle("cross-window-drag:claim", (event, input) =>
-    crossWindowDragCoordinator.claim(
-      requireCrossWindowDragSender(event),
-      input,
-    ),
-  );
-  registerHandle("cross-window-drag:source-ended", (event, sessionId) =>
-    crossWindowDragCoordinator.sourceEnded(
-      requireCrossWindowDragSender(event),
-      sessionId,
-    ),
-  );
-  registerHandle("cross-window-drag:complete", (event, input) =>
-    crossWindowDragCoordinator.complete(
-      requireCrossWindowDragSender(event),
-      input,
-    ),
-  );
-  registerHandle("cross-window-drag:discard", (event, sessionId) =>
-    crossWindowDragCoordinator.discard(
-      requireCrossWindowDragSender(event),
-      sessionId,
-    ),
-  );
-
-  registerHandle(
-    "card:apply-editor-drop",
-    async (_, projectId: string, input, sessionId?: string) => {
-      const envelope = await cardMutationWriter.applyCardEditorDrop(
-        projectId,
-        input,
-        sessionId,
-      );
-      return envelope.result;
-    },
-  );
 
   registerHandle(
     "calendar:occurrences",

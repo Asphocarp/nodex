@@ -1148,42 +1148,6 @@
   display: none !important;
 }
 
-.nfm-editor[data-card-drop-hover] {
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--accent-blue) 45%, transparent);
-  border-radius: 8px;
-}
-
-.nfm-editor > [data-card-drop-indicator] {
-  position: absolute;
-  pointer-events: none;
-  z-index: 90;
-  height: 3.5px;
-  border-radius: 999px;
-  background-color: #a0caf2;
-  transform: translateY(-1.75px);
-}
-.nfm-editor > [data-card-drop-indicator][data-copy]::before {
-  content: "+";
-  position: absolute;
-  left: -5px;
-  top: 50%;
-  display: grid;
-  width: 13px;
-  height: 13px;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--accent-blue);
-  color: white;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  transform: translateY(-50%);
-}
-.dark .nfm-editor > [data-card-drop-indicator] {
-  background-color: #1d4b77;
-}
-
 /* ===== Toggle List Editor (BlockNote targeting via marker classes) ===== */
 
 .nodex-toggle-list-editor-shell .bn-editor {

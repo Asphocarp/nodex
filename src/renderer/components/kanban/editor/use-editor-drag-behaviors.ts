@@ -1,53 +1,27 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import type { ExternalDropAdapter } from "./external-block-drag-session";
-import {
-  type EditorForExternalBlockDrop,
-  notifyExternalEditorDragEnded,
-  startExternalEditorDragSession,
-} from "./external-block-drag-session";
-import { mapDraggedBlocksToCardInputs, resolveTopLevelDraggedBlocks } from "./block-drop-card-mapper";
-import { resolveDraggedBlockIds } from "./drag-source-resolver";
-import {
-  encodeCrossWindowDragToken,
-  NODEX_NFM_BLOCKS_DRAG_MIME,
-} from "../../../../shared/cross-window-drag";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 import { setupToggleDrop } from "./toggle-drop";
 
 interface UseEditorDragBehaviorsOptions {
   editor: Parameters<typeof setupToggleDrop>[1];
   containerRef: RefObject<HTMLElement | null>;
-  externalDropAdapter?: ExternalDropAdapter | null;
-}
-
-function supportsExternalDropEditor(
-  editor: UseEditorDragBehaviorsOptions["editor"],
-): boolean {
-  const candidate = editor as Partial<EditorForExternalBlockDrop>;
-  if (!Array.isArray(candidate.document)) return false;
-  if (typeof candidate.getBlock !== "function") return false;
-  if (typeof candidate.getParentBlock !== "function") return false;
-  if (typeof candidate.removeBlocks !== "function") return false;
-  return typeof candidate.replaceBlocks === "function";
 }
 
 export function useEditorDragBehaviors({
   editor,
   containerRef,
-  externalDropAdapter,
 }: UseEditorDragBehaviorsOptions) {
-  const latestOptionsRef = useRef({ editor, externalDropAdapter });
+  const latestEditorRef = useRef(editor);
 
   useEffect(() => {
-    latestOptionsRef.current = { editor, externalDropAdapter };
-  }, [editor, externalDropAdapter]);
+    latestEditorRef.current = editor;
+  }, [editor]);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    let dragSessionId: string | undefined;
     let dropCleanupTimeout: number | undefined;
 
     const cleanupNativeDrag = () => {
@@ -56,48 +30,25 @@ export function useEditorDragBehaviors({
         dropCleanupTimeout = undefined;
       }
 
-      const hadLocalDragState = el.hasAttribute("data-dragging") || Boolean(dragSessionId);
+      const hadLocalDragState = el.hasAttribute("data-dragging");
       el.removeAttribute("data-dragging");
-      dragSessionId = undefined;
-      const currentEditor = latestOptionsRef.current.editor;
+      const currentEditor = latestEditorRef.current;
       if (hadLocalDragState && currentEditor) {
         finalizeSideMenuBlockDrag(currentEditor);
       }
     };
 
     const onDragStart = (event: DragEvent) => {
+      void event;
       el.setAttribute("data-dragging", "");
-      const currentEditor = latestOptionsRef.current.editor;
-      const currentExternalDropAdapter = latestOptionsRef.current.externalDropAdapter;
-      if (!currentEditor || !currentExternalDropAdapter) return;
-      if (!supportsExternalDropEditor(currentEditor)) return;
-      const dropEditor = currentEditor as unknown as EditorForExternalBlockDrop;
-      const draggedBlockIds = resolveDraggedBlockIds(dropEditor, el);
-      const draggedBlocks = resolveTopLevelDraggedBlocks(dropEditor, draggedBlockIds);
-      const cards = mapDraggedBlocksToCardInputs(draggedBlocks);
-      const session = startExternalEditorDragSession(
-        dropEditor,
-        el,
-        currentExternalDropAdapter,
-        draggedBlocks.map((block) => block.id),
-        cards,
-      );
-      if (!session) return;
-      dragSessionId = session.id;
-      event.dataTransfer?.setData(
-        NODEX_NFM_BLOCKS_DRAG_MIME,
-        encodeCrossWindowDragToken(session.id),
-      );
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove";
     };
 
     const onDragEnd = () => {
-      if (dragSessionId) notifyExternalEditorDragEnded(dragSessionId);
       cleanupNativeDrag();
     };
 
     const scheduleDropCleanup = () => {
-      if (!el.hasAttribute("data-dragging") && !dragSessionId) return;
+      if (!el.hasAttribute("data-dragging")) return;
       if (dropCleanupTimeout !== undefined) {
         window.clearTimeout(dropCleanupTimeout);
       }

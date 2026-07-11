@@ -201,13 +201,9 @@ import type {
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentSettingsSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
-  BlockDropImportInput,
-  BlockDropImportResult,
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
   CardUpdateResult,
-  CardEditorDropInput,
-  CardEditorDropResult,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   Card,
@@ -292,14 +288,6 @@ import type {
   WorkspacePathsExistResult,
 } from "./types";
 import type { CardMetadataPatch } from "./card-content-authority";
-import type {
-  CrossWindowDragClaimInput,
-  CrossWindowDragClaimResult,
-  CrossWindowDragCompleteInput,
-  CrossWindowDragPreview,
-  CrossWindowDragSourceResult,
-  CrossWindowDragStartInput,
-} from "./cross-window-drag";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -757,38 +745,6 @@ export interface IpcApi {
       intent: PublicCardProjectTransferIntent,
     ];
     result: CardProjectTransferCommandResult;
-  };
-  "card:import-block-drop": {
-    args: [projectId: string, input: BlockDropImportInput, sessionId?: string];
-    result: BlockDropImportResult;
-  };
-  "card:apply-editor-drop": {
-    args: [projectId: string, input: CardEditorDropInput, sessionId?: string];
-    result: CardEditorDropResult;
-  };
-  "cross-window-drag:start": {
-    args: [input: CrossWindowDragStartInput];
-    result: boolean;
-  };
-  "cross-window-drag:active:get": {
-    args: [];
-    result: CrossWindowDragPreview | null;
-  };
-  "cross-window-drag:claim": {
-    args: [input: CrossWindowDragClaimInput];
-    result: CrossWindowDragClaimResult;
-  };
-  "cross-window-drag:source-ended": {
-    args: [sessionId: string];
-    result: boolean;
-  };
-  "cross-window-drag:complete": {
-    args: [input: CrossWindowDragCompleteInput];
-    result: boolean;
-  };
-  "cross-window-drag:discard": {
-    args: [sessionId: string];
-    result: boolean;
   };
   "calendar:occurrences": {
     args: [
@@ -1522,8 +1478,6 @@ export interface IpcApi {
 
 export interface IpcEvents {
   "document-sync:event": DocumentSyncRealtimeEvent;
-  "cross-window-drag:active-changed": CrossWindowDragPreview | null;
-  "cross-window-drag:source-result": CrossWindowDragSourceResult;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
   "database-changed": DatabaseChangeEvent;

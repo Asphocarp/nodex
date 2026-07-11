@@ -14,6 +14,7 @@ import {
   CARD_STAGE_STORY_WORKSPACE_PATH,
   type CardStageStoryControls,
 } from "./card-stage-dev-story-data";
+import { createCardStageStoryDocument } from "./card-stage-story-document";
 
 export interface CardStageDevStoryPageProps extends CardStageStoryControls {
   renderPreview?: boolean;
@@ -111,6 +112,16 @@ export function CardStageDevStoryPage({
       description,
     };
   }, [card, descriptionVariant]);
+  const storyDocument = useMemo(
+    () => createCardStageStoryDocument({
+      projectId: CARD_STAGE_STORY_PROJECT_ID,
+      cardId: displayCard.id,
+      title: displayCard.title,
+      description: displayCard.description,
+    }),
+    [displayCard.description, displayCard.id, displayCard.title],
+  );
+  useEffect(() => storyDocument.destroy, [storyDocument]);
   const linkedThreads = useMemo(
     () => buildCardStageStoryThreads({ threadDensity, previewMode }, extraThreadCount),
     [extraThreadCount, previewMode, threadDensity],
@@ -190,13 +201,10 @@ export function CardStageDevStoryPage({
               columnId={CARD_STAGE_STORY_COLUMN_ID}
               columnName={CARD_STAGE_STORY_COLUMN_NAME}
               projectId={CARD_STAGE_STORY_PROJECT_ID}
-              documentAuthority={{ kind: "legacy_shadow" }}
+              documentAuthority={storyDocument.authority}
               projectWorkspacePath={CARD_STAGE_STORY_WORKSPACE_PATH}
               availableTags={["ui", "threads", "card-stage", "spacing", "review"]}
               onUpdate={handleUpdate}
-              onPatch={() => {
-                // Keep optimistic patches local to the real CardStage controller state.
-              }}
               onDelete={async () => {
               }}
               onMove={handleMove}

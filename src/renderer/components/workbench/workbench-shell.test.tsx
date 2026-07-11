@@ -362,6 +362,14 @@ vi.mock("@/lib/api", () => ({
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
+  readDatabaseManagement: async () => ({
+    ok: false,
+    error: { code: "not_found", message: "Not configured in this test." },
+  }),
+  mutateDatabase: async () => ({
+    ok: false,
+    error: { code: "not_found", message: "Not configured in this test." },
+  }),
   readPrimaryDatabaseDescriptor: async (projectId: string) => {
     invokeCalls.push(["databases:primary:get", projectId]);
     const projectName = projectId === "beta" ? "Beta" : "Alpha";

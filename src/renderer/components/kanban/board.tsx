@@ -10,30 +10,7 @@ import {
   toggleCardSelection,
   type CardSelectionState,
 } from "./card-selection";
-import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import { KanbanBoardScrollContainer } from "./view-scroll-containers";
-import {
-  clearCardDropTargetHover,
-  updateCardDropTargetHover,
-} from "./editor/card-drop-target-registry";
-import {
-  endExternalCardDragSession,
-  getActiveExternalCardDragSession,
-  startExternalCardDragSession,
-  updateExternalCardDragPointer,
-} from "./editor/external-card-drag-session";
-import {
-  claimExternalEditorDragSession,
-  discardExternalEditorDragSession,
-  getActiveExternalEditorDragSession,
-} from "./editor/external-block-drag-session";
-import {
-  claimCrossWindowDrag,
-  completeCrossWindowDrag,
-  discardCrossWindowDrag,
-  useCrossWindowDragPreview,
-} from "@/lib/cross-window-drag";
-import { toast } from "@/components/ui/toast";
 import { buildCardDeepLink } from "@/lib/card-deeplink";
 import {
   getKanbanColumnLayout,
@@ -59,14 +36,7 @@ import type {
   CardInput,
   Project,
 } from "@/lib/types";
-import {
-  formatDragDropLabel,
-  NODEX_NFM_BLOCKS_DRAG_MIME,
-  parseCrossWindowDragToken,
-  resolveDragTransferOperation,
-} from "../../../shared/cross-window-drag";
 import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
-import { resolveExternalCardDropTarget } from "./board-drop-routing";
 import {
   buildKanbanCardDragData,
   isKanbanCardDragData,
@@ -78,10 +48,6 @@ import {
   resolveKanbanCardDropIntent,
 } from "./kanban-card-drop-strategy";
 import { resolveKanbanDropCapabilities } from "./kanban-drop-capabilities";
-import {
-  resolveKanbanImportInference,
-  resolveKanbanImportPreviewLabel,
-} from "./kanban-import-inference";
 import { resolveKanbanDropFeedback } from "./drop-feedback";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
@@ -133,7 +99,6 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const mutationAuditSessionId = useMutationAuditSessionId();
   const pendingCardPreviewOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const crossWindowDragPreview = useCrossWindowDragPreview();
 
   const clearPendingCardPreviewOpen = useCallback(() => {
     if (pendingCardPreviewOpenRef.current === null) return;
@@ -153,7 +118,6 @@ export function KanbanBoard({
     moveCard,
     moveCards,
     moveCardToProject,
-    importBlockDrop,
     refresh,
   } =
     useKanban({
@@ -163,7 +127,6 @@ export function KanbanBoard({
     });
 
   const [cardSelection, setCardSelection] = useState<CardSelectionState>(() => emptyCardSelection());
-  const externalCardDragSessionIdRef = useRef<string | undefined>(undefined);
   const boardScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [dragInstanceId] = useState(() => Symbol("kanban-board-dnd"));
 
@@ -178,7 +141,6 @@ export function KanbanBoard({
     message: string;
   } | null>(null);
   const [activeDraggedCardIds, setActiveDraggedCardIds] = useState<ReadonlySet<string>>(() => new Set());
-  const isKanbanCardDragActive = activeDraggedCardIds.size > 0;
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [columnLayoutPrefs, setColumnLayoutPrefs] = useState<KanbanColumnLayoutPrefs>(
@@ -284,39 +246,13 @@ export function KanbanBoard({
     setActiveDropColumnId(null);
     setBlockedDropMessage(null);
     setActiveDraggedCardIds(new Set());
-    clearCardDropTargetHover();
-    endExternalCardDragSession(externalCardDragSessionIdRef.current);
-    externalCardDragSessionIdRef.current = undefined;
   }, []);
 
   const performCardDrop = useCallback(async (
     dragData: KanbanCardDragData,
     dropTargets: ReadonlyArray<{ data: Record<string | symbol, unknown> }>,
     pointer: { x: number; y: number } | null,
-    operation: "move" | "copy",
   ) => {
-    const cardDragSession = getActiveExternalCardDragSession();
-
-    if (cardDragSession) {
-      const target = resolveExternalCardDropTarget(cardDragSession);
-      if (target && cardDragSession.pointer) {
-        void discardCrossWindowDrag(cardDragSession.id);
-        const committed = await target.performDrop(
-          cardDragSession.payload,
-          cardDragSession.pointer,
-          operation,
-          cardDragSession.groupId,
-        );
-        if (!committed) {
-          toast.danger("Could not complete drop; the source was unchanged.");
-        }
-
-        endExternalCardDragSession(externalCardDragSessionIdRef.current);
-        externalCardDragSessionIdRef.current = undefined;
-        return;
-      }
-    }
-
     const dragCardIds = dragData.dragItems.map((entry) => entry.card.id);
     const destination = resolveKanbanDropLocation({
       visibleBoard: filteredBoard,
@@ -411,18 +347,9 @@ export function KanbanBoard({
           return;
         }
 
-        endExternalCardDragSession(externalCardDragSessionIdRef.current);
-        externalCardDragSessionIdRef.current = startExternalCardDragSession({
-          projectId: source.data.projectId,
-          cards: source.data.dragItems,
-        }, {
-          id: source.data.crossWindowSessionId,
-          groupId: source.data.groupId,
-        });
         setActiveDraggedCardIds(new Set(source.data.dragItems.map((entry) => entry.card.id)));
         setActiveDropColumnId(null);
         setBlockedDropMessage(null);
-        clearCardDropTargetHover();
         setDropIndicator(null);
         if (!selectedCardIds.has(source.data.sourceCardId)) {
           setCardSelection(emptyCardSelection());
@@ -437,12 +364,6 @@ export function KanbanBoard({
           x: location.current.input.clientX,
           y: location.current.input.clientY,
         };
-        updateExternalCardDragPointer(externalCardDragSessionIdRef.current, pointer);
-        updateCardDropTargetHover(pointer, {
-          projectId: source.data.projectId,
-          cards: source.data.dragItems,
-        }, resolveDragTransferOperation(location.current.input.altKey));
-
         const nextIndicator = resolveKanbanDropLocation({
           visibleBoard: filteredBoard,
           dropTargets: location.current.dropTargets as Array<{ data: Record<string | symbol, unknown> }>,
@@ -530,8 +451,6 @@ export function KanbanBoard({
           x: location.current.input.clientX,
           y: location.current.input.clientY,
         };
-        updateExternalCardDragPointer(externalCardDragSessionIdRef.current, pointer);
-        clearCardDropTargetHover();
         setDropIndicator(null);
 
         try {
@@ -539,7 +458,6 @@ export function KanbanBoard({
             source.data,
             location.current.dropTargets as Array<{ data: Record<string | symbol, unknown> }>,
             pointer,
-            resolveDragTransferOperation(location.current.input.altKey),
           );
         } finally {
           clearBoardCardDragState();
@@ -564,186 +482,6 @@ export function KanbanBoard({
   ) => {
     await createCard(columnId, input, placement);
   }, [createCard]);
-
-  const handleNativeDragOver = useCallback(
-    (columnId: string, event: React.DragEvent<HTMLDivElement>) => {
-      if (isKanbanCardDragActive) {
-        return;
-      }
-
-      const session = getActiveExternalEditorDragSession();
-      const externalPreview = crossWindowDragPreview?.kind === "blocks"
-        && event.dataTransfer.types.includes(NODEX_NFM_BLOCKS_DRAG_MIME)
-        ? crossWindowDragPreview
-        : null;
-      const cards = session?.cards ?? externalPreview?.cards;
-      if (!cards || cards.length === 0) {
-        setDropIndicator(null);
-        setActiveDropColumnId(null);
-        return;
-      }
-
-      event.preventDefault();
-      const operation = resolveDragTransferOperation(event.altKey);
-      event.dataTransfer.dropEffect = operation;
-      const targetVisibleIndex = computeNativeDropIndexFromSurface(
-        event.currentTarget,
-        event.clientY,
-      );
-      const inference = resolveKanbanImportInference({
-        board,
-        visibleBoard: filteredBoard,
-        rules: viewPrefs.rules,
-        targetColumnId: columnId as CardType["status"],
-        targetVisibleIndex,
-        cards,
-        hasSearchFilter,
-      });
-      if (inference.mode === "blocked") {
-        setDropIndicator(null);
-        setActiveDropColumnId(null);
-        return;
-      }
-
-      const feedback = resolveKanbanDropFeedback({
-        visibleBoard: filteredBoard,
-        columnId: columnId as CardType["status"],
-        visibleIndex: targetVisibleIndex,
-        showSlotIndicator: inference.mode === "slot",
-        label: formatDragDropLabel(
-          operation,
-          resolveKanbanImportPreviewLabel(cards, inference.cards),
-        ),
-      });
-      setDropIndicator(feedback.dropIndicator);
-      setActiveDropColumnId(feedback.activeDropColumnId);
-    },
-    [
-      board,
-      crossWindowDragPreview,
-      filteredBoard,
-      hasSearchFilter,
-      isKanbanCardDragActive,
-      viewPrefs.rules,
-    ],
-  );
-
-  const handleNativeDragLeave = useCallback(
-    (columnId: string, event: React.DragEvent<HTMLDivElement>) => {
-      if (isKanbanCardDragActive) {
-        return;
-      }
-
-      const nextTarget = event.relatedTarget;
-      if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-        return;
-      }
-
-      setDropIndicator((current) => {
-        if (!current || current.columnId !== columnId) return current;
-        return null;
-      });
-      setActiveDropColumnId(null);
-    },
-    [isKanbanCardDragActive],
-  );
-
-  const handleNativeDrop = useCallback(
-    async (columnId: string, event: React.DragEvent<HTMLDivElement>) => {
-      if (isKanbanCardDragActive) {
-        return;
-      }
-
-      setDropIndicator(null);
-      setActiveDropColumnId(null);
-
-      const token = parseCrossWindowDragToken(
-        event.dataTransfer.getData(NODEX_NFM_BLOCKS_DRAG_MIME),
-      );
-      if (!token) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const operation = resolveDragTransferOperation(event.altKey);
-      const localSession = getActiveExternalEditorDragSession();
-      const claimedLocalSession = localSession?.id === token.sessionId
-        ? claimExternalEditorDragSession(token.sessionId)
-        : null;
-      const externalClaim = claimedLocalSession
-        ? null
-        : await claimCrossWindowDrag({ sessionId: token.sessionId, kind: "blocks" });
-      const payload = claimedLocalSession
-        ? {
-            cards: claimedLocalSession.cards,
-            sourceUpdates: claimedLocalSession.sourceUpdates,
-            groupId: claimedLocalSession.groupId,
-          }
-        : externalClaim?.kind === "blocks"
-          ? externalClaim.payload
-          : null;
-      if (!payload) {
-        toast.danger("Could not complete drop; the source was unchanged.");
-        return;
-      }
-
-      const targetVisibleIndex = computeNativeDropIndexFromSurface(
-        event.currentTarget,
-        event.clientY,
-      );
-      const inference = resolveKanbanImportInference({
-        board,
-        visibleBoard: filteredBoard,
-        rules: viewPrefs.rules,
-        targetColumnId: columnId as CardType["status"],
-        targetVisibleIndex,
-        cards: payload.cards,
-        hasSearchFilter,
-      });
-      if (inference.mode === "blocked") {
-        if (claimedLocalSession) {
-          discardExternalEditorDragSession(token.sessionId, "cancel");
-        } else {
-          await completeCrossWindowDrag({ sessionId: token.sessionId, result: "cancel" });
-        }
-        return;
-      }
-
-      try {
-        const result = await importBlockDrop({
-          targetStatus: columnId as CardType["status"],
-          ...(inference.mode === "slot" ? { insertIndex: inference.insertIndex } : {}),
-          cards: inference.cards,
-          sourceUpdates: operation === "move" ? payload.sourceUpdates : [],
-          groupId: payload.groupId,
-        });
-
-        if (!result) {
-          if (claimedLocalSession) {
-            discardExternalEditorDragSession(token.sessionId, "cancel");
-          } else {
-            await completeCrossWindowDrag({ sessionId: token.sessionId, result: "cancel" });
-          }
-          toast.danger("Could not complete drop; the source was unchanged.");
-          return;
-        }
-
-        if (claimedLocalSession) {
-          discardExternalEditorDragSession(token.sessionId, operation);
-        } else {
-          await completeCrossWindowDrag({ sessionId: token.sessionId, result: operation });
-        }
-      } catch {
-        if (claimedLocalSession) {
-          discardExternalEditorDragSession(token.sessionId, "cancel");
-        } else {
-          await completeCrossWindowDrag({ sessionId: token.sessionId, result: "cancel" });
-        }
-        toast.danger("Could not complete drop; the source was unchanged.");
-      }
-    },
-    [board, filteredBoard, hasSearchFilter, importBlockDrop, isKanbanCardDragActive, viewPrefs.rules],
-  );
 
   const openCardStageFromCard = useCallback(async (
     card: CardType,
@@ -958,9 +696,6 @@ export function KanbanBoard({
               onDeleteCardFromMenu={handleDeleteCardFromMenu}
               onCopyCardLinkFromMenu={handleCopyCardLinkFromMenu}
               onOpenCardMenu={handleCardMenuOpen}
-              onNativeDragOver={handleNativeDragOver}
-              onNativeDragLeave={handleNativeDragLeave}
-              onNativeDrop={handleNativeDrop}
               cardDropDisabled={!dropCapabilities.allowCardTargets}
               columnDropDisabled={!dropCapabilities.allowColumnTargets}
               dropIndicatorIndex={

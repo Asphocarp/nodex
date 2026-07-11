@@ -11982,14 +11982,24 @@ function CardStageSessionTab({
             />
           );
         }
+        if (documentModel.status !== "ydoc_primary") {
+          return (
+            <CardStageSessionNotice
+              title="Card content is not ready"
+              description="This Card must finish its Document migration before it can be edited."
+              actionLabel="Retry"
+              onAction={() => {
+                void documentControls.reload();
+              }}
+            />
+          );
+        }
 
-        const documentAuthority = documentModel.status === "ydoc_primary"
-          ? {
-              kind: "ydoc_primary" as const,
-              descriptor: documentModel.descriptor,
-              reload: documentControls.reload,
-            }
-          : { kind: "legacy_shadow" as const };
+        const documentAuthority = {
+          kind: "ydoc_primary" as const,
+          descriptor: documentModel.descriptor,
+          reload: documentControls.reload,
+        };
 
         return (
           <CardStage
@@ -12006,9 +12016,6 @@ function CardStageSessionTab({
         sessionSnapshotRef={sessionSnapshotRef}
         onClose={onClose}
         onLeaveCard={onLeaveCard}
-        onPatch={(nextColumnId: string, cardId: string, updates: Partial<CardInput>) => {
-          kanban.patchCard(nextColumnId, cardId, updates);
-        }}
         onUpdate={async (nextColumnId: string, cardId: string, updates: Partial<CardInput>): Promise<CardUpdateMutationResult> => (
           await kanban.updateCard(nextColumnId, cardId, updates)
         )}

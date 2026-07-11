@@ -6,10 +6,6 @@ import {
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type {
-  CrossWindowDragPreview,
-  CrossWindowDragSourceResult,
-} from "../../shared/cross-window-drag";
 
 export interface RendererTransport {
   kind: "browser" | "electron";
@@ -165,12 +161,6 @@ export interface RendererTransport {
     callback: (
       update: import("../../shared/ipc-api").PersistedAtomUpdate,
     ) => void,
-  ) => () => void;
-  subscribeCrossWindowDragActiveChanges: (
-    callback: (preview: CrossWindowDragPreview | null) => void,
-  ) => () => void;
-  subscribeCrossWindowDragSourceResults: (
-    callback: (result: CrossWindowDragSourceResult) => void,
   ) => () => void;
   getWindowFocusState: () => Promise<boolean>;
   subscribeWindowFocusChanges: (

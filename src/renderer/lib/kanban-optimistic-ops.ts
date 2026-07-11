@@ -1,10 +1,8 @@
 import type {
-  BlockDropImportInput,
   BoardSummary,
   CardSummary,
   CardCreateInput,
   CardCreatePlacement,
-  CardEditorDropInput,
   CardInput,
   MoveCardInput,
   MoveCardsInput,
@@ -282,56 +280,6 @@ export function buildMoveCardsTransform(input: MoveCardsInput): BoardTransform {
     const insertIndex = clamp(input.newOrder ?? targetCards.length, 0, targetCards.length);
     targetCards.splice(insertIndex, 0, ...movingCards);
     nextBoard = replaceColumnCards(nextBoard, targetColumnIndex, targetCards);
-    return nextBoard;
-  };
-}
-
-function applySourceUpdateTransform(
-  board: BoardSummary,
-  update: BlockDropImportInput["sourceUpdates"][number],
-): BoardSummary {
-  return buildPatchCardTransform(update.status, update.cardId, update.updates)(board);
-}
-
-export function buildImportBlockDropTransform(
-  input: BlockDropImportInput,
-  optimisticCards: CardSummary[],
-): BoardTransform {
-  return (board) => {
-    let nextBoard = board;
-    for (const update of input.sourceUpdates) {
-      nextBoard = applySourceUpdateTransform(nextBoard, update);
-    }
-
-    const insertIndex = input.insertIndex;
-    for (let index = 0; index < optimisticCards.length; index += 1) {
-      const card = optimisticCards[index];
-      if (!card) continue;
-      const cardInsertIndex = insertIndex === undefined ? undefined : insertIndex + index;
-      nextBoard = insertCardIntoColumn(nextBoard, input.targetStatus, card, "bottom", cardInsertIndex);
-    }
-    return nextBoard;
-  };
-}
-
-export function buildCardEditorDropTransform(
-  input: CardEditorDropInput,
-  targetProjectId?: string,
-): BoardTransform {
-  return (board) => {
-    let nextBoard = board;
-    for (const update of input.targetUpdates) {
-      nextBoard = applySourceUpdateTransform(nextBoard, update);
-    }
-
-    const sourceIsOnTargetBoard = !input.sourceProjectId
-      || !targetProjectId
-      || input.sourceProjectId === targetProjectId;
-    if (input.operation === "move" && sourceIsOnTargetBoard) {
-      for (const source of input.sourceCards) {
-        nextBoard = buildDeleteCardTransform(undefined, source.cardId)(nextBoard);
-      }
-    }
     return nextBoard;
   };
 }

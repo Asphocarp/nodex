@@ -1,66 +1,48 @@
-import type { MutableRefObject } from "react";
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
-import type { CardStageDescriptionFlushHandle } from "@/components/kanban/card-stage/types";
-
-export interface NfmEditorLegacySnapshotSource {
-  kind: "legacy-snapshot";
-  content: string;
-  onChange: (nfm: string) => void;
-  onPendingChange?: () => void;
-  onBlur: () => void;
-  flushHandleRef?: MutableRefObject<CardStageDescriptionFlushHandle | null>;
-}
-
-export interface NfmEditorCollaborativeDocumentSource {
-  kind: "collaborative-document";
-  documentId: string;
-  storeEpoch: string;
-  generation: number;
-  clientSessionId: string;
-  fragment: Y.XmlFragment;
-  user: {
-    name: string;
-    color: string;
+/**
+ * A mounted NFM editor is always a view over an existing collaborative
+ * Document. NFM parsing belongs to explicit import/export boundaries and must
+ * never be used to rehydrate an editor after collaboration has started.
+ */
+export interface NfmEditorSource {
+  readonly kind: "collaborative-document";
+  readonly documentId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly clientSessionId: string;
+  readonly fragment: Y.XmlFragment;
+  readonly user: {
+    readonly name: string;
+    readonly color: string;
   };
-  provider?: {
-    awareness?: Awareness;
+  readonly provider?: {
+    readonly awareness?: Awareness;
   };
   /** Editor-local invalidation hint. It is not a persistence callback. */
-  onDocumentChange?: () => void;
+  readonly onDocumentChange?: () => void;
 }
 
-export type NfmEditorSource =
-  NfmEditorLegacySnapshotSource | NfmEditorCollaborativeDocumentSource;
+export type NfmEditorCollaborativeDocumentSource = NfmEditorSource;
 
-export type NfmEditorModeOptions<InitialContent> =
-  | {
-      initialContent: InitialContent | undefined;
-      collaboration?: never;
-    }
-  | {
-      collaboration: {
-        fragment: Y.XmlFragment;
-        user: {
-          name: string;
-          color: string;
-        };
-        provider?: {
-          awareness?: Awareness;
-        };
-      };
-      initialContent?: never;
+export interface NfmEditorModeOptions {
+  readonly collaboration: {
+    readonly fragment: Y.XmlFragment;
+    readonly user: {
+      readonly name: string;
+      readonly color: string;
     };
+    readonly provider?: {
+      readonly awareness?: Awareness;
+    };
+  };
+  readonly initialContent?: never;
+}
 
-export function createNfmEditorModeOptions<InitialContent>(
+export function createNfmEditorModeOptions(
   source: NfmEditorSource,
-  legacyInitialContent: InitialContent | undefined,
-): NfmEditorModeOptions<InitialContent> {
-  if (source.kind === "legacy-snapshot") {
-    return { initialContent: legacyInitialContent };
-  }
-
+): NfmEditorModeOptions {
   return {
     collaboration: {
       fragment: source.fragment,
@@ -84,14 +66,9 @@ function getCollaborativeFragmentId(fragment: Y.XmlFragment): number {
 }
 
 export function getNfmEditorInstanceKey(input: {
-  projectId: string;
-  sourceCardId?: string;
-  source: NfmEditorSource;
+  readonly projectId: string;
+  readonly source: NfmEditorSource;
 }): string {
-  if (input.source.kind === "legacy-snapshot") {
-    return `legacy:${input.projectId}:${input.sourceCardId ?? "unscoped"}`;
-  }
-
   return [
     "collaborative-document",
     input.projectId,
@@ -101,36 +78,14 @@ export function getNfmEditorInstanceKey(input: {
   ].join(":");
 }
 
-export function routeNfmEditorDocumentChange(
-  source: NfmEditorSource,
-  scheduleLegacySnapshot: () => void,
-): "legacy-snapshot" | "collaborative-document" {
-  if (source.kind === "collaborative-document") {
-    source.onDocumentChange?.();
-    return "collaborative-document";
-  }
-
-  source.onPendingChange?.();
-  scheduleLegacySnapshot();
-  return "legacy-snapshot";
-}
-
 export function resolveNfmEditorBlockActionCapabilities(
-  source: NfmEditorSource,
   hasSourceCardContext: boolean,
 ): {
-  canMoveBlocks: boolean;
-  canSendBlocksToThread: boolean;
+  readonly canMoveBlocks: boolean;
+  readonly canSendBlocksToThread: boolean;
 } {
-  if (!hasSourceCardContext) {
-    return {
-      canMoveBlocks: false,
-      canSendBlocksToThread: false,
-    };
-  }
-
   return {
-    canMoveBlocks: true,
-    canSendBlocksToThread: true,
+    canMoveBlocks: hasSourceCardContext,
+    canSendBlocksToThread: hasSourceCardContext,
   };
 }

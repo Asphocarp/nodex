@@ -8,7 +8,6 @@ All notable changes to this project will be documented in this file.
 - Added one trusted command boundary for creating, transforming, and safely deleting Synced Blocks, Reusable Templates, explicit Large Document/Code Blocks, and Canvas documents, available through Electron, browser HTTP/SSE, the renderer API, and `nodex block command` with exact-retry receipts.
 - Added stable-ID Card Document mutation APIs and `nodex block` CLI commands for title, NFM import/export, and Block insert/update/delete/move operations, with exact-head receipts, equivalent Electron/browser behavior, and short editor flush/freeze fences for identity-destructive changes.
 - Added stable Block property mutation APIs for field-level scalar conflict detection and set add/remove intent, with equivalent Electron and browser behavior and exact retry receipts.
-- Added same-window and cross-window drag-and-drop between Kanban and Card Stage/Toggle List editors, with ordered multi-item moves, Alt/Option copy, cross-project transactions, rollback-safe editor insertion, and atomic cross-project undo/redo.
 - Added a packaged macOS startup prompt that offers to move Nodex into Applications before launching from another location.
 - Added opt-in Sentry crash diagnostics with a General settings toggle, local-content scrubber, and release source-map upload for readable production stacks.
 - Added a separate opt-in Sentry Session Replay toggle for masked renderer replays on diagnostic sessions.
@@ -73,7 +72,7 @@ All notable changes to this project will be documented in this file.
 - Blank project session thread pages now open on a centered new-chat home with a project-aware hero prompt, attached composer/footer strip, ProseMirror prompt editor, and local/worktree-only start controls.
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
 - Settings now opens as a full-window route shell with the same native vibrant sidebar feel as the normal workbench sidebar instead of a modal overlay.
-- Card Stage title and body now save as collaborative Y.Doc updates; the temporary snapshot autosave remains isolated to an explicit migration-failure surface.
+- Card Stage title and body now edit exclusively through collaborative Y.Doc surfaces; migration failures stop before the editor instead of falling back to snapshot autosave.
 - Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
 - macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project primary source; cards can request a terminal but no longer own terminal tabs or PTY identity.
@@ -106,6 +105,7 @@ All notable changes to this project will be documented in this file.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 - Removed the deprecated `pty:*` IPC compatibility shim; integrated terminals now use only the `terminal-*` protocol.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
+- Removed snapshot-based Kanban/editor body drops and whole-Card conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
 - Whole-store backup and restore now freeze collaborative and managed-asset writes at one consistent boundary, recover interrupted database/assets swaps without mixing snapshots, and automatically reload open Cards without replaying pre-restore edits.
@@ -285,13 +285,13 @@ All notable changes to this project will be documented in this file.
 - Changed generated card ids to use the published `uuid` package's UUID-v7 implementation, preserving DB-friendly ordering without the old visually repetitive `7000-8000` middle pattern.
 
 ### Fixed
-- Fixed Kanban drag performance and interaction stability on dense boards by replacing the old sortable runtime with Atlassian Pragmatic Drag and Drop while preserving multi-card moves, gap insertion, and board-to-editor move semantics.
+- Fixed Kanban drag performance and interaction stability on dense boards by replacing the old sortable runtime with Atlassian Pragmatic Drag and Drop while preserving multi-card moves and gap insertion.
 - Fixed NFM editor `cardToggle` rows so property chips now stay inline with the toggle title text and wrapped titles use the full row width, matching kanban card properties.
 - Fixed the NFM editor side menu so the add-block `+` now uses the same icon color as the drag handle.
 - Fixed sorted Kanban cross-column drag feedback so the destination column now shows a clear in-column target state instead of only subtle outer edge lines.
 - Fixed sorted Kanban drag-and-drop so non-default sorts still allow cross-column card moves; only same-column manual ranking stays disabled.
 - Fixed Kanban so card drag-and-drop no longer locks completely under active search, filter, or sort rules: filtered boards keep subset-aware reordering, and non-default sorts still allow drag-to-move across columns without pretending to manually rank a sorted column.
-- Fixed the unreleased Kanban insert-position indicator so it no longer flickers from board-card/editor-import drag-handler races, and now matches the final persisted drop position for same-column reorders.
+- Fixed the unreleased Kanban insert-position indicator so it matches the final persisted drop position for same-column reorders.
 - Fixed Card Stage code blocks in light mode after the Streamdown migration by restoring BlockNote's shared dual-theme Shiki parser instead of falling back to a dark-only parser.
 - Fixed the recurring NFM side-menu text-selection clipping regression by disabling hit-testing on BlockNote's floating side-menu overlay during mouse drag-selection instead of relying on brittle subtree-only CSS rules.
 - Fixed local dev browser-origin HTTP requests so trusted localhost origins now receive the expected CORS headers and untrusted origins are rejected consistently even on unknown API routes.
@@ -354,7 +354,6 @@ All notable changes to this project will be documented in this file.
 - Priority is now empty by default and can be cleared back to empty across the card editor, inline creator, and compact card surfaces.
 
 ### Fixed
-- Fixed card-stage typing lag in the NFM editor by keeping freeform text drafts local until save/blur instead of broadcasting every keystroke through the shared project board state, while still letting Kanban card surfaces reflect the in-progress draft for that card without feeding those overlays back into Card Stage, re-rendering the full interactive card shell on every keypress, or triggering a render loop.
 - Matched Kanban’s empty `priority` / `estimate` placeholder chips to Toggle List exactly, including the rendered `-` label, shared chip styling/token logic, and the same click-to-edit dropdown behavior as filled Kanban property chips.
 
 ## [0.1.1] - 2026-03-12

@@ -54,9 +54,6 @@ interface ColumnProps {
     projectId: string;
   }) => Promise<void> | void;
   onOpenCardMenu?: (cardId: string) => void;
-  onNativeDragOver?: (columnId: CardType["status"], event: React.DragEvent<HTMLDivElement>) => void;
-  onNativeDragLeave?: (columnId: CardType["status"], event: React.DragEvent<HTMLDivElement>) => void;
-  onNativeDrop?: (columnId: CardType["status"], event: React.DragEvent<HTMLDivElement>) => void;
   dragDisabled?: boolean;
   cardDropDisabled?: boolean;
   columnDropDisabled?: boolean;
@@ -88,9 +85,6 @@ export const Column = memo(function Column({
   onDeleteCardFromMenu,
   onCopyCardLinkFromMenu,
   onOpenCardMenu,
-  onNativeDragOver,
-  onNativeDragLeave,
-  onNativeDrop,
   dragDisabled = false,
   cardDropDisabled = false,
   columnDropDisabled = false,
@@ -163,9 +157,6 @@ export const Column = memo(function Column({
       ref={columnRef}
       data-kanban-column-id={column.id}
       data-kanban-column-collapsed={isCollapsed ? "true" : "false"}
-      onDragOver={(event) => onNativeDragOver?.(column.id, event)}
-      onDragLeave={(event) => onNativeDragLeave?.(column.id, event)}
-      onDrop={(event) => onNativeDrop?.(column.id, event)}
       className="flex shrink-0 flex-col overflow-clip pr-3"
       style={{
         width: isCollapsed ? COLLAPSED_KANBAN_COLUMN_WIDTH : layout.width,

@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   buildMoveCardTransform,
   buildMoveCardsTransform,
-  buildCardEditorDropTransform,
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import type { BoardSummary, CardSummary } from "./types";
@@ -62,40 +61,6 @@ describe("kanban optimistic ops", () => {
     });
 
     expect(card.priority ?? null).toBe(null);
-  });
-
-  test("card editor copy patches targets without removing source cards", () => {
-    const board = createBoard();
-    const nextBoard = buildCardEditorDropTransform({
-      operation: "copy",
-      sourceCards: [{ cardId: "a", status: "in_progress" }],
-      targetUpdates: [{
-        projectId: "default",
-        status: "in_progress",
-        cardId: "b",
-        updates: { title: "Copied into editor" },
-      }],
-    }, "default")(board);
-
-    expect(nextBoard.columns[2]?.cards.map((card) => card.id).join(",")).toBe("a,b,c,d");
-    expect(nextBoard.columns[2]?.cards[1]?.title).toBe("Copied into editor");
-  });
-
-  test("cross-project move does not optimistically delete same-id target cards", () => {
-    const board = createBoard();
-    const nextBoard = buildCardEditorDropTransform({
-      operation: "move",
-      sourceProjectId: "other",
-      sourceCards: [{ cardId: "a", status: "in_progress" }],
-      targetUpdates: [{
-        projectId: "default",
-        status: "in_progress",
-        cardId: "b",
-        updates: { title: "Moved into editor" },
-      }],
-    }, "default")(board);
-
-    expect(nextBoard.columns[2]?.cards.map((card) => card.id).join(",")).toBe("a,b,c,d");
   });
 
   test("move-card uses post-removal insertion indices for same-column reorders", () => {

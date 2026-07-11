@@ -1,9 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { createRef, type RefObject } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
-import type { ExternalDropAdapter } from "./external-block-drag-session";
-import { getActiveExternalEditorDragSession } from "./external-block-drag-session";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 
 type DragBehaviorEditor = Parameters<typeof useEditorDragBehaviors>[0]["editor"];
@@ -32,31 +30,22 @@ function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
   } as unknown as DragBehaviorEditor;
 }
 
-function makeAdapter(): ExternalDropAdapter {
-  return {
-    buildSourceUpdates: () => [],
-  };
-}
-
 function DragBehaviorHarness({
   editor,
-  externalDropAdapter,
   containerRef,
 }: {
   editor: DragBehaviorEditor;
-  externalDropAdapter: ExternalDropAdapter;
   containerRef: RefObject<HTMLDivElement | null>;
 }) {
   useEditorDragBehaviors({
     editor,
     containerRef,
-    externalDropAdapter,
   });
   return <div ref={containerRef} data-testid="editor-container" />;
 }
 
 describe("useEditorDragBehaviors", () => {
-  test("keeps side-menu drag state across equivalent adapter rerenders", async () => {
+  test("keeps side-menu drag state across ordinary editor rerenders", async () => {
     let blockDragEndCount = 0;
     const editor = makeEditor(() => {
       blockDragEndCount += 1;
@@ -66,19 +55,20 @@ describe("useEditorDragBehaviors", () => {
     const view = render(
       <DragBehaviorHarness
         editor={editor}
-        externalDropAdapter={makeAdapter()}
         containerRef={containerRef}
       />,
     );
     await settleAsyncRender();
 
     const container = view.getByTestId("editor-container");
-    fireEvent.dragStart(container);
+    await act(async () => {
+      fireEvent.dragStart(container);
+      await Promise.resolve();
+    });
 
     view.rerender(
       <DragBehaviorHarness
         editor={editor}
-        externalDropAdapter={makeAdapter()}
         containerRef={containerRef}
       />,
     );
@@ -86,12 +76,13 @@ describe("useEditorDragBehaviors", () => {
 
     expect(editor.prosemirrorView?.dragging === null).toBe(false);
     expect(blockDragEndCount).toBe(0);
-    expect(getActiveExternalEditorDragSession() === null).toBe(false);
 
-    fireEvent.dragEnd(container);
+    await act(async () => {
+      fireEvent.dragEnd(container);
+      await Promise.resolve();
+    });
 
     expect(editor.prosemirrorView?.dragging).toBe(null);
     expect(blockDragEndCount).toBe(1);
-    expect(getActiveExternalEditorDragSession()).toBe(null);
   });
 });
