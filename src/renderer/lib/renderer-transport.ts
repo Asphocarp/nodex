@@ -31,6 +31,13 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/block-documents/contracts").RelocationCommandResult
   >;
+  mutateDocument: (
+    projectId: string,
+    documentId: string,
+    request: import("../../shared/block-documents/document-operations").DocumentMutationRequest,
+  ) => Promise<
+    import("../../shared/block-documents/document-operations").DocumentOperationCommandResult
+  >;
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;

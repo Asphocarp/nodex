@@ -4,6 +4,7 @@ import type { BoardChangeEvent } from "../shared/ipc-api";
 import type { CardMutationMetrics, CardMutationWorkerMessage, CardMutationWorkerRequest } from "./card-mutation-worker-protocol";
 import type { CardSummary } from "../shared/types";
 import type {
+  DocumentMutationRequest,
   DocumentSyncApplyRequest,
   RelocateBlocks,
 } from "../shared/block-documents";
@@ -175,6 +176,80 @@ describe("CardMutationWriter", () => {
     if (!envelope.result.ok) return;
     expect(envelope.result.value.mutationId).toBe("property-mutation-1");
     expect(envelope.result.value.changeLogSeq).toBe(7);
+  });
+
+  test("keeps trusted Document write-fence evidence inside the FIFO boundary", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const input: DocumentMutationRequest = {
+      version: 1,
+      mutationId: "document-mutation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: { kind: "electron_renderer" },
+      clientSessionId: "renderer-1",
+      documentId: "document-1",
+      generation: 1,
+      expectedHeadSeq: 4,
+      operations: [
+        {
+          kind: "delete_block",
+          blockId: "block-1",
+        },
+      ],
+    };
+    const fence = {
+      leaseId: "document-mutation-lease:1",
+      documentId: "document-1",
+      generation: 1,
+      headSeq: 4,
+    };
+
+    const pending = writer.applyDocumentMutation(input, fence);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("applyDocumentMutation");
+    if (!request || request.type !== "applyDocumentMutation") return;
+    expect(request.payload.request.mutationId).toBe("document-mutation-1");
+    expect(request.payload.writeFence?.leaseId).toBe(
+      "document-mutation-lease:1",
+    );
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          mutationKind: "document_operation_batch",
+          mutationId: "document-mutation-1",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          documentId: "document-1",
+          generation: 1,
+          baseHeadSeq: 4,
+          headSeq: 5,
+          touchedBlockIds: ["block-1"],
+          createdBlockIds: [],
+          deletedBlockIds: ["block-1"],
+          updatedBlockIds: [],
+          movedBlockIds: [],
+          writeFenceBlockIds: ["block-1"],
+          titleChanged: false,
+          coordination: "write_fence",
+          changeLogSeq: 12,
+          committedAt: "2026-07-11T00:00:00.000Z",
+          duplicate: false,
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    const result = await pending;
+    expect(result.ok).toBeTrue();
+    if (result.ok) expect(result.value.headSeq).toBe(5);
   });
 
   test("exposes the startup shadow parity result through the FIFO", async () => {

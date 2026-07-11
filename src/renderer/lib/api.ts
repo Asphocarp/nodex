@@ -23,6 +23,10 @@ import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../../shared/block-property-mutations";
+import type {
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+} from "../../shared/block-documents/document-operations";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -89,6 +93,18 @@ export function relocateBlocks(
   request: DocumentRelocationRequest,
 ): Promise<RelocationCommandResult> {
   return resolveRendererTransport().relocateBlocks(request);
+}
+
+export function mutateDocument(
+  projectId: string,
+  documentId: string,
+  request: DocumentMutationRequest,
+): Promise<DocumentOperationCommandResult> {
+  return resolveRendererTransport().mutateDocument(
+    projectId,
+    documentId,
+    request,
+  );
 }
 
 export function resolveCardReference(

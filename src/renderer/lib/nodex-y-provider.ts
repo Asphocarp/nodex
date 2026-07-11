@@ -142,6 +142,9 @@ interface ActiveProviderRelocationLease {
   readonly deadlineAt: number;
   readonly sequence: number;
   status: "preparing" | "frozen";
+  acknowledged: boolean;
+  terminalHeadSeq: number | null;
+  terminalSyncAfterSequence: number | null;
   cancelDeadline: (() => void) | null;
 }
 
@@ -156,6 +159,7 @@ const REMOTE_AWARENESS_ORIGIN = Object.freeze({
 const LOCAL_CHECKPOINT_ORIGIN = Object.freeze({
   source: "nodex-y-provider-local-checkpoint",
 });
+const DOCUMENT_WRITE_LEASE_TERMINAL_TIMEOUT_MS = 10_000;
 
 let fallbackSessionSequence = 0;
 
@@ -287,6 +291,8 @@ export class NodexYProvider {
   private syncing = false;
   private syncAgain = false;
   private syncPromise: Promise<void> | null = null;
+  private syncSequence = 0;
+  private lastSuccessfulSyncSequence = 0;
   private storeEpoch: string | undefined;
   private generation: number | undefined;
   private headSeq = 0;
@@ -677,6 +683,9 @@ export class NodexYProvider {
       deadlineAt: event.deadlineAt,
       sequence: this.relocationSequence + 1,
       status: "preparing",
+      acknowledged: false,
+      terminalHeadSeq: null,
+      terminalSyncAfterSequence: null,
       cancelDeadline: null,
     };
     const activeLease = this.activeRelocationLease;
@@ -863,9 +872,26 @@ export class NodexYProvider {
       return;
     }
 
+    lease.acknowledged = true;
     lease.status = "frozen";
     lease.cancelDeadline?.();
-    lease.cancelDeadline = null;
+    if (lease.terminalHeadSeq !== null) {
+      this.completeRelocationLeaseTerminalIfReady(lease);
+      if (this.isCurrentRelocationLease(lease)) this.refreshStatus();
+      return;
+    }
+    lease.cancelDeadline = this.scheduleRelocationDeadline(() => {
+      if (!this.isCurrentRelocationLease(lease) || lease.terminalHeadSeq !== null) {
+        return;
+      }
+      this.clearActiveRelocationLease();
+      this.enterReset(
+        relocationBoundaryError(
+          "Document write lease committed no terminal event before its watchdog expired",
+          lease.leaseId,
+        ),
+      );
+    }, DOCUMENT_WRITE_LEASE_TERMINAL_TIMEOUT_MS);
     this.refreshStatus();
   }
 
@@ -893,9 +919,39 @@ export class NodexYProvider {
       );
       return;
     }
-    this.clearActiveRelocationLease();
+    lease.status = "frozen";
+    lease.terminalHeadSeq = event.headSeq;
+    lease.terminalSyncAfterSequence = this.syncSequence;
+    lease.cancelDeadline?.();
+    lease.cancelDeadline = this.scheduleRelocationDeadline(() => {
+      if (!this.isCurrentRelocationLease(lease)) return;
+      this.clearActiveRelocationLease();
+      this.enterReset(
+        relocationBoundaryError(
+          "Document write lease could not synchronize its committed terminal head",
+          lease.leaseId,
+        ),
+      );
+    }, DOCUMENT_WRITE_LEASE_TERMINAL_TIMEOUT_MS);
     this.refreshStatus();
     this.requestResync();
+  }
+
+  private completeRelocationLeaseTerminalIfReady(
+    lease: ActiveProviderRelocationLease,
+  ): void {
+    if (
+      !this.isCurrentRelocationLease(lease) ||
+      !lease.acknowledged ||
+      lease.terminalHeadSeq === null ||
+      lease.terminalSyncAfterSequence === null ||
+      this.headSeq < lease.terminalHeadSeq ||
+      this.lastSuccessfulSyncSequence <= lease.terminalSyncAfterSequence
+    ) {
+      return;
+    }
+    this.clearActiveRelocationLease();
+    this.refreshStatus();
   }
 
   private isCurrentRelocationLease(
@@ -1000,11 +1056,17 @@ export class NodexYProvider {
 
     this.syncing = true;
     this.refreshStatus();
-    const promise = this.performSync().finally(() => {
+    const syncSequence = this.syncSequence + 1;
+    this.syncSequence = syncSequence;
+    const promise = this.performSync(syncSequence).finally(() => {
       if (this.syncPromise === promise) {
         this.syncPromise = null;
       }
       this.syncing = false;
+      const activeLease = this.activeRelocationLease;
+      if (activeLease) {
+        this.completeRelocationLeaseTerminalIfReady(activeLease);
+      }
       this.refreshStatus();
       this.resolveFlushWaitersIfIdle();
 
@@ -1025,7 +1087,7 @@ export class NodexYProvider {
     return promise;
   }
 
-  private async performSync(): Promise<void> {
+  private async performSync(syncSequence: number): Promise<void> {
     let result: DocumentSyncCommandResult<DocumentSyncResponse>;
     try {
       result = await this.adapter.sync({
@@ -1074,6 +1136,10 @@ export class NodexYProvider {
     }
 
     this.headSeq = response.headSeq;
+    this.lastSuccessfulSyncSequence = Math.max(
+      this.lastSuccessfulSyncSequence,
+      syncSequence,
+    );
     this.transientError = undefined;
     this.syncRetryAttempt = 0;
     this.drainBufferedEvents();

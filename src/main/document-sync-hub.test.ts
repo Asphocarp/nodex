@@ -15,6 +15,9 @@ import type {
   DocumentSyncResponse,
 } from "../shared/block-documents/document-sync";
 import type {
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+  DocumentWriteFenceProof,
   RelocateBlocks,
   RelocationCommandResult,
   RelocationIntent,
@@ -83,12 +86,82 @@ const applyAck = (
   },
 });
 
+const documentMutationRequest = (
+  mutationId: string,
+  destructive = false,
+): DocumentMutationRequest => ({
+  version: 1,
+  mutationId,
+  projectId: "project-1",
+  storeEpoch: "epoch-1",
+  actor: { kind: "test" },
+  clientSessionId: "agent-session",
+  documentId: "doc-source",
+  generation: 1,
+  expectedHeadSeq: 0,
+  operations: destructive
+    ? [
+        {
+          kind: "update_block",
+          blockId: "block-1",
+          patch: { content: "changed" },
+        },
+      ]
+    : [
+        {
+          kind: "insert_block",
+          block: {
+            id: `inserted:${mutationId}`,
+            type: "paragraph",
+            props: {},
+            content: [],
+            children: [],
+          },
+        },
+      ],
+});
+
+const documentMutationCommitted = (
+  request: DocumentMutationRequest,
+  options: { readonly duplicate?: boolean; readonly fenced?: boolean } = {},
+): DocumentOperationCommandResult => ({
+  ok: true,
+  value: {
+    version: 1,
+    mutationKind:
+      "operations" in request
+        ? "document_operation_batch"
+        : "replace_document_from_nfm",
+    mutationId: request.mutationId,
+    projectId: request.projectId,
+    storeEpoch: request.storeEpoch,
+    documentId: request.documentId,
+    generation: request.generation,
+    baseHeadSeq: request.expectedHeadSeq,
+    headSeq: request.expectedHeadSeq + 1,
+    touchedBlockIds: options.fenced ? ["block-1"] : ["card-1"],
+    createdBlockIds: [],
+    deletedBlockIds: [],
+    updatedBlockIds: options.fenced ? ["block-1"] : [],
+    movedBlockIds: [],
+    writeFenceBlockIds: options.fenced ? ["block-1"] : [],
+    titleChanged: !options.fenced,
+    coordination: options.fenced ? "write_fence" : "merge_friendly",
+    changeLogSeq: 9,
+    committedAt: "2026-07-11T00:00:00.000Z",
+    duplicate: options.duplicate ?? false,
+  },
+});
+
 const createBackend = (
   applyUpdate: DocumentSyncDurableBackend["applyUpdate"] = async (request) =>
     applyAck(request),
 ): DocumentSyncDurableBackend => ({
   sync: async (request) => syncResponse(request),
   applyUpdate,
+  applyDocumentMutation: async () => {
+    throw new Error("Document mutation is not configured");
+  },
   lookupCommittedRelocation: async () => ({ ok: true, value: null }),
   prepareRelocationCommand: async () => {
     throw new Error("Relocation preparation is not configured");
@@ -759,5 +832,209 @@ describe("DocumentSyncHub", () => {
     const result = await pending;
     expect(result.ok).toBeTrue();
     if (result.ok) expect(result.value.duplicate).toBeFalse();
+  });
+
+  test("merge-friendly and duplicate Document mutations commit without a lease", async () => {
+    const request = documentMutationRequest("document-mutation-merge");
+    let calls = 0;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      applyDocumentMutation: async (received, writeFence) => {
+        calls += 1;
+        expect(writeFence === undefined).toBeTrue();
+        return documentMutationCommitted(received, {
+          duplicate: calls === 2,
+        });
+      },
+    });
+    const surface = new FakeTarget(50);
+    subscribe(hub, surface, "doc-source", "surface-1");
+    await syncSubscription(hub, surface, "doc-source", "surface-1");
+    clearSent(surface);
+
+    const committed = await hub.applyDocumentMutation(request);
+    expect(committed.ok).toBeTrue();
+    expect(
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "relocation-lease-prepare",
+      ),
+    ).toBeFalse();
+    expect(
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "resync-required",
+      ),
+    ).toBeTrue();
+
+    clearSent(surface);
+    const duplicate = await hub.applyDocumentMutation(request);
+    expect(duplicate.ok).toBeTrue();
+    if (duplicate.ok) expect(duplicate.value.duplicate).toBeTrue();
+    expect(calls).toBe(2);
+    expect(
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "resync-required",
+      ),
+    ).toBeTrue();
+  });
+
+  test("structural Document mutation flushes and freezes every mounted surface", async () => {
+    const request = documentMutationRequest("document-mutation-fenced", true);
+    const proofs: Array<DocumentWriteFenceProof | undefined> = [];
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      applyDocumentMutation: async (received, writeFence) => {
+        proofs.push(writeFence);
+        if (!writeFence) {
+          return {
+            ok: false,
+            error: {
+              code: "write_fence_required",
+              message: "fence required",
+              retryable: true,
+              mutationId: received.mutationId,
+              expectedGeneration: received.generation,
+              expectedHeadSeq: received.expectedHeadSeq,
+            },
+          };
+        }
+        return documentMutationCommitted(received, { fenced: true });
+      },
+    });
+    const left = new FakeTarget(51);
+    const right = new FakeTarget(52);
+    subscribe(hub, left, "doc-source", "surface-left");
+    subscribe(hub, right, "doc-source", "surface-right");
+    await syncSubscription(hub, left, "doc-source", "surface-left");
+    await syncSubscription(hub, right, "doc-source", "surface-right");
+    clearSent(left, right);
+
+    const pending = hub.applyDocumentMutation(request);
+    await waitUntil(() =>
+      [left, right].every((surface) =>
+        surface.sent.some(
+          (delivery) =>
+            (delivery.value as DocumentSyncRealtimeEvent).kind ===
+            "relocation-lease-prepare",
+        ),
+      ),
+    );
+    for (const surface of [left, right]) {
+      const prepare = surface.sent
+        .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+        .find(
+          (
+            event,
+          ): event is Extract<
+            DocumentSyncRealtimeEvent,
+            { kind: "relocation-lease-prepare" }
+          > => event.kind === "relocation-lease-prepare",
+        );
+      if (!prepare) throw new Error("Missing Document write lease prepare");
+      expect(
+        hub.respondToRelocationLease(surface, {
+          response: "ack",
+          leaseId: prepare.leaseId,
+          documentId: prepare.documentId,
+          clientSessionId: prepare.clientSessionId,
+          storeEpoch: prepare.storeEpoch,
+          generation: prepare.generation,
+          headSeq: prepare.expectedHeadSeq,
+        }).ok,
+      ).toBeTrue();
+    }
+
+    const result = await pending;
+    expect(result.ok).toBeTrue();
+    expect(proofs.length).toBe(2);
+    expect(proofs[0] === undefined).toBeTrue();
+    expect(proofs[1]?.documentId).toBe("doc-source");
+    expect(proofs[1]?.headSeq).toBe(0);
+    for (const surface of [left, right]) {
+      const eventKinds = surface.sent.map(
+        (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
+      );
+      expect(eventKinds.includes("resync-required")).toBeTrue();
+      expect(eventKinds.includes("relocation-lease-release")).toBeTrue();
+    }
+  });
+
+  test("a lease flush that advances the head aborts the original CAS", async () => {
+    const request = documentMutationRequest("document-mutation-stale", true);
+    let calls = 0;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      applyDocumentMutation: async (received) => {
+        calls += 1;
+        return {
+          ok: false,
+          error: {
+            code: "write_fence_required",
+            message: "fence required",
+            retryable: true,
+            mutationId: received.mutationId,
+            expectedGeneration: received.generation,
+            expectedHeadSeq: received.expectedHeadSeq,
+          },
+        };
+      },
+    });
+    const surface = new FakeTarget(53);
+    subscribe(hub, surface, "doc-source", "surface-stale");
+    await syncSubscription(hub, surface, "doc-source", "surface-stale");
+    clearSent(surface);
+
+    const pending = hub.applyDocumentMutation(request);
+    await waitUntil(() =>
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "relocation-lease-prepare",
+      ),
+    );
+    const prepare = surface.sent
+      .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+      .find(
+        (
+          event,
+        ): event is Extract<
+          DocumentSyncRealtimeEvent,
+          { kind: "relocation-lease-prepare" }
+        > => event.kind === "relocation-lease-prepare",
+      );
+    if (!prepare) throw new Error("Missing stale write lease prepare");
+    expect(
+      hub.respondToRelocationLease(surface, {
+        response: "ack",
+        leaseId: prepare.leaseId,
+        documentId: prepare.documentId,
+        clientSessionId: prepare.clientSessionId,
+        storeEpoch: prepare.storeEpoch,
+        generation: prepare.generation,
+        headSeq: prepare.expectedHeadSeq + 1,
+      }).ok,
+    ).toBeTrue();
+
+    const result = await pending;
+    expect(result.ok).toBeFalse();
+    if (!result.ok) {
+      expect(result.error.code).toBe("document_head_conflict");
+      expect(result.error.expectedHeadSeq).toBe(0);
+      expect(result.error.actualHeadSeq).toBe(1);
+      expect(result.error.retryable).toBeFalse();
+    }
+    expect(calls).toBe(1);
+    expect(
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "relocation-lease-cancel",
+      ),
+    ).toBeTrue();
   });
 });

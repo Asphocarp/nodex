@@ -191,6 +191,7 @@ import {
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
 import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
+import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -810,6 +811,30 @@ export function registerIpcHandlers(
     },
     applyMutation: async (request) =>
       (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
+  });
+
+  registerDocumentMutationIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, documentId, request) =>
+        listener(event, projectId, documentId, request),
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: {
+          kind: "electron_renderer",
+          clientId,
+        },
+      };
+    },
+    applyMutation: (request) =>
+      documentSyncHub.applyDocumentMutation(request),
   });
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());

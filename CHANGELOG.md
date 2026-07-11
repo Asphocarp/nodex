@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added stable-ID Card Document mutation APIs for title and Block insert/update/delete/move operations, with exact-head receipts, equivalent Electron/browser behavior, and short editor flush/freeze fences for identity-destructive changes.
 - Added stable Block property mutation APIs for field-level scalar conflict detection and set add/remove intent, with equivalent Electron and browser behavior and exact retry receipts.
 - Added same-window and cross-window drag-and-drop between Kanban and Card Stage/Toggle List editors, with ordered multi-item moves, Alt/Option copy, cross-project transactions, rollback-safe editor insertion, and atomic cross-project undo/redo.
 - Added a packaged macOS startup prompt that offers to move Nodex into Applications before launching from another location.

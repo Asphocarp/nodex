@@ -72,6 +72,9 @@ const createApp = (options?: {
         duplicate: options?.duplicate === true,
       });
     },
+    applyDocumentMutation: async () => {
+      throw new Error("Document mutation is not configured in sync tests");
+    },
     lookupCommittedRelocation: async () => ({ ok: true, value: null }),
     prepareRelocationCommand: async () => {
       throw new Error("Relocation is not configured in HTTP sync tests");

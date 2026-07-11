@@ -65,6 +65,12 @@ class MemoryDurableBackend implements DocumentSyncDurableBackend {
     return success(ack);
   };
 
+  applyDocumentMutation = async () => {
+    throw new Error(
+      "Document mutation is not exercised by this sync transport test",
+    );
+  };
+
   lookupCommittedRelocation = async () => ({
     ok: true as const,
     value: null,

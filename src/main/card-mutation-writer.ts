@@ -11,6 +11,9 @@ import type {
   DocumentSyncCommandResult,
   DocumentSyncRequest,
   DocumentSyncResponse,
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+  DocumentWriteFenceProof,
   OwnedBlockDocumentDescriptor,
   RelocateBlocks,
   RelocationCommandResult,
@@ -455,6 +458,20 @@ export class CardMutationWriter {
     >({
       type: "applyBlockDocumentUpdate",
       payload: request,
+    });
+    return envelope.result;
+  }
+
+  async applyDocumentMutation(
+    request: DocumentMutationRequest,
+    writeFence?: DocumentWriteFenceProof,
+  ): Promise<DocumentOperationCommandResult> {
+    const envelope = await this.executeTyped<DocumentOperationCommandResult>({
+      type: "applyDocumentMutation",
+      payload: {
+        request,
+        ...(writeFence ? { writeFence } : {}),
+      },
     });
     return envelope.result;
   }

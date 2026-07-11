@@ -1020,6 +1020,8 @@ Each surface subscribes before its state-vector handshake. Missed or reordered r
 
 Agent-facing body edits use ordered stable-ID Document operations (`set title`, `insert`, `update`, `delete`, and `move`) against the current Card Document. A batch either commits its Yjs update, Block registry/indexes, projections, mutation receipt, and change cursor together or changes nothing. Identity-destructive operations require mounted editors to flush and freeze behind a short write fence; stale overlapping edits are retained as recovery artifacts rather than silently overwritten. Whole NFM input is an explicit compare-and-swap import that compiles into these operations and never reconstructs the Y.Doc from a projection.
 
+Electron exposes this contract as `block-documents:mutate`. Browser and CLI clients use `POST /api/projects/:projectId/documents/:documentId/mutations`. Client-supplied `actor`, `clientSessionId`, Project, or Document scope cannot mint authority: the host binds audit identity and route scope before the request reaches the Hub. The response is a typed immutable receipt or typed conflict; structural fence proof is never part of the public body.
+
 **Browser path (HTTP + SSE):**
 ```
 Database Write → EventEmitter (notifier) → SSE push (Hono /events endpoint)

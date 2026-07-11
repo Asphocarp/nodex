@@ -24,7 +24,12 @@ import {
   type DocumentSyncUnsubscribeAck,
 } from "../shared/block-documents/document-sync";
 import {
+  documentMutationFailure,
   parseRelocationIntent,
+  type DocumentMutationRequest,
+  type DocumentOperationCommandResult,
+  type DocumentOperationResult,
+  type DocumentWriteFenceProof,
   type RelocateBlocks,
   type RelocationCommandError,
   type RelocationCommandResult,
@@ -60,6 +65,10 @@ export interface DocumentSyncDurableBackend {
   applyUpdate(
     request: DocumentSyncApplyRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  applyDocumentMutation(
+    request: DocumentMutationRequest,
+    writeFence?: DocumentWriteFenceProof,
+  ): Promise<DocumentOperationCommandResult>;
   lookupCommittedRelocation(
     intent: RelocationIntent,
   ): Promise<RelocationCommandResult<RelocationResult | null>>;
@@ -126,6 +135,32 @@ const unknownBackendFailure = <T>(): DocumentSyncCommandResult<T> =>
       { retryable: true },
     ),
   );
+
+const unknownDocumentMutationBackendFailure = (
+  mutationId: string,
+): DocumentOperationCommandResult => ({
+  ok: false,
+  error: documentMutationFailure(
+    "unknown",
+    "The durable Document mutation writer is unavailable",
+    { mutationId, retryable: true },
+  ),
+});
+
+const documentMutationResultMatchesRequest = (
+  request: DocumentMutationRequest,
+  result: DocumentOperationResult,
+): boolean =>
+  result.mutationId === request.mutationId &&
+  result.projectId === request.projectId &&
+  result.storeEpoch === request.storeEpoch &&
+  result.documentId === request.documentId &&
+  result.generation === request.generation &&
+  result.baseHeadSeq === request.expectedHeadSeq &&
+  result.mutationKind ===
+    ("operations" in request
+      ? "document_operation_batch"
+      : "replace_document_from_nfm");
 
 export const documentSyncUnavailable = <T>(): DocumentSyncCommandResult<T> =>
   commandFailure(
@@ -294,6 +329,7 @@ export class DocumentSyncHub {
     HubRelocationLeaseBoundary
   >();
   private relocationLeaseSequence = 0;
+  private documentMutationLeaseSequence = 0;
 
   constructor(
     backend: DocumentSyncDurableBackend,
@@ -506,6 +542,137 @@ export class DocumentSyncHub {
         stateVector: ack.stateVector.slice(),
       },
     };
+  };
+
+  applyDocumentMutation = async (
+    request: DocumentMutationRequest,
+  ): Promise<DocumentOperationCommandResult> => {
+    let initial: DocumentOperationCommandResult;
+    try {
+      initial = await this.backend.applyDocumentMutation(request);
+    } catch {
+      return unknownDocumentMutationBackendFailure(request.mutationId);
+    }
+    if (initial.ok) {
+      if (!documentMutationResultMatchesRequest(request, initial.value)) {
+        return unknownDocumentMutationBackendFailure(request.mutationId);
+      }
+      try {
+        this.fanoutDocumentMutationResync(initial.value);
+      } catch {
+        // The mutation is already durable. Exact retry or state-vector sync
+        // repairs any missed best-effort realtime notification.
+      }
+      return initial;
+    }
+    if (initial.error.code !== "write_fence_required") return initial;
+
+    const leaseId = this.createDocumentMutationLeaseId();
+    this.setSingleDocumentLeaseBoundary(leaseId, {
+      documentId: request.documentId,
+      storeEpoch: request.storeEpoch,
+      generation: request.generation,
+      headSeq: request.expectedHeadSeq,
+    });
+
+    let prepared;
+    try {
+      prepared = await this.relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: [
+          {
+            documentId: request.documentId,
+            generation: request.generation,
+            expectedHeadSeq: request.expectedHeadSeq,
+          },
+        ],
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "document_write_lease_timeout",
+          "Document write lease preparation failed",
+          { mutationId: request.mutationId, retryable: true },
+        ),
+      };
+    }
+    if (!prepared.ok) {
+      this.relocationLeaseBoundaries.delete(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "document_write_lease_timeout",
+          prepared.error.message,
+          { mutationId: request.mutationId, retryable: true },
+        ),
+      };
+    }
+
+    const resolved = prepared.value.resolvedHeads.find(
+      (head) => head.documentId === request.documentId,
+    );
+    if (!resolved) {
+      this.cancelRelocationLease(leaseId);
+      return unknownDocumentMutationBackendFailure(request.mutationId);
+    }
+    if (resolved.headSeq !== request.expectedHeadSeq) {
+      this.cancelRelocationLease(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "document_head_conflict",
+          `Document ${request.documentId} advanced while editors flushed for the write lease`,
+          {
+            mutationId: request.mutationId,
+            retryable: false,
+            expectedHeadSeq: request.expectedHeadSeq,
+            actualHeadSeq: resolved.headSeq,
+          },
+        ),
+      };
+    }
+
+    let committed: DocumentOperationCommandResult;
+    try {
+      committed = await this.backend.applyDocumentMutation(request, {
+        leaseId,
+        documentId: request.documentId,
+        generation: request.generation,
+        headSeq: request.expectedHeadSeq,
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return unknownDocumentMutationBackendFailure(request.mutationId);
+    }
+    if (!committed.ok) {
+      this.cancelRelocationLease(leaseId);
+      return committed;
+    }
+    if (!documentMutationResultMatchesRequest(request, committed.value)) {
+      this.cancelRelocationLease(leaseId);
+      return unknownDocumentMutationBackendFailure(request.mutationId);
+    }
+
+    this.setSingleDocumentLeaseBoundary(leaseId, {
+      documentId: request.documentId,
+      storeEpoch: committed.value.storeEpoch,
+      generation: committed.value.generation,
+      headSeq: committed.value.headSeq,
+    });
+    try {
+      this.fanoutDocumentMutationResync(committed.value);
+    } catch {
+      // Release still has to run after a durable commit.
+    }
+    const released = this.relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      this.publishDocumentMutationReleaseFallback(leaseId, committed.value);
+      this.fanoutDocumentMutationResync(committed.value);
+    }
+    this.relocationLeaseBoundaries.delete(leaseId);
+    return committed;
   };
 
   publishAwareness = (
@@ -912,6 +1079,21 @@ export class DocumentSyncHub {
     return `document-relocation-lease:${this.relocationLeaseSequence.toString(36)}`;
   }
 
+  private createDocumentMutationLeaseId(): string {
+    this.documentMutationLeaseSequence += 1;
+    return `document-mutation-lease:${this.documentMutationLeaseSequence.toString(36)}`;
+  }
+
+  private setSingleDocumentLeaseBoundary(
+    leaseId: string,
+    boundary: HubRelocationDocumentBoundary,
+  ): void {
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents: new Map([[boundary.documentId, boundary]]),
+    });
+  }
+
   private setRelocationLeaseBoundary(
     leaseId: string,
     command: RelocateBlocks,
@@ -1083,6 +1265,42 @@ export class DocumentSyncHub {
         headSeq: commit.headSeq,
         reason: "event-gap",
       });
+    }
+  }
+
+  private fanoutDocumentMutationResync(
+    result: DocumentOperationResult,
+  ): void {
+    this.fanout(result.documentId, {
+      kind: "resync-required",
+      documentId: result.documentId,
+      storeEpoch: result.storeEpoch,
+      generation: result.generation,
+      headSeq: result.headSeq,
+      reason: "event-gap",
+    });
+  }
+
+  private publishDocumentMutationReleaseFallback(
+    leaseId: string,
+    result: DocumentOperationResult,
+  ): void {
+    const keys = this.subscriptionKeysByDocument.get(result.documentId);
+    if (!keys) return;
+    for (const key of keys) {
+      const subscription = this.subscriptions.get(key);
+      if (!subscription) continue;
+      safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
+        {
+          kind: "relocation-lease-release",
+          leaseId,
+          documentId: result.documentId,
+          clientSessionId: subscription.clientSessionId,
+          storeEpoch: result.storeEpoch,
+          generation: result.generation,
+          headSeq: result.headSeq,
+        } satisfies DocumentSyncRealtimeEvent,
+      ]);
     }
   }
 

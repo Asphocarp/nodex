@@ -36,6 +36,11 @@ import {
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
 import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
+import {
+  parseDocumentOperationCommandResult,
+  type DocumentMutationRequest,
+  type DocumentOperationCommandResult,
+} from "../../shared/block-documents/document-operations";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -2511,6 +2516,26 @@ export const browserRendererTransport = {
         },
       };
     }
+  },
+  async mutateDocument(
+    projectId: string,
+    documentId: string,
+    request: DocumentMutationRequest,
+  ): Promise<DocumentOperationCommandResult> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/mutations`,
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(request),
+      },
+    );
+    return parseDocumentOperationCommandResult(await response.json());
   },
   invoke,
   subscribeBoardChanges,

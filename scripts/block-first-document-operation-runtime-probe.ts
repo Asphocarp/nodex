@@ -341,7 +341,6 @@ const run = async (): Promise<void> => {
         expectedHeadSeq: 1,
       }),
       operations: [
-        { kind: "set_title" as const, title: "After merge" },
         {
           kind: "insert_block" as const,
           block: insertedBlock,
@@ -357,7 +356,7 @@ const run = async (): Promise<void> => {
     );
     invariant(
       merged.value.coordination === "merge_friendly" &&
-        merged.value.titleChanged &&
+        !merged.value.titleChanged &&
         merged.value.createdBlockIds.join(",") === "operation-inserted",
       "merge-friendly semantic result is wrong",
     );
@@ -377,6 +376,102 @@ const run = async (): Promise<void> => {
     invariant(
       !collision.ok && collision.error.code === "mutation_id_collision",
       "mutation ID collision was not typed",
+    );
+
+    const titleOnly = seedPrimaryDocument({
+      projectId: project.id,
+      cardBlockId: "operation-title-card",
+      title: "Before title",
+      nfm: "Title body",
+      blockIds: ["operation-title-body"],
+    });
+    const titleRequest = {
+      ...mutationBase({
+        mutationId: "document-title-fence",
+        projectId: project.id,
+        documentId: titleOnly.documentId,
+        expectedHeadSeq: 1,
+      }),
+      operations: [{ kind: "set_title" as const, title: "After title" }],
+    };
+    const unfencedTitle = applyDocumentOperationBatch(getDb(), titleRequest);
+    invariant(
+      !unfencedTitle.ok &&
+        unfencedTitle.error.code === "write_fence_required" &&
+        readHead(titleOnly.documentId) === 1 &&
+        countMutation(titleRequest.mutationId) === 0,
+      "whole-title replacement bypassed the write fence",
+    );
+    const fencedTitle = applyDocumentOperationBatch(
+      getDb(),
+      titleRequest,
+      writeFence(titleOnly.documentId, 1),
+    );
+    invariant(
+      fencedTitle.ok &&
+        fencedTitle.value.titleChanged &&
+        fencedTitle.value.coordination === "write_fence" &&
+        fencedTitle.value.writeFenceBlockIds.join(",") ===
+          "operation-title-card",
+      "title fence did not record its owner Card identity",
+    );
+    closeDatabase();
+    const crossSessionRetry = applyDocumentOperationBatch(getDb(), {
+      ...titleRequest,
+      clientSessionId: "replacement-window",
+      actor: { kind: "browser_retry", id: "bf07d" },
+    });
+    invariant(
+      crossSessionRetry.ok &&
+        crossSessionRetry.value.duplicate &&
+        crossSessionRetry.value.headSeq === 2,
+      "cross-session exact retry did not recover the first durable outcome",
+    );
+    const netZeroTemplate = createCardDocumentGenesis({
+      documentId: "operation-net-zero-template",
+      title: "",
+      nfm: "Net zero insert",
+      allocateBlockId: () => "operation-net-zero-inserted",
+    });
+    const netZeroInserted = netZeroTemplate.materialization
+      .blockTree[0] as BlockTreeNode;
+    netZeroTemplate.document.destroy();
+    const netZeroTitleRequest = {
+      ...mutationBase({
+        mutationId: "document-net-zero-title-fence",
+        projectId: project.id,
+        documentId: titleOnly.documentId,
+        expectedHeadSeq: 2,
+      }),
+      operations: [
+        { kind: "set_title" as const, title: "Transient title" },
+        { kind: "set_title" as const, title: "After title" },
+        { kind: "insert_block" as const, block: netZeroInserted },
+      ],
+    };
+    const unfencedNetZeroTitle = applyDocumentOperationBatch(
+      getDb(),
+      netZeroTitleRequest,
+    );
+    invariant(
+      !unfencedNetZeroTitle.ok &&
+        unfencedNetZeroTitle.error.code === "write_fence_required",
+      "net-zero title struct replacement bypassed the write fence",
+    );
+    const fencedNetZeroTitle = applyDocumentOperationBatch(
+      getDb(),
+      netZeroTitleRequest,
+      writeFence(titleOnly.documentId, 2),
+    );
+    invariant(
+      fencedNetZeroTitle.ok &&
+        !fencedNetZeroTitle.value.titleChanged &&
+        fencedNetZeroTitle.value.coordination === "write_fence" &&
+        fencedNetZeroTitle.value.createdBlockIds.join(",") ===
+          "operation-net-zero-inserted" &&
+        fencedNetZeroTitle.value.writeFenceBlockIds.join(",") ===
+          "operation-title-card",
+      "net-zero title rewrite lost its structural barrier",
     );
 
     const offlineBase = loadBlockDocument(getDb(), main.documentId);
@@ -522,6 +617,7 @@ const run = async (): Promise<void> => {
       let faultInjected = false;
       try {
         applyDocumentOperationBatch(getDb(), faultRequest, {
+          ...writeFence(main.documentId, rollbackHead),
           faultInjector: (point) => {
             if (point !== faultPoint) return;
             throw new Error(`injected ${faultPoint}`);
@@ -536,7 +632,11 @@ const run = async (): Promise<void> => {
           countMutation(faultRequest.mutationId) === 0,
         `${faultPoint} did not roll back the authoritative mutation`,
       );
-      const recovered = applyDocumentOperationBatch(getDb(), faultRequest);
+      const recovered = applyDocumentOperationBatch(
+        getDb(),
+        faultRequest,
+        writeFence(main.documentId, rollbackHead),
+      );
       rollbackHead += 1;
       invariant(
         recovered.ok && recovered.value.headSeq === rollbackHead,
@@ -556,6 +656,7 @@ const run = async (): Promise<void> => {
     let responseLost = false;
     try {
       applyDocumentOperationBatch(getDb(), lostResponseRequest, {
+        ...writeFence(main.documentId, rollbackHead),
         faultInjector: (point) => {
           if (point !== "after_commit") return;
           throw new Error("injected lost response");
@@ -812,6 +913,9 @@ const run = async (): Promise<void> => {
       `${JSON.stringify({
         mergeFriendlyHead: merged.value.headSeq,
         exactRestartRetry: duplicate.value.duplicate,
+        titleWriteFence: fencedTitle.value.coordination,
+        crossSessionRetry: crossSessionRetry.value.duplicate,
+        netZeroTitleWriteFence: fencedNetZeroTitle.value.coordination,
         destructiveFence: destructive.value.coordination,
         tombstoneReuseRejected: true,
         faultRollbacks: rollbackFaultPoints.length,

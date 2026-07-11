@@ -99,6 +99,7 @@ describe("Document operation engine", () => {
       "Alpha updated\n\tGamma\nInserted\n\tChild",
     );
     expect(prepared.writeFenceBlockIds.join(",")).toBe("alpha,beta,gamma");
+    expect(prepared.titleWriteFenceRequired).toBeTrue();
     expect(
       prepared.materialization.blockTree
         .flatMap((block) => [
@@ -122,6 +123,40 @@ describe("Document operation engine", () => {
     source.document.destroy();
     inserted.document.destroy();
     updated.document.destroy();
+  });
+
+  test("retains a title fence when a batch rewrites back to its original value", () => {
+    const source = createGenesis(
+      "operation-net-zero-title",
+      "Original",
+      "Body",
+      ["body"],
+    );
+    const inserted = createGenesis(
+      "operation-net-zero-insert",
+      "",
+      "Inserted",
+      ["inserted"],
+    );
+    try {
+      const prepared = prepareDocumentOperationUpdate({
+        document: source.document,
+        operations: [
+          { kind: "set_title", title: "Transient" },
+          { kind: "set_title", title: "Original" },
+          {
+            kind: "insert_block",
+            block: inserted.materialization.blockTree[0] as BlockTreeNode,
+          },
+        ],
+      });
+      expect(prepared.materialization.title).toBe("Original");
+      expect(prepared.titleWriteFenceRequired).toBeTrue();
+      expect(prepared.writeFenceBlockIds.length).toBe(0);
+    } finally {
+      source.document.destroy();
+      inserted.document.destroy();
+    }
   });
 
   test("marks every descendant whose Yjs structs are invalidated by a move", () => {

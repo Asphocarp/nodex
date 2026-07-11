@@ -40,6 +40,10 @@ import {
 } from "./local-store/block-relocations";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
+import {
+  applyDocumentOperationBatch,
+  replaceDocumentFromNfm,
+} from "./local-store/block-document-operations";
 import { readAuthoritativeCardSummaryById } from "./local-store/card-read-store";
 import {
   BlockDocumentRuntime,
@@ -168,6 +172,7 @@ const isLegacyAuthorityMutation = (
     case "migrateLegacyForeignReferences":
     case "repairDocumentSecondaryProjections":
     case "applyBlockPropertyMutation":
+    case "applyDocumentMutation":
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
@@ -1278,6 +1283,50 @@ async function runRequest(
           documentId: request.payload.documentId,
           updateId: request.payload.updateId,
           committedSeq: result.value.committedSeq,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
+    case "applyDocumentMutation": {
+      const mutation = request.payload.request;
+      const options = request.payload.writeFence
+        ? { writeFence: request.payload.writeFence }
+        : {};
+      const result =
+        "operations" in mutation
+          ? applyDocumentOperationBatch(getDb(), mutation, options)
+          : replaceDocumentFromNfm(getDb(), mutation, options);
+      if (!result.ok) return result;
+      if (result.value.duplicate) return result;
+
+      blockDocumentRuntime.invalidate(mutation.documentId);
+
+      try {
+        const projection = cardsStore.readCardDocumentBoardProjection(
+          getDb(),
+          mutation.documentId,
+        );
+        if (!projection) {
+          postLog("error", "Committed Document mutation has no board projection", {
+            documentId: mutation.documentId,
+            mutationId: mutation.mutationId,
+            headSeq: result.value.headSeq,
+          });
+          return result;
+        }
+        dbNotifier.notifyChange(
+          projection.projectId,
+          "update",
+          projection.status,
+          projection.cardId,
+          { summary: projection.summary },
+        );
+      } catch (error) {
+        postLog("error", "Committed Document mutation summary fanout failed", {
+          documentId: mutation.documentId,
+          mutationId: mutation.mutationId,
+          headSeq: result.value.headSeq,
           error: error instanceof Error ? error.message : String(error),
         });
       }

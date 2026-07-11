@@ -61,6 +61,8 @@ export interface PreparedDocumentOperationUpdate {
   readonly materialization: CardDocumentMaterialization;
   /** Application identities whose existing Yjs structs were removed/replaced. */
   readonly writeFenceBlockIds: readonly string[];
+  /** True when any operation replaced title structs, even if the net title is unchanged. */
+  readonly titleWriteFenceRequired: boolean;
 }
 
 interface BlockCoordinate {
@@ -506,12 +508,14 @@ const applyOperation = (
   operationIndex: number,
   semanticBlocks: Map<string, BlockTreeNode>,
   writeFenceBlockIds: Set<string>,
+  titleWriteFence: { required: boolean },
 ): void => {
   try {
     switch (operation.kind) {
       case "set_title": {
         const title = document.getText("title");
         if (title.toString() === operation.title) return;
+        titleWriteFence.required = true;
         title.delete(0, title.length);
         if (operation.title.length > 0) title.insert(0, operation.title);
         return;
@@ -581,6 +585,7 @@ export const prepareDocumentOperationUpdate = ({
       ]),
     );
     const writeFenceBlockIds = new Set<string>();
+    const titleWriteFence = { required: false };
     working.transact(() => {
       operations.forEach((operation, index) =>
         applyOperation(
@@ -589,6 +594,7 @@ export const prepareDocumentOperationUpdate = ({
           index,
           semanticBlocks,
           writeFenceBlockIds,
+          titleWriteFence,
         ),
       );
     }, transactionOrigin);
@@ -613,6 +619,7 @@ export const prepareDocumentOperationUpdate = ({
       update,
       materialization,
       writeFenceBlockIds: [...writeFenceBlockIds].sort(),
+      titleWriteFenceRequired: titleWriteFence.required,
     };
   } finally {
     working.destroy();

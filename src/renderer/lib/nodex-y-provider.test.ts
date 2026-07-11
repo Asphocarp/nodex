@@ -218,6 +218,11 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
         request: DocumentSyncApplyRequest,
       ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>)
     | null = null;
+  syncHandler:
+    | ((
+        request: DocumentSyncRequest,
+      ) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>)
+    | null = null;
   relocationLeaseHandler:
     | ((
         request: DocumentRelocationLeaseResponseRequest,
@@ -230,6 +235,7 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
     request: DocumentSyncRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> => {
     this.syncCalls.push(request);
+    if (this.syncHandler) return this.syncHandler(request);
     return success({
       documentId: request.documentId,
       storeEpoch: this.storeEpoch,
@@ -1230,6 +1236,186 @@ describe("NodexYProvider", () => {
         headSeq: adapter.headSeq,
       });
       await waitUntil(() => provider.getStatus().phase === "reset-required");
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("stays frozen until a post-terminal state-vector sync reaches the committed head", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const terminalSync = deferred<
+      DocumentSyncCommandResult<DocumentSyncResponse>
+    >();
+    let terminalRequest: DocumentSyncRequest | null = null;
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "terminal-sync-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-terminal-sync",
+        documentId: "document-1",
+        clientSessionId: "terminal-sync-window",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: 0,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "frozen");
+      const committedUpdate = adapter.commitExternal((title) =>
+        title.insert(0, "committed while frozen"),
+      );
+      adapter.syncHandler = (request) => {
+        terminalRequest = request;
+        return terminalSync.promise;
+      };
+      adapter.emit({
+        kind: "relocation-lease-release",
+        leaseId: "lease-terminal-sync",
+        documentId: "document-1",
+        clientSessionId: "terminal-sync-window",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: 1,
+      });
+      await waitUntil(() => terminalRequest !== null);
+      expect(provider.getStatus().phase).toBe("frozen");
+      expect(provider.getStatus().relocationLease?.leaseId).toBe(
+        "lease-terminal-sync",
+      );
+
+      const request = terminalRequest as unknown as DocumentSyncRequest;
+      terminalSync.resolve(
+        success({
+          documentId: "document-1",
+          storeEpoch: adapter.storeEpoch,
+          generation: adapter.generation,
+          headSeq: 1,
+          stateVector: Y.encodeStateVector(adapter.serverDocument),
+          update: Y.encodeStateAsUpdate(
+            adapter.serverDocument,
+            request.stateVector,
+          ),
+        }),
+      );
+      await waitUntil(() => provider.getStatus().phase === "synced");
+      expect(provider.getStatus().relocationLease).toBe(undefined);
+      expect(document.getText("title").toString()).toBe(
+        "committed while frozen",
+      );
+      expect(committedUpdate.length > 0).toBeTrue();
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("accepts a terminal event before the lease ACK response settles", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const ackResponse = deferred<
+      DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>
+    >();
+    adapter.relocationLeaseHandler = () => ackResponse.promise;
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "terminal-before-ack-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-terminal-before-ack",
+        documentId: "document-1",
+        clientSessionId: "terminal-before-ack-window",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: 0,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => adapter.relocationLeaseCalls.length === 1);
+      adapter.commitExternal((title) => title.insert(0, "committed"));
+      adapter.emit({
+        kind: "relocation-lease-release",
+        leaseId: "lease-terminal-before-ack",
+        documentId: "document-1",
+        clientSessionId: "terminal-before-ack-window",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: 1,
+      });
+      await waitUntil(() => provider.getStatus().phase === "frozen");
+      expect(provider.getStatus().relocationLease?.leaseId).toBe(
+        "lease-terminal-before-ack",
+      );
+      ackResponse.resolve(
+        success({
+          accepted: true,
+          leaseId: "lease-terminal-before-ack",
+          documentId: "document-1",
+          status: "frozen",
+        }),
+      );
+      await waitUntil(() => provider.getStatus().phase === "synced");
+      expect(provider.getStatus().relocationLease).toBe(undefined);
+      expect(document.getText("title").toString()).toBe("committed");
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("requires reset when an acknowledged lease never receives a terminal event", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    let currentDeadline: (() => void) | null = null;
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "terminal-watchdog-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+      scheduleRelocationDeadline: (callback) => {
+        currentDeadline = callback;
+        return () => {
+          if (currentDeadline === callback) currentDeadline = null;
+        };
+      },
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-terminal-watchdog",
+        documentId: "document-1",
+        clientSessionId: "terminal-watchdog-window",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: 0,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "frozen");
+      const watchdog = currentDeadline as (() => void) | null;
+      if (!watchdog) throw new Error("Missing terminal watchdog");
+      watchdog();
+      await waitUntil(() => provider.getStatus().phase === "reset-required");
+      expect(provider.getStatus().error?.resetRequired).toBeTrue();
     } finally {
       provider.destroy();
       document.destroy();

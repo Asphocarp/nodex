@@ -20,6 +20,10 @@ import type {
 } from "./block-documents/contracts";
 import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
 import type {
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+} from "./block-documents/document-operations";
+import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "./block-property-mutations";
@@ -527,6 +531,14 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "block-documents:mutate": {
+    args: [
+      projectId: string,
+      documentId: string,
+      request: DocumentMutationRequest,
+    ];
+    result: DocumentOperationCommandResult;
+  };
   "block-properties:mutate": {
     args: [projectId: string, request: BlockPropertyMutationRequest];
     result: BlockPropertyMutationCommandResult;

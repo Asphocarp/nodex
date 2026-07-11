@@ -1,8 +1,8 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
-  canonicalizeDocumentOperationBatch,
-  canonicalizeReplaceDocumentFromNfm,
+  canonicalizeDocumentOperationIntent,
+  canonicalizeReplaceDocumentFromNfmIntent,
   DOCUMENT_OPERATION_CONTRACT_VERSION,
   DocumentOperationContractError,
   parseDocumentOperationBatch,
@@ -318,14 +318,11 @@ const makeEvidence = (
   canonicalRequest: string,
 ): MutationEvidence => {
   const targets = requestedTargetBlockIds(request);
-  const canonicalRecord = JSON.parse(canonicalRequest) as {
-    readonly actor: Readonly<Record<string, unknown>>;
-  };
   return {
     mutationKind,
     canonicalRequest,
     requestHash: sha256(canonicalRequest),
-    actorJson: stableStringify(canonicalRecord.actor),
+    actorJson: stableStringify(request.actor),
     clientSessionId: request.clientSessionId ?? null,
     affectedDocumentIdsJson: JSON.stringify([request.documentId]),
     requestedTargetBlockIds: targets,
@@ -349,8 +346,6 @@ const storedMutationMatchesRequest = (
   stored.project_id === request.projectId &&
   stored.store_epoch === request.storeEpoch &&
   stored.mutation_kind === evidence.mutationKind &&
-  stored.actor_json === evidence.actorJson &&
-  stored.client_session_id === evidence.clientSessionId &&
   stored.request_hash === evidence.requestHash &&
   stored.request_json === evidence.canonicalRequest &&
   stored.affected_document_ids_json === evidence.affectedDocumentIdsJson &&
@@ -642,6 +637,8 @@ const deriveSemanticChangeSet = (
   after: CardMaterialization,
   writeFenceBlockIds: readonly string[],
   forceWriteFence: boolean,
+  titleWriteFenceBlockId?: string,
+  titleWriteFenceRequired = false,
 ): Omit<PreparedMutation, "update"> => {
   const beforeCoordinates = flattenSemanticCoordinates(before.blockTree);
   const afterCoordinates = flattenSemanticCoordinates(after.blockTree);
@@ -655,9 +652,13 @@ const deriveSemanticChangeSet = (
   const afterIds = afterCoordinates.map((coordinate) => coordinate.block.id);
   const beforeIdSet = new Set(beforeIds);
   const afterIdSet = new Set(afterIds);
-  const durableWriteFenceBlockIds = writeFenceBlockIds.filter((blockId) =>
-    beforeIdSet.has(blockId),
-  );
+  const titleChanged = before.title !== after.title;
+  const durableWriteFenceBlockIds = uniqueSorted([
+    ...writeFenceBlockIds.filter((blockId) => beforeIdSet.has(blockId)),
+    ...(titleWriteFenceRequired && titleWriteFenceBlockId
+      ? [titleWriteFenceBlockId]
+      : []),
+  ]);
   const createdBlockIds = afterIds.filter(
     (blockId) => !beforeIdSet.has(blockId),
   );
@@ -717,7 +718,6 @@ const deriveSemanticChangeSet = (
       previous.parentBlockId !== next.parentBlockId || reorderedIds.has(blockId)
     );
   });
-  const titleChanged = before.title !== after.title;
   const destructive = forceWriteFence || durableWriteFenceBlockIds.length > 0;
   return {
     createdBlockIds,
@@ -755,6 +755,7 @@ const assertCreatedIdsNeverExisted = (
 const prepareOperationBatch = (
   request: DocumentOperationBatch,
   document: Parameters<typeof materializeCardDocument>[0],
+  ownerBlockId: string,
 ): PreparedMutation => {
   const before = materializeCardDocument(document);
   const prepared = prepareDocumentOperationUpdate({
@@ -769,6 +770,8 @@ const prepareOperationBatch = (
       prepared.materialization,
       prepared.writeFenceBlockIds,
       false,
+      ownerBlockId,
+      prepared.titleWriteFenceRequired,
     ),
   };
 };
@@ -1187,6 +1190,7 @@ const applyMutationInTransaction = (
           ? prepareOperationBatch(
               request as DocumentOperationBatch,
               loaded.document,
+              loaded.head.ownerBlockId,
             )
           : prepareNfmReplacement(
               request as ReplaceDocumentFromNfm,
@@ -1250,7 +1254,7 @@ export const applyDocumentOperationBatch = (
   options: ApplyDocumentOperationOptions = {},
 ): DocumentOperationCommandResult => {
   const request = parseDocumentOperationBatch(rawRequest);
-  const canonicalRequest = canonicalizeDocumentOperationBatch(request);
+  const canonicalRequest = canonicalizeDocumentOperationIntent(request);
   const evidence = makeEvidence(
     request,
     "document_operation_batch",
@@ -1266,7 +1270,7 @@ export const replaceDocumentFromNfm = (
   options: ApplyDocumentOperationOptions = {},
 ): DocumentOperationCommandResult => {
   const request = parseReplaceDocumentFromNfm(rawRequest);
-  const canonicalRequest = canonicalizeReplaceDocumentFromNfm(request);
+  const canonicalRequest = canonicalizeReplaceDocumentFromNfmIntent(request);
   const evidence = makeEvidence(
     request,
     "replace_document_from_nfm",

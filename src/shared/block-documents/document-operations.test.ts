@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   canonicalizeDocumentOperationBatch,
+  canonicalizeDocumentOperationIntent,
   canonicalizeReplaceDocumentFromNfm,
+  canonicalizeReplaceDocumentFromNfmIntent,
   DocumentOperationContractError,
   parseDocumentOperationBatch,
   parseDocumentOperationCommandResult,
@@ -121,6 +123,34 @@ describe("Document operation contract", () => {
       canonicalizeDocumentOperationBatch(first) ===
         canonicalizeDocumentOperationBatch(reorderedOperations),
     ).toBeFalse();
+  });
+
+  test("keeps durable command intent stable across trusted transport identities", () => {
+    const operation = {
+      ...BASE,
+      operations: [{ kind: "set_title" as const, title: "After" }],
+    };
+    const retriedOperation = {
+      ...operation,
+      clientSessionId: "replacement-window",
+      actor: { kind: "http", id: "same-local-user" },
+    };
+    expect(canonicalizeDocumentOperationIntent(operation)).toBe(
+      canonicalizeDocumentOperationIntent(retriedOperation),
+    );
+    expect(
+      canonicalizeDocumentOperationBatch(operation) ===
+        canonicalizeDocumentOperationBatch(retriedOperation),
+    ).toBeFalse();
+
+    const replacement = { ...BASE, nfm: "Body" };
+    expect(canonicalizeReplaceDocumentFromNfmIntent(replacement)).toBe(
+      canonicalizeReplaceDocumentFromNfmIntent({
+        ...replacement,
+        clientSessionId: "browser-retry",
+        actor: { kind: "ipc", id: "same-local-user" },
+      }),
+    );
   });
 
   test("rejects unknown fields, duplicate subtree IDs, invalid values, and self targets", () => {
@@ -251,6 +281,18 @@ describe("Document operation contract", () => {
     });
     expect(conflict.ok).toBeFalse();
     expect(conflict.ok ? -1 : conflict.error.actualHeadSeq).toBe(5);
+
+    const leaseTimeout = parseDocumentOperationCommandResult({
+      ok: false,
+      error: {
+        code: "document_write_lease_timeout",
+        message: "Surface did not freeze",
+        retryable: true,
+        mutationId: "operation-1",
+      },
+    });
+    expect(leaseTimeout.ok).toBeFalse();
+    expect(leaseTimeout.ok ? false : leaseTimeout.error.retryable).toBeTrue();
 
     let rejected = false;
     try {

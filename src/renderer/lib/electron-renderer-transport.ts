@@ -26,6 +26,10 @@ import type {
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type { DocumentRelocationRequest } from "../../shared/block-documents/relocation-transport";
+import type {
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+} from "../../shared/block-documents/document-operations";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -57,6 +61,18 @@ export function createElectronRendererTransport(
         "document-sync:relocate",
         request,
       ) as Promise<RelocationCommandResult>;
+    },
+    mutateDocument(
+      projectId: string,
+      documentId: string,
+      request: DocumentMutationRequest,
+    ) {
+      return bridge.invoke(
+        "block-documents:mutate",
+        projectId,
+        documentId,
+        request,
+      ) as Promise<DocumentOperationCommandResult>;
     },
     invoke(channel: string, ...args: unknown[]) {
       return bridge.invoke(channel, ...args);

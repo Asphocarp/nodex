@@ -9,6 +9,9 @@ import type {
   DocumentSyncCommandResult,
   DocumentSyncRequest,
   DocumentSyncResponse,
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+  DocumentWriteFenceProof,
   OwnedBlockDocumentDescriptor,
   RelocateBlocks,
   RelocationCommandResult,
@@ -279,6 +282,13 @@ export type CardMutationWorkerRequest =
       payload: DocumentSyncApplyRequest;
     })
   | (CardMutationWorkerRequestBase & {
+      type: "applyDocumentMutation";
+      payload: {
+        readonly request: DocumentMutationRequest;
+        readonly writeFence?: DocumentWriteFenceProof;
+      };
+    })
+  | (CardMutationWorkerRequestBase & {
     type: "relocateBlocks";
     payload: RelocateBlocks;
   })
@@ -302,6 +312,7 @@ export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
   | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
   | DocumentSyncCommandResult<string>
+  | DocumentOperationCommandResult
   | RelocationCommandResult
   | RelocationCommandResult<RelocateBlocks>
   | RelocationCommandResult<RelocationResult | null>;
@@ -329,6 +340,7 @@ export type CardMutationWorkerResult =
   | ForeignReferenceMigrationBatchResult
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
+  | DocumentOperationCommandResult
   | undefined;
 
 export type CardMutationWorkerResponse =

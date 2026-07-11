@@ -88,6 +88,10 @@ export interface ReplaceDocumentFromNfm {
   readonly nfm: string;
 }
 
+export type DocumentMutationRequest =
+  | DocumentOperationBatch
+  | ReplaceDocumentFromNfm;
+
 export type DocumentMutationKind =
   "document_operation_batch" | "replace_document_from_nfm";
 
@@ -142,6 +146,7 @@ export type DocumentOperationErrorCode =
   | "invalid_operation"
   | "no_change"
   | "write_fence_required"
+  | "document_write_lease_timeout"
   | "document_state_corrupt"
   | "unknown";
 
@@ -845,6 +850,7 @@ const DOCUMENT_OPERATION_ERROR_CODES: readonly DocumentOperationErrorCode[] = [
   "invalid_operation",
   "no_change",
   "write_fence_required",
+  "document_write_lease_timeout",
   "document_state_corrupt",
   "unknown",
 ];
@@ -974,3 +980,33 @@ export const canonicalizeDocumentOperationBatch = (value: unknown): string =>
 
 export const canonicalizeReplaceDocumentFromNfm = (value: unknown): string =>
   stableStringify(parseReplaceDocumentFromNfm(value));
+
+const withoutMutationAuditIdentity = <
+  T extends { readonly actor: unknown; readonly clientSessionId?: string },
+>(
+  value: T,
+): Omit<T, "actor" | "clientSessionId"> =>
+  Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]) => key !== "actor" && key !== "clientSessionId",
+    ),
+  ) as Omit<T, "actor" | "clientSessionId">;
+
+/**
+ * Canonical logical intent used by durable idempotency receipts.
+ *
+ * Host-bound actor/session data is first-attempt audit evidence, not command
+ * semantics: a caller must be able to repeat the same mutation ID after a
+ * window restart or through another trusted transport and recover the original
+ * durable outcome.
+ */
+export const canonicalizeDocumentOperationIntent = (value: unknown): string =>
+  stableStringify(withoutMutationAuditIdentity(parseDocumentOperationBatch(value)));
+
+/** See {@link canonicalizeDocumentOperationIntent}. */
+export const canonicalizeReplaceDocumentFromNfmIntent = (
+  value: unknown,
+): string =>
+  stableStringify(
+    withoutMutationAuditIdentity(parseReplaceDocumentFromNfm(value)),
+  );

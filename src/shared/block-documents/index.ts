@@ -4,6 +4,7 @@ export * from "./card-document";
 export * from "./contracts";
 export * from "./document-sync";
 export * from "./document-operations";
+export * from "./document-operation-transport";
 export * from "./foreign-reference-migration";
 export * from "./relocation";
 export * from "./relocation-transport";
