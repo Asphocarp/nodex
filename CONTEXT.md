@@ -102,6 +102,8 @@ A `syncedBlockRef` follows the same foreign-body rule and targets a `synced_bloc
 
 A `templateRef` follows the same foreign-body rule but has copy-on-instantiate semantics rather than live-content expansion semantics. Collapsed reference UI resolves the source's authoritative summary when the production query transport is available; its optional display hint is never the source name authority and opaque IDs are not user-facing labels.
 
+Synced source, Template, and explicit Large Document/Code ownership changes use one versioned Additional Document command. The Project route and actor/session are trusted transport evidence and are rebound by Electron main or loopback HTTP. Logical intent retains `operationId`, `storeEpoch`, application identities, generations, and requested placement; only the Document Hub may renew execution heads after mounted surfaces flush and freeze. The CLI and renderer API submit this same envelope, and committed heads repair through the ordinary Document SSE/state-vector path rather than a second realtime channel.
+
 Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 
 ### Projection

@@ -31,6 +31,8 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
+import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
 import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
@@ -114,6 +116,16 @@ export function createElectronRendererTransport(
         documentId,
         request,
       ) as Promise<DocumentOperationCommandResult>;
+    },
+    applyAdditionalDocumentCommand(
+      projectId: string,
+      request: PublicAdditionalDocumentCommandRequest,
+    ) {
+      return bridge.invoke(
+        "block-documents:command",
+        projectId,
+        request,
+      ) as Promise<AdditionalDocumentCommandResult>;
     },
     createDocumentVersionCheckpoint(
       projectId: string,

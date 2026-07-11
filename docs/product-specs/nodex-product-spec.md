@@ -262,8 +262,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Card is the user-facing term for a document-bearing Block; Card Stage never introduces a second Page identity
 - Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content and explicitly branches on `ydoc_primary` versus the temporary `legacy_shadow` migration surface
 - On a primary Card, every mounted writable surface owns an independent Y.Doc client/session, completes state-vector synchronization before mounting content, binds title to `Y.Text("title")`, and binds BlockNote to `Y.XmlFragment("body")`
-- The in-progress Synced Block spike defines (but does not yet expose as a production command/UI) a source that is not another Card/Page: it is a system-managed body-only collaborative Document whose library placement is omitted from normal Card/Database navigation, while visible occurrences are childless references to the same source Block
-- The in-progress additional document-bearing Block spike defines (but does not yet expose through production commands) Reusable Template library sources, explicit Large Document shells, and explicit Large Code shells. Templates have an authoritative human name, childless references, and copy-on-instantiate semantics with fresh Block IDs. Large shells contain no foreign body; their independently synchronized body opens through the shared owned-Document surface. Ordinary paragraphs never promote automatically
+- Synced Block sources are not another Card/Page: each is a system-managed body-only collaborative Document whose library placement is omitted from normal Card/Database navigation, while visible occurrences are childless references to the same source Block. The typed ownership command is available through renderer IPC/HTTP and CLI; lazy expansion/editing UI remains pending
+- Reusable Template library sources, explicit Large Document shells, and explicit Large Code shells use the same production command boundary. Templates have an authoritative human name, childless references, and copy-on-instantiate semantics with fresh Block IDs. Large shells contain no foreign body; their independently synchronized body opens through the shared owned-Document surface once the lazy product UI mounts it. Ordinary paragraphs never promote automatically
 - The pending production promotion/demotion path must preserve selected subtree IDs, allocate deterministic fresh IDs only for copies, obtain host/source flush fences through the collaboration Hub, and either commit the sole-occurrence demotion completely or leave both Documents unchanged. Clients never submit writer fence proofs directly
 - Primary title/body edits are Yjs transactions and never run the 250ms whole-NFM serialization, 1.5s description save, external whole-body replacement, or description conflict overwrite path. NFM is a read/export materialization
 - A Card that cannot complete one-way legacy migration remains on an explicit fail-closed diagnostic surface. Canonical references never re-enable snapshot autosave, and authority is never inferred from `Card.description`.
@@ -1070,6 +1070,7 @@ nodex block apply <card-id> <json|@file|@-> # Stable-ID operation batch
 nodex block replace <card-id> <nfm|@file|@-> # Explicit NFM CAS import
 nodex block title <card-id> <text> # Collaborative title replacement
 nodex block export <card-id>      # Export title + materialized NFM
+nodex block command <json|@file|@-> # Synced/Template/Large Document command
 nodex rm <card-id>               # Delete card (auto-resolves column)
 nodex mv <card-id> <from> <to> [order] [opts] # Move card (atomic claim)
 nodex history <card-id>          # View the Card-scoped durable cursor timeline
@@ -1288,6 +1289,7 @@ nodex backups restore <backup-id> --yes
 | Read Card Document boundary | `nodex block descriptor <id>` | POST `/api/projects/[projectId]/blocks/[cardId]/document/prepare` |
 | Apply stable-ID Block operations | `nodex block apply <id> <json>` | POST `/api/projects/[projectId]/documents/[documentId]/mutations` |
 | Import/export collaborative body | `nodex block replace/export ...` | Document mutation API / authoritative Card read projection |
+| Change document-bearing ownership | `nodex block command <json>` | POST `/api/projects/[projectId]/document-commands` |
 | Delete card | `nodex rm <id>` | DELETE `/api/projects/[projectId]/card?cardId=Y` |
 | Move card | `nodex mv <id> <from> <to> [opts]` | PUT `/api/projects/[projectId]/move` (atomic: 409 if card not in `fromStatus`) + optional PUT `/api/projects/[projectId]/card` (property updates) |
 | Card history | `nodex history <id>` | GET `/api/projects/[projectId]/cards/[cardBlockId]/history` with a source-specific cursor |

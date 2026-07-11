@@ -78,6 +78,7 @@ import { registerReferenceReadHttpRoutes } from "./reference-read-http";
 import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutation-http";
 import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
+import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
 import {
   registerCardLifecycleHttpRoute,
@@ -298,6 +299,11 @@ registerCardLifecycleHttpRoute(app, {
 
 registerDocumentMutationHttpRoute(app, {
   applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
+});
+
+registerAdditionalDocumentCommandHttpRoute(app, {
+  applyCommand: (request) =>
+    documentSyncHub.applyAdditionalDocumentCommand(request),
 });
 
 registerDocumentHistoryHttpRoutes(app, {

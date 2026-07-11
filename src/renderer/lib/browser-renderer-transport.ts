@@ -54,6 +54,11 @@ import {
   type DocumentMutationRequest,
   type DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import {
+  parseAdditionalDocumentCommandResult,
+  type AdditionalDocumentCommandResult,
+} from "../../shared/additional-document-commands";
+import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
 import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
@@ -2715,6 +2720,25 @@ export const browserRendererTransport = {
       },
     );
     return parseDocumentOperationCommandResult(await response.json());
+  },
+  async applyAdditionalDocumentCommand(
+    projectId: string,
+    request: PublicAdditionalDocumentCommandRequest,
+  ): Promise<AdditionalDocumentCommandResult> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/document-commands`,
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(request),
+      },
+    );
+    return parseAdditionalDocumentCommandResult(await response.json());
   },
   async createDocumentVersionCheckpoint(
     projectId: string,

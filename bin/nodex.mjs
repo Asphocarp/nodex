@@ -595,6 +595,20 @@ async function sendDocumentMutation(config, descriptor, request) {
   return result.value;
 }
 
+async function sendAdditionalDocumentCommand(config, request) {
+  const result = await apiPost(
+    `${apiPrefix(config)}/document-commands`,
+    request,
+  );
+  if (result?.ok !== true || typeof result?.value?.operationId !== "string") {
+    throw new Error(
+      result?.error?.message ||
+        "Server returned an invalid Additional Document command receipt",
+    );
+  }
+  return result.value;
+}
+
 function documentMutationEnvelope(config, descriptor, input) {
   return {
     version: 1,
@@ -1245,8 +1259,49 @@ async function cmdGet(positional, flags, config) {
 
 async function cmdBlock(positional, flags, config) {
   const action = positional[0];
+  if (!action) {
+    throw new Error(
+      "Usage: nodex block <descriptor|export|apply|replace|title|command> [target] [value]",
+    );
+  }
+
+  if (action === "command") {
+    const value = positional[1];
+    if (value === undefined) {
+      throw new Error("nodex block command requires JSON or @file/@- input");
+    }
+    const resolvedValue = await resolveValue(value);
+    let rawCommand;
+    try {
+      rawCommand = JSON.parse(resolvedValue);
+    } catch {
+      throw new Error("Additional Document command must be valid JSON");
+    }
+    if (
+      typeof rawCommand !== "object" ||
+      rawCommand === null ||
+      Array.isArray(rawCommand)
+    ) {
+      throw new Error("Additional Document command must be a JSON object");
+    }
+    const request = {
+      ...rawCommand,
+      version: rawCommand.version ?? 1,
+      operationId:
+        flags.mutationId ?? rawCommand.operationId ?? randomUUID(),
+      projectId: config.project,
+      clientSessionId: config.sessionId ?? "nodex-cli",
+      actor: { kind: "nodex_cli" },
+    };
+    keyValueOut(
+      { command: await sendAdditionalDocumentCommand(config, request) },
+      flags,
+    );
+    return;
+  }
+
   const cardId = positional[1];
-  if (!action || !cardId) {
+  if (!cardId) {
     throw new Error(
       "Usage: nodex block <descriptor|export|apply|replace|title> <card-id> [value]",
     );
@@ -2133,7 +2188,7 @@ Agent Commands:
   nodex get <card-id>            Get card details
   nodex add <status> <title>     Create card
   nodex update <card-id>         Update card
-  nodex block <action> <card-id> Apply/export stable-ID Document operations
+  nodex block <action> [target]  Apply/export stable-ID Document operations
   nodex database <action> <id>   Query/mutate a Database by stable IDs
   nodex rm <card-id>             Delete card
   nodex mv <card-id> <from> <to> Move card (supports update opts)
@@ -2249,7 +2304,7 @@ function printCommandHelp(cmd) {
     --csv                       CSV output
     --table                     Print aligned text table`,
 
-    block: `Usage: nodex block <action> <card-id> [value] [options]
+    block: `Usage: nodex block <action> [target] [value] [options]
 
   Operate on the Card's Y.Doc through stable application Block IDs.
 
@@ -2259,6 +2314,11 @@ function printCommandHelp(cmd) {
     apply <json|@file|@->      Apply an ordered stable-ID operation array
     replace <nfm|@file|@->     Explicit CAS-gated whole-body NFM import
     title <text|@file|@->      Replace the collaborative title
+    command <json|@file|@->    Run a synced/template/large Document command
+
+  The command form accepts the canonical logical command envelope. Nodex binds
+  the selected Project and trusted audit identity before execution; use the same
+  operationId and logical intent to recover an exact retry.
 
   Options:
     -p, --project <id>         Project (default: "default")

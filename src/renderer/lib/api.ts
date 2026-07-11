@@ -60,6 +60,8 @@ import type {
 import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
 import type { ListCardHistoryRequest } from "../../shared/card-history";
 import type { CardHistoryCommandResult } from "../../shared/card-history-transport";
+import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
+import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -136,6 +138,16 @@ export function mutateDocument(
   return resolveRendererTransport().mutateDocument(
     projectId,
     documentId,
+    request,
+  );
+}
+
+export function applyAdditionalDocumentCommand(
+  projectId: string,
+  request: PublicAdditionalDocumentCommandRequest,
+): Promise<AdditionalDocumentCommandResult> {
+  return resolveRendererTransport().applyAdditionalDocumentCommand(
+    projectId,
     request,
   );
 }

@@ -57,6 +57,8 @@ import type { CardLifecyclePreflightResult } from "./card-lifecycle-runtime";
 import type { ListCardHistoryRequest } from "./card-history";
 import type { CardHistoryCommandResult } from "./card-history-transport";
 import type { CardMetadataPropertySnapshotCommandResult } from "./card-metadata-property-snapshot-transport";
+import type { AdditionalDocumentCommandResult } from "./additional-document-commands";
+import type { PublicAdditionalDocumentCommandRequest } from "./additional-document-command-transport";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -452,6 +454,10 @@ export interface IpcApi {
       request: DocumentMutationRequest,
     ];
     result: DocumentOperationCommandResult;
+  };
+  "block-documents:command": {
+    args: [projectId: string, request: PublicAdditionalDocumentCommandRequest];
+    result: AdditionalDocumentCommandResult;
   };
   "block-documents:history:checkpoint": {
     args: [

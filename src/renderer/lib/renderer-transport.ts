@@ -56,6 +56,12 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/block-documents/document-operations").DocumentOperationCommandResult
   >;
+  applyAdditionalDocumentCommand: (
+    projectId: string,
+    request: import("../../shared/additional-document-command-transport").PublicAdditionalDocumentCommandRequest,
+  ) => Promise<
+    import("../../shared/additional-document-commands").AdditionalDocumentCommandResult
+  >;
   createDocumentVersionCheckpoint: (
     projectId: string,
     documentId: string,

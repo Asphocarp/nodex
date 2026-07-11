@@ -200,6 +200,7 @@ import {
   registerDatabaseKernelIpcHandlers,
 } from "./database-kernel-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
+import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 import {
   registerCardLifecycleIpcHandler,
@@ -999,6 +1000,27 @@ export function registerIpcHandlers(
     },
     applyMutation: (request) =>
       documentSyncHub.applyDocumentMutation(request),
+  });
+
+  registerAdditionalDocumentCommandIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, request) =>
+        listener(event, projectId, request),
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    applyCommand: (request) =>
+      documentSyncHub.applyAdditionalDocumentCommand(request),
   });
 
   registerDocumentHistoryIpcHandlers({
