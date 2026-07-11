@@ -7,6 +7,7 @@ import type {
   DocumentSyncApplyRequest,
   RelocateBlocks,
 } from "../shared/block-documents";
+import type { BlockPropertyMutationRequest } from "../shared/block-property-mutations";
 
 class FakeWorker implements CardMutationWorkerLike {
   readonly messages: CardMutationWorkerRequest[] = [];
@@ -106,6 +107,76 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
 }
 
 describe("CardMutationWriter", () => {
+  test("preserves the property mutation envelope and typed receipt through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const input: BlockPropertyMutationRequest = {
+      version: 1,
+      mutationId: "property-mutation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      clientSessionId: "renderer-1",
+      actor: { kind: "electron_renderer", clientId: "renderer-1" },
+      fields: [
+        {
+          scope: "intrinsic",
+          blockId: "card-1",
+          propertyKey: "agent.status",
+          operation: "set",
+          expectedRevision: 1,
+          value: "running",
+        },
+      ],
+    };
+
+    const pending = writer.applyBlockPropertyMutation(input);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("applyBlockPropertyMutation");
+    if (!request || request.type !== "applyBlockPropertyMutation") return;
+    expect(request.payload.mutationId).toBe("property-mutation-1");
+    expect(request.payload.clientSessionId).toBe("renderer-1");
+
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          mutationId: "property-mutation-1",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          duplicate: false,
+          fields: [
+            {
+              path: "intrinsic/card-1/agent.status",
+              scope: "intrinsic",
+              blockId: "card-1",
+              propertyKey: "agent.status",
+              operation: "set",
+              revision: 2,
+              value: "running",
+            },
+          ],
+          blockMetadataRevisions: { "card-1": 2 },
+          changeLogSeq: 7,
+          committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.ok).toBeTrue();
+    if (!envelope.result.ok) return;
+    expect(envelope.result.value.mutationId).toBe("property-mutation-1");
+    expect(envelope.result.value.changeLogSeq).toBe(7);
+  });
+
   test("exposes the startup shadow parity result through the FIFO", async () => {
     const worker = new FakeWorker();
     const writer = new CardMutationWriter({

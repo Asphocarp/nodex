@@ -19,6 +19,10 @@ import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
+import type {
+  BlockPropertyMutationCommandResult,
+  BlockPropertyMutationRequest,
+} from "../../shared/block-property-mutations";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -97,6 +101,13 @@ export function readDatabaseViewReference(
   input: ReadDatabaseViewReferenceInput,
 ): Promise<DatabaseViewReadModel | null> {
   return invoke("database-view:reference:get", input);
+}
+
+export function mutateBlockProperties(
+  projectId: string,
+  request: BlockPropertyMutationRequest,
+): Promise<BlockPropertyMutationCommandResult> {
+  return invoke("block-properties:mutate", projectId, request);
 }
 
 const CARD_DESCRIPTION_UPDATE_CHUNK_SIZE = 16 * 1024;

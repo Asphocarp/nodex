@@ -77,6 +77,7 @@ import { renameProjectSessionChat } from "./project-session-rename-service";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
 import { registerReferenceReadHttpRoutes } from "./reference-read-http";
+import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutation-http";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardReference,
@@ -241,6 +242,11 @@ registerDocumentSyncHttpRoutes(app, {
 registerReferenceReadHttpRoutes(app, {
   resolveCardReference: resolveProjectScopedCardReference,
   readDatabaseViewReference: readProjectScopedDatabaseViewReference,
+});
+
+registerBlockPropertyMutationHttpRoute(app, {
+  applyMutation: async (request) =>
+    (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
 });
 
 app.post(

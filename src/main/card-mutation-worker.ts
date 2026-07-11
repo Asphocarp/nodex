@@ -39,6 +39,8 @@ import {
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
+import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
+import { readAuthoritativeCardSummaryById } from "./local-store/card-read-store";
 import {
   BlockDocumentRuntime,
   createSqliteBlockDocumentRuntimeAuthority,
@@ -165,6 +167,7 @@ const isLegacyAuthorityMutation = (
     case "initializeBlockDocumentShadows":
     case "migrateLegacyForeignReferences":
     case "repairDocumentSecondaryProjections":
+    case "applyBlockPropertyMutation":
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
@@ -1150,6 +1153,43 @@ async function runRequest(
       );
     case "repairDocumentSecondaryProjections":
       return repairDocumentSecondaryProjections(getDb());
+    case "applyBlockPropertyMutation": {
+      const result = applyBlockPropertyMutation(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+
+      // The store has already committed authority plus every disposable
+      // projection before returning. Fanout is intentionally best-effort and
+      // happens only for the first durable receipt; exact retries must not
+      // create a second semantic board event.
+      for (const cardId of Object.keys(result.value.blockMetadataRevisions)) {
+        try {
+          const summary = readAuthoritativeCardSummaryById(getDb(), cardId);
+          if (!summary) {
+            postLog("error", "Committed Card properties have no read model", {
+              projectId: request.payload.projectId,
+              cardId,
+              mutationId: request.payload.mutationId,
+            });
+            continue;
+          }
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            "update",
+            summary.status,
+            cardId,
+            { summary },
+          );
+        } catch (error) {
+          postLog("error", "Committed Card property fanout failed", {
+            projectId: request.payload.projectId,
+            cardId,
+            mutationId: request.payload.mutationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return result;
+    }
     case "syncBlockDocument":
       return runDocumentCommand(() =>
         blockDocumentRuntime.sync(request.payload),

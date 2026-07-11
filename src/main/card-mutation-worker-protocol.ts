@@ -16,6 +16,10 @@ import type {
   RelocationResult,
 } from "../shared/block-documents";
 import type {
+  BlockPropertyMutationCommandResult,
+  BlockPropertyMutationRequest,
+} from "../shared/block-property-mutations";
+import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
@@ -237,6 +241,10 @@ export type CardMutationWorkerRequest =
       type: "repairDocumentSecondaryProjections";
     })
   | (CardMutationWorkerRequestBase & {
+      type: "applyBlockPropertyMutation";
+      payload: BlockPropertyMutationRequest;
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "syncBlockDocument";
       payload: DocumentSyncRequest;
     })
@@ -320,6 +328,7 @@ export type CardMutationWorkerResult =
   | CutoverEligibleCardDocumentsResult
   | ForeignReferenceMigrationBatchResult
   | RepairDocumentSecondaryProjectionsResult
+  | BlockPropertyMutationCommandResult
   | undefined;
 
 export type CardMutationWorkerResponse =

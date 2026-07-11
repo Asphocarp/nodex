@@ -20,6 +20,10 @@ import type {
 } from "./block-documents/contracts";
 import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
 import type {
+  BlockPropertyMutationCommandResult,
+  BlockPropertyMutationRequest,
+} from "./block-property-mutations";
+import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
 } from "./block-references";
@@ -523,6 +527,10 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "block-properties:mutate": {
+    args: [projectId: string, request: BlockPropertyMutationRequest];
+    result: BlockPropertyMutationCommandResult;
+  };
   "block-reference:card:resolve": {
     args: [input: ResolveCardReferenceInput];
     result: CardReferenceReadModel | null;

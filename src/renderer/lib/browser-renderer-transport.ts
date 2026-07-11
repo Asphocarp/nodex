@@ -35,6 +35,7 @@ import {
   decodeCardReferenceReadModelHttp,
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
+import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -701,6 +702,23 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         toApiUrl(`/api/projects/${projectId}/board-summary`),
       );
       return res.json();
+    }
+    case "block-properties:mutate": {
+      const [projectId, request] = args as [string, unknown];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/block-property-mutations`,
+        ),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+      );
+      return parseBlockPropertyMutationCommandResult(await response.json());
     }
     case "block-reference:card:resolve": {
       const [input] = args as [

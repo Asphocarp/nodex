@@ -759,6 +759,7 @@ nodex/
 | POST | `/api/projects/[projectId]/documents/[documentId]/awareness` | Publish bounded ephemeral presence; it never mutates content or SQLite |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocations` | Move stable Block subtrees to another Card Document through a session-bound lease and one atomic SQLite commit |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocation-leases/[leaseId]/responses` | ACK/NACK a surface-local relocation freeze after its pending edits are durable |
+| POST | `/api/projects/[projectId]/block-property-mutations` | Apply a versioned field-level intrinsic/Database property batch with scalar CAS or set add/remove intent and an immutable typed receipt |
 
 #### Asset Routes
 

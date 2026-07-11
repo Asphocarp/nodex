@@ -18,6 +18,10 @@ import type {
   RelocationResult,
 } from "../shared/block-documents";
 import type {
+  BlockPropertyMutationCommandResult,
+  BlockPropertyMutationRequest,
+} from "../shared/block-property-mutations";
+import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
@@ -366,6 +370,15 @@ export class CardMutationWriter {
   > {
     return await this.executeTyped<RepairDocumentSecondaryProjectionsResult>({
       type: "repairDocumentSecondaryProjections",
+    });
+  }
+
+  async applyBlockPropertyMutation(
+    request: BlockPropertyMutationRequest,
+  ): Promise<CardMutationEnvelope<BlockPropertyMutationCommandResult>> {
+    return await this.executeTyped<BlockPropertyMutationCommandResult>({
+      type: "applyBlockPropertyMutation",
+      payload: request,
     });
   }
 
