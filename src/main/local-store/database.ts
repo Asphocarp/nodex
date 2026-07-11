@@ -16,6 +16,18 @@ export class DatabaseMaintenanceInProgressError extends Error {
   }
 }
 
+/** Stable across Bun module reloads and other same-process JS realms. */
+export const isDatabaseMaintenanceInProgressError = (
+  value: unknown,
+): value is DatabaseMaintenanceInProgressError =>
+  typeof value === "object" &&
+  value !== null &&
+  "name" in value &&
+  value.name === "DatabaseMaintenanceInProgressError" &&
+  "message" in value &&
+  value.message ===
+    "The local store is unavailable during whole-store maintenance";
+
 export interface DatabaseMaintenanceLease {
   readonly release: () => void;
 }

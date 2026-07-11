@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   beginDatabaseMaintenance,
-  DatabaseMaintenanceInProgressError,
   getDb,
+  isDatabaseMaintenanceInProgressError,
   isDatabaseMaintenanceActive,
 } from "./database";
 
@@ -16,7 +16,7 @@ describe("database maintenance lease", () => {
       try {
         getDb();
       } catch (error) {
-        blocked = error instanceof DatabaseMaintenanceInProgressError;
+        blocked = isDatabaseMaintenanceInProgressError(error);
       }
       expect(blocked).toBeTrue();
 
@@ -24,7 +24,7 @@ describe("database maintenance lease", () => {
       try {
         beginDatabaseMaintenance();
       } catch (error) {
-        nestedBlocked = error instanceof DatabaseMaintenanceInProgressError;
+        nestedBlocked = isDatabaseMaintenanceInProgressError(error);
       }
       expect(nestedBlocked).toBeTrue();
     } finally {

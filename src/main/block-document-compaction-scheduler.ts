@@ -63,7 +63,14 @@ export const startBlockDocumentCompactionScheduler = (
     if (disposed) return;
     timer = setTimeoutImpl(() => {
       timer = null;
-      const storeEpoch = options.readStoreEpoch();
+      let storeEpoch: string | null;
+      try {
+        storeEpoch = options.readStoreEpoch();
+      } catch (error) {
+        options.onError?.(error);
+        schedule(intervalMs);
+        return;
+      }
       if (!storeEpoch) {
         schedule(intervalMs);
         return;

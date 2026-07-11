@@ -107,4 +107,35 @@ describe("Block Document compaction scheduler", () => {
     expect(callbacks.length).toBe(1);
     scheduler.dispose();
   });
+
+  test("survives a maintenance-window epoch read failure", () => {
+    const callbacks: Array<() => void> = [];
+    const errors: string[] = [];
+    let calls = 0;
+    const scheduler = startBlockDocumentCompactionScheduler({
+      writer: {
+        compactEligibleBlockDocuments: async () => {
+          calls += 1;
+          return { result: emptyResult("never") };
+        },
+      },
+      readStoreEpoch: () => {
+        throw new Error("store suspended");
+      },
+      initialDelayMs: 0,
+      intervalMs: 10,
+      onError: (error) =>
+        errors.push(error instanceof Error ? error.message : String(error)),
+      setTimeoutImpl: ((callback: () => void) => {
+        callbacks.push(callback);
+        return { unref: () => undefined };
+      }) as unknown as typeof setTimeout,
+      clearTimeoutImpl: (() => undefined) as typeof clearTimeout,
+    });
+    callbacks.shift()?.();
+    expect(calls).toBe(0);
+    expect(errors.join(",")).toBe("store suspended");
+    expect(callbacks.length).toBe(1);
+    scheduler.dispose();
+  });
 });
