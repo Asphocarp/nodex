@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
+  decodeOwnedBlockDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentRealtimeSseEvent,
   decodeDocumentSyncHttpResponse,
@@ -58,6 +59,21 @@ const createApp = (options?: { readonly duplicate?: boolean }) => {
   const app = new Hono();
   registerDocumentSyncHttpRoutes(app, {
     hub,
+    getOwnedBlockDocumentDescriptor: async (projectId, ownerBlockId) => ({
+      projectId,
+      ownerBlockId,
+      ownerType: "card",
+      ownerLifecycle: "active",
+      documentId: "document-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 0,
+      schemaKey: "nodex.card",
+      schemaVersion: 1,
+      readiness: "ready",
+      authority: "ydoc_primary",
+      stateVector: new Uint8Array([1]),
+    }),
     getDocumentProjectId: async (documentId) =>
       documentId === "document-1"
         ? success("project-1")
@@ -100,6 +116,21 @@ const readSseData = async (
 };
 
 describe("Document sync HTTP routes", () => {
+  test("returns a strictly project-scoped owned Document descriptor", async () => {
+    const { app } = createApp();
+    const response = await app.request(
+      "/api/projects/project-1/blocks/card-1/document",
+    );
+    expect(response.status).toBe(200);
+    const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
+      await response.text(),
+    );
+    expect(descriptor.projectId).toBe("project-1");
+    expect(descriptor.ownerBlockId).toBe("card-1");
+    expect(descriptor.authority).toBe("ydoc_primary");
+    expect(Array.from(descriptor.stateVector).join(",")).toBe("1");
+  });
+
   test("requires project-scoped SSE before binary sync and durable fanout", async () => {
     const { app, syncCalls, applyCalls } = createApp();
     const eventResponse = await app.request(

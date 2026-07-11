@@ -2,6 +2,7 @@ import { resolveInvokeTransport, resolveRendererTransport } from "./renderer-tra
 import type { IpcApi } from "../../shared/ipc-api";
 import type { Card, CardUpdateResult } from "./types";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
+import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -40,6 +41,16 @@ export function createDocumentSyncAdapter(projectId: string): DocumentSyncAdapte
     return createAdapter(projectId);
   }
   throw new Error("Document sync is unavailable for this renderer transport");
+}
+
+export function getOwnedBlockDocumentDescriptor(
+  projectId: string,
+  ownerBlockId: string,
+): Promise<OwnedBlockDocumentDescriptor> {
+  return resolveRendererTransport().getOwnedBlockDocumentDescriptor(
+    projectId,
+    ownerBlockId,
+  );
 }
 
 const CARD_DESCRIPTION_UPDATE_CHUNK_SIZE = 16 * 1024;

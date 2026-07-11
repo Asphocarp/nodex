@@ -4,12 +4,10 @@ import {
   yXmlFragmentToBlocks,
 } from "@blocknote/core/yjs";
 import * as Y from "yjs";
-import { parseAssetSource } from "../assets";
 import { createUuidV7 } from "../card-id";
 import { extractPlainText } from "../nfm/extract-text";
 import { parseNfm } from "../nfm/parser";
 import { serializeNfm } from "../nfm/serializer";
-import type { NfmBlock, NfmInlineContent } from "../nfm/types";
 import {
   assertValidBlockDocument,
   BLOCK_GROUP_NODE_NAME,
@@ -21,6 +19,11 @@ import {
   createCardDocument,
 } from "./card-document";
 import type { BlockId, DocumentId } from "./contracts";
+import {
+  deriveBlockDocumentRecords,
+  type BlockDocumentAssetReference,
+  type BlockDocumentReference,
+} from "./derived-records";
 import { headlessBlockDocumentSchema } from "./headless-blocknote-schema";
 import {
   blockNoteToNfm,
@@ -44,30 +47,10 @@ export interface BlockTreeNode {
   readonly children: readonly BlockTreeNode[];
 }
 
-export type BlockDocumentReference =
-  | {
-      readonly kind: "block";
-      readonly sourceBlockId: BlockId;
-      readonly targetBlockId: BlockId;
-      readonly projectHint?: string;
-    }
-  | {
-      readonly kind: "thread";
-      readonly sourceBlockId: BlockId;
-      readonly targetThreadId: string;
-    }
-  | {
-      readonly kind: "legacy_database_query";
-      readonly sourceBlockId: BlockId;
-      readonly projectHint: string;
-    };
-
-export interface BlockDocumentAssetReference {
-  readonly sourceBlockId: BlockId;
-  readonly kind: "image" | "attachment";
-  readonly source: string;
-  readonly managedFileName: string | null;
-}
+export type {
+  BlockDocumentAssetReference,
+  BlockDocumentReference,
+} from "./derived-records";
 
 export interface CardDocumentMaterialization {
   readonly schemaVersion: number;
@@ -140,7 +123,9 @@ const cloneBlockTreeValue = (
     );
   }
   if (ancestors.has(value)) {
-    throw new BlockDocumentCodecError("Block tree values must not contain cycles");
+    throw new BlockDocumentCodecError(
+      "Block tree values must not contain cycles",
+    );
   }
 
   const nextAncestors = new Set(ancestors);
@@ -186,7 +171,9 @@ const toBlockTree = (
 ): readonly BlockTreeNode[] =>
   blocks.map((block) => {
     if (!block.id) {
-      throw new BlockDocumentCodecError("Materialized Block is missing its identity");
+      throw new BlockDocumentCodecError(
+        "Materialized Block is missing its identity",
+      );
     }
     const content = cloneBlockTreeValue(block.content);
     return {
@@ -235,114 +222,6 @@ const assertMaterializationMatchesScan = (
   });
 };
 
-const collectInlineReferences = (
-  sourceBlockId: BlockId,
-  inline: readonly NfmInlineContent[],
-  references: BlockDocumentReference[],
-  assetRefs: BlockDocumentAssetReference[],
-): void => {
-  for (const item of inline) {
-    if (item.type === "threadMention") {
-      references.push({
-        kind: "thread",
-        sourceBlockId,
-        targetThreadId: item.uuid,
-      });
-      continue;
-    }
-    if (item.type !== "attachment") continue;
-    assetRefs.push({
-      sourceBlockId,
-      kind: "attachment",
-      source: item.source,
-      managedFileName: parseAssetSource(item.source)?.fileName ?? null,
-    });
-  }
-};
-
-const collectDerivedRecords = (
-  blockTree: readonly BlockTreeNode[],
-  nfmBlocks: readonly NfmBlock[],
-  references: BlockDocumentReference[],
-  assetRefs: BlockDocumentAssetReference[],
-): void => {
-  if (blockTree.length !== nfmBlocks.length) {
-    throw new BlockDocumentCodecError(
-      "NFM projection does not match the materialized Block tree",
-    );
-  }
-
-  blockTree.forEach((block, index) => {
-    const nfmBlock = nfmBlocks[index];
-    if (!nfmBlock) {
-      throw new BlockDocumentCodecError("NFM projection is missing a Block");
-    }
-    if ("content" in nfmBlock && Array.isArray(nfmBlock.content)) {
-      collectInlineReferences(
-        block.id,
-        nfmBlock.content,
-        references,
-        assetRefs,
-      );
-    }
-    if (nfmBlock.type === "table") {
-      for (const row of nfmBlock.rows) {
-        for (const cell of row.cells) {
-          collectInlineReferences(
-            block.id,
-            cell.content,
-            references,
-            assetRefs,
-          );
-        }
-      }
-    }
-    if (nfmBlock.type === "image") {
-      collectInlineReferences(
-        block.id,
-        nfmBlock.caption,
-        references,
-        assetRefs,
-      );
-      assetRefs.push({
-        sourceBlockId: block.id,
-        kind: "image",
-        source: nfmBlock.source,
-        managedFileName: parseAssetSource(nfmBlock.source)?.fileName ?? null,
-      });
-    } else if (nfmBlock.type === "cardRef") {
-      references.push({
-        kind: "block",
-        sourceBlockId: block.id,
-        targetBlockId: nfmBlock.cardId,
-        projectHint: nfmBlock.sourceProjectId,
-      });
-    } else if (nfmBlock.type === "cardToggle") {
-      references.push({
-        kind: "block",
-        sourceBlockId: block.id,
-        targetBlockId: nfmBlock.cardId,
-        ...(nfmBlock.sourceProjectId
-          ? { projectHint: nfmBlock.sourceProjectId }
-          : {}),
-      });
-    } else if (nfmBlock.type === "toggleListInlineView") {
-      references.push({
-        kind: "legacy_database_query",
-        sourceBlockId: block.id,
-        projectHint: nfmBlock.sourceProjectId,
-      });
-    }
-
-    collectDerivedRecords(
-      block.children,
-      nfmBlock.children,
-      references,
-      assetRefs,
-    );
-  });
-};
-
 const buildPreview = (plainText: string): string => {
   if (plainText.length <= 240) return plainText;
   return `${plainText.slice(0, 240).trimEnd()}...`;
@@ -372,13 +251,9 @@ export const materializeCardDocument = (
   assertMaterializationMatchesScan(blockTree, scannedBlocks);
   const nfmBlocks = blockNoteToNfm(blockNoteBlocks);
   const nfm = serializeNfm(nfmBlocks);
-  const references: BlockDocumentReference[] = [];
-  const assetRefs: BlockDocumentAssetReference[] = [];
-  collectDerivedRecords(
+  const { references, assetRefs } = deriveBlockDocumentRecords(
     blockTree,
     nfmBlocks,
-    references,
-    assetRefs,
   );
   const plainText = extractPlainText(nfm);
 
@@ -412,7 +287,7 @@ export const createCardDocumentGenesis = ({
     );
     blocksToYXmlFragment(
       headlessEditor,
-      blockNoteBlocks as typeof headlessBlockDocumentSchema.Block[],
+      blockNoteBlocks as (typeof headlessBlockDocumentSchema.Block)[],
       envelope.body,
     );
     if (envelope.body.length === 0) {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  decodeOwnedBlockDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
   decodeDocumentAwarenessHttpRequest,
@@ -14,11 +15,36 @@ import {
   encodeDocumentRealtimeSseEvent,
   encodeDocumentSyncHttpRequest,
   encodeDocumentSyncHttpResponse,
+  encodeOwnedBlockDocumentDescriptorHttp,
 } from "./http-contract";
 
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
 
 describe("Document HTTP contract", () => {
+  test("round-trips owned Document identity boundaries", () => {
+    const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
+      encodeOwnedBlockDocumentDescriptorHttp({
+        projectId: "project-1",
+        ownerBlockId: "card-1",
+        ownerType: "card",
+        ownerLifecycle: "active",
+        documentId: "document-1",
+        storeEpoch: "store-1",
+        generation: 2,
+        headSeq: 7,
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+        readiness: "ready",
+        authority: "ydoc_primary",
+        stateVector: bytes(0, 128, 255),
+      }),
+    );
+    expect(descriptor.documentId).toBe("document-1");
+    expect(descriptor.generation).toBe(2);
+    expect(descriptor.headSeq).toBe(7);
+    expect(Array.from(descriptor.stateVector).join(",")).toBe("0,128,255");
+  });
+
   test("round-trips sync and apply commands without JSON-encoding binary updates", () => {
     const syncRequest = {
       documentId: "document-1",

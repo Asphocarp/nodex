@@ -193,7 +193,7 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
     const state = Y.encodeStateAsUpdate(source.document);
     return {
       storeEpoch: this.storeEpoch,
-      authority: "legacy_shadow",
+      authority: "ydoc_primary",
       head: {
         documentId: source.documentId,
         ownerBlockId: source.ownerBlockId,
@@ -336,6 +336,27 @@ describe("BlockDocumentRuntime", () => {
       const externallyAdvanced = syncFromEmpty(runtime, "document:one");
       expect(authority.loadCount("document:one")).toBe(4);
       expect(readTitle(externallyAdvanced)).toBe("One external");
+    } finally {
+      runtime.destroy();
+      authority.destroy();
+    }
+  });
+
+  test("explicit invalidation reloads state committed by another authority path", () => {
+    const authority = new InMemoryBlockDocumentAuthority([
+      { documentId: "document:one", title: "One" },
+    ]);
+    const runtime = new BlockDocumentRuntime(authority);
+    try {
+      syncFromEmpty(runtime, "document:one");
+      expect(authority.loadCount("document:one")).toBe(1);
+
+      authority.appendTitleExternally("document:one", " shadow");
+      runtime.invalidate("document:one");
+
+      const reloaded = syncFromEmpty(runtime, "document:one");
+      expect(authority.loadCount("document:one")).toBe(2);
+      expect(readTitle(reloaded)).toBe("One shadow");
     } finally {
       runtime.destroy();
       authority.destroy();

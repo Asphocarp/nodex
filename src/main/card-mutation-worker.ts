@@ -7,6 +7,21 @@ import { dbNotifier, type BoardChangeEvent as LocalBoardChangeEvent } from "./lo
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as historyStore from "./local-store/history";
+import {
+  cutoverCardDocumentToPrimary,
+  getOwnedBlockDocumentDescriptor,
+} from "./local-store/block-document-cutover";
+import {
+  drainLegacyCardShadowJobs,
+  processClaimedLegacyCardShadowJob,
+  type LegacyCardShadowDrainResult,
+  type LegacyCardShadowProcessingResult,
+} from "./local-store/legacy-card-shadow-processor";
+import {
+  claimNextLegacyCardShadowJobForCard,
+  markPendingLegacyCardShadowJobsFailed,
+  type LegacyCardShadowJobStatus,
+} from "./local-store/legacy-card-shadow-outbox";
 import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
   BlockDocumentRuntime,
@@ -16,6 +31,7 @@ import type { BoardChangeEvent } from "../shared/ipc-api";
 import type { DocumentSyncCommandResult } from "../shared/block-documents";
 import type { Card, CardSummary } from "../shared/types";
 import type {
+  BlockDocumentShadowInitializationResult,
   CardMutationMetrics,
   CardMutationWorkerMessage,
   CardMutationWorkerRequest,
@@ -26,6 +42,46 @@ import type {
 const blockDocumentRuntime = new BlockDocumentRuntime(
   createSqliteBlockDocumentRuntimeAuthority(getDb),
 );
+
+const STARTUP_SHADOW_DRAIN_LIMIT = 10_000;
+const POST_MUTATION_SHADOW_DRAIN_LIMIT = 100;
+const POST_MUTATION_TARGET_DRAIN_LIMIT = 10_000;
+const POST_MUTATION_FENCE_FAILURE =
+  "The mutation shadow fence could not be processed within its bounded drain";
+
+interface ShadowDrainMetrics {
+  readonly processed: number;
+  readonly applied: number;
+  readonly superseded: number;
+  readonly failed: number;
+  readonly errors: number;
+  readonly exhausted: boolean;
+}
+
+const EMPTY_SHADOW_DRAIN_METRICS: ShadowDrainMetrics = {
+  processed: 0,
+  applied: 0,
+  superseded: 0,
+  failed: 0,
+  errors: 0,
+  exhausted: true,
+};
+
+let legacyShadowProcessorInitialized = false;
+
+interface ShadowMutationJobRow {
+  readonly id: string;
+  readonly card_id: string;
+  readonly source_event_seq: number;
+  readonly status: LegacyCardShadowJobStatus;
+}
+
+class LegacyShadowMutationFenceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LegacyShadowMutationFenceError";
+  }
+}
 
 function postMessage(message: CardMutationWorkerMessage): void {
   parentPort?.postMessage(message);
@@ -42,6 +98,304 @@ function postLog(
 ): void {
   postMessage({ type: "log", payload: { level, message, data } });
 }
+
+const isLegacyAuthorityMutation = (
+  request: CardMutationWorkerRequest,
+): boolean => {
+  switch (request.type) {
+    case "createCard":
+    case "updateCard":
+    case "updateCardDescriptionFromFile":
+    case "deleteCard":
+    case "moveCard":
+    case "moveCards":
+    case "moveCardToProject":
+    case "importBlockDropAsCards":
+    case "applyCardEditorDrop":
+    case "completeCardOccurrence":
+    case "skipCardOccurrence":
+    case "updateCardOccurrence":
+    case "undoLatest":
+    case "redoLatest":
+    case "revertEntry":
+    case "restoreToEntry":
+      return true;
+    case "getCardHistoryVersionPreview":
+    case "backfillCardReadModel":
+    case "initializeBlockDocumentShadows":
+    case "syncBlockDocument":
+    case "getBlockDocumentProjectId":
+    case "getOwnedBlockDocumentDescriptor":
+    case "cutoverCardDocumentToPrimary":
+    case "applyBlockDocumentUpdate":
+    case "writerBarrier":
+    case "shutdown":
+      return false;
+  }
+};
+
+const summarizeShadowDrain = (
+  drain: LegacyCardShadowDrainResult,
+): ShadowDrainMetrics => ({
+  processed: drain.results.length,
+  applied: drain.results.filter((result) => result.outcome === "applied").length,
+  superseded: drain.results.filter(
+    (result) => result.outcome === "superseded",
+  ).length,
+  failed: drain.results.filter((result) => result.outcome === "failed").length,
+  errors: 0,
+  exhausted: drain.exhausted,
+});
+
+const mergeShadowDrainMetrics = (
+  left: ShadowDrainMetrics,
+  right: ShadowDrainMetrics,
+): ShadowDrainMetrics => ({
+  processed: left.processed + right.processed,
+  applied: left.applied + right.applied,
+  superseded: left.superseded + right.superseded,
+  failed: left.failed + right.failed,
+  errors: left.errors + right.errors,
+  exhausted: left.exhausted && right.exhausted,
+});
+
+const invalidateChangedShadowDocuments = (
+  drain: LegacyCardShadowDrainResult,
+): void => {
+  const changedCardIds = Array.from(new Set(
+    drain.results
+      .filter((result) => result.documentChanged)
+      .map((result) => result.cardId),
+  ));
+  if (changedCardIds.length === 0) return;
+
+  const readDocumentId = getDb().prepare(`
+    SELECT document_id
+    FROM block_documents
+    WHERE block_id = ?
+  `);
+  for (const cardId of changedCardIds) {
+    const row = readDocumentId.get(cardId) as
+      | { readonly document_id: string }
+      | undefined;
+    if (!row) continue;
+    blockDocumentRuntime.invalidate(row.document_id);
+  }
+};
+
+type ShadowDrainPhase = "startup" | "pre_cutover" | "post_mutation";
+
+const logShadowDrain = (
+  phase: ShadowDrainPhase,
+  drain: LegacyCardShadowDrainResult,
+): void => {
+  for (const result of drain.results) {
+    if (result.outcome !== "failed") continue;
+    postLog("error", "Legacy Card shadow job reached terminal failure", {
+      phase,
+      jobId: result.jobId,
+      cardId: result.cardId,
+      sourceEventSeq: result.sourceEventSeq,
+      error: result.error,
+      cutoverBlocked: true,
+    });
+  }
+
+  const metrics = summarizeShadowDrain(drain);
+  if (!drain.exhausted) {
+    postLog("warn", "Legacy Card shadow drain reached its bounded limit", {
+      phase,
+      processed: metrics.processed,
+      applied: metrics.applied,
+      superseded: metrics.superseded,
+      failed: metrics.failed,
+      cutoverBlocked: true,
+    });
+    return;
+  }
+  if (metrics.processed === 0) return;
+  postLog("debug", "Legacy Card shadow drain completed", {
+    phase,
+    processed: metrics.processed,
+    applied: metrics.applied,
+    superseded: metrics.superseded,
+    failed: metrics.failed,
+  });
+};
+
+/**
+ * Shadow translation is downstream of a committed legacy mutation. A failed
+ * projection must block cutover, but must never turn the already-committed
+ * Card operation into a false failure at the caller boundary.
+ */
+const safelyDrainLegacyCardShadowJobs = (
+  phase: ShadowDrainPhase,
+  maxJobs: number,
+): ShadowDrainMetrics => {
+  try {
+    const drain = drainLegacyCardShadowJobs(getDb(), { maxJobs });
+    try {
+      invalidateChangedShadowDocuments(drain);
+    } catch (error) {
+      // A committed shadow update must never leave an older cached Y.Doc
+      // reachable, even if descriptor lookup itself becomes unavailable.
+      blockDocumentRuntime.destroy();
+      throw error;
+    }
+    logShadowDrain(phase, drain);
+    return summarizeShadowDrain(drain);
+  } catch (error) {
+    postLog("error", "Legacy Card shadow drain could not run", {
+      phase,
+      error: toErrorMessage(error),
+      cutoverBlocked: true,
+    });
+    return {
+      ...EMPTY_SHADOW_DRAIN_METRICS,
+      errors: 1,
+      exhausted: false,
+    };
+  }
+};
+
+const initializeLegacyShadowProcessor = (): ShadowDrainMetrics => {
+  if (legacyShadowProcessorInitialized) return EMPTY_SHADOW_DRAIN_METRICS;
+  const metrics = safelyDrainLegacyCardShadowJobs(
+    "startup",
+    STARTUP_SHADOW_DRAIN_LIMIT,
+  );
+  if (metrics.errors === 0 && metrics.exhausted) {
+    legacyShadowProcessorInitialized = true;
+  }
+  return metrics;
+};
+
+const readShadowMutationJobs = (
+  enqueuedSince: string,
+): readonly ShadowMutationJobRow[] =>
+  getDb().prepare(`
+    SELECT id, card_id, source_event_seq, status
+    FROM legacy_card_shadow_jobs
+    WHERE enqueued_at >= ?
+    ORDER BY card_id ASC, source_event_seq ASC
+  `).all(enqueuedSince) as readonly ShadowMutationJobRow[];
+
+const readShadowMutationJobsById = (
+  jobIds: readonly string[],
+): readonly ShadowMutationJobRow[] => {
+  if (jobIds.length === 0) return [];
+  const placeholders = jobIds.map(() => "?").join(", ");
+  return getDb().prepare(`
+    SELECT id, card_id, source_event_seq, status
+    FROM legacy_card_shadow_jobs
+    WHERE id IN (${placeholders})
+    ORDER BY card_id ASC, source_event_seq ASC
+  `).all(...jobIds) as readonly ShadowMutationJobRow[];
+};
+
+const isTerminalShadowJobStatus = (
+  status: LegacyCardShadowJobStatus,
+): boolean =>
+  status === "applied" || status === "superseded" || status === "failed";
+
+const makeForcedFailureResult = (
+  row: ShadowMutationJobRow,
+): LegacyCardShadowProcessingResult => ({
+  jobId: row.id,
+  cardId: row.card_id,
+  sourceEventSeq: row.source_event_seq,
+  outcome: "failed",
+  documentHeadSeq: null,
+  documentChanged: false,
+  error: POST_MUTATION_FENCE_FAILURE,
+});
+
+const settleShadowMutationJobs = (
+  targetJobs: readonly ShadowMutationJobRow[],
+): LegacyCardShadowDrainResult => {
+  const targetIds = targetJobs.map((job) => job.id);
+  if (targetIds.length === 0) return { exhausted: true, results: [] };
+
+  const throughEventByCard = new Map<string, number>();
+  for (const job of targetJobs) {
+    throughEventByCard.set(
+      job.card_id,
+      Math.max(throughEventByCard.get(job.card_id) ?? 0, job.source_event_seq),
+    );
+  }
+
+  const results: LegacyCardShadowProcessingResult[] = [];
+  while (results.length < POST_MUTATION_TARGET_DRAIN_LIMIT) {
+    const unsettled = readShadowMutationJobsById(targetIds).filter(
+      (job) => !isTerminalShadowJobStatus(job.status),
+    );
+    if (unsettled.length === 0) {
+      return { exhausted: true, results };
+    }
+
+    let madeProgress = false;
+    for (const [cardId, throughSourceEventSeq] of throughEventByCard) {
+      if (results.length >= POST_MUTATION_TARGET_DRAIN_LIMIT) break;
+      const job = claimNextLegacyCardShadowJobForCard(
+        getDb(),
+        cardId,
+        throughSourceEventSeq,
+      );
+      if (!job) continue;
+      results.push(processClaimedLegacyCardShadowJob(getDb(), job));
+      madeProgress = true;
+    }
+    if (!madeProgress) break;
+  }
+
+  const unsettled = readShadowMutationJobsById(targetIds).filter(
+    (job) => !isTerminalShadowJobStatus(job.status),
+  );
+  const pending = unsettled.filter((job) => job.status === "pending");
+  const forcedFailures = markPendingLegacyCardShadowJobsFailed(
+    getDb(),
+    pending.map((job) => job.id),
+    POST_MUTATION_FENCE_FAILURE,
+  );
+  if (forcedFailures > 0) {
+    const forcedIds = new Set(pending.map((job) => job.id));
+    results.push(...readShadowMutationJobsById([...forcedIds])
+      .filter((job) => job.status === "failed")
+      .map(makeForcedFailureResult));
+  }
+
+  const stillUnsettled = readShadowMutationJobsById(targetIds).filter(
+    (job) => !isTerminalShadowJobStatus(job.status),
+  );
+  if (stillUnsettled.length > 0) {
+    throw new LegacyShadowMutationFenceError(
+      `Mutation shadow jobs remained non-terminal: ${stillUnsettled
+        .map((job) => `${job.id}:${job.status}`)
+        .join(", ")}`,
+    );
+  }
+  return { exhausted: true, results };
+};
+
+const settlePostMutationShadowBoundary = (
+  targetJobs: readonly ShadowMutationJobRow[],
+): ShadowDrainMetrics => {
+  const background = safelyDrainLegacyCardShadowJobs(
+    "post_mutation",
+    POST_MUTATION_SHADOW_DRAIN_LIMIT,
+  );
+  if (targetJobs.length === 0) return background;
+
+  const targeted = settleShadowMutationJobs(targetJobs);
+  try {
+    invalidateChangedShadowDocuments(targeted);
+  } catch (error) {
+    blockDocumentRuntime.destroy();
+    throw error;
+  }
+  logShadowDrain("post_mutation", targeted);
+  return mergeShadowDrainMetrics(background, summarizeShadowDrain(targeted));
+};
 
 function toErrorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -258,12 +612,25 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
       );
     case "backfillCardReadModel":
       return cardsStore.backfillCardReadModelBatch(request.payload.limit);
+    case "initializeBlockDocumentShadows":
+      return undefined;
     case "syncBlockDocument":
       return runDocumentCommand(() => blockDocumentRuntime.sync(request.payload));
     case "getBlockDocumentProjectId":
       return runDocumentCommand(() =>
         blockDocumentRuntime.getProjectId(request.payload.documentId),
       );
+    case "getOwnedBlockDocumentDescriptor":
+      return getOwnedBlockDocumentDescriptor(
+        getDb(),
+        request.payload.projectId,
+        request.payload.ownerBlockId,
+      );
+    case "cutoverCardDocumentToPrimary": {
+      const descriptor = cutoverCardDocumentToPrimary(getDb(), request.payload);
+      blockDocumentRuntime.invalidate(descriptor.documentId);
+      return descriptor;
+    }
     case "applyBlockDocumentUpdate":
       return runDocumentCommand(() =>
         blockDocumentRuntime.applyUpdate(request.payload),
@@ -277,6 +644,49 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
   }
 }
 
+const runRequestAtAuthorityBoundary = async (
+  request: CardMutationWorkerRequest,
+): Promise<{
+  readonly result: CardMutationWorkerResult;
+  readonly shadow: ShadowDrainMetrics;
+}> => {
+  if (request.type === "initializeBlockDocumentShadows") {
+    const shadow = initializeLegacyShadowProcessor();
+    return {
+      result: shadow satisfies BlockDocumentShadowInitializationResult,
+      shadow,
+    };
+  }
+  if (request.type === "cutoverCardDocumentToPrimary") {
+    const startup = initializeLegacyShadowProcessor();
+    const preCutover = safelyDrainLegacyCardShadowJobs(
+      "pre_cutover",
+      STARTUP_SHADOW_DRAIN_LIMIT,
+    );
+    return {
+      result: await runRequest(request),
+      shadow: mergeShadowDrainMetrics(startup, preCutover),
+    };
+  }
+  if (!isLegacyAuthorityMutation(request)) {
+    return {
+      result: await runRequest(request),
+      shadow: EMPTY_SHADOW_DRAIN_METRICS,
+    };
+  }
+
+  const startup = initializeLegacyShadowProcessor();
+  const mutationFenceStartedAt = new Date().toISOString();
+  const result = await runRequest(request);
+  const postMutation = settlePostMutationShadowBoundary(
+    readShadowMutationJobs(mutationFenceStartedAt),
+  );
+  return {
+    result,
+    shadow: mergeShadowDrainMetrics(startup, postMutation),
+  };
+};
+
 async function handleRequest(request: CardMutationWorkerRequest): Promise<void> {
   const workerStartedAtEpochMs = Date.now();
   const workerStartedAt = performance.now();
@@ -288,7 +698,7 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
 
   dbNotifier.on("board-changed", onBoardChanged);
   try {
-    const result = await runRequest(request);
+    const { result, shadow } = await runRequestAtAuthorityBoundary(request);
     dbNotifier.removeListener("board-changed", onBoardChanged);
 
     const metrics: CardMutationMetrics = {
@@ -307,6 +717,14 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
         ? readLatestDescriptionRevisionKind(request.payload.cardId)
         : undefined,
       eventCount: 0,
+      shadowJobsProcessed: shadow.processed || undefined,
+      shadowJobsApplied: shadow.applied || undefined,
+      shadowJobsSuperseded: shadow.superseded || undefined,
+      shadowJobsFailed: shadow.failed || undefined,
+      shadowDrainErrors: shadow.errors || undefined,
+      shadowDrainExhausted: shadow.processed > 0 || shadow.errors > 0
+        ? shadow.exhausted
+        : undefined,
     };
     const events = await enrichEvents(capturedEvents, metrics);
     metrics.eventCount = events.length;

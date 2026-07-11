@@ -19,6 +19,7 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
+import { decodeOwnedBlockDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -2298,6 +2299,18 @@ function subscribeWindowFocusChanges(
 
 export const browserRendererTransport = {
   kind: "browser" as const,
+  async getOwnedBlockDocumentDescriptor(projectId: string, ownerBlockId: string) {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/blocks/${encodeURIComponent(ownerBlockId)}/document`,
+      ),
+      { headers: { Accept: "application/json" } },
+    );
+    if (!response.ok) {
+      throw new Error(`Owned Document lookup failed with status ${response.status}`);
+    }
+    return decodeOwnedBlockDocumentDescriptorHttp(await response.text());
+  },
   createDocumentSyncAdapter(projectId: string) {
     return createHttpDocumentSyncAdapter({ projectId });
   },

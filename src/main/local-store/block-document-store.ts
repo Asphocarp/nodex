@@ -27,9 +27,14 @@ import {
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
 import {
+  materializeCardDocument,
+  type CardDocumentMaterialization,
+} from "../../shared/block-documents/block-document-codec";
+import {
   captureBlockDocumentChangeState,
   deriveBlockDocumentTouchedIds,
 } from "./block-document-change-set";
+import { persistCardDocumentMaterialization } from "./document-materializations";
 
 interface DocumentRow {
   readonly document_id: string;
@@ -1048,6 +1053,7 @@ export const initializeCardDocumentGenesis = (
   let genesisTitle: string;
   let genesisStateVector: Uint8Array;
   let genesisSnapshot: Uint8Array;
+  let genesisMaterialization: CardDocumentMaterialization;
   try {
     try {
       Y.applyUpdate(genesisDocument, input.update, "document-genesis");
@@ -1072,6 +1078,7 @@ export const initializeCardDocumentGenesis = (
     }
     genesisStateVector = Y.encodeStateVector(genesisDocument);
     genesisSnapshot = Y.encodeStateAsUpdate(genesisDocument);
+    genesisMaterialization = materializeCardDocument(genesisDocument);
   } finally {
     genesisDocument.destroy();
   }
@@ -1135,6 +1142,13 @@ export const initializeCardDocumentGenesis = (
       1,
       now,
     );
+    persistCardDocumentMaterialization(database, {
+      documentId: input.documentId,
+      generation: input.generation,
+      projectedSeq: 1,
+      materialization: genesisMaterialization,
+      updatedAt: now,
+    });
     insertDocumentUpdateReceipt(database, {
       documentId: input.documentId,
       generation: input.generation,
@@ -1275,6 +1289,7 @@ const applyBlockDocumentUpdateForAuthority = (
       const beforeChangeState = captureBlockDocumentChangeState(document);
       let blocks: readonly ScannedDocumentBlock[];
       let derivedTouchedBlockIds: readonly BlockId[];
+      let materialization: CardDocumentMaterialization;
       try {
         Y.applyUpdate(document, input.update, "remote-document-update");
         assertNoPendingDependencies(
@@ -1290,6 +1305,7 @@ const applyBlockDocumentUpdateForAuthority = (
           before: beforeChangeState,
           after: captureBlockDocumentChangeState(document),
         });
+        materialization = materializeCardDocument(document);
       } catch (error) {
         if (error instanceof BlockDocumentStoreError) {
           throw error;
@@ -1324,6 +1340,13 @@ const applyBlockDocumentUpdateForAuthority = (
         nextHeadSeq,
         now,
       );
+      persistCardDocumentMaterialization(database, {
+        documentId: input.documentId,
+        generation: input.generation,
+        projectedSeq: nextHeadSeq,
+        materialization,
+        updatedAt: now,
+      });
       const updateHash = hashBytes(input.update);
       insertDocumentUpdateReceipt(database, {
         documentId: input.documentId,

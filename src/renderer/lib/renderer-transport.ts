@@ -9,6 +9,10 @@ import type {
 
 export interface RendererTransport {
   kind: "browser" | "electron";
+  getOwnedBlockDocumentDescriptor: (
+    projectId: string,
+    ownerBlockId: string,
+  ) => Promise<import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor>;
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;

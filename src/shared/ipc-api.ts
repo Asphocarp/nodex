@@ -12,6 +12,7 @@ import type {
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
 } from "./block-documents/document-sync";
+import type { OwnedBlockDocumentDescriptor } from "./block-documents/contracts";
 
 import type {
   BackupRecord,
@@ -508,6 +509,10 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "block-document:owned:get": {
+    args: [projectId: string, ownerBlockId: string];
+    result: OwnedBlockDocumentDescriptor;
+  };
   "document-sync:subscribe": {
     args: [request: DocumentSyncSubscribeRequest];
     result: DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;

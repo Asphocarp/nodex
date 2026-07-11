@@ -103,6 +103,37 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
 }
 
 describe("CardMutationWriter", () => {
+  test("exposes the startup shadow parity result through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+
+    const pending = writer.initializeBlockDocumentShadows();
+    const request = worker.messages[0];
+    expect(request?.type).toBe("initializeBlockDocumentShadows");
+    if (!request) return;
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        processed: 12,
+        applied: 10,
+        superseded: 2,
+        failed: 0,
+        errors: 0,
+        exhausted: true,
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.processed).toBe(12);
+    expect(envelope.result.exhausted).toBeTrue();
+  });
+
   test("resolves worker ack and republishes board events", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
@@ -289,6 +320,60 @@ describe("CardMutationWriter", () => {
     if (applyResult.ok) return;
     expect(applyResult.error.code).toBe("document_update_missing_dependencies");
     expect(applyResult.error.retryable).toBeTrue();
+
+    const descriptorPending = writer.getOwnedBlockDocumentDescriptor(
+      "project-1",
+      "card-1",
+    );
+    const descriptorRequest = worker.messages[3];
+    expect(descriptorRequest?.type).toBe("getOwnedBlockDocumentDescriptor");
+    if (!descriptorRequest) return;
+    worker.emitMessage({
+      id: descriptorRequest.id,
+      ok: true,
+      result: {
+        projectId: "project-1",
+        ownerBlockId: "card-1",
+        ownerType: "card",
+        ownerLifecycle: "active",
+        documentId: "document:card-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 3,
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+        readiness: "ready",
+        authority: "legacy_shadow",
+        stateVector: new Uint8Array([1, 2]),
+      },
+      events: [],
+      metrics: makeMetrics(descriptorRequest.mutationId),
+    });
+    const descriptor = await descriptorPending;
+    expect(descriptor.result.ownerBlockId).toBe("card-1");
+    expect(descriptor.result.authority).toBe("legacy_shadow");
+
+    const cutoverPending = writer.cutoverCardDocumentToPrimary({
+      projectId: "project-1",
+      ownerBlockId: "card-1",
+      expectedGeneration: 1,
+      expectedHeadSeq: 3,
+    });
+    const cutoverRequest = worker.messages[4];
+    expect(cutoverRequest?.type).toBe("cutoverCardDocumentToPrimary");
+    if (!cutoverRequest) return;
+    worker.emitMessage({
+      id: cutoverRequest.id,
+      ok: true,
+      result: {
+        ...descriptor.result,
+        authority: "ydoc_primary",
+      },
+      events: [],
+      metrics: makeMetrics(cutoverRequest.mutationId),
+    });
+    const cutover = await cutoverPending;
+    expect(cutover.result.authority).toBe("ydoc_primary");
   });
 
   test("places barriers after accepted work and gracefully drains before shutdown", async () => {

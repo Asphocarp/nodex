@@ -97,9 +97,15 @@ const SELECT_JOB_COLUMNS = `
   claim_token, claim_expires_at
 `;
 
-export const claimNextLegacyCardShadowJob = (
+interface LegacyCardShadowClaimScope {
+  readonly cardId: string;
+  readonly throughSourceEventSeq: number;
+}
+
+const claimLegacyCardShadowJob = (
   database: Database.Database,
-  options: ClaimLegacyCardShadowJobOptions = {},
+  options: ClaimLegacyCardShadowJobOptions,
+  scope?: LegacyCardShadowClaimScope,
 ): LegacyCardShadowJob | null => {
   const claimToken = requireIdentity(
     options.claimToken ?? `legacy-shadow-claim:${randomUUID()}`,
@@ -121,10 +127,14 @@ export const claimNextLegacyCardShadowJob = (
       WHERE status = 'processing' AND claim_expires_at <= ?
     `).run(claimedAt, claimedAt);
 
+    const scopeSql = scope
+      ? "AND job.card_id = ? AND job.source_event_seq <= ?"
+      : "";
     const candidate = database.prepare(`
       SELECT ${SELECT_JOB_COLUMNS}
       FROM legacy_card_shadow_jobs job
       WHERE job.status = 'pending'
+        ${scopeSql}
         AND NOT EXISTS (
           SELECT 1
           FROM legacy_card_shadow_jobs predecessor
@@ -134,7 +144,9 @@ export const claimNextLegacyCardShadowJob = (
         )
       ORDER BY job.enqueued_at ASC, job.card_id ASC, job.source_event_seq ASC
       LIMIT 1
-    `).get() as LegacyCardShadowJobRow | undefined;
+    `).get(
+      ...(scope ? [scope.cardId, scope.throughSourceEventSeq] : []),
+    ) as LegacyCardShadowJobRow | undefined;
     if (!candidate) return null;
 
     const update = database.prepare(`
@@ -171,6 +183,60 @@ export const claimNextLegacyCardShadowJob = (
     return toJob(claimed);
   });
   return claim.immediate();
+};
+
+export const claimNextLegacyCardShadowJob = (
+  database: Database.Database,
+  options: ClaimLegacyCardShadowJobOptions = {},
+): LegacyCardShadowJob | null =>
+  claimLegacyCardShadowJob(database, options);
+
+/**
+ * Claim the next predecessor-safe job for one Card through a known event
+ * fence. This lets the single writer settle the mutation it is about to ACK
+ * without first consuming unrelated global backlog.
+ */
+export const claimNextLegacyCardShadowJobForCard = (
+  database: Database.Database,
+  cardId: string,
+  throughSourceEventSeq: number,
+  options: ClaimLegacyCardShadowJobOptions = {},
+): LegacyCardShadowJob | null => {
+  const normalizedCardId = requireIdentity(cardId, "cardId");
+  const normalizedEventSeq = readPositiveInteger(
+    throughSourceEventSeq,
+    "throughSourceEventSeq",
+  );
+  return claimLegacyCardShadowJob(database, options, {
+    cardId: normalizedCardId,
+    throughSourceEventSeq: normalizedEventSeq,
+  });
+};
+
+export const markPendingLegacyCardShadowJobsFailed = (
+  database: Database.Database,
+  jobIds: readonly string[],
+  error: string,
+): number => {
+  const normalizedError = requireIdentity(error.trim(), "error");
+  const normalizedJobIds = Array.from(new Set(
+    jobIds.map((jobId) => requireIdentity(jobId, "jobId")),
+  ));
+  if (normalizedJobIds.length === 0) return 0;
+
+  const completedAt = new Date().toISOString();
+  const placeholders = normalizedJobIds.map(() => "?").join(", ");
+  const result = database.prepare(`
+    UPDATE legacy_card_shadow_jobs
+    SET status = 'failed', last_error = ?, completed_at = ?, updated_at = ?
+    WHERE id IN (${placeholders}) AND status = 'pending'
+  `).run(
+    normalizedError,
+    completedAt,
+    completedAt,
+    ...normalizedJobIds,
+  );
+  return result.changes;
 };
 
 const finishClaimedJob = (

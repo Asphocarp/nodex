@@ -3,10 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import {
-  createCard,
-  deleteCard,
-} from "../src/main/local-store/cards";
+import { createCard, deleteCard } from "../src/main/local-store/cards";
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
@@ -26,10 +23,8 @@ import {
   claimNextLegacyCardShadowJob,
   markLegacyCardShadowJobSuperseded,
 } from "../src/main/local-store/legacy-card-shadow-outbox";
-import {
-  createProject,
-  deleteProject,
-} from "../src/main/local-store/projects";
+import { createProject, deleteProject } from "../src/main/local-store/projects";
+import { CURRENT_SCHEMA_VERSION } from "../src/main/local-store/schema";
 import {
   createCardDocument,
   openCardDocument,
@@ -40,8 +35,11 @@ const FOUNDATION_TABLES_IN_DELETE_ORDER = [
   "legacy_card_shadow_heads",
   "database_view_positions",
   "database_views",
+  "database_property_values",
   "database_memberships",
+  "database_properties",
   "database_capabilities",
+  "scheduled_card_index",
   "document_block_index",
   "document_materializations",
   "document_snapshots",
@@ -49,6 +47,7 @@ const FOUNDATION_TABLES_IN_DELETE_ORDER = [
   "document_update_receipts",
   "block_documents",
   "top_level_block_placements",
+  "block_properties",
   "blocks",
   "documents",
   "block_store_metadata",
@@ -101,6 +100,8 @@ interface DocumentProbeResult {
   readonly compactionRollbackVerified: boolean;
   readonly compactionRestartVerified: boolean;
   readonly snapshotTailReloadVerified: boolean;
+  readonly materializationFresh: boolean;
+  readonly materializationRollbackVerified: boolean;
 }
 
 interface ShadowOutboxProbeResult {
@@ -242,7 +243,10 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
         error instanceof Error &&
         error.message.includes("Card or Block id already exists");
     }
-    invariant(tombstoneReuseRejected, "normal Card create reused a tombstoned Block ID");
+    invariant(
+      tombstoneReuseRejected,
+      "normal Card create reused a tombstoned Block ID",
+    );
 
     const restoreSessionId = "block-foundation-history-restore";
     const restoredCard = await createCard(
@@ -261,17 +265,23 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
       `history undo did not restore the deleted Card: ${JSON.stringify(restoreResult)}`,
     );
     const moveTargetProject = createProject({ name: "Shadow move target" });
-    const disposableProject = createProject({ name: "Disposable runtime space" });
+    const disposableProject = createProject({
+      name: "Disposable runtime space",
+    });
     await createCard(disposableProject.id, "draft", {
       title: "Deleted before migration",
     });
-    invariant(deleteProject(disposableProject.id), "Project cleanup operation failed");
+    invariant(
+      deleteProject(disposableProject.id),
+      "Project cleanup operation failed",
+    );
     closeDatabase();
 
     const legacyDatabase = new Database(getDatabasePath());
     try {
       const createdShadow = legacyDatabase
-        .prepare(`
+        .prepare(
+          `
           SELECT block.lifecycle, document.readiness, membership.removed_at, position.group_key
           FROM blocks block
           INNER JOIN block_documents ownership ON ownership.block_id = block.id
@@ -279,7 +289,8 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           INNER JOIN database_memberships membership ON membership.card_block_id = block.id
           INNER JOIN database_view_positions position ON position.block_id = block.id
           WHERE block.id = ?
-        `)
+        `,
+        )
         .get(card.id) as
         | {
             lifecycle: string;
@@ -289,7 +300,8 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           }
         | undefined;
       const deletedShadow = legacyDatabase
-        .prepare(`
+        .prepare(
+          `
           SELECT
             block.lifecycle,
             membership.removed_at,
@@ -299,7 +311,8 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           INNER JOIN block_documents ownership ON ownership.block_id = block.id
           INNER JOIN database_memberships membership ON membership.card_block_id = block.id
           WHERE block.id = ?
-        `)
+        `,
+        )
         .get(deletedCard.id) as
         | {
             lifecycle: string;
@@ -309,7 +322,8 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           }
         | undefined;
       const restoredShadow = legacyDatabase
-        .prepare(`
+        .prepare(
+          `
           SELECT block.lifecycle, document.id AS document_id, membership.removed_at
           FROM cards card
           INNER JOIN blocks block ON block.id = card.id
@@ -317,7 +331,8 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           INNER JOIN documents document ON document.id = ownership.document_id
           INNER JOIN database_memberships membership ON membership.card_block_id = block.id
           WHERE card.id = ?
-        `)
+        `,
+        )
         .get(restoredCard.id) as
         | {
             lifecycle: string;
@@ -325,20 +340,26 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
             removed_at: string | null;
           }
         | undefined;
-      legacyDatabase.prepare(`
+      legacyDatabase
+        .prepare(
+          `
         UPDATE cards
         SET status = 'done', "order" = 7, revision = revision + 1
         WHERE id = ?
-      `).run(card.id);
+      `,
+        )
+        .run(card.id);
       const updatedShadow = legacyDatabase
-        .prepare(`
+        .prepare(
+          `
           SELECT position.group_key, position.rank_key, document.genesis_source_revision, card.revision
           FROM cards card
           INNER JOIN block_documents ownership ON ownership.block_id = card.id
           INNER JOIN documents document ON document.id = ownership.document_id
           INNER JOIN database_view_positions position ON position.block_id = card.id
           WHERE card.id = ?
-        `)
+        `,
+        )
         .get(card.id) as
         | {
             group_key: string;
@@ -362,14 +383,22 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
         updatedShadow?.group_key === "done" &&
         updatedShadow.rank_key === "00000000000000000007" &&
         updatedShadow.genesis_source_revision === updatedShadow.revision;
-      invariant(postV59ShadowContinuity, "post-v59 Card shadow continuity failed");
-      legacyDatabase.prepare(`
+      invariant(
+        postV59ShadowContinuity,
+        "post-v59 Card shadow continuity failed",
+      );
+      legacyDatabase
+        .prepare(
+          `
         UPDATE cards
         SET project_id = ?, status = 'backlog', "order" = 0, revision = revision + 1
         WHERE id = ?
-      `).run(moveTargetProject.id, card.id);
+      `,
+        )
+        .run(moveTargetProject.id, card.id);
       const movedShadow = legacyDatabase
-        .prepare(`
+        .prepare(
+          `
           SELECT
             block.project_id AS block_project_id,
             document.project_id AS document_project_id,
@@ -381,7 +410,8 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           INNER JOIN database_memberships membership ON membership.card_block_id = block.id
           INNER JOIN database_view_positions position ON position.block_id = block.id
           WHERE block.id = ? AND membership.removed_at IS NULL
-        `)
+        `,
+        )
         .get(card.id) as
         | {
             block_project_id: string;
@@ -393,23 +423,33 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
       const crossProjectShadowMove =
         movedShadow?.block_project_id === moveTargetProject.id &&
         movedShadow.document_project_id === moveTargetProject.id &&
-        movedShadow.database_block_id === `database:${moveTargetProject.id}:primary` &&
+        movedShadow.database_block_id ===
+          `database:${moveTargetProject.id}:primary` &&
         movedShadow.view_id ===
           `database-view:${moveTargetProject.id}:primary-kanban`;
-      invariant(crossProjectShadowMove, "cross-Project shadow shell did not move atomically");
-      legacyDatabase.prepare(`
+      invariant(
+        crossProjectShadowMove,
+        "cross-Project shadow shell did not move atomically",
+      );
+      legacyDatabase
+        .prepare(
+          `
         UPDATE cards
         SET project_id = ?, status = 'in_progress', "order" = 0, revision = revision + 1
         WHERE id = ?
-      `).run(project.id, card.id);
+      `,
+        )
+        .run(project.id, card.id);
 
       const cleanupCounts = legacyDatabase
-        .prepare(`
+        .prepare(
+          `
           SELECT
             (SELECT COUNT(*) FROM projects WHERE id = ?) AS projects,
             (SELECT COUNT(*) FROM blocks WHERE project_id = ?) AS blocks,
             (SELECT COUNT(*) FROM documents WHERE project_id = ?) AS documents
-        `)
+        `,
+        )
         .get(
           disposableProject.id,
           disposableProject.id,
@@ -436,7 +476,9 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
 
     const migratedDatabase = new Database(getDatabasePath());
     migratedDatabase.pragma("foreign_keys = ON");
-    const migrated = migratedDatabase.prepare(`
+    const migrated = migratedDatabase
+      .prepare(
+        `
       SELECT
         block.id,
         document.readiness,
@@ -450,17 +492,26 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
         ON membership.card_block_id = block.id AND membership.removed_at IS NULL
       INNER JOIN database_view_positions position ON position.block_id = block.id
       WHERE block.id = ?
-    `).get(card.id) as {
-      id: string;
-      readiness: string;
-      authority: string;
-      database_block_id: string;
-      group_key: string | null;
-    } | undefined;
-    invariant(migrated !== undefined, "v58 to v59 migration did not create the Card shell");
+    `,
+      )
+      .get(card.id) as
+      | {
+          id: string;
+          readiness: string;
+          authority: string;
+          database_block_id: string;
+          group_key: string | null;
+        }
+      | undefined;
+    invariant(
+      migrated !== undefined,
+      "v58 to v59 migration did not create the Card shell",
+    );
     const authorityDeletesRejected =
       operationFails(() => {
-        migratedDatabase.prepare("DELETE FROM blocks WHERE id = ?").run(card.id);
+        migratedDatabase
+          .prepare("DELETE FROM blocks WHERE id = ?")
+          .run(card.id);
       }) &&
       operationFails(() => {
         migratedDatabase
@@ -479,19 +530,30 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
           .run(`database:${project.id}:primary`);
       });
 
-    const foreignKeyProblems = migratedDatabase.pragma("foreign_key_check") as unknown[];
+    const foreignKeyProblems = migratedDatabase.pragma(
+      "foreign_key_check",
+    ) as unknown[];
     const backupsRoot = path.join(tempDir, "migration-backups");
     const backupDirectories = fs
       .readdirSync(backupsRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.name.endsWith(".tmp"))
       .map((entry) => path.join(backupsRoot, entry.name));
-    invariant(backupDirectories.length === 1, "migration did not create exactly one safety backup");
+    invariant(
+      backupDirectories.length === 1,
+      "migration did not create exactly one safety backup",
+    );
     const backupDirectory = backupDirectories[0];
-    invariant(backupDirectory !== undefined, "migration safety backup path is missing");
+    invariant(
+      backupDirectory !== undefined,
+      "migration safety backup path is missing",
+    );
 
-    const backupDatabase = new Database(path.join(backupDirectory, "nodex.db"), {
-      readonly: true,
-    });
+    const backupDatabase = new Database(
+      path.join(backupDirectory, "nodex.db"),
+      {
+        readonly: true,
+      },
+    );
     let backupDatabaseVerified = false;
     try {
       const backupVersion = backupDatabase.pragma("user_version", {
@@ -504,7 +566,9 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
         simple: true,
       }) as string;
       backupDatabaseVerified =
-        backupVersion === 58 && backupCard?.id === card.id && quickCheck === "ok";
+        backupVersion === 58 &&
+        backupCard?.id === card.id &&
+        quickCheck === "ok";
     } finally {
       backupDatabase.close();
     }
@@ -549,12 +613,16 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
       closeDatabase();
     }
 
-    const rolledBackDatabase = new Database(getDatabasePath(), { readonly: true });
+    const rolledBackDatabase = new Database(getDatabasePath(), {
+      readonly: true,
+    });
     const versionAfterFailure = rolledBackDatabase.pragma("user_version", {
       simple: true,
     }) as number;
     const blocksAfterFailure = (
-      rolledBackDatabase.prepare("SELECT COUNT(*) AS count FROM blocks").get() as {
+      rolledBackDatabase
+        .prepare("SELECT COUNT(*) AS count FROM blocks")
+        .get() as {
         count: number;
       }
     ).count;
@@ -583,18 +651,54 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
       historyRestorePreservedIdentity: true,
     };
 
-    invariant(result.identityPreserved, "migration changed the Card application identity");
-    invariant(result.readiness === "pending_genesis", "migrated Document is not pending genesis");
-    invariant(result.authority === "legacy_shadow", "migrated Document has the wrong authority");
-    invariant(result.databaseMembership, "migrated Card is missing its primary Database membership");
-    invariant(result.groupKey === "in_progress", "migrated Card lost its primary view group");
-    invariant(result.foreignKeyProblems === 0, "migrated foundation has foreign-key violations");
-    invariant(result.backupDatabaseVerified, "migration safety database is not a valid v58 backup");
-    invariant(result.assetsPreserved, "migration safety backup did not preserve assets");
-    invariant(result.rollbackFailureObserved, "injected migration failure was not surfaced");
-    invariant(result.versionAfterFailure === 58, "failed migration advanced the schema version");
-    invariant(result.blocksAfterFailure === 0, "failed migration left partial Block rows");
-    invariant(result.authorityDeletesRejected, "authority ownership allowed direct deletion");
+    invariant(
+      result.identityPreserved,
+      "migration changed the Card application identity",
+    );
+    invariant(
+      result.readiness === "pending_genesis",
+      "migrated Document is not pending genesis",
+    );
+    invariant(
+      result.authority === "legacy_shadow",
+      "migrated Document has the wrong authority",
+    );
+    invariant(
+      result.databaseMembership,
+      "migrated Card is missing its primary Database membership",
+    );
+    invariant(
+      result.groupKey === "in_progress",
+      "migrated Card lost its primary view group",
+    );
+    invariant(
+      result.foreignKeyProblems === 0,
+      "migrated foundation has foreign-key violations",
+    );
+    invariant(
+      result.backupDatabaseVerified,
+      "migration safety database is not a valid v58 backup",
+    );
+    invariant(
+      result.assetsPreserved,
+      "migration safety backup did not preserve assets",
+    );
+    invariant(
+      result.rollbackFailureObserved,
+      "injected migration failure was not surfaced",
+    );
+    invariant(
+      result.versionAfterFailure === 58,
+      "failed migration advanced the schema version",
+    );
+    invariant(
+      result.blocksAfterFailure === 0,
+      "failed migration left partial Block rows",
+    );
+    invariant(
+      result.authorityDeletesRejected,
+      "authority ownership allowed direct deletion",
+    );
     invariant(
       result.capabilityTypeChangesRejected,
       "Block type mutation invalidated an active capability",
@@ -606,7 +710,9 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
   withTemporaryStore("nodex-shadow-outbox-runtime-", async () => {
     await initializeDatabase();
     const project = createProject({ name: "Shadow outbox runtime source" });
-    const card = await createCard(project.id, "draft", { title: "Legacy source" });
+    const card = await createCard(project.id, "draft", {
+      title: "Legacy source",
+    });
     closeDatabase();
 
     let database = new Database(getDatabasePath());
@@ -621,22 +727,28 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
     const migratedToVersion = database.pragma("user_version", {
       simple: true,
     }) as number;
-    const backfill = database.prepare(`
+    const backfill = database
+      .prepare(
+        `
       SELECT id, source_event_seq, source_revision, operation,
              expected_document_generation, expected_document_head_seq,
              expected_document_readiness, expected_document_authority
       FROM legacy_card_shadow_jobs
       WHERE card_id = ? AND source_event_seq = 1
-    `).get(card.id) as {
-      id: string;
-      source_event_seq: number;
-      source_revision: number;
-      operation: string;
-      expected_document_generation: number;
-      expected_document_head_seq: number;
-      expected_document_readiness: string;
-      expected_document_authority: string;
-    } | undefined;
+    `,
+      )
+      .get(card.id) as
+      | {
+          id: string;
+          source_event_seq: number;
+          source_revision: number;
+          operation: string;
+          expected_document_generation: number;
+          expected_document_head_seq: number;
+          expected_document_readiness: string;
+          expected_document_authority: string;
+        }
+      | undefined;
     const backfillDeterministic =
       backfill?.id === `legacy-shadow:${card.id}:00000000000000000001` &&
       backfill.source_event_seq === 1 &&
@@ -646,37 +758,67 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
       backfill.expected_document_head_seq === 0 &&
       backfill.expected_document_readiness === "pending_genesis" &&
       backfill.expected_document_authority === "legacy_shadow";
-    invariant(backfillDeterministic, "v59 to v60 outbox backfill is not deterministic");
+    invariant(
+      backfillDeterministic,
+      "v59 to v60 outbox backfill is not deterministic",
+    );
 
-    database.prepare(`
+    database
+      .prepare(
+        `
       UPDATE cards
       SET title = 'Legacy source 2', revision = revision + 1
       WHERE id = ?
-    `).run(card.id);
-    database.prepare(`
+    `,
+      )
+      .run(card.id);
+    database
+      .prepare(
+        `
       UPDATE cards SET "order" = "order" + 1 WHERE id = ?
-    `).run(card.id);
+    `,
+      )
+      .run(card.id);
     const countBeforeProjection = (
-      database.prepare(`
+      database
+        .prepare(
+          `
         SELECT COUNT(*) AS count
         FROM legacy_card_shadow_jobs
         WHERE card_id = ?
-      `).get(card.id) as { count: number }
+      `,
+        )
+        .get(card.id) as { count: number }
     ).count;
-    database.prepare(`
+    database
+      .prepare(
+        `
       UPDATE cards SET description_preview = 'projection-only' WHERE id = ?
-    `).run(card.id);
+    `,
+      )
+      .run(card.id);
     const countAfterProjection = (
-      database.prepare(`
+      database
+        .prepare(
+          `
         SELECT COUNT(*) AS count
         FROM legacy_card_shadow_jobs
         WHERE card_id = ?
-      `).get(card.id) as { count: number }
+      `,
+        )
+        .get(card.id) as { count: number }
     ).count;
-    const everyAuthoritativeMutationQueued = countBeforeProjection === 3;
-    const projectionMutationIgnored = countAfterProjection === countBeforeProjection;
-    invariant(everyAuthoritativeMutationQueued, "authoritative Card mutation was not queued");
-    invariant(projectionMutationIgnored, "rebuildable Card projection created a shadow job");
+    const everyAuthoritativeMutationQueued = countBeforeProjection === 2;
+    const projectionMutationIgnored =
+      countAfterProjection === countBeforeProjection;
+    invariant(
+      everyAuthoritativeMutationQueued,
+      "content Card mutation was not queued exactly once",
+    );
+    invariant(
+      projectionMutationIgnored,
+      "rebuildable Card projection created a shadow job",
+    );
 
     const firstClaim = claimNextLegacyCardShadowJob(database, {
       claimToken: "runtime-claim",
@@ -694,7 +836,8 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
       now: new Date("2026-07-11T00:00:02.000Z"),
     });
     const expiredClaimReclaimed =
-      reclaimedClaim?.id === firstClaim?.id && reclaimedClaim?.attemptCount === 2;
+      reclaimedClaim?.id === firstClaim?.id &&
+      reclaimedClaim?.attemptCount === 2;
     let staleClaimFenced = false;
     try {
       markLegacyCardShadowJobSuperseded(database, {
@@ -707,32 +850,66 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
     if (reclaimedClaim) {
       markLegacyCardShadowJobSuperseded(database, reclaimedClaim);
     }
-    invariant(claimCasVerified, "shadow outbox claim was not compare-and-swap safe");
-    invariant(oneActiveClaimPerCard, "two shadow jobs were claimed for one Card");
+    invariant(
+      claimCasVerified,
+      "shadow outbox claim was not compare-and-swap safe",
+    );
+    invariant(
+      oneActiveClaimPerCard,
+      "two shadow jobs were claimed for one Card",
+    );
     invariant(expiredClaimReclaimed, "expired shadow claim was not reclaimed");
     invariant(staleClaimFenced, "stale shadow claim completed reclaimed work");
 
-    database.prepare(`
+    database
+      .prepare(
+        `
       UPDATE documents
       SET readiness = 'ready', authority = 'ydoc_primary'
       WHERE id = ?
-    `).run(`document:${card.id}`);
+    `,
+      )
+      .run(`document:${card.id}`);
     const primaryLegacyWritesRejected =
       operationFails(() => {
-        database.prepare(`
+        database
+          .prepare(
+            `
           UPDATE cards SET title = 'illegal', revision = revision + 1 WHERE id = ?
-        `).run(card.id);
+        `,
+          )
+          .run(card.id);
       }) &&
       operationFails(() => {
-        database.prepare("DELETE FROM cards WHERE id = ?").run(card.id);
+        database
+          .prepare(
+            `
+          UPDATE cards SET description = 'illegal', revision = revision + 1 WHERE id = ?
+        `,
+          )
+          .run(card.id);
       });
-    invariant(primaryLegacyWritesRejected, "Y.Doc-primary Card accepted a legacy write");
+    database
+      .prepare(
+        `
+      UPDATE cards SET status = 'backlog', revision = revision + 1 WHERE id = ?
+    `,
+      )
+      .run(card.id);
+    invariant(
+      primaryLegacyWritesRejected,
+      "Y.Doc-primary Card accepted a legacy content write",
+    );
 
-    database.prepare(`
+    database
+      .prepare(
+        `
       UPDATE documents
       SET readiness = 'pending_genesis', authority = 'legacy_shadow'
       WHERE id = ?
-    `).run(`document:${card.id}`);
+    `,
+      )
+      .run(`document:${card.id}`);
     dropV60ShadowOutbox(database);
     database.prepare("UPDATE cards SET revision = 0 WHERE id = ?").run(card.id);
     database.close();
@@ -750,17 +927,24 @@ const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
       simple: true,
     }) as number;
     const rolledBackTables = (
-      rolledBack.prepare(`
+      rolledBack
+        .prepare(
+          `
         SELECT COUNT(*) AS count
         FROM sqlite_master
         WHERE type = 'table'
           AND name IN ('legacy_card_shadow_heads', 'legacy_card_shadow_jobs')
-      `).get() as { count: number }
+      `,
+        )
+        .get() as { count: number }
     ).count;
     rolledBack.close();
     const migrationRollbackVerified =
       migrationFailed && rolledBackVersion === 59 && rolledBackTables === 0;
-    invariant(migrationRollbackVerified, "failed v60 migration left partial outbox state");
+    invariant(
+      migrationRollbackVerified,
+      "failed v60 migration left partial outbox state",
+    );
 
     return {
       migratedToVersion,
@@ -786,30 +970,46 @@ const seedV60DocumentUpdate = (
   const now = new Date().toISOString();
   const blockId = "receipt-runtime-card";
   const documentId = `document:${blockId}`;
-  database.prepare(`
+  database
+    .prepare(
+      `
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
     ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
-  `).run(blockId, project.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(blockId, project.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, state_hash, readiness, authority, created_at, updated_at
     ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', '',
               'pending_genesis', 'legacy_shadow', ?, ?)
-  `).run(documentId, project.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(documentId, project.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO block_documents (block_id, document_id, project_id, created_at)
     VALUES (?, ?, ?, ?)
-  `).run(blockId, documentId, project.id, now);
-  database.prepare(`
+  `,
+    )
+    .run(blockId, documentId, project.id, now);
+  database
+    .prepare(
+      `
     INSERT INTO document_updates (
       document_id, generation, seq, update_id, client_session_id,
       base_head_seq, touched_block_ids_json, update_blob, update_hash, committed_at
     ) VALUES (?, 1, 1, 'receipt-runtime-update', 'legacy-client', 0,
               '["client-hint"]', ?, ?, ?)
-  `).run(documentId, update, "a".repeat(64), now);
+  `,
+    )
+    .run(documentId, update, "a".repeat(64), now);
   database.exec(`
     DROP TABLE document_update_receipts;
     PRAGMA user_version = 60;
@@ -817,86 +1017,108 @@ const seedV60DocumentUpdate = (
   return documentId;
 };
 
-const runReceiptMigrationProbe = async (): Promise<ReceiptMigrationProbeResult> => {
-  const migrated = await withTemporaryStore(
-    "nodex-receipt-migration-runtime-",
-    async () => {
-      await initializeDatabase();
-      closeDatabase();
-      let database = new Database(getDatabasePath());
-      const documentId = seedV60DocumentUpdate(database, Buffer.from([1, 2, 3]));
-      database.close();
+const runReceiptMigrationProbe =
+  async (): Promise<ReceiptMigrationProbeResult> => {
+    const migrated = await withTemporaryStore(
+      "nodex-receipt-migration-runtime-",
+      async () => {
+        await initializeDatabase();
+        closeDatabase();
+        let database = new Database(getDatabasePath());
+        const documentId = seedV60DocumentUpdate(
+          database,
+          Buffer.from([1, 2, 3]),
+        );
+        database.close();
 
-      await initializeDatabase();
-      closeDatabase();
-      database = new Database(getDatabasePath(), { readonly: true });
-      const migratedToVersion = database.pragma("user_version", {
-        simple: true,
-      }) as number;
-      const receipt = database.prepare(`
+        await initializeDatabase();
+        closeDatabase();
+        database = new Database(getDatabasePath(), { readonly: true });
+        const migratedToVersion = database.pragma("user_version", {
+          simple: true,
+        }) as number;
+        const receipt = database
+          .prepare(
+            `
         SELECT client_touched_block_ids_json, derived_touched_block_ids_json,
                derivation_version, update_hash, update_byte_length
         FROM document_update_receipts
         WHERE document_id = ? AND update_id = 'receipt-runtime-update'
-      `).get(documentId) as {
-        client_touched_block_ids_json: string;
-        derived_touched_block_ids_json: string;
-        derivation_version: number;
-        update_hash: string;
-        update_byte_length: number;
-      } | undefined;
-      database.close();
-      return {
-        migratedToVersion,
-        backfillPreservedRequestSemantics:
-          receipt?.client_touched_block_ids_json === '["client-hint"]' &&
-          receipt.derived_touched_block_ids_json === "[]" &&
-          receipt.derivation_version === 0 &&
-          receipt.update_hash === "a".repeat(64) &&
-          receipt.update_byte_length === 3,
-      };
-    },
-  );
+      `,
+          )
+          .get(documentId) as
+          | {
+              client_touched_block_ids_json: string;
+              derived_touched_block_ids_json: string;
+              derivation_version: number;
+              update_hash: string;
+              update_byte_length: number;
+            }
+          | undefined;
+        database.close();
+        return {
+          migratedToVersion,
+          backfillPreservedRequestSemantics:
+            receipt?.client_touched_block_ids_json === '["client-hint"]' &&
+            receipt.derived_touched_block_ids_json === "[]" &&
+            receipt.derivation_version === 0 &&
+            receipt.update_hash === "a".repeat(64) &&
+            receipt.update_byte_length === 3,
+        };
+      },
+    );
 
-  const migrationRollbackVerified = await withTemporaryStore(
-    "nodex-receipt-rollback-runtime-",
-    async () => {
-      await initializeDatabase();
-      closeDatabase();
-      let database = new Database(getDatabasePath());
-      seedV60DocumentUpdate(database, Buffer.alloc(0));
-      database.close();
-
-      let migrationFailed = false;
-      try {
+    const migrationRollbackVerified = await withTemporaryStore(
+      "nodex-receipt-rollback-runtime-",
+      async () => {
         await initializeDatabase();
-      } catch {
-        migrationFailed = true;
-      } finally {
         closeDatabase();
-      }
-      database = new Database(getDatabasePath(), { readonly: true });
-      const version = database.pragma("user_version", { simple: true }) as number;
-      const receiptTable = database.prepare(`
+        let database = new Database(getDatabasePath());
+        seedV60DocumentUpdate(database, Buffer.alloc(0));
+        database.close();
+
+        let migrationFailed = false;
+        try {
+          await initializeDatabase();
+        } catch {
+          migrationFailed = true;
+        } finally {
+          closeDatabase();
+        }
+        database = new Database(getDatabasePath(), { readonly: true });
+        const version = database.pragma("user_version", {
+          simple: true,
+        }) as number;
+        const receiptTable = database
+          .prepare(
+            `
         SELECT 1 FROM sqlite_master
         WHERE type = 'table' AND name = 'document_update_receipts'
-      `).get();
-      database.close();
-      return migrationFailed && version === 60 && receiptTable === undefined;
-    },
-  );
+      `,
+          )
+          .get();
+        database.close();
+        return migrationFailed && version === 60 && receiptTable === undefined;
+      },
+    );
 
-  invariant(migrated.migratedToVersion === 61, "v60 receipt migration did not reach v61");
-  invariant(
-    migrated.backfillPreservedRequestSemantics,
-    "v60 receipt migration lost idempotent request semantics",
-  );
-  invariant(migrationRollbackVerified, "failed v61 migration left partial receipt state");
-  return {
-    ...migrated,
-    migrationRollbackVerified,
+    invariant(
+      migrated.migratedToVersion === CURRENT_SCHEMA_VERSION,
+      "v60 receipt migration did not reach the current schema",
+    );
+    invariant(
+      migrated.backfillPreservedRequestSemantics,
+      "v60 receipt migration lost idempotent request semantics",
+    );
+    invariant(
+      migrationRollbackVerified,
+      "failed v61 migration left partial receipt state",
+    );
+    return {
+      ...migrated,
+      migrationRollbackVerified,
+    };
   };
-};
 
 const seedPendingCardDocument = (
   database: Database.Database,
@@ -909,27 +1131,43 @@ const seedPendingCardDocument = (
   const now = new Date().toISOString();
   const blockId = "block-document-runtime-card";
   const documentId = `document:${blockId}`;
-  database.prepare(`
+  database
+    .prepare(
+      `
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
     ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
-  `).run(blockId, project?.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(blockId, project?.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO top_level_block_placements (
       block_id, project_id, rank_key, created_at, updated_at
     ) VALUES (?, ?, 'runtime-probe', ?, ?)
-  `).run(blockId, project?.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(blockId, project?.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, readiness, authority, created_at, updated_at
     ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', 'pending_genesis', 'legacy_shadow', ?, ?)
-  `).run(documentId, project?.id, now, now);
-  database.prepare(`
+  `,
+    )
+    .run(documentId, project?.id, now, now);
+  database
+    .prepare(
+      `
     INSERT INTO block_documents (block_id, document_id, project_id, created_at)
     VALUES (?, ?, ?, ?)
-  `).run(blockId, documentId, project?.id, now);
+  `,
+    )
+    .run(blockId, documentId, project?.id, now);
 
   const metadata = database
     .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
@@ -959,7 +1197,9 @@ const readDocumentHeadSeq = (
   documentId: string,
 ): number =>
   (
-    database.prepare("SELECT head_seq FROM documents WHERE id = ?").get(documentId) as {
+    database
+      .prepare("SELECT head_seq FROM documents WHERE id = ?")
+      .get(documentId) as {
       head_seq: number;
     }
   ).head_seq;
@@ -970,7 +1210,9 @@ const readDocumentUpdateCount = (
 ): number =>
   (
     database
-      .prepare("SELECT COUNT(*) AS count FROM document_updates WHERE document_id = ?")
+      .prepare(
+        "SELECT COUNT(*) AS count FROM document_updates WHERE document_id = ?",
+      )
       .get(documentId) as { count: number }
   ).count;
 
@@ -993,12 +1235,18 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       update: genesisUpdate,
     });
     invariant(
-      genesisAck.committedSeq === 1 && genesisAck.headSeq === 1 && !genesisAck.duplicate,
+      genesisAck.committedSeq === 1 &&
+        genesisAck.headSeq === 1 &&
+        !genesisAck.duplicate,
       "Document genesis ACK is invalid",
     );
-    database.prepare(`
+    database
+      .prepare(
+        `
       UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?
-    `).run(documentId);
+    `,
+      )
+      .run(documentId);
 
     const hiddenRootClient = new Y.Doc({ guid: documentId });
     Y.applyUpdate(hiddenRootClient, genesisUpdate);
@@ -1025,7 +1273,10 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       hiddenRootClient.destroy();
     }
     invariant(hiddenRootRejected, "unsupported named Y.Doc root was persisted");
-    invariant(readDocumentHeadSeq(database, documentId) === 1, "hidden root advanced head");
+    invariant(
+      readDocumentHeadSeq(database, documentId) === 1,
+      "hidden root advanced head",
+    );
 
     const clientA = new Y.Doc({ guid: documentId });
     const clientB = new Y.Doc({ guid: documentId });
@@ -1063,13 +1314,21 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     );
 
     const concurrentState = loadBlockDocument(database, documentId);
-    const concurrentTitle = openCardDocument(concurrentState.document).title.toString();
+    const concurrentTitle = openCardDocument(
+      concurrentState.document,
+    ).title.toString();
     const concurrentClientsConverged =
       concurrentTitle.includes(" A") && concurrentTitle.includes(" B");
-    invariant(concurrentClientsConverged, "concurrent client changes did not converge");
+    invariant(
+      concurrentClientsConverged,
+      "concurrent client changes did not converge",
+    );
 
     const dependentClient = new Y.Doc({ guid: documentId });
-    Y.applyUpdate(dependentClient, Y.encodeStateAsUpdate(concurrentState.document));
+    Y.applyUpdate(
+      dependentClient,
+      Y.encodeStateAsUpdate(concurrentState.document),
+    );
     concurrentState.document.destroy();
     const firstDependentUpdate = captureOneUpdate(dependentClient, () => {
       const title = openCardDocument(dependentClient).title;
@@ -1097,7 +1356,10 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
         error instanceof BlockDocumentStoreError &&
         error.code === "document_update_missing_dependencies";
     }
-    invariant(missingDependencyRejected, "dependent out-of-order update was not rejected");
+    invariant(
+      missingDependencyRejected,
+      "dependent out-of-order update was not rejected",
+    );
     invariant(
       readDocumentHeadSeq(database, documentId) === 3 &&
         readDocumentUpdateCount(database, documentId) === 3,
@@ -1128,10 +1390,16 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       firstDependencyAck.committedSeq === 4 &&
       dependencyRetryAck.committedSeq === 5 &&
       dependencyRetryAck.headSeq === 5;
-    invariant(dependencyRetryCommitted, "dependent update did not commit after its dependency");
+    invariant(
+      dependencyRetryCommitted,
+      "dependent update did not commit after its dependency",
+    );
 
     const bodyGroup = openCardDocument(dependentClient).body.toArray()[0];
-    invariant(bodyGroup instanceof Y.XmlElement, "canonical body group is missing");
+    invariant(
+      bodyGroup instanceof Y.XmlElement,
+      "canonical body group is missing",
+    );
     const bodyBlock = createParagraphBlock("runtime-paragraph", "Durable body");
     const bodyUpdate = captureOneUpdate(dependentClient, () => {
       (bodyGroup as Y.XmlElement).insert(0, [bodyBlock]);
@@ -1147,12 +1415,14 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       update: bodyUpdate,
     });
     const registeredBodyBlock = database
-      .prepare(`
+      .prepare(
+        `
         SELECT block.lifecycle, block.containing_document_id, block_index.projected_seq
         FROM blocks block
         INNER JOIN document_block_index block_index ON block_index.block_id = block.id
         WHERE block.id = 'runtime-paragraph'
-      `)
+      `,
+      )
       .get() as
       | {
           lifecycle: string;
@@ -1165,18 +1435,31 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       registeredBodyBlock?.lifecycle === "active" &&
       registeredBodyBlock.containing_document_id === documentId &&
       registeredBodyBlock.projected_seq === 6;
-    invariant(bodyBlockRegistered, "body Block was not registered atomically with its update");
+    invariant(
+      bodyBlockRegistered,
+      "body Block was not registered atomically with its update",
+    );
 
     const durableWithBody = loadBlockDocument(database, documentId);
     const retypeClient = new Y.Doc({ guid: documentId });
-    Y.applyUpdate(retypeClient, Y.encodeStateAsUpdate(durableWithBody.document));
+    Y.applyUpdate(
+      retypeClient,
+      Y.encodeStateAsUpdate(durableWithBody.document),
+    );
     durableWithBody.document.destroy();
     const retypeGroup = openCardDocument(retypeClient).body.toArray()[0];
-    invariant(retypeGroup instanceof Y.XmlElement, "retype probe body group is missing");
+    invariant(
+      retypeGroup instanceof Y.XmlElement,
+      "retype probe body group is missing",
+    );
     const typedTransitionUpdate = captureOneUpdate(retypeClient, () => {
       (retypeGroup as Y.XmlElement).delete(0, 1);
       (retypeGroup as Y.XmlElement).insert(0, [
-        createTypedBlock("runtime-paragraph", "card", "Illegal Card transition"),
+        createTypedBlock(
+          "runtime-paragraph",
+          "card",
+          "Illegal Card transition",
+        ),
       ]);
     });
     let typedTransitionRejected = false;
@@ -1198,12 +1481,21 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     } finally {
       retypeClient.destroy();
     }
-    invariant(typedTransitionRejected, "ordinary update changed a paragraph into a Card");
-    invariant(readDocumentHeadSeq(database, documentId) === 6, "typed transition advanced head");
+    invariant(
+      typedTransitionRejected,
+      "ordinary update changed a paragraph into a Card",
+    );
+    invariant(
+      readDocumentHeadSeq(database, documentId) === 6,
+      "typed transition advanced head",
+    );
 
     const collisionUpdate = captureOneUpdate(dependentClient, () => {
       (bodyGroup as Y.XmlElement).insert(1, [
-        createParagraphBlock("block-document-runtime-card", "Illegal identity reuse"),
+        createParagraphBlock(
+          "block-document-runtime-card",
+          "Illegal identity reuse",
+        ),
       ]);
     });
     let globalIdentityCollisionRejected = false;
@@ -1223,15 +1515,24 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
         error instanceof BlockDocumentStoreError &&
         error.code === "invalid_document_update";
     }
-    invariant(globalIdentityCollisionRejected, "global Block identity collision was accepted");
-    invariant(readDocumentHeadSeq(database, documentId) === 6, "identity collision advanced head");
+    invariant(
+      globalIdentityCollisionRejected,
+      "global Block identity collision was accepted",
+    );
+    invariant(
+      readDocumentHeadSeq(database, documentId) === 6,
+      "identity collision advanced head",
+    );
 
     const beforeDelete = loadBlockDocument(database, documentId);
     const deleteClient = new Y.Doc({ guid: documentId });
     Y.applyUpdate(deleteClient, Y.encodeStateAsUpdate(beforeDelete.document));
     const beforeDeleteStateVector = Y.encodeStateVector(deleteClient);
     const cleanGroup = openCardDocument(deleteClient).body.toArray()[0];
-    invariant(cleanGroup instanceof Y.XmlElement, "body Block group is missing before deletion");
+    invariant(
+      cleanGroup instanceof Y.XmlElement,
+      "body Block group is missing before deletion",
+    );
     const deleteUpdate = captureOneUpdate(deleteClient, () => {
       (cleanGroup as Y.XmlElement).delete(0, 1);
     });
@@ -1261,23 +1562,34 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     const deletionPersisted =
       deleteAck.headSeq === 7 &&
       deletedRegistry?.lifecycle === "deleted" &&
-      (database
-        .prepare("SELECT COUNT(*) AS count FROM document_block_index WHERE document_id = ?")
-        .get(documentId) as { count: number }).count === 0;
-    invariant(deletionPersisted, "delete-only update did not persist registry/index state");
+      (
+        database
+          .prepare(
+            "SELECT COUNT(*) AS count FROM document_block_index WHERE document_id = ?",
+          )
+          .get(documentId) as { count: number }
+      ).count === 0;
+    invariant(
+      deletionPersisted,
+      "delete-only update did not persist registry/index state",
+    );
 
     const storedSnapshotHash = database
-      .prepare(`
+      .prepare(
+        `
         SELECT snapshot_hash
         FROM document_snapshots
         WHERE document_id = ? AND generation = 1 AND snapshot_seq = 1
-      `)
+      `,
+      )
       .get(documentId) as { snapshot_hash: string };
     database
-      .prepare(`
+      .prepare(
+        `
         UPDATE document_snapshots SET snapshot_hash = 'corrupt'
         WHERE document_id = ? AND generation = 1 AND snapshot_seq = 1
-      `)
+      `,
+      )
       .run(documentId);
     let checksumCorruptionRejected = false;
     try {
@@ -1288,13 +1600,18 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
         error.code === "document_state_corrupt";
     } finally {
       database
-        .prepare(`
+        .prepare(
+          `
           UPDATE document_snapshots SET snapshot_hash = ?
           WHERE document_id = ? AND generation = 1 AND snapshot_seq = 1
-        `)
+        `,
+        )
         .run(storedSnapshotHash.snapshot_hash, documentId);
     }
-    invariant(checksumCorruptionRejected, "snapshot checksum corruption was not rejected");
+    invariant(
+      checksumCorruptionRejected,
+      "snapshot checksum corruption was not rejected",
+    );
 
     const rejectedUpdate = captureOneUpdate(deleteClient, () => {
       const title = openCardDocument(deleteClient).title;
@@ -1327,7 +1644,26 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     } finally {
       database.exec("DROP TRIGGER reject_block_document_runtime_update");
     }
-    invariant(rollbackVerified, "injected document write failure was not surfaced");
+    invariant(
+      rollbackVerified,
+      "injected document write failure was not surfaced",
+    );
+    const materializationAfterRejectedWrite = database
+      .prepare(
+        `
+      SELECT projected_seq, title
+      FROM document_materializations
+      WHERE document_id = ?
+    `,
+      )
+      .get(documentId) as { projected_seq: number; title: string } | undefined;
+    const materializationRollbackVerified =
+      materializationAfterRejectedWrite?.projected_seq === 7 &&
+      !materializationAfterRejectedWrite.title.includes("rejected");
+    invariant(
+      materializationRollbackVerified,
+      "failed document write changed the materialized projection",
+    );
     invariant(
       readDocumentHeadSeq(database, documentId) === 7 &&
         readDocumentUpdateCount(database, documentId) === 7,
@@ -1346,7 +1682,10 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       reloadedTitle.includes(" 1") &&
       reloadedTitle.includes(" 2") &&
       !reloadedTitle.includes(" rejected");
-    invariant(restartVerified, "restart did not reconstruct the committed Document head");
+    invariant(
+      restartVerified,
+      "restart did not reconstruct the committed Document head",
+    );
 
     const replicaA = new Y.Doc({ guid: documentId });
     const replicaB = new Y.Doc({ guid: documentId });
@@ -1385,24 +1724,36 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
         error instanceof BlockDocumentStoreError &&
         error.code === "invalid_document_update";
     }
-    invariant(duplicatePayloadNoopRejected, "idempotent payload with a new ID advanced head");
+    invariant(
+      duplicatePayloadNoopRejected,
+      "idempotent payload with a new ID advanced head",
+    );
 
-    const titleReceipt = database.prepare(`
+    const titleReceipt = database
+      .prepare(
+        `
       SELECT client_touched_block_ids_json, derived_touched_block_ids_json,
              derivation_version
       FROM document_update_receipts
       WHERE document_id = ? AND update_id = 'client-a-1'
-    `).get(documentId) as {
-      client_touched_block_ids_json: string;
-      derived_touched_block_ids_json: string;
-      derivation_version: number;
-    } | undefined;
+    `,
+      )
+      .get(documentId) as
+      | {
+          client_touched_block_ids_json: string;
+          derived_touched_block_ids_json: string;
+          derivation_version: number;
+        }
+      | undefined;
     const serverDerivedTouchedIds =
       titleReceipt?.client_touched_block_ids_json === "[]" &&
       titleReceipt.derived_touched_block_ids_json ===
         '["block-document-runtime-card"]' &&
       titleReceipt.derivation_version === 1;
-    invariant(serverDerivedTouchedIds, "writer trusted client-declared touched Block IDs");
+    invariant(
+      serverDerivedTouchedIds,
+      "writer trusted client-declared touched Block IDs",
+    );
 
     database.exec(`
       CREATE TRIGGER corrupt_block_document_runtime_compaction_snapshot
@@ -1432,11 +1783,15 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
         "DROP TRIGGER corrupt_block_document_runtime_compaction_snapshot",
       );
     }
-    const snapshotAfterVerificationFailure = database.prepare(`
+    const snapshotAfterVerificationFailure = database
+      .prepare(
+        `
       SELECT MAX(snapshot_seq) AS snapshot_seq
       FROM document_snapshots
       WHERE document_id = ?
-    `).get(documentId) as { snapshot_seq: number };
+    `,
+      )
+      .get(documentId) as { snapshot_seq: number };
     compactionSnapshotVerificationRollback =
       compactionSnapshotVerificationRollback &&
       snapshotAfterVerificationFailure.snapshot_seq === 1 &&
@@ -1467,16 +1822,23 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     } finally {
       database.exec("DROP TRIGGER reject_block_document_runtime_compaction");
     }
-    const snapshotAfterRejectedCompaction = database.prepare(`
+    const snapshotAfterRejectedCompaction = database
+      .prepare(
+        `
       SELECT MAX(snapshot_seq) AS snapshot_seq
       FROM document_snapshots
       WHERE document_id = ?
-    `).get(documentId) as { snapshot_seq: number };
+    `,
+      )
+      .get(documentId) as { snapshot_seq: number };
     compactionRollbackVerified =
       compactionRollbackVerified &&
       snapshotAfterRejectedCompaction.snapshot_seq === 1 &&
       readDocumentUpdateCount(database, documentId) === 7;
-    invariant(compactionRollbackVerified, "failed compaction changed durable state");
+    invariant(
+      compactionRollbackVerified,
+      "failed compaction changed durable state",
+    );
 
     const compacted = compactBlockDocument(database, {
       documentId,
@@ -1502,10 +1864,14 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     Y.applyUpdate(compactedReplica, compactedSync.update);
     const compactionRestartVerified =
       compactedReload.head.headSeq === 7 &&
-      openCardDocument(compactedReload.document).title.toString() === reloadedTitle &&
+      openCardDocument(compactedReload.document).title.toString() ===
+        reloadedTitle &&
       openCardDocument(compactedReplica).title.toString() === reloadedTitle &&
       readDocumentUpdateCount(database, documentId) === 0;
-    invariant(compactionRestartVerified, "compacted snapshot did not survive restart/sync");
+    invariant(
+      compactionRestartVerified,
+      "compacted snapshot did not survive restart/sync",
+    );
     const postCompactionUpdate = captureOneUpdate(compactedReplica, () => {
       const title = openCardDocument(compactedReplica).title;
       title.insert(title.length, " tail");
@@ -1520,14 +1886,19 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       touchedBlockIds: [],
       update: postCompactionUpdate,
     });
-    invariant(postCompactionAck.headSeq === 8, "post-compaction tail did not commit");
+    invariant(
+      postCompactionAck.headSeq === 8,
+      "post-compaction tail did not commit",
+    );
     compactedReload.document.destroy();
     compactedReplica.destroy();
     database.close();
     database = new Database(getDatabasePath());
     database.pragma("foreign_keys = ON");
     const tailReload = loadBlockDocument(database, documentId);
-    const tailReloadTitle = openCardDocument(tailReload.document).title.toString();
+    const tailReloadTitle = openCardDocument(
+      tailReload.document,
+    ).title.toString();
     const snapshotTailReloadVerified =
       tailReload.head.headSeq === 8 &&
       tailReloadTitle === `${reloadedTitle} tail` &&
@@ -1535,6 +1906,36 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
     invariant(
       snapshotTailReloadVerified,
       "restart did not reconstruct current snapshot plus update tail",
+    );
+    const materialization = database
+      .prepare(
+        `
+      SELECT projected_seq, title, nfm, block_tree_json,
+             references_json, asset_refs_json
+      FROM document_materializations
+      WHERE document_id = ?
+    `,
+      )
+      .get(documentId) as
+      | {
+          projected_seq: number;
+          title: string;
+          nfm: string;
+          block_tree_json: string;
+          references_json: string;
+          asset_refs_json: string;
+        }
+      | undefined;
+    const materializationFresh =
+      materialization?.projected_seq === 8 &&
+      materialization.title === tailReloadTitle &&
+      materialization.nfm === "" &&
+      materialization.block_tree_json === "[]" &&
+      materialization.references_json === "[]" &&
+      materialization.asset_refs_json === "[]";
+    invariant(
+      materializationFresh,
+      "Document materialization did not advance atomically with the durable head",
     );
 
     database
@@ -1551,7 +1952,10 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       touchedBlockIds: [],
       update: updateB,
     });
-    invariant(duplicateAck.duplicate, "committed update retry was not idempotent");
+    invariant(
+      duplicateAck.duplicate,
+      "committed update retry was not idempotent",
+    );
     const archivedDuplicateAcked = duplicateAck.duplicate;
     invariant(
       duplicateAck.committedSeq === 3 && duplicateAck.headSeq === 8,
@@ -1562,11 +1966,15 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       headSeq: tailReload.head.headSeq,
       retainedUpdatePayloads: readDocumentUpdateCount(database, documentId),
       retainedReceipts: (
-        database.prepare(`
+        database
+          .prepare(
+            `
           SELECT COUNT(*) AS count
           FROM document_update_receipts
           WHERE document_id = ?
-        `).get(documentId) as { count: number }
+        `,
+          )
+          .get(documentId) as { count: number }
       ).count,
       concurrentClientsConverged,
       missingDependencyRejected,
@@ -1589,6 +1997,8 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
       compactionRollbackVerified,
       compactionRestartVerified,
       snapshotTailReloadVerified,
+      materializationFresh,
+      materializationRollbackVerified,
     };
 
     replicaA.destroy();
@@ -1617,7 +2027,9 @@ const run = async (): Promise<void> => {
 void run().then(
   () => process.exit(0),
   (error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? error.stack : String(error)}\n`,
+    );
     process.exit(1);
   },
 );

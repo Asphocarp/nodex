@@ -12,6 +12,8 @@ import {
   pruneEmptyProjectSessionPanelLeaves,
 } from "../../shared/project-session-panel-layout";
 import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
+import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
+import { deriveBlockDocumentRecordsFromNfm } from "../../shared/block-documents/derived-records";
 import {
   INITIAL_DATABASE_VIEW_SESSION_TITLE,
   insertDatabaseViewTab,
@@ -21,8 +23,11 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 61;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61] as const;
+export const CURRENT_SCHEMA_VERSION = 62;
+const MIGRATION_TARGETS = [
+  31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -38,8 +43,11 @@ const RESETTABLE_TABLES = [
   "legacy_card_shadow_heads",
   "database_view_positions",
   "database_views",
+  "database_property_values",
   "database_memberships",
+  "database_properties",
   "database_capabilities",
+  "scheduled_card_index",
   "document_block_index",
   "document_materializations",
   "document_snapshots",
@@ -47,6 +55,7 @@ const RESETTABLE_TABLES = [
   "document_update_receipts",
   "block_documents",
   "top_level_block_placements",
+  "block_properties",
   "blocks",
   "documents",
   "block_store_metadata",
@@ -84,6 +93,222 @@ const RESETTABLE_TABLES = [
 
 const PRIMARY_DATABASE_SCHEMA_KEY = "nodex.database";
 const CARD_DOCUMENT_SCHEMA_KEY = "nodex.card";
+
+type DatabasePropertyValueType =
+  "select" | "multi_select" | "date" | "datetime" | "person";
+
+interface PrimaryDatabasePropertyDefinition {
+  readonly key: string;
+  readonly name: string;
+  readonly valueType: DatabasePropertyValueType;
+  readonly config: Readonly<Record<string, unknown>>;
+  readonly rankKey: string;
+}
+
+const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDefinition[] =
+  [
+    {
+      key: "status",
+      name: "Status",
+      valueType: "select",
+      config: { options: CARD_STATUS_COLUMNS },
+      rankKey: "00000000",
+    },
+    {
+      key: "priority",
+      name: "Priority",
+      valueType: "select",
+      config: {
+        options: [
+          { id: "p0-critical", name: "P0 - Critical" },
+          { id: "p1-high", name: "P1 - High" },
+          { id: "p2-medium", name: "P2 - Medium" },
+          { id: "p3-low", name: "P3 - Low" },
+          { id: "p4-later", name: "P4 - Later" },
+        ],
+      },
+      rankKey: "00000001",
+    },
+    {
+      key: "estimate",
+      name: "Estimate",
+      valueType: "select",
+      config: {
+        options: [
+          { id: "xs", name: "XS" },
+          { id: "s", name: "S" },
+          { id: "m", name: "M" },
+          { id: "l", name: "L" },
+          { id: "xl", name: "XL" },
+        ],
+      },
+      rankKey: "00000002",
+    },
+    {
+      key: "tags",
+      name: "Tags",
+      valueType: "multi_select",
+      config: {},
+      rankKey: "00000003",
+    },
+    {
+      key: "due_date",
+      name: "Due date",
+      valueType: "date",
+      config: {},
+      rankKey: "00000004",
+    },
+    {
+      key: "scheduled_start",
+      name: "Scheduled start",
+      valueType: "datetime",
+      config: {},
+      rankKey: "00000005",
+    },
+    {
+      key: "scheduled_end",
+      name: "Scheduled end",
+      valueType: "datetime",
+      config: {},
+      rankKey: "00000006",
+    },
+    {
+      key: "assignee",
+      name: "Assignee",
+      valueType: "person",
+      config: {},
+      rankKey: "00000007",
+    },
+  ] as const;
+
+const LEGACY_INTRINSIC_PROPERTY_COUNT = 11;
+
+function primaryDatabasePropertyId(projectId: string, key: string): string {
+  return `${primaryDatabaseBlockId(projectId)}:property:${key}`;
+}
+
+function makeLegacyCardMetadataProjectionSql(
+  rowAlias: "NEW",
+  timestampSql: string,
+): string {
+  const row = rowAlias;
+  const revision = `MAX(1, ${row}.revision)`;
+  return `
+    INSERT INTO block_properties (
+      block_id, project_id, property_key, value_type, value_json,
+      revision, updated_at
+    ) VALUES
+      (${row}.id, ${row}.project_id, 'agent.blocked', 'boolean',
+        CASE WHEN ${row}.agent_blocked = 1 THEN 'true' ELSE 'false' END,
+        ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'agent.status', 'string',
+        json_quote(${row}.agent_status), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'run.target', 'string',
+        json_quote(CASE ${row}.run_in_target
+          WHEN 'new_worktree' THEN 'newWorktree'
+          WHEN 'cloud' THEN 'cloud'
+          ELSE 'localProject'
+        END), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'run.localPath', 'string',
+        json_quote(${row}.run_in_local_path), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'run.baseBranch', 'string',
+        json_quote(${row}.run_in_base_branch), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'run.worktreePath', 'string',
+        json_quote(${row}.run_in_worktree_path), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'run.environmentPath', 'string',
+        json_quote(${row}.run_in_environment_path), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'schedule.isAllDay', 'boolean',
+        CASE WHEN ${row}.is_all_day = 1 THEN 'true' ELSE 'false' END,
+        ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'schedule.timezone', 'string',
+        json_quote(${row}.schedule_timezone), ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'recurrence.config', 'json',
+        CASE WHEN ${row}.recurrence_json IS NULL
+          THEN 'null'
+          ELSE json(${row}.recurrence_json)
+        END, ${revision}, ${timestampSql}),
+      (${row}.id, ${row}.project_id, 'reminders.config', 'json',
+        json(${row}.reminders_json), ${revision}, ${timestampSql})
+    ON CONFLICT(block_id, property_key) DO UPDATE SET
+      project_id = excluded.project_id,
+      value_type = excluded.value_type,
+      value_json = excluded.value_json,
+      revision = excluded.revision,
+      updated_at = excluded.updated_at;
+
+    INSERT INTO database_property_values (
+      membership_id, property_id, database_block_id, project_id,
+      value_type, value_json, revision, updated_at
+    )
+    SELECT
+      membership.id,
+      property.id,
+      property.database_block_id,
+      ${row}.project_id,
+      property.value_type,
+      CASE property.key
+        WHEN 'status' THEN json_quote(${row}.status)
+        WHEN 'priority' THEN json_quote(${row}.priority)
+        WHEN 'estimate' THEN json_quote(${row}.estimate)
+        WHEN 'tags' THEN json(${row}.tags)
+        WHEN 'due_date' THEN json_quote(${row}.due_date)
+        WHEN 'scheduled_start' THEN json_quote(${row}.scheduled_start)
+        WHEN 'scheduled_end' THEN json_quote(${row}.scheduled_end)
+        WHEN 'assignee' THEN json_quote(${row}.assignee)
+      END,
+      ${revision},
+      ${timestampSql}
+    FROM database_memberships membership
+    INNER JOIN database_properties property
+      ON property.database_block_id = membership.database_block_id
+      AND property.lifecycle = 'active'
+    WHERE membership.card_block_id = ${row}.id
+      AND membership.removed_at IS NULL
+      AND property.key IN (
+        'status', 'priority', 'estimate', 'tags', 'due_date',
+        'scheduled_start', 'scheduled_end', 'assignee'
+      )
+    ON CONFLICT(membership_id, property_id) DO UPDATE SET
+      database_block_id = excluded.database_block_id,
+      project_id = excluded.project_id,
+      value_type = excluded.value_type,
+      value_json = excluded.value_json,
+      revision = excluded.revision,
+      updated_at = excluded.updated_at;
+
+    INSERT INTO scheduled_card_index (
+      card_block_id, project_id, lifecycle, scheduled_start, scheduled_end,
+      is_all_day, recurrence_json, reminders_json, schedule_timezone,
+      source_metadata_revision, updated_at
+    ) VALUES (
+      ${row}.id,
+      ${row}.project_id,
+      CASE WHEN ${row}.archived = 1 THEN 'archived' ELSE 'active' END,
+      ${row}.scheduled_start,
+      ${row}.scheduled_end,
+      ${row}.is_all_day,
+      CASE WHEN ${row}.recurrence_json IS NULL
+        THEN 'null'
+        ELSE json(${row}.recurrence_json)
+      END,
+      json(${row}.reminders_json),
+      ${row}.schedule_timezone,
+      ${revision},
+      ${timestampSql}
+    )
+    ON CONFLICT(card_block_id) DO UPDATE SET
+      project_id = excluded.project_id,
+      lifecycle = excluded.lifecycle,
+      scheduled_start = excluded.scheduled_start,
+      scheduled_end = excluded.scheduled_end,
+      is_all_day = excluded.is_all_day,
+      recurrence_json = excluded.recurrence_json,
+      reminders_json = excluded.reminders_json,
+      schedule_timezone = excluded.schedule_timezone,
+      source_metadata_revision = excluded.source_metadata_revision,
+      updated_at = excluded.updated_at;
+  `;
+}
 
 function primaryDatabaseBlockId(projectId: string): string {
   return `database:${projectId}:primary`;
@@ -157,6 +382,35 @@ function createBlockFoundationSchema(db: Database.Database): void {
       ON blocks(project_id, lifecycle, type);
     CREATE INDEX IF NOT EXISTS idx_blocks_containing_document
       ON blocks(containing_document_id, lifecycle);
+
+    CREATE TABLE IF NOT EXISTS block_properties (
+      block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      property_key TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (block_id, property_key),
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (length(property_key) BETWEEN 1 AND 128),
+      CHECK (value_type IN ('null', 'boolean', 'number', 'string', 'json')),
+      CHECK (
+        CASE
+          WHEN json_valid(value_json) = 0 THEN 0
+          WHEN json_type(value_json) = 'null' THEN value_type IN ('null', 'string', 'json')
+          WHEN value_type = 'boolean' THEN json_type(value_json) IN ('true', 'false')
+          WHEN value_type = 'number' THEN json_type(value_json) IN ('integer', 'real')
+          WHEN value_type = 'string' THEN json_type(value_json) = 'text'
+          WHEN value_type = 'json' THEN json_type(value_json) IN ('array', 'object')
+          ELSE 0
+        END
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_block_properties_project_key
+      ON block_properties(project_id, property_key, block_id);
 
     CREATE TABLE IF NOT EXISTS documents (
       id TEXT PRIMARY KEY,
@@ -264,11 +518,18 @@ function createBlockFoundationSchema(db: Database.Database): void {
       document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
       generation INTEGER NOT NULL CHECK (generation >= 1),
       projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version >= 1),
+      title TEXT NOT NULL DEFAULT '',
       nfm TEXT NOT NULL,
       plain_text TEXT NOT NULL,
       preview TEXT NOT NULL,
       block_tree_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      references_json TEXT NOT NULL DEFAULT '[]',
+      asset_refs_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL,
+      CHECK (json_valid(block_tree_json) AND json_type(block_tree_json) = 'array'),
+      CHECK (json_valid(references_json) AND json_type(references_json) = 'array'),
+      CHECK (json_valid(asset_refs_json) AND json_type(asset_refs_json) = 'array')
     ) WITHOUT ROWID;
 
     CREATE TABLE IF NOT EXISTS document_block_index (
@@ -339,6 +600,37 @@ function createBlockFoundationSchema(db: Database.Database): void {
         SELECT RAISE(ABORT, 'indexed parent must belong to the indexed document');
       END;
 
+    CREATE TABLE IF NOT EXISTS scheduled_card_index (
+      card_block_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      lifecycle TEXT NOT NULL,
+      scheduled_start TEXT,
+      scheduled_end TEXT,
+      is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),
+      recurrence_json TEXT NOT NULL DEFAULT 'null',
+      reminders_json TEXT NOT NULL DEFAULT '[]',
+      schedule_timezone TEXT,
+      source_metadata_revision INTEGER NOT NULL CHECK (source_metadata_revision >= 1),
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (card_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (scheduled_end IS NULL OR scheduled_start IS NULL OR scheduled_end > scheduled_start),
+      CHECK (is_all_day = 0 OR (scheduled_start IS NOT NULL AND scheduled_end IS NOT NULL)),
+      CHECK (
+        json_valid(recurrence_json)
+        AND json_type(recurrence_json) IN ('null', 'object')
+      ),
+      CHECK (
+        json_valid(reminders_json)
+        AND json_type(reminders_json) = 'array'
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_card_index_due
+      ON scheduled_card_index(project_id, scheduled_start, card_block_id)
+      WHERE lifecycle = 'active' AND scheduled_start IS NOT NULL;
+
     CREATE TABLE IF NOT EXISTS database_capabilities (
       block_id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -369,6 +661,36 @@ function createBlockFoundationSchema(db: Database.Database): void {
         SELECT RAISE(ABORT, 'database capability requires a database block');
       END;
 
+    CREATE TABLE IF NOT EXISTS database_properties (
+      id TEXT PRIMARY KEY,
+      database_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      rank_key TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, database_block_id, project_id),
+      FOREIGN KEY (database_block_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (length(key) BETWEEN 1 AND 128),
+      CHECK (length(name) BETWEEN 1 AND 256),
+      CHECK (value_type IN ('select', 'multi_select', 'date', 'datetime', 'person')),
+      CHECK (lifecycle IN ('active', 'deleted')),
+      CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_database_properties_active_key
+      ON database_properties(database_block_id, key)
+      WHERE lifecycle = 'active';
+    CREATE INDEX IF NOT EXISTS idx_database_properties_order
+      ON database_properties(database_block_id, lifecycle, rank_key, id);
+
     CREATE TABLE IF NOT EXISTS database_memberships (
       id TEXT PRIMARY KEY,
       database_block_id TEXT NOT NULL,
@@ -387,6 +709,8 @@ function createBlockFoundationSchema(db: Database.Database): void {
       WHERE removed_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_database_memberships_database_active
       ON database_memberships(database_block_id, removed_at, card_block_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_database_memberships_identity_scope
+      ON database_memberships(id, database_block_id, project_id);
 
     CREATE TRIGGER IF NOT EXISTS database_memberships_require_card_block
       BEFORE INSERT ON database_memberships
@@ -402,6 +726,67 @@ function createBlockFoundationSchema(db: Database.Database): void {
         AND (SELECT type FROM blocks WHERE id = NEW.card_block_id) <> 'card'
       BEGIN
         SELECT RAISE(ABORT, 'active database membership requires a card block');
+      END;
+
+    CREATE TABLE IF NOT EXISTS database_property_values (
+      membership_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      database_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (membership_id, property_id),
+      FOREIGN KEY (membership_id, database_block_id, project_id)
+        REFERENCES database_memberships(id, database_block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (property_id, database_block_id, project_id)
+        REFERENCES database_properties(id, database_block_id, project_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (value_type IN ('select', 'multi_select', 'date', 'datetime', 'person')),
+      CHECK (
+        CASE
+          WHEN json_valid(value_json) = 0 THEN 0
+          WHEN json_type(value_json) = 'null' THEN 1
+          WHEN value_type = 'multi_select' THEN json_type(value_json) = 'array'
+          ELSE json_type(value_json) = 'text'
+        END
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_database_property_values_property
+      ON database_property_values(property_id, membership_id);
+
+    CREATE TRIGGER IF NOT EXISTS database_property_values_require_matching_type
+      BEFORE INSERT ON database_property_values
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM database_properties property
+        WHERE property.id = NEW.property_id
+          AND property.database_block_id = NEW.database_block_id
+          AND property.project_id = NEW.project_id
+          AND property.lifecycle = 'active'
+          AND property.value_type = NEW.value_type
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'database property value type does not match its definition');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS database_property_values_updates_require_matching_type
+      BEFORE UPDATE OF property_id, database_block_id, project_id, value_type
+      ON database_property_values
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM database_properties property
+        WHERE property.id = NEW.property_id
+          AND property.database_block_id = NEW.database_block_id
+          AND property.project_id = NEW.project_id
+          AND property.lifecycle = 'active'
+          AND property.value_type = NEW.value_type
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'database property value type does not match its definition');
       END;
 
     CREATE TRIGGER IF NOT EXISTS blocks_type_updates_preserve_capabilities
@@ -617,10 +1002,18 @@ function createBlockFoundationSchema(db: Database.Database): void {
           group_key = excluded.group_key,
           rank_key = excluded.rank_key,
           updated_at = excluded.updated_at;
+
+        ${makeLegacyCardMetadataProjectionSql("NEW", "NEW.created")}
       END;
 
     CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_local_update
-      AFTER UPDATE OF status, archived, "order", revision ON cards
+      AFTER UPDATE OF
+        status, archived, "order", priority, estimate, tags, due_date,
+        scheduled_start, scheduled_end, is_all_day, assignee,
+        agent_blocked, agent_status, run_in_target, run_in_local_path,
+        run_in_base_branch, run_in_worktree_path, run_in_environment_path,
+        recurrence_json, reminders_json, schedule_timezone, revision
+      ON cards
       WHEN NEW.project_id = OLD.project_id
       BEGIN
         UPDATE blocks
@@ -650,6 +1043,11 @@ function createBlockFoundationSchema(db: Database.Database): void {
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE id = 'document:' || NEW.id
           AND readiness = 'pending_genesis';
+
+        ${makeLegacyCardMetadataProjectionSql(
+          "NEW",
+          "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        )}
       END;
 
     CREATE TRIGGER IF NOT EXISTS cards_block_foundation_cross_project_requires_pending
@@ -740,6 +1138,11 @@ function createBlockFoundationSchema(db: Database.Database): void {
           strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
           strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         );
+
+        ${makeLegacyCardMetadataProjectionSql(
+          "NEW",
+          "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        )}
       END;
 
     CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_delete
@@ -756,38 +1159,24 @@ function createBlockFoundationSchema(db: Database.Database): void {
             metadata_revision = metadata_revision + 1,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE id = OLD.id;
+
+        UPDATE scheduled_card_index
+        SET lifecycle = 'deleted',
+            source_metadata_revision = MAX(source_metadata_revision, MAX(1, OLD.revision)),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE card_block_id = OLD.id;
       END;
   `);
   createDocumentUpdateReceiptSchema(db);
 }
 
-const LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL = [
+const LEGACY_CARD_CONTENT_UPDATE_COLUMNS_SQL = [
   "project_id",
-  "status",
-  "archived",
   "title",
   "description",
-  "priority",
-  "estimate",
-  "tags",
-  "due_date",
-  "assignee",
-  "agent_blocked",
-  "agent_status",
-  "run_in_target",
-  "run_in_local_path",
-  "run_in_base_branch",
-  "run_in_worktree_path",
-  "run_in_environment_path",
-  "revision",
-  "scheduled_start",
-  "scheduled_end",
-  "is_all_day",
-  "recurrence_json",
-  "reminders_json",
-  "schedule_timezone",
-  '"order"',
 ].join(", ");
+
+const LEGACY_CARD_PRIMARY_REJECTED_UPDATE_COLUMNS_SQL = "title, description";
 
 interface LegacyCardShadowTriggerInput {
   readonly name: string;
@@ -795,6 +1184,7 @@ interface LegacyCardShadowTriggerInput {
   readonly rowAlias: "NEW" | "OLD";
   readonly operation: "insert" | "update" | "delete";
   readonly previousProjectIdSql: string;
+  readonly whenSql: string;
 }
 
 function makeLegacyCardShadowEnqueueTriggerSql(
@@ -805,6 +1195,7 @@ function makeLegacyCardShadowEnqueueTriggerSql(
   return `
     CREATE TRIGGER IF NOT EXISTS ${input.name}
       AFTER ${input.eventSql} ON cards
+      WHEN ${input.whenSql}
       BEGIN
         INSERT INTO legacy_card_shadow_heads (
           card_id, project_id, last_event_seq, last_source_revision,
@@ -992,19 +1383,7 @@ function createLegacyCardShadowOutboxSchema(db: Database.Database): void {
       END;
 
     CREATE TRIGGER IF NOT EXISTS cards_legacy_shadow_reject_primary_update
-      BEFORE UPDATE OF ${LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL} ON cards
-      WHEN EXISTS (
-        SELECT 1
-        FROM documents document
-        WHERE document.id = 'document:' || OLD.id
-          AND document.authority <> 'legacy_shadow'
-      )
-      BEGIN
-        SELECT RAISE(ABORT, 'Y.Doc-primary Cards reject legacy writes');
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS cards_legacy_shadow_reject_primary_delete
-      BEFORE DELETE ON cards
+      BEFORE UPDATE OF ${LEGACY_CARD_PRIMARY_REJECTED_UPDATE_COLUMNS_SQL} ON cards
       WHEN EXISTS (
         SELECT 1
         FROM documents document
@@ -1021,15 +1400,25 @@ function createLegacyCardShadowOutboxSchema(db: Database.Database): void {
       rowAlias: "NEW",
       operation: "insert",
       previousProjectIdSql: "NULL",
+      // Any successful legacy Card insert is either a new identity or an
+      // explicit legacy-shadow restore. The BEFORE guard rejects a primary
+      // Document first, so this enqueue is self-sufficient even when SQLite
+      // runs it before the foundation AFTER INSERT trigger creates Document.
+      whenSql: "true",
     })}
 
     ${makeLegacyCardShadowEnqueueTriggerSql({
       name: "cards_legacy_shadow_outbox_after_update",
-      eventSql: `UPDATE OF ${LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL}`,
+      eventSql: `UPDATE OF ${LEGACY_CARD_CONTENT_UPDATE_COLUMNS_SQL}`,
       rowAlias: "NEW",
       operation: "update",
       previousProjectIdSql:
         "CASE WHEN NEW.project_id <> OLD.project_id THEN OLD.project_id ELSE NULL END",
+      whenSql: `EXISTS (
+        SELECT 1 FROM documents document
+        WHERE document.id = 'document:' || OLD.id
+          AND document.authority = 'legacy_shadow'
+      )`,
     })}
 
     ${makeLegacyCardShadowEnqueueTriggerSql({
@@ -1038,6 +1427,11 @@ function createLegacyCardShadowOutboxSchema(db: Database.Database): void {
       rowAlias: "OLD",
       operation: "delete",
       previousProjectIdSql: "NULL",
+      whenSql: `EXISTS (
+        SELECT 1 FROM documents document
+        WHERE document.id = 'document:' || OLD.id
+          AND document.authority = 'legacy_shadow'
+      )`,
     })}
   `);
 }
@@ -1046,21 +1440,26 @@ export interface EnsureDatabaseOptions {
   onMigrationProgress?: (progress: DatabaseMigrationProgress) => void;
 }
 
-export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
+export function getSchemaMigrationTargets(
+  currentVersion: number,
+): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
 
-  if (currentVersion === 26 || currentVersion === 30) return [...MIGRATION_TARGETS];
-  if (currentVersion === 36) return MIGRATION_TARGETS.slice(MIGRATION_TARGETS.indexOf(37));
+  if (currentVersion === 26 || currentVersion === 30)
+    return [...MIGRATION_TARGETS];
+  if (currentVersion === 36)
+    return MIGRATION_TARGETS.slice(MIGRATION_TARGETS.indexOf(37));
 
-  const index = MIGRATION_TARGETS.indexOf(currentVersion as (typeof MIGRATION_TARGETS)[number]);
+  const index = MIGRATION_TARGETS.indexOf(
+    currentVersion as (typeof MIGRATION_TARGETS)[number],
+  );
   if (index >= 0) return MIGRATION_TARGETS.slice(index + 1);
   return null;
 }
 
 function getUserVersion(db: Database.Database): number {
   const row = db.prepare("PRAGMA user_version").get() as
-    | { user_version: number }
-    | undefined;
+    { user_version: number } | undefined;
   return row?.user_version ?? 0;
 }
 
@@ -1551,11 +1950,43 @@ function createLatestSchema(db: Database.Database): void {
 }
 
 function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO block_store_metadata (id, store_epoch, created_at, updated_at)
     VALUES (1, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
-  `).run(randomUUID(), now, now);
+  `,
+  ).run(randomUUID(), now, now);
+}
+
+function ensurePrimaryDatabaseProperties(
+  db: Database.Database,
+  projectId: string,
+  now: string,
+): void {
+  const databaseBlockId = primaryDatabaseBlockId(projectId);
+  const insert = db.prepare(`
+    INSERT INTO database_properties (
+      id, database_block_id, project_id, key, name, value_type,
+      config_json, rank_key, lifecycle, schema_revision, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `);
+
+  for (const definition of PRIMARY_DATABASE_PROPERTY_DEFINITIONS) {
+    insert.run(
+      primaryDatabasePropertyId(projectId, definition.key),
+      databaseBlockId,
+      projectId,
+      definition.key,
+      definition.name,
+      definition.valueType,
+      JSON.stringify(definition.config),
+      definition.rankKey,
+      now,
+      now,
+    );
+  }
 }
 
 export function ensureBlockFoundationForProject(
@@ -1568,35 +1999,45 @@ export function ensureBlockFoundationForProject(
   const databaseBlockId = primaryDatabaseBlockId(projectId);
   const viewId = primaryDatabaseViewId(projectId);
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
     ) VALUES (?, ?, 'database', 'active', 'space', NULL, 1, 1, ?, ?)
     ON CONFLICT(id) DO NOTHING
-  `).run(databaseBlockId, projectId, now, now);
+  `,
+  ).run(databaseBlockId, projectId, now, now);
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO top_level_block_placements (
       block_id, project_id, rank_key, created_at, updated_at
     ) VALUES (?, ?, '000000000000', ?, ?)
     ON CONFLICT(block_id) DO NOTHING
-  `).run(databaseBlockId, projectId, now, now);
+  `,
+  ).run(databaseBlockId, projectId, now, now);
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO database_capabilities (
       block_id, project_id, is_primary, schema_key, created_at, updated_at
     ) VALUES (?, ?, 1, ?, ?, ?)
     ON CONFLICT(block_id) DO NOTHING
-  `).run(databaseBlockId, projectId, PRIMARY_DATABASE_SCHEMA_KEY, now, now);
+  `,
+  ).run(databaseBlockId, projectId, PRIMARY_DATABASE_SCHEMA_KEY, now, now);
 
-  db.prepare(`
+  ensurePrimaryDatabaseProperties(db, projectId, now);
+
+  db.prepare(
+    `
     INSERT INTO database_views (
       id, database_block_id, project_id, name, kind, config_json,
       is_primary, created_at, updated_at
     ) VALUES (?, ?, ?, 'Kanban', 'kanban', '{}', 1, ?, ?)
     ON CONFLICT(id) DO NOTHING
-  `).run(viewId, databaseBlockId, projectId, now, now);
+  `,
+  ).run(viewId, databaseBlockId, projectId, now, now);
 }
 
 export function deleteBlockFoundationForProject(
@@ -1607,8 +2048,12 @@ export function deleteBlockFoundationForProject(
   // record each delete without violating its Project foreign key. The rows are
   // then removed below with the rest of the Project-scoped migration ledger.
   db.prepare("DELETE FROM cards WHERE project_id = ?").run(projectId);
-  db.prepare("DELETE FROM legacy_card_shadow_jobs WHERE project_id = ?").run(projectId);
-  db.prepare("DELETE FROM legacy_card_shadow_heads WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM legacy_card_shadow_jobs WHERE project_id = ?").run(
+    projectId,
+  );
+  db.prepare("DELETE FROM legacy_card_shadow_heads WHERE project_id = ?").run(
+    projectId,
+  );
   db.prepare("DELETE FROM block_documents WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM blocks WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM documents WHERE project_id = ?").run(projectId);
@@ -1625,7 +2070,9 @@ interface LegacyCardFoundationRow {
 }
 
 function seedLegacyCardBlockFoundation(db: Database.Database): void {
-  const projectRows = db.prepare("SELECT id, created FROM projects").all() as Array<{
+  const projectRows = db
+    .prepare("SELECT id, created FROM projects")
+    .all() as Array<{
     id: string;
     created: string;
   }>;
@@ -1633,10 +2080,14 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
     ensureBlockFoundationForProject(db, project.id, project.created);
   }
 
-  const cards = db.prepare(`
+  const cards = db
+    .prepare(
+      `
     SELECT id, project_id, archived, status, revision, "order", created
     FROM cards
-  `).all() as LegacyCardFoundationRow[];
+  `,
+    )
+    .all() as LegacyCardFoundationRow[];
 
   const insertBlock = db.prepare(`
     INSERT INTO blocks (
@@ -1725,7 +2176,9 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
     );
   }
 
-  const parityFailure = db.prepare(`
+  const parityFailure = db
+    .prepare(
+      `
     SELECT card.id
     FROM cards card
     LEFT JOIN blocks block
@@ -1749,9 +2202,13 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
       OR membership.database_block_id <> 'database:' || card.project_id || ':primary'
       OR position.block_id IS NULL
     LIMIT 1
-  `).get() as { id: string } | undefined;
+  `,
+    )
+    .get() as { id: string } | undefined;
   if (parityFailure) {
-    throw new Error(`Block foundation parity failed for Card ${parityFailure.id}`);
+    throw new Error(
+      `Block foundation parity failed for Card ${parityFailure.id}`,
+    );
   }
 }
 
@@ -1783,7 +2240,10 @@ function makePanelStateJson(input: {
     },
     bottom: {
       collapsed: input.bottomTabIds.length === 0,
-      layout: makePanelLayout(input.bottomTabIds, input.bottomTabIds[0] ?? null),
+      layout: makePanelLayout(
+        input.bottomTabIds,
+        input.bottomTabIds[0] ?? null,
+      ),
       size: {
         heightPx: 280,
       },
@@ -1791,26 +2251,42 @@ function makePanelStateJson(input: {
   });
 }
 
-function tableHasColumn(db: Database.Database, tableName: string, columnName: string): boolean {
-  return (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>)
-    .some((column) => column.name === columnName);
+function tableHasColumn(
+  db: Database.Database,
+  tableName: string,
+  columnName: string,
+): boolean {
+  return (
+    db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+      name: string;
+    }>
+  ).some((column) => column.name === columnName);
 }
 
 function tableExists(db: Database.Database, tableName: string): boolean {
-  return Boolean(db.prepare(`
+  return Boolean(
+    db
+      .prepare(
+        `
     SELECT 1
     FROM sqlite_master
     WHERE type = 'table' AND name = ?
-  `).get(tableName));
+  `,
+      )
+      .get(tableName),
+  );
 }
 
 function sqlStringLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function ensureProjectSessionsNoThreadFallbackTitle(db: Database.Database): void {
+function ensureProjectSessionsNoThreadFallbackTitle(
+  db: Database.Database,
+): void {
   if (!tableExists(db, "project_sessions")) return;
-  if (tableHasColumn(db, "project_sessions", "no_thread_fallback_title")) return;
+  if (tableHasColumn(db, "project_sessions", "no_thread_fallback_title"))
+    return;
 
   const defaultTitle = sqlStringLiteral(DEFAULT_NO_THREAD_FALLBACK_TITLE);
   db.exec(`
@@ -1826,7 +2302,9 @@ function ensureProjectSessionsNoThreadFallbackTitle(db: Database.Database): void
   }
 }
 
-function projectSessionNoThreadFallbackSelectExpression(db: Database.Database): string {
+function projectSessionNoThreadFallbackSelectExpression(
+  db: Database.Database,
+): string {
   const fallbackTitle = sqlStringLiteral(DEFAULT_NO_THREAD_FALLBACK_TITLE);
   const candidates = [
     tableHasColumn(db, "project_sessions", "no_thread_fallback_title")
@@ -1853,28 +2331,39 @@ interface LegacyCardThreadOwnershipRow {
 }
 
 function firstPreviewLine(value: string | null): string {
-  return value
-    ?.split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
+  return (
+    value
+      ?.split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 }
 
-function resolveMigratedThreadSessionTitle(row: LegacyCardThreadOwnershipRow): string {
-  return row.threadName?.trim()
-    || firstPreviewLine(row.threadPreview)
-    || row.cardTitle?.trim()
-    || "Imported chat";
+function resolveMigratedThreadSessionTitle(
+  row: LegacyCardThreadOwnershipRow,
+): string {
+  return (
+    row.threadName?.trim() ||
+    firstPreviewLine(row.threadPreview) ||
+    row.cardTitle?.trim() ||
+    "Imported chat"
+  );
 }
 
-function readLegacyCardThreadOwnershipRows(db: Database.Database): LegacyCardThreadOwnershipRow[] {
+function readLegacyCardThreadOwnershipRows(
+  db: Database.Database,
+): LegacyCardThreadOwnershipRow[] {
   const rows: LegacyCardThreadOwnershipRow[] = [];
 
   if (
-    tableExists(db, "codex_thread_card_links")
-    && tableHasColumn(db, "codex_thread_card_links", "thread_id")
-    && tableHasColumn(db, "codex_thread_card_links", "card_id")
+    tableExists(db, "codex_thread_card_links") &&
+    tableHasColumn(db, "codex_thread_card_links", "thread_id") &&
+    tableHasColumn(db, "codex_thread_card_links", "card_id")
   ) {
-    rows.push(...db.prepare(`
+    rows.push(
+      ...(db
+        .prepare(
+          `
       SELECT
         l.thread_id AS threadId,
         COALESCE(l.project_id, t.project_id, c.project_id) AS projectId,
@@ -1886,11 +2375,20 @@ function readLegacyCardThreadOwnershipRows(db: Database.Database): LegacyCardThr
       FROM codex_thread_card_links l
       LEFT JOIN codex_threads t ON t.thread_id = l.thread_id
       LEFT JOIN cards c ON c.id = l.card_id
-    `).all() as LegacyCardThreadOwnershipRow[]);
+    `,
+        )
+        .all() as LegacyCardThreadOwnershipRow[]),
+    );
   }
 
-  if (tableExists(db, "codex_threads") && tableHasColumn(db, "codex_threads", "card_id")) {
-    rows.push(...db.prepare(`
+  if (
+    tableExists(db, "codex_threads") &&
+    tableHasColumn(db, "codex_threads", "card_id")
+  ) {
+    rows.push(
+      ...(db
+        .prepare(
+          `
       SELECT
         t.thread_id AS threadId,
         COALESCE(t.project_id, c.project_id) AS projectId,
@@ -1902,11 +2400,17 @@ function readLegacyCardThreadOwnershipRows(db: Database.Database): LegacyCardThr
       FROM codex_threads t
       LEFT JOIN cards c ON c.id = t.card_id
       WHERE t.card_id IS NOT NULL
-    `).all() as LegacyCardThreadOwnershipRow[]);
+    `,
+        )
+        .all() as LegacyCardThreadOwnershipRow[]),
+    );
   }
 
   if (tableExists(db, "codex_card_threads")) {
-    rows.push(...db.prepare(`
+    rows.push(
+      ...(db
+        .prepare(
+          `
       SELECT
         t.thread_id AS threadId,
         COALESCE(t.project_id, c.project_id) AS projectId,
@@ -1917,7 +2421,10 @@ function readLegacyCardThreadOwnershipRows(db: Database.Database): LegacyCardThr
         c.title AS cardTitle
       FROM codex_card_threads t
       LEFT JOIN cards c ON c.id = t.card_id
-    `).all() as LegacyCardThreadOwnershipRow[]);
+    `,
+        )
+        .all() as LegacyCardThreadOwnershipRow[]),
+    );
   }
 
   const seen = new Set<string>();
@@ -1928,17 +2435,29 @@ function readLegacyCardThreadOwnershipRows(db: Database.Database): LegacyCardThr
   });
 }
 
-function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void {
+function migrateLegacyCardThreadOwnershipToSessions(
+  db: Database.Database,
+): void {
   const rows = readLegacyCardThreadOwnershipRows(db);
   if (rows.length === 0) return;
 
   ensureProjectSessionsNoThreadFallbackTitle(db);
 
   const projectExists = db.prepare("SELECT 1 FROM projects WHERE id = ?");
-  const threadExists = db.prepare("SELECT 1 FROM codex_threads WHERE thread_id = ?");
-  const existingThreadSession = db.prepare("SELECT session_id FROM project_session_threads WHERE thread_id = ?");
-  const maxOrder = db.prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?');
-  const hasNoThreadFallbackTitle = tableHasColumn(db, "project_sessions", "no_thread_fallback_title");
+  const threadExists = db.prepare(
+    "SELECT 1 FROM codex_threads WHERE thread_id = ?",
+  );
+  const existingThreadSession = db.prepare(
+    "SELECT session_id FROM project_session_threads WHERE thread_id = ?",
+  );
+  const maxOrder = db.prepare(
+    'SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?',
+  );
+  const hasNoThreadFallbackTitle = tableHasColumn(
+    db,
+    "project_sessions",
+    "no_thread_fallback_title",
+  );
   const hasLegacyTitle = tableHasColumn(db, "project_sessions", "title");
   const hasOverview = tableHasColumn(db, "project_sessions", "is_overview");
   const sessionColumns = [
@@ -1996,8 +2515,10 @@ function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void
       const sessionId = randomUUID();
       const now = new Date().toISOString();
       const linkedAt = row.linkedAt || now;
-      const order = nextOrderByProject.get(projectId)
-        ?? (((maxOrder.get(projectId) as { maxOrder: number | null } | undefined)?.maxOrder ?? -1) + 1);
+      const order =
+        nextOrderByProject.get(projectId) ??
+        ((maxOrder.get(projectId) as { maxOrder: number | null } | undefined)
+          ?.maxOrder ?? -1) + 1;
       nextOrderByProject.set(projectId, order + 1);
       const sessionTitle = resolveMigratedThreadSessionTitle(row);
       const sessionArgs = [
@@ -2022,7 +2543,10 @@ function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void
 }
 
 function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
-  if (!tableExists(db, "codex_threads") || !tableHasColumn(db, "codex_threads", "card_id")) {
+  if (
+    !tableExists(db, "codex_threads") ||
+    !tableHasColumn(db, "codex_threads", "card_id")
+  ) {
     if (tableExists(db, "codex_thread_card_links")) {
       db.exec("DROP TABLE IF EXISTS codex_thread_card_links");
     }
@@ -2076,7 +2600,9 @@ function migrateMainSchema26To31(db: Database.Database): void {
 
   if (tableExists(db, "codex_card_threads")) {
     if (!tableHasColumn(db, "codex_card_threads", "parent_thread_id")) {
-      db.exec("ALTER TABLE codex_card_threads ADD COLUMN parent_thread_id TEXT");
+      db.exec(
+        "ALTER TABLE codex_card_threads ADD COLUMN parent_thread_id TEXT",
+      );
     }
 
     db.exec(`
@@ -2148,7 +2674,10 @@ function migrateSchema30To31(db: Database.Database): void {
   setUserVersion(db, 31);
 }
 
-function migrateToSchema31(db: Database.Database, currentVersion: number): void {
+function migrateToSchema31(
+  db: Database.Database,
+  currentVersion: number,
+): void {
   if (currentVersion === 26) {
     migrateMainSchema26To31(db);
     return;
@@ -2159,24 +2688,32 @@ function migrateToSchema31(db: Database.Database, currentVersion: number): void 
     return;
   }
 
-  throw new Error(`Unsupported Nodex database migration target 31 from ${currentVersion}`);
+  throw new Error(
+    `Unsupported Nodex database migration target 31 from ${currentVersion}`,
+  );
 }
 
 function migrateSchema31To32(db: Database.Database): void {
   if (!tableHasColumn(db, "project_sessions", "pinned")) {
-    db.exec("ALTER TABLE project_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))");
+    db.exec(
+      "ALTER TABLE project_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))",
+    );
   }
   if (!tableHasColumn(db, "project_sessions", "pinned_order")) {
     db.exec("ALTER TABLE project_sessions ADD COLUMN pinned_order INTEGER");
   }
   if (!tableHasColumn(db, "project_sessions", "archived")) {
-    db.exec("ALTER TABLE project_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))");
+    db.exec(
+      "ALTER TABLE project_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))",
+    );
   }
   if (!tableHasColumn(db, "project_sessions", "archived_at")) {
     db.exec("ALTER TABLE project_sessions ADD COLUMN archived_at TEXT");
   }
   if (!tableHasColumn(db, "project_sessions", "unread")) {
-    db.exec("ALTER TABLE project_sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0, 1))");
+    db.exec(
+      "ALTER TABLE project_sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0, 1))",
+    );
   }
 
   db.exec(`
@@ -2208,7 +2745,10 @@ interface ProjectSessionPanelMigrationRow {
   panel_state_json: string;
 }
 
-function normalizeBrowserTabConfigJson(projectId: string, configJson: string): string {
+function normalizeBrowserTabConfigJson(
+  projectId: string,
+  configJson: string,
+): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(configJson);
@@ -2216,9 +2756,10 @@ function normalizeBrowserTabConfigJson(projectId: string, configJson: string): s
     parsed = {};
   }
 
-  const config = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? { ...(parsed as Record<string, unknown>) }
-    : {};
+  const config =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : {};
 
   const normalized: Record<string, unknown> = {
     projectId,
@@ -2264,13 +2805,17 @@ function migrateSchema32To33(db: Database.Database): void {
       );
     `);
 
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT
         id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
         "order", created_at, updated_at
       FROM project_session_tabs
       ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
-    `).all() as ProjectSessionTabMigrationRow[];
+    `,
+      )
+      .all() as ProjectSessionTabMigrationRow[];
 
     const insert = db.prepare(`
       INSERT INTO project_session_tabs_next (
@@ -2281,9 +2826,10 @@ function migrateSchema32To33(db: Database.Database): void {
 
     for (const row of rows) {
       const kind = row.kind === LEGACY_BROWSER_TAB_KIND ? "browser" : row.kind;
-      const configJson = row.kind === LEGACY_BROWSER_TAB_KIND
-        ? normalizeBrowserTabConfigJson(row.project_id, row.config_json)
-        : row.config_json;
+      const configJson =
+        row.kind === LEGACY_BROWSER_TAB_KIND
+          ? normalizeBrowserTabConfigJson(row.project_id, row.config_json)
+          : row.config_json;
 
       insert.run(
         row.id,
@@ -2344,10 +2890,15 @@ function normalizePanelStateAfterRemovedTabs(
   fallbackSize: Record<string, unknown>,
 ): Record<string, unknown> {
   const panel = isJsonRecord(value) ? value : {};
-  const rawCollapsed = typeof panel.collapsed === "boolean" ? panel.collapsed : tabIds.length === 0;
+  const rawCollapsed =
+    typeof panel.collapsed === "boolean"
+      ? panel.collapsed
+      : tabIds.length === 0;
   const layout = pruneEmptyProjectSessionPanelLeaves(
     normalizeProjectSessionPanelLayout(
-      isJsonRecord(panel.layout) ? panel.layout as unknown as ProjectSessionPanelLayout : null,
+      isJsonRecord(panel.layout)
+        ? (panel.layout as unknown as ProjectSessionPanelLayout)
+        : null,
       tabIds,
     ),
   );
@@ -2366,20 +2917,25 @@ function pruneRemovedSideChatTabsFromPanelStateJson(
   survivingIdsBySessionPanel: Map<string, Map<PanelId, string[]>>,
 ): string {
   const panels = parseJsonRecord(panelStateJson);
-  const rightTabIds = getSurvivingPanelTabIds(survivingIdsBySessionPanel, sessionId, "right");
-  const bottomTabIds = getSurvivingPanelTabIds(survivingIdsBySessionPanel, sessionId, "bottom");
+  const rightTabIds = getSurvivingPanelTabIds(
+    survivingIdsBySessionPanel,
+    sessionId,
+    "right",
+  );
+  const bottomTabIds = getSurvivingPanelTabIds(
+    survivingIdsBySessionPanel,
+    sessionId,
+    "bottom",
+  );
 
   return JSON.stringify({
-    right: normalizePanelStateAfterRemovedTabs(
-      panels.right,
-      rightTabIds,
-      { widthPx: 600, fullWidth: overview },
-    ),
-    bottom: normalizePanelStateAfterRemovedTabs(
-      panels.bottom,
-      bottomTabIds,
-      { heightPx: 280 },
-    ),
+    right: normalizePanelStateAfterRemovedTabs(panels.right, rightTabIds, {
+      widthPx: 600,
+      fullWidth: overview,
+    }),
+    bottom: normalizePanelStateAfterRemovedTabs(panels.bottom, bottomTabIds, {
+      heightPx: 280,
+    }),
   });
 }
 
@@ -2407,16 +2963,23 @@ function migrateSchema33To34(db: Database.Database): void {
       );
     `);
 
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT
         id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
         "order", created_at, updated_at
       FROM project_session_tabs
       ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
-    `).all() as ProjectSessionTabMigrationRow[];
+    `,
+      )
+      .all() as ProjectSessionTabMigrationRow[];
 
     const removedSessionIds = new Set<string>();
-    const survivingIdsBySessionPanel = new Map<string, Map<PanelId, string[]>>();
+    const survivingIdsBySessionPanel = new Map<
+      string,
+      Map<PanelId, string[]>
+    >();
     const insert = db.prepare(`
       INSERT INTO project_session_tabs_next (
         id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
@@ -2446,7 +3009,9 @@ function migrateSchema33To34(db: Database.Database): void {
       );
 
       if (row.panel_id === "right" || row.panel_id === "bottom") {
-        const byPanel = survivingIdsBySessionPanel.get(row.session_id) ?? new Map<PanelId, string[]>();
+        const byPanel =
+          survivingIdsBySessionPanel.get(row.session_id) ??
+          new Map<PanelId, string[]>();
         const tabIds = byPanel.get(row.panel_id) ?? [];
         tabIds.push(row.id);
         byPanel.set(row.panel_id, tabIds);
@@ -2465,10 +3030,14 @@ function migrateSchema33To34(db: Database.Database): void {
     `);
 
     if (removedSessionIds.size > 0) {
-      const sessionRows = db.prepare(`
+      const sessionRows = db
+        .prepare(
+          `
         SELECT id, is_overview, panel_state_json
         FROM project_sessions
-      `).all() as ProjectSessionPanelMigrationRow[];
+      `,
+        )
+        .all() as ProjectSessionPanelMigrationRow[];
       const updateSession = db.prepare(`
         UPDATE project_sessions
         SET panel_state_json = ?
@@ -2495,13 +3064,19 @@ function migrateSchema33To34(db: Database.Database): void {
   setUserVersion(db, 34);
 }
 
-function normalizeFilesTabConfigJson(projectId: string, configJson: string): string {
+function normalizeFilesTabConfigJson(
+  projectId: string,
+  configJson: string,
+): string {
   const config = parseJsonRecord(configJson);
   return JSON.stringify({
     projectId,
     hostId: "local",
-    workspaceRoot: typeof config.workspaceRoot === "string" ? config.workspaceRoot : "",
-    ...(typeof config.path === "string" && config.path.trim() ? { path: config.path } : {}),
+    workspaceRoot:
+      typeof config.workspaceRoot === "string" ? config.workspaceRoot : "",
+    ...(typeof config.path === "string" && config.path.trim()
+      ? { path: config.path }
+      : {}),
   });
 }
 
@@ -2529,13 +3104,17 @@ function migrateSchema34To35(db: Database.Database): void {
       );
     `);
 
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT
         id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
         "order", created_at, updated_at
       FROM project_session_tabs
       ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
-    `).all() as ProjectSessionTabMigrationRow[];
+    `,
+      )
+      .all() as ProjectSessionTabMigrationRow[];
 
     const insert = db.prepare(`
       INSERT INTO project_session_tabs_next (
@@ -2553,7 +3132,9 @@ function migrateSchema34To35(db: Database.Database): void {
         row.panel_id,
         legacyFiles ? "files" : row.kind,
         row.title,
-        legacyFiles ? normalizeFilesTabConfigJson(row.project_id, row.config_json) : row.config_json,
+        legacyFiles
+          ? normalizeFilesTabConfigJson(row.project_id, row.config_json)
+          : row.config_json,
         row.state_key,
         row.state_json,
         row.order,
@@ -2598,7 +3179,10 @@ function migratedSourceKey(root: string): string {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-function rewriteProjectIdsInJson(value: unknown, idMap: Map<string, string>): unknown {
+function rewriteProjectIdsInJson(
+  value: unknown,
+  idMap: Map<string, string>,
+): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => rewriteProjectIdsInJson(item, idMap));
   }
@@ -2615,9 +3199,14 @@ function rewriteProjectIdsInJson(value: unknown, idMap: Map<string, string>): un
   return next;
 }
 
-function rewriteProjectIdsInConfigJson(configJson: string, idMap: Map<string, string>): string {
+function rewriteProjectIdsInConfigJson(
+  configJson: string,
+  idMap: Map<string, string>,
+): string {
   try {
-    return JSON.stringify(rewriteProjectIdsInJson(JSON.parse(configJson) as unknown, idMap));
+    return JSON.stringify(
+      rewriteProjectIdsInJson(JSON.parse(configJson) as unknown, idMap),
+    );
   } catch {
     return configJson;
   }
@@ -2626,12 +3215,18 @@ function rewriteProjectIdsInConfigJson(configJson: string, idMap: Map<string, st
 function migrateSchema35To37(db: Database.Database): void {
   db.pragma("foreign_keys = OFF");
   try {
-    const projects = db.prepare(`
+    const projects = db
+      .prepare(
+        `
       SELECT id, name, description, icon, workspace_path, created
       FROM projects
       ORDER BY created ASC
-    `).all() as ProjectIdMigrationRow[];
-    const idMap = new Map(projects.map((project) => [project.id, randomUUID()]));
+    `,
+      )
+      .all() as ProjectIdMigrationRow[];
+    const idMap = new Map(
+      projects.map((project) => [project.id, randomUUID()]),
+    );
 
     db.exec(`
       DROP TABLE IF EXISTS projects_next;
@@ -2693,7 +3288,14 @@ function migrateSchema35To37(db: Database.Database): void {
 
       const sourceRoot = normalizeMigratedSourceRoot(project.workspace_path);
       if (sourceRoot) {
-        insertSource.run(nextId, sourceRoot, migratedSourceKey(sourceRoot), 0, project.created, project.created);
+        insertSource.run(
+          nextId,
+          sourceRoot,
+          migratedSourceKey(sourceRoot),
+          0,
+          project.created,
+          project.created,
+        );
       }
     });
 
@@ -2712,30 +3314,50 @@ function migrateSchema35To37(db: Database.Database): void {
     ].filter((tableName) => tableHasColumn(db, tableName, "project_id"));
     for (const [oldId, nextId] of idMap) {
       for (const tableName of projectIdTables) {
-        db.prepare(`UPDATE ${tableName} SET project_id = ? WHERE project_id = ?`).run(nextId, oldId);
+        db.prepare(
+          `UPDATE ${tableName} SET project_id = ? WHERE project_id = ?`,
+        ).run(nextId, oldId);
       }
       const oldOverviewSessionId = makeLegacyOverviewSessionId(oldId);
       const nextOverviewSessionId = makeLegacyOverviewSessionId(nextId);
       const oldOverviewTabId = makeLegacyOverviewDbTabId(oldId);
       const nextOverviewTabId = makeLegacyOverviewDbTabId(nextId);
-      db.prepare("UPDATE project_session_tabs SET session_id = ? WHERE session_id = ?")
-        .run(nextOverviewSessionId, oldOverviewSessionId);
-      db.prepare("UPDATE project_session_threads SET session_id = ? WHERE session_id = ?")
-        .run(nextOverviewSessionId, oldOverviewSessionId);
-      db.prepare("UPDATE project_session_tabs SET id = ? WHERE id = ?")
-        .run(nextOverviewTabId, oldOverviewTabId);
-      db.prepare("UPDATE project_sessions SET id = ?, panel_state_json = replace(panel_state_json, ?, ?) WHERE id = ?")
-        .run(nextOverviewSessionId, oldOverviewTabId, nextOverviewTabId, oldOverviewSessionId);
+      db.prepare(
+        "UPDATE project_session_tabs SET session_id = ? WHERE session_id = ?",
+      ).run(nextOverviewSessionId, oldOverviewSessionId);
+      db.prepare(
+        "UPDATE project_session_threads SET session_id = ? WHERE session_id = ?",
+      ).run(nextOverviewSessionId, oldOverviewSessionId);
+      db.prepare("UPDATE project_session_tabs SET id = ? WHERE id = ?").run(
+        nextOverviewTabId,
+        oldOverviewTabId,
+      );
+      db.prepare(
+        "UPDATE project_sessions SET id = ?, panel_state_json = replace(panel_state_json, ?, ?) WHERE id = ?",
+      ).run(
+        nextOverviewSessionId,
+        oldOverviewTabId,
+        nextOverviewTabId,
+        oldOverviewSessionId,
+      );
     }
 
-    const tabRows = db.prepare("SELECT id, config_json FROM project_session_tabs").all() as Array<{
+    const tabRows = db
+      .prepare("SELECT id, config_json FROM project_session_tabs")
+      .all() as Array<{
       id: string;
       config_json: string;
     }>;
-    const updateTabConfig = db.prepare("UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?");
+    const updateTabConfig = db.prepare(
+      "UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?",
+    );
     const now = new Date().toISOString();
     for (const tab of tabRows) {
-      updateTabConfig.run(rewriteProjectIdsInConfigJson(tab.config_json, idMap), now, tab.id);
+      updateTabConfig.run(
+        rewriteProjectIdsInConfigJson(tab.config_json, idMap),
+        now,
+        tab.id,
+      );
     }
 
     db.exec(`
@@ -2797,27 +3419,41 @@ function migrateSchema38To39(db: Database.Database): void {
 }
 
 function migrateSchema39To40(db: Database.Database): void {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT id, config_json
     FROM project_session_tabs
     WHERE kind = 'card_stage'
-  `).all() as Array<{ id: string; config_json: string }>;
+  `,
+    )
+    .all() as Array<{ id: string; config_json: string }>;
 
-  const findCardProject = db.prepare("SELECT project_id FROM cards WHERE id = ?");
-  const updateTabConfig = db.prepare("UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?");
+  const findCardProject = db.prepare(
+    "SELECT project_id FROM cards WHERE id = ?",
+  );
+  const updateTabConfig = db.prepare(
+    "UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?",
+  );
   const now = new Date().toISOString();
 
   const repair = db.transaction(() => {
     for (const row of rows) {
       const config = parseJsonRecord(row.config_json);
-      const cardId = typeof config.cardId === "string" ? config.cardId.trim() : "";
+      const cardId =
+        typeof config.cardId === "string" ? config.cardId.trim() : "";
       if (!cardId) continue;
 
-      const card = findCardProject.get(cardId) as { project_id: string } | undefined;
+      const card = findCardProject.get(cardId) as
+        { project_id: string } | undefined;
       if (!card) continue;
       if (config.projectId === card.project_id) continue;
 
-      updateTabConfig.run(JSON.stringify({ ...config, projectId: card.project_id }), now, row.id);
+      updateTabConfig.run(
+        JSON.stringify({ ...config, projectId: card.project_id }),
+        now,
+        row.id,
+      );
     }
   });
   repair();
@@ -2847,7 +3483,8 @@ function migrateSchema41To42(db: Database.Database): void {
     return;
   }
 
-  const fallbackTitleExpression = projectSessionNoThreadFallbackSelectExpression(db);
+  const fallbackTitleExpression =
+    projectSessionNoThreadFallbackSelectExpression(db);
 
   db.pragma("foreign_keys = OFF");
   try {
@@ -2994,7 +3631,9 @@ function normalizeProjectSessionOrders(
   databaseViewSessionId: string,
   now: string,
 ): void {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT id, pinned, pinned_order, "order", created_at
     FROM project_sessions
     WHERE project_id = ?
@@ -3003,13 +3642,19 @@ function normalizeProjectSessionOrders(
       CASE WHEN pinned = 1 THEN 0 ELSE 1 END ASC,
       CASE WHEN pinned = 1 THEN COALESCE(pinned_order, 9223372036854775807) ELSE "order" END ASC,
       created_at ASC
-  `).all(projectId, databaseViewSessionId) as ProjectSessionOrderRow[];
+  `,
+    )
+    .all(projectId, databaseViewSessionId) as ProjectSessionOrderRow[];
 
-  const updateOrder = db.prepare('UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ?');
+  const updateOrder = db.prepare(
+    'UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ?',
+  );
   rows.forEach((row, index) => updateOrder.run(index, now, row.id));
 
   const pinnedRows = rows.filter((row) => row.pinned === 1);
-  const updatePinnedOrder = db.prepare("UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ?");
+  const updatePinnedOrder = db.prepare(
+    "UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ?",
+  );
   pinnedRows.forEach((row, index) => updatePinnedOrder.run(index, now, row.id));
 }
 
@@ -3021,9 +3666,14 @@ function convertLegacyOverviewToDatabaseViewSession(
   const sessionId = randomUUID();
   const tabId = randomUUID();
 
-  db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(overview.id);
-  db.prepare("DELETE FROM project_session_threads WHERE session_id = ?").run(overview.id);
-  db.prepare(`
+  db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(
+    overview.id,
+  );
+  db.prepare("DELETE FROM project_session_threads WHERE session_id = ?").run(
+    overview.id,
+  );
+  db.prepare(
+    `
     UPDATE project_sessions
     SET id = ?,
         no_thread_fallback_title = ?,
@@ -3037,7 +3687,8 @@ function convertLegacyOverviewToDatabaseViewSession(
         panel_state_json = ?,
         updated_at = ?
     WHERE id = ?
-  `).run(
+  `,
+  ).run(
     sessionId,
     INITIAL_DATABASE_VIEW_SESSION_TITLE,
     makeInitialDatabaseViewPanelStateJson(tabId),
@@ -3060,14 +3711,20 @@ function migrateSchema43To44(db: Database.Database): void {
   db.pragma("foreign_keys = OFF");
   try {
     const now = new Date().toISOString();
-    const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
+    const projects = db
+      .prepare("SELECT id FROM projects ORDER BY created ASC")
+      .all() as Array<{ id: string }>;
     const overviewRows = tableHasColumn(db, "project_sessions", "is_overview")
-      ? db.prepare(`
+      ? (db
+          .prepare(
+            `
         SELECT id, project_id
         FROM project_sessions
         WHERE is_overview = 1 AND project_id IS NOT NULL
         ORDER BY project_id ASC, created_at ASC
-      `).all() as LegacyOverviewSessionRow[]
+      `,
+          )
+          .all() as LegacyOverviewSessionRow[])
       : [];
     const overviewRowsByProject = new Map<string, LegacyOverviewSessionRow[]>();
     for (const row of overviewRows) {
@@ -3077,11 +3734,18 @@ function migrateSchema43To44(db: Database.Database): void {
     }
 
     for (const project of projects) {
-      const [primaryOverview, ...duplicateOverviews] = overviewRowsByProject.get(project.id) ?? [];
+      const [primaryOverview, ...duplicateOverviews] =
+        overviewRowsByProject.get(project.id) ?? [];
       for (const duplicate of duplicateOverviews) {
-        db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(duplicate.id);
-        db.prepare("DELETE FROM project_session_threads WHERE session_id = ?").run(duplicate.id);
-        db.prepare("DELETE FROM project_sessions WHERE id = ?").run(duplicate.id);
+        db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(
+          duplicate.id,
+        );
+        db.prepare(
+          "DELETE FROM project_session_threads WHERE session_id = ?",
+        ).run(duplicate.id);
+        db.prepare("DELETE FROM project_sessions WHERE id = ?").run(
+          duplicate.id,
+        );
       }
 
       const databaseViewSessionId = primaryOverview
@@ -3214,16 +3878,24 @@ function migrateSchema44To45(db: Database.Database): void {
 
 function migrateSchema45To46(db: Database.Database): void {
   if (!tableHasColumn(db, "thread_search_thread_state", "index_version")) {
-    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN index_version INTEGER NOT NULL DEFAULT 1");
+    db.exec(
+      "ALTER TABLE thread_search_thread_state ADD COLUMN index_version INTEGER NOT NULL DEFAULT 1",
+    );
   }
   if (!tableHasColumn(db, "thread_search_thread_state", "last_error")) {
-    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN last_error TEXT");
+    db.exec(
+      "ALTER TABLE thread_search_thread_state ADD COLUMN last_error TEXT",
+    );
   }
   if (!tableHasColumn(db, "thread_search_thread_state", "failed_at")) {
-    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN failed_at INTEGER");
+    db.exec(
+      "ALTER TABLE thread_search_thread_state ADD COLUMN failed_at INTEGER",
+    );
   }
   if (!tableHasColumn(db, "thread_search_thread_state", "retry_after")) {
-    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN retry_after INTEGER");
+    db.exec(
+      "ALTER TABLE thread_search_thread_state ADD COLUMN retry_after INTEGER",
+    );
   }
 
   setUserVersion(db, 46);
@@ -3236,16 +3908,24 @@ function migrateSchema46To47(db: Database.Database): void {
 
 function migrateSchema47To48(db: Database.Database): void {
   if (!tableHasColumn(db, "cards", "description_preview")) {
-    db.exec("ALTER TABLE cards ADD COLUMN description_preview TEXT NOT NULL DEFAULT ''");
+    db.exec(
+      "ALTER TABLE cards ADD COLUMN description_preview TEXT NOT NULL DEFAULT ''",
+    );
   }
   if (!tableHasColumn(db, "cards", "description_length")) {
-    db.exec("ALTER TABLE cards ADD COLUMN description_length INTEGER NOT NULL DEFAULT 0");
+    db.exec(
+      "ALTER TABLE cards ADD COLUMN description_length INTEGER NOT NULL DEFAULT 0",
+    );
   }
   if (!tableHasColumn(db, "cards", "has_description")) {
-    db.exec("ALTER TABLE cards ADD COLUMN has_description INTEGER NOT NULL DEFAULT 0");
+    db.exec(
+      "ALTER TABLE cards ADD COLUMN has_description INTEGER NOT NULL DEFAULT 0",
+    );
   }
   if (!tableHasColumn(db, "cards", "description_read_model_revision")) {
-    db.exec("ALTER TABLE cards ADD COLUMN description_read_model_revision INTEGER NOT NULL DEFAULT 0");
+    db.exec(
+      "ALTER TABLE cards ADD COLUMN description_read_model_revision INTEGER NOT NULL DEFAULT 0",
+    );
   }
 
   db.exec(`
@@ -3310,7 +3990,10 @@ function migrateSchema47To48(db: Database.Database): void {
 }
 
 function migrateSchema48To49(db: Database.Database): void {
-  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "thread_source")) {
+  if (
+    tableExists(db, "codex_threads") &&
+    !tableHasColumn(db, "codex_threads", "thread_source")
+  ) {
     db.exec("ALTER TABLE codex_threads ADD COLUMN thread_source TEXT");
   }
 
@@ -3318,10 +4001,16 @@ function migrateSchema48To49(db: Database.Database): void {
 }
 
 function migrateSchema49To50(db: Database.Database): void {
-  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "agent_nickname")) {
+  if (
+    tableExists(db, "codex_threads") &&
+    !tableHasColumn(db, "codex_threads", "agent_nickname")
+  ) {
     db.exec("ALTER TABLE codex_threads ADD COLUMN agent_nickname TEXT");
   }
-  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "agent_role")) {
+  if (
+    tableExists(db, "codex_threads") &&
+    !tableHasColumn(db, "codex_threads", "agent_role")
+  ) {
     db.exec("ALTER TABLE codex_threads ADD COLUMN agent_role TEXT");
   }
 
@@ -3329,8 +4018,13 @@ function migrateSchema49To50(db: Database.Database): void {
 }
 
 function migrateSchema50To51(db: Database.Database): void {
-  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "projectless_output_directory")) {
-    db.exec("ALTER TABLE codex_threads ADD COLUMN projectless_output_directory TEXT");
+  if (
+    tableExists(db, "codex_threads") &&
+    !tableHasColumn(db, "codex_threads", "projectless_output_directory")
+  ) {
+    db.exec(
+      "ALTER TABLE codex_threads ADD COLUMN projectless_output_directory TEXT",
+    );
   }
 
   setUserVersion(db, 51);
@@ -3360,7 +4054,10 @@ function migrateSchema51To52(db: Database.Database): void {
 }
 
 function migrateSchema52To53(db: Database.Database): void {
-  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "managed_worktree_path")) {
+  if (
+    tableExists(db, "codex_threads") &&
+    !tableHasColumn(db, "codex_threads", "managed_worktree_path")
+  ) {
     db.exec("ALTER TABLE codex_threads ADD COLUMN managed_worktree_path TEXT");
   }
 
@@ -3427,25 +4124,45 @@ function migrateSchema54To55(db: Database.Database): void {
   }
 
   if (!tableHasColumn(db, "codex_scheduled_automations", "prompt")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN prompt TEXT NOT NULL DEFAULT ''");
+    db.exec(
+      "ALTER TABLE codex_scheduled_automations ADD COLUMN prompt TEXT NOT NULL DEFAULT ''",
+    );
   }
   if (!tableHasColumn(db, "codex_scheduled_automations", "model")) {
     db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN model TEXT");
   }
   if (!tableHasColumn(db, "codex_scheduled_automations", "reasoning_effort")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN reasoning_effort TEXT");
+    db.exec(
+      "ALTER TABLE codex_scheduled_automations ADD COLUMN reasoning_effort TEXT",
+    );
   }
   if (!tableHasColumn(db, "codex_scheduled_automations", "cwds_json")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN cwds_json TEXT NOT NULL DEFAULT '[]'");
+    db.exec(
+      "ALTER TABLE codex_scheduled_automations ADD COLUMN cwds_json TEXT NOT NULL DEFAULT '[]'",
+    );
   }
-  if (!tableHasColumn(db, "codex_scheduled_automations", "execution_environment")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN execution_environment TEXT NOT NULL DEFAULT 'worktree'");
+  if (
+    !tableHasColumn(db, "codex_scheduled_automations", "execution_environment")
+  ) {
+    db.exec(
+      "ALTER TABLE codex_scheduled_automations ADD COLUMN execution_environment TEXT NOT NULL DEFAULT 'worktree'",
+    );
   }
-  if (!tableHasColumn(db, "codex_scheduled_automations", "local_environment_config_path")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN local_environment_config_path TEXT");
+  if (
+    !tableHasColumn(
+      db,
+      "codex_scheduled_automations",
+      "local_environment_config_path",
+    )
+  ) {
+    db.exec(
+      "ALTER TABLE codex_scheduled_automations ADD COLUMN local_environment_config_path TEXT",
+    );
   }
   if (!tableHasColumn(db, "codex_scheduled_automations", "last_run_at")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN last_run_at INTEGER");
+    db.exec(
+      "ALTER TABLE codex_scheduled_automations ADD COLUMN last_run_at INTEGER",
+    );
   }
 
   setUserVersion(db, 55);
@@ -3480,15 +4197,22 @@ function migrateSchema55To56(db: Database.Database): void {
 }
 
 function migrateSchema56To57(db: Database.Database): void {
-  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "projectless_workspace_browser_root")) {
-    db.exec("ALTER TABLE codex_threads ADD COLUMN projectless_workspace_browser_root TEXT");
+  if (
+    tableExists(db, "codex_threads") &&
+    !tableHasColumn(db, "codex_threads", "projectless_workspace_browser_root")
+  ) {
+    db.exec(
+      "ALTER TABLE codex_threads ADD COLUMN projectless_workspace_browser_root TEXT",
+    );
   }
 
   setUserVersion(db, 57);
 }
 
 function migrateSchema57To58(db: Database.Database): void {
-  db.exec("CREATE INDEX IF NOT EXISTS idx_history_group_global ON history(group_id)");
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_history_group_global ON history(group_id)",
+  );
   setUserVersion(db, 58);
 }
 
@@ -3499,7 +4223,9 @@ function createSchemaMigrationSafetyBackup(
 ): void {
   const quickCheck = db.pragma("quick_check") as Array<{ quick_check: string }>;
   if (quickCheck.length !== 1 || quickCheck[0]?.quick_check !== "ok") {
-    throw new Error(`Cannot migrate schema v${fromVersion}: SQLite quick_check failed`);
+    throw new Error(
+      `Cannot migrate schema v${fromVersion}: SQLite quick_check failed`,
+    );
   }
   const foreignKeyProblems = db.pragma("foreign_key_check") as unknown[];
   if (foreignKeyProblems.length > 0) {
@@ -3510,7 +4236,10 @@ function createSchemaMigrationSafetyBackup(
 
   const createdAt = new Date().toISOString();
   const backupId = `schema-v${fromVersion}-to-v${toVersion}-${createdAt.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
-  const backupsRoot = path.join(path.dirname(getDatabasePath()), "migration-backups");
+  const backupsRoot = path.join(
+    path.dirname(getDatabasePath()),
+    "migration-backups",
+  );
   const finalDirectory = path.join(backupsRoot, backupId);
   const temporaryDirectory = `${finalDirectory}.tmp`;
   const databasePath = path.join(temporaryDirectory, "nodex.db");
@@ -3528,10 +4257,15 @@ function createSchemaMigrationSafetyBackup(
           `Safety backup reports schema v${backupVersion}; expected v${fromVersion}`,
         );
       }
-      const backupQuickCheck = verificationDatabase.pragma("quick_check") as Array<{
+      const backupQuickCheck = verificationDatabase.pragma(
+        "quick_check",
+      ) as Array<{
         quick_check: string;
       }>;
-      if (backupQuickCheck.length !== 1 || backupQuickCheck[0]?.quick_check !== "ok") {
+      if (
+        backupQuickCheck.length !== 1 ||
+        backupQuickCheck[0]?.quick_check !== "ok"
+      ) {
         throw new Error("Safety backup quick_check failed");
       }
     } finally {
@@ -3574,7 +4308,8 @@ function migrateSchema58To59(db: Database.Database): void {
 
 function seedLegacyCardShadowOutbox(db: Database.Database): void {
   const now = new Date().toISOString();
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO legacy_card_shadow_heads (
       card_id, project_id, last_event_seq, last_source_revision,
       last_operation, updated_at
@@ -3583,9 +4318,11 @@ function seedLegacyCardShadowOutbox(db: Database.Database): void {
     FROM cards card
     WHERE true
     ON CONFLICT(card_id) DO NOTHING
-  `).run(now);
+  `,
+  ).run(now);
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO legacy_card_shadow_jobs (
       id, card_id, source_event_seq, project_id, previous_project_id,
       document_id, expected_document_generation, expected_document_head_seq,
@@ -3616,9 +4353,12 @@ function seedLegacyCardShadowOutbox(db: Database.Database): void {
     INNER JOIN documents document ON document.id = ownership.document_id
     WHERE true
     ON CONFLICT(id) DO NOTHING
-  `).run(now, now);
+  `,
+  ).run(now, now);
 
-  const parityFailure = db.prepare(`
+  const parityFailure = db
+    .prepare(
+      `
     SELECT card.id
     FROM cards card
     LEFT JOIN legacy_card_shadow_heads head ON head.card_id = card.id
@@ -3632,7 +4372,9 @@ function seedLegacyCardShadowOutbox(db: Database.Database): void {
       OR job.source_revision <> card.revision
       OR job.project_id <> card.project_id
     LIMIT 1
-  `).get() as { id: string } | undefined;
+  `,
+    )
+    .get() as { id: string } | undefined;
   if (parityFailure) {
     throw new Error(
       `Legacy Card shadow outbox parity failed for Card ${parityFailure.id}`,
@@ -3652,7 +4394,8 @@ function migrateSchema59To60(db: Database.Database): void {
 function migrateSchema60To61(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createDocumentUpdateReceiptSchema(db);
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO document_update_receipts (
         document_id, generation, seq, update_id, client_session_id,
         base_head_seq, client_touched_block_ids_json,
@@ -3675,9 +4418,12 @@ function migrateSchema60To61(db: Database.Database): void {
       FROM document_updates update_row
       WHERE true
       ON CONFLICT(document_id, update_id) DO NOTHING
-    `).run();
+    `,
+    ).run();
 
-    const missingReceipt = db.prepare(`
+    const missingReceipt = db
+      .prepare(
+        `
       SELECT update_row.document_id, update_row.update_id
       FROM document_updates update_row
       LEFT JOIN document_update_receipts receipt
@@ -3691,13 +4437,431 @@ function migrateSchema60To61(db: Database.Database): void {
         OR receipt.update_hash <> update_row.update_hash
         OR receipt.update_byte_length <> length(update_row.update_blob)
       LIMIT 1
-    `).get() as { document_id: string; update_id: string } | undefined;
+    `,
+      )
+      .get() as { document_id: string; update_id: string } | undefined;
     if (missingReceipt) {
       throw new Error(
         `Document update receipt migration diverged for ${missingReceipt.document_id}/${missingReceipt.update_id}`,
       );
     }
     setUserVersion(db, 61);
+  });
+  migrate();
+}
+
+function seedLegacyCardMetadataProjection(db: Database.Database): void {
+  const now = new Date().toISOString();
+  const revisionSql = "MAX(1, card.revision)";
+  db.exec(`
+    INSERT INTO block_properties (
+      block_id, project_id, property_key, value_type, value_json,
+      revision, updated_at
+    )
+    SELECT card.id, card.project_id, 'agent.blocked', 'boolean',
+      CASE WHEN card.agent_blocked = 1 THEN 'true' ELSE 'false' END,
+      ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'agent.status', 'string',
+      json_quote(card.agent_status), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'run.target', 'string',
+      json_quote(CASE card.run_in_target
+        WHEN 'new_worktree' THEN 'newWorktree'
+        WHEN 'cloud' THEN 'cloud'
+        ELSE 'localProject'
+      END), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'run.localPath', 'string',
+      json_quote(card.run_in_local_path), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'run.baseBranch', 'string',
+      json_quote(card.run_in_base_branch), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'run.worktreePath', 'string',
+      json_quote(card.run_in_worktree_path), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'run.environmentPath', 'string',
+      json_quote(card.run_in_environment_path), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'schedule.isAllDay', 'boolean',
+      CASE WHEN card.is_all_day = 1 THEN 'true' ELSE 'false' END,
+      ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'schedule.timezone', 'string',
+      json_quote(card.schedule_timezone), ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'recurrence.config', 'json',
+      CASE WHEN card.recurrence_json IS NULL
+        THEN 'null'
+        ELSE json(card.recurrence_json)
+      END, ${revisionSql}, '${now}'
+    FROM cards card
+    UNION ALL
+    SELECT card.id, card.project_id, 'reminders.config', 'json',
+      json(card.reminders_json), ${revisionSql}, '${now}'
+    FROM cards card
+    WHERE true
+    ON CONFLICT(block_id, property_key) DO UPDATE SET
+      project_id = excluded.project_id,
+      value_type = excluded.value_type,
+      value_json = excluded.value_json,
+      revision = excluded.revision,
+      updated_at = excluded.updated_at;
+
+    INSERT INTO database_property_values (
+      membership_id, property_id, database_block_id, project_id,
+      value_type, value_json, revision, updated_at
+    )
+    SELECT
+      membership.id,
+      property.id,
+      property.database_block_id,
+      card.project_id,
+      property.value_type,
+      CASE property.key
+        WHEN 'status' THEN json_quote(card.status)
+        WHEN 'priority' THEN json_quote(card.priority)
+        WHEN 'estimate' THEN json_quote(card.estimate)
+        WHEN 'tags' THEN json(card.tags)
+        WHEN 'due_date' THEN json_quote(card.due_date)
+        WHEN 'scheduled_start' THEN json_quote(card.scheduled_start)
+        WHEN 'scheduled_end' THEN json_quote(card.scheduled_end)
+        WHEN 'assignee' THEN json_quote(card.assignee)
+      END,
+      MAX(1, card.revision),
+      '${now}'
+    FROM cards card
+    INNER JOIN database_memberships membership
+      ON membership.card_block_id = card.id
+      AND membership.removed_at IS NULL
+    INNER JOIN database_properties property
+      ON property.database_block_id = membership.database_block_id
+      AND property.lifecycle = 'active'
+    WHERE property.key IN (
+      'status', 'priority', 'estimate', 'tags', 'due_date',
+      'scheduled_start', 'scheduled_end', 'assignee'
+    )
+    ON CONFLICT(membership_id, property_id) DO UPDATE SET
+      database_block_id = excluded.database_block_id,
+      project_id = excluded.project_id,
+      value_type = excluded.value_type,
+      value_json = excluded.value_json,
+      revision = excluded.revision,
+      updated_at = excluded.updated_at;
+
+    INSERT INTO scheduled_card_index (
+      card_block_id, project_id, lifecycle, scheduled_start, scheduled_end,
+      is_all_day, recurrence_json, reminders_json, schedule_timezone,
+      source_metadata_revision, updated_at
+    )
+    SELECT
+      card.id,
+      card.project_id,
+      CASE WHEN card.archived = 1 THEN 'archived' ELSE 'active' END,
+      card.scheduled_start,
+      card.scheduled_end,
+      card.is_all_day,
+      CASE WHEN card.recurrence_json IS NULL
+        THEN 'null'
+        ELSE json(card.recurrence_json)
+      END,
+      json(card.reminders_json),
+      card.schedule_timezone,
+      MAX(1, card.revision),
+      '${now}'
+    FROM cards card
+    WHERE true
+    ON CONFLICT(card_block_id) DO UPDATE SET
+      project_id = excluded.project_id,
+      lifecycle = excluded.lifecycle,
+      scheduled_start = excluded.scheduled_start,
+      scheduled_end = excluded.scheduled_end,
+      is_all_day = excluded.is_all_day,
+      recurrence_json = excluded.recurrence_json,
+      reminders_json = excluded.reminders_json,
+      schedule_timezone = excluded.schedule_timezone,
+      source_metadata_revision = excluded.source_metadata_revision,
+      updated_at = excluded.updated_at;
+  `);
+}
+
+function assertLegacyCardMetadataProjectionParity(db: Database.Database): void {
+  const missingDefinition = db
+    .prepare(
+      `
+    SELECT project.id
+    FROM projects project
+    WHERE (
+      SELECT COUNT(*)
+      FROM database_properties property
+      WHERE property.database_block_id = 'database:' || project.id || ':primary'
+        AND property.lifecycle = 'active'
+    ) <> ?
+    LIMIT 1
+  `,
+    )
+    .get(PRIMARY_DATABASE_PROPERTY_DEFINITIONS.length) as
+    { id: string } | undefined;
+  if (missingDefinition) {
+    throw new Error(
+      `Primary Database property parity failed for Project ${missingDefinition.id}`,
+    );
+  }
+
+  const parityFailure = db
+    .prepare(
+      `
+    SELECT card.id
+    FROM cards card
+    INNER JOIN blocks block ON block.id = card.id
+    LEFT JOIN database_memberships membership
+      ON membership.card_block_id = card.id
+      AND membership.removed_at IS NULL
+    LEFT JOIN scheduled_card_index schedule ON schedule.card_block_id = card.id
+    WHERE (
+      SELECT COUNT(*)
+      FROM database_memberships active_membership
+      WHERE active_membership.card_block_id = card.id
+        AND active_membership.removed_at IS NULL
+    ) <> 1
+      OR (
+        SELECT COUNT(*)
+        FROM database_property_values value
+        WHERE value.membership_id = membership.id
+      ) <> ?
+      OR (
+        SELECT COUNT(*)
+        FROM block_properties property
+        WHERE property.block_id = card.id
+      ) <> ?
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'status'
+      ), '__missing__') <> json_quote(card.status)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'priority'
+      ), '__missing__') <> json_quote(card.priority)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'estimate'
+      ), '__missing__') <> json_quote(card.estimate)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'tags'
+      ), '__missing__') <> json(card.tags)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'due_date'
+      ), '__missing__') <> json_quote(card.due_date)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'scheduled_start'
+      ), '__missing__') <> json_quote(card.scheduled_start)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'scheduled_end'
+      ), '__missing__') <> json_quote(card.scheduled_end)
+      OR COALESCE((
+        SELECT value.value_json
+        FROM database_property_values value
+        INNER JOIN database_properties property ON property.id = value.property_id
+        WHERE value.membership_id = membership.id AND property.key = 'assignee'
+      ), '__missing__') <> json_quote(card.assignee)
+      OR schedule.card_block_id IS NULL
+      OR schedule.project_id <> card.project_id
+      OR schedule.lifecycle <> CASE WHEN card.archived = 1 THEN 'archived' ELSE 'active' END
+      OR schedule.scheduled_start IS NOT card.scheduled_start
+      OR schedule.scheduled_end IS NOT card.scheduled_end
+      OR schedule.is_all_day <> card.is_all_day
+      OR schedule.recurrence_json <> CASE WHEN card.recurrence_json IS NULL
+        THEN 'null'
+        ELSE json(card.recurrence_json)
+      END
+      OR schedule.reminders_json <> json(card.reminders_json)
+      OR schedule.schedule_timezone IS NOT card.schedule_timezone
+      OR block.project_id <> card.project_id
+    LIMIT 1
+  `,
+    )
+    .get(
+      PRIMARY_DATABASE_PROPERTY_DEFINITIONS.length,
+      LEGACY_INTRINSIC_PROPERTY_COUNT,
+    ) as { id: string } | undefined;
+  if (parityFailure) {
+    throw new Error(
+      `Legacy Card metadata projection parity failed for Card ${parityFailure.id}`,
+    );
+  }
+
+  const duplicateIdentity = db
+    .prepare(
+      `
+    SELECT card.id
+    FROM cards card
+    INNER JOIN blocks block ON block.id = card.id
+    GROUP BY card.id
+    HAVING COUNT(block.id) <> 1
+    LIMIT 1
+  `,
+    )
+    .get() as { id: string } | undefined;
+  if (duplicateIdentity) {
+    throw new Error(
+      `Card ${duplicateIdentity.id} has duplicate Block identity`,
+    );
+  }
+}
+
+function addDocumentMaterializationProjectionColumns(
+  db: Database.Database,
+): void {
+  if (!tableHasColumn(db, "document_materializations", "schema_version")) {
+    db.exec(`
+      ALTER TABLE document_materializations
+      ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1
+        CHECK (schema_version >= 1)
+    `);
+  }
+  if (!tableHasColumn(db, "document_materializations", "title")) {
+    db.exec(`
+      ALTER TABLE document_materializations
+      ADD COLUMN title TEXT NOT NULL DEFAULT ''
+    `);
+  }
+  if (!tableHasColumn(db, "document_materializations", "references_json")) {
+    db.exec(`
+      ALTER TABLE document_materializations
+      ADD COLUMN references_json TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(references_json) AND json_type(references_json) = 'array')
+    `);
+  }
+  if (!tableHasColumn(db, "document_materializations", "asset_refs_json")) {
+    db.exec(`
+      ALTER TABLE document_materializations
+      ADD COLUMN asset_refs_json TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(asset_refs_json) AND json_type(asset_refs_json) = 'array')
+    `);
+  }
+}
+
+function backfillExistingDocumentMaterializations(db: Database.Database): void {
+  const materializations = db
+    .prepare(
+      `
+    SELECT
+      materialization.document_id,
+      document.schema_version,
+      card.title,
+      materialization.nfm,
+      materialization.block_tree_json
+    FROM document_materializations materialization
+    INNER JOIN documents document ON document.id = materialization.document_id
+    INNER JOIN block_documents ownership
+      ON ownership.document_id = materialization.document_id
+    INNER JOIN cards card ON card.id = ownership.block_id
+    ORDER BY materialization.document_id
+  `,
+    )
+    .all() as Array<{
+    document_id: string;
+    schema_version: number;
+    title: string;
+    nfm: string;
+    block_tree_json: string;
+  }>;
+
+  const update = db.prepare(`
+    UPDATE document_materializations
+    SET schema_version = ?,
+        title = ?,
+        references_json = ?,
+        asset_refs_json = ?
+    WHERE document_id = ?
+  `);
+
+  for (const row of materializations) {
+    const parsed = JSON.parse(row.block_tree_json) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        `Document ${row.document_id} materialization has an invalid Block tree`,
+      );
+    }
+    const { references, assetRefs } = deriveBlockDocumentRecordsFromNfm(
+      parsed as readonly BlockTreeNode[],
+      row.nfm,
+    );
+    update.run(
+      row.schema_version,
+      row.title,
+      JSON.stringify(references),
+      JSON.stringify(assetRefs),
+      row.document_id,
+    );
+  }
+}
+
+function recreateV62CardProjectionTriggers(db: Database.Database): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS cards_block_foundation_after_insert;
+    DROP TRIGGER IF EXISTS cards_block_foundation_after_local_update;
+    DROP TRIGGER IF EXISTS cards_block_foundation_cross_project_requires_pending;
+    DROP TRIGGER IF EXISTS cards_block_foundation_after_cross_project_update;
+    DROP TRIGGER IF EXISTS cards_block_foundation_after_delete;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_outbox_after_insert;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_outbox_after_update;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_outbox_after_delete;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_insert;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_update;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_delete;
+  `);
+  createBlockFoundationSchema(db);
+  createLegacyCardShadowOutboxSchema(db);
+}
+
+function migrateSchema61To62(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    addDocumentMaterializationProjectionColumns(db);
+    recreateV62CardProjectionTriggers(db);
+
+    const projects = db
+      .prepare("SELECT id, created FROM projects")
+      .all() as Array<{
+      id: string;
+      created: string;
+    }>;
+    for (const project of projects) {
+      ensurePrimaryDatabaseProperties(db, project.id, project.created);
+    }
+
+    seedLegacyCardMetadataProjection(db);
+    backfillExistingDocumentMaterializations(db);
+    assertLegacyCardMetadataProjectionParity(db);
+    setUserVersion(db, 62);
   });
   migrate();
 }
@@ -3721,7 +4885,9 @@ function runMigrations(
     }
     if (target === 32) {
       if (fromVersion !== 31) {
-        throw new Error(`Unsupported Nodex database migration target 32 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 32 from ${fromVersion}`,
+        );
       }
       migrateSchema31To32(db);
       fromVersion = 32;
@@ -3729,7 +4895,9 @@ function runMigrations(
     }
     if (target === 33) {
       if (fromVersion !== 32) {
-        throw new Error(`Unsupported Nodex database migration target 33 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 33 from ${fromVersion}`,
+        );
       }
       migrateSchema32To33(db);
       fromVersion = 33;
@@ -3737,7 +4905,9 @@ function runMigrations(
     }
     if (target === 34) {
       if (fromVersion !== 33) {
-        throw new Error(`Unsupported Nodex database migration target 34 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 34 from ${fromVersion}`,
+        );
       }
       migrateSchema33To34(db);
       fromVersion = 34;
@@ -3745,7 +4915,9 @@ function runMigrations(
     }
     if (target === 35) {
       if (fromVersion !== 34) {
-        throw new Error(`Unsupported Nodex database migration target 35 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 35 from ${fromVersion}`,
+        );
       }
       migrateSchema34To35(db);
       fromVersion = 35;
@@ -3754,7 +4926,9 @@ function runMigrations(
     if (target === 37) {
       if (fromVersion !== 35) {
         if (fromVersion !== 36) {
-          throw new Error(`Unsupported Nodex database migration target 37 from ${fromVersion}`);
+          throw new Error(
+            `Unsupported Nodex database migration target 37 from ${fromVersion}`,
+          );
         }
         migrateSchema36To37(db);
         fromVersion = 37;
@@ -3766,7 +4940,9 @@ function runMigrations(
     }
     if (target === 38) {
       if (fromVersion !== 37) {
-        throw new Error(`Unsupported Nodex database migration target 38 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 38 from ${fromVersion}`,
+        );
       }
       migrateSchema37To38(db);
       fromVersion = 38;
@@ -3774,7 +4950,9 @@ function runMigrations(
     }
     if (target === 39) {
       if (fromVersion !== 38) {
-        throw new Error(`Unsupported Nodex database migration target 39 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 39 from ${fromVersion}`,
+        );
       }
       migrateSchema38To39(db);
       fromVersion = 39;
@@ -3782,7 +4960,9 @@ function runMigrations(
     }
     if (target === 40) {
       if (fromVersion !== 39) {
-        throw new Error(`Unsupported Nodex database migration target 40 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 40 from ${fromVersion}`,
+        );
       }
       migrateSchema39To40(db);
       fromVersion = 40;
@@ -3790,7 +4970,9 @@ function runMigrations(
     }
     if (target === 41) {
       if (fromVersion !== 40) {
-        throw new Error(`Unsupported Nodex database migration target 41 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 41 from ${fromVersion}`,
+        );
       }
       migrateSchema40To41(db);
       fromVersion = 41;
@@ -3798,7 +4980,9 @@ function runMigrations(
     }
     if (target === 42) {
       if (fromVersion !== 41) {
-        throw new Error(`Unsupported Nodex database migration target 42 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 42 from ${fromVersion}`,
+        );
       }
       migrateSchema41To42(db);
       fromVersion = 42;
@@ -3806,7 +4990,9 @@ function runMigrations(
     }
     if (target === 43) {
       if (fromVersion !== 42) {
-        throw new Error(`Unsupported Nodex database migration target 43 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 43 from ${fromVersion}`,
+        );
       }
       migrateSchema42To43(db);
       fromVersion = 43;
@@ -3814,7 +5000,9 @@ function runMigrations(
     }
     if (target === 44) {
       if (fromVersion !== 43) {
-        throw new Error(`Unsupported Nodex database migration target 44 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 44 from ${fromVersion}`,
+        );
       }
       migrateSchema43To44(db);
       fromVersion = 44;
@@ -3822,7 +5010,9 @@ function runMigrations(
     }
     if (target === 45) {
       if (fromVersion !== 44) {
-        throw new Error(`Unsupported Nodex database migration target 45 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 45 from ${fromVersion}`,
+        );
       }
       migrateSchema44To45(db);
       fromVersion = 45;
@@ -3830,7 +5020,9 @@ function runMigrations(
     }
     if (target === 46) {
       if (fromVersion !== 45) {
-        throw new Error(`Unsupported Nodex database migration target 46 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 46 from ${fromVersion}`,
+        );
       }
       migrateSchema45To46(db);
       fromVersion = 46;
@@ -3838,7 +5030,9 @@ function runMigrations(
     }
     if (target === 47) {
       if (fromVersion !== 46) {
-        throw new Error(`Unsupported Nodex database migration target 47 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 47 from ${fromVersion}`,
+        );
       }
       migrateSchema46To47(db);
       fromVersion = 47;
@@ -3846,7 +5040,9 @@ function runMigrations(
     }
     if (target === 48) {
       if (fromVersion !== 47) {
-        throw new Error(`Unsupported Nodex database migration target 48 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 48 from ${fromVersion}`,
+        );
       }
       migrateSchema47To48(db);
       fromVersion = 48;
@@ -3854,7 +5050,9 @@ function runMigrations(
     }
     if (target === 49) {
       if (fromVersion !== 48) {
-        throw new Error(`Unsupported Nodex database migration target 49 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 49 from ${fromVersion}`,
+        );
       }
       migrateSchema48To49(db);
       fromVersion = 49;
@@ -3862,7 +5060,9 @@ function runMigrations(
     }
     if (target === 50) {
       if (fromVersion !== 49) {
-        throw new Error(`Unsupported Nodex database migration target 50 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 50 from ${fromVersion}`,
+        );
       }
       migrateSchema49To50(db);
       fromVersion = 50;
@@ -3870,7 +5070,9 @@ function runMigrations(
     }
     if (target === 51) {
       if (fromVersion !== 50) {
-        throw new Error(`Unsupported Nodex database migration target 51 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 51 from ${fromVersion}`,
+        );
       }
       migrateSchema50To51(db);
       fromVersion = 51;
@@ -3878,7 +5080,9 @@ function runMigrations(
     }
     if (target === 52) {
       if (fromVersion !== 51) {
-        throw new Error(`Unsupported Nodex database migration target 52 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 52 from ${fromVersion}`,
+        );
       }
       migrateSchema51To52(db);
       fromVersion = 52;
@@ -3886,7 +5090,9 @@ function runMigrations(
     }
     if (target === 53) {
       if (fromVersion !== 52) {
-        throw new Error(`Unsupported Nodex database migration target 53 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 53 from ${fromVersion}`,
+        );
       }
       migrateSchema52To53(db);
       fromVersion = 53;
@@ -3894,7 +5100,9 @@ function runMigrations(
     }
     if (target === 54) {
       if (fromVersion !== 53) {
-        throw new Error(`Unsupported Nodex database migration target 54 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 54 from ${fromVersion}`,
+        );
       }
       migrateSchema53To54(db);
       fromVersion = 54;
@@ -3902,7 +5110,9 @@ function runMigrations(
     }
     if (target === 55) {
       if (fromVersion !== 54) {
-        throw new Error(`Unsupported Nodex database migration target 55 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 55 from ${fromVersion}`,
+        );
       }
       migrateSchema54To55(db);
       fromVersion = 55;
@@ -3910,7 +5120,9 @@ function runMigrations(
     }
     if (target === 56) {
       if (fromVersion !== 55) {
-        throw new Error(`Unsupported Nodex database migration target 56 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 56 from ${fromVersion}`,
+        );
       }
       migrateSchema55To56(db);
       fromVersion = 56;
@@ -3918,7 +5130,9 @@ function runMigrations(
     }
     if (target === 57) {
       if (fromVersion !== 56) {
-        throw new Error(`Unsupported Nodex database migration target 57 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 57 from ${fromVersion}`,
+        );
       }
       migrateSchema56To57(db);
       fromVersion = 57;
@@ -3926,7 +5140,9 @@ function runMigrations(
     }
     if (target === 58) {
       if (fromVersion !== 57) {
-        throw new Error(`Unsupported Nodex database migration target 58 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 58 from ${fromVersion}`,
+        );
       }
       migrateSchema57To58(db);
       fromVersion = 58;
@@ -3934,7 +5150,9 @@ function runMigrations(
     }
     if (target === 59) {
       if (fromVersion !== 58) {
-        throw new Error(`Unsupported Nodex database migration target 59 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 59 from ${fromVersion}`,
+        );
       }
       createSchemaMigrationSafetyBackup(db, 58, 59);
       migrateSchema58To59(db);
@@ -3943,7 +5161,9 @@ function runMigrations(
     }
     if (target === 60) {
       if (fromVersion !== 59) {
-        throw new Error(`Unsupported Nodex database migration target 60 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 60 from ${fromVersion}`,
+        );
       }
       migrateSchema59To60(db);
       fromVersion = 60;
@@ -3951,10 +5171,22 @@ function runMigrations(
     }
     if (target === 61) {
       if (fromVersion !== 60) {
-        throw new Error(`Unsupported Nodex database migration target 61 from ${fromVersion}`);
+        throw new Error(
+          `Unsupported Nodex database migration target 61 from ${fromVersion}`,
+        );
       }
       migrateSchema60To61(db);
       fromVersion = 61;
+      continue;
+    }
+    if (target === 62) {
+      if (fromVersion !== 61) {
+        throw new Error(
+          `Unsupported Nodex database migration target 62 from ${fromVersion}`,
+        );
+      }
+      migrateSchema61To62(db);
+      fromVersion = 62;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
@@ -3977,7 +5209,9 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
 }
 
 function seedDefaultProjectIfMissing(db: Database.Database): void {
-  const projectCount = db.prepare("SELECT COUNT(*) as count FROM projects").get() as {
+  const projectCount = db
+    .prepare("SELECT COUNT(*) as count FROM projects")
+    .get() as {
     count: number;
   };
   if (projectCount.count > 0) return;
@@ -3990,7 +5224,9 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
   db.prepare(
     'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
   ).run(projectId, 0, now);
-  insertInitialDatabaseViewSession(db, projectId, now, { shiftExisting: false });
+  insertInitialDatabaseViewSession(db, projectId, now, {
+    shiftExisting: false,
+  });
   ensureBlockFoundationForProject(db, projectId, now);
 }
 
@@ -4023,7 +5259,9 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
     seedDefaultProjectIfMissing(db);
-    const projects = db.prepare("SELECT id, created FROM projects").all() as Array<{
+    const projects = db
+      .prepare("SELECT id, created FROM projects")
+      .all() as Array<{
       id: string;
       created: string;
     }>;

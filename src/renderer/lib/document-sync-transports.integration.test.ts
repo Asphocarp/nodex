@@ -252,6 +252,21 @@ describe("Document sync transport parity", () => {
     const app = new Hono();
     registerDocumentSyncHttpRoutes(app, {
       hub,
+      getOwnedBlockDocumentDescriptor: async (projectId, ownerBlockId) => ({
+        projectId,
+        ownerBlockId,
+        ownerType: "card",
+        ownerLifecycle: "active",
+        documentId: "document-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 0,
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+        readiness: "ready",
+        authority: "ydoc_primary",
+        stateVector: new Uint8Array(),
+      }),
       getDocumentProjectId: async () => success("project-1"),
     });
     const adapters = [1, 2].map(() =>

@@ -867,6 +867,22 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
       publishDatabaseMigrationProgress(progress);
     },
   });
+  while (true) {
+    const shadowInitialization = await cardMutationWriter
+      .initializeBlockDocumentShadows();
+    const shadow = shadowInitialization.result;
+    if (shadow.errors > 0 || shadow.failed > 0) {
+      throw new Error(
+        `Block Document shadow initialization did not reach parity: ${JSON.stringify(shadow)}`,
+      );
+    }
+    if (shadow.exhausted) break;
+    if (shadow.processed === 0) {
+      throw new Error(
+        "Block Document shadow initialization made no progress",
+      );
+    }
+  }
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();

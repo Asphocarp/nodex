@@ -150,6 +150,13 @@ export class BlockDocumentRuntime {
       this.evict(request.documentId);
       throw error;
     }
+    if (identity.authority !== "ydoc_primary") {
+      this.evict(request.documentId);
+      throw new BlockDocumentStoreError(
+        "document_authority_mismatch",
+        `Document ${request.documentId} is not available to collaborative clients before cutover`,
+      );
+    }
 
     let entry = this.entries.get(request.documentId);
     let retained = true;
@@ -209,6 +216,16 @@ export class BlockDocumentRuntime {
     entryCount: this.entries.size,
     stateBytes: this.totalStateBytes,
   });
+
+  /**
+   * Forget a committed Document changed through another worker-owned authority
+   * path (for example the legacy Card shadow translator). The next public
+   * access revalidates and reloads the SQLite head instead of serving an older
+   * in-memory Y.Doc.
+   */
+  invalidate = (documentId: string): void => {
+    this.evict(documentId);
+  };
 
   destroy = (): void => {
     for (const entry of this.entries.values()) {

@@ -10,7 +10,9 @@ import { createProject } from "./projects";
 import {
   LegacyCardShadowOutboxError,
   claimNextLegacyCardShadowJob,
+  claimNextLegacyCardShadowJobForCard,
   markLegacyCardShadowJobApplied,
+  markPendingLegacyCardShadowJobsFailed,
   markLegacyCardShadowJobSuperseded,
 } from "./legacy-card-shadow-outbox";
 
@@ -88,6 +90,64 @@ describe("legacy Card shadow outbox claims", () => {
         if (!second) throw new Error("Expected second job");
         markLegacyCardShadowJobApplied(database, second, 1);
         expect(claimNextLegacyCardShadowJob(database)).toBe(null);
+      } finally {
+        database.close();
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.NODEX_DIR;
+    }
+  });
+
+  sqliteTest("targets one Card without consuming older unrelated backlog", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-shadow-target-"));
+    process.env.NODEX_DIR = tempDir;
+    try {
+      await initializeDatabase();
+      const project = createProject({ name: "Shadow target" });
+      const older = await createCard(project.id, "draft", { title: "Older" });
+      const target = await createCard(project.id, "draft", { title: "Target" });
+      closeDatabase();
+      const database = new Database(getDatabasePath());
+      database.pragma("foreign_keys = ON");
+      try {
+        const targeted = claimNextLegacyCardShadowJobForCard(
+          database,
+          target.id,
+          1,
+          { claimToken: "targeted-claim" },
+        );
+        expect(targeted?.cardId).toBe(target.id);
+        if (!targeted) throw new Error("Expected targeted job");
+        markLegacyCardShadowJobSuperseded(database, targeted);
+
+        const global = claimNextLegacyCardShadowJob(database, {
+          claimToken: "global-claim",
+        });
+        expect(global?.cardId).toBe(older.id);
+        if (!global) throw new Error("Expected older global job");
+        markLegacyCardShadowJobSuperseded(database, global);
+
+        database.prepare(`
+          UPDATE cards SET title = 'Still pending', revision = revision + 1
+          WHERE id = ?
+        `).run(target.id);
+        const pending = database.prepare(`
+          SELECT id
+          FROM legacy_card_shadow_jobs
+          WHERE card_id = ? AND status = 'pending'
+        `).get(target.id) as { readonly id: string };
+        expect(markPendingLegacyCardShadowJobsFailed(
+          database,
+          [pending.id],
+          "bounded targeted drain",
+        )).toBe(1);
+        const failed = database.prepare(`
+          SELECT status FROM legacy_card_shadow_jobs WHERE id = ?
+        `).get(pending.id) as { readonly status: string };
+        expect(failed.status).toBe("failed");
       } finally {
         database.close();
       }

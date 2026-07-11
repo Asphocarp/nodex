@@ -7,6 +7,7 @@ import {
   decodeDocumentSyncHttpRequest,
   encodeDocumentApplyHttpAck,
   encodeDocumentHttpError,
+  encodeOwnedBlockDocumentDescriptorHttp,
   encodeDocumentRealtimeSseEvent,
   encodeDocumentSyncHttpResponse,
 } from "../shared/block-documents/http-contract";
@@ -14,6 +15,7 @@ import {
   MAX_CARD_DOCUMENT_STATE_BYTES,
   MAX_CARD_DOCUMENT_UPDATE_BYTES,
 } from "../shared/block-documents/contracts";
+import type { OwnedBlockDocumentDescriptor } from "../shared/block-documents/contracts";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   type DocumentSyncCommandError,
@@ -44,6 +46,10 @@ export interface DocumentSyncHttpDependencies {
   readonly getDocumentProjectId: (
     documentId: string,
   ) => Promise<DocumentSyncCommandResult<string>>;
+  readonly getOwnedBlockDocumentDescriptor: (
+    projectId: string,
+    ownerBlockId: string,
+  ) => Promise<OwnedBlockDocumentDescriptor>;
 }
 
 const commandError = (
@@ -234,6 +240,47 @@ export const registerDocumentSyncHttpRoutes = (
   dependencies: DocumentSyncHttpDependencies,
 ): DocumentSyncHttpClients => {
   const clients = new DocumentSyncHttpClients();
+
+  app.get(
+    "/api/projects/:projectId/blocks/:ownerBlockId/document",
+    async (context) => {
+      const projectId = context.req.param("projectId").trim();
+      const ownerBlockId = context.req.param("ownerBlockId").trim();
+      if (!projectId || !ownerBlockId) {
+        return invalidRequest("Project and owner Block are required");
+      }
+      try {
+        const descriptor = await dependencies.getOwnedBlockDocumentDescriptor(
+          projectId,
+          ownerBlockId,
+        );
+        if (
+          descriptor.projectId !== projectId ||
+          descriptor.ownerBlockId !== ownerBlockId
+        ) {
+          return errorResponse(
+            commandError(
+              "invalid_response",
+              "Owned Document descriptor escaped its requested scope",
+            ),
+          );
+        }
+        return new Response(encodeOwnedBlockDocumentDescriptorHttp(descriptor), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (error) {
+        return errorResponse(
+          commandError(
+            "document_not_found",
+            error instanceof Error ? error.message : "Owned Document does not exist",
+          ),
+        );
+      }
+    },
+  );
 
   app.get("/api/projects/:projectId/documents/:documentId/events", async (context) => {
     const projectId = context.req.param("projectId");

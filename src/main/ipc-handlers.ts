@@ -676,6 +676,14 @@ export function registerIpcHandlers(
     }
     return documentSyncHub.subscribe(target, request);
   });
+  registerHandle(
+    "block-document:owned:get",
+    async (_, projectId, ownerBlockId) =>
+      (await cardMutationWriter.getOwnedBlockDocumentDescriptor(
+        projectId,
+        ownerBlockId,
+      )).result,
+  );
   registerHandle("document-sync:unsubscribe", (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {

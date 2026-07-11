@@ -9,7 +9,9 @@ import type {
   DocumentSyncCommandResult,
   DocumentSyncRequest,
   DocumentSyncResponse,
+  OwnedBlockDocumentDescriptor,
 } from "../shared/block-documents";
+import type { CutoverCardDocumentInput } from "./local-store/block-document-cutover";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -38,6 +40,12 @@ export interface CardMutationMetrics {
   revisionKind?: "snapshot" | "delta";
   eventCount: number;
   mainEventLoopLagMaxMs?: number;
+  shadowJobsProcessed?: number;
+  shadowJobsApplied?: number;
+  shadowJobsSuperseded?: number;
+  shadowJobsFailed?: number;
+  shadowDrainErrors?: number;
+  shadowDrainExhausted?: boolean;
 }
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
@@ -46,6 +54,15 @@ export type CardHistoryVersionPreviewResult = { preview: HistoryCardVersionPrevi
 export interface CardReadModelBackfillResult {
   updated: number;
   remaining: number;
+}
+
+export interface BlockDocumentShadowInitializationResult {
+  readonly processed: number;
+  readonly applied: number;
+  readonly superseded: number;
+  readonly failed: number;
+  readonly errors: number;
+  readonly exhausted: boolean;
 }
 
 interface CardMutationWorkerRequestBase {
@@ -194,12 +211,26 @@ export type CardMutationWorkerRequest =
     };
   })
   | (CardMutationWorkerRequestBase & {
+    type: "initializeBlockDocumentShadows";
+  })
+  | (CardMutationWorkerRequestBase & {
     type: "syncBlockDocument";
     payload: DocumentSyncRequest;
   })
   | (CardMutationWorkerRequestBase & {
     type: "getBlockDocumentProjectId";
     payload: { readonly documentId: string };
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "getOwnedBlockDocumentDescriptor";
+    payload: {
+      readonly projectId: string;
+      readonly ownerBlockId: string;
+    };
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "cutoverCardDocumentToPrimary";
+    payload: CutoverCardDocumentInput;
   })
   | (CardMutationWorkerRequestBase & {
     type: "applyBlockDocumentUpdate";
@@ -230,10 +261,12 @@ export type CardMutationWorkerResult =
   | CardEditorDropResult
   | CardOccurrenceMutationResult
   | CardReadModelBackfillResult
+  | BlockDocumentShadowInitializationResult
   | CardHistoryVersionPreviewResult
   | UndoRedoResult
   | HistoryMutationResult
   | BlockDocumentWorkerResult
+  | OwnedBlockDocumentDescriptor
   | undefined;
 
 export type CardMutationWorkerResponse =

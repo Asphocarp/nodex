@@ -13,6 +13,7 @@ import {
   runLegacyCardShadowProcessorProbe,
 } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
+import { claimNextLegacyCardShadowJob } from "./legacy-card-shadow-outbox";
 
 const supportsBetterSqlite3 = (): boolean => {
   try {
@@ -84,6 +85,26 @@ const materializePersistedCard = (
 };
 
 describe("legacy Card shadow processor", () => {
+  sqliteTest("reports an outstanding processing lease at the exact drain limit", async () => {
+    await withDatabase("shadow-processor-limit", async (database) => {
+      const project = createProject({ name: "Shadow limit" });
+      await createCard(project.id, "draft", { title: "First" });
+      await createCard(project.id, "draft", { title: "Second" });
+      const leased = claimNextLegacyCardShadowJob(database, {
+        claimToken: "held-processing-lease",
+        leaseMs: 60_000,
+      });
+      if (!leased) throw new Error("Expected one processing lease");
+
+      const drain = drainLegacyCardShadowJobs(database, {
+        maxJobs: 1,
+        createClaimToken: () => "limit-claim",
+      });
+      expect(drain.results.length).toBe(1);
+      expect(drain.exhausted).toBeFalse();
+    });
+  });
+
   sqliteTest("supersedes stale snapshots and advances one stable-ID Y.Doc", async () => {
     await withDatabase("shadow-processor", async (database) => {
       const project = createProject({ name: "Shadow processor" });
@@ -141,8 +162,8 @@ describe("legacy Card shadow processor", () => {
         maxJobs: 1,
         createClaimToken: () => "metadata-claim",
       });
-      expect(metadataOnly.results[0]?.outcome).toBe("applied");
-      expect(metadataOnly.results[0]?.documentChanged).toBeFalse();
+      expect(metadataOnly.results.length).toBe(0);
+      expect(metadataOnly.exhausted).toBeTrue();
       expect(materializePersistedCard(database, card.id).headSeq).toBe(2);
 
       database.prepare(`

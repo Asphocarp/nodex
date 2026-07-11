@@ -221,6 +221,11 @@ registerDocumentSyncHttpRoutes(app, {
   hub: documentSyncHub,
   getDocumentProjectId: (documentId) =>
     cardMutationWriter.getBlockDocumentProjectId(documentId),
+  getOwnedBlockDocumentDescriptor: async (projectId, ownerBlockId) =>
+    (await cardMutationWriter.getOwnedBlockDocumentDescriptor(
+      projectId,
+      ownerBlockId,
+    )).result,
 });
 
 app.post(

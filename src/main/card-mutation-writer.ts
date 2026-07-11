@@ -14,7 +14,9 @@ import type {
   DocumentSyncCommandResult,
   DocumentSyncRequest,
   DocumentSyncResponse,
+  OwnedBlockDocumentDescriptor,
 } from "../shared/block-documents";
+import type { CutoverCardDocumentInput } from "./local-store/block-document-cutover";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -33,6 +35,7 @@ import type {
   MoveCardToProjectResult,
 } from "../shared/types";
 import type {
+  BlockDocumentShadowInitializationResult,
   CardMutationMetrics,
   CardMutationWorkerEvent,
   CardMutationWorkerMessage,
@@ -293,6 +296,14 @@ export class CardMutationWriter {
     });
   }
 
+  async initializeBlockDocumentShadows(): Promise<
+    CardMutationEnvelope<BlockDocumentShadowInitializationResult>
+  > {
+    return await this.executeTyped<BlockDocumentShadowInitializationResult>({
+      type: "initializeBlockDocumentShadows",
+    });
+  }
+
   async syncBlockDocument(
     request: DocumentSyncRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> {
@@ -311,6 +322,25 @@ export class CardMutationWriter {
       payload: { documentId },
     });
     return envelope.result;
+  }
+
+  async getOwnedBlockDocumentDescriptor(
+    projectId: string,
+    ownerBlockId: string,
+  ): Promise<CardMutationEnvelope<OwnedBlockDocumentDescriptor>> {
+    return await this.executeTyped<OwnedBlockDocumentDescriptor>({
+      type: "getOwnedBlockDocumentDescriptor",
+      payload: { projectId, ownerBlockId },
+    });
+  }
+
+  async cutoverCardDocumentToPrimary(
+    input: CutoverCardDocumentInput,
+  ): Promise<CardMutationEnvelope<OwnedBlockDocumentDescriptor>> {
+    return await this.executeTyped<OwnedBlockDocumentDescriptor>({
+      type: "cutoverCardDocumentToPrimary",
+      payload: input,
+    });
   }
 
   async applyBlockDocumentUpdate(

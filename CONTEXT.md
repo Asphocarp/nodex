@@ -84,6 +84,8 @@ A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`
 
 A projection is rebuildable data derived from the authoritative Block, Document, and Database records. NFM, plain text, previews, search units, asset references, Card read models, and scheduled-card indexes are projections. A projection can lag, be discarded, and be rebuilt. It must never be used to reconstruct an already-existing Yjs Document.
 
+Schema v62 is the first persisted property/projection foundation: `block_properties` holds Card-intrinsic agent/run/recurrence/reminder state, Database membership values hold status/priority/estimate/tags/dates/assignee, and `scheduled_card_index` is the typed scheduler read model. During BF-03/BF-07 migration only, legacy Card metadata is a one-way write seam into these records; it is not a second target identity or a content authority.
+
 ### NFM
 
 NFM is Nodex's public text interchange format. It is used for genesis import, explicit compare-and-swap replacement, export, and materialized reads. NFM does not preserve every internal identity and is never a collaborative write authority.

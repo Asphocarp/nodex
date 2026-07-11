@@ -58,9 +58,7 @@ interface ClaimedJobFenceRow {
 }
 
 export type LegacyCardShadowProcessingOutcome =
-  | "applied"
-  | "superseded"
-  | "failed";
+  "applied" | "superseded" | "failed";
 
 export interface LegacyCardShadowProcessingResult {
   readonly jobId: string;
@@ -105,7 +103,9 @@ export class LegacyCardShadowProcessorError extends Error {
 
 const assertPositiveInteger = (value: number, field: string): number => {
   if (Number.isInteger(value) && value > 0) return value;
-  throw new LegacyCardShadowProcessorError(`${field} must be a positive integer`);
+  throw new LegacyCardShadowProcessorError(
+    `${field} must be a positive integer`,
+  );
 };
 
 const requireClaimToken = (job: LegacyCardShadowJob): string => {
@@ -116,20 +116,23 @@ const requireClaimToken = (job: LegacyCardShadowJob): string => {
 };
 
 const toFailureMessage = (error: unknown): string => {
-  const message = error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : String(error);
+  const message =
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   const normalized = message.replace(/\s+/g, " ").trim();
   if (normalized.length <= MAX_FAILURE_MESSAGE_LENGTH) return normalized;
   return `${normalized.slice(0, MAX_FAILURE_MESSAGE_LENGTH - 3)}...`;
 };
 
 const readStoreEpoch = (database: Database.Database): string => {
-  const row = database.prepare(`
+  const row = database
+    .prepare(
+      `
     SELECT store_epoch
     FROM block_store_metadata
     WHERE id = 1
-  `).get() as { readonly store_epoch: string } | undefined;
+  `,
+    )
+    .get() as { readonly store_epoch: string } | undefined;
   if (row?.store_epoch) return row.store_epoch;
   throw new LegacyCardShadowProcessorError("Block store epoch is missing");
 };
@@ -138,11 +141,15 @@ const readCardSource = (
   database: Database.Database,
   cardId: string,
 ): LegacyCardSourceRow | null => {
-  const row = database.prepare(`
+  const row = database
+    .prepare(
+      `
     SELECT id, project_id, title, description, revision, archived, created
     FROM cards
     WHERE id = ?
-  `).get(cardId) as LegacyCardSourceRow | undefined;
+  `,
+    )
+    .get(cardId) as LegacyCardSourceRow | undefined;
   return row ?? null;
 };
 
@@ -150,7 +157,9 @@ const readCardDocument = (
   database: Database.Database,
   documentId: string,
 ): LegacyCardDocumentRow => {
-  const row = database.prepare(`
+  const row = database
+    .prepare(
+      `
     SELECT
       document.id AS document_id,
       document.project_id AS document_project_id,
@@ -167,7 +176,9 @@ const readCardDocument = (
     INNER JOIN block_documents ownership ON ownership.document_id = document.id
     INNER JOIN blocks owner ON owner.id = ownership.block_id
     WHERE document.id = ?
-  `).get(documentId) as LegacyCardDocumentRow | undefined;
+  `,
+    )
+    .get(documentId) as LegacyCardDocumentRow | undefined;
   if (row) return row;
   throw new LegacyCardShadowProcessorError(
     `Legacy shadow Document ${documentId} is missing its owner`,
@@ -179,11 +190,15 @@ const assertClaimFence = (
   job: LegacyCardShadowJob,
   claimToken: string,
 ): void => {
-  const row = database.prepare(`
+  const row = database
+    .prepare(
+      `
     SELECT status, claim_token
     FROM legacy_card_shadow_jobs
     WHERE id = ?
-  `).get(job.id) as ClaimedJobFenceRow | undefined;
+  `,
+    )
+    .get(job.id) as ClaimedJobFenceRow | undefined;
   if (row?.status === "processing" && row.claim_token === claimToken) return;
   throw new LegacyCardShadowProcessorError(
     `Legacy shadow job ${job.id} is no longer owned by claim ${claimToken}`,
@@ -200,7 +215,10 @@ const assertLatestSourceMatchesJob = (
       `Job ${job.id} points at unexpected Document ${document.document_id}`,
     );
   }
-  if (document.owner_block_id !== job.cardId || document.owner_type !== "card") {
+  if (
+    document.owner_block_id !== job.cardId ||
+    document.owner_type !== "card"
+  ) {
     throw new LegacyCardShadowProcessorError(
       `Document ${job.documentId} is not owned by Card ${job.cardId}`,
     );
@@ -216,10 +234,10 @@ const assertLatestSourceMatchesJob = (
     );
   }
   if (
-    document.generation !== job.expectedDocumentGeneration
-    || document.head_seq !== job.expectedDocumentHeadSeq
-    || document.readiness !== job.expectedDocumentReadiness
-    || document.authority !== job.expectedDocumentAuthority
+    document.generation !== job.expectedDocumentGeneration ||
+    document.head_seq !== job.expectedDocumentHeadSeq ||
+    document.readiness !== job.expectedDocumentReadiness ||
+    document.authority !== job.expectedDocumentAuthority
   ) {
     throw new LegacyCardShadowProcessorError(
       `Document ${job.documentId} no longer matches job ${job.id}'s expected head`,
@@ -239,19 +257,19 @@ const assertLatestSourceMatchesJob = (
   }
   const expectedLifecycle = source.archived === 1 ? "archived" : "active";
   if (
-    source.revision !== job.sourceRevision
-    || source.project_id !== job.projectId
-    || document.document_project_id !== source.project_id
-    || document.owner_project_id !== source.project_id
-    || document.owner_lifecycle !== expectedLifecycle
+    source.revision !== job.sourceRevision ||
+    source.project_id !== job.projectId ||
+    document.document_project_id !== source.project_id ||
+    document.owner_project_id !== source.project_id ||
+    document.owner_lifecycle !== expectedLifecycle
   ) {
     throw new LegacyCardShadowProcessorError(
       `Legacy source Card ${job.cardId} no longer matches job ${job.id}`,
     );
   }
   if (
-    document.readiness === "pending_genesis"
-    && document.genesis_source_revision !== source.revision
+    document.readiness === "pending_genesis" &&
+    document.genesis_source_revision !== source.revision
   ) {
     throw new LegacyCardShadowProcessorError(
       `Document ${job.documentId} genesis revision is stale`,
@@ -289,46 +307,13 @@ const assertContentParity = (
 ): void => {
   const normalizedNfm = normalizeLegacyNfm(source.description);
   if (
-    materialization.title === source.title
-    && materialization.nfm === normalizedNfm
+    materialization.title === source.title &&
+    materialization.nfm === normalizedNfm
   ) {
     return;
   }
   throw new LegacyCardShadowProcessorError(
     `Document for Card ${source.id} failed normalized title/NFM parity`,
-  );
-};
-
-const persistMaterialization = (
-  database: Database.Database,
-  documentId: string,
-  generation: number,
-  headSeq: number,
-  materialization: CardDocumentMaterialization,
-): void => {
-  const now = new Date().toISOString();
-  database.prepare(`
-    INSERT INTO document_materializations (
-      document_id, generation, projected_seq, nfm, plain_text,
-      preview, block_tree_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(document_id) DO UPDATE SET
-      generation = excluded.generation,
-      projected_seq = excluded.projected_seq,
-      nfm = excluded.nfm,
-      plain_text = excluded.plain_text,
-      preview = excluded.preview,
-      block_tree_json = excluded.block_tree_json,
-      updated_at = excluded.updated_at
-  `).run(
-    documentId,
-    generation,
-    headSeq,
-    materialization.nfm,
-    materialization.plainText,
-    materialization.preview,
-    JSON.stringify(materialization.blockTree),
-    now,
   );
 };
 
@@ -379,13 +364,6 @@ const applyLatestSource = (
       });
       const persisted = loadPersistedMaterialization(database, job.documentId);
       assertContentParity(source, persisted.materialization);
-      persistMaterialization(
-        database,
-        job.documentId,
-        persisted.generation,
-        persisted.headSeq,
-        persisted.materialization,
-      );
       return { headSeq: ack.headSeq, changed: true };
     } finally {
       genesis.document.destroy();
@@ -429,13 +407,6 @@ const applyLatestSource = (
     );
   }
   assertContentParity(source, persisted.materialization);
-  persistMaterialization(
-    database,
-    job.documentId,
-    persisted.generation,
-    persisted.headSeq,
-    persisted.materialization,
-  );
   return { headSeq, changed: translation.changed };
 };
 
@@ -464,9 +435,9 @@ const processClaimedJobTransaction = (
     };
   }
   if (
-    head.lastEventSeq !== job.sourceEventSeq
-    || head.sourceRevision !== job.sourceRevision
-    || head.operation !== job.operation
+    head.lastEventSeq !== job.sourceEventSeq ||
+    head.sourceRevision !== job.sourceRevision ||
+    head.operation !== job.operation
   ) {
     throw new LegacyCardShadowProcessorError(
       `Legacy shadow head for Card ${job.cardId} does not match job ${job.id}`,
@@ -553,16 +524,32 @@ export const drainLegacyCardShadowJobs = (
       ...options.claim,
       claimToken: options.createClaimToken?.(index),
     });
-    if (!job) return { exhausted: true, results };
+    if (!job) {
+      const unfinished = database
+        .prepare(
+          `
+        SELECT 1
+        FROM legacy_card_shadow_jobs
+        WHERE status IN ('pending', 'processing')
+        LIMIT 1
+      `,
+        )
+        .get();
+      return { exhausted: unfinished === undefined, results };
+    }
     results.push(processClaimedLegacyCardShadowJob(database, job));
   }
 
-  const remaining = database.prepare(`
+  const remaining = database
+    .prepare(
+      `
     SELECT 1
     FROM legacy_card_shadow_jobs
-    WHERE status = 'pending'
+    WHERE status IN ('pending', 'processing')
     LIMIT 1
-  `).get();
+  `,
+    )
+    .get();
   return { exhausted: remaining === undefined, results };
 };
 
@@ -570,11 +557,15 @@ const countJobsByStatus = (
   database: Database.Database,
   status: "pending" | "processing" | "failed",
 ): number => {
-  const row = database.prepare(`
+  const row = database
+    .prepare(
+      `
     SELECT COUNT(*) AS count
     FROM legacy_card_shadow_jobs
     WHERE status = ?
-  `).get(status) as { readonly count: number };
+  `,
+    )
+    .get(status) as { readonly count: number };
   return row.count;
 };
 
@@ -585,18 +576,22 @@ const verifyCurrentCardParity = (
   readonly readyDocuments: number;
   readonly allInParity: boolean;
 } => {
-  const cards = database.prepare(`
+  const cards = database
+    .prepare(
+      `
     SELECT id, project_id, title, description, revision, archived, created
     FROM cards
     ORDER BY id
-  `).all() as readonly LegacyCardSourceRow[];
+  `,
+    )
+    .all() as readonly LegacyCardSourceRow[];
   let readyDocuments = 0;
   let allInParity = true;
   for (const card of cards) {
     const document = readCardDocument(database, `document:${card.id}`);
     if (
-      document.readiness !== "ready"
-      || document.authority !== "legacy_shadow"
+      document.readiness !== "ready" ||
+      document.authority !== "legacy_shadow"
     ) {
       allInParity = false;
       continue;
@@ -609,17 +604,26 @@ const verifyCurrentCardParity = (
       allInParity = false;
       continue;
     }
-    const projection = database.prepare(`
+    const projection = database
+      .prepare(
+        `
       SELECT generation, projected_seq, nfm
       FROM document_materializations
       WHERE document_id = ?
-    `).get(document.document_id) as
-      | { readonly generation: number; readonly projected_seq: number; readonly nfm: string }
+    `,
+      )
+      .get(document.document_id) as
+      | {
+          readonly generation: number;
+          readonly projected_seq: number;
+          readonly nfm: string;
+        }
       | undefined;
     if (
-      projection?.generation !== loaded.generation
-      || projection.projected_seq !== loaded.headSeq
-      || projection.nfm !== loaded.materialization.nfm
+      !projection ||
+      projection.generation !== loaded.generation ||
+      projection.projected_seq !== loaded.headSeq ||
+      projection.nfm !== loaded.materialization.nfm
     ) {
       allInParity = false;
     }
@@ -657,11 +661,11 @@ export const runLegacyCardShadowProcessorProbe = (
     currentCards: parity.currentCards,
     readyCurrentCardDocuments: parity.readyDocuments,
     allCurrentCardsReady:
-      drain.exhausted
-      && failedJobs === 0
-      && pendingJobs === 0
-      && processingJobs === 0
-      && parity.readyDocuments === parity.currentCards,
+      drain.exhausted &&
+      failedJobs === 0 &&
+      pendingJobs === 0 &&
+      processingJobs === 0 &&
+      parity.readyDocuments === parity.currentCards,
     allCurrentCardContentInParity: parity.allInParity,
   };
 };
