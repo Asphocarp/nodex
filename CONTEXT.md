@@ -63,6 +63,8 @@ NFM may project and parse the presentation syntax for `largeDocument` / `largeCo
 
 A Block shell is the representation of a Block inside its containing Document. For an ordinary Block, the shell and its content live together in the host Document. For a document-bearing Block, the host Document stores only its shell identity and presentation fields; the owned Document remains separate and is loaded independently.
 
+An inline document-bearing shell is window-local UI over that ownership boundary. Collapsed or offscreen Synced, Template, Large Document, and Large Code shells create no provider or editor. Expanding a visible shell mounts the owner through the registered owned-Document boundary and the shared window activation budget; collapsing unmounts it. The inherited open-owner path blocks recursive Card/body-only Document cycles. A `scene_graph` owner never mounts a BlockNote body editor and remains a Canvas-view concern.
+
 ### Placement
 
 Placement answers where an active Block lives. A Block has exactly one content location:

@@ -47,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- Synced Blocks, Reusable Templates, Large Documents, and Large Code Blocks now open their independently synchronized content inline on demand, while collapsed/offscreen shells create no editor or provider and Canvas scenes remain in Canvas view.
 - Database management now adds, transfers, and removes a Card's single owning membership without relying on filtered View visibility, and can update the exact selected durable View through equivalent Electron, browser, and CLI paths.
 - Database tabs now stay bound to their durable View identity, so multiple Views from one Project can remain open independently. Secondary and filtered Views render their own query results read-only instead of borrowing the primary board's rows or write actions.
 - Canvas scenes now synchronize through an independent per-Project Y.Doc, so concurrent windows merge Excalidraw edits instead of overwriting a whole-scene snapshot; image files use verified managed assets and Card shapes remain stable references.

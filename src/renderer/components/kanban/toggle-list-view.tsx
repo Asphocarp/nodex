@@ -337,6 +337,7 @@ export function ToggleListView({
     projectWorkspacePath: null,
     hostCardId: null,
     ancestorCardIds: [],
+    ancestorDocumentOwnerBlockIds: [],
     isActiveSurface: true,
     ...(onOpenReferencedCard ? { openCard: onOpenReferencedCard } : {}),
   };

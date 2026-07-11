@@ -121,6 +121,7 @@ import {
 import { NfmEditorContextMenu } from "./nfm-editor-context-menu";
 import {
   appendInlineCardAncestor,
+  appendInlineDocumentOwnerAncestor,
   BlockReferenceRuntimeProvider,
   type BlockReferenceHostRuntime,
   useBlockReferenceHostRuntime,
@@ -273,6 +274,8 @@ interface NfmEditorCommonProps {
     cardId: string;
     columnId: string;
   };
+  /** The independently synchronized owner whose body this editor renders. */
+  documentOwnerBlockId?: string;
   sessionId?: string | null;
   sessionThread?: CodexThreadSummary | null;
   canStartThreadInSession?: boolean;
@@ -631,6 +634,7 @@ function NfmEditorInstance({
   source,
   editorInstanceKey,
   sourceCardContext,
+  documentOwnerBlockId,
   sessionId = null,
   sessionThread = null,
   canStartThreadInSession = false,
@@ -3273,25 +3277,35 @@ function NfmEditorInstance({
   );
 
   const blockReferenceRuntimeValue = useMemo<BlockReferenceHostRuntime>(
-    () => ({
-      projectId,
-      projectName,
-      projectWorkspacePath: projectWorkspacePath ?? null,
-      hostCardId: sourceCardContext?.cardId ?? null,
-      ancestorCardIds: appendInlineCardAncestor(
-        parentBlockReferenceRuntime?.ancestorCardIds ?? [],
-        sourceCardContext?.cardId,
-      ),
-      isActiveSurface: isActivePanelTab,
-      ...(onOpenCard ? { openCard: onOpenCard } : {}),
-    }),
+    () => {
+      const currentDocumentOwnerBlockId =
+        documentOwnerBlockId ?? sourceCardContext?.cardId;
+      return {
+        projectId,
+        projectName,
+        projectWorkspacePath: projectWorkspacePath ?? null,
+        hostCardId: sourceCardContext?.cardId ?? null,
+        ancestorCardIds: appendInlineCardAncestor(
+          parentBlockReferenceRuntime?.ancestorCardIds ?? [],
+          sourceCardContext?.cardId,
+        ),
+        ancestorDocumentOwnerBlockIds: appendInlineDocumentOwnerAncestor(
+          parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds ?? [],
+          currentDocumentOwnerBlockId,
+        ),
+        isActiveSurface: isActivePanelTab,
+        ...(onOpenCard ? { openCard: onOpenCard } : {}),
+      };
+    },
     [
+      documentOwnerBlockId,
       isActivePanelTab,
       onOpenCard,
       projectId,
       projectName,
       projectWorkspacePath,
       parentBlockReferenceRuntime?.ancestorCardIds,
+      parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds,
       sourceCardContext?.cardId,
     ],
   );

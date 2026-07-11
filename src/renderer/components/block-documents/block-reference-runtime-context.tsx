@@ -11,6 +11,13 @@ export interface BlockReferenceHostRuntime {
    * must never mount its Document recursively inside this chain.
    */
   readonly ancestorCardIds: readonly string[];
+  /**
+   * Every independently synchronized owner already open in this inline
+   * expansion chain. Unlike `ancestorCardIds`, this also includes Synced,
+   * Template, and Large Document owners so reference cycles cannot recursively
+   * mount providers.
+   */
+  readonly ancestorDocumentOwnerBlockIds: readonly string[];
   readonly isActiveSurface: boolean;
   readonly openCard?: (input: {
     projectId: string;
@@ -27,10 +34,23 @@ export const appendInlineCardAncestor = (
   return [...ancestors, cardId];
 };
 
+export const appendInlineDocumentOwnerAncestor = (
+  ancestors: readonly string[],
+  ownerBlockId: string | null | undefined,
+): readonly string[] => {
+  if (!ownerBlockId || ancestors.includes(ownerBlockId)) return ancestors;
+  return [...ancestors, ownerBlockId];
+};
+
 export const isInlineCardCycle = (
   ancestors: readonly string[],
   targetCardId: string,
 ): boolean => ancestors.includes(targetCardId);
+
+export const isInlineDocumentOwnerCycle = (
+  ancestors: readonly string[],
+  targetOwnerBlockId: string,
+): boolean => ancestors.includes(targetOwnerBlockId);
 
 const BlockReferenceRuntimeContext =
   createContext<BlockReferenceHostRuntime | null>(null);
