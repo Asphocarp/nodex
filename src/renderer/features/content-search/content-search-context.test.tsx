@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { act } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { createElement, useMemo } from "react";
 import { render, settleAsyncRender } from "../../test/dom";
 import {
@@ -9,12 +9,6 @@ import {
   type ContentSearchController,
   type ContentSearchLocalSource,
 } from "./content-search-context";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -82,28 +76,26 @@ describe("ContentSearchProvider", () => {
       controller?.requestOpen({ preferredDomain: "conversation" });
       controller?.setQuery("needle");
     });
-    await settleAsyncRender();
-    await act(async () => {
-      await sleep(220);
-      await settleAsyncRender();
+    await waitFor(() => {
+      expect(ensureSignals.length).toBe(1);
     });
 
-    expect(ensureSignals.length).toBe(1);
     expect(activatedIds.length).toBe(0);
 
     await act(async () => {
       controller?.goNext();
-      await settleAsyncRender();
     });
-
-    expect(ensureSignals[0]?.aborted ?? false).toBeTrue();
-    expect(ensureSignals.length).toBe(2);
-    expect(activatedIds[0] ?? "").toBe("match-2");
+    await waitFor(() => {
+      expect(ensureSignals[0]?.aborted ?? false).toBeTrue();
+      expect(ensureSignals.length).toBe(2);
+      expect(activatedIds[0] ?? "").toBe("match-2");
+    });
   });
 
   test("does not activate stale local results after the query changes", async () => {
     const oldSearch = createDeferred<Awaited<ReturnType<ContentSearchLocalSource["search"]>>>();
     const activatedQueries: string[] = [];
+    const searchedQueries: string[] = [];
     let controller: ContentSearchController | null = null;
 
     function Probe() {
@@ -111,14 +103,16 @@ describe("ContentSearchProvider", () => {
       const source = useMemo<ContentSearchLocalSource>(() => ({
         domain: "conversation",
         contextId: "conversation:thread",
-        search: (query) => query === "old"
-          ? oldSearch.promise
-          : {
+        search: (query) => {
+          searchedQueries.push(query);
+          if (query === "old") return oldSearch.promise;
+          return {
             query,
             totalMatches: 0,
             capped: false,
             matches: [],
-          },
+          };
+        },
         activate: (_match, query) => {
           activatedQueries.push(query);
         },
@@ -136,9 +130,8 @@ describe("ContentSearchProvider", () => {
       controller?.requestOpen({ preferredDomain: "conversation" });
       controller?.setQuery("old");
     });
-    await act(async () => {
-      await sleep(220);
-      await settleAsyncRender();
+    await waitFor(() => {
+      expect(searchedQueries[0] ?? "").toBe("old");
     });
     await act(async () => {
       controller?.setQuery("new");
@@ -155,7 +148,11 @@ describe("ContentSearchProvider", () => {
           meta: {},
         }],
       });
-      await settleAsyncRender();
+    });
+    await waitFor(() => {
+      expect(searchedQueries[1] ?? "").toBe("new");
+      expect(controller?.state.loadingDomain ?? null).toBe(null);
+      expect(controller?.state.resultByDomain.conversation?.query ?? "").toBe("new");
     });
 
     expect(activatedQueries.length).toBe(0);
