@@ -141,6 +141,13 @@ export interface LoadedBlockDocument {
   readonly document: Y.Doc;
 }
 
+export interface BlockDocumentRuntimeIdentity {
+  readonly storeEpoch: string;
+  readonly authority: DocumentAuthority;
+  readonly head: DocumentHead;
+  readonly stateHash: string;
+}
+
 export interface InitializeCardDocumentGenesis {
   readonly documentId: DocumentId;
   readonly storeEpoch: string;
@@ -863,6 +870,27 @@ export const getBlockDocumentProjectId = (
 ): string => {
   requireNonEmpty(documentId, "documentId");
   return readDocumentRow(database, documentId).project_id;
+};
+
+export const getBlockDocumentRuntimeIdentity = (
+  database: Database.Database,
+  documentId: DocumentId,
+): BlockDocumentRuntimeIdentity => {
+  requireNonEmpty(documentId, "documentId");
+  const read = database.transaction((): BlockDocumentRuntimeIdentity => {
+    const storeEpoch = readStoreEpoch(database);
+    const row = readDocumentRow(database, documentId);
+    assertReady(row);
+    assertSupportedCardSchema(row);
+    assertReadableCardOwner(row);
+    return {
+      storeEpoch,
+      authority: row.authority,
+      head: toDocumentHead(row),
+      stateHash: row.state_hash,
+    };
+  });
+  return read();
 };
 
 export const getBlockDocumentSyncStep = (

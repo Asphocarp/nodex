@@ -12,6 +12,7 @@ import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
   getBlockDocumentProjectId,
+  getBlockDocumentRuntimeIdentity,
   getBlockDocumentSyncStep,
   initializeCardDocumentGenesis,
   loadBlockDocument,
@@ -167,6 +168,10 @@ describe("BlockDocumentStore", () => {
         const { documentId, projectId, storeEpoch } = seedPendingCardDocument(database);
         expect(getBlockDocumentProjectId(database, documentId)).toBe(projectId);
         expectThrowsCode(
+          () => getBlockDocumentRuntimeIdentity(database, documentId),
+          "document_not_ready",
+        );
+        expectThrowsCode(
           () => getBlockDocumentProjectId(database, "document:missing"),
           "document_not_found",
         );
@@ -188,6 +193,13 @@ describe("BlockDocumentStore", () => {
         expect(genesisAck.committedSeq).toBe(1);
         expect(genesisAck.storeEpoch).toBe(storeEpoch);
         expect(genesisAck.duplicate).toBeFalse();
+        const genesisIdentity = getBlockDocumentRuntimeIdentity(
+          database,
+          documentId,
+        );
+        expect(genesisIdentity.storeEpoch).toBe(storeEpoch);
+        expect(genesisIdentity.head.headSeq).toBe(1);
+        expect(genesisIdentity.stateHash.length).toBe(64);
 
         const duplicateGenesis = initializeCardDocumentGenesis(database, {
           documentId,

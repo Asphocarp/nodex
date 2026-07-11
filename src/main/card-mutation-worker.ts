@@ -7,12 +7,11 @@ import { dbNotifier, type BoardChangeEvent as LocalBoardChangeEvent } from "./lo
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as historyStore from "./local-store/history";
+import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
-  applyBlockDocumentUpdate,
-  getBlockDocumentProjectId,
-  syncBlockDocument,
-  toDocumentSyncCommandError,
-} from "./local-store/block-document-store";
+  BlockDocumentRuntime,
+  createSqliteBlockDocumentRuntimeAuthority,
+} from "./block-document-runtime";
 import type { BoardChangeEvent } from "../shared/ipc-api";
 import type { DocumentSyncCommandResult } from "../shared/block-documents";
 import type { Card, CardSummary } from "../shared/types";
@@ -23,6 +22,10 @@ import type {
   CardMutationWorkerResponse,
   CardMutationWorkerResult,
 } from "./card-mutation-worker-protocol";
+
+const blockDocumentRuntime = new BlockDocumentRuntime(
+  createSqliteBlockDocumentRuntimeAuthority(getDb),
+);
 
 function postMessage(message: CardMutationWorkerMessage): void {
   parentPort?.postMessage(message);
@@ -256,20 +259,19 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
     case "backfillCardReadModel":
       return cardsStore.backfillCardReadModelBatch(request.payload.limit);
     case "syncBlockDocument":
-      return runDocumentCommand(() =>
-        syncBlockDocument(getDb(), request.payload),
-      );
+      return runDocumentCommand(() => blockDocumentRuntime.sync(request.payload));
     case "getBlockDocumentProjectId":
       return runDocumentCommand(() =>
-        getBlockDocumentProjectId(getDb(), request.payload.documentId),
+        blockDocumentRuntime.getProjectId(request.payload.documentId),
       );
     case "applyBlockDocumentUpdate":
       return runDocumentCommand(() =>
-        applyBlockDocumentUpdate(getDb(), request.payload),
+        blockDocumentRuntime.applyUpdate(request.payload),
       );
     case "writerBarrier":
       return undefined;
     case "shutdown":
+      blockDocumentRuntime.destroy();
       closeDatabase();
       return undefined;
   }
