@@ -22,26 +22,7 @@ mock.module("./backups-deps", () => ({
       state.notifications.push([projectId, changeType, columnId]);
     },
   },
-  closeDatabase: () => undefined,
   listProjects: () => state.projects,
-  getDb: () => ({
-    backup: async (destinationPath: string) => {
-      fs.copyFileSync(liveDbPath, destinationPath);
-      return { totalPages: 1, remainingPages: 0 };
-    },
-    prepare: () => ({
-      get: () => {
-        if (!fs.existsSync(liveDbPath)) {
-          throw new Error("missing database");
-        }
-        const content = fs.readFileSync(liveDbPath, "utf8");
-        if (content.startsWith("invalid")) {
-          throw new Error("invalid database");
-        }
-        return { count: 1 };
-      },
-    }),
-  }),
   openStandaloneBackupDatabase: () => ({
     backup: async (destinationPath: string) => {
       fs.copyFileSync(liveDbPath, destinationPath);
@@ -49,11 +30,6 @@ mock.module("./backups-deps", () => ({
     },
     close: () => undefined,
   }),
-}));
-
-mock.module("./config", () => ({
-  getLocalStoreDir: () => fixtureRoot,
-  getDatabasePath: () => liveDbPath,
 }));
 
 mock.module("../whole-store-maintenance-runtime", () => ({

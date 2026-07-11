@@ -28,8 +28,18 @@ export interface StoreRestoreJournal {
   readonly updatedAt: string;
 }
 
-const journalPath = (): string =>
-  path.join(getLocalStoreDir(), JOURNAL_FILE_NAME);
+export interface StoreRestorePaths {
+  readonly localStoreDirectoryPath: string;
+  readonly databasePath: string;
+}
+
+const defaultStoreRestorePaths = (): StoreRestorePaths => ({
+  localStoreDirectoryPath: getLocalStoreDir(),
+  databasePath: getDatabasePath(),
+});
+
+const journalPath = (paths: StoreRestorePaths): string =>
+  path.join(paths.localStoreDirectoryPath, JOURNAL_FILE_NAME);
 
 export const fsyncDirectory = (directoryPath: string): void => {
   const descriptor = fs.openSync(directoryPath, "r");
@@ -97,8 +107,9 @@ const movePath = (sourcePath: string, destinationPath: string): void => {
 const assertJournalPath = (
   candidatePath: string,
   prefix: ".restore-" | ".rollback-",
+  paths: StoreRestorePaths,
 ): string => {
-  const backupsRoot = path.join(getLocalStoreDir(), "backups");
+  const backupsRoot = path.join(paths.localStoreDirectoryPath, "backups");
   const resolved = path.resolve(candidatePath);
   if (
     path.dirname(resolved) !== path.resolve(backupsRoot) ||
@@ -109,7 +120,10 @@ const assertJournalPath = (
   return resolved;
 };
 
-const parseJournal = (contents: string): StoreRestoreJournal => {
+const parseJournal = (
+  contents: string,
+  paths: StoreRestorePaths,
+): StoreRestoreJournal => {
   const value = JSON.parse(contents) as Partial<StoreRestoreJournal>;
   const validPhase =
     value.phase === "prepared" ||
@@ -141,10 +155,12 @@ const parseJournal = (contents: string): StoreRestoreJournal => {
     stagingDirectoryPath: assertJournalPath(
       value.stagingDirectoryPath,
       ".restore-",
+      paths,
     ),
     rollbackDirectoryPath: assertJournalPath(
       value.rollbackDirectoryPath,
       ".rollback-",
+      paths,
     ),
     phase: value.phase,
     hadAssets: value.hadAssets,
@@ -156,19 +172,22 @@ const parseJournal = (contents: string): StoreRestoreJournal => {
   };
 };
 
-const persistJournal = (journal: StoreRestoreJournal): void => {
-  writeFileDurably(journalPath(), JSON.stringify(journal, null, 2));
+const persistJournal = (
+  journal: StoreRestoreJournal,
+  paths: StoreRestorePaths,
+): void => {
+  writeFileDurably(journalPath(paths), JSON.stringify(journal, null, 2));
 };
 
 export function createStoreRestoreJournal(input: {
   readonly backupId: string;
   readonly stagingDirectoryPath: string;
   readonly rollbackDirectoryPath: string;
-}): StoreRestoreJournal {
-  if (fs.existsSync(journalPath())) {
+}, paths: StoreRestorePaths = defaultStoreRestorePaths()): StoreRestoreJournal {
+  if (fs.existsSync(journalPath(paths))) {
     throw new Error("An interrupted whole-store restore must be recovered first");
   }
-  const databasePath = getDatabasePath();
+  const databasePath = paths.databasePath;
   const sourceStore = validateBackupStore(databasePath, {
     requireCurrentSchema: false,
   });
@@ -182,35 +201,46 @@ export function createStoreRestoreJournal(input: {
     stagingDirectoryPath: assertJournalPath(
       input.stagingDirectoryPath,
       ".restore-",
+      paths,
     ),
     rollbackDirectoryPath: assertJournalPath(
       input.rollbackDirectoryPath,
       ".rollback-",
+      paths,
     ),
     phase: "prepared",
-    hadAssets: fs.existsSync(path.join(getLocalStoreDir(), ASSETS_DIRECTORY_NAME)),
+    hadAssets: fs.existsSync(
+      path.join(paths.localStoreDirectoryPath, ASSETS_DIRECTORY_NAME),
+    ),
     hadWal: fs.existsSync(`${databasePath}-wal`),
     hadShm: fs.existsSync(`${databasePath}-shm`),
     sourceSchemaVersion: sourceStore.schemaVersion,
     installedSchemaVersion: installedStore.schemaVersion,
     updatedAt: new Date().toISOString(),
   };
-  persistJournal(journal);
+  persistJournal(journal, paths);
   return journal;
 }
 
 export function advanceStoreRestoreJournal(
   journal: StoreRestoreJournal,
   phase: StoreRestorePhase,
+  paths: StoreRestorePaths = defaultStoreRestorePaths(),
 ): StoreRestoreJournal {
   const next = { ...journal, phase, updatedAt: new Date().toISOString() };
-  persistJournal(next);
+  persistJournal(next, paths);
   return next;
 }
 
-const restoreRollback = (journal: StoreRestoreJournal): void => {
-  const databasePath = getDatabasePath();
-  const assetsPath = path.join(getLocalStoreDir(), ASSETS_DIRECTORY_NAME);
+const restoreRollback = (
+  journal: StoreRestoreJournal,
+  paths: StoreRestorePaths,
+): void => {
+  const databasePath = paths.databasePath;
+  const assetsPath = path.join(
+    paths.localStoreDirectoryPath,
+    ASSETS_DIRECTORY_NAME,
+  );
   const rollbackDatabasePath = path.join(
     journal.rollbackDirectoryPath,
     "nodex.db",
@@ -260,20 +290,24 @@ const restoreRollback = (journal: StoreRestoreJournal): void => {
   } else if (!journal.hadAssets) {
     removePath(assetsPath);
   }
-  fsyncDirectory(getLocalStoreDir());
+  fsyncDirectory(paths.localStoreDirectoryPath);
 };
 
-const cleanupJournalArtifacts = (journal: StoreRestoreJournal): void => {
+const cleanupJournalArtifacts = (
+  journal: StoreRestoreJournal,
+  paths: StoreRestorePaths,
+): void => {
   removePath(journal.stagingDirectoryPath);
   removePath(journal.rollbackDirectoryPath);
   fsyncDirectory(path.dirname(journal.stagingDirectoryPath));
-  removeDurably(journalPath());
+  removeDurably(journalPath(paths));
 };
 
 const validateJournalStore = (
   expectedSchemaVersion: number,
+  paths: StoreRestorePaths,
 ): void => {
-  const validated = validateBackupStore(getDatabasePath(), {
+  const validated = validateBackupStore(paths.databasePath, {
     requireCurrentSchema: false,
   });
   if (validated.schemaVersion !== expectedSchemaVersion) {
@@ -283,17 +317,21 @@ const validateJournalStore = (
   }
 };
 
-export function rollbackStoreRestore(journal: StoreRestoreJournal): void {
-  restoreRollback(journal);
-  validateJournalStore(journal.sourceSchemaVersion);
-  cleanupJournalArtifacts(journal);
+export function rollbackStoreRestore(
+  journal: StoreRestoreJournal,
+  paths: StoreRestorePaths = defaultStoreRestorePaths(),
+): void {
+  restoreRollback(journal, paths);
+  validateJournalStore(journal.sourceSchemaVersion, paths);
+  cleanupJournalArtifacts(journal, paths);
 }
 
 export function cleanupCommittedStoreRestore(
   journal: StoreRestoreJournal,
+  paths: StoreRestorePaths = defaultStoreRestorePaths(),
 ): void {
-  validateJournalStore(journal.installedSchemaVersion);
-  cleanupJournalArtifacts(journal);
+  validateJournalStore(journal.installedSchemaVersion, paths);
+  cleanupJournalArtifacts(journal, paths);
 }
 
 /** Runs before schema initialization opens the live database. */
@@ -301,26 +339,27 @@ export function recoverInterruptedStoreRestore():
   | "none"
   | "rolled_back"
   | "committed" {
-  const targetPath = journalPath();
+  const paths = defaultStoreRestorePaths();
+  const targetPath = journalPath(paths);
   if (!fs.existsSync(targetPath)) return "none";
-  const journal = parseJournal(fs.readFileSync(targetPath, "utf8"));
+  const journal = parseJournal(fs.readFileSync(targetPath, "utf8"), paths);
   if (journal.phase === "committed") {
     try {
-      validateJournalStore(journal.installedSchemaVersion);
+      validateJournalStore(journal.installedSchemaVersion, paths);
     } catch {
-      rollbackStoreRestore(journal);
+      rollbackStoreRestore(journal, paths);
       return "rolled_back";
     }
-    cleanupJournalArtifacts(journal);
+    cleanupJournalArtifacts(journal, paths);
     return "committed";
   }
 
   if (journal.phase !== "prepared") {
-    restoreRollback(journal);
-    validateJournalStore(journal.sourceSchemaVersion);
+    restoreRollback(journal, paths);
+    validateJournalStore(journal.sourceSchemaVersion, paths);
   } else {
-    validateJournalStore(journal.sourceSchemaVersion);
+    validateJournalStore(journal.sourceSchemaVersion, paths);
   }
-  cleanupJournalArtifacts(journal);
+  cleanupJournalArtifacts(journal, paths);
   return journal.phase === "prepared" ? "none" : "rolled_back";
 }

@@ -7,7 +7,11 @@ import { ensureDatabase, type EnsureDatabaseOptions } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
 
 let db: Database.Database | null = null;
-let maintenanceLease: symbol | null = null;
+const DATABASE_MAINTENANCE_LEASE_ENV =
+  "NODEX_INTERNAL_DATABASE_MAINTENANCE_LEASE";
+
+const readDatabaseMaintenanceLease = (): string | null =>
+  process.env[DATABASE_MAINTENANCE_LEASE_ENV] ?? null;
 
 export class DatabaseMaintenanceInProgressError extends Error {
   constructor() {
@@ -38,31 +42,31 @@ export interface DatabaseMaintenanceLease {
  * FIFO writer before this lease is acquired.
  */
 export function beginDatabaseMaintenance(): DatabaseMaintenanceLease {
-  if (maintenanceLease) {
+  if (readDatabaseMaintenanceLease()) {
     throw new DatabaseMaintenanceInProgressError();
   }
 
-  const lease = Symbol("database-maintenance");
-  maintenanceLease = lease;
+  const lease = `${process.pid}:${Date.now()}:${Math.random()}`;
+  process.env[DATABASE_MAINTENANCE_LEASE_ENV] = lease;
   let released = false;
   return {
     release: () => {
       if (released) return;
-      if (maintenanceLease !== lease) {
+      if (readDatabaseMaintenanceLease() !== lease) {
         throw new Error("Database maintenance lease ownership was lost");
       }
       released = true;
-      maintenanceLease = null;
+      delete process.env[DATABASE_MAINTENANCE_LEASE_ENV];
     },
   };
 }
 
 export function isDatabaseMaintenanceActive(): boolean {
-  return maintenanceLease !== null;
+  return readDatabaseMaintenanceLease() !== null;
 }
 
 export function getDb(): Database.Database {
-  if (maintenanceLease) {
+  if (readDatabaseMaintenanceLease()) {
     throw new DatabaseMaintenanceInProgressError();
   }
   if (!db) {

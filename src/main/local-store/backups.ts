@@ -30,6 +30,7 @@ import {
   fsyncPathRecursively,
   rollbackStoreRestore,
   type StoreRestoreJournal,
+  type StoreRestorePaths,
 } from "./store-restore-journal";
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -381,6 +382,10 @@ async function restoreBackupInternal(
 
   let stagingDirectoryPath: string | null = null;
   let restoreJournal: StoreRestoreJournal | null = null;
+  const restorePaths: StoreRestorePaths = {
+    localStoreDirectoryPath: getLocalStoreDir(),
+    databasePath: getDatabasePath(),
+  };
   try {
     stagingDirectoryPath = prepareRestoreStaging(
       backupDatabasePath,
@@ -406,20 +411,36 @@ async function restoreBackupInternal(
         backupId: input.backupId,
         stagingDirectoryPath: stagingDirectoryPath!,
         rollbackDirectoryPath,
-      });
+      }, restorePaths);
       ensureDirectory(rollbackDirectoryPath);
       let journal = restoreJournal!;
       let committed = false;
       try {
-        journal = advanceStoreRestoreJournal(journal, "rollback_started");
+        journal = advanceStoreRestoreJournal(
+          journal,
+          "rollback_started",
+          restorePaths,
+        );
         installStagedStore(stagingDirectoryPath!, rollbackDirectoryPath);
-        journal = advanceStoreRestoreJournal(journal, "install_started");
-        journal = advanceStoreRestoreJournal(journal, "epoch_rotating");
+        journal = advanceStoreRestoreJournal(
+          journal,
+          "install_started",
+          restorePaths,
+        );
+        journal = advanceStoreRestoreJournal(
+          journal,
+          "epoch_rotating",
+          restorePaths,
+        );
         const validated = rotateBackupStoreEpoch(getDatabasePath());
-        journal = advanceStoreRestoreJournal(journal, "committed");
+        journal = advanceStoreRestoreJournal(
+          journal,
+          "committed",
+          restorePaths,
+        );
         committed = true;
         try {
-          cleanupCommittedStoreRestore(journal);
+          cleanupCommittedStoreRestore(journal, restorePaths);
           restoreJournal = null;
         } catch (error) {
           logger.warn("Committed restore cleanup will resume at next startup", {
@@ -437,7 +458,7 @@ async function restoreBackupInternal(
         };
       } catch (error) {
         if (!committed) {
-          rollbackStoreRestore(journal);
+          rollbackStoreRestore(journal, restorePaths);
           restoreJournal = null;
         }
         throw error;
