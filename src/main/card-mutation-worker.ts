@@ -38,6 +38,7 @@ import {
   readCommittedRelocation,
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
+import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import {
   BlockDocumentRuntime,
   createSqliteBlockDocumentRuntimeAuthority,
@@ -163,6 +164,7 @@ const isLegacyAuthorityMutation = (
     case "backfillCardReadModel":
     case "initializeBlockDocumentShadows":
     case "migrateLegacyForeignReferences":
+    case "repairDocumentSecondaryProjections":
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
@@ -1146,6 +1148,8 @@ async function runRequest(
         "explicit",
         request.payload.limit,
       );
+    case "repairDocumentSecondaryProjections":
+      return repairDocumentSecondaryProjections(getDb());
     case "syncBlockDocument":
       return runDocumentCommand(() =>
         blockDocumentRuntime.sync(request.payload),

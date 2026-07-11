@@ -22,6 +22,7 @@ import type {
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
 import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
+import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -357,6 +358,14 @@ export class CardMutationWriter {
     return await this.executeTyped<ForeignReferenceMigrationBatchResult>({
       type: "migrateLegacyForeignReferences",
       payload: { limit },
+    });
+  }
+
+  async repairDocumentSecondaryProjections(): Promise<
+    CardMutationEnvelope<RepairDocumentSecondaryProjectionsResult>
+  > {
+    return await this.executeTyped<RepairDocumentSecondaryProjectionsResult>({
+      type: "repairDocumentSecondaryProjections",
     });
   }
 

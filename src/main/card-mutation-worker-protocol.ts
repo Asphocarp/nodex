@@ -20,6 +20,7 @@ import type {
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
 import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
+import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   BlockDropImportInput,
   BlockDropImportResult,
@@ -233,6 +234,9 @@ export type CardMutationWorkerRequest =
       payload: { readonly limit?: number };
     })
   | (CardMutationWorkerRequestBase & {
+      type: "repairDocumentSecondaryProjections";
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "syncBlockDocument";
       payload: DocumentSyncRequest;
     })
@@ -315,6 +319,7 @@ export type CardMutationWorkerResult =
   | OwnedBlockDocumentDescriptor
   | CutoverEligibleCardDocumentsResult
   | ForeignReferenceMigrationBatchResult
+  | RepairDocumentSecondaryProjectionsResult
   | undefined;
 
 export type CardMutationWorkerResponse =

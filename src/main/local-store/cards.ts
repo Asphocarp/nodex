@@ -32,7 +32,6 @@ import {
 } from "../../shared/types";
 import { summarizeCardDescription } from "../../shared/card-summary";
 import { extractPlainText } from "../../shared/nfm";
-import { tokenizeSearchQuery } from "../../shared/search-text";
 import {
   DEFAULT_CARD_STATUS,
   type CardStatus,
@@ -59,6 +58,7 @@ import {
   readAuthoritativeCardsByIds,
   readAuthoritativeProjectCards,
 } from "./card-read-store";
+import { searchAuthoritativeCards } from "./card-search-store";
 
 interface DbCard {
   id: string;
@@ -118,14 +118,6 @@ interface CardReadModelRow {
   assignee: string | null;
   agent_status: string | null;
   revision: number;
-}
-
-interface CardSearchFtsRow {
-  project_id: string;
-  card_id: string;
-  status: CardStatus;
-  snippet: string;
-  rank: number;
 }
 
 const CARD_SUMMARY_SELECT_COLUMNS = `
@@ -344,19 +336,6 @@ function buildCardSearchText(row: CardReadModelRow, plainDescription: string): s
   ].join("\n").replace(/\s+/g, " ").trim();
   const splitTokenText = text.replace(/[-_/@.:#]+/g, " ");
   return `${text}\n${splitTokenText}`.replace(/\s+/g, " ").trim();
-}
-
-function buildCardFtsMatchQuery(query: string): string | null {
-  const tokens = tokenizeSearchQuery(query)
-    .flatMap((token) => token.match(/[\p{L}\p{N}_]+/gu) ?? [])
-    .map((token) => token.trim().toLowerCase())
-    .filter((token, index, values) => token.length > 0 && values.indexOf(token) === index);
-  if (tokens.length === 0) return null;
-  return tokens.map((token) => `${token}*`).join(" ");
-}
-
-function normalizeFtsSnippet(snippet: string): string {
-  return snippet.replace(/\s+/g, " ").trim();
 }
 
 export function readCardSummaryById(
@@ -920,47 +899,10 @@ export async function getCardsDetails(projectId: string, input: CardsDetailsInpu
 }
 
 export async function searchCards(input: CardSearchInput): Promise<CardSearchResult[]> {
-  const query = input.query.trim();
-  if (!query) return [];
-
-  const canonicalProjectIds = Array.from(new Set(input.projectIds.map(requireProjectId)));
-  if (canonicalProjectIds.length === 0) return [];
-
-  const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
-  const matchQuery = buildCardFtsMatchQuery(query);
-  if (!matchQuery) return [];
-
-  const placeholders = canonicalProjectIds.map(() => "?").join(", ");
-  const rows = getDb().prepare(`
-    SELECT
-      u.project_id,
-      u.card_id,
-      c.status,
-      snippet(card_search_units_fts, 0, '\u0001', '\u0002', '...', 32) AS snippet,
-      bm25(card_search_units_fts) AS rank
-    FROM card_search_units_fts
-    JOIN card_search_units u ON u.rowid = card_search_units_fts.rowid
-    JOIN cards c ON c.id = u.card_id
-    WHERE card_search_units_fts MATCH ?
-      AND c.archived = 0
-      AND c.project_id IN (${placeholders})
-    ORDER BY rank ASC
-    LIMIT ?
-  `).all(
-    matchQuery,
-    ...canonicalProjectIds,
-    limit,
-  ) as CardSearchFtsRow[];
-
-  return rows.map((row, index): CardSearchResult => ({
-    projectId: row.project_id,
-    cardId: row.card_id,
-    status: row.status,
-    score: Math.max(1, 1_000_000 - index),
-    excerpt: normalizeFtsSnippet(row.snippet)
-      .replaceAll("\u0001", "")
-      .replaceAll("\u0002", ""),
-  }));
+  return searchAuthoritativeCards(getDb(), {
+    ...input,
+    projectIds: Array.from(new Set(input.projectIds.map(requireProjectId))),
+  });
 }
 
 export async function createCard(

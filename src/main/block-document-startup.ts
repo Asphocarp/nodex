@@ -1,6 +1,7 @@
 import type { BlockDocumentShadowInitializationResult } from "./card-mutation-worker-protocol";
 import type { CutoverEligibleCardDocumentsResult } from "./local-store/block-document-cutover";
 import type { ForeignReferenceMigrationBatchResult } from "./local-store/foreign-reference-migration";
+import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 
 const STARTUP_FIXED_POINT_LIMIT = 100;
 
@@ -17,6 +18,9 @@ export interface BlockDocumentStartupWriter {
   >;
   readonly cutoverEligibleCardDocuments: () => Promise<
     ResultEnvelope<CutoverEligibleCardDocumentsResult>
+  >;
+  readonly repairDocumentSecondaryProjections: () => Promise<
+    ResultEnvelope<RepairDocumentSecondaryProjectionsResult>
   >;
 }
 
@@ -70,7 +74,10 @@ export const prepareBlockDocumentAuthorityForStartup = async (
     if (migratedDocuments > 0) continue;
 
     const cutover = await writer.cutoverEligibleCardDocuments();
-    if (cutover.result.deferredForeignReferences === 0) return cutover.result;
+    if (cutover.result.deferredForeignReferences === 0) {
+      await writer.repairDocumentSecondaryProjections();
+      return cutover.result;
+    }
     throw new Error(
       `${cutover.result.deferredForeignReferences} Card Documents still contain legacy foreign-body projections`,
     );

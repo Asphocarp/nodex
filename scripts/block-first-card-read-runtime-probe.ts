@@ -21,6 +21,7 @@ import {
   getCard,
   getCardsDetails,
   readColumn,
+  searchCards,
 } from "../src/main/local-store/cards";
 import {
   closeDatabase,
@@ -237,6 +238,23 @@ const main = async (): Promise<void> => {
       "Probe accidentally rewrote legacy agent status",
     );
 
+    const staleSearch = await searchCards({
+      projectIds: [project.id],
+      query: "Legacy body",
+    });
+    const currentSearch = await searchCards({
+      projectIds: [project.id],
+      query: "Primary body",
+    });
+    assert(
+      staleSearch.length === 0,
+      "Card search returned stale legacy content",
+    );
+    assert(
+      currentSearch.length === 1 && currentSearch[0]?.cardId === created.id,
+      "Card search did not return current Document content",
+    );
+
     expectFreshCard(await getCard(project.id, created.id), "getCard");
     expectFreshCard(
       (await getCardsDetails(project.id, { cardIds: [created.id] }))[0] ?? null,
@@ -396,6 +414,7 @@ const main = async (): Promise<void> => {
           getCardsDetails: true,
           readColumn: true,
           getBoard: true,
+          searchCards: true,
           restart: true,
         },
         projection: {

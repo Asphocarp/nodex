@@ -55,6 +55,13 @@ export interface ProjectDocumentSecondaryProjectionResult {
   readonly assetRefCount: number;
 }
 
+export interface RepairDocumentSecondaryProjectionsResult {
+  readonly inspectedDocuments: number;
+  readonly repairedDocuments: number;
+  readonly searchUnitCount: number;
+  readonly assetRefCount: number;
+}
+
 export type DocumentSearchSourceKind = "document_title" | "document_block";
 
 export interface SearchDocumentBlockUnitsInput {
@@ -692,16 +699,73 @@ export const rebuildProjectDocumentSecondaryProjections = (
     .immediate();
 };
 
+/**
+ * Backfill or repair only ready Card Documents whose current title marker is
+ * absent. The marker is written atomically with every block/asset row, so one
+ * current marker proves the whole secondary projection commit completed.
+ */
+export const repairDocumentSecondaryProjections = (
+  database: Database.Database,
+): RepairDocumentSecondaryProjectionsResult =>
+  database
+    .transaction(() => {
+      const documents = database
+        .prepare(
+          `
+          SELECT document.id, marker.unit_key
+          FROM documents document
+          INNER JOIN block_documents ownership
+            ON ownership.document_id = document.id
+            AND ownership.project_id = document.project_id
+          LEFT JOIN block_search_units marker
+            ON marker.document_id = document.id
+            AND marker.owner_block_id = ownership.block_id
+            AND marker.block_id = ownership.block_id
+            AND marker.source_kind = 'document_title'
+            AND marker.field_key = 'title'
+            AND marker.document_generation = document.generation
+            AND marker.projected_seq = document.head_seq
+          WHERE document.schema_key = 'nodex.card'
+            AND document.readiness = 'ready'
+          ORDER BY document.id
+        `,
+        )
+        .all() as readonly {
+        readonly id: string;
+        readonly unit_key: string | null;
+      }[];
+      const repairs = documents
+        .filter((document) => document.unit_key === null)
+        .map((document) =>
+          replaceDocumentSecondaryProjections(database, {
+            documentId: document.id,
+          }),
+        );
+      return {
+        inspectedDocuments: documents.length,
+        repairedDocuments: repairs.length,
+        searchUnitCount: repairs.reduce(
+          (total, repair) => total + repair.searchUnitCount,
+          0,
+        ),
+        assetRefCount: repairs.reduce(
+          (total, repair) => total + repair.assetRefCount,
+          0,
+        ),
+      };
+    })
+    .immediate();
+
 const buildDocumentFtsMatchQuery = (query: string): string | null => {
   const tokens = tokenizeSearchQuery(query)
-    .flatMap((token) => token.match(/[\p{L}\p{N}_]+/gu) ?? [])
+    .flatMap((token) => token.match(/[\p{L}\p{N}_\-/@.:#]+/gu) ?? [])
     .map((token) => token.trim().toLowerCase())
     .filter(
       (token, index, values) =>
         token.length > 0 && values.indexOf(token) === index,
     );
   if (tokens.length === 0) return null;
-  return tokens.map((token) => `${token}*`).join(" ");
+  return tokens.map((token) => `"${token}"*`).join(" ");
 };
 
 const clampLimit = (

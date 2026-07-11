@@ -12,6 +12,7 @@ import {
   listDocumentAssetRefs,
   rebuildDocumentSecondaryProjections,
   rebuildProjectDocumentSecondaryProjections,
+  repairDocumentSecondaryProjections,
   searchDocumentBlockUnits,
 } from "../src/main/local-store/block-document-projections";
 import { relocateBlocksAtomically } from "../src/main/local-store/block-relocations";
@@ -431,6 +432,21 @@ const run = async (): Promise<void> => {
         .get() !== undefined,
       "Document rebuild deleted a non-Document search unit",
     );
+    getDb()
+      .prepare(
+        `
+        DELETE FROM block_search_units
+        WHERE document_id = ? AND source_kind = 'document_title'
+      `,
+      )
+      .run(document.documentId);
+    const repair = repairDocumentSecondaryProjections(getDb());
+    const idempotentRepair = repairDocumentSecondaryProjections(getDb());
+    invariant(
+      repair.repairedDocuments === 1 &&
+        idempotentRepair.repairedDocuments === 0,
+      "startup projection repair was not selective and idempotent",
+    );
 
     closeDatabase();
     invariant(
@@ -526,6 +542,7 @@ const run = async (): Promise<void> => {
         assetsReplaced: true,
         compactionRebuildEquivalent: true,
         restartEquivalent: true,
+        startupRepair: true,
         relocationHeads: [
           relocation.sourceCommit.headSeq,
           targetCommit.headSeq,

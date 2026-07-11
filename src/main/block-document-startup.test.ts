@@ -17,7 +17,6 @@ const shadow = (
   exhausted: true,
   ...overrides,
 });
-
 const migration = (
   overrides: Partial<ForeignReferenceMigrationBatchResult> = {},
 ): ForeignReferenceMigrationBatchResult => ({
@@ -60,6 +59,17 @@ const makeWriter = (input: {
       },
     };
   },
+  repairDocumentSecondaryProjections: async () => {
+    input.calls.push("projection");
+    return {
+      result: {
+        inspectedDocuments: 1,
+        repairedDocuments: 1,
+        searchUnitCount: 2,
+        assetRefCount: 0,
+      },
+    };
+  },
 });
 
 describe("Block Document startup authority preparation", () => {
@@ -84,7 +94,7 @@ describe("Block Document startup authority preparation", () => {
 
     const result = await prepareBlockDocumentAuthorityForStartup(writer);
 
-    expect(calls.join(",")).toBe("shadow,migration,shadow,migration,cutover");
+    expect(calls.join(",")).toBe("shadow,migration,shadow,migration,cutover,projection");
     expect(result.cutoverDocumentIds.join(",")).toBe("document:card-1");
   });
 

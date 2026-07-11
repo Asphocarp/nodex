@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Moving Blocks between collaborative Cards now uses one atomic cross-Document transaction: active editors briefly flush and freeze, application Block IDs stay stable, and a failed move leaves both Cards unchanged instead of saving competing body snapshots.
 - Full Card detail and Board compatibility reads now assemble current collaborative content and relational properties from their authoritative records, so stale legacy Card columns cannot reappear after a remote edit or restart.
+- Card search now indexes committed collaborative Document title/body units and resolves current relational status, so remote edits become searchable immediately and stale legacy content cannot reappear after restart.
 - Card references, inline Database views, and the top-level Toggle List are now reference-only surfaces: collapsed rows use summaries, expanded visible Cards open their own collaborative Document, and legacy foreign snapshots migrate durably without copying or rewriting another Card body.
 - `Cmd/Ctrl+Enter` in NFM editors now modifies the current actionable block before falling back to Card Stage thread-section send, including checkbox toggles, toggle rows, image previews, card opens, and linked thread-section opens.
 - Renamed the main local-store server environment variables from `KANBAN_*` to `NODEX_*` and the SQLite database file from `kanban.db` to `nodex.db`; startup moves an existing legacy database file when no `nodex.db` exists.

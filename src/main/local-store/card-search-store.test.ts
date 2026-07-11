@@ -1,0 +1,169 @@
+import { describe, expect, test } from "bun:test";
+import Database from "better-sqlite3";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import * as Y from "yjs";
+import { openCardDocument } from "../../shared/block-documents";
+import {
+  applyBlockDocumentUpdate,
+  loadPrimaryBlockDocument,
+} from "./block-document-store";
+import {
+  cutoverCardDocumentToPrimary,
+  getOwnedBlockDocumentDescriptor,
+} from "./block-document-cutover";
+import { createCard, searchCards } from "./cards";
+import { closeDatabase, getDb, initializeDatabase } from "./database";
+import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
+import { createProject } from "./projects";
+
+const supportsBetterSqlite3 = (): boolean => {
+  try {
+    const database = new Database(":memory:");
+    database.close();
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes("better-sqlite3") &&
+      message.includes("not yet supported")
+    ) {
+      return false;
+    }
+    throw error;
+  }
+};
+
+const skipTest = (test as typeof test & { skip: typeof test }).skip;
+const sqliteTest = supportsBetterSqlite3() ? test : skipTest;
+
+const findFirstText = (
+  root: Y.XmlFragment | Y.XmlElement,
+): Y.XmlText | null => {
+  for (const child of root.toArray()) {
+    if (child instanceof Y.XmlText) return child;
+    if (!(child instanceof Y.XmlElement)) continue;
+    const nested = findFirstText(child);
+    if (nested) return nested;
+  }
+  return null;
+};
+
+describe("authoritative Card search", () => {
+  sqliteTest(
+    "tracks remote Y.Doc content and relational status without legacy fallback",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-card-search-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+      try {
+        await initializeDatabase();
+        const project = createProject({ name: "Card search authority" });
+        const otherProject = createProject({ name: "Other search scope" });
+        const card = await createCard(project.id, "in_progress", {
+          title: "Search Card",
+          description: "legacy-needle",
+        });
+        const database = getDb();
+        runLegacyCardShadowProcessorProbe(database);
+        const descriptor = getOwnedBlockDocumentDescriptor(
+          database,
+          project.id,
+          card.id,
+        );
+        cutoverCardDocumentToPrimary(database, {
+          projectId: project.id,
+          ownerBlockId: card.id,
+          expectedGeneration: descriptor.generation,
+          expectedHeadSeq: descriptor.headSeq,
+        });
+
+        const loaded = loadPrimaryBlockDocument(
+          database,
+          descriptor.documentId,
+        );
+        try {
+          const before = Y.encodeStateVector(loaded.document);
+          const body = openCardDocument(loaded.document).body;
+          const text = findFirstText(body);
+          if (!text) throw new Error("Expected Card genesis text");
+          loaded.document.transact(() => {
+            text.delete(0, text.length);
+            text.insert(0, "current-needle");
+          }, "card-search-test");
+          applyBlockDocumentUpdate(database, {
+            documentId: descriptor.documentId,
+            storeEpoch: loaded.storeEpoch,
+            generation: loaded.head.generation,
+            updateId: "card-search-current-body",
+            clientSessionId: "card-search-window",
+            baseHeadSeq: loaded.head.headSeq,
+            touchedBlockIds: [],
+            update: Y.encodeStateAsUpdate(loaded.document, before),
+          });
+        } finally {
+          loaded.document.destroy();
+        }
+
+        database
+          .prepare(
+            `
+        UPDATE database_property_values
+        SET value_json = '"done"', revision = revision + 1
+        WHERE membership_id = 'membership:' || ?
+          AND property_id = database_block_id || ':property:status'
+      `,
+          )
+          .run(card.id);
+        database
+          .prepare(
+            `
+        UPDATE database_view_positions
+        SET group_key = 'done'
+        WHERE block_id = ?
+      `,
+          )
+          .run(card.id);
+
+        const legacy = database
+          .prepare(
+            `
+        SELECT status, description FROM cards WHERE id = ?
+      `,
+          )
+          .get(card.id) as { status: string; description: string };
+        expect(legacy.status).toBe("in_progress");
+        expect(legacy.description).toBe("legacy-needle");
+
+        const oldResults = await searchCards({
+          projectIds: [project.id],
+          query: "legacy-needle",
+        });
+        const currentResults = await searchCards({
+          projectIds: [project.id],
+          query: "current-needle",
+        });
+        const wrongScope = await searchCards({
+          projectIds: [otherProject.id],
+          query: "current-needle",
+        });
+
+        expect(oldResults.length).toBe(0);
+        expect(currentResults.length).toBe(1);
+        expect(currentResults[0]?.cardId).toBe(card.id);
+        expect(currentResults[0]?.status).toBe("done");
+        expect(
+          currentResults[0]?.excerpt.includes("current-needle"),
+        ).toBeTrue();
+        expect(wrongScope.length).toBe(0);
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        delete process.env.NODEX_DIR;
+      }
+    },
+  );
+});
