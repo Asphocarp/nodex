@@ -52,6 +52,7 @@ import {
 } from "./database-views";
 import { getDb } from "./database";
 import * as descriptionRevisionService from "./description-revisions";
+import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
 
 const DEFAULT_BATCH_LIMIT = 50;
@@ -261,6 +262,11 @@ const synchronizeLegacyMaterializations = (
         generation: loaded.head.generation,
         projectedSeq: loaded.head.headSeq,
         materialization,
+      });
+      replaceDocumentSecondaryProjections(database, {
+        documentId: candidate.document_id,
+        expectedGeneration: loaded.head.generation,
+        expectedProjectedSeq: loaded.head.headSeq,
       });
     } finally {
       loaded.document.destroy();

@@ -35,6 +35,7 @@ import {
   captureBlockDocumentChangeState,
   deriveBlockDocumentTouchedIds,
 } from "./block-document-change-set";
+import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
 
 interface DocumentRow {
@@ -1723,6 +1724,11 @@ export const initializeCardDocumentGenesis = (
         input.documentId,
         input.generation,
       );
+    replaceDocumentSecondaryProjections(database, {
+      documentId: input.documentId,
+      expectedGeneration: input.generation,
+      expectedProjectedSeq: 1,
+    });
 
     return makeAck(
       {
@@ -1976,6 +1982,11 @@ const applyBlockDocumentUpdateForAuthority = (
           input.generation,
           row.head_seq,
         );
+      replaceDocumentSecondaryProjections(database, {
+        documentId: input.documentId,
+        expectedGeneration: input.generation,
+        expectedProjectedSeq: nextHeadSeq,
+      });
 
       return {
         kind: "ack",

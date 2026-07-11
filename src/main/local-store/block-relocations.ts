@@ -37,6 +37,7 @@ import {
   loadPrimaryBlockDocument,
   type LoadedBlockDocument,
 } from "./block-document-store";
+import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
 
 export type BlockRelocationFaultPoint =
@@ -1628,6 +1629,16 @@ export const relocateBlocksAtomically = (
         projectedSeq: targetCommit.headSeq,
         materialization: targetCommit.materialization,
         updatedAt: now,
+      });
+      replaceDocumentSecondaryProjections(database, {
+        documentId: sourceCommit.documentId,
+        expectedGeneration: sourceCommit.generation,
+        expectedProjectedSeq: sourceCommit.headSeq,
+      });
+      replaceDocumentSecondaryProjections(database, {
+        documentId: targetCommit.documentId,
+        expectedGeneration: targetCommit.generation,
+        expectedProjectedSeq: targetCommit.headSeq,
       });
       inject("after_materializations");
 
