@@ -22,7 +22,6 @@ import type {
   CodexThreadGoalSetActionInput,
   CodexThreadOwnerStreamStatePublishInput,
   CodexThreadSummary,
-  CodexTranscriptEntry,
   CodexTurnSummary,
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadSummary,
@@ -423,6 +422,12 @@ function installRendererOwnerConversation(
   record.streamRole = "owner";
   record.isStreaming = true;
   service.setRendererConversationOwner(threadId, input.ownerClientId ?? "renderer-owner");
+}
+
+function hydrateConversation(service: TestableCodexService, detail: CodexThreadDetail): void {
+  (service as unknown as {
+    setConversationRecordDetail: (nextDetail: CodexThreadDetail) => void;
+  }).setConversationRecordDetail(detail);
 }
 
 function projectConversationFromHostMessages(
@@ -1911,6 +1916,7 @@ function isUnsupportedSqliteError(error: unknown): boolean {
 }
 
 let defaultProjectId = "";
+const tempCodexHomeCleanups: Array<() => void> = [];
 
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
@@ -1935,6 +1941,9 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     await run();
     return true;
   } finally {
+    while (tempCodexHomeCleanups.length > 0) {
+      tempCodexHomeCleanups.pop()?.();
+    }
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
     delete process.env.NODEX_DIR;
@@ -1947,9 +1956,7 @@ function withTempCodexHome(run: (codexHome: string) => void): void {
   process.env.CODEX_HOME = tempDir;
   resetCodexSessionStoreCaches();
 
-  try {
-    run(tempDir);
-  } finally {
+  const cleanup = () => {
     if (previousCodexHome) {
       process.env.CODEX_HOME = previousCodexHome;
     } else {
@@ -1957,6 +1964,14 @@ function withTempCodexHome(run: (codexHome: string) => void): void {
     }
     resetCodexSessionStoreCaches();
     fs.rmSync(tempDir, { recursive: true, force: true });
+  };
+
+  try {
+    run(tempDir);
+    tempCodexHomeCleanups.push(cleanup);
+  } catch (error) {
+    cleanup();
+    throw error;
   }
 }
 
@@ -6210,11 +6225,12 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.resumeState).toBe("needs_resume");
         expect(conversation?.turns.length).toBe(1);
         expect(conversation?.turns[0]?.turnId).toBe("turn_old_open");
-        expect(conversation?.turns[0]?.items.length).toBe(2);
+        expect(conversation?.turns[0]?.items.length).toBe(3);
         expect(conversation?.turns[0]?.items[0]?.kind).toBe("userMessage");
         expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("who are you");
-        expect(conversation?.turns[0]?.items[1]?.kind).toBe("assistantMessage");
-        expect(conversation?.turns[0]?.items[1]?.markdownText).toBe("Codex, your coding agent in this repo.");
+        expect(conversation?.turns[0]?.items[1]?.kind).toBe("toolCall");
+        expect(conversation?.turns[0]?.items[2]?.kind).toBe("assistantMessage");
+        expect(conversation?.turns[0]?.items[2]?.markdownText).toBe("Codex, your coding agent in this repo.");
       } finally {
         await service.shutdown();
       }
@@ -6329,7 +6345,12 @@ describe("codex-service session-backed transcript recovery", () => {
 
   test("does not call thread/resume for a known archived thread", async () => {
     const ran = await withTempDatabase(async () => {
-
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_archived_known",
+        threadName: "Archived thread",
+        archived: true,
+      });
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -6359,7 +6380,12 @@ describe("codex-service session-backed transcript recovery", () => {
 
   test("marks stale thread metadata archived when app-server rejects resume", async () => {
     const ran = await withTempDatabase(async () => {
-
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_archived_stale",
+        threadName: "Stale archived thread",
+        archived: false,
+      });
       const service = createService();
       const hostMessages: CodexHostMessage[] = [];
       service.on("hostMessage", (message) => {
@@ -6386,9 +6412,9 @@ describe("codex-service session-backed transcript recovery", () => {
         const conversation = await service.requestConversationResume("thr_archived_stale");
         const projected = projectConversationFromHostMessages(hostMessages);
         const persisted = getCodexThread("thr_archived_stale");
+        const resumeRequests = requests.filter((request) => request.method === "thread/resume");
 
-        expect(requests.length).toBe(1);
-        expect(requests[0]?.method).toBe("thread/resume");
+        expect(resumeRequests.length).toBe(1);
         expect(conversation?.threadId).toBe("thr_archived_stale");
         expect(conversation?.archived).toBe(true);
         expect(conversation?.resumeState).toBe("needs_resume");
@@ -6819,8 +6845,10 @@ describe("codex-service session-backed transcript recovery", () => {
       try {
         const first = service.requestConversationResume("thr_resume_single_flight");
         const second = service.requestConversationResume("thr_resume_single_flight");
-        await Promise.resolve();
-        await Promise.resolve();
+        await waitForCondition(
+          () => requests.filter((request) => request.method === "thread/resume").length === 1,
+          250,
+        );
 
         expect(requests.filter((request) => request.method === "thread/resume").length).toBe(1);
 
@@ -7187,6 +7215,7 @@ describe("codex-service session-backed transcript recovery", () => {
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
+        if (method === "thread/goal/get") return { goal: null };
         if (method !== "thread/resume") throw new Error(`Unexpected method: ${method}`);
         return {
           thread: {
@@ -7213,7 +7242,7 @@ describe("codex-service session-backed transcript recovery", () => {
       try {
         const detail = await service.resumeThread("thr_resume_patch_streaming");
         expect(detail?.threadId ?? "").toBe("thr_resume_patch_streaming");
-        expect(requests.length).toBe(1);
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/goal/get");
         expect(requests[0]?.method).toBe("thread/resume");
         const resumeParams = requests[0]?.params as {
           config?: Record<string, unknown>;
@@ -7449,8 +7478,8 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(fullConversation?.turns[1]?.turnId ?? "").toBe("turn_recent");
         expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBe(true);
         expect(fullConversation?.turnPagination?.oldestLoadedTurnId ?? null).toBe("turn_older");
-        expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/turns/list");
-        const olderParams = requests[1]?.params as {
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/goal/get,thread/turns/list");
+        const olderParams = requests.find((request) => request.method === "thread/turns/list")?.params as {
           cursor?: string;
           limit?: number;
           sortDirection?: string;
@@ -7602,35 +7631,16 @@ describe("codex-service session-backed transcript recovery", () => {
       });
 
       const service = createService();
-      const serviceInternals = service as unknown as {
-        turnByThread: Map<string, Map<string, CodexTurnSummary>>;
-        transcriptByThread: Map<string, CodexTranscriptEntry[]>;
-        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        queuedFollowUpsByThread: Map<string, Array<{
-          followUpId: string;
-          threadId: string;
-          prompt: string;
-          createdAt: number;
-          collaborationMode: null;
-        }>>;
-      };
-
-      serviceInternals.turnByThread.set(
-        "thr_parent",
-        new Map<string, CodexTurnSummary>([
-          [
-            "turn_parent",
-            {
-              threadId: "thr_parent",
-              turnId: "turn_parent",
-              status: "completed",
-              itemIds: ["spawn_agent_1"],
-            },
-          ],
-        ]),
-      );
-      serviceInternals.transcriptByThread.set("thr_parent", [
-        {
+      hydrateConversation(service, {
+        ...makeThreadDetail("thr_parent"),
+        projectId: defaultProjectId,
+        turns: [{
+          threadId: "thr_parent",
+          turnId: "turn_parent",
+          status: "completed",
+          itemIds: ["spawn_agent_1"],
+        }],
+        transcript: [{
           threadId: "thr_parent",
           turnId: "turn_parent",
           itemId: "spawn_agent_1",
@@ -7646,24 +7656,15 @@ describe("codex-service session-backed transcript recovery", () => {
           },
           createdAt: 1,
           updatedAt: 1,
-        },
-      ]);
-      serviceInternals.setConversationRecordDetail({
+        }],
+      });
+      hydrateConversation(service, {
         ...makeThreadDetail("thr_child"),
         projectId: defaultProjectId,
         threadName: "Child agent",
         agentNickname: "@ChildNick",
         agentRole: "reviewer",
       });
-      serviceInternals.queuedFollowUpsByThread.set("thr_child", [
-        {
-          followUpId: "follow_up_1",
-          threadId: "thr_child",
-          prompt: "Continue with the plan",
-          createdAt: 2,
-          collaborationMode: null,
-        },
-      ]);
 
       try {
         const conversation = service.serializeConversationSnapshot("thr_parent");
@@ -7891,7 +7892,11 @@ describe("codex-service session-backed transcript recovery", () => {
 
   test("materializes failed turn errors from thread/read into system-error transcript rows", async () => {
     const ran = await withTempDatabase(async () => {
-
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_failed_reconnect",
+        threadName: "Failed reconnect",
+      });
       const service = createService();
       const serviceInternals = service as unknown as {
         buildThreadDetailFromRead: (thread: unknown) => CodexThreadDetail | null;
@@ -8315,7 +8320,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      service.readThread = async () => ({
+      hydrateConversation(service, {
         ...makeThreadDetail("thr_owner_edit"),
         projectId: defaultProjectId,
         threadName: "Owner editable thread",
@@ -8770,13 +8775,13 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
             },
           },
         ) as { turnId?: string } | null;
-        const snapshot = await service.requestConversationSnapshot("thr_owner_steer");
+        const snapshot = service.serializeConversationSnapshot("thr_owner_steer");
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/steer");
         expect(result?.turnId).toBe("turn_active");
         expect(String(hostMessages.length)).toBe("0");
-        expect(snapshot?.turns[0]?.items[0]?.semanticKind).toBe("steeringUserMessage");
+        expect(snapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
       } finally {
         await service.shutdown();
       }
@@ -8842,7 +8847,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      service.readThread = async () => ({
+      hydrateConversation(service, {
         ...makeThreadDetail("thr_owner_fork_source"),
         projectId: defaultProjectId,
         threadName: "Owner fork source",
@@ -8967,7 +8972,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      service.readThread = async () => ({
+      hydrateConversation(service, {
         ...makeThreadDetail("thr_source"),
         projectId: defaultProjectId,
         threadName: "Source thread",
@@ -9088,7 +9093,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      service.readThread = async () => ({
+      hydrateConversation(service, {
         ...makeThreadDetail("thr_latest_source"),
         projectId: defaultProjectId,
         threadName: "Latest source thread",
@@ -9192,7 +9197,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      service.readThread = async () => ({
+      hydrateConversation(service, {
         ...makeThreadDetail("thr_parent"),
         projectId: defaultProjectId,
         source: null,
@@ -10902,7 +10907,7 @@ describe("codex-service startTurn", () => {
     };
     const requests: Array<{ method: string; params: unknown }> = [];
 
-    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: "/tmp/codex" });
     serviceInternals.parseWorkspacePath = () => "/tmp/codex";
     serviceInternals.markThreadAsActive = () => {};
     serviceInternals.persistThreadSnapshot = () => {};
@@ -10961,7 +10966,7 @@ describe("codex-service startTurn", () => {
     };
     const requests: Array<{ method: string; params: unknown }> = [];
 
-    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: "/tmp/codex" });
     serviceInternals.parseWorkspacePath = () => "/tmp/codex";
     serviceInternals.markThreadAsActive = () => {};
     serviceInternals.persistThreadSnapshot = () => {};
@@ -11038,7 +11043,7 @@ describe("codex-service startTurn", () => {
     };
     const requests: Array<{ method: string; params: unknown }> = [];
 
-    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: "/tmp/codex" });
     serviceInternals.parseWorkspacePath = () => "/tmp/codex";
     serviceInternals.markThreadAsActive = () => {};
     serviceInternals.persistThreadSnapshot = () => {};
@@ -11434,6 +11439,7 @@ describe("codex-service collaboration modes", () => {
       serviceInternals.ensureConversationDetail("thr_settings_notification");
       upsertCodexThread({
         ...makeThreadDetail("thr_settings_notification"),
+        projectId: defaultProjectId,
         statusType: "idle",
       });
 
@@ -12079,19 +12085,19 @@ describe("codex-service startThreadForSession", () => {
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      service.serializeThreadDetail = (threadId: string) => ({
-        ...makeThreadDetail(threadId),
+      hydrateConversation(service, {
+        ...makeThreadDetail("thr_session_source"),
         projectId: defaultProjectId,
         threadName: "Source session thread",
         cwd: "/tmp/codex",
         turns: [
-          { threadId, turnId: "turn_1", status: "completed", itemIds: ["user_1"] },
-          { threadId, turnId: "turn_2", status: "completed", itemIds: ["user_2"] },
-          { threadId, turnId: "turn_3", status: "completed", itemIds: ["user_3"] },
+          { threadId: "thr_session_source", turnId: "turn_1", status: "completed", itemIds: ["user_1"] },
+          { threadId: "thr_session_source", turnId: "turn_2", status: "completed", itemIds: ["user_2"] },
+          { threadId: "thr_session_source", turnId: "turn_3", status: "completed", itemIds: ["user_3"] },
         ],
         transcript: [
           {
-            threadId,
+            threadId: "thr_session_source",
             turnId: "turn_1",
             itemId: "user_1",
             type: "user_message",
@@ -12104,7 +12110,7 @@ describe("codex-service startThreadForSession", () => {
             updatedAt: 1,
           },
           {
-            threadId,
+            threadId: "thr_session_source",
             turnId: "turn_2",
             itemId: "user_2",
             type: "user_message",
@@ -12117,7 +12123,7 @@ describe("codex-service startThreadForSession", () => {
             updatedAt: 2,
           },
           {
-            threadId,
+            threadId: "thr_session_source",
             turnId: "turn_3",
             itemId: "user_3",
             type: "user_message",
@@ -12756,7 +12762,7 @@ describe("codex-service startThreadForSession", () => {
         }));
         const serializedInput = JSON.stringify(turnStartParams?.input);
         expect(serializedInput.includes("Analyze this screenshot")).toBe(true);
-        expect(serializedInput.includes("screen.png")).toBe(true);
+        expect(serializedInput.includes("data:image/png;base64,AAA")).toBe(true);
         expect(serializedInput.includes("/tmp/codex/README.md")).toBe(true);
       } finally {
         await service.shutdown();
@@ -12766,7 +12772,7 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("fails session thread start with a clear error when the project has no source root", async () => {
+  test("starts source-less project sessions in an isolated local workspace", async () => {
     const ran = await withTempDatabase(async () => {
       const project = createProject({ name: "Missing Workspace" });
       const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "No workspace" });
@@ -12775,22 +12781,41 @@ describe("codex-service startThreadForSession", () => {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
+      const requests: Array<{ method: string; params: unknown }> = [];
       client.start = async () => undefined;
-      client.request = async () => ({});
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_projectless_session",
+              modelProvider: "openai",
+              cwd: (params as { cwd?: string }).cwd,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return { turn: { id: "turn_projectless_session", status: "in_progress", items: [] } };
+        }
+        return {};
+      };
 
       try {
-        let message = "";
-        try {
-          await service.startThreadForSession({
-            projectId: project.id,
-            sessionId: session.id,
-            prompt: "Start without workspace",
-            skipAutoTitleGeneration: true,
-          });
-        } catch (error) {
-          message = error instanceof Error ? error.message : String(error);
-        }
-        expect(message.includes("requires at least one source folder")).toBe(true);
+        const detail = await service.startThreadForSession({
+          projectId: project.id,
+          sessionId: session.id,
+          prompt: "Start without workspace",
+          skipAutoTitleGeneration: true,
+        });
+        const threadStart = requests.find((request) => request.method === "thread/start");
+        const cwd = (threadStart?.params as { cwd?: string } | undefined)?.cwd ?? "";
+        expect(detail.threadId).toBe("thr_projectless_session");
+        expect(cwd.includes(path.join("projectless-workspaces", project.id))).toBe(true);
       } finally {
         await service.shutdown();
       }
@@ -18017,6 +18042,7 @@ describe("codex-service terminal turn reconciliation", () => {
             ? String(snapshotMessage.change.revision)
             : "missing",
         ).toBe("1");
+        const initialConversation = service.serializeConversationSnapshot("thr_queue_direct_patch");
         hostMessages.length = 0;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
@@ -18043,7 +18069,7 @@ describe("codex-service terminal turn reconciliation", () => {
             : "missing",
         ).toBe("1->2");
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = projectConversationFromHostMessages(hostMessages, initialConversation);
         expect(latest).not.toBeNull();
         expect(latest?.queuedFollowUps.length).toBe(1);
         expect(latest?.queuedFollowUps[0]?.prompt).toBe("Queue this next");
@@ -18099,6 +18125,7 @@ describe("codex-service terminal turn reconciliation", () => {
 
       try {
         await service.requestConversationSnapshot("thr_user_input_direct_patch");
+        const initialConversation = service.serializeConversationSnapshot("thr_user_input_direct_patch");
         hostMessages.length = 0;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
@@ -18131,7 +18158,7 @@ describe("codex-service terminal turn reconciliation", () => {
             : "snapshot",
         ).toBe("patches");
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = projectConversationFromHostMessages(hostMessages, initialConversation);
         expect(latest).not.toBeNull();
         expect(latest?.requests.length).toBe(1);
         expect(latest?.requests[0]?.type).toBe("userInput");
@@ -18178,6 +18205,7 @@ describe("codex-service terminal turn reconciliation", () => {
 
       try {
         await service.requestConversationSnapshot("thr_item_started_direct_patch");
+        const initialConversation = service.serializeConversationSnapshot("thr_item_started_direct_patch");
         hostMessages.length = 0;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
@@ -18207,7 +18235,7 @@ describe("codex-service terminal turn reconciliation", () => {
             : "snapshot",
         ).toBe("patches");
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = projectConversationFromHostMessages(hostMessages, initialConversation);
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(1);

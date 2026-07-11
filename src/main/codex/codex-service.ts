@@ -304,6 +304,7 @@ import {
   buildTranscriptFromBootstrapEvents,
   finalizeTurnTranscriptState,
   projectItemToLiveTranscriptEntry,
+  projectTranscriptEntryToItemView,
   reconcileCommittedUserPrompt,
   resolveThreadPreviewFromTranscript,
 } from "./codex-transcript-projection";
@@ -3234,6 +3235,14 @@ export class CodexService extends EventEmitter {
     }
 
     return deduped;
+  }
+
+  private discardBufferedResumeEvents(threadId: string, reason: unknown): void {
+    const buffered = this.resumeNotificationBuffersByThreadId.get(threadId) ?? [];
+    this.resumeNotificationBuffersByThreadId.delete(threadId);
+    for (const event of buffered) {
+      if (event.type === "request") event.reject(reason);
+    }
   }
 
   private trimReplayDelta(existingText: string, delta: string): string {
@@ -9289,8 +9298,25 @@ export class CodexService extends EventEmitter {
       return this.serializeThreadDetail(threadId);
     }
 
-    const link = this.getThreadLinkSafely(threadId);
-    if (!link) return null;
+    const persistedLink = this.getThreadLinkSafely(threadId);
+    const sessionMetadata = persistedLink ? null : readCodexSessionThreadMetadata(threadId);
+    const link: CodexThreadSummary = persistedLink ?? {
+      threadId,
+      projectId: null,
+      source: sessionMetadata?.parentThreadId
+        ? { parentThreadId: sessionMetadata.parentThreadId }
+        : null,
+      threadName: null,
+      threadPreview: "",
+      modelProvider: "",
+      cwd: sessionMetadata?.cwd ?? null,
+      statusType: "notLoaded",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 0,
+      updatedAt: 0,
+      linkedAt: new Date(0).toISOString(),
+    };
 
     const sessionDetail = readCodexSessionThreadDetail({
       threadId,
@@ -9502,6 +9528,7 @@ export class CodexService extends EventEmitter {
           entryId: nextEntry.entryId ?? nextEntry.itemId,
           promptText: nextEntry.markdownText ?? "",
           userAttachments: nextEntry.userAttachments,
+          rawItem: nextEntry.rawItem,
           createdAt: nextEntry.createdAt,
         })
       : nextEntry.kind === "userMessage"
@@ -9590,7 +9617,14 @@ export class CodexService extends EventEmitter {
       : options?.preserveTurnPagination
         ? this.normalizeTurnPagination(record.turnPagination, detail.turns.length)
         : this.buildCompleteTurnPagination(detail.turns.length);
-    record.itemsByTurn = new Map<string, Map<string, CodexItemView>>();
+    const itemsByTurn = new Map<string, Map<string, CodexItemView>>();
+    for (const entry of record.detail.transcript) {
+      const item = projectTranscriptEntryToItemView(entry);
+      const byItem = itemsByTurn.get(item.turnId) ?? new Map<string, CodexItemView>();
+      byItem.set(resolveCodexItemPrimaryIdentityKey(item), item);
+      itemsByTurn.set(item.turnId, byItem);
+    }
+    record.itemsByTurn = itemsByTurn;
   }
 
   private hydrateThreadDetail(detail: CodexThreadDetail): void {
@@ -9678,6 +9712,7 @@ export class CodexService extends EventEmitter {
     const timeline = this.buildThreadTimelineFromTurns(threadId, turns);
 
     const existingRecord = this.getMaybeConversationRecord(threadId);
+    const parsedStatus = parseThreadStatus(candidate.status);
     return applyThreadAgentMetadata({
       ...link,
       threadPreview: resolveThreadPreviewFromTranscript(timeline.transcript, link.threadPreview),
@@ -9685,6 +9720,9 @@ export class CodexService extends EventEmitter {
       approvalsReviewer: existingRecord?.detail?.approvalsReviewer ?? null,
       sandbox: existingRecord?.detail?.sandbox ?? null,
       latestCollaborationMode: existingRecord?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
+      statusType: parsedStatus.statusType,
+      statusActiveFlags: parsedStatus.statusActiveFlags,
+      threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
       turns: timeline.turns,
       transcript: timeline.transcript,
     }, candidate);
@@ -10864,6 +10902,7 @@ export class CodexService extends EventEmitter {
         durationMs: getDevRuntimeMetricDurationMs(resumeRequestStartedAt),
       });
     } catch (error) {
+      if (isThreadArchivedError(error) || isThreadNotFoundError(error)) throw error;
       usedPagedResume = false;
       this.logger.warn("Paged Codex thread resume failed; falling back to full resume", {
         threadId,
@@ -11057,7 +11096,7 @@ export class CodexService extends EventEmitter {
       }
       return this.serializeConversationSnapshot(threadId);
     } catch (error) {
-      await this.releaseConversationResumeBuffer(threadId);
+      this.discardBufferedResumeEvents(threadId, error);
       this.setConversationResumeState(threadId, "needs_resume");
       const record = this.ensureConversationRecord(threadId);
       record.streamRole = null;
@@ -11268,7 +11307,9 @@ export class CodexService extends EventEmitter {
     }
     if (this.remainingTurnsLoadInFlight.has(threadId)) return;
 
-    const request = this.loadRemainingThreadTurns(threadId, { broadcastResult: true }).catch((error) => {
+    const request = new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    }).then(() => this.loadRemainingThreadTurns(threadId, { broadcastResult: true })).catch((error) => {
       this.logger.warn("Failed to load remaining Codex thread turns after resume", {
         threadId,
         error: error instanceof Error ? error.message : String(error),
@@ -16339,9 +16380,16 @@ export class CodexService extends EventEmitter {
   }
 
   serializeThreadDetail(threadId: string): CodexThreadDetail | null {
-    const record = this.getMaybeConversationRecord(threadId);
-    const detail = record?.detail;
-    const link = this.getThreadLinkSafely(threadId) ?? detail;
+    let record = this.getMaybeConversationRecord(threadId);
+    let detail = record?.detail;
+    let link = this.getThreadLinkSafely(threadId) ?? detail;
+    if (!link) {
+      const bootstrapped = this.bootstrapConversationRecordFromSession(threadId);
+      if (!bootstrapped) return null;
+      record = this.getMaybeConversationRecord(threadId);
+      detail = record?.detail ?? bootstrapped;
+      link = this.getThreadLinkSafely(threadId) ?? detail;
+    }
     if (!link) return null;
     const turns = [...(detail?.turns ?? [])];
     const transcript = [...(detail?.transcript ?? [])];
@@ -16349,6 +16397,9 @@ export class CodexService extends EventEmitter {
 
     return {
       ...link,
+      threadSource: detail?.threadSource ?? link.threadSource ?? null,
+      agentNickname: detail?.agentNickname ?? link.agentNickname ?? null,
+      agentRole: detail?.agentRole ?? link.agentRole ?? null,
       threadName: link.threadName,
       threadPreview: resolveThreadPreviewFromTranscript(
         transcript,

@@ -37,6 +37,24 @@ export function buildTranscriptFromBootstrapEvents(input: {
   return dedupeCodexTranscriptEntries(seededEntries);
 }
 
+export function projectTranscriptEntryToItemView(entry: CodexTranscriptEntry): CodexItemView {
+  const {
+    entryId: _entryId,
+    kind,
+    source: _source,
+    sequence: _sequence,
+    ...shared
+  } = entry;
+  void _entryId;
+  void _source;
+  void _sequence;
+
+  return {
+    ...shared,
+    normalizedKind: kind,
+  };
+}
+
 export function applyLiveTranscriptMutation(
   transcript: CodexTranscriptEntry[],
   mutation: CodexTranscriptProjectionMutation,
@@ -65,6 +83,7 @@ export function applyOptimisticUserPrompt(input: {
   entryId: string;
   promptText: string;
   userAttachments?: CodexTranscriptEntry["userAttachments"];
+  rawItem?: unknown;
   createdAt?: number;
 }): CodexTranscriptEntry[] {
   const createdAt = input.createdAt ?? Date.now();
@@ -84,6 +103,7 @@ export function applyOptimisticUserPrompt(input: {
       sequence: input.transcript.length,
       markdownText: input.promptText,
       userAttachments: input.userAttachments,
+      rawItem: input.rawItem,
       createdAt,
       updatedAt: createdAt,
     },

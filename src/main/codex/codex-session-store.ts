@@ -179,6 +179,28 @@ function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
 
+function extractResponseMessageText(payload: Record<string, unknown>): string {
+  if (!Array.isArray(payload.content)) return "";
+  return normalizeText(payload.content.flatMap((part): string[] => {
+    const candidate = asRecord(part);
+    return typeof candidate?.text === "string" ? [candidate.text] : [];
+  }).join("\n"));
+}
+
+function hasMatchingReplayMessage(
+  transcript: readonly CodexTranscriptEntry[],
+  turnId: string,
+  role: "user" | "assistant",
+  text: string,
+): boolean {
+  const normalizedText = normalizeText(text);
+  return transcript.some((entry) =>
+    entry.turnId === turnId
+    && entry.role === role
+    && normalizeText(entry.markdownText ?? "") === normalizedText
+  );
+}
+
 function buildReplayItemId(
   threadId: string,
   kind: "user" | "msg" | "reasoning" | "tool" | "tool-output" | "system",
@@ -423,6 +445,7 @@ function parseSessionJsonl(
 
       if (eventType === "user_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
+        if (hasMatchingReplayMessage(transcript, turn.turnId, "user", payload.message)) continue;
         const itemId = buildReplayItemId(input.threadId, "user", lineIndex);
         appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
           threadId: input.threadId,
@@ -446,6 +469,7 @@ function parseSessionJsonl(
       if (eventType === "agent_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
         const assistantPhase = typeof payload.phase === "string" ? payload.phase : null;
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
+        if (hasMatchingReplayMessage(transcript, turn.turnId, "assistant", payload.message)) continue;
         const itemId = buildReplayItemId(input.threadId, "msg", lineIndex);
         appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
           threadId: input.threadId,
@@ -502,7 +526,32 @@ function parseSessionJsonl(
     const responseType = payload.type;
     const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
 
-    if (responseType === "message") continue;
+    if (responseType === "message") {
+      const role = payload.role === "user" || payload.role === "assistant" ? payload.role : null;
+      const text = extractResponseMessageText(payload);
+      if (!role || !text || hasMatchingReplayMessage(transcript, turn.turnId, role, text)) continue;
+
+      const itemId = typeof payload.id === "string" && payload.id.trim().length > 0
+        ? payload.id
+        : buildReplayItemId(input.threadId, role === "user" ? "user" : "msg", lineIndex);
+      appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
+        threadId: input.threadId,
+        turnId: turn.turnId,
+        entryId: itemId,
+        itemId,
+        type: role === "user" ? "userMessage" : "agentMessage",
+        kind: role === "user" ? "userMessage" : "assistantMessage",
+        semanticKind: role === "user" ? "userMessage" : "assistantMessage",
+        role,
+        source: "replay",
+        markdownText: text,
+        status: "completed",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        rawItem: payload,
+      });
+      continue;
+    }
 
     if (responseType === "reasoning") {
       appendReplayReasoningSummary(
