@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render } from "../../test/dom";
 import { StageTabStrip } from "./stage-tab-strip";
 

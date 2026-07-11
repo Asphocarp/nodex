@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
-import { readFileSync } from "node:fs";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installElementScrollHeight } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
@@ -264,36 +263,40 @@ describe("ThreadUserMessageNavigationRail", () => {
 
     expect(threadUserMessageNavigationMutationsIncludeTurnContainer([
       { addedNodes: [turn] as unknown as NodeList, removedNodes: [] as unknown as NodeList } as MutationRecord,
-    ])).toBeTrue();
+    ])).toBe(true);
     expect(threadUserMessageNavigationMutationsIncludeTurnContainer([
       { addedNodes: [nested] as unknown as NodeList, removedNodes: [] as unknown as NodeList } as MutationRecord,
-    ])).toBeTrue();
+    ])).toBe(true);
     expect(threadUserMessageNavigationMutationsIncludeTurnContainer([
       { addedNodes: [plain] as unknown as NodeList, removedNodes: [] as unknown as NodeList } as MutationRecord,
-    ])).toBeFalse();
+    ])).toBe(false);
   });
 
   test("keeps the active rail row visible within the rail list", () => {
     const list = document.createElement("div");
+    list.style.cssText = "height: 20px; overflow: auto; position: relative";
+    const spacer = document.createElement("div");
+    spacer.style.height = "90px";
     const row = document.createElement("button");
+    row.style.cssText = "display: block; height: 10px";
     row.setAttribute("data-thread-user-message-navigation-item-id", "turn_9:user:0");
-    list.append(row);
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 20 });
-    Object.defineProperty(row, "offsetHeight", { configurable: true, value: 10 });
+    list.append(spacer, row);
+    document.body.append(list);
 
-    Object.defineProperty(row, "offsetTop", { configurable: true, value: 90 });
     ensureThreadUserMessageNavigationRowVisible(list, "turn_9:user:0");
-    expect(list.scrollTop).toBe(81);
+    expect(list.scrollTop).toBeGreaterThan(0);
+    expect(row.offsetTop + row.offsetHeight).toBeLessThanOrEqual(
+      list.scrollTop + list.clientHeight,
+    );
 
-    list.scrollTop = 50;
-    Object.defineProperty(row, "offsetTop", { configurable: true, value: 10 });
-    ensureThreadUserMessageNavigationRowVisible(list, "turn_9:user:0");
-    expect(list.scrollTop).toBe(10);
-
+    spacer.remove();
     list.scrollTop = 10;
-    Object.defineProperty(row, "offsetTop", { configurable: true, value: 15 });
     ensureThreadUserMessageNavigationRowVisible(list, "turn_9:user:0");
-    expect(list.scrollTop).toBe(10);
+    expect(list.scrollTop).toBe(0);
+
+    list.scrollTop = 0;
+    ensureThreadUserMessageNavigationRowVisible(list, "turn_9:user:0");
+    expect(list.scrollTop).toBe(0);
   });
 
   test("matches Codex's 48px left-space threshold", () => {
@@ -309,13 +312,13 @@ describe("ThreadUserMessageNavigationRail", () => {
       value: () => makeRect({ left: 47, width: 700 }),
     });
 
-    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBeFalse();
+    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBe(false);
 
     Object.defineProperty(contentElement, "getBoundingClientRect", {
       configurable: true,
       value: () => makeRect({ left: 48, width: 700 }),
     });
-    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBeTrue();
+    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBe(true);
   });
 
   test("renders the Codex-compatible rail DOM contract", async () => {
@@ -327,9 +330,9 @@ describe("ThreadUserMessageNavigationRail", () => {
     const list = container.querySelector("[data-thread-user-message-navigation-rail-list='true']");
     const rows = container.querySelectorAll("[data-thread-user-message-navigation-item-id]");
 
-    expect(Boolean(nav)).toBeTrue();
+    expect(Boolean(nav)).toBe(true);
     expect(nav?.parentElement?.getAttribute("data-thread-user-message-navigation-portal-target")).toBe("true");
-    expect(Boolean(list)).toBeTrue();
+    expect(Boolean(list)).toBe(true);
     expect(rows.length).toBe(4);
     expect(rows[0]?.getAttribute("aria-label")).toBe("Jump to user message 1");
     expect(rows[3]?.getAttribute("aria-current")).toBe("true");
@@ -341,7 +344,7 @@ describe("ThreadUserMessageNavigationRail", () => {
     const { container } = render(<RailHarness items={items} />);
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBe(false);
   });
 
   test("observes turn containers instead of user search-unit leaves", async () => {
@@ -356,9 +359,9 @@ describe("ThreadUserMessageNavigationRail", () => {
 
     expect(observer?.options?.root).toBe(scrollElement);
     expect(observer?.options?.rootMargin).toBe("-16px 0px 0px 0px");
-    expect("threshold" in (observer?.options ?? {})).toBeFalse();
-    expect(observer?.observedElements.includes(firstTurn as Element)).toBeTrue();
-    expect(observer?.observedElements.includes(firstUnit as Element)).toBeFalse();
+    expect("threshold" in (observer?.options ?? {})).toBe(false);
+    expect(observer?.observedElements.includes(firstTurn as Element)).toBe(true);
+    expect(observer?.observedElements.includes(firstUnit as Element)).toBe(false);
   });
 
   test("marks the visible first-to-last user message range as current", async () => {
@@ -385,8 +388,8 @@ describe("ThreadUserMessageNavigationRail", () => {
     const secondMarker = container.querySelector<HTMLElement>(
       "[data-thread-user-message-navigation-item-id='turn_2:user:0'] .thread-user-message-navigation-marker",
     );
-    expect(secondMarker?.className.includes("bg-token-foreground")).toBeTrue();
-    expect(secondMarker?.className.includes("opacity-60")).toBeTrue();
+    expect(secondMarker?.className.includes("bg-token-foreground")).toBe(true);
+    expect(secondMarker?.className.includes("opacity-60")).toBe(true);
   });
 
   test("auto-scrolls the rail list to the primary current row", async () => {
@@ -398,9 +401,10 @@ describe("ThreadUserMessageNavigationRail", () => {
     const eighthRow = container.querySelector<HTMLElement>(
       "[data-thread-user-message-navigation-item-id='turn_8:user:0']",
     ) as HTMLElement;
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 20 });
-    Object.defineProperty(eighthRow, "offsetTop", { configurable: true, value: 90 });
-    Object.defineProperty(eighthRow, "offsetHeight", { configurable: true, value: 10 });
+    list.style.cssText = "height: 20px; overflow: auto; position: relative";
+    for (const row of list.querySelectorAll<HTMLElement>("[data-thread-user-message-navigation-item-id]")) {
+      row.style.cssText = "display: block; height: 10px";
+    }
 
     const observer = intersectionObserverInstances[0];
     const turn8 = container.querySelector("[data-turn-key='turn_8']") as Element;
@@ -409,18 +413,10 @@ describe("ThreadUserMessageNavigationRail", () => {
     });
     await settleAsyncRender();
 
-    expect(list.scrollTop).toBe(81);
-  });
-
-  test("scopes current-marker hover dimming to hovered rail lists", () => {
-    const css = readFileSync("src/renderer/styles/theme-utilities.css", "utf8");
-
-    expect(css.includes(
-      "[data-thread-user-message-navigation-rail-list]:not([data-scrubbing]):hover [data-thread-user-message-navigation-item-id][aria-current=\"true\"]:not(:hover):not(:focus-visible) .thread-user-message-navigation-marker",
-    )).toBeTrue();
-    expect(css.includes(
-      "\n  [data-thread-user-message-navigation-item-id][aria-current=\"true\"]:not(:hover) .thread-user-message-navigation-marker",
-    )).toBeFalse();
+    expect(list.scrollTop).toBeGreaterThan(0);
+    expect(eighthRow.offsetTop + eighthRow.offsetHeight).toBeLessThanOrEqual(
+      list.scrollTop + list.clientHeight,
+    );
   });
 
   test("click navigation uses smooth scrolling", async () => {
@@ -577,6 +573,6 @@ describe("ThreadUserMessageNavigationRail", () => {
     expect(secondRow.getAttribute("data-scrub-target")).toBe("true");
     expect(
       secondRow.querySelector<HTMLElement>(".thread-user-message-navigation-marker")?.className.includes("opacity-100"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

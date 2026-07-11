@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   shouldRejectProjectedOwnerStructureChange,
   shouldRejectToggleListStructureChange,
@@ -24,7 +24,7 @@ describe("shouldRejectProjectedOwnerStructureChange", () => {
       },
     ];
 
-    expect(shouldRejectProjectedOwnerStructureChange(changes)).toBeTrue();
+    expect(shouldRejectProjectedOwnerStructureChange(changes)).toBe(true);
   });
 
   test("allows projected row deletion when owner is deleted in same transaction", () => {
@@ -46,7 +46,7 @@ describe("shouldRejectProjectedOwnerStructureChange", () => {
       },
     ];
 
-    expect(shouldRejectProjectedOwnerStructureChange(changes)).toBeFalse();
+    expect(shouldRejectProjectedOwnerStructureChange(changes)).toBe(false);
   });
 
   test("keeps rejecting projected insertions", () => {
@@ -61,7 +61,7 @@ describe("shouldRejectProjectedOwnerStructureChange", () => {
       },
     ];
 
-    expect(shouldRejectProjectedOwnerStructureChange(changes)).toBeTrue();
+    expect(shouldRejectProjectedOwnerStructureChange(changes)).toBe(true);
   });
 });
 
@@ -80,7 +80,7 @@ describe("shouldRejectToggleListStructureChange", () => {
       },
     ];
 
-    expect(shouldRejectToggleListStructureChange(changes)).toBeTrue();
+    expect(shouldRejectToggleListStructureChange(changes)).toBe(true);
   });
 
   test("allows structural deletion of projected rows", () => {
@@ -95,7 +95,7 @@ describe("shouldRejectToggleListStructureChange", () => {
       },
     ];
 
-    expect(shouldRejectToggleListStructureChange(changes)).toBeFalse();
+    expect(shouldRejectToggleListStructureChange(changes)).toBe(false);
   });
 
   test("rejects source card-toggle type-change updates", () => {
@@ -116,6 +116,6 @@ describe("shouldRejectToggleListStructureChange", () => {
       },
     ];
 
-    expect(shouldRejectToggleListStructureChange(changes)).toBeTrue();
+    expect(shouldRejectToggleListStructureChange(changes)).toBe(true);
   });
 });

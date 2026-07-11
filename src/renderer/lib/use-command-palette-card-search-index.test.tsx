@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { waitFor } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import type { CommandPaletteCard } from "./command-palette";
@@ -95,7 +95,7 @@ describe("useCommandPaletteCardSearchIndex", () => {
     );
 
     const firstSnapshot = snapshots[0];
-    expect(firstSnapshot === null).toBeFalse();
+    expect(firstSnapshot === null).toBe(false);
     expect(firstSnapshot?.search("handoff")[0]?.item.card.id).toBe("fast-card");
   });
 
@@ -124,7 +124,7 @@ describe("useCommandPaletteCardSearchIndex", () => {
     await settleAsyncRender();
 
     expect(view.getByText("ready").textContent).toBe("ready");
-    expect(snapshots.length > 0).toBeTrue();
-    expect(snapshots.some((entry) => entry === null)).toBeFalse();
+    expect(snapshots.length > 0).toBe(true);
+    expect(snapshots.some((entry) => entry === null)).toBe(false);
   });
 });

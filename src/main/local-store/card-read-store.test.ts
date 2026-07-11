@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -163,7 +163,7 @@ describe("authoritative Card reads", () => {
         });
         const database = getDb();
         const shadow = runLegacyCardShadowProcessorProbe(database);
-        expect(shadow.allCurrentCardsReady).toBeTrue();
+        expect(shadow.allCurrentCardsReady).toBe(true);
 
         const descriptor = getOwnedBlockDocumentDescriptor(
           database,
@@ -274,13 +274,13 @@ describe("authoritative Card reads", () => {
           expect(card?.estimate).toBe("xl");
           expect(card?.tags.join(",")).toBe("relational,fresh");
           expect(card?.assignee).toBe("Relational owner");
-          expect(card?.agentBlocked).toBeTrue();
+          expect(card?.agentBlocked).toBe(true);
           expect(card?.agentStatus).toBe("relational-agent");
           expect(card?.runInTarget).toBe("newWorktree");
         }
         expect(
           (await getCard(project.id, created.id, "done")) === null,
-        ).toBeTrue();
+        ).toBe(true);
 
         database.transaction(() => {
           rebuildCardReadModelProjection(database, project.id, [created.id]);

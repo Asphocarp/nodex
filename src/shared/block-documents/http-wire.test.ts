@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DocumentHttpWireError,
   decodeDocumentHttpEnvelope,
@@ -81,7 +81,7 @@ describe("Document HTTP binary wire", () => {
           return error instanceof DocumentHttpWireError;
         }
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("base64 conversion is byte-exact and bounded", () => {
@@ -98,7 +98,7 @@ describe("Document HTTP binary wire", () => {
     } catch (error) {
       oversized = error instanceof DocumentHttpWireError;
     }
-    expect(oversized).toBeTrue();
+    expect(oversized).toBe(true);
 
     let malformed = false;
     try {
@@ -106,6 +106,6 @@ describe("Document HTTP binary wire", () => {
     } catch (error) {
       malformed = error instanceof DocumentHttpWireError;
     }
-    expect(malformed).toBeTrue();
+    expect(malformed).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -65,7 +65,7 @@ describe("nullable card priority", () => {
       expect(card?.priority ?? null).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("clears persisted priority when updated to null", async () => {
@@ -92,7 +92,7 @@ describe("nullable card priority", () => {
       expect(row?.priority ?? null).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("redo and restore preserve cleared priority history entries", async () => {
@@ -116,7 +116,7 @@ describe("nullable card priority", () => {
       expect(clearEntry?.newValues?.priority ?? null).toBe(null);
 
       const undone = undoLatest(projectId);
-      expect(undone.success).toBeTrue();
+      expect(undone.success).toBe(true);
 
       let row = getDb().prepare("SELECT priority FROM cards WHERE id = ?").get(created.id) as
         | { priority: string | null }
@@ -124,7 +124,7 @@ describe("nullable card priority", () => {
       expect(row?.priority).toBe("p1-high");
 
       const redone = redoLatest(projectId);
-      expect(redone.success).toBeTrue();
+      expect(redone.success).toBe(true);
 
       row = getDb().prepare("SELECT priority FROM cards WHERE id = ?").get(created.id) as
         | { priority: string | null }
@@ -132,7 +132,7 @@ describe("nullable card priority", () => {
       expect(row?.priority ?? null).toBe(null);
 
       const restored = restoreToEntry(projectId, created.id, clearEntry?.id ?? -1);
-      expect(restored.success).toBeTrue();
+      expect(restored.success).toBe(true);
 
       row = getDb().prepare("SELECT priority FROM cards WHERE id = ?").get(created.id) as
         | { priority: string | null }
@@ -140,6 +140,6 @@ describe("nullable card priority", () => {
       expect(row?.priority ?? null).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

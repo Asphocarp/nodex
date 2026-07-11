@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { collectSelectedImageBlockDecorationRanges } from "./selected-image-block-decorations";
 
 describe("selected image block decorations", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_PASTE_RESOURCE_SETTINGS,
   PASTE_RESOURCE_SETTINGS_STORAGE_KEY,

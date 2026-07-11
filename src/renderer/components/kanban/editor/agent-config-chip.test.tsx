@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -50,7 +50,7 @@ describe("agent config chip helpers", () => {
 
     expect(chip.label).toBe("Plan mode");
     expect(chip.detail).toBe("GPT-5.5 · High");
-    expect(chip.invalid).toBeFalse();
+    expect(chip.invalid).toBe(false);
   });
 
   test("uses visible model display names in chip details", () => {
@@ -77,7 +77,7 @@ describe("agent config chip helpers", () => {
     expect(props.mode).toBe("planning");
     expect(props.rawAttributes).toBe('mood="plan"');
     expect(chip.label).toBe("Invalid config");
-    expect(chip.invalid).toBeTrue();
+    expect(chip.invalid).toBe(true);
   });
 
   test("field edits preserve untouched props and clear malformed metadata", () => {
@@ -128,7 +128,7 @@ describe("agent config chip popover", () => {
 
     const content = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
     expect(content).not.toBeNull();
-    expect(content?.textContent?.includes("Applies only to this prompt send.")).toBeTrue();
+    expect(content?.textContent?.includes("Applies only to this prompt send.")).toBe(true);
   });
 
   test("updates mode through the segmented control", async () => {

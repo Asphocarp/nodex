@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { APP_SHELL_RIGHT_PANEL_COMPOSER_OVERLAY_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { render } from "../../../test/dom";
@@ -30,8 +30,8 @@ describe("RightPanelComposerOverlay", () => {
     });
 
     const root = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
-    expect(root.className.includes("pointer-events-none")).toBeTrue();
-    expect(root.className.includes(APP_SHELL_RIGHT_PANEL_COMPOSER_OVERLAY_LAYER_CLASS)).toBeTrue();
+    expect(root.className.includes("pointer-events-none")).toBe(true);
+    expect(root.className.includes(APP_SHELL_RIGHT_PANEL_COMPOSER_OVERLAY_LAYER_CLASS)).toBe(true);
     expect(root.style.transform).toBe(
       "translateY(calc(118px - var(--right-panel-composer-overlay-reserve, 0px)))",
     );
@@ -42,7 +42,7 @@ describe("RightPanelComposerOverlay", () => {
     await waitFor(() => {
       expect(root.getAttribute("aria-hidden")).toBe("false");
     });
-    expect(root.querySelector(".pointer-events-auto") !== null).toBeTrue();
+    expect(root.querySelector(".pointer-events-auto") !== null).toBe(true);
   });
 
   test("guards outside pointer events with the interactive composer subtree", async () => {
@@ -105,7 +105,7 @@ describe("RightPanelComposerOverlay", () => {
     fireEvent.transitionEnd(root, { propertyName: "opacity" });
 
     await waitFor(() => {
-      expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBeTrue();
+      expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBe(true);
     });
     expect(target.style.getPropertyValue("--right-panel-composer-overlay-height")).toBe("");
     expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve")).toBe("");

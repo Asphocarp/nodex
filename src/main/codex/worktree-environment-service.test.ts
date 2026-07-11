@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,27 +62,27 @@ describe("worktree-environment-service", () => {
       expect(configs.length).toBe(3);
       expect(configs[0]?.configPath).toBe(".codex/environments/broken.toml");
       expect(configs[0]?.state).toBe("parseError");
-      expect(Boolean(configs[0]?.parseErrorMessage)).toBeTrue();
+      expect(Boolean(configs[0]?.parseErrorMessage)).toBe(true);
 
       expect(configs[1]?.configPath).toBe(".codex/environments/environment-2.toml");
       expect(configs[1]?.name).toBe("Plain");
-      expect(configs[1]?.hasSetupScript).toBeFalse();
-      expect(configs[1]?.hasCleanupScript).toBeFalse();
+      expect(configs[1]?.hasSetupScript).toBe(false);
+      expect(configs[1]?.hasCleanupScript).toBe(false);
       expect(configs[1]?.actionCount).toBe(0);
 
       expect(configs[2]?.configPath).toBe(".codex/environments/environment.toml");
       expect(configs[2]?.name).toBe("Studio");
-      expect(configs[2]?.hasSetupScript).toBeTrue();
-      expect(configs[2]?.hasCleanupScript).toBeTrue();
+      expect(configs[2]?.hasSetupScript).toBe(true);
+      expect(configs[2]?.hasCleanupScript).toBe(true);
       expect(configs[2]?.actionCount).toBe(1);
       expect(configs[2]?.environment?.setup.platformScripts.darwin).toBe("brew bundle");
       expect(configs[2]?.environment?.actions[0]?.icon).toBe("test");
 
       expect(options.length).toBe(2);
       expect(options[0]?.path).toBe(".codex/environments/environment-2.toml");
-      expect(options[0]?.hasCleanupScript).toBeFalse();
+      expect(options[0]?.hasCleanupScript).toBe(false);
       expect(options[1]?.path).toBe(".codex/environments/environment.toml");
-      expect(options[1]?.hasCleanupScript).toBeTrue();
+      expect(options[1]?.hasCleanupScript).toBe(true);
       expect(options[1]?.actionCount).toBe(1);
     } finally {
       removeWorkspace(workspacePath);
@@ -109,7 +109,7 @@ describe("worktree-environment-service", () => {
       });
 
       expect(snapshot.configPath).toBe(".codex/environments/environment.toml");
-      expect(snapshot.configExists).toBeTrue();
+      expect(snapshot.configExists).toBe(true);
       expect(snapshot.environment?.name).toBe("Preferred");
       expect(snapshot.nextConfigPath).toBe(".codex/environments/environment-3.toml");
       expect(snapshot.configs.length).toBe(2);
@@ -161,7 +161,7 @@ describe("worktree-environment-service", () => {
         },
       });
 
-      expect(savedSnapshot.configExists).toBeTrue();
+      expect(savedSnapshot.configExists).toBe(true);
       expect(savedSnapshot.environment?.name).toBe("Workbench");
       expect(savedSnapshot.environment?.setup.platformScripts.linux).toBe("sudo apt-get update");
       expect(savedSnapshot.environment?.cleanup.platformScripts.win32).toBe("git clean -fdx");
@@ -175,9 +175,9 @@ describe("worktree-environment-service", () => {
       expect(definition.setupScript).toBe("bun install");
 
       const raw = fs.readFileSync(path.join(workspacePath, ".codex", "environments", "environment.toml"), "utf8");
-      expect(raw.includes("[cleanup]")).toBeTrue();
-      expect(raw.includes("[[actions]]")).toBeTrue();
-      expect(raw.includes('icon = "debug"')).toBeTrue();
+      expect(raw.includes("[cleanup]")).toBe(true);
+      expect(raw.includes("[[actions]]")).toBe(true);
+      expect(raw.includes('icon = "debug"')).toBe(true);
     } finally {
       removeWorkspace(workspacePath);
     }
@@ -213,8 +213,8 @@ describe("worktree-environment-service", () => {
       ],
     });
 
-    expect(serialized.includes('name = "Run tests"')).toBeTrue();
-    expect(serialized.includes('icon = "tool"')).toBeFalse();
+    expect(serialized.includes('name = "Run tests"')).toBe(true);
+    expect(serialized.includes('icon = "tool"')).toBe(false);
 
     const workspacePath = createWorkspace();
     try {
@@ -228,10 +228,10 @@ describe("worktree-environment-service", () => {
       } catch (error) {
         failed = true;
         const message = error instanceof Error ? error.message : String(error);
-        expect(message.includes("inside .codex/environments")).toBeTrue();
+        expect(message.includes("inside .codex/environments")).toBe(true);
       }
 
-      expect(failed).toBeTrue();
+      expect(failed).toBe(true);
     } finally {
       removeWorkspace(workspacePath);
     }

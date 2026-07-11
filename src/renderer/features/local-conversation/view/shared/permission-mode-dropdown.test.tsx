@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render } from "@/test/dom";
@@ -32,17 +32,17 @@ describe("permission mode dropdown", () => {
       );
     });
 
-    expect(view.getByLabelText("Permission mode").textContent?.includes("Approve for me")).toBeTrue();
+    expect(view.getByLabelText("Permission mode").textContent?.includes("Approve for me")).toBe(true);
 
     await openPermissionMenu(view);
 
     const bodyText = view.container.ownerDocument.body.textContent ?? "";
-    expect(bodyText.includes("How should Codex actions be approved?")).toBeTrue();
-    expect(bodyText.includes("Ask for approval")).toBeTrue();
-    expect(bodyText.includes("Always ask to edit external files and use the internet")).toBeTrue();
-    expect(bodyText.includes("Approve for me")).toBeTrue();
-    expect(bodyText.includes("Only ask for actions detected as potentially unsafe")).toBeTrue();
-    expect(bodyText.includes("Guardian approvals")).toBeFalse();
+    expect(bodyText.includes("How should Codex actions be approved?")).toBe(true);
+    expect(bodyText.includes("Ask for approval")).toBe(true);
+    expect(bodyText.includes("Always ask to edit external files and use the internet")).toBe(true);
+    expect(bodyText.includes("Approve for me")).toBe(true);
+    expect(bodyText.includes("Only ask for actions detected as potentially unsafe")).toBe(true);
+    expect(bodyText.includes("Guardian approvals")).toBe(false);
   });
 
   test("does not select Approve for me when it is unavailable", async () => {
@@ -68,8 +68,8 @@ describe("permission mode dropdown", () => {
     await openPermissionMenu(view);
 
     const autoReviewItem = view.getByText("Approve for me");
-    expect(autoReviewItem.closest("[data-disabled]") !== null).toBeTrue();
-    expect((view.container.ownerDocument.body.textContent ?? "").includes("Requires default sandboxed permissions in this workspace")).toBeTrue();
+    expect(autoReviewItem.closest("[data-disabled]") !== null).toBe(true);
+    expect((view.container.ownerDocument.body.textContent ?? "").includes("Requires default sandboxed permissions in this workspace")).toBe(true);
 
     await act(async () => {
       fireEvent.click(autoReviewItem);
@@ -102,7 +102,7 @@ describe("permission mode dropdown", () => {
     await openPermissionMenu(defaultView);
 
     const unavailableCustomItem = defaultView.getByText("Custom (config.toml)");
-    expect(unavailableCustomItem.closest("[data-disabled]") !== null).toBeTrue();
+    expect(unavailableCustomItem.closest("[data-disabled]") !== null).toBe(true);
 
     await act(async () => {
       fireEvent.click(unavailableCustomItem);
@@ -128,7 +128,7 @@ describe("permission mode dropdown", () => {
     });
     await openPermissionMenu(customView);
 
-    expect((customView.container.ownerDocument.body.textContent ?? "").includes("Custom (config.toml)")).toBeTrue();
+    expect((customView.container.ownerDocument.body.textContent ?? "").includes("Custom (config.toml)")).toBe(true);
   });
 
   test("selects Custom when it is available", async () => {
@@ -153,7 +153,7 @@ describe("permission mode dropdown", () => {
     await openPermissionMenu(view);
 
     const customItem = view.getByText("Custom (config.toml)");
-    expect(customItem.closest("[data-disabled]") === null).toBeTrue();
+    expect(customItem.closest("[data-disabled]") === null).toBe(true);
 
     await act(async () => {
       fireEvent.click(customItem);
@@ -199,7 +199,7 @@ describe("permission mode dropdown", () => {
         await Promise.resolve();
       });
 
-      expect(confirmCalled).toBeFalse();
+      expect(confirmCalled).toBe(false);
       expect(selectedMode).toBe("full-access");
     } finally {
       globalThis.confirm = originalConfirm;

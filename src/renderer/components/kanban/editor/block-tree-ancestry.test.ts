@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { isBlockWithinOwnerTree } from "./block-tree-ancestry";
 
 describe("Block tree ancestry", () => {
@@ -8,9 +8,9 @@ describe("Block tree ancestry", () => {
       ["nested", { id: "owner" }],
     ]);
     expect(isBlockWithinOwnerTree((id) => parents.get(id), "owner", "leaf"))
-      .toBeTrue();
+      .toBe(true);
     expect(isBlockWithinOwnerTree((id) => parents.get(id), "other", "leaf"))
-      .toBeFalse();
+      .toBe(false);
   });
 
   test("fails closed for malformed ancestry cycles", () => {
@@ -19,6 +19,6 @@ describe("Block tree ancestry", () => {
       ["b", { id: "a" }],
     ]);
     expect(isBlockWithinOwnerTree((id) => parents.get(id), "owner", "a"))
-      .toBeFalse();
+      .toBe(false);
   });
 });

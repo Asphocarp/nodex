@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render, textContent } from "../../../test/dom";
 
 describe("card stage raw content", () => {
@@ -10,7 +10,7 @@ describe("card stage raw content", () => {
 
     expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(getByText("Read-only").textContent).toBe("Read-only");
-    expect(textContent(container).includes('<image source="nodex://assets/demo.png" />')).toBeTrue();
+    expect(textContent(container).includes('<image source="nodex://assets/demo.png" />')).toBe(true);
   });
 
   test("renders an empty-state hint when the description is blank", async () => {

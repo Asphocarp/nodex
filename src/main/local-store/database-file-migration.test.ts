@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -22,9 +22,9 @@ describe("legacy database filename migration", () => {
 
       migrateLegacyDatabaseFileName(localStoreDir);
 
-      expect(fs.existsSync(path.join(localStoreDir, "kanban.db"))).toBeFalse();
-      expect(fs.existsSync(path.join(localStoreDir, "kanban.db-wal"))).toBeFalse();
-      expect(fs.existsSync(path.join(localStoreDir, "kanban.db-shm"))).toBeFalse();
+      expect(fs.existsSync(path.join(localStoreDir, "kanban.db"))).toBe(false);
+      expect(fs.existsSync(path.join(localStoreDir, "kanban.db-wal"))).toBe(false);
+      expect(fs.existsSync(path.join(localStoreDir, "kanban.db-shm"))).toBe(false);
       expect(fs.readFileSync(path.join(localStoreDir, "nodex.db"), "utf8")).toBe("primary");
       expect(fs.readFileSync(path.join(localStoreDir, "nodex.db-wal"), "utf8")).toBe("wal");
       expect(fs.readFileSync(path.join(localStoreDir, "nodex.db-shm"), "utf8")).toBe("shm");
@@ -51,7 +51,7 @@ describe("legacy database filename migration", () => {
 
       migrateLegacyDatabaseFileName(localStoreDir);
 
-      expect(fs.existsSync(path.join(localStoreDir, "nodex.db"))).toBeFalse();
+      expect(fs.existsSync(path.join(localStoreDir, "nodex.db"))).toBe(false);
       expect(fs.readFileSync(path.join(localStoreDir, "kanban.db"), "utf8")).toBe("legacy-primary");
       expect(fs.readFileSync(path.join(localStoreDir, "kanban.db-wal"), "utf8")).toBe("legacy-wal");
       expect(fs.readFileSync(path.join(localStoreDir, "nodex.db-wal"), "utf8")).toBe("current-wal");

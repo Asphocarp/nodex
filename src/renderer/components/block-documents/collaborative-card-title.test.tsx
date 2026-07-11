@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { render } from "@/test/dom";
 import { CollaborativeCardTitle } from "./collaborative-card-title";
@@ -163,7 +163,7 @@ describe("CollaborativeCardTitle", () => {
       await Promise.resolve();
     });
 
-    expect(wasNotCancelled).toBeTrue();
+    expect(wasNotCancelled).toBe(true);
     expect(forwardedKeyDownCount).toBe(0);
     document.destroy();
   });
@@ -212,7 +212,7 @@ describe("CollaborativeCardTitle", () => {
       await Promise.resolve();
     });
 
-    expect(externalRef.current === input).toBeTrue();
+    expect(externalRef.current === input).toBe(true);
     expect(input.value).toBe("Remote Hello world");
     expect(input.selectionStart).toBe(13);
     expect(input.selectionEnd).toBe(18);
@@ -256,19 +256,19 @@ describe("CollaborativeCardTitle", () => {
     });
 
     expect(first.title.toString()).toBe("First draft");
-    expect(firstInput.disabled).toBeTrue();
-    expect(firstInput.ownerDocument.activeElement === firstInput).toBeFalse();
+    expect(firstInput.disabled).toBe(true);
+    expect(firstInput.ownerDocument.activeElement === firstInput).toBe(false);
 
     secondInput.focus();
     await act(async () => {
       await firstFence.prepare();
     });
-    expect(secondInput.ownerDocument.activeElement === secondInput).toBeTrue();
+    expect(secondInput.ownerDocument.activeElement === secondInput).toBe(true);
     await act(async () => {
       firstFence.setFrozen(false);
       await Promise.resolve();
     });
-    expect(firstInput.disabled).toBeFalse();
+    expect(firstInput.disabled).toBe(false);
     first.document.destroy();
     second.document.destroy();
   });

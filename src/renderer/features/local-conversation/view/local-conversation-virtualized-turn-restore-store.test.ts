@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import {
   clearLocalConversationVirtualizedTurnRestoreSnapshotsForTests,
   readLocalConversationVirtualizedTurnRestoreSnapshot,
@@ -42,7 +42,7 @@ describe("local conversation virtualized turn restore store", () => {
       });
     }
 
-    expect(readLocalConversationVirtualizedTurnRestoreSnapshot("thread_1") === null).toBeTrue();
+    expect(readLocalConversationVirtualizedTurnRestoreSnapshot("thread_1") === null).toBe(true);
     expect(
       readLocalConversationVirtualizedTurnRestoreSnapshot("thread_51")?.distanceFromBottomPx ?? 0,
     ).toBe(51);

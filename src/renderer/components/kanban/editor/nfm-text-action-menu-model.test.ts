@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   isBlockLevelSelection,
   resolveNodexTextActionRows,
@@ -14,7 +14,7 @@ describe("nfm text action menu model", () => {
       selectedTextLength: 5,
       selectionFrom: 3,
       selectionTo: 8,
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(shouldUseTextActionMenu({
       isEditable: true,
@@ -23,7 +23,7 @@ describe("nfm text action menu model", () => {
       selectedTextLength: 0,
       selectionFrom: 3,
       selectionTo: 3,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(shouldUseTextActionMenu({
       isEditable: true,
@@ -32,7 +32,7 @@ describe("nfm text action menu model", () => {
       selectedTextLength: 0,
       selectionFrom: 3,
       selectionTo: 8,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(shouldUseTextActionMenu({
       isEditable: true,
@@ -41,7 +41,7 @@ describe("nfm text action menu model", () => {
       selectedTextLength: 5,
       selectionFrom: 3,
       selectionTo: 8,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(shouldUseTextActionMenu({
       isEditable: true,
@@ -51,13 +51,13 @@ describe("nfm text action menu model", () => {
       selectedTextLength: 5,
       selectionFrom: 3,
       selectionTo: 8,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("recognizes ProseMirror block-level selections", () => {
-    expect(isBlockLevelSelection({ node: { attrs: { id: "single" } } })).toBeTrue();
-    expect(isBlockLevelSelection({ nodes: [{ attrs: { id: "a" } }] })).toBeTrue();
-    expect(isBlockLevelSelection({ from: 1, to: 2 })).toBeFalse();
+    expect(isBlockLevelSelection({ node: { attrs: { id: "single" } } })).toBe(true);
+    expect(isBlockLevelSelection({ nodes: [{ attrs: { id: "a" } }] })).toBe(true);
+    expect(isBlockLevelSelection({ from: 1, to: 2 })).toBe(false);
   });
 
   test("omits Nodex rows when no current block can anchor the action", () => {

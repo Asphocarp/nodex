@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { mapCardToDroppedCardToggleBlock } from "./card-drop-toggle-mapper";
 import { parseCardToggleSnapshot } from "./card-toggle-snapshot";
 
@@ -37,7 +37,7 @@ describe("card drop toggle mapper", () => {
     expect(block.props.sourceStatus).toBe("in_progress");
     expect(block.props.sourceStatusName).toBe("In Progress");
     expect(typeof block.props.snapshot).toBe("string");
-    expect(block.props.snapshot.length > 0).toBeTrue();
+    expect(block.props.snapshot.length > 0).toBe(true);
   });
 
   test("preserves description blocks as cardToggle children", () => {
@@ -48,8 +48,8 @@ describe("card drop toggle mapper", () => {
       "In Progress",
     );
 
-    expect(Array.isArray(block.children)).toBeTrue();
-    expect(block.children.length > 0).toBeTrue();
+    expect(Array.isArray(block.children)).toBe(true);
+    expect(block.children.length > 0).toBe(true);
   });
 
   test("captures scheduled fields in the snapshot payload", () => {
@@ -63,6 +63,6 @@ describe("card drop toggle mapper", () => {
 
     expect(parsed?.card?.scheduledStart).toBe("2026-02-14T09:00:00.000Z");
     expect(parsed?.card?.scheduledEnd).toBe("2026-02-14T10:30:00.000Z");
-    expect(parsed?.card?.isAllDay).toBeTrue();
+    expect(parsed?.card?.isAllDay).toBe(true);
   });
 });

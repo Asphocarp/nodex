@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -225,7 +225,7 @@ describe("additional registered document-bearing Blocks", () => {
             ]),
           ],
         });
-        expect(source.duplicate).toBeFalse();
+        expect(source.duplicate).toBe(false);
         const summary = getDocumentBearingBlockSummary(
           database,
           projectId,
@@ -250,7 +250,7 @@ describe("additional registered document-bearing Blocks", () => {
             ]),
           ],
         });
-        expect(retry.duplicate).toBeTrue();
+        expect(retry.duplicate).toBe(true);
 
         createReusableTemplateReference(database, {
           version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
@@ -297,12 +297,12 @@ describe("additional registered document-bearing Blocks", () => {
           expectedTargetGeneration: 1,
           expectedTargetHeadSeq: 2,
         });
-        expect(instantiated.duplicate).toBeFalse();
+        expect(instantiated.duplicate).toBe(false);
         const host = readMaterialization(database, "document:template-host");
         const instance = host.blockTree[2];
         expect(instance?.type).toBe("paragraph");
-        expect(instance?.id === "template-root").toBeFalse();
-        expect(instance?.children[0]?.id === "template-child").toBeFalse();
+        expect(instance?.id === "template-root").toBe(false);
+        expect(instance?.children[0]?.id === "template-child").toBe(false);
         const sourceAfter = readMaterialization(
           database,
           "document:template-source",
@@ -354,12 +354,12 @@ describe("additional registered document-bearing Blocks", () => {
             expectedHostHeadSeq: 1,
           },
         });
-        expect(largeDocument.duplicate).toBeFalse();
+        expect(largeDocument.duplicate).toBe(false);
         const host = readMaterialization(database, "document:large-host");
         expect(host.blockTree[1]?.id).toBe("large:document");
         expect(host.blockTree[1]?.type).toBe(LARGE_DOCUMENT_BLOCK_TYPE);
         expect(host.blockTree[1]?.children.length).toBe(0);
-        expect(host.plainText.includes("Independent body")).toBeFalse();
+        expect(host.plainText.includes("Independent body")).toBe(false);
         const shellRegistry = database
           .prepare(
             `
@@ -448,12 +448,12 @@ describe("additional registered document-bearing Blocks", () => {
             },
           ],
         });
-        expect(manufactured.ok).toBeFalse();
+        expect(manufactured.ok).toBe(false);
         expect(
           database
             .prepare("SELECT 1 AS present FROM blocks WHERE id = 'large:forged'")
             .get() === undefined,
-        ).toBeTrue();
+        ).toBe(true);
 
         createExplicitDocumentBearingBlock(database, {
           version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
@@ -501,7 +501,7 @@ describe("additional registered document-bearing Blocks", () => {
         } finally {
           loaded.document.destroy();
         }
-        expect(error instanceof BlockDocumentStoreError).toBeTrue();
+        expect(error instanceof BlockDocumentStoreError).toBe(true);
         expect(
           readMaterialization(database, "document:strict-code").blockTree[0]
             ?.type,
@@ -550,19 +550,19 @@ describe("additional registered document-bearing Blocks", () => {
       } catch (caught) {
         error = caught;
       }
-      expect(error instanceof Error).toBeTrue();
+      expect(error instanceof Error).toBe(true);
       expect(
         database
           .prepare("SELECT 1 AS present FROM blocks WHERE id = 'large:fault'")
           .get() === undefined,
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         database
           .prepare(
             "SELECT 1 AS present FROM documents WHERE id = 'document:large-fault'",
           )
           .get() === undefined,
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         readMaterialization(database, "document:fault-host").blockTree.length,
       ).toBe(1);
@@ -602,7 +602,7 @@ describe("additional registered document-bearing Blocks", () => {
       } catch (caught) {
         error = caught;
       }
-      expect(error instanceof AdditionalDocumentBearingBlockError).toBeTrue();
+      expect(error instanceof AdditionalDocumentBearingBlockError).toBe(true);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   insertCardTogglesAtPointer,
   insertCardToggleAtPointer,
@@ -108,8 +108,8 @@ describe("card drop insert", () => {
       { id: "new-2", type: "cardToggle" },
     );
 
-    expect(insertedAtTop).toBeTrue();
-    expect(insertedAtBottom).toBeTrue();
+    expect(insertedAtTop).toBe(true);
+    expect(insertedAtBottom).toBe(true);
     expect(JSON.stringify(editor.insertCalls[0])).toBe(
       JSON.stringify({ reference: "target", placement: "before" }),
     );
@@ -129,7 +129,7 @@ describe("card drop insert", () => {
       { id: "new", type: "cardToggle" },
     );
 
-    expect(inserted).toBeTrue();
+    expect(inserted).toBe(true);
     expect(editor.replaceCalls.length).toBe(1);
   });
 
@@ -146,7 +146,7 @@ describe("card drop insert", () => {
       { inlineOnly: true },
     );
 
-    expect(inserted).toBeTrue();
+    expect(inserted).toBe(true);
     expect(editor.replaceCalls.length).toBe(1);
   });
 
@@ -165,7 +165,7 @@ describe("card drop insert", () => {
       ],
     );
 
-    expect(inserted).toBeTrue();
+    expect(inserted).toBe(true);
     expect(editor.insertCalls.length).toBe(1);
     expect(JSON.stringify(editor.insertCalls[0])).toBe(
       JSON.stringify({ reference: "target", placement: "before" }),

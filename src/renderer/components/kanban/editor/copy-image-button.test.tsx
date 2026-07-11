@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../../test/dom";
 import {
@@ -11,7 +11,7 @@ let copyResult:
   | { ok: false; message: string } = { ok: true };
 let focusCalls = 0;
 
-mock.module("./copy-image-button-deps", () => ({
+vi.mock("./copy-image-button-deps", () => ({
   useBlockNoteEditor: () => ({
     focus: () => {
       focusCalls += 1;
@@ -68,7 +68,7 @@ describe("CopyImageButton", () => {
     await settleAsyncRender();
 
     expect(focusCalls).toBe(1);
-    expect(Boolean(view.baseElement.textContent?.includes("Copied image to clipboard."))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Copied image to clipboard."))).toBe(true);
   });
 
   test("shows a global danger toast when native image copy fails", async () => {
@@ -88,6 +88,6 @@ describe("CopyImageButton", () => {
     await settleAsyncRender();
 
     expect(focusCalls).toBe(0);
-    expect(Boolean(view.baseElement.textContent?.includes("Could not load the image file."))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Could not load the image file."))).toBe(true);
   });
 });

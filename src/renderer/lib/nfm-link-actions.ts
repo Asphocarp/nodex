@@ -25,6 +25,11 @@ export type NfmResolvedLinkAction =
   | { kind: "unresolved-file-like"; href: string; reason: string }
   | { kind: "blocked"; href: string; reason: string };
 
+export interface NfmLinkNavigation {
+  assign: (href: string) => void;
+  open: (url: string, target: string, features: string) => void;
+}
+
 function hasExplicitProtocol(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(value);
 }
@@ -241,18 +246,24 @@ export async function openNfmResolvedLinkAction(
   action: NfmResolvedLinkAction,
   opener: FileLinkOpenerId = readFileLinkOpener(),
   invokeImpl: typeof invoke = invoke,
+  navigation: NfmLinkNavigation = {
+    assign: (href) => window.location.assign(href),
+    open: (url, target, features) => {
+      window.open(url, target, features);
+    },
+  },
 ): Promise<boolean> {
   if (action.kind === "blocked" || action.kind === "unresolved-file-like") {
     return false;
   }
 
   if (action.kind === "web-url") {
-    window.open(action.url, "_blank", "noopener,noreferrer");
+    navigation.open(action.url, "_blank", "noopener,noreferrer");
     return true;
   }
 
   if (action.kind === "literal-anchor") {
-    window.location.assign(action.href);
+    navigation.assign(action.href);
     return true;
   }
 
@@ -263,6 +274,6 @@ export async function openNfmResolvedLinkAction(
     // Fall through to file URL handoff below.
   }
 
-  window.open(buildFileUrl(action.target), "_blank", "noopener,noreferrer");
+  navigation.open(buildFileUrl(action.target), "_blank", "noopener,noreferrer");
   return true;
 }

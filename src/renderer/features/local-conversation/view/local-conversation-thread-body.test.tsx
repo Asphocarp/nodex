@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
@@ -399,7 +399,7 @@ describe("LocalConversationThreadBody", () => {
 
     expect(
       Boolean(container.querySelector('input[aria-label="Find in thread"]')),
-    ).toBeFalse();
+    ).toBe(false);
 
     rerender(
       <TooltipProvider>
@@ -415,7 +415,7 @@ describe("LocalConversationThreadBody", () => {
     await settleAsyncRender();
     expect(
       Boolean(container.querySelector('input[aria-label="Find in thread"]')),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("opens a side chat draft from selected transcript text", async () => {
@@ -452,7 +452,7 @@ describe("LocalConversationThreadBody", () => {
     });
 
     await waitFor(() => {
-      expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBeTrue();
+      expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBe(true);
     });
 
     fireEvent.mouseDown(view.getByLabelText("Ask in side chat"));
@@ -499,7 +499,7 @@ describe("LocalConversationThreadBody", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBeFalse();
+    expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBe(false);
   });
 
   test("repositions the selected text side chat overlay after scroll remeasurement", async () => {
@@ -535,7 +535,7 @@ describe("LocalConversationThreadBody", () => {
 
     const overlay = await waitFor(() => {
       const currentOverlay = view.container.querySelector<HTMLElement>("[data-selected-text-side-chat-overlay='true']");
-      expect(Boolean(currentOverlay)).toBeTrue();
+      expect(Boolean(currentOverlay)).toBe(true);
       return currentOverlay;
     });
     expect(overlay?.style.left).toBe("220px");
@@ -615,14 +615,14 @@ describe("LocalConversationThreadBody", () => {
     const motionWrapper = viewport?.firstElementChild as HTMLDivElement | null;
     const widthWrapper = motionWrapper?.firstElementChild as HTMLDivElement | null;
 
-    expect(Boolean(viewport)).toBeTrue();
-    expect(navigationPortalTarget?.contains(viewport)).toBeTrue();
+    expect(Boolean(viewport)).toBe(true);
+    expect(navigationPortalTarget?.contains(viewport)).toBe(true);
 
-    expect(Boolean(motionWrapper)).toBeTrue();
-    expect(Boolean(widthWrapper)).toBeTrue();
-    expect(widthWrapper?.contains(contentRoot)).toBeTrue();
+    expect(Boolean(motionWrapper)).toBe(true);
+    expect(Boolean(widthWrapper)).toBe(true);
+    expect(widthWrapper?.contains(contentRoot)).toBe(true);
 
-    expect(Boolean(contentRoot)).toBeTrue();
+    expect(Boolean(contentRoot)).toBe(true);
   });
 
   test("lazy-renders the user message navigation rail after idle for long threads", async () => {
@@ -640,13 +640,13 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBe(false);
     await flushIdleCallbacks();
     await settleAsyncRender();
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeTrue();
+      expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBe(true);
     });
   });
 
@@ -667,7 +667,7 @@ describe("LocalConversationThreadBody", () => {
     await flushIdleCallbacks();
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBe(false);
   });
 
   test("shows a restoring placeholder instead of rendering turn content while the active thread is resuming", async () => {
@@ -707,8 +707,8 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByRole("status", { name: /Restoring thread/i }))).toBeTrue();
-    expect(Boolean(queryByText("Assistant message"))).toBeFalse();
+    expect(Boolean(getByRole("status", { name: /Restoring thread/i }))).toBe(true);
+    expect(Boolean(queryByText("Assistant message"))).toBe(false);
   });
 
   test("keeps local-project thread start progress silent in the body", async () => {
@@ -733,11 +733,11 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(queryByText("Sending message…"))).toBeFalse();
-    expect(Boolean(queryByText("Message sent."))).toBeFalse();
-    expect(Boolean(queryByText("Worktree"))).toBeFalse();
-    expect(Boolean(queryByText("Setup"))).toBeFalse();
-    expect(Boolean(queryByText("No messages yet"))).toBeFalse();
+    expect(Boolean(queryByText("Sending message…"))).toBe(false);
+    expect(Boolean(queryByText("Message sent."))).toBe(false);
+    expect(Boolean(queryByText("Worktree"))).toBe(false);
+    expect(Boolean(queryByText("Setup"))).toBe(false);
+    expect(Boolean(queryByText("No messages yet"))).toBe(false);
   });
 
   test("renders local-project thread start failures without worktree steps", async () => {
@@ -762,10 +762,10 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByText("Message could not be sent."))).toBeTrue();
-    expect(Boolean(getByText("network failed"))).toBeTrue();
-    expect(Boolean(queryByText("Worktree"))).toBeFalse();
-    expect(Boolean(queryByText("Setup"))).toBeFalse();
+    expect(Boolean(getByText("Message could not be sent."))).toBe(true);
+    expect(Boolean(getByText("network failed"))).toBe(true);
+    expect(Boolean(queryByText("Worktree"))).toBe(false);
+    expect(Boolean(queryByText("Setup"))).toBe(false);
   });
 
   test("keeps the new-worktree start progress steps and log output", async () => {
@@ -790,10 +790,10 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByText("Worktree"))).toBeTrue();
-    expect(Boolean(getByText("Setup"))).toBeTrue();
-    expect(Boolean(getByText("Thread"))).toBeTrue();
-    expect(Boolean(getByText("setup log"))).toBeTrue();
+    expect(Boolean(getByText("Worktree"))).toBe(true);
+    expect(Boolean(getByText("Setup"))).toBe(true);
+    expect(Boolean(getByText("Thread"))).toBe(true);
+    expect(Boolean(getByText("setup log"))).toBe(true);
   });
 
   test("shows archived thread restore action without rendering transcript content", async () => {
@@ -818,8 +818,8 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(queryByText("Assistant message"))).toBeFalse();
-    expect(Boolean(queryByText("Archived thread"))).toBeTrue();
+    expect(Boolean(queryByText("Assistant message"))).toBe(false);
+    expect(Boolean(queryByText("Archived thread"))).toBe(true);
 
     fireEvent.click(getByRole("button", { name: "Restore" }));
     await settleAsyncRender();
@@ -887,7 +887,7 @@ describe("LocalConversationThreadBody", () => {
 
     fireEvent.click(getAllByLabelText("Fork from this point")[0]!);
     await settleAsyncRender();
-    expect(Boolean(queryByText("Fork thread"))).toBeTrue();
+    expect(Boolean(queryByText("Fork thread"))).toBe(true);
 
     fireEvent.click(getByText("Fork thread"));
     await settleAsyncRender();
@@ -927,7 +927,7 @@ describe("LocalConversationThreadBody", () => {
     fireEvent.click(getByRole("button", { name: "Send" }));
     await settleAsyncRender();
 
-    expect(Boolean(queryByDisplayValue("run `bun test --bail`"))).toBeFalse();
+    expect(Boolean(queryByDisplayValue("run `bun test --bail`"))).toBe(false);
     expect(onEditLastUserTurnCalls.length).toBe(1);
     expect(onEditLastUserTurnCalls[0]?.message).toBe("run `bun test --bail`");
   });
@@ -981,8 +981,8 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByRole("button", { name: /Worked for 2m 5s/i }))).toBeTrue();
-    expect(Boolean(queryByText("Working"))).toBeFalse();
+    expect(Boolean(getByRole("button", { name: /Worked for 2m 5s/i }))).toBe(true);
+    expect(Boolean(queryByText("Working"))).toBe(false);
   });
 
   test("defers mounting long threads before rendering the virtualized transcript", async () => {
@@ -1023,8 +1023,8 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(queryByText("Assistant turn 40"))).toBeFalse();
+    expect(Boolean(queryByText("Assistant turn 40"))).toBe(false);
     await settleAsyncRender();
-    expect(Boolean(queryByText("Assistant turn 40"))).toBeTrue();
+    expect(Boolean(queryByText("Assistant turn 40"))).toBe(true);
   });
 });

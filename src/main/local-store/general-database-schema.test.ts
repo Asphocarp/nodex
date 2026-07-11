@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -138,16 +138,16 @@ describe("general Database schema v67", () => {
           columns(database, "database_capabilities").includes(
             "schema_revision",
           ),
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           columns(database, "database_memberships").includes("revision"),
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           columns(database, "database_views").includes("lifecycle"),
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           columns(database, "database_view_positions").includes("revision"),
-        ).toBeTrue();
+        ).toBe(true);
         const propertySql = database
           .prepare(
             "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'database_properties'",
@@ -155,7 +155,7 @@ describe("general Database schema v67", () => {
           .get() as { readonly sql: string };
         expect(
           propertySql.sql.includes("'text', 'number', 'checkbox'"),
-        ).toBeTrue();
+        ).toBe(true);
         expect(JSON.stringify(database.pragma("foreign_key_check"))).toBe("[]");
         expect(
           (
@@ -188,9 +188,9 @@ describe("general Database schema v67", () => {
         );
         expect(
           config.group?.propertyId.endsWith(":property:status") ?? false,
-        ).toBeTrue();
-        expect(/^[0-9a-f]{32}$/.test(primary.rank_key)).toBeTrue();
-        expect(/^[0-9a-f]{32}$/.test(primary.placement_rank)).toBeTrue();
+        ).toBe(true);
+        expect(/^[0-9a-f]{32}$/.test(primary.rank_key)).toBe(true);
+        expect(/^[0-9a-f]{32}$/.test(primary.placement_rank)).toBe(true);
       } finally {
         database.close();
       }
@@ -242,7 +242,7 @@ describe("general Database schema v67", () => {
           [row.rank_key, row.placement_rank, row.status_rank].every((rank) =>
             /^[0-9a-f]{32}$/.test(rank),
           ),
-        ).toBeTrue();
+        ).toBe(true);
         closeDatabase();
       });
     },
@@ -334,7 +334,7 @@ describe("general Database schema v67", () => {
             expect(
               migrated.pragma("user_version", { simple: true }) as number,
             ).toBe(CURRENT_SCHEMA_VERSION);
-            expect(schemaHasTemporaryReference(migrated)).toBeFalse();
+            expect(schemaHasTemporaryReference(migrated)).toBe(false);
             expect(JSON.stringify(migrated.pragma("foreign_key_check"))).toBe(
               "[]",
             );
@@ -352,7 +352,7 @@ describe("general Database schema v67", () => {
               .all() as Array<{ readonly rank_key: string }>;
             expect(
               ranks.every((row) => /^[0-9a-f]{32}$/.test(row.rank_key)),
-            ).toBeTrue();
+            ).toBe(true);
             const primaryConfig = migrated
               .prepare(
                 `
@@ -372,7 +372,7 @@ describe("general Database schema v67", () => {
               parseGeneralDatabaseViewConfig(
                 JSON.parse(primaryConfig.config_json),
               ).group?.propertyId.endsWith(":property:status") ?? false,
-            ).toBeTrue();
+            ).toBe(true);
             const migratedTags = migrated
               .prepare(
                 `
@@ -424,7 +424,7 @@ describe("general Database schema v67", () => {
             } catch {
               genericQueryFailed = true;
             }
-            expect(genericQueryFailed).toBeTrue();
+            expect(genericQueryFailed).toBe(true);
           } finally {
             migrated.close();
           }
@@ -475,7 +475,7 @@ describe("general Database schema v67", () => {
             failed = true;
           }
           closeDatabase();
-          expect(failed).toBeTrue();
+          expect(failed).toBe(true);
           const rolledBack = new Database(databasePath);
           try {
             expect(
@@ -483,11 +483,11 @@ describe("general Database schema v67", () => {
             ).toBe(66);
             expect(
               columns(rolledBack, "database_capabilities").includes("name"),
-            ).toBeFalse();
+            ).toBe(false);
             expect(
               columns(rolledBack, "database_views").includes("lifecycle"),
-            ).toBeFalse();
-            expect(schemaHasTemporaryReference(rolledBack)).toBeFalse();
+            ).toBe(false);
+            expect(schemaHasTemporaryReference(rolledBack)).toBe(false);
             expect(
               (
                 rolledBack.pragma("integrity_check") as Array<{

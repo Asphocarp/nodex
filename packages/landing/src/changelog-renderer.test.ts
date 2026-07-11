@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 
 import { parseChangelog, renderChangelogHtml } from "./changelog-renderer";
 
@@ -37,8 +37,8 @@ test("parseChangelog keeps Unreleased first and labels it as in development", ()
 
   const html = renderChangelogHtml(sampleChangelog);
 
-  expect(html.includes("<h2>Unreleased</h2>")).toBeTrue();
-  expect(html.includes("<p>In development</p>")).toBeTrue();
+  expect(html.includes("<h2>Unreleased</h2>")).toBe(true);
+  expect(html.includes("<p>In development</p>")).toBe(true);
 });
 
 test("parseChangelog renders dated releases with categories and bullets", () => {
@@ -55,15 +55,15 @@ test("parseChangelog renders dated releases with categories and bullets", () => 
 test("renderChangelogHtml omits empty category sections", () => {
   const html = renderChangelogHtml(sampleChangelog);
 
-  expect(html.includes("<h3>Changed</h3>")).toBeFalse();
+  expect(html.includes("<h3>Changed</h3>")).toBe(false);
 });
 
 test("renderChangelogHtml escapes html and preserves inline code", () => {
   const html = renderChangelogHtml(sampleChangelog);
 
-  expect(html.includes("<code>bun run release</code>")).toBeTrue();
-  expect(html.includes("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;")).toBeTrue();
-  expect(html.includes("<script>alert")).toBeFalse();
+  expect(html.includes("<code>bun run release</code>")).toBe(true);
+  expect(html.includes("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;")).toBe(true);
+  expect(html.includes("<script>alert")).toBe(false);
 });
 
 test("renderChangelogHtml preserves code spans that contain backticks", () => {
@@ -75,8 +75,8 @@ test("renderChangelogHtml preserves code spans that contain backticks", () => {
 - Fixed default code export as \` \`\`\`text\`.
 `);
 
-  expect(html.includes("<code> ```text</code>")).toBeTrue();
-  expect(html.includes("<code> </code>`<code>text</code>")).toBeFalse();
+  expect(html.includes("<code> ```text</code>")).toBe(true);
+  expect(html.includes("<code> </code>`<code>text</code>")).toBe(false);
 });
 
 test("parseChangelog rejects malformed release headings", () => {
@@ -94,5 +94,5 @@ test("parseChangelog rejects malformed release headings", () => {
     errorMessage = error instanceof Error ? error.message : String(error);
   }
 
-  expect(errorMessage.includes("must include a YYYY-MM-DD date")).toBeTrue();
+  expect(errorMessage.includes("must include a YYYY-MM-DD date")).toBe(true);
 });

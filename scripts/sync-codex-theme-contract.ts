@@ -140,7 +140,7 @@ const run = (): void => {
   const output = `/*
  * Synced from the Codex Electron reference CSS.
  * Do not edit by hand. Update the reference file, then rerun:
- *   bun run scripts/sync-codex-theme-contract.ts
+ *   pnpm run scripts/sync-codex-theme-contract.ts
  */
 
 ${formatBlock('[data-codex-window-type="electron"]', vscodeDeclarations)}

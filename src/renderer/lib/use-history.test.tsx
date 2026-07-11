@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import {
   __resetNodexToastStoreForTests,
@@ -9,7 +9,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { TestQueryProvider } from "@/test/query";
 import { useHistory } from "./use-history";
 
-mock.module("./use-history-deps", () => ({
+vi.mock("./use-history-deps", () => ({
   invoke: async (channel: string) => {
     if (channel === "history:recent") {
       return {
@@ -79,7 +79,7 @@ describe("useHistory", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(Boolean(view.baseElement.textContent?.includes("Undid card update"))).toBeTrue();
+      expect(Boolean(view.baseElement.textContent?.includes("Undid card update"))).toBe(true);
     });
   });
 });

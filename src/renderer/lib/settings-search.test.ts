@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildSettingsSearchResults,
   buildSettingsSearchTargets,
@@ -101,8 +101,8 @@ function resultsFor(query: string) {
 
 describe("settings search", () => {
   test("empty query returns no results mode", () => {
-    expect(settingsQueryRendersResultsMode("")).toBeFalse();
-    expect(settingsQueryRendersResultsMode("   ")).toBeFalse();
+    expect(settingsQueryRendersResultsMode("")).toBe(false);
+    expect(settingsQueryRendersResultsMode("   ")).toBe(false);
     expect(resultsFor("").length).toBe(0);
   });
 

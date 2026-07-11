@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "../../../../test/dom";
@@ -57,8 +57,8 @@ describe("TodoListSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Step 2 / 3"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Step 2 / 3"))).toBe(true);
+    expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBe(false);
   });
 
   test("renders the Codex-style completion summary and expandable step list", () => {
@@ -77,8 +77,8 @@ describe("TodoListSurface", () => {
     );
 
     const toggle = getByRole("button", { name: "Collapse todo list" });
-    expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Port the todo shell"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Port the todo shell"))).toBe(true);
     expect(toggle.getAttribute("aria-label")).toBe("Collapse todo list");
     expect(container.querySelector('[data-thread-find-skip="true"]')).toBe(null);
 

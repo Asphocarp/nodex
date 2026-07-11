@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { render } from "../../../test/dom";
 import type {
@@ -248,7 +248,7 @@ describe("LocalConversationVirtualizedTurnList", () => {
       "Tall assistant answer that should remain fully visible before measurement.",
     );
 
-    expect(hasFixedHeightClippingAncestor(tallContent)).toBeFalse();
+    expect(hasFixedHeightClippingAncestor(tallContent)).toBe(false);
     view.unmount();
   });
 

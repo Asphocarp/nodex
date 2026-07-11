@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import type { FileLinkTarget } from "../../shared/file-link-openers";
 import {
   openNfmResolvedLinkAction,
@@ -7,7 +7,6 @@ import {
 } from "./nfm-link-actions";
 
 const originalWindowOpen = window.open;
-const originalLocationAssign = window.location.assign;
 const originalApi = window.api;
 
 let windowOpenCalls: unknown[][] = [];
@@ -24,9 +23,6 @@ describe("nfm link actions", () => {
       windowOpenCalls.push(args);
       return null;
     }) as typeof window.open;
-    window.location.assign = ((...args: unknown[]) => {
-      locationAssignCalls.push(args);
-    }) as typeof window.location.assign;
     window.api = {
       invoke: async (...args: unknown[]) => {
         invokeCalls.push(args);
@@ -38,7 +34,6 @@ describe("nfm link actions", () => {
 
   afterEach(() => {
     window.open = originalWindowOpen;
-    window.location.assign = originalLocationAssign;
     window.api = originalApi;
   });
 
@@ -138,7 +133,12 @@ describe("nfm link actions", () => {
 
   test("opens literal anchors via location.assign", async () => {
     const action = resolveNfmLinkAction("#section");
-    await openNfmResolvedLinkAction(action!);
+    await openNfmResolvedLinkAction(action!, "fileManager", async () => true, {
+      assign: (...args: [string]) => {
+        locationAssignCalls.push(args);
+      },
+      open: () => {},
+    });
 
     expect(JSON.stringify(locationAssignCalls)).toBe(JSON.stringify([
       ["#section"],

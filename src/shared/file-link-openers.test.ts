@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildFileUrl,
   DEFAULT_FILE_LINK_OPENER_ID,

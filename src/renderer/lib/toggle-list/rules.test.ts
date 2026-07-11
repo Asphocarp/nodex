@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "./settings";
 import type { ToggleListCard, ToggleListRulesV2, ToggleListSettings } from "./types";
 import { filterCards, rankCards } from "./rules";

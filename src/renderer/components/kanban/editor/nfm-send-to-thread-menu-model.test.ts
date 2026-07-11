@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import {
   type CommandPaletteThreadContentSearchBatch,
@@ -151,7 +151,7 @@ describe("nfm send-to-thread menu model", () => {
       throw new Error("expected thread row");
     }
     expect(rows[0].searchPreview?.source).toBe("content");
-    expect(rows[0].searchPreview?.segments.some((segment) => segment.highlight)).toBeTrue();
+    expect(rows[0].searchPreview?.segments.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("uses project labels and projectless chat metadata", () => {
@@ -204,7 +204,7 @@ describe("nfm send-to-thread menu model", () => {
     }
     expect(rows[0].label).toBe("Fresh title");
     expect(rows[0].meta).toBe("This session");
-    expect(rows[0].isPreferredTarget).toBeTrue();
+    expect(rows[0].isPreferredTarget).toBe(true);
     expect(rows[1]?.id).toBe("thread:newer");
     expect(rows[2]?.kind).toBe("new-thread");
   });
@@ -230,8 +230,8 @@ describe("nfm send-to-thread menu model", () => {
     }
     expect(rows[0].label).toBe("New chat");
     expect(rows[0].meta).toBe("This session");
-    expect(rows[0].isPreferredTarget).toBeTrue();
-    expect(rows[0].isFooterAction).toBeFalse();
+    expect(rows[0].isPreferredTarget).toBe(true);
+    expect(rows[0].isFooterAction).toBe(false);
     expect(rows[0].target.sessionId).toBe("session-current");
     expect(rows[1]?.id).toBe("thread:newer");
     expect(rows[2]?.id).toBe("thread:older");
@@ -254,7 +254,7 @@ describe("nfm send-to-thread menu model", () => {
       throw new Error("expected project new chat row");
     }
     expect(rows[0].meta).toBe("This project");
-    expect(rows[0].isFooterAction).toBeTrue();
+    expect(rows[0].isFooterAction).toBe(true);
     expect(rows[0].target.sessionId ?? "").toBe("");
   });
 

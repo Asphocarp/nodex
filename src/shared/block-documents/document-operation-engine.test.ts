@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   createCardDocumentGenesis,
@@ -93,13 +93,13 @@ describe("Document operation engine", () => {
     });
 
     expect(encodedState(source.document)).toBe(sourceBefore);
-    expect(prepared.update.byteLength > 0).toBeTrue();
+    expect(prepared.update.byteLength > 0).toBe(true);
     expect(prepared.materialization.title).toBe("After");
     expect(prepared.materialization.nfm).toBe(
       "Alpha updated\n\tGamma\nInserted\n\tChild",
     );
     expect(prepared.writeFenceBlockIds.join(",")).toBe("alpha,beta,gamma");
-    expect(prepared.titleWriteFenceRequired).toBeTrue();
+    expect(prepared.titleWriteFenceRequired).toBe(true);
     expect(
       prepared.materialization.blockTree
         .flatMap((block) => [
@@ -151,7 +151,7 @@ describe("Document operation engine", () => {
         ],
       });
       expect(prepared.materialization.title).toBe("Original");
-      expect(prepared.titleWriteFenceRequired).toBeTrue();
+      expect(prepared.titleWriteFenceRequired).toBe(true);
       expect(prepared.writeFenceBlockIds.length).toBe(0);
     } finally {
       source.document.destroy();
@@ -414,7 +414,7 @@ describe("Document operation engine", () => {
       replacement.materialization.blockTree.some((block) =>
         block.id.startsWith("threshold-old-"),
       ),
-    ).toBeFalse();
+    ).toBe(false);
     source.document.destroy();
   });
 });

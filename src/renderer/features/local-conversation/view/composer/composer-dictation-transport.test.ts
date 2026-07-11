@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildDictationMultipartPayload,
   encodeDictationBase64,
@@ -21,10 +21,10 @@ describe("composer dictation transport", () => {
     });
 
     const bodyText = new TextDecoder().decode(payload);
-    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBeTrue();
-    expect(Boolean(bodyText.includes("Content-Type: audio/webm"))).toBeTrue();
-    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="language"'))).toBeTrue();
-    expect(Boolean(bodyText.includes("audio-bytes"))).toBeTrue();
+    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBe(true);
+    expect(Boolean(bodyText.includes("Content-Type: audio/webm"))).toBe(true);
+    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="language"'))).toBe(true);
+    expect(Boolean(bodyText.includes("audio-bytes"))).toBe(true);
   });
 
   test("posts a base64-wrapped multipart payload to /transcribe", async () => {
@@ -48,10 +48,10 @@ describe("composer dictation transport", () => {
     expect(text).toBe("transcribed text");
     expect(request.method).toBe("POST");
     expect((request.headers as Record<string, string>)["X-Codex-Base64"]).toBe("1");
-    expect(Boolean((request.body as string).length > 0)).toBeTrue();
+    expect(Boolean((request.body as string).length > 0)).toBe(true);
 
     const decoded = atob(request.body as string);
-    expect(Boolean(decoded.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBeTrue();
+    expect(Boolean(decoded.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBe(true);
   });
 
   test("encodes bytes using the same chunked base64 strategy", () => {

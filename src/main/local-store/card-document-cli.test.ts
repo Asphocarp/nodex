@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -206,8 +206,8 @@ describe("Card Document CLI", () => {
           entry.pathname === "/api/projects/default/card",
       );
       expect(legacyUpdate?.body.priority).toBe("p1-high");
-      expect(Object.hasOwn(legacyUpdate?.body ?? {}, "title")).toBeFalse();
-      expect(Object.hasOwn(legacyUpdate?.body ?? {}, "description")).toBeFalse();
+      expect(Object.hasOwn(legacyUpdate?.body ?? {}, "title")).toBe(false);
+      expect(Object.hasOwn(legacyUpdate?.body ?? {}, "description")).toBe(false);
 
       const documentMutations = requests.filter(
         (entry) => entry.pathname.endsWith("/mutations"),
@@ -222,7 +222,7 @@ describe("Card Document CLI", () => {
         JSON.stringify(documentMutations[1]?.body.operations).includes(
           "Collaborative title",
         ),
-      ).toBeTrue();
+      ).toBe(true);
 
       const applied = await runCli(
         [
@@ -252,7 +252,7 @@ describe("Card Document CLI", () => {
         JSON.stringify(stableMutation?.body.operations).includes(
           "stable-block",
         ),
-      ).toBeTrue();
+      ).toBe(true);
     } finally {
       server.close();
       fs.rmSync(homeDir, { recursive: true, force: true });

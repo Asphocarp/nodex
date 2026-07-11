@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,8 +13,8 @@ const ORIGINAL_ENV = {
 };
 
 async function importLoggerModule() {
-  const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return import(`./logger.ts?test=${token}`);
+  vi.resetModules();
+  return import("./logger");
 }
 
 function restoreEnv(): void {
@@ -86,8 +86,8 @@ describe("backend logger", () => {
         expect(entries.length).toBe(1);
 
         const raw = fs.readFileSync(path.join(logDir, entries[0]), "utf8");
-        expect(raw.includes("\"authorization\":\"[REDACTED]\"")).toBeTrue();
-        expect(raw.includes("\"apiKey\":\"[REDACTED]\"")).toBeTrue();
+        expect(raw.includes("\"authorization\":\"[REDACTED]\"")).toBe(true);
+        expect(raw.includes("\"apiKey\":\"[REDACTED]\"")).toBe(true);
       } finally {
         unsubscribe();
         await loggerModule.resetBackendLoggerForTests();
@@ -112,8 +112,8 @@ describe("backend logger", () => {
         expect(captured.length).toBe(1);
         const longValue = captured[0].longValue;
         expect(typeof longValue).toBe("string");
-        expect((longValue as string).length < 3_000).toBeTrue();
-        expect((longValue as string).endsWith("…")).toBeTrue();
+        expect((longValue as string).length < 3_000).toBe(true);
+        expect((longValue as string).endsWith("…")).toBe(true);
       } finally {
         unsubscribe();
         await loggerModule.resetBackendLoggerForTests();
@@ -137,7 +137,7 @@ describe("backend logger", () => {
       logger.info("Testing packaged default logging");
       await loggerModule.shutdownBackendLogger();
 
-      expect(fs.existsSync(logDir)).toBeFalse();
+      expect(fs.existsSync(logDir)).toBe(false);
       await loggerModule.resetBackendLoggerForTests();
     } finally {
       restoreEnv();

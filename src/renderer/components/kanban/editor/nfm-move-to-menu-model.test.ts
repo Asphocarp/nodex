@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import {
   buildNfmMoveToSections,
@@ -121,14 +121,14 @@ describe("nfm move-to menu model", () => {
     expect(rows[0]?.kind).toBe("db");
     const firstRow = rows[0];
     if (!firstRow || firstRow.kind !== "db") throw new Error("First row is not a DB row.");
-    expect(firstRow.expanded).toBeTrue();
+    expect(firstRow.expanded).toBe(true);
   });
 
   test("creates the default expansion set from the source project when possible", () => {
     const expanded = getDefaultNfmMoveToExpandedProjectIds(PROJECTS, "beta");
 
-    expect(expanded.has("beta")).toBeTrue();
-    expect(expanded.has("alpha")).toBeFalse();
+    expect(expanded.has("beta")).toBe(true);
+    expect(expanded.has("alpha")).toBe(false);
   });
 
   test("filters DB, column, and card rows while excluding the source card", () => {
@@ -185,7 +185,7 @@ describe("nfm move-to menu model", () => {
   test("uses query focus reset and wrapping row-id navigation", () => {
     const rows = flattenNfmMoveToRows(buildSections());
 
-    expect(getInitialNfmMoveToFocusedRowId("", rows) === null).toBeTrue();
+    expect(getInitialNfmMoveToFocusedRowId("", rows) === null).toBe(true);
     expect(getInitialNfmMoveToFocusedRowId("ship", rows)).toBe("db:alpha");
     expect(resolveNfmMoveToFocusedRowId("missing", "ship", rows)).toBe("db:alpha");
     expect(moveNfmMoveToFocusedRowId(null, 1, rows)).toBe("db:alpha");

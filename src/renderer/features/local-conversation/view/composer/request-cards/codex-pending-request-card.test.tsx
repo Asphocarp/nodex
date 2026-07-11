@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
 import type {
@@ -12,7 +12,7 @@ import type {
   ThreadStageActions,
 } from "../../../thread-stage-types";
 
-mock.module("./codex-implement-plan-request-card", () => ({
+vi.mock("./codex-implement-plan-request-card", () => ({
   CodexImplementPlanRequestCard: ({ onRespond }: {
     onRespond: (response: { type: "dismiss" } | { type: "implement" } | { type: "followUp"; prompt: string }) => Promise<void>;
   }) => createElement(

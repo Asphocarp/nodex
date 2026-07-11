@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -117,7 +117,7 @@ describe("NewChatStartInSelector", () => {
     const view = await renderSelector(buildModel());
 
     const trigger = view.getByRole("button", { name: "Start in" });
-    expect(trigger.textContent?.includes("Work locally")).toBeTrue();
+    expect(trigger.textContent?.includes("Work locally")).toBe(true);
   });
 
   test("renders the Codex-parity menu rows", async () => {
@@ -126,14 +126,14 @@ describe("NewChatStartInSelector", () => {
     await openMenu(view.getByRole("button", { name: "Start in" }));
 
     const bodyText = document.body.textContent ?? "";
-    expect(bodyText.includes("Start in")).toBeTrue();
-    expect(bodyText.includes("Work locally")).toBeTrue();
-    expect(bodyText.includes("New worktree")).toBeTrue();
-    expect(bodyText.includes("Connect Codex web")).toBeFalse();
-    expect(bodyText.includes("Send to cloud")).toBeFalse();
-    expect(bodyText.includes("Usage remaining")).toBeFalse();
-    expect(bodyText.includes("Upgrade for more usage")).toBeFalse();
-    expect(bodyText.includes("Learn more")).toBeFalse();
+    expect(bodyText.includes("Start in")).toBe(true);
+    expect(bodyText.includes("Work locally")).toBe(true);
+    expect(bodyText.includes("New worktree")).toBe(true);
+    expect(bodyText.includes("Connect Codex web")).toBe(false);
+    expect(bodyText.includes("Send to cloud")).toBe(false);
+    expect(bodyText.includes("Usage remaining")).toBe(false);
+    expect(bodyText.includes("Upgrade for more usage")).toBe(false);
+    expect(bodyText.includes("Learn more")).toBe(false);
   });
 
   test("emits worktree selection", async () => {
@@ -171,6 +171,6 @@ describe("NewChatStartInSelector", () => {
     const view = await renderSelector(buildModel({ disabled: true }));
 
     const trigger = view.getByRole("button", { name: "Start in" }) as HTMLButtonElement;
-    expect(trigger.disabled).toBeTrue();
+    expect(trigger.disabled).toBe(true);
   });
 });

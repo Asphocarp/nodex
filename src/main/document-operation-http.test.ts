@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import type {
   DocumentMutationRequest,
@@ -86,7 +86,7 @@ describe("Document mutation HTTP", () => {
     expect(captured[0]?.clientSessionId).toBe("http-loopback");
     expect(captured[0]?.actor.kind).toBe("http_loopback");
     const body = (await response.json()) as DocumentOperationCommandResult;
-    expect(body.ok).toBeTrue();
+    expect(body.ok).toBe(true);
   });
 
   test("rejects path mismatch before invoking authority", async () => {
@@ -99,7 +99,7 @@ describe("Document mutation HTTP", () => {
     expect(response.status).toBe(400);
     expect(calls).toBe(0);
     const body = (await response.json()) as DocumentOperationCommandResult;
-    expect(body.ok).toBeFalse();
+    expect(body.ok).toBe(false);
   });
 
   test("preserves conflict and unavailable status classes", async () => {
@@ -129,7 +129,7 @@ describe("Document mutation HTTP", () => {
     );
     expect(response.status).toBe(503);
     const body = (await response.json()) as DocumentOperationCommandResult;
-    expect(body.ok).toBeFalse();
-    if (!body.ok) expect(body.error.retryable).toBeTrue();
+    expect(body.ok).toBe(false);
+    if (!body.ok) expect(body.error.retryable).toBe(true);
   });
 });

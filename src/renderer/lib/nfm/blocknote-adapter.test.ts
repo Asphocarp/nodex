@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { blockNoteToNfm, nfmToBlockNote } from "./blocknote-adapter";
 import { parseNfm } from "./parser";
@@ -85,14 +85,14 @@ describe("blocknote adapter", () => {
     expect(blocks[0]?.type).toBe("table");
     if (blocks[0]?.type !== "table") return;
 
-    expect(blocks[0].headerRow).toBeTrue();
-    expect(blocks[0].headerColumn).toBeTrue();
+    expect(blocks[0].headerRow).toBe(true);
+    expect(blocks[0].headerColumn).toBe(true);
     expect(blocks[0].columns[0]?.width).toBe(180);
     expect(blocks[0].columns[0]?.align).toBe("center");
     expect(blocks[0].rows[0]?.cells[0]?.color).toBe("gray_bg");
     expect(blocks[0].rows[0]?.cells[1]?.content[0]?.type).toBe("text");
     if (blocks[0].rows[0]?.cells[1]?.content[0]?.type !== "text") return;
-    expect(blocks[0].rows[0].cells[1].content[0].styles.bold).toBeTrue();
+    expect(blocks[0].rows[0].cells[1].content[0].styles.bold).toBe(true);
     expect(serializeNfm(blocks)).toBe(`<table header-row="true" header-column="true" fit-page-width="false">
 \t<colgroup>
 \t\t<col width="180" align="center" />
@@ -149,7 +149,7 @@ describe("blocknote adapter", () => {
     expect(nfm).toBe("Before\n<empty-block/>\nAfter");
     expect(reloadedDoc.length).toBe(3);
     expect(reloadedDoc[1].type).toBe("paragraph");
-    expect(Array.isArray(reloadedDoc[1].content)).toBeTrue();
+    expect(Array.isArray(reloadedDoc[1].content)).toBe(true);
     expect((reloadedDoc[1].content as unknown[]).length).toBe(0);
   });
 
@@ -206,7 +206,7 @@ describe("blocknote adapter", () => {
 
     expect(blocks.length).toBe(1);
     expect(blocks[0].type).toBe("paragraph");
-    expect("color" in blocks[0]).toBeTrue();
+    expect("color" in blocks[0]).toBe(true);
     expect(blocks[0].color).toBe("blue");
   });
 
@@ -592,7 +592,7 @@ describe("blocknote adapter", () => {
     expect(attachment.bytes).toBe(undefined);
 
     const serialized = serializeNfm(nfmBlocks);
-    expect(serialized.includes("bytes=")).toBeFalse();
+    expect(serialized.includes("bytes=")).toBe(false);
   });
 
   test("serialize toggle heading round-trip", () => {
@@ -778,7 +778,7 @@ describe("blocknote adapter", () => {
     expect(blocks[0].rulesV2B64).toBe(undefined);
     expect(JSON.stringify(blocks[0].propertyOrder)).toBe(JSON.stringify(["priority", "status", "estimate", "tags"]));
     expect(JSON.stringify(blocks[0].hiddenProperties)).toBe(JSON.stringify(["estimate", "tags"]));
-    expect(blocks[0].showEmptyEstimate).toBeTrue();
+    expect(blocks[0].showEmptyEstimate).toBe(true);
   });
 
   test("toggle-list inline view legacy rules-panel attr is not re-serialized", () => {
@@ -825,7 +825,7 @@ describe("blocknote adapter", () => {
     );
 
     const serialized = serializeNfm(blocks);
-    expect(serialized.includes('rules-v2="eyJ0ZXN0Ijp0cnVlfQ"')).toBeTrue();
+    expect(serialized.includes('rules-v2="eyJ0ZXN0Ijp0cnVlfQ"')).toBe(true);
   });
 
   test("unresolved image placeholder is dropped during BN → NFM conversion", () => {
@@ -1125,7 +1125,7 @@ describe("blocknote adapter", () => {
     expect(blocks[0]?.type).toBe("toggleListInlineView");
     if (blocks[0]?.type !== "toggleListInlineView") return;
     expect(blocks[0].children.length).toBe(0);
-    expect(serializeNfm(blocks).includes("Should not persist")).toBeFalse();
+    expect(serializeNfm(blocks).includes("Should not persist")).toBe(false);
   });
 
   test("serialize and parse card-toggle round-trip", () => {
@@ -1220,8 +1220,8 @@ describe("blocknote adapter", () => {
     const serialized = serializeNfm(blocks);
     const parsed = parseNfm(serialized);
 
-    expect(serialized.includes("<card-toggle card=\"abc123\" meta=\"[P1]\">")).toBeTrue();
-    expect(serialized.includes("\n\t\n\tChild details\n")).toBeTrue();
+    expect(serialized.includes("<card-toggle card=\"abc123\" meta=\"[P1]\">")).toBe(true);
+    expect(serialized.includes("\n\t\n\tChild details\n")).toBe(true);
     expect(parsed.length).toBe(1);
     expect(parsed[0].type).toBe("cardToggle");
     if (parsed[0].type !== "cardToggle") return;

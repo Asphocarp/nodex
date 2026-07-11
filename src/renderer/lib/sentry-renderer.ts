@@ -50,9 +50,7 @@ function isTestRuntime(): boolean {
   const rendererProcess = getRendererProcess();
   const env = rendererProcess?.env ?? {};
   const argv = rendererProcess?.argv ?? [];
-  return import.meta.env.MODE === "test"
-    || env.NODE_ENV === "test"
-    || env.BUN_ENV === "test"
+  return env.NODE_ENV === "test"
     || argv.some((value) => value.toLowerCase().includes("test"));
 }
 

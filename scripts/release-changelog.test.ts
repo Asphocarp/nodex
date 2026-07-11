@@ -1,3 +1,4 @@
+import { expect, test } from "vitest";
 import { extractReleaseNotes, prepareReleaseArtifacts } from "./release-changelog";
 
 const sampleChangelog = `# Changelog
@@ -25,9 +26,9 @@ test("prepareReleaseArtifacts rolls Unreleased into a dated release entry", () =
     date: "2026-03-13",
   });
 
-  expect(prepared.changelogContent.includes("## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed")).toBeTrue();
-  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13")).toBeTrue();
-  expect(prepared.changelogContent.includes("- Added release automation.")).toBeTrue();
+  expect(prepared.changelogContent.includes("## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed")).toBe(true);
+  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13")).toBe(true);
+  expect(prepared.changelogContent.includes("- Added release automation.")).toBe(true);
   expect(prepared.commitMessage).toBe(
     "release: v0.1.2\n\n### Added\n- Added release automation.\n\n### Fixed\n- Fixed the release script edge case.\n",
   );
@@ -58,7 +59,7 @@ test("prepareReleaseArtifacts rejects an empty Unreleased section", () => {
     errorMessage = error instanceof Error ? error.message : String(error);
   }
 
-  expect(errorMessage.includes("Unreleased changelog section is empty")).toBeTrue();
+  expect(errorMessage.includes("Unreleased changelog section is empty")).toBe(true);
 });
 
 test("prepareReleaseArtifacts omits empty subsections from the released version", () => {
@@ -78,9 +79,9 @@ test("prepareReleaseArtifacts omits empty subsections from the released version"
     date: "2026-03-13",
   });
 
-  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13\n\n### Fixed\n- Fixed the release script edge case.")).toBeTrue();
-  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13\n\n### Added")).toBeFalse();
-  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13\n\n### Changed")).toBeFalse();
+  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13\n\n### Fixed\n- Fixed the release script edge case.")).toBe(true);
+  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13\n\n### Added")).toBe(false);
+  expect(prepared.changelogContent.includes("## [0.1.2] - 2026-03-13\n\n### Changed")).toBe(false);
   expect(prepared.releaseNotes).toBe("### Fixed\n- Fixed the release script edge case.\n");
   expect(prepared.commitMessage).toBe("release: v0.1.2\n\n### Fixed\n- Fixed the release script edge case.\n");
 });

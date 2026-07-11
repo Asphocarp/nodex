@@ -6,9 +6,6 @@
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - Keep implementation notes, docs, changelog entries, commit messages, and handoff summaries product-native: describe what Nodex does and why, without surfacing private provenance, comparative targets, or reconstruction details unless the user explicitly asks for research notes.
 - Do not read repository contents via web crawling from `raw.githubusercontent.com` because it is not stable for agent workflows. For remote repository inspection, clone the repository into a temporary local directory and read files from the local clone instead.
-- When writing bun unit tests, be aware that `expect` is of type `expect(value: unknown): { toBe: (expected: unknown) => void; toBeTrue: () => void; toBeFalse: () => void; not: { toBeNull: () => void; }; }` 
-  - there is ONLY `toBe`, `toBeTrue`, `toBeFalse`, `not.toBeNull`.
-  - there is NO `toBeUndefined`, `toEqual`, `toBeNull` or `toContain`.
 - DO NOT write tests that only assert a source file contains a string (source-string tests); that is redundant with the implementation and does not validate behavior. Prefer checking generated CSS/build output or a real rendered/runtime outcome.
 - Read [official doc of codex-app-server](https://developers.openai.com/codex/app-server.md) when dealing with codex-app-server.
 - After UI modification, no need to verify the UI changes yourself using playwright or anything. Just tell user to do it, which is more efficient.
@@ -33,16 +30,19 @@ Nodex is a local-first, block-based agent orchestrator.
 It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 
 ## Setup Commands
-- Install deps: `bun install`
-- Dev app: `bun run dev`
-- Build: `bun run build`
-- Package installers: `bun run package`
-- Typecheck: `bun run typecheck`
-- Lint: `bun run lint`
-- Unit tests: `bun test`
+- Install deps: `pnpm install`
+- Dev app: `pnpm run dev`
+- Build: `pnpm run build`
+- Package installers: `pnpm run package`
+- Typecheck: `pnpm run typecheck`
+- Lint: `pnpm run lint`
+- Standard tests: `pnpm test`
+- Full release gate: `pnpm test:all`
 
 ## Runtime and Tooling
-- Package manager: Bun
+- Package manager: pnpm
+- Development runtime: Node 24.15.0
+- Test runner: Vitest; Playwright for Chromium and Electron E2E
 - Language: TypeScript (`strict` mode)
 - Desktop shell: Electron + electron-vite
 - Frontend: React 19 + Tailwind + Radix + BlockNote/Prosemirror
@@ -115,12 +115,12 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 
 ## Testing Expectations
 - Use a two-tier validation strategy: run targeted checks while iterating, then run required handoff checks once after the final edit set is stable.
-- Prefer targeted tests while iterating: `bun test <path-to-test>`
+- Prefer targeted tests while iterating: `pnpm exec vitest run --config <config> <path-to-test>`
 - Match checks to the changed surface while iterating:
   - Pure helpers/domain logic: run the related unit test file.
-  - Renderer workflow changes: run the related renderer test(s) plus `bun run typecheck` when types or props changed.
+  - Renderer workflow changes: run the related renderer test(s) plus `pnpm run typecheck` when types or props changed.
   - Main process/store/protocol/migration changes: run the nearest relevant unit or integration test before the full handoff checks.
-  - Styling or copy-only UI changes: run `bun run lint` and `bun run typecheck` when TypeScript/TSX files changed; rely on Storybook/docs/manual review for visual parity.
+  - Styling or copy-only UI changes: run `pnpm run lint` and `pnpm run typecheck` when TypeScript/TSX files changed; rely on Storybook/docs/manual review for visual parity.
 - For docs-only changes, skip code checks unless the docs change generated artifacts or executable examples. Validate the markdown diff directly and state that no code checks were needed.
 - Prefer tests that prove behavior or domain contracts over tests that mirror implementation details. Avoid trivial UI assertions such as long `className`/Tailwind string matching, broad `textContent.includes(...)`, or "X contains Y string" checks unless the string is a real user-visible or accessibility contract.
 - For UI parity work, put numeric/state rules in pure helpers with boundary tests, keep renderer integration tests to a small number of critical user workflows, and use Storybook/docs/manual review for visual details like shadows, radii, z-index tokens, and motion styling.
@@ -129,9 +129,9 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - When a renderer test uses low-level `fireEvent`, window/document events, timers, resize/drag gestures, or imperative callbacks instead of a higher-level awaited helper, wrap the interaction in `await act(async () => { ...; await Promise.resolve(); })`, then wait for the observable DOM/API outcome. Use `try/finally` to release drag/resize gestures so failed assertions do not leak body styles or global listeners into later tests.
 - For any new or changed user-visible UI, update or add Storybook coverage in the same change.
 - Run full checks before handoff for code changes, preferably in parallel because these commands are independent:
-  - `bun run typecheck`
-  - `bun run lint`
-  - `bun test`
+  - `pnpm run typecheck`
+  - `pnpm run lint`
+  - `pnpm test:all`
 - If one full check fails, fix the issue and rerun the failed check plus any related targeted checks. Rerun all three full checks only when the fix could affect more than the failed surface.
 
 ## Commit and PR Expectations

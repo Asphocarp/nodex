@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildRateLimitRingViewModel,
   formatRateLimitSummary,
@@ -64,9 +64,9 @@ describe("auth rate limits", () => {
       },
     });
 
-    expect(model.hasLimits).toBeFalse();
-    expect(model.outer === null).toBeTrue();
-    expect(model.inner === null).toBeTrue();
+    expect(model.hasLimits).toBe(false);
+    expect(model.outer === null).toBe(true);
+    expect(model.inner === null).toBe(true);
     expect(model.ariaLabel).toBe("Usage remaining unavailable");
   });
 });

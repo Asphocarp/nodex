@@ -9,7 +9,6 @@ files:
 - "!**/*.map"
 - "!**/*.tsbuildinfo"
 - "!**/webpack-stats.json"
-- "!**/.bun-tag-*"
 - "!**/__snapshots__/**"
 - "!**/__tests__/**"
 - "!**/test/**"

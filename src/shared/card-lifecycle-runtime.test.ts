@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   CardLifecycleMutationCommandResult,
   CardLifecycleMutationReceipt,
@@ -221,7 +221,7 @@ describe("Card lifecycle runtime", () => {
       throw new Error("Expected create_card");
     }
     expect(request.operation.beforeViewCardId).toBe("draft-first");
-    expect("beforeBlockId" in request.operation).toBeFalse();
+    expect("beforeBlockId" in request.operation).toBe(false);
   });
 
   test("compiles exact revision/evidence fences for existing Cards", () => {
@@ -285,7 +285,7 @@ describe("Card lifecycle runtime", () => {
       },
     );
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
     expect(result.card?.id).toBe("card-1");
   });
 
@@ -323,7 +323,7 @@ describe("Card lifecycle runtime", () => {
       },
     );
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
   });
 
   test("fails typed when canonical authority remains stale", async () => {

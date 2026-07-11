@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { useMotionValue } from "motion/react";
 import {
   HeaderAction,
@@ -116,11 +116,11 @@ describe("workbench header actions", () => {
       throw new Error("Expected visible header shell slot");
     }
 
-    expect(slot.className.includes("no-drag")).toBeTrue();
-    expect(slot.className.includes("pointer-events-none")).toBeTrue();
-    expect(slot.getAttribute("style")?.includes("width: 144px")).toBeTrue();
-    expect(slot.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
-    expect(rail.className.includes("no-drag")).toBeTrue();
+    expect(slot.className.includes("no-drag")).toBe(true);
+    expect(slot.className.includes("pointer-events-none")).toBe(true);
+    expect(slot.getAttribute("style")?.includes("width: 144px")).toBe(true);
+    expect(slot.getAttribute("style")?.includes("min-width: 70px")).toBe(true);
+    expect(rail.className.includes("no-drag")).toBe(true);
     expect(textContent(rail)).toBe("FirstSecondThird");
     expect(measuredWidths[measuredWidths.length - 1]).toBe(70);
     expect(measuredRailWidths[measuredRailWidths.length - 1]).toBe(62);
@@ -135,7 +135,7 @@ describe("workbench header actions", () => {
       throw new Error("Expected visible header shell slot");
     }
 
-    expect(slot.getAttribute("style")?.includes("width: 188px")).toBeTrue();
+    expect(slot.getAttribute("style")?.includes("width: 188px")).toBe(true);
     expect(textContent(slot)).toBe("Motion");
   });
 
@@ -165,7 +165,7 @@ describe("workbench header actions", () => {
 
     const railHost = view.getByTestId("center-header-actions");
     const visibleRail = railHost.querySelector('[data-workbench-header-action-rail="visible"]');
-    expect(visibleRail instanceof HTMLElement).toBeTrue();
+    expect(visibleRail instanceof HTMLElement).toBe(true);
     expect(textContent(railHost)).toBe("Center");
   });
 });

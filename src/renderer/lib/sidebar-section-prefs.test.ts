@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   makeDefaultSidebarCollapsibleSectionsState,
   makeDefaultSidebarTopLevelSectionsPrefs,
@@ -22,11 +22,11 @@ describe("sidebar-section-prefs", () => {
       cards: { visible: "yes", itemLimit: 999 },
     });
 
-    expect(prefs.recents.visible).toBeFalse();
+    expect(prefs.recents.visible).toBe(false);
     expect(prefs.recents.itemLimit).toBe(5);
-    expect(prefs.cards.visible).toBeTrue();
+    expect(prefs.cards.visible).toBe(true);
     expect(prefs.cards.itemLimit).toBe(10);
-    expect(prefs.threads.visible).toBeTrue();
+    expect(prefs.threads.visible).toBe(true);
     expect(prefs.files.itemLimit).toBe(10);
   });
 
@@ -39,10 +39,10 @@ describe("sidebar-section-prefs", () => {
       custom: true,
     });
 
-    expect(defaults.pinned).toBeFalse();
-    expect(state.pinned).toBeTrue();
-    expect(state.projects).toBeFalse();
-    expect(state.chats).toBeTrue();
+    expect(defaults.pinned).toBe(false);
+    expect(state.pinned).toBe(true);
+    expect(state.projects).toBe(false);
+    expect(state.chats).toBe(true);
     expect(JSON.stringify(Object.keys(state))).toBe(JSON.stringify(["pinned", "projects", "chats"]));
   });
 

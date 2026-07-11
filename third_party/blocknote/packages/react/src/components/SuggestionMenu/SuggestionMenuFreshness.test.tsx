@@ -1,6 +1,6 @@
 import { fireEvent, render } from "@testing-library/react";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, useEffect } from "react";
 import { BlockNoteContext } from "../../editor/BlockNoteContext.js";
 import { SuggestionMenuWrapper } from "./SuggestionMenuWrapper.js";

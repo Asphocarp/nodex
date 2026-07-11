@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { createElement, useMemo } from "react";
 import { render, settleAsyncRender } from "../../test/dom";
@@ -86,7 +86,7 @@ describe("ContentSearchProvider", () => {
       controller?.goNext();
     });
     await waitFor(() => {
-      expect(ensureSignals[0]?.aborted ?? false).toBeTrue();
+      expect(ensureSignals[0]?.aborted ?? false).toBe(true);
       expect(ensureSignals.length).toBe(2);
       expect(activatedIds[0] ?? "").toBe("match-2");
     });

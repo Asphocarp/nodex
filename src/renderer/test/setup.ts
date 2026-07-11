@@ -1,6 +1,5 @@
-import { afterEach } from "bun:test";
-import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
 
 const nativeRequest = Request;
 const nativeResponse = Response;
@@ -13,8 +12,128 @@ const nativeCSS = globalThis.CSS ?? {
   },
 };
 
-GlobalRegistrator.register({
-  url: "http://localhost:51283/",
+function createMediaQueryList(query: string): MediaQueryList {
+  return {
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => true,
+  };
+}
+
+if (typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: createMediaQueryList,
+  });
+}
+if (typeof globalThis.PointerEvent !== "function") {
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: class PointerEvent extends MouseEvent {},
+  });
+}
+if (typeof globalThis.SVGPathElement !== "function") {
+  Object.defineProperty(globalThis, "SVGPathElement", {
+    configurable: true,
+    writable: true,
+    value: globalThis.SVGElement,
+  });
+}
+if (typeof globalThis.ResizeObserver !== "function") {
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+}
+if (typeof globalThis.IntersectionObserver !== "function") {
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    writable: true,
+    value: class IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+    },
+  });
+}
+Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: () => undefined });
+Object.defineProperty(window, "scrollBy", { configurable: true, writable: true, value: () => undefined });
+Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+  configurable: true,
+  writable: true,
+  value: () => undefined,
+});
+Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+  configurable: true,
+  writable: true,
+  value(optionsOrX?: ScrollToOptions | number, y?: number) {
+    if (typeof optionsOrX === "number") {
+      this.scrollLeft = optionsOrX;
+      this.scrollTop = y ?? 0;
+      return;
+    }
+    if (typeof optionsOrX?.left === "number") this.scrollLeft = optionsOrX.left;
+    if (typeof optionsOrX?.top === "number") this.scrollTop = optionsOrX.top;
+  },
+});
+Object.defineProperty(HTMLElement.prototype, "scrollBy", {
+  configurable: true,
+  writable: true,
+  value(optionsOrX?: ScrollToOptions | number, y?: number) {
+    if (typeof optionsOrX === "number") {
+      this.scrollLeft += optionsOrX;
+      this.scrollTop += y ?? 0;
+      return;
+    }
+    if (typeof optionsOrX?.left === "number") this.scrollLeft += optionsOrX.left;
+    if (typeof optionsOrX?.top === "number") this.scrollTop += optionsOrX.top;
+  },
+});
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  writable: true,
+  value: () => null,
+});
+const emptyDomRect = (): DOMRect => ({
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 0,
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+  toJSON: () => ({}),
+});
+Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+  configurable: true,
+  writable: true,
+  value: emptyDomRect,
+});
+Object.defineProperty(Range.prototype, "getClientRects", {
+  configurable: true,
+  writable: true,
+  value: () => {
+    const rects = [emptyDomRect()] as DOMRect[] & { item(index: number): DOMRect | null };
+    rects.item = (index) => rects[index] ?? null;
+    return rects;
+  },
 });
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);

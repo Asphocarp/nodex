@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,7 +62,7 @@ describe("read-only query limits", () => {
       expect(result.rowCount).toBe(MAX_READ_ONLY_QUERY_ROWS);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects result sets above the row cap", async () => {
@@ -93,6 +93,6 @@ describe("read-only query limits", () => {
       expect(errorMessage).toBe(`Query returned more than ${MAX_READ_ONLY_QUERY_ROWS} rows`);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

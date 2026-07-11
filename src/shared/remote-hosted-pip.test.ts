@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildRemoteHostedPipHiddenHostLayout,
   buildRemoteHostedPipHostLayout,
@@ -57,8 +57,8 @@ describe("remote-hosted PiP layout", () => {
     const layout = buildRemoteHostedPipHiddenHostLayout();
 
     expect(layout.hostId).toBe("codex-main-thread");
-    expect(layout.anchorRect === null).toBeTrue();
-    expect(layout.anchors === null).toBeTrue();
+    expect(layout.anchorRect === null).toBe(true);
+    expect(layout.anchors === null).toBe(true);
   });
 
   test("layout identity ignores animation-only changes", () => {

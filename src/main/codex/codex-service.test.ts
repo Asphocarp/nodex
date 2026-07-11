@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -636,12 +636,12 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(methods).toBe(
         "thread/tokenUsage/updated,turn/plan/updated,model/safetyBuffering/updated,model/rerouted,hook/started,hook/completed,item/autoApprovalReview/started,item/autoApprovalReview/completed,guardianWarning,item/reasoning/summaryPartAdded,item/fileChange/outputDelta,item/commandExecution/terminalInteraction,item/mcpToolCall/progress,error,serverRequest/resolved",
       );
-      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBeTrue();
+      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
       const snapshot = await service.requestConversationSnapshot("thread-owner-migrated");
       expect(snapshot?.latestTokenUsageInfo?.total.totalTokens).toBe(100);
-      expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBeTrue();
-      expect(snapshot?.turns[0]?.safetyBuffering?.showBufferingUi).toBeTrue();
+      expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
+      expect(snapshot?.turns[0]?.safetyBuffering?.showBufferingUi).toBe(true);
       expect(snapshot?.turns[0]?.safetyBuffering?.fasterModel).toBe("gpt-5.4-mini");
       const rerouteItem = snapshot?.turns[0]?.items.find((item) => item.semanticKind === "modelRerouted");
       const rerouteRaw = rerouteItem?.rawItem as { fromModel?: string; toModel?: string; reason?: string } | undefined;
@@ -700,7 +700,7 @@ describe("codex-service renderer owner stream publishing", () => {
       );
       const ownerNotification = ownerMessages[0]?.message;
 
-      expect(accepted).toBeTrue();
+      expect(accepted).toBe(true);
       expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
       expect(ownerNotification?.type).toBe("threadOwnerNotification");
       if (ownerNotification?.type === "threadOwnerNotification") {
@@ -801,7 +801,7 @@ describe("codex-service renderer owner stream publishing", () => {
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(snapshot?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
       expect(latest?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
-      expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBeTrue();
+      expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -922,7 +922,7 @@ describe("codex-service renderer owner stream publishing", () => {
         .map((message) => message.method)
         .join(",");
       expect(methods).toBe("thread/goal/updated,thread/goal/cleared");
-      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBeTrue();
+      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
 
       const snapshot = await service.requestConversationSnapshot("thread-owner-goal");
@@ -1057,7 +1057,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(requests[0]?.method).toBe("thread/goal/set");
       expect(params?.threadId).toBe("thread-goal-status");
       expect(params?.status).toBe("paused");
-      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -1107,15 +1107,15 @@ describe("codex-service renderer owner stream publishing", () => {
 
       expect(params?.objective).toBe("Ship parity");
       expect(params?.status).toBe("active");
-      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "tokenBudget")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "tokenBudget")).toBe(false);
       expect(snapshot?.turns.length ?? 0).toBe(1);
       expect((turn as { turnId?: string | null } | undefined)?.turnId ?? null).toBe(null);
       expect(turn?.status ?? "").toBe("completed");
       expect(turn?.turnStartedAtMs ?? 0).toBe(1_000);
       expect(item?.kind ?? "").toBe("userMessage");
       expect(item?.markdownText ?? "").toBe("/goal Ship parity");
-      expect(item?.goal ?? false).toBeTrue();
-      expect(((item?.rawItem as { goal?: boolean } | undefined)?.goal ?? false)).toBeTrue();
+      expect(item?.goal ?? false).toBe(true);
+      expect(((item?.rawItem as { goal?: boolean } | undefined)?.goal ?? false)).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -1185,8 +1185,8 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(goalParams?.threadId).toBe("thread-goal-settings");
       expect(goalParams?.objective).toBe("Ship parity");
       expect(goalParams?.status).toBe("active");
-      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBeFalse();
-      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBe(false);
       const snapshot = await service.requestConversationSnapshot("thread-goal-settings");
       expect(snapshot?.turns.length ?? 0).toBe(0);
     } finally {
@@ -1245,7 +1245,7 @@ describe("codex-service renderer owner stream publishing", () => {
         .join(",");
 
       expect(methods).toBe("item/agentMessage/delta,item/completed,item/commandExecution/outputDelta");
-      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBeTrue();
+      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
     } finally {
       await service.shutdown();
@@ -1273,7 +1273,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-      })).toBeTrue();
+      })).toBe(true);
       expect(service.publishRendererThreadStreamStateChange("owner-a", {
         conversationId: "thread-owner",
         change: {
@@ -1282,7 +1282,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 2,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBeTrue();
+      })).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
@@ -1322,7 +1322,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-      })).toBeTrue();
+      })).toBe(true);
 
       for (let index = 0; index < 5; index += 1) {
         serviceInternals.getNextOwnerNotificationSequence("thread-owner");
@@ -1330,7 +1330,7 @@ describe("codex-service renderer owner stream publishing", () => {
       let drained = false;
       expect(serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner", () => {
         drained = true;
-      })).toBeTrue();
+      })).toBe(true);
 
       expect(service.publishRendererThreadStreamStateChange("owner-a", {
         conversationId: "thread-owner",
@@ -1340,11 +1340,11 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 5,
           conversationState: repairedConversation,
         },
-      })).toBeTrue();
+      })).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
-      expect(drained).toBeTrue();
+      expect(drained).toBe(true);
       expect(String(hostMessages.length)).toBe("2");
       expect(lastMessage?.type).toBe("threadStreamStateChanged");
       if (lastMessage?.type === "threadStreamStateChanged") {
@@ -1771,7 +1771,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-      })).toBeTrue();
+      })).toBe(true);
       expect(service.publishRendererThreadStreamStateChange("owner-b", {
         conversationId: "thread-owner",
         change: {
@@ -1780,7 +1780,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 2,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBeFalse();
+      })).toBe(false);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(String(hostMessages.length)).toBe("1");
@@ -1811,7 +1811,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 3,
           conversationState: baseConversation,
         },
-      })).toBeTrue();
+      })).toBe(true);
       expect(service.publishRendererThreadStreamStateChange("owner-a", {
         conversationId: "thread-owner",
         change: {
@@ -1820,7 +1820,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 4,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBeTrue();
+      })).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(String(hostMessages.length)).toBe("2");
@@ -1846,7 +1846,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 8,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBeTrue();
+      })).toBe(true);
 
       expect(service.publishRendererThreadStreamStateChange("client-owner", {
         conversationId: "thread-owner-claim",
@@ -1855,7 +1855,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-      })).toBeFalse();
+      })).toBe(false);
 
       expect(service.publishRendererThreadStreamStateChange("client-stale", {
         conversationId: "thread-owner-claim",
@@ -1864,7 +1864,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 2,
           conversationState: nextConversation,
         },
-      })).toBeTrue();
+      })).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -2144,12 +2144,12 @@ describe("codex-service scheduled automations", () => {
         expect(threadStartParams?.sandbox).toBe("workspace-write");
         expect(threadStartParams?.approvalPolicy).toBe("on-request");
         expect(threadStartParams?.approvalsReviewer).toBe("user");
-        expect(threadStartParams?.developerInstructions?.includes("$CODEX_HOME/automations/<automation_id>/memory.md")).toBeTrue();
-        expect(threadStartParams?.developerInstructions?.includes("(create it if missing)")).toBeTrue();
-        expect(threadStartParams?.developerInstructions?.includes("Read it first (if present) to avoid repeating recent work")).toBeTrue();
-        expect(threadStartParams?.developerInstructions?.includes("Before returning the directive, write a concise summary")).toBeTrue();
-        expect(threadStartParams?.developerInstructions?.includes("Output exactly ONE inbox-item directive.")).toBeTrue();
-        expect((threadStartParams?.dynamicTools?.length ?? 0) > 0).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes("$CODEX_HOME/automations/<automation_id>/memory.md")).toBe(true);
+        expect(threadStartParams?.developerInstructions?.includes("(create it if missing)")).toBe(true);
+        expect(threadStartParams?.developerInstructions?.includes("Read it first (if present) to avoid repeating recent work")).toBe(true);
+        expect(threadStartParams?.developerInstructions?.includes("Before returning the directive, write a concise summary")).toBe(true);
+        expect(threadStartParams?.developerInstructions?.includes("Output exactly ONE inbox-item directive.")).toBe(true);
+        expect((threadStartParams?.dynamicTools?.length ?? 0) > 0).toBe(true);
 
         const titleRequest = requests.find((request) => request.method === "thread/name/set");
         const titleParams = titleRequest?.params as { threadId?: string; name?: string } | undefined;
@@ -2170,12 +2170,12 @@ describe("codex-service scheduled automations", () => {
         expect(turnStartParams?.effort).toBe("medium");
         expect(turnStartParams?.summary).toBe("auto");
         expect(turnStartParams?.sandboxPolicy?.type).toBe("workspaceWrite");
-        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes("/tmp/codex")).toBeTrue();
-        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes(path.join(codexHome, "automations", "daily-report"))).toBeTrue();
-        expect(turnStartParams?.input?.[0]?.text.includes("Automation ID: daily-report")).toBeTrue();
-        expect(turnStartParams?.input?.[0]?.text.includes("Automation memory: $CODEX_HOME/automations/daily-report/memory.md")).toBeTrue();
+        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes("/tmp/codex")).toBe(true);
+        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes(path.join(codexHome, "automations", "daily-report"))).toBe(true);
+        expect(turnStartParams?.input?.[0]?.text.includes("Automation ID: daily-report")).toBe(true);
+        expect(turnStartParams?.input?.[0]?.text.includes("Automation memory: $CODEX_HOME/automations/daily-report/memory.md")).toBe(true);
         const expectedLastRun = `${new Date(previousRunAt).toISOString()} (${previousRunAt})`;
-        expect(turnStartParams?.input?.[0]?.text.includes(`Last run: ${expectedLastRun}`)).toBeTrue();
+        expect(turnStartParams?.input?.[0]?.text.includes(`Last run: ${expectedLastRun}`)).toBe(true);
 
         const run = getCodexAutomationRun("thread-automation");
         expect(run?.automationId).toBe("daily-report");
@@ -2201,7 +2201,7 @@ describe("codex-service scheduled automations", () => {
           "turn-completed",
         ]));
         expect(runUpdateEvents[0]?.event.automationId).toBe("daily-report");
-        expect(runUpdateEvents[0]?.event.threadId?.startsWith("pending:") ?? false).toBeTrue();
+        expect(runUpdateEvents[0]?.event.threadId?.startsWith("pending:") ?? false).toBe(true);
         expect(runUpdateEvents[1]?.event.automationId).toBe("daily-report");
         expect(runUpdateEvents[1]?.event.threadId).toBe("thread-automation");
         expect(runUpdateEvents[2]?.event.automationId).toBe("daily-report");
@@ -2217,7 +2217,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("captures automation inbox item directives when an automation turn completes", async () => {
@@ -2304,13 +2304,13 @@ describe("codex-service scheduled automations", () => {
           event.event.reason === "turn-completed"
           && event.event.automationId === "daily-report"
           && event.event.threadId === "thread-inbox-directive"
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("persists automation inbox items from inbox-items-create server requests", async () => {
@@ -2375,13 +2375,13 @@ describe("codex-service scheduled automations", () => {
           event.event.reason === "turn-completed"
           && event.event.automationId === "daily-report"
           && event.event.threadId === "thread-inbox-request"
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("marks a reviewed automation run accepted when the user starts a follow-up turn", async () => {
@@ -2411,7 +2411,7 @@ describe("codex-service scheduled automations", () => {
         sourceCwd: "/tmp/codex",
         now,
       });
-      expect(markCodexAutomationRunPendingReview("thread-review-follow-up", now + 1)).toBeTrue();
+      expect(markCodexAutomationRunPendingReview("thread-review-follow-up", now + 1)).toBe(true);
       insertCodexAutomationRunInProgress({
         threadId: "thread-archived-follow-up",
         automationId: "daily-report",
@@ -2419,7 +2419,7 @@ describe("codex-service scheduled automations", () => {
         sourceCwd: "/tmp/codex",
         now,
       });
-      expect(archiveCodexAutomationRun("thread-archived-follow-up", "manual", now + 2)).toBeTrue();
+      expect(archiveCodexAutomationRun("thread-archived-follow-up", "manual", now + 2)).toBe(true);
       upsertCodexThread({
         projectId: defaultProjectId,
         threadId: "thread-review-follow-up",
@@ -2481,17 +2481,17 @@ describe("codex-service scheduled automations", () => {
           event.event.reason === "accepted"
           && event.event.automationId === "daily-report"
           && event.event.threadId === "thread-review-follow-up"
-        )).toBeTrue();
+        )).toBe(true);
         expect(runUpdateEvents.some((event) =>
           event.event.reason === "accepted"
           && event.event.threadId === "thread-archived-follow-up"
-        )).toBeFalse();
+        )).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("captures archive messages for automation runs from the local transcript", async () => {
@@ -2580,7 +2580,7 @@ describe("codex-service scheduled automations", () => {
           ],
         });
 
-        expect(await service.captureAutomationArchiveMessages("thread-archive-capture")).toBeTrue();
+        expect(await service.captureAutomationArchiveMessages("thread-archive-capture")).toBe(true);
 
         const run = getCodexAutomationRun("thread-archive-capture");
         expect(run?.archivedUserMessage).toBe("Please summarize the repo.\nskill: Computer Use (/plugins/computer-use)");
@@ -2590,7 +2590,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("falls back to thread turns when capturing automation archive messages without a local transcript", async () => {
@@ -2690,7 +2690,7 @@ describe("codex-service scheduled automations", () => {
       };
 
       try {
-        expect(await service.captureAutomationArchiveMessages("thread-archive-fallback")).toBeTrue();
+        expect(await service.captureAutomationArchiveMessages("thread-archive-fallback")).toBe(true);
 
         const run = getCodexAutomationRun("thread-archive-fallback");
         expect(run?.archivedUserMessage).toBe(
@@ -2714,7 +2714,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("runs a heartbeat automation now by resuming the target thread and starting a heartbeat turn", async () => {
@@ -2849,17 +2849,17 @@ describe("codex-service scheduled automations", () => {
         expect(turnStartParams?.collaborationMode?.settings?.model).toBe("gpt-5");
         expect(turnStartParams?.collaborationMode?.settings?.reasoning_effort).toBe("medium");
         expect(turnStartParams?.sandboxPolicy?.type).toBe("workspaceWrite");
-        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes("/tmp/codex")).toBeTrue();
-        expect(turnStartParams?.input?.[0]?.text.includes("<heartbeat>")).toBeTrue();
-        expect(turnStartParams?.input?.[0]?.text.includes("<automation_id>heartbeat-follow-up</automation_id>")).toBeTrue();
-        expect(turnStartParams?.input?.[0]?.text.includes("Check whether the user needs another pass.")).toBeTrue();
-        expect(getCodexScheduledAutomation("heartbeat-follow-up")?.lastRunAt !== null).toBeTrue();
+        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes("/tmp/codex")).toBe(true);
+        expect(turnStartParams?.input?.[0]?.text.includes("<heartbeat>")).toBe(true);
+        expect(turnStartParams?.input?.[0]?.text.includes("<automation_id>heartbeat-follow-up</automation_id>")).toBe(true);
+        expect(turnStartParams?.input?.[0]?.text.includes("Check whether the user needs another pass.")).toBe(true);
+        expect(getCodexScheduledAutomation("heartbeat-follow-up")?.lastRunAt !== null).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("blocks heartbeat run-now on recent rollout activity but allows task-complete active threads", async () => {
@@ -3030,7 +3030,7 @@ describe("codex-service scheduled automations", () => {
           busyErrorMessage = error instanceof Error ? error.message : String(error);
         }
         expect(busyErrorMessage).toBe("Heartbeat thread is busy right now.");
-        expect(requests.some((request) => request.method === "turn/start")).toBeFalse();
+        expect(requests.some((request) => request.method === "turn/start")).toBe(false);
 
         await service.runScheduledAutomationNow({
           id: "heartbeat-rollout-complete",
@@ -3058,14 +3058,14 @@ describe("codex-service scheduled automations", () => {
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
         const turnStartParams = turnStartRequest?.params as { threadId?: string } | undefined;
         expect(turnStartParams?.threadId).toBe("thread-rollout-complete");
-        expect(getCodexScheduledAutomation("heartbeat-rollout-complete")?.lastRunAt !== null).toBeTrue();
+        expect(getCodexScheduledAutomation("heartbeat-rollout-complete")?.lastRunAt !== null).toBe(true);
       } finally {
         fs.rmSync(rolloutDir, { recursive: true, force: true });
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("retries scheduled heartbeat automations when renderer state marks the thread ineligible", async () => {
@@ -3140,7 +3140,7 @@ describe("codex-service scheduled automations", () => {
           },
         });
 
-        expect(requests.some((request) => request.method === "turn/start")).toBeFalse();
+        expect(requests.some((request) => request.method === "turn/start")).toBe(false);
         const retried = getCodexScheduledAutomation("heartbeat-retry");
         expect(retried?.nextRunAt).toBe(now + 60_000);
         expect(retried?.lastRunAt).toBe(null);
@@ -3149,7 +3149,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("defers scheduled heartbeat automations until the heartbeat cooldown elapses", async () => {
@@ -3221,7 +3221,7 @@ describe("codex-service scheduled automations", () => {
           },
         });
 
-        expect(requests.some((request) => request.method === "turn/start")).toBeFalse();
+        expect(requests.some((request) => request.method === "turn/start")).toBe(false);
         const deferred = getCodexScheduledAutomation("heartbeat-cooldown");
         expect(deferred?.nextRunAt).toBe(lastRunAt + 5 * 60_000);
         expect(deferred?.lastRunAt).toBe(lastRunAt);
@@ -3230,7 +3230,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("waits for scheduled heartbeat turns to complete", async () => {
@@ -3349,8 +3349,8 @@ describe("codex-service scheduled automations", () => {
         });
 
         await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(turnStartRequested).toBeTrue();
-        expect(resolved).toBeFalse();
+        expect(turnStartRequested).toBe(true);
+        expect(resolved).toBe(false);
 
         client.emit("notification", {
           method: "turn/completed",
@@ -3365,13 +3365,13 @@ describe("codex-service scheduled automations", () => {
           },
         });
         await runPromise;
-        expect(resolved).toBeTrue();
+        expect(resolved).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("deletes active heartbeat automations when their target thread is archived", async () => {
@@ -3426,7 +3426,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("runs a worktree cron automation in a managed worktree", async () => {
@@ -3538,9 +3538,9 @@ describe("codex-service scheduled automations", () => {
 
         const threadStartCwd = (requests.find((request) => request.method === "thread/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
         const turnStartCwd = (requests.find((request) => request.method === "turn/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
-        expect(threadStartCwd.length > 0).toBeTrue();
-        expect(threadStartCwd === repoPath).toBeFalse();
-        expect(fs.existsSync(threadStartCwd)).toBeTrue();
+        expect(threadStartCwd.length > 0).toBe(true);
+        expect(threadStartCwd === repoPath).toBe(false);
+        expect(fs.existsSync(threadStartCwd)).toBe(true);
         expect(turnStartCwd).toBe(threadStartCwd);
         const worktreeHead = execFileSync("git", ["rev-parse", "HEAD"], {
           cwd: threadStartCwd,
@@ -3561,7 +3561,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("runs a projectless cron automation with split work and output directories", async () => {
@@ -3673,17 +3673,17 @@ describe("codex-service scheduled automations", () => {
         const expectedCwd = path.join(expectedRunRoot, "work");
         const expectedOutputs = path.join(expectedRunRoot, "outputs");
         expect(threadStartParams?.cwd).toBe(expectedCwd);
-        expect(fs.existsSync(expectedCwd)).toBeTrue();
-        expect(fs.existsSync(expectedOutputs)).toBeTrue();
-        expect(threadStartParams?.developerInstructions?.includes("### Projectless Chat")).toBeTrue();
-        expect(threadStartParams?.developerInstructions?.includes(expectedOutputs)).toBeTrue();
+        expect(fs.existsSync(expectedCwd)).toBe(true);
+        expect(fs.existsSync(expectedOutputs)).toBe(true);
+        expect(threadStartParams?.developerInstructions?.includes("### Projectless Chat")).toBe(true);
+        expect(threadStartParams?.developerInstructions?.includes(expectedOutputs)).toBe(true);
 
         const turnStartParams = requests.find((request) => request.method === "turn/start")?.params as {
           cwd?: string;
           sandboxPolicy?: { writableRoots?: string[] };
         } | undefined;
         expect(turnStartParams?.cwd).toBe(expectedCwd);
-        expect(JSON.stringify(turnStartParams?.sandboxPolicy ?? {}).includes(expectedCwd)).toBeFalse();
+        expect(JSON.stringify(turnStartParams?.sandboxPolicy ?? {}).includes(expectedCwd)).toBe(false);
 
         const linked = getCodexThread("thread-projectless-automation");
         expect(linked?.cwd).toBe(expectedCwd);
@@ -3706,7 +3706,7 @@ describe("codex-service scheduled automations", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });
 
@@ -3748,7 +3748,7 @@ describe("codex-service rate limit polling", () => {
     await service.shutdown();
 
     expect(accountReadCount).toBe(1);
-    expect(rateLimitsReadCount >= 3).toBeTrue();
+    expect(rateLimitsReadCount >= 3).toBe(true);
   });
 
   test("stops polling after logout clears the authenticated account", async () => {
@@ -3790,7 +3790,7 @@ describe("codex-service rate limit polling", () => {
     await new Promise((resolve) => setTimeout(resolve, 45));
     await service.shutdown();
 
-    expect(readsBeforeLogout >= 2).toBeTrue();
+    expect(readsBeforeLogout >= 2).toBe(true);
     expect(rateLimitsReadCount).toBe(readsBeforeLogout);
   });
 });
@@ -3833,14 +3833,14 @@ describe("codex-service readThread fallback", () => {
         expect(detail).not.toBeNull();
         expect(detail?.threadId).toBe("thr_read_fallback");
         expect(includeTurnsCalls.length).toBe(2);
-        expect(includeTurnsCalls[0]).toBeTrue();
-        expect(includeTurnsCalls[1]).toBeFalse();
+        expect(includeTurnsCalls[0]).toBe(true);
+        expect(includeTurnsCalls[1]).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not retry includeTurns=false for non-rollout errors", async () => {
@@ -3871,16 +3871,16 @@ describe("codex-service readThread fallback", () => {
           message = error instanceof Error ? error.message : String(error);
         }
 
-        expect(failed).toBeTrue();
-        expect(message.includes("permission denied")).toBeTrue();
+        expect(failed).toBe(true);
+        expect(message.includes("permission denied")).toBe(true);
         expect(includeTurnsCalls.length).toBe(1);
-        expect(includeTurnsCalls[0]).toBeTrue();
+        expect(includeTurnsCalls[0]).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resolves thread summaries from SQLite before app-server reads", async () => {
@@ -3916,7 +3916,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resolves missing thread summaries with thread/read includeTurns=false", async () => {
@@ -3957,7 +3957,7 @@ describe("codex-service readThread fallback", () => {
 
         expect(requestMethod).toBe("thread/read");
         expect(request.threadId).toBe("thr_remote_summary");
-        expect(request.includeTurns).toBeFalse();
+        expect(request.includeTurns).toBe(false);
         expect(summary?.threadName).toBe("Remote summary");
         expect(summary?.statusType).toBe("active");
         expect(summary?.statusActiveFlags.join(",")).toBe("waitingOnUserInput");
@@ -3967,7 +3967,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("materializes sidebar sessions with bounded fallback titles from long app-server previews", async () => {
@@ -4022,10 +4022,10 @@ describe("codex-service readThread fallback", () => {
         const normalSession = sessions.find((session) => session.thread?.threadId === "thr_normal_preview");
         const persistedLongThread = getCodexThread("thr_long_preview");
 
-        expect(longSession !== undefined).toBeTrue();
-        expect(normalSession !== undefined).toBeTrue();
+        expect(longSession !== undefined).toBe(true);
+        expect(normalSession !== undefined).toBe(true);
         expect(longSession?.noThreadFallbackTitle.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
-        expect(longSession?.noThreadFallbackTitle.startsWith("Long preview")).toBeTrue();
+        expect(longSession?.noThreadFallbackTitle.startsWith("Long preview")).toBe(true);
         expect(normalSession?.noThreadFallbackTitle).toBe(normalPreview);
         expect(persistedLongThread?.threadPreview.length).toBe(longPreview.length);
       } finally {
@@ -4033,7 +4033,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("materializes project-bound sidebar sessions from thread-started notifications", async () => {
@@ -4068,15 +4068,15 @@ describe("codex-service readThread fallback", () => {
         const linked = sessions.find((session) => session.thread?.threadId === "thr_started_project");
         const summary = getCodexThread("thr_started_project");
 
-        expect(linked !== undefined).toBeTrue();
+        expect(linked !== undefined).toBe(true);
         expect(linked?.projectId).toBe(defaultProjectId);
         expect(linked?.noThreadFallbackTitle).toBe("Started from CLI");
         expect(summary?.projectId).toBe(defaultProjectId);
         const sidebarMessage = hostMessages.find((message) => message.type === "sidebarSyncUpdated");
-        expect(sidebarMessage !== undefined).toBeTrue();
+        expect(sidebarMessage !== undefined).toBe(true);
         if (sidebarMessage?.type === "sidebarSyncUpdated") {
-          expect(sidebarMessage.result.changedProjectIds.includes(defaultProjectId)).toBeTrue();
-          expect(sidebarMessage.result.materializedSessionIds.includes(linked?.id ?? "")).toBeTrue();
+          expect(sidebarMessage.result.changedProjectIds.includes(defaultProjectId)).toBe(true);
+          expect(sidebarMessage.result.materializedSessionIds.includes(linked?.id ?? "")).toBe(true);
         }
 
         await serviceInternals.handleNotification("thread/started", {
@@ -4102,7 +4102,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("registers subagent ids from thread-started spawn sources", async () => {
@@ -4171,7 +4171,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not materialize detached guardian reviewer thread-started notifications", async () => {
@@ -4211,15 +4211,15 @@ describe("codex-service readThread fallback", () => {
           .find((session) => session.thread?.threadId === "thr_started_reviewer");
 
         expect(handledMethods.join(",")).toBe("");
-        expect(serviceInternals.subagentThreadIds.has("thr_started_reviewer")).toBeTrue();
-        expect(linked === undefined).toBeTrue();
-        expect(getCodexThread("thr_started_reviewer") === null).toBeTrue();
+        expect(serviceInternals.subagentThreadIds.has("thr_started_reviewer")).toBe(true);
+        expect(linked === undefined).toBe(true);
+        expect(getCodexThread("thr_started_reviewer") === null).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("persists source-derived subagent nickname metadata without sparse overwrite", async () => {
@@ -4304,7 +4304,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("repairs missing parent child memberships through lightweight thread/read metadata", async () => {
@@ -4387,7 +4387,7 @@ describe("codex-service readThread fallback", () => {
               }],
             },
           },
-        })).toBeTrue();
+        })).toBe(true);
 
         await waitForCondition(() => requests.length === 1, 250);
         await waitForCondition(() => hostMessages.some((message) => {
@@ -4408,7 +4408,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("marks opened subagent threads as full fidelity", async () => {
@@ -4419,15 +4419,15 @@ describe("codex-service readThread fallback", () => {
       };
 
       try {
-        expect(service.markSubagentThreadOpened("  thr_opened_child  ")).toBeTrue();
-        expect(service.markSubagentThreadOpened("   ")).toBeFalse();
+        expect(service.markSubagentThreadOpened("  thr_opened_child  ")).toBe(true);
+        expect(service.markSubagentThreadOpened("   ")).toBe(false);
         expect(Array.from(serviceInternals.fullFidelitySubagentThreadIds).join(",")).toBe("thr_opened_child");
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("drops only Qz deltas for unopened subagent threads", async () => {
@@ -4512,7 +4512,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("routes thread-started notifications through the renderer owner when one is registered", async () => {
@@ -4559,7 +4559,7 @@ describe("codex-service readThread fallback", () => {
           .find((session) => session.thread?.threadId === "thr_started_owner");
         const ownerNotification = ownerMessages[0]?.message;
 
-        expect(linked !== undefined).toBeTrue();
+        expect(linked !== undefined).toBe(true);
         expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
         expect(ownerNotification?.type).toBe("threadOwnerNotification");
         if (ownerNotification?.type === "threadOwnerNotification") {
@@ -4573,7 +4573,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("materializes projectless sidebar sessions from unmatched thread-started notifications", async () => {
@@ -4604,7 +4604,7 @@ describe("codex-service readThread fallback", () => {
         const linked = sessions.find((session) => session.thread?.threadId === "thr_started_projectless");
         const summary = getCodexThread("thr_started_projectless");
 
-        expect(linked !== undefined).toBeTrue();
+        expect(linked !== undefined).toBe(true);
         expect(linked?.projectId).toBe(null);
         expect(linked?.noThreadFallbackTitle).toBe("Outside workspace");
         expect(summary?.projectId).toBe(null);
@@ -4613,7 +4613,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("requests sidebar thread-list with interactive default source kinds from the state DB read model", async () => {
@@ -4647,8 +4647,8 @@ describe("codex-service readThread fallback", () => {
         const archivedRequest = requests[1] as Record<string, unknown> | undefined;
 
         expect(requests.length).toBe(2);
-        expect(activeRequest !== undefined).toBeTrue();
-        expect(archivedRequest !== undefined).toBeTrue();
+        expect(activeRequest !== undefined).toBe(true);
+        expect(archivedRequest !== undefined).toBe(true);
         expect(activeRequest?.archived).toBe(false);
         expect(archivedRequest?.archived).toBe(true);
         expect(activeRequest?.modelProviders).toBe(null);
@@ -4662,7 +4662,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not materialize detached guardian reviewer threads from sidebar sync", async () => {
@@ -4708,15 +4708,15 @@ describe("codex-service readThread fallback", () => {
         const linked = listProjectSessions(defaultProjectId)
           .find((session) => session.thread?.threadId === "thr_auto_review_reviewer");
 
-        expect(result.snapshot.items.some((item) => item.threadId === "thr_auto_review_reviewer")).toBeFalse();
-        expect(linked === undefined).toBeTrue();
-        expect(getCodexThread("thr_auto_review_reviewer") === null).toBeTrue();
+        expect(result.snapshot.items.some((item) => item.threadId === "thr_auto_review_reviewer")).toBe(false);
+        expect(linked === undefined).toBe(true);
+        expect(getCodexThread("thr_auto_review_reviewer") === null).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("repairs legacy auto-review reviewer sidebar sessions from rollout metadata", async () => {
@@ -4778,17 +4778,17 @@ describe("codex-service readThread fallback", () => {
           const repairedSession = getProjectSession(session.id);
           const repairedThread = getCodexThread("thr_legacy_reviewer");
 
-          expect(snapshot.items.some((item) => item.threadId === "thr_legacy_reviewer")).toBeFalse();
-          expect(repairedSession?.archived).toBeTrue();
-          expect(repairedSession?.thread === null).toBeTrue();
-          expect(repairedThread?.archived).toBeTrue();
+          expect(snapshot.items.some((item) => item.threadId === "thr_legacy_reviewer")).toBe(false);
+          expect(repairedSession?.archived).toBe(true);
+          expect(repairedSession?.thread === null).toBe(true);
+          expect(repairedThread?.archived).toBe(true);
         });
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("falls back when app-server does not support state DB sidebar thread-listing", async () => {
@@ -4826,14 +4826,14 @@ describe("codex-service readThread fallback", () => {
         expect(secondResult.source).toBe("app-server");
         expect(requests.length).toBe(3);
         expect(firstRequest?.useStateDbOnly).toBe(true);
-        expect("useStateDbOnly" in (retryRequest ?? {})).toBeFalse();
-        expect("useStateDbOnly" in (secondSyncRequest ?? {})).toBeFalse();
+        expect("useStateDbOnly" in (retryRequest ?? {})).toBe(false);
+        expect("useStateDbOnly" in (secondSyncRequest ?? {})).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("hydrates explicit background subagent thread ids without parent descendant listing", async () => {
@@ -4898,14 +4898,14 @@ describe("codex-service readThread fallback", () => {
         expect(firstRequest?.params.threadId).toBe("thr_child_a");
         expect(firstSummary?.source?.parentThreadId).toBe("thr_parent");
         expect(secondSummary?.source?.parentThreadId).toBe("thr_child_a");
-        expect(getCodexThread("thr_parent") === null).toBeTrue();
-        expect(getCodexThread("thr_unrelated") === null).toBeTrue();
+        expect(getCodexThread("thr_parent") === null).toBe(true);
+        expect(getCodexThread("thr_unrelated") === null).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("coalesces concurrent sidebar force sync calls through one thread-list request", async () => {
@@ -4966,7 +4966,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("serves repeated stale sidebar syncs from SQLite inside the fresh window", async () => {
@@ -5010,7 +5010,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not emit project session changes for unchanged sidebar force sync data", async () => {
@@ -5049,7 +5049,7 @@ describe("codex-service readThread fallback", () => {
 
         expect(captured.events.length).toBe(0);
         expect(secondResult.changedProjectIds.length).toBe(0);
-        expect(secondResult.projectlessChanged).toBeFalse();
+        expect(secondResult.projectlessChanged).toBe(false);
         expect(secondResult.materializedSessionIds.length).toBe(0);
       } finally {
         captured.dispose();
@@ -5057,7 +5057,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not emit project session changes when sidebar thread summary changes in place", async () => {
@@ -5092,7 +5092,7 @@ describe("codex-service readThread fallback", () => {
         await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
         const linked = listProjectSessions(defaultProjectId)
           .find((session) => session.thread?.threadId === "thr_changed_sidebar_summary");
-        expect(linked !== undefined).toBeTrue();
+        expect(linked !== undefined).toBe(true);
 
         captured.events.length = 0;
         preview = "After";
@@ -5100,8 +5100,8 @@ describe("codex-service readThread fallback", () => {
         const result = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
 
         expect(captured.events.length).toBe(0);
-        expect(result.changedProjectIds.includes(defaultProjectId)).toBeTrue();
-        expect(result.projectlessChanged).toBeFalse();
+        expect(result.changedProjectIds.includes(defaultProjectId)).toBe(true);
+        expect(result.projectlessChanged).toBe(false);
         expect(result.materializedSessionIds.length).toBe(0);
       } finally {
         captured.dispose();
@@ -5109,7 +5109,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("forces sidebar repair for unknown name notifications even when the last sync is fresh", async () => {
@@ -5160,13 +5160,13 @@ describe("codex-service readThread fallback", () => {
 
         expect(requestCount).toBe(2);
         expect(summary?.threadName).toBe("Repaired title");
-        expect(linked !== undefined).toBeTrue();
+        expect(linked !== undefined).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("forces sidebar repair for unknown goal metadata notifications", async () => {
@@ -5222,14 +5222,14 @@ describe("codex-service readThread fallback", () => {
         const linked = listProjectSessions(defaultProjectId)
           .find((session) => session.thread?.threadId === "thr_unknown_goal_repair");
 
-        expect(getCodexThread("thr_unknown_goal_repair") !== null).toBeTrue();
-        expect(linked !== undefined).toBeTrue();
+        expect(getCodexThread("thr_unknown_goal_repair") !== null).toBe(true);
+        expect(linked !== undefined).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("re-homes a projectless linked sidebar session when cwd later matches a project source", async () => {
@@ -5263,7 +5263,7 @@ describe("codex-service readThread fallback", () => {
         await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
         const projectless = listProjectSessions(null)
           .find((session) => session.thread?.threadId === "thr_rehome_projectless");
-        expect(projectless !== undefined).toBeTrue();
+        expect(projectless !== undefined).toBe(true);
         expect(projectless?.projectId).toBe(null);
 
         captured.events.length = 0;
@@ -5277,7 +5277,7 @@ describe("codex-service readThread fallback", () => {
 
         expect(moved?.id).toBe(projectless?.id);
         expect(moved?.projectId).toBe(defaultProjectId);
-        expect(stillProjectless === undefined).toBeTrue();
+        expect(stillProjectless === undefined).toBe(true);
         expect(captured.events.length).toBe(2);
         const oldScopeEvents = captured.events.filter((event) =>
           event.projectId === null
@@ -5297,7 +5297,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("archives project-scoped linked session instead of moving its tabs across projects", async () => {
@@ -5354,16 +5354,16 @@ describe("codex-service readThread fallback", () => {
         const replacement = listProjectSessions(targetProjectId)
           .find((candidate) => candidate.thread?.threadId === "thr_rehome_scoped_tabs");
 
-        expect(archivedOriginal?.archived).toBeTrue();
-        expect(replacement !== undefined).toBeTrue();
-        expect(replacement?.id === session.id).toBeFalse();
+        expect(archivedOriginal?.archived).toBe(true);
+        expect(replacement !== undefined).toBe(true);
+        expect(replacement?.id === session.id).toBe(false);
         expect(replacement?.projectId).toBe(targetProjectId);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("thread-deleted archives linked sessions, clears pin, and removes the active sidebar row", async () => {
@@ -5394,16 +5394,16 @@ describe("codex-service readThread fallback", () => {
         const archived = getProjectSession(session.id);
         const snapshot = await service.syncSidebarThreads({ refresh: false });
 
-        expect(archived?.archived).toBeTrue();
-        expect(getCodexThread("thr_deleted_cleanup") === null).toBeTrue();
-        expect(snapshot.items.some((item) => item.threadId === "thr_deleted_cleanup")).toBeFalse();
-        expect(snapshot.pinnedThreadIds.includes("thr_deleted_cleanup")).toBeFalse();
+        expect(archived?.archived).toBe(true);
+        expect(getCodexThread("thr_deleted_cleanup") === null).toBe(true);
+        expect(snapshot.items.some((item) => item.threadId === "thr_deleted_cleanup")).toBe(false);
+        expect(snapshot.pinnedThreadIds.includes("thr_deleted_cleanup")).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("clears sidebar project assignment when sync explicitly resolves no project", async () => {
@@ -5453,7 +5453,7 @@ describe("codex-service readThread fallback", () => {
       expect(preserved?.projectId).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("lists command-palette chats from sidebar scope", async () => {
@@ -5511,12 +5511,12 @@ describe("codex-service readThread fallback", () => {
         const ids = results.map((thread) => thread.threadId).join(",");
 
         expect(results.length).toBe(3);
-        expect(ids.includes("thr_palette_visible")).toBeTrue();
-        expect(ids.includes("thr_project_only")).toBeTrue();
-        expect(ids.includes("thr_projectless")).toBeTrue();
-        expect(ids.includes("thr_palette_archived")).toBeFalse();
+        expect(ids.includes("thr_palette_visible")).toBe(true);
+        expect(ids.includes("thr_project_only")).toBe(true);
+        expect(ids.includes("thr_projectless")).toBe(true);
+        expect(ids.includes("thr_palette_archived")).toBe(false);
         const projectless = results.find((thread) => thread.threadId === "thr_projectless");
-        expect(projectless?.projectless).toBeTrue();
+        expect(projectless?.projectless).toBe(true);
         expect(projectless?.projectId ?? null).toBe(null);
         expect(projectless?.sessionId ?? null).toBe(null);
       } finally {
@@ -5524,7 +5524,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("searches command-palette content across sidebar chats without leaking archived rows", async () => {
@@ -5587,16 +5587,16 @@ describe("codex-service readThread fallback", () => {
         });
         const ids = results.map((result) => result.threadId).join(",");
 
-        expect(ids.includes("thr_content_sessionless")).toBeTrue();
-        expect(ids.includes("thr_content_projectless")).toBeTrue();
-        expect(ids.includes("thr_content_archived")).toBeFalse();
+        expect(ids.includes("thr_content_sessionless")).toBe(true);
+        expect(ids.includes("thr_content_projectless")).toBe(true);
+        expect(ids.includes("thr_content_archived")).toBe(false);
       } finally {
         searchIndexer.shutdown();
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not call app-server thread search for command-palette content", async () => {
@@ -5632,7 +5632,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not enqueue command-palette content backfill from search", async () => {
@@ -5679,7 +5679,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("fails closed when command-palette content search worker is unavailable", async () => {
@@ -5716,7 +5716,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("materializes fileChange patch rows and turn-level unified diff as separate transcript items", async () => {
@@ -5785,7 +5785,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("thread read rebuild uses turn.diff instead of fileChange patch text", async () => {
@@ -5840,14 +5840,14 @@ describe("codex-service readThread fallback", () => {
         const rawItem = turnDiff?.rawItem as { unifiedDiff?: string } | undefined;
 
         expect(detail).not.toBeNull();
-        expect((rawItem?.unifiedDiff ?? "").includes("+final")).toBeTrue();
-        expect((rawItem?.unifiedDiff ?? "").includes("+intermediate")).toBeFalse();
+        expect((rawItem?.unifiedDiff ?? "").includes("+final")).toBe(true);
+        expect((rawItem?.unifiedDiff ?? "").includes("+intermediate")).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("thread read rebuild synthesizes folded turn-diff from fileChange patches when turn.diff is missing", async () => {
@@ -5923,11 +5923,11 @@ describe("codex-service readThread fallback", () => {
         const unifiedDiff = rawItem?.unifiedDiff ?? "";
 
         expect(detail).not.toBeNull();
-        expect(turnDiff !== undefined).toBeTrue();
+        expect(turnDiff !== undefined).toBe(true);
         expect(unifiedDiff.split("diff --git a/src/example.ts b/src/example.ts").length - 1).toBe(1);
-        expect(unifiedDiff.includes("+new")).toBeTrue();
-        expect(unifiedDiff.includes("+after")).toBeTrue();
-        expect(unifiedDiff.includes("+ignored")).toBeFalse();
+        expect(unifiedDiff.includes("+new")).toBe(true);
+        expect(unifiedDiff.includes("+after")).toBe(true);
+        expect(unifiedDiff.includes("+ignored")).toBe(false);
         expect(rawItem?.patchBatches?.length ?? 0).toBe(2);
         expect(`${detail?.transcript[0]?.kind}:${detail?.transcript[0]?.semanticKind}`).toBe("fileChange:patch");
       } finally {
@@ -5935,7 +5935,7 @@ describe("codex-service readThread fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });
 
@@ -6008,7 +6008,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("dedupes replay-materialized and live-read items for the same recovered turn", async () => {
@@ -6118,7 +6118,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("bootstraps reopened thread snapshots from session-backed canonical history without thread/read", async () => {
@@ -6220,7 +6220,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("bootstraps session-backed snapshots with context compaction markers and post-compaction turns intact", async () => {
@@ -6324,7 +6324,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not call thread/resume for a known archived thread", async () => {
@@ -6346,7 +6346,7 @@ describe("codex-service session-backed transcript recovery", () => {
         const conversation = await service.requestConversationResume("thr_archived_known");
 
         expect(conversation?.threadId).toBe("thr_archived_known");
-        expect(conversation?.archived).toBeTrue();
+        expect(conversation?.archived).toBe(true);
         expect(conversation?.resumeState).toBe("needs_resume");
         expect(requests.length).toBe(0);
       } finally {
@@ -6354,7 +6354,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("marks stale thread metadata archived when app-server rejects resume", async () => {
@@ -6390,17 +6390,17 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("thread/resume");
         expect(conversation?.threadId).toBe("thr_archived_stale");
-        expect(conversation?.archived).toBeTrue();
+        expect(conversation?.archived).toBe(true);
         expect(conversation?.resumeState).toBe("needs_resume");
-        expect(projected?.archived).toBeTrue();
+        expect(projected?.archived).toBe(true);
         expect(projected?.resumeState).toBe("needs_resume");
-        expect(persisted?.archived).toBeTrue();
+        expect(persisted?.archived).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("removes local thread state when app-server reports a deleted thread", async () => {
@@ -6429,16 +6429,16 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(getCodexThread("thr_deleted_remote")).toBe(null);
         expect(events.some((event) =>
           event.type === "threadDeleted" && event.threadId === "thr_deleted_remote"
-        )).toBeTrue();
+        )).toBe(true);
         expect(hostMessages.some((message) =>
           message.type === "threadDeleted" && message.threadId === "thr_deleted_remote"
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resume materializes completed reopened threads from the thread/resume payload", async () => {
@@ -6577,7 +6577,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resume materializes in-progress threads from the thread/resume payload without thread/read", async () => {
@@ -6683,7 +6683,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resume hydrates thread goal state after thread resume", async () => {
@@ -6763,7 +6763,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("deduplicates concurrent resume and goal hydration per thread", async () => {
@@ -6835,7 +6835,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resume continues when thread goal hydration fails", async () => {
@@ -6894,7 +6894,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("buffers resume-time notifications and trims hydrated text/output before replay", async () => {
@@ -7005,7 +7005,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer-owned resume defers replay and suppresses source-null snapshots from bundle 47680-47815", async () => {
@@ -7093,22 +7093,22 @@ describe("codex-service session-backed transcript recovery", () => {
         const conversation = await service.requestRendererConversationResume(threadId);
 
         expect(conversation?.threadId ?? "").toBe(threadId);
-        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.length).toBe(0);
 
         await service.releaseConversationResumeBuffer(threadId);
 
-        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.some((message) => {
           const record = message as { type?: string; method?: string };
           return record.type === "threadOwnerNotification" && record.method === "item/agentMessage/delta";
-        })).toBeTrue();
+        })).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer-owned resume failure rolls back without source-null snapshots from bundle 47815-47835", async () => {
@@ -7163,16 +7163,16 @@ describe("codex-service session-backed transcript recovery", () => {
         }
 
         const snapshot = service.serializeConversationSnapshot(threadId);
-        expect(threw).toBeTrue();
+        expect(threw).toBe(true);
         expect(snapshot?.resumeState).toBe("needs_resume");
-        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.length).toBe(0);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resume sends apply-patch streaming feature override", async () => {
@@ -7224,7 +7224,7 @@ describe("codex-service session-backed transcript recovery", () => {
             itemsView?: string;
           };
         };
-        expect(resumeParams.excludeTurns).toBeTrue();
+        expect(resumeParams.excludeTurns).toBe(true);
         expect(resumeParams.initialTurnsPage?.limit ?? 0).toBe(5);
         expect(resumeParams.initialTurnsPage?.sortDirection ?? "").toBe("desc");
         expect(resumeParams.initialTurnsPage?.itemsView ?? "").toBe("full");
@@ -7235,7 +7235,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("replays resume-buffered server requests in notification order from bundle 46730-46950", async () => {
@@ -7292,7 +7292,7 @@ describe("codex-service session-backed transcript recovery", () => {
       await serviceInternals.replayBufferedResumeNotifications(threadId);
       const result = await requestPromise;
 
-      expect((result as { currentTimeAt?: number }).currentTimeAt !== undefined).toBeTrue();
+      expect((result as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
       expect(order.join(",")).toBe(
         "notification:item/reasoning/summaryPartAdded,request:currentTime/read,notification:item/mcpToolCall/progress",
       );
@@ -7447,7 +7447,7 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(fullConversation?.turns.length ?? 0).toBe(2);
         expect(fullConversation?.turns[0]?.turnId ?? "").toBe("turn_older");
         expect(fullConversation?.turns[1]?.turnId ?? "").toBe("turn_recent");
-        expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBeTrue();
+        expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBe(true);
         expect(fullConversation?.turnPagination?.oldestLoadedTurnId ?? null).toBe("turn_older");
         expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/turns/list");
         const olderParams = requests[1]?.params as {
@@ -7465,7 +7465,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("resume background-loads remaining older turn pages without duplicating later older-load requests", async () => {
@@ -7570,7 +7570,7 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(fullConversation?.turns.map((turn) => turn.turnId).join(",") ?? "").toBe(
           "turn_older,turn_mid,turn_recent",
         );
-        expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBeTrue();
+        expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBe(true);
         const olderParams = requests
           .filter((request) => request.method === "thread/turns/list")
           .map((request) => request.params as {
@@ -7590,7 +7590,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("serializes child-thread memberships from main-owned conversation state", async () => {
@@ -7680,7 +7680,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("serializes child-thread memberships from lightweight subagent catalog summaries", async () => {
@@ -7723,7 +7723,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("derives background terminal rows from older running command executions", async () => {
@@ -7840,7 +7840,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("materializes retryable transport errors as stream-error transcript rows", async () => {
@@ -7883,10 +7883,10 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(detail).not.toBeNull();
       expect(errorEntry?.markdownText).toBe("Reconnecting... 2/5");
       expect(errorEntry?.additionalDetails).toBe("Network error: connection dropped while streaming.");
-      expect(errorEntry?.willRetry).toBeTrue();
+      expect(errorEntry?.willRetry).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("materializes failed turn errors from thread/read into system-error transcript rows", async () => {
@@ -7919,10 +7919,10 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(errorEntry?.additionalDetails).toBe(
         "The connection could not be re-established after repeated retry attempts.",
       );
-      expect(errorEntry?.willRetry).toBeFalse();
+      expect(errorEntry?.willRetry).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("cleanBackgroundTerminals interrupts older running command turns for one conversation", async () => {
@@ -8028,7 +8028,7 @@ describe("codex-service session-backed transcript recovery", () => {
 
       try {
         const cleaned = await service.cleanBackgroundTerminals("thr_clean_background_terminals");
-        expect(cleaned).toBeTrue();
+        expect(cleaned).toBe(true);
 
         const interruptRequests = requests.filter((request) => request.method === "turn/interrupt");
         expect(interruptRequests.length).toBe(2);
@@ -8039,7 +8039,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("cleanBackgroundTerminalsSilently uses app-server clean without turn interrupts", async () => {
@@ -8104,12 +8104,12 @@ describe("codex-service session-backed transcript recovery", () => {
       const cleaned = await service.cleanBackgroundTerminalsSilently("thr_clean_background_terminals_silent");
       const after = service.serializeConversationSnapshot("thr_clean_background_terminals_silent");
 
-      expect(cleaned).toBeTrue();
+      expect(cleaned).toBe(true);
       expect(before?.backgroundTerminalRows.length).toBe(1);
       expect(requests.length).toBe(1);
       expect(requests[0]?.method).toBe("thread/backgroundTerminals/clean");
       expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_clean_background_terminals_silent");
-      expect(requests.some((request) => request.method === "turn/interrupt")).toBeFalse();
+      expect(requests.some((request) => request.method === "turn/interrupt")).toBe(false);
       expect(after?.backgroundTerminalRows.length).toBe(0);
       expect(after?.turns[0]?.interruptedCommandExecutionItemIds?.[0]).toBe("exec_background");
     } finally {
@@ -8213,7 +8213,7 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(observedRows[0]?.status).toBe("running");
         expect(registeredRows.length).toBe(1);
         expect(registeredRows[0]?.status).toBe("not-found");
-        expect(registeredRows[0]?.terminal === null).toBeTrue();
+        expect(registeredRows[0]?.terminal === null).toBe(true);
         expect(registeredRows[0]?.itemId).toBe("item-dev");
         expect(registeredRows[0]?.command).toBe("bun run dev");
       } finally {
@@ -8221,7 +8221,7 @@ describe("codex-service session-backed transcript recovery", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("terminateBackgroundTerminal delegates to app-server process id", async () => {
@@ -8247,7 +8247,7 @@ describe("codex-service session-backed transcript recovery", () => {
         processId: " proc-42 ",
       });
 
-      expect(terminated).toBeTrue();
+      expect(terminated).toBe(true);
       expect(requests.length).toBe(1);
       expect(requests[0]?.method).toBe("thread/backgroundTerminals/terminate");
       expect((requests[0]?.params as { threadId?: string; processId?: string })?.threadId).toBe("thr_process_stop");
@@ -8395,7 +8395,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer owner rollback edit rejects non-owner callers before app-server rollback", async () => {
@@ -8453,13 +8453,13 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         }
 
         expect(requests.length).toBe(0);
-        expect(errorMessage.includes("not owner")).toBeTrue();
+        expect(errorMessage.includes("not owner")).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer owner turn start returns raw result without source-null stream patches", async () => {
@@ -8542,7 +8542,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(requestParams?.serviceTier).toBe("fast");
         expect(requestParams?.clientUserMessageId).toBe("client-owner-start");
         expect(result.turnId).toBe("turn_prompt");
-        expect(result.conversationState === undefined).toBeTrue();
+        expect(result.conversationState === undefined).toBe(true);
         expect(promptItem?.kind).toBe("userMessage");
         expect(promptItem?.role).toBe("user");
         expect(promptItem?.markdownText).toBe("Ship the fix");
@@ -8554,7 +8554,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer owner app-server facade updates settings without source-null stream patches", async () => {
@@ -8626,7 +8626,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer owner app-server facade preserves status-only thread goal sets", async () => {
@@ -8695,13 +8695,13 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(requests[0]?.method).toBe("thread/goal/set");
         expect(params?.threadId).toBe("thr_owner_goal_status");
         expect(params?.status).toBe("paused");
-        expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBeFalse();
+        expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer owner app-server facade steers without source-null stream patches", async () => {
@@ -8782,7 +8782,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("renderer owner app-server facade forks from turn without source-null stream patches", async () => {
@@ -8903,7 +8903,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_owner_fork_source");
         expect((requests[0]?.params as { lastTurnId?: string } | undefined)?.lastTurnId).toBe("turn_1");
         expect(result.threadId).toBe("thr_owner_forked");
-        expect(Boolean(result.composerIntent)).toBeTrue();
+        expect(Boolean(result.composerIntent)).toBe(true);
         expect(result.composerIntent?.prompt).toBe("Continue from the fork");
         expect(snapshot?.turns.length).toBe(1);
         expect(snapshot?.turns[0]?.turnId).toBe("turn_1");
@@ -8913,7 +8913,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("forks from an older turn at the selected branch point", async () => {
@@ -9026,22 +9026,22 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         const forkParams = requests[0]?.params as Record<string, unknown> | undefined;
 
         expect(requests[0]?.method).toBe("thread/fork");
-        expect("persistExtendedHistory" in (forkParams ?? {})).toBeFalse();
-        expect("path" in (forkParams ?? {})).toBeFalse();
+        expect("persistExtendedHistory" in (forkParams ?? {})).toBe(false);
+        expect("path" in (forkParams ?? {})).toBe(false);
         expect(forkParams?.lastTurnId).toBe("turn_2");
         expect(requests.length).toBe(1);
         expect(result.threadId).toBe("thr_forked");
-        expect(Boolean(result.composerIntent)).toBeTrue();
+        expect(Boolean(result.composerIntent)).toBe(true);
         expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
         expect(snapshot?.turns.length).toBe(2);
         expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
-        expect(events.some((event) => event.type === "threadSummary" && event.thread.threadId === "thr_forked")).toBeTrue();
+        expect(events.some((event) => event.type === "threadSummary" && event.thread.threadId === "thr_forked")).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("forks from the latest turn without issuing a rollback", async () => {
@@ -9135,8 +9135,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("thread/fork");
         expect(forkParams?.lastTurnId).toBe("turn_2");
-        expect("persistExtendedHistory" in (forkParams ?? {})).toBeFalse();
-        expect("path" in (forkParams ?? {})).toBeFalse();
+        expect("persistExtendedHistory" in (forkParams ?? {})).toBe(false);
+        expect("path" in (forkParams ?? {})).toBe(false);
         expect(result.threadId).toBe("thr_latest_forked");
         expect(snapshot?.turns.length).toBe(2);
         expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
@@ -9145,7 +9145,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("starts side chat as an ephemeral fork, injects boundary, then sends initial prompt", async () => {
@@ -9230,33 +9230,33 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
         expect(sideRequests.map((request) => request.method).join(",")).toBe("thread/fork,thread/inject_items,turn/start");
         expect(forkParams?.threadId).toBe("thr_parent");
-        expect(forkParams?.ephemeral).toBeTrue();
-        expect(forkParams?.excludeTurns).toBeTrue();
-        expect(String(forkParams?.developerInstructions).includes("You are in a side conversation")).toBeTrue();
+        expect(forkParams?.ephemeral).toBe(true);
+        expect(forkParams?.excludeTurns).toBe(true);
+        expect(String(forkParams?.developerInstructions).includes("You are in a side conversation")).toBe(true);
         expect(injectParams?.threadId).toBe("thr_side_chat");
-        expect(JSON.stringify(injectParams?.items ?? []).includes("Side conversation boundary")).toBeTrue();
+        expect(JSON.stringify(injectParams?.items ?? []).includes("Side conversation boundary")).toBe(true);
         expect(turnParams?.threadId).toBe("thr_side_chat");
-        expect(JSON.stringify(turnParams?.input ?? []).includes("Investigate this in side chat")).toBeTrue();
+        expect(JSON.stringify(turnParams?.input ?? []).includes("Investigate this in side chat")).toBe(true);
         expect(result.threadId).toBe("thr_side_chat");
-        expect(snapshot?.source?.sideConversation === true).toBeTrue();
+        expect(snapshot?.source?.sideConversation === true).toBe(true);
         expect(snapshot?.source?.sideConversationParentNavigationPath ?? "").toBe(
           "project:codex/session:session-1/thread:thr_parent",
         );
-        expect(snapshot?.ephemeral === true).toBeTrue();
-        expect(snapshot?.capabilityFlags.canForkFromTurn).toBeFalse();
-        expect(snapshot?.capabilityFlags.canEditLastUserTurn).toBeFalse();
-        expect(getCodexThread("thr_side_chat") === null).toBeTrue();
+        expect(snapshot?.ephemeral === true).toBe(true);
+        expect(snapshot?.capabilityFlags.canForkFromTurn).toBe(false);
+        expect(snapshot?.capabilityFlags.canEditLastUserTurn).toBe(false);
+        expect(getCodexThread("thr_side_chat") === null).toBe(true);
 
         const discarded = await service.discardSideChat("thr_side_chat");
-        expect(discarded).toBeTrue();
-        expect(requests.some((request) => request.method === "thread/unsubscribe")).toBeTrue();
-        expect(service.serializeConversationSnapshot("thr_side_chat") === null).toBeTrue();
+        expect(discarded).toBe(true);
+        expect(requests.some((request) => request.method === "thread/unsubscribe")).toBe(true);
+        expect(service.serializeConversationSnapshot("thr_side_chat") === null).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });
 
@@ -9300,9 +9300,9 @@ describe("codex-service interrupt target resolution", () => {
       const interruptRequest = requests.find(
         (request) => request.method === "turn/interrupt",
       );
-      expect(result).toBeTrue();
-      expect(requests.length >= 1).toBeTrue();
-      expect(Boolean(interruptRequest)).toBeTrue();
+      expect(result).toBe(true);
+      expect(requests.length >= 1).toBe(true);
+      expect(Boolean(interruptRequest)).toBe(true);
       expect((interruptRequest?.params as { threadId?: string })?.threadId).toBe("thr_interrupt");
       expect((interruptRequest?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
     } finally {
@@ -9383,7 +9383,7 @@ describe("codex-service interrupt target resolution", () => {
       const result = await service.interruptTurn("thr_goal_interrupt");
       const snapshot = service.serializeConversationSnapshot("thr_goal_interrupt");
 
-      expect(result).toBeTrue();
+      expect(result).toBe(true);
       expect(requests[0]?.method).toBe("thread/goal/set");
       expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_goal_interrupt");
       expect((requests[0]?.params as { status?: string })?.status).toBe("paused");
@@ -9548,7 +9548,7 @@ describe("codex-service interrupt target resolution", () => {
       1_000);
 
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      expect(requests.some((request) => request.method === "thread/goal/set")).toBeFalse();
+      expect(requests.some((request) => request.method === "thread/goal/set")).toBe(false);
       expect((turnStartRequest?.params as { threadId?: string })?.threadId).toBe("thr_goal_continue_fallback");
       expect((turnStartRequest?.params as { cwd?: string })?.cwd).toBe("/tmp/goal-continue-fallback");
       expect(((turnStartRequest?.params as { input?: unknown[] })?.input ?? []).length).toBe(0);
@@ -9633,7 +9633,7 @@ describe("codex-service interrupt target resolution", () => {
       void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_settings");
 
       await new Promise((resolve) => setTimeout(resolve, 350));
-      expect(requests.some((request) => request.method === "thread/goal/set")).toBeFalse();
+      expect(requests.some((request) => request.method === "thread/goal/set")).toBe(false);
 
       resolveSettings({
         model: "gpt-5.3-codex",
@@ -9690,8 +9690,8 @@ describe("codex-service interrupt target resolution", () => {
 
     try {
       const result = await service.interruptTurn("thr_explicit", "turn_explicit");
-      expect(result).toBeTrue();
-      expect(requests.length >= 1).toBeTrue();
+      expect(result).toBe(true);
+      expect(requests.length >= 1).toBe(true);
       expect(requests[0]?.method).toBe("turn/interrupt");
       expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_explicit");
       expect((requests[0]?.params as { turnId?: string })?.turnId).toBe("turn_explicit");
@@ -9721,7 +9721,7 @@ describe("codex-service interrupt target resolution", () => {
         message = error instanceof Error ? error.message : String(error);
       }
 
-      expect(failed).toBeTrue();
+      expect(failed).toBe(true);
       expect(message).toBe("Could not determine which turn to interrupt");
     } finally {
       await service.shutdown();
@@ -9773,7 +9773,7 @@ describe("codex-service startTurn", () => {
       expect(startedTurn?.turnId).toBe("turn_new");
       expect(startedTurn?.status).toBe("inProgress");
       expect(typeof startedTurn?.turnStartedAtMs).toBe("number");
-      expect((startedTurn?.turnStartedAtMs ?? 0) > 0).toBeTrue();
+      expect((startedTurn?.turnStartedAtMs ?? 0) > 0).toBe(true);
       expect(requests.length).toBe(1);
       expect(requests[0]?.method).toBe("turn/start");
       expect(markedActive.length).toBe(1);
@@ -9859,7 +9859,7 @@ describe("codex-service startTurn", () => {
       const turn = await service.startTurn("thr_projectless", "Continue without project");
       expect(turn?.turnId).toBe("turn_projectless");
       expect(requests.length).toBe(1);
-      expect(JSON.stringify(requests[0]?.params).includes("\"cwd\"")).toBeFalse();
+      expect(JSON.stringify(requests[0]?.params).includes("\"cwd\"")).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -9901,7 +9901,7 @@ describe("codex-service startTurn", () => {
 
       const params = (requests[0]?.params as Record<string, unknown>) ?? {};
       expect(requests.length).toBe(1);
-      expect(Object.prototype.hasOwnProperty.call(params, "serviceTier")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(params, "serviceTier")).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -9997,13 +9997,13 @@ describe("codex-service startTurn", () => {
         expect(promptItem?.kind).toBe("userMessage");
         expect(promptItem?.role).toBe("user");
         expect(promptItem?.markdownText).toBe("Ship the fix");
-        expect(Boolean(promptItem?.itemId.startsWith("item-"))).toBeTrue();
+        expect(Boolean(promptItem?.itemId.startsWith("item-"))).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps steer prompts as optimistic transcript items until the authoritative user message arrives", async () => {
@@ -10061,7 +10061,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("suppresses matching steer user-message started echoes without accepting the pending steer", async () => {
@@ -10127,7 +10127,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("queueing a follow-up during an active turn auto-dispatches it after the turn completes", async () => {
@@ -10196,7 +10196,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("queueing a fast follow-up preserves the effective service tier until dispatch", async () => {
@@ -10255,7 +10255,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("queued follow-up send-now still works as an explicit override while a turn is active", async () => {
@@ -10293,7 +10293,7 @@ describe("codex-service startTurn", () => {
         const snapshot = service.serializeConversationSnapshot("thr_queue_prompt_send_now");
         const followUpId = snapshot?.queuedFollowUps[0]?.followUpId ?? null;
 
-        expect(Boolean(followUpId)).toBeTrue();
+        expect(Boolean(followUpId)).toBe(true);
         if (!followUpId) return;
 
         await service.sendQueuedFollowUpNow("thr_queue_prompt_send_now", followUpId);
@@ -10339,7 +10339,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("queued follow-ups preserve FIFO order across successive turn completions", async () => {
@@ -10414,7 +10414,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("accepts a matching steer only once when started is followed by completed", async () => {
@@ -10512,7 +10512,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps non-matching steer user messages on the ordinary transcript path", async () => {
@@ -10583,7 +10583,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("removes a failed steer from transcript and turn order", async () => {
@@ -10627,7 +10627,7 @@ describe("codex-service startTurn", () => {
         const detail = service.serializeThreadDetail("thr_steer_rpc_failure");
         const snapshot = service.serializeConversationSnapshot("thr_steer_rpc_failure");
 
-        expect(didThrow).toBeTrue();
+        expect(didThrow).toBe(true);
         expect(detail?.transcript.length).toBe(0);
         expect(detail?.turns[0]?.itemIds.length).toBe(0);
         expect(snapshot?.turns[0]?.items.length).toBe(0);
@@ -10636,7 +10636,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("restores an unaccepted steer without leaving a phantom turn item id", async () => {
@@ -10690,13 +10690,13 @@ describe("codex-service startTurn", () => {
         expect(snapshot?.turns[0]?.itemIds.length).toBe(0);
         expect(snapshot?.queuedFollowUps.length).toBe(1);
         expect(snapshot?.queuedFollowUps[0]?.prompt).toBe("Restore me if the turn ends.");
-        expect(Boolean(snapshot?.queuedFollowUps[0]?.pausedReason)).toBeTrue();
+        expect(Boolean(snapshot?.queuedFollowUps[0]?.pausedReason)).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("failed queued follow-up dispatch pauses the item and does not retry in a loop", async () => {
@@ -10751,7 +10751,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("clears a pending steer when the authoritative user message arrives", async () => {
@@ -10816,7 +10816,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("passes model and reasoning overrides through to turn/start", async () => {
@@ -10885,7 +10885,7 @@ describe("codex-service startTurn", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("includes collaborationMode payload for plan turns", async () => {
@@ -11328,7 +11328,7 @@ describe("codex-service collaboration modes", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("updates next-turn thread settings through app-server and mirrors snapshots", async () => {
@@ -11379,7 +11379,7 @@ describe("codex-service collaboration modes", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("falls back to local next-turn settings when app-server settings update is unavailable", async () => {
@@ -11416,7 +11416,7 @@ describe("codex-service collaboration modes", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("thread settings notifications update active conversation snapshots", async () => {
@@ -11472,7 +11472,7 @@ describe("codex-service collaboration modes", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("startTurn prefers explicit overrides over latest thread settings and legacy mode", async () => {
@@ -11558,14 +11558,14 @@ describe("codex-service setThreadName", () => {
 
       try {
         const renamed = await service.setThreadName("thread-1", " \n\t ");
-        expect(renamed).toBeFalse();
+        expect(renamed).toBe(false);
         expect(requestMethods.length).toBe(0);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("sends the sanitized name and emits a title update", async () => {
@@ -11593,7 +11593,7 @@ describe("codex-service setThreadName", () => {
         const renamed = await service.setThreadName("thread-1", "  hello   world  ");
         const titleEvent = events.find((event) => event.type === "threadTitleUpdated");
 
-        expect(renamed).toBeTrue();
+        expect(renamed).toBe(true);
         expect(requestedName).toBe("hello world");
         expect(titleEvent?.type).toBe("threadTitleUpdated");
       } finally {
@@ -11601,7 +11601,7 @@ describe("codex-service setThreadName", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("sends generated names without manual length sanitization", async () => {
@@ -11625,14 +11625,14 @@ describe("codex-service setThreadName", () => {
       try {
         const renamed = await service.setGeneratedThreadName("thread-1", `  ${generatedName}  `);
 
-        expect(renamed).toBeTrue();
+        expect(renamed).toBe(true);
         expect(requestedName).toBe(generatedName);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });
 
@@ -11681,7 +11681,7 @@ describe("codex-service startThreadForSession", () => {
           expect(
             listProjectSessions(defaultProjectId)
               .some((candidate) => candidate.thread?.threadId === "thr_session_deferred_started"),
-          ).toBeFalse();
+          ).toBe(false);
           return {
             thread: {
               id: "thr_session_deferred_started",
@@ -11718,13 +11718,13 @@ describe("codex-service startThreadForSession", () => {
         expect(detail.threadId).toBe("thr_session_deferred_started");
         expect(linkedSessions.length).toBe(1);
         expect(linkedSessions[0]?.id).toBe(session.id);
-        expect(sidebarThreadMessages.length > 0).toBeTrue();
+        expect(sidebarThreadMessages.length > 0).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("starts a session thread in the project workspace and persists the project session link", async () => {
@@ -11792,7 +11792,7 @@ describe("codex-service startThreadForSession", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("sets a text thread goal draft after starting the first session turn", async () => {
@@ -11869,8 +11869,8 @@ describe("codex-service startThreadForSession", () => {
         } | undefined;
 
         expect(detail.threadId).toBe("thr_session_goal");
-        expect(turnStartIndex >= 0).toBeTrue();
-        expect(goalSetIndex > turnStartIndex).toBeTrue();
+        expect(turnStartIndex >= 0).toBe(true);
+        expect(goalSetIndex > turnStartIndex).toBe(true);
         expect(goalSetParams?.threadId).toBe("thr_session_goal");
         expect(goalSetParams?.objective).toBe("Keep refining the migration until tests pass");
         expect(goalSetParams?.status).toBe("active");
@@ -11879,7 +11879,7 @@ describe("codex-service startThreadForSession", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("auto-generates a session thread title from main after thread start and before first turn", async () => {
@@ -11997,28 +11997,28 @@ describe("codex-service startThreadForSession", () => {
           ?.input?.[0]?.text) ?? "";
         const setName = requests.find((request) => request.method === "thread/name/set");
 
-        expect(helperThreadStartIndex >= 0).toBeTrue();
-        expect(durableTurnStartIndex >= 0).toBeTrue();
-        expect(helperThreadStartIndex < durableTurnStartIndex).toBeTrue();
-        expect(helperPrompt.includes("User prompt:\nBuild auto title\n\nPasted requirements")).toBeTrue();
-        expect(helperPrompt.includes("screen.png")).toBeFalse();
-        expect(helperPrompt.includes("README.md")).toBeFalse();
-        expect(helperPrompt.includes("/tmp/codex/skill")).toBeFalse();
+        expect(helperThreadStartIndex >= 0).toBe(true);
+        expect(durableTurnStartIndex >= 0).toBe(true);
+        expect(helperThreadStartIndex < durableTurnStartIndex).toBe(true);
+        expect(helperPrompt.includes("User prompt:\nBuild auto title\n\nPasted requirements")).toBe(true);
+        expect(helperPrompt.includes("screen.png")).toBe(false);
+        expect(helperPrompt.includes("README.md")).toBe(false);
+        expect(helperPrompt.includes("/tmp/codex/skill")).toBe(false);
         expect((setName?.params as { threadId?: string; name?: string } | undefined)?.threadId).toBe("thr_session_auto_title");
         expect((setName?.params as { name?: string } | undefined)?.name).toBe("Fix session auto-title");
         expect(getCodexThread("thr_title_helper")).toBe(null);
         expect(emittedEvents.some((event) =>
           event.type === "turn" && event.turn.threadId === "thr_title_helper"
-        )).toBeFalse();
+        )).toBe(false);
         expect(emittedEvents.some((event) =>
           event.type === "threadSummary" && event.thread.threadId === "thr_title_helper"
-        )).toBeFalse();
+        )).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("forks a session thread from a selected turn and attaches the branch to a new project session", async () => {
@@ -12160,7 +12160,7 @@ describe("codex-service startThreadForSession", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("emits session thread start progress for local project starts", async () => {
@@ -12222,18 +12222,18 @@ describe("codex-service startThreadForSession", () => {
           event.sessionId === session.id
           && event.runInTarget === "localProject"
           && event.phase === "startingThread"
-        )).toBeTrue();
+        )).toBe(true);
         expect(progressEvents.some((event) =>
           event.sessionId === session.id
           && event.threadId === "thr_session_local"
           && event.phase === "ready"
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("emits failed session thread start progress for local project failures", async () => {
@@ -12286,13 +12286,13 @@ describe("codex-service startThreadForSession", () => {
           && event.runInTarget === "localProject"
           && event.phase === "failed"
           && event.message === "Message could not be sent."
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("starts a session thread in a managed worktree when requested", async () => {
@@ -12408,13 +12408,13 @@ describe("codex-service startThreadForSession", () => {
           status?: string;
         } | undefined;
         const linked = getProjectSession(session.id)?.thread;
-        expect(threadStartCwd.length > 0).toBeTrue();
-        expect(threadStartCwd === repoPath).toBeFalse();
-        expect(fs.existsSync(threadStartCwd)).toBeTrue();
+        expect(threadStartCwd.length > 0).toBe(true);
+        expect(threadStartCwd === repoPath).toBe(false);
+        expect(fs.existsSync(threadStartCwd)).toBe(true);
         expect(turnStartCwd).toBe(threadStartCwd);
         expect(linked?.cwd).toBe(threadStartCwd);
         expect(linked?.managedWorktreePath).toBe(threadStartCwd);
-        expect(goalSetIndex > turnStartIndex).toBeTrue();
+        expect(goalSetIndex > turnStartIndex).toBe(true);
         expect(goalSetParams?.threadId).toBe("thr_session_worktree");
         expect(goalSetParams?.objective).toBe("Keep refining the worktree setup until tests pass");
         expect(goalSetParams?.status).toBe("active");
@@ -12438,31 +12438,31 @@ describe("codex-service startThreadForSession", () => {
           event.sessionId === session.id
           && event.runInTarget === "newWorktree"
           && event.phase === "creatingWorktree"
-        )).toBeTrue();
+        )).toBe(true);
         expect(progressEvents.some((event) =>
           event.sessionId === session.id
           && event.runInTarget === "newWorktree"
           && event.phase === "startingThread"
-        )).toBeTrue();
+        )).toBe(true);
         expect(progressEvents.some((event) =>
           event.sessionId === session.id
           && event.runInTarget === "newWorktree"
           && event.threadId === "thr_session_worktree"
           && event.phase === "ready"
-        )).toBeTrue();
+        )).toBe(true);
         expect(events.some((event) =>
           event.type === "scheduledAutomationChanged"
           && event.event.automationId === heartbeat.id
           && event.event.targetThreadId === "thr_session_worktree"
           && event.event.reason === "upsert"
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
         fs.rmSync(repoPath, { recursive: true, force: true });
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps managed worktree start successful when heartbeat automation creation fails", async () => {
@@ -12557,19 +12557,19 @@ describe("codex-service startThreadForSession", () => {
           && event.phase === "startingThread"
           && event.message === "Started chat, but could not create the heartbeat."
           && event.outputDelta === "[stderr] Started chat, but could not create the heartbeat\n"
-        )).toBeTrue();
+        )).toBe(true);
         expect(events.some((event) =>
           event.type === "threadStartProgress"
           && event.threadId === "thr_session_worktree_heartbeat_fail"
           && event.phase === "ready"
-        )).toBeTrue();
+        )).toBe(true);
       } finally {
         await service.shutdown();
         fs.rmSync(repoPath, { recursive: true, force: true });
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("aborts session worktree start when selected environment setup fails", async () => {
@@ -12630,19 +12630,19 @@ describe("codex-service startThreadForSession", () => {
           message = error instanceof Error ? error.message : String(error);
         }
 
-        expect(message.includes("Failed to set up new worktree using environment")).toBeTrue();
-        expect(requests.some((request) => request.method === "thread/start")).toBeFalse();
+        expect(message.includes("Failed to set up new worktree using environment")).toBe(true);
+        expect(requests.some((request) => request.method === "thread/start")).toBe(false);
         const progressEvents = events.filter(
           (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
         );
-        expect(progressEvents.some((event) => event.sessionId === session.id && event.phase === "failed")).toBeTrue();
+        expect(progressEvents.some((event) => event.sessionId === session.id && event.phase === "failed")).toBe(true);
       } finally {
         await service.shutdown();
         fs.rmSync(repoPath, { recursive: true, force: true });
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects unsupported cloud session starts", async () => {
@@ -12675,7 +12675,7 @@ describe("codex-service startThreadForSession", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("preserves session prompt attachments and selected model, reasoning, permission, and collaboration inputs", async () => {
@@ -12755,15 +12755,15 @@ describe("codex-service startThreadForSession", () => {
           },
         }));
         const serializedInput = JSON.stringify(turnStartParams?.input);
-        expect(serializedInput.includes("Analyze this screenshot")).toBeTrue();
-        expect(serializedInput.includes("screen.png")).toBeTrue();
-        expect(serializedInput.includes("/tmp/codex/README.md")).toBeTrue();
+        expect(serializedInput.includes("Analyze this screenshot")).toBe(true);
+        expect(serializedInput.includes("screen.png")).toBe(true);
+        expect(serializedInput.includes("/tmp/codex/README.md")).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("fails session thread start with a clear error when the project has no source root", async () => {
@@ -12790,13 +12790,13 @@ describe("codex-service startThreadForSession", () => {
         } catch (error) {
           message = error instanceof Error ? error.message : String(error);
         }
-        expect(message.includes("requires at least one source folder")).toBeTrue();
+        expect(message.includes("requires at least one source folder")).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("generates thread title through structured thread/start and turn/start flow", async () => {
@@ -12887,7 +12887,7 @@ describe("codex-service startThreadForSession", () => {
         : {};
       expect(typeof turnStartPayload.clientUserMessageId).toBe("string");
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
-      expect(generatedPrompt.includes("User prompt:\nRefactor inbox list layout")).toBeTrue();
+      expect(generatedPrompt.includes("User prompt:\nRefactor inbox list layout")).toBe(true);
       expect(JSON.stringify({
         ...(turnStartParams ?? {}),
         clientUserMessageId: "<uuid>",
@@ -13141,7 +13141,7 @@ describe("codex-service startThreadForSession", () => {
         didReject = true;
       }
 
-      expect(didReject).toBeTrue();
+      expect(didReject).toBe(true);
       expect(JSON.stringify(interruptParams)).toBe(JSON.stringify({
         threadId: "thr_title_failed",
         turnId: "turn_title_failed",
@@ -13300,7 +13300,7 @@ describe("codex-service startThreadForSession", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("deletes managed worktree directory and unlinks all threads that point to that path", async () => {
@@ -13337,8 +13337,8 @@ describe("codex-service startThreadForSession", () => {
       const service = createService();
       try {
         const deleted = await service.deleteManagedWorktree("thr_delete_new");
-        expect(deleted).toBeTrue();
-        expect(fs.existsSync(sharedPath)).toBeFalse();
+        expect(deleted).toBe(true);
+        expect(fs.existsSync(sharedPath)).toBe(false);
         expect(getCodexThread("thr_delete_new")).toBe(null);
         expect(getCodexThread("thr_delete_old")).toBe(null);
         expect(getCodexThread("thr_keep")).not.toBeNull();
@@ -13347,7 +13347,7 @@ describe("codex-service startThreadForSession", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("removes git worktree metadata when deleting a managed worktree", async () => {
@@ -13373,22 +13373,22 @@ describe("codex-service startThreadForSession", () => {
       const service = createService();
       try {
         const deleted = await service.deleteManagedWorktree("thr_git_remove");
-        expect(deleted).toBeTrue();
-        expect(fs.existsSync(managedPath)).toBeFalse();
+        expect(deleted).toBe(true);
+        expect(fs.existsSync(managedPath)).toBe(false);
 
         const worktreeListOutput = execFileSync(
           "git",
           ["worktree", "list", "--porcelain"],
           { cwd: repositoryPath, encoding: "utf8" },
         );
-        expect(worktreeListOutput.includes(path.resolve(managedPath))).toBeFalse();
+        expect(worktreeListOutput.includes(path.resolve(managedPath))).toBe(false);
       } finally {
         await service.shutdown();
         fs.rmSync(repositoryPath, { recursive: true, force: true });
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
 });
@@ -13450,15 +13450,15 @@ describe("codex-service approval fallback", () => {
       try {
         const state = await service.setProjectPermissionMode(defaultProjectId, "guardian-approvals");
 
-        expect(wroteConfig).toBeFalse();
+        expect(wroteConfig).toBe(false);
         expect(state.mode).toBe("auto");
-        expect(state.availableModes.includes("guardian-approvals")).toBeFalse();
+        expect(state.availableModes.includes("guardian-approvals")).toBe(false);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("auto-accepts approval requests in full-access mode", async () => {
@@ -13490,7 +13490,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("queues approval requests outside full-access mode", async () => {
@@ -13537,7 +13537,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("routes approval request ingress to renderer owner without source-null stream patches", async () => {
@@ -13589,7 +13589,7 @@ describe("codex-service approval fallback", () => {
         });
 
         await Promise.resolve();
-        expect(serviceInternals.pendingApprovals.has("req_owner_approval")).toBeTrue();
+        expect(serviceInternals.pendingApprovals.has("req_owner_approval")).toBe(true);
         expect(String(hostMessages.length)).toBe("0");
         expect(String(ownerMessages.length)).toBe("1");
         expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
@@ -13609,7 +13609,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("routes dynamic tool-call requests through renderer owner from bundle 51920-52390", async () => {
@@ -13652,7 +13652,7 @@ describe("codex-service approval fallback", () => {
       });
 
       await Promise.resolve();
-      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBeTrue();
+      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
       expect(String(ownerMessages.length)).toBe("1");
       expect(ownerMessages[0]?.targetClientId).toBe("owner-dynamic");
@@ -13665,9 +13665,9 @@ describe("codex-service approval fallback", () => {
 
       const ownerResponse = await serviceInternals.respondToDynamicToolCall("req_dynamic_tool");
       const serverResponse = await requestPromise as { success: boolean };
-      expect(ownerResponse?.success).toBeFalse();
-      expect(serverResponse.success).toBeFalse();
-      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBeFalse();
+      expect(ownerResponse?.success).toBe(false);
+      expect(serverResponse.success).toBe(false);
+      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -13723,7 +13723,7 @@ describe("codex-service approval fallback", () => {
         const automationId = createdResult.automationId ?? "";
         const created = getCodexScheduledAutomation(automationId);
 
-        expect(createdResponse.success).toBeTrue();
+        expect(createdResponse.success).toBe(true);
         expect(createdResponse.contentItems[0]?.text).toBe("Created automation in the app.");
         expect(createdResult.mode).toBe("create");
         expect(created?.name).toBe("Daily review");
@@ -13750,7 +13750,7 @@ describe("codex-service approval fallback", () => {
         };
         const updated = getCodexScheduledAutomation(automationId);
 
-        expect(updatedResponse.success).toBeTrue();
+        expect(updatedResponse.success).toBe(true);
         expect(updatedResponse.contentItems[0]?.text).toBe("Updated automation in the app.");
         expect(updatedResult.automationId).toBe(automationId);
         expect(updatedResult.mode).toBe("update");
@@ -13789,7 +13789,7 @@ describe("codex-service approval fallback", () => {
           ),
         );
 
-        expect(deletedResponse.success).toBeTrue();
+        expect(deletedResponse.success).toBe(true);
         expect(deletedResponse.contentItems[0]?.text).toBe("Deleted automation in the app.");
         expect(deletedResult.automationId).toBe(automationId);
         expect(deletedResult.mode).toBe("delete");
@@ -13807,7 +13807,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps automation_update suggested setup proposals render-only and blocks immediate setup-capable worktree creates", async () => {
@@ -13851,9 +13851,9 @@ describe("codex-service approval fallback", () => {
         const blocked = await callAutomationUpdate("call_blocked_setup", "create");
         const suggested = await callAutomationUpdate("call_suggested_setup", "suggested_create");
 
-        expect(blocked.success).toBeFalse();
+        expect(blocked.success).toBe(false);
         expect(blocked.contentItems[0]?.text).toBe("For safety, automations created by the model cannot immediately run a worktree local environment setup script. Use suggested_create or suggested_update so the user can review and approve the setup-capable automation, or set localEnvironmentConfigPath to null.");
-        expect(suggested.success).toBeTrue();
+        expect(suggested.success).toBe(true);
         expect(suggested.contentItems.length).toBe(1);
         expect(suggested.contentItems[0]?.text).toBe("Rendered automation card in the app.");
         expect(getCodexScheduledAutomation("unsafe-setup")).toBe(null);
@@ -13862,7 +13862,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("requires automation_update heartbeat targets to be local threads for direct writes", async () => {
@@ -13935,10 +13935,10 @@ describe("codex-service approval fallback", () => {
           ),
         );
 
-        expect(blocked.success).toBeFalse();
+        expect(blocked.success).toBe(false);
         expect(blocked.contentItems[0]?.text).toBe("Automations are only supported for local threads.");
         expect(listCodexScheduledAutomations().length).toBe(1);
-        expect(created.success).toBeTrue();
+        expect(created.success).toBe(true);
         expect(created.contentItems[0]?.text).toBe("Created automation in the app.");
         expect(createdResult.mode).toBe("create");
         expect(automation?.kind).toBe("heartbeat");
@@ -13950,7 +13950,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("routes permissions request ingress and response through renderer owner from bundle 51920 and 38740", async () => {
@@ -14009,7 +14009,7 @@ describe("codex-service approval fallback", () => {
         });
 
         await Promise.resolve();
-        expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBeTrue();
+        expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBe(true);
         expect(String(hostMessages.length)).toBe("0");
         expect(String(ownerMessages.length)).toBe("1");
         expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
@@ -14039,9 +14039,9 @@ describe("codex-service approval fallback", () => {
           "permission-request-req_owner_permission",
         );
 
-        expect(accepted).toBeTrue();
+        expect(accepted).toBe(true);
         expect(JSON.stringify(result)).toBe(JSON.stringify(response));
-        expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBeFalse();
+        expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBe(false);
         expect(completedItem?.status).toBe("completed");
         expect(JSON.stringify(completedItem?.rawItem)).toBe(JSON.stringify({
           id: "permission-request-req_owner_permission",
@@ -14065,7 +14065,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keys pending approvals by JSON-RPC request.id", async () => {
@@ -14104,7 +14104,7 @@ describe("codex-service approval fallback", () => {
         });
 
         await Promise.resolve();
-        expect(serviceInternals.pendingApprovals.has("42")).toBeTrue();
+        expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
         const approvalItem = getRecordedItem(serviceInternals, "thr_request_id", "turn_request_id", "item_request_id");
         expect(approvalItem?.approvalRequestId).toBe("42");
 
@@ -14122,7 +14122,7 @@ describe("codex-service approval fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });
 
@@ -14183,8 +14183,8 @@ describe("codex-service streaming notification parity", () => {
         "reasoning_item",
       );
 
-      expect(Boolean(planItem)).toBeFalse();
-      expect(Boolean(reasoningItem)).toBeFalse();
+      expect(Boolean(planItem)).toBe(false);
+      expect(Boolean(reasoningItem)).toBe(false);
       expect(String(hostMessages.length)).toBe("0");
     } finally {
       await service.shutdown();
@@ -14245,7 +14245,7 @@ describe("codex-service streaming notification parity", () => {
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
-      expect(hostMessages.length > 0).toBeTrue();
+      expect(hostMessages.length > 0).toBe(true);
       const firstHostMessage = hostMessages[0];
       expect(
         firstHostMessage?.type === "threadStreamStateChanged"
@@ -14336,7 +14336,7 @@ describe("codex-service streaming notification parity", () => {
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
-      expect(hostMessages.length > 0).toBeTrue();
+      expect(hostMessages.length > 0).toBe(true);
       const firstHostMessage = hostMessages[0];
       expect(
         firstHostMessage?.type === "threadStreamStateChanged"
@@ -14349,7 +14349,7 @@ describe("codex-service streaming notification parity", () => {
       const summary = rawItem && typeof rawItem === "object"
         ? (rawItem as { summary?: unknown[] }).summary
         : null;
-      expect(Array.isArray(summary)).toBeTrue();
+      expect(Array.isArray(summary)).toBe(true);
       expect(String(summary?.[0] ?? "")).toBe("Thinking");
 
       hostMessages.length = 0;
@@ -14367,7 +14367,7 @@ describe("codex-service streaming notification parity", () => {
       const content = contentRawItem && typeof contentRawItem === "object"
         ? (contentRawItem as { content?: unknown[] }).content
         : null;
-      expect(Array.isArray(content)).toBeTrue();
+      expect(Array.isArray(content)).toBe(true);
       expect(String(content?.[0] ?? "")).toBe("Private chain");
     } finally {
       await service.shutdown();
@@ -14420,8 +14420,8 @@ describe("codex-service streaming notification parity", () => {
       });
 
       await Promise.resolve();
-      expect(serviceInternals.pendingApprovals.has("approval_req")).toBeTrue();
-      expect(serviceInternals.pendingUserInputs.has("input_req")).toBeTrue();
+      expect(serviceInternals.pendingApprovals.has("approval_req")).toBe(true);
+      expect(serviceInternals.pendingUserInputs.has("input_req")).toBe(true);
 
       await serviceInternals.handleNotification("serverRequest/resolved", {
         threadId: "thr_resolved",
@@ -14436,8 +14436,8 @@ describe("codex-service streaming notification parity", () => {
       const inputResult = await userInputPromise;
       expect(JSON.stringify(approvalResult)).toBe(JSON.stringify({ decision: "cancel" }));
       expect(JSON.stringify(inputResult)).toBe(JSON.stringify({ answers: {} }));
-      expect(serviceInternals.pendingApprovals.has("approval_req")).toBeFalse();
-      expect(serviceInternals.pendingUserInputs.has("input_req")).toBeFalse();
+      expect(serviceInternals.pendingApprovals.has("approval_req")).toBe(false);
+      expect(serviceInternals.pendingUserInputs.has("input_req")).toBe(false);
       const approvalItem = getRecordedItem(serviceInternals, "thr_resolved", "turn_resolved", "item_approval");
       expect(approvalItem?.approvalRequestId ?? null).toBe(null);
 
@@ -14447,8 +14447,8 @@ describe("codex-service streaming notification parity", () => {
       const userInputResolvedEvents = events.filter(
         (event): event is Extract<CodexEvent, { type: "userInputResolved" }> => event.type === "userInputResolved",
       );
-      expect(approvalResolvedEvents.some((event) => event.requestId === "approval_req")).toBeTrue();
-      expect(userInputResolvedEvents.some((event) => event.requestId === "input_req")).toBeTrue();
+      expect(approvalResolvedEvents.some((event) => event.requestId === "approval_req")).toBe(true);
+      expect(userInputResolvedEvents.some((event) => event.requestId === "input_req")).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -14501,7 +14501,7 @@ describe("codex-service streaming notification parity", () => {
 
       await Promise.resolve();
       const responded = await service.respondToUserInput("input_req", { q1: ["2"] });
-      expect(responded).toBeTrue();
+      expect(responded).toBe(true);
 
       const resolved = await requestPromise;
       expect(JSON.stringify(resolved)).toBe(JSON.stringify({
@@ -14611,7 +14611,7 @@ describe("codex-service custom permission descriptions", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("reports parsed workspace config values for custom mode", async () => {
@@ -14683,7 +14683,7 @@ describe("codex-service custom permission descriptions", () => {
     });
 
     try {
-      if (!ran) expect(true).toBeTrue();
+      if (!ran) expect(true).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -14763,7 +14763,7 @@ describe("codex-service custom permission descriptions", () => {
     });
 
     try {
-      if (!ran) expect(true).toBeTrue();
+      if (!ran) expect(true).toBe(true);
     } finally {
       if (originalHome === undefined) {
         delete process.env.HOME;
@@ -15168,7 +15168,7 @@ describe("codex-service item lifecycle status fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("synthesizes turn-local canonical item order from live item lifecycle events", async () => {
@@ -15250,7 +15250,7 @@ describe("codex-service item lifecycle status fallback", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("projects automatic approval review notifications into the canonical conversation", async () => {
@@ -15474,7 +15474,7 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(raw?.fromModel).toBe("gpt-5.4-codex");
       expect(raw?.toModel).toBe("gpt-5.4-mini");
       expect(raw?.reason).toBe("highRiskCyberActivity");
-      expect(hostMessages.length > 0).toBeTrue();
+      expect(hostMessages.length > 0).toBe(true);
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(latest?.turns[0]?.items[0]?.semanticKind).toBe("modelRerouted");
     } finally {
@@ -15531,7 +15531,7 @@ describe("codex-service item lifecycle status fallback", () => {
         },
         _meta: null,
       });
-      expect(responded).toBeTrue();
+      expect(responded).toBe(true);
       const response = await requestPromise;
       expect(JSON.stringify(response)).toBe(JSON.stringify({
         action: "accept",
@@ -15594,7 +15594,7 @@ describe("codex-service item lifecycle status fallback", () => {
         content: null,
         _meta: null,
       }));
-      expect(serviceInternals.pendingMcpElicitations.has("mcp_invalid")).toBeFalse();
+      expect(serviceInternals.pendingMcpElicitations.has("mcp_invalid")).toBe(false);
       expect(String(ownerMessages.length)).toBe("0");
       expect(String(hostMessages.length)).toBe("0");
     } finally {
@@ -15801,7 +15801,7 @@ describe("codex-service item lifecycle status fallback", () => {
         "thr_plan_impl_remove",
         "turn_plan_impl_remove",
       );
-      expect(removed).toBeTrue();
+      expect(removed).toBe(true);
 
       requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_remove");
       expect(requests.length).toBe(0);
@@ -15956,12 +15956,12 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       const interrupted = await service.interruptTurn("thr_interrupt_terminal", "turn_interrupt_terminal");
-      expect(interrupted).toBeTrue();
+      expect(interrupted).toBe(true);
 
       const turnEvents = events.filter(
         (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
       );
-      expect(turnEvents.some((event) => event.turn.status === "interrupted")).toBeTrue();
+      expect(turnEvents.some((event) => event.turn.status === "interrupted")).toBe(true);
       const interruptedTurn = turnEvents.find((event) => event.turn.turnId === "turn_interrupt_terminal")?.turn;
       expect(interruptedTurn?.interruptedCommandExecutionItemIds?.[0]).toBe("item_tool");
       const item = getRecordedItem(serviceInternals, "thr_interrupt_terminal", "turn_interrupt_terminal", "item_tool");
@@ -16020,7 +16020,7 @@ describe("codex-service terminal turn reconciliation", () => {
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
-      expect(hostMessages.length > 0).toBeTrue();
+      expect(hostMessages.length > 0).toBe(true);
       const firstHostMessage = hostMessages[0];
       expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
       expect(
@@ -16092,7 +16092,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps live assistant timestamp when turn completion carries completedAt fallback", async () => {
@@ -16147,7 +16147,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("avoids full conversation serialization during assistant delta flushes once the broadcast cache is primed", async () => {
@@ -16208,7 +16208,7 @@ describe("codex-service terminal turn reconciliation", () => {
       await waitForCondition(() => hostMessages.length > 0, 120);
 
       expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-      expect(hostMessages.length > 0).toBeTrue();
+      expect(hostMessages.length > 0).toBe(true);
       const firstHostMessage = hostMessages[0];
       expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
       expect(
@@ -16271,7 +16271,7 @@ describe("codex-service terminal turn reconciliation", () => {
       });
       await waitForCondition(() => hostMessages.length >= 3, 180);
 
-      expect(hostMessages.length > 1).toBeTrue();
+      expect(hostMessages.length > 1).toBe(true);
       const firstFrame = projectConversationFromHostMessages([hostMessages[0]!], baseConversation);
       expect(firstFrame?.turns[0]?.items[0]?.markdownText?.length ?? -1).toBe(24);
 
@@ -16370,7 +16370,7 @@ describe("codex-service terminal turn reconciliation", () => {
         }
       }
 
-      expect(completedMessageIndex > 0).toBeTrue();
+      expect(completedMessageIndex > 0).toBe(true);
       const beforeCompleted = projectConversationFromHostMessages(
         hostMessages.slice(0, completedMessageIndex),
         baseConversation,
@@ -16380,7 +16380,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
       expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
-      expect(requestAnimationFrameCalled).toBeFalse();
+      expect(requestAnimationFrameCalled).toBe(false);
     } finally {
       await service.shutdown();
       if (previousRequestAnimationFrameDescriptor) {
@@ -16471,7 +16471,7 @@ describe("codex-service terminal turn reconciliation", () => {
         }
       }
 
-      expect(completedMessageIndex > 0).toBeTrue();
+      expect(completedMessageIndex > 0).toBe(true);
       const beforeCompleted = projectConversationFromHostMessages(
         hostMessages.slice(0, completedMessageIndex),
         baseConversation,
@@ -16553,7 +16553,7 @@ describe("codex-service terminal turn reconciliation", () => {
         }
       }
 
-      expect(completedMessageIndex > 0).toBeTrue();
+      expect(completedMessageIndex > 0).toBe(true);
       const beforeCompleted = projectConversationFromHostMessages(
         hostMessages.slice(0, completedMessageIndex),
         baseConversation,
@@ -17006,7 +17006,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("drops assistant frame-text deltas that arrive before item/started", async () => {
@@ -17052,7 +17052,7 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(threadMessages.length).toBe(0);
       expect(mcpMessages.length).toBe(0);
       const latest = projectConversationFromHostMessages(threadMessages);
-      expect(Boolean(latest)).toBeFalse();
+      expect(Boolean(latest)).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -17107,7 +17107,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("bounds streamed command output and marks truncation in thread stream snapshots", async () => {
@@ -17154,14 +17154,14 @@ describe("codex-service terminal turn reconciliation", () => {
 
         const snapshot = await service.requestConversationSnapshot("thr_streaming_output_truncated");
         const output = snapshot?.turns[0]?.items[0]?.aggregatedOutput ?? "";
-        expect(output.startsWith("[output truncated]\n")).toBeTrue();
-        expect(output.length <= 20_020).toBeTrue();
+        expect(output.startsWith("[output truncated]\n")).toBe(true);
+        expect(output.length <= 20_020).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("background terminals include older turns whose command executions are still running", async () => {
@@ -17223,7 +17223,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("background terminals immediately exclude manually interrupted command executions by turn metadata", async () => {
@@ -17284,7 +17284,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps file-edit patch rows while turn diff updates stream on the turn", async () => {
@@ -17344,7 +17344,7 @@ describe("codex-service terminal turn reconciliation", () => {
 
         const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
-        expect(String(latest?.turns[0]?.diff ?? "").includes("+new")).toBeTrue();
+        expect(String(latest?.turns[0]?.diff ?? "").includes("+new")).toBe(true);
         expect(latest?.turns[0]?.items.length).toBe(1);
         expect(`${latest?.turns[0]?.items[0]?.kind}:${latest?.turns[0]?.items[0]?.semanticKind}`).toBe("fileChange:patch");
       } finally {
@@ -17352,7 +17352,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("turn diff updates replace turn.diff without creating a transcript item", async () => {
@@ -17395,13 +17395,13 @@ describe("codex-service terminal turn reconciliation", () => {
         const latest = projectConversationFromHostMessages(hostMessages);
         const items = latest?.turns[0]?.items ?? [];
         expect(items.length).toBe(0);
-        expect(String(latest?.turns[0]?.diff ?? "").includes("+next")).toBeTrue();
+        expect(String(latest?.turns[0]?.diff ?? "").includes("+next")).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("fileChange outputDelta does not create visible transcript state", async () => {
@@ -17443,7 +17443,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("patchUpdated creates an in-progress fileChange item", async () => {
@@ -17495,7 +17495,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("patchUpdated with an empty add diff still creates a visible live fileChange row", async () => {
@@ -17547,7 +17547,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("patchUpdated replaces the existing fileChange changes", async () => {
@@ -17602,13 +17602,13 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(items.length).toBe(1);
         const latestChange = getCodexFileChangeList(items[0]?.fileChange?.changes)[0];
         expect(getCodexFileChangePaths(items[0]?.fileChange?.changes).join(",")).toBe("src/new.ts");
-        expect(latestChange?.type === "update" ? latestChange.unifiedDiff.includes("after") : false).toBeTrue();
+        expect(latestChange?.type === "update" ? latestChange.unifiedDiff.includes("after") : false).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("patchUpdated rebinds the latest in-progress turn before adding the live fileChange", async () => {
@@ -17674,7 +17674,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("completed fileChange items synthesize turn-diff payloads when turn diff state is missing", async () => {
@@ -17744,19 +17744,19 @@ describe("codex-service terminal turn reconciliation", () => {
         const unifiedDiff = rawItem?.unifiedDiff ?? "";
 
         expect(turn).not.toBeNull();
-        expect(turnDiff !== undefined).toBeTrue();
+        expect(turnDiff !== undefined).toBe(true);
         expect(unifiedDiff.split("diff --git a/src/app.ts b/src/app.ts").length - 1).toBe(1);
-        expect(unifiedDiff.includes("+new")).toBeTrue();
-        expect(unifiedDiff.includes("+after")).toBeTrue();
+        expect(unifiedDiff.includes("+new")).toBe(true);
+        expect(unifiedDiff.includes("+after")).toBe(true);
         expect(rawItem?.patchBatches?.length ?? 0).toBe(2);
-        expect(turn?.items.some((item) => item.itemId === "patch_done_1") ?? false).toBeTrue();
-        expect(turn?.items.some((item) => item.itemId === "patch_done_2") ?? false).toBeTrue();
+        expect(turn?.items.some((item) => item.itemId === "patch_done_1") ?? false).toBe(true);
+        expect(turn?.items.some((item) => item.itemId === "patch_done_2") ?? false).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("completed turn diffs use app-server turn diff and preserve patch batches", async () => {
@@ -17827,12 +17827,12 @@ describe("codex-service terminal turn reconciliation", () => {
           showRevertButton?: boolean;
         } | undefined;
 
-        expect((turn?.diff ?? "").includes("+from-turn-diff")).toBeTrue();
+        expect((turn?.diff ?? "").includes("+from-turn-diff")).toBe(true);
         expect(`${turnDiff?.kind}:${turnDiff?.semanticKind}`).toBe("systemEvent:diff");
-        expect((rawItem?.unifiedDiff ?? "").includes("+from-turn-diff")).toBeTrue();
-        expect((rawItem?.unifiedDiff ?? "").includes("+from-patch")).toBeFalse();
+        expect((rawItem?.unifiedDiff ?? "").includes("+from-turn-diff")).toBe(true);
+        expect((rawItem?.unifiedDiff ?? "").includes("+from-patch")).toBe(false);
         expect(rawItem?.cwd ?? "").toBe(nonGitPath);
-        expect(rawItem?.showRevertButton === true).toBeTrue();
+        expect(rawItem?.showRevertButton === true).toBe(true);
         expect(rawItem?.patchBatches?.length ?? 0).toBe(1);
         expect(rawItem?.patchBatches?.[0]?.cwd ?? "").toBe(nonGitPath);
         expect(rawItem?.patchBatches?.[0]?.changes.length ?? 0).toBe(1);
@@ -17842,7 +17842,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("empty app-server turn diff falls back to completed fileChange patches", async () => {
@@ -17908,14 +17908,14 @@ describe("codex-service terminal turn reconciliation", () => {
         const rawItem = turnDiff?.rawItem as { unifiedDiff?: string; patchBatches?: unknown[] } | undefined;
 
         expect(turn?.diff ?? "missing").toBe("");
-        expect((rawItem?.unifiedDiff ?? "").includes("+from-patch")).toBeTrue();
+        expect((rawItem?.unifiedDiff ?? "").includes("+from-patch")).toBe(true);
         expect(rawItem?.patchBatches?.length ?? 0).toBe(1);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("empty app-server turn diff without fileChange patches does not create a turn-diff item", async () => {
@@ -17965,13 +17965,13 @@ describe("codex-service terminal turn reconciliation", () => {
         const turnDiff = turn?.items.find((item) => item.itemId === "turn-diff:turn_empty_diff_no_patch");
 
         expect(turn?.diff ?? "missing").toBe("");
-        expect(turnDiff === undefined).toBeTrue();
+        expect(turnDiff === undefined).toBe(true);
       } finally {
         await service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("queues follow-up rows through direct broadcast-cache patches once the cache is primed", async () => {
@@ -18029,7 +18029,7 @@ describe("codex-service terminal turn reconciliation", () => {
         await service.enqueueQueuedFollowUpPrompt("thr_queue_direct_patch", "Queue this next");
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBeTrue();
+        expect(hostMessages.length > 0).toBe(true);
         expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
         expect(
           hostMessages[0]?.type === "threadStreamStateChanged"
@@ -18052,7 +18052,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("streams user-input request ingress through direct request patches once the cache is primed", async () => {
@@ -18123,7 +18123,7 @@ describe("codex-service terminal turn reconciliation", () => {
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBeTrue();
+        expect(hostMessages.length > 0).toBe(true);
         expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
         expect(
           hostMessages[0]?.type === "threadStreamStateChanged"
@@ -18143,7 +18143,7 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("avoids full conversation serialization during item lifecycle patches once the cache is primed", async () => {
@@ -18199,7 +18199,7 @@ describe("codex-service terminal turn reconciliation", () => {
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBeTrue();
+        expect(hostMessages.length > 0).toBe(true);
         expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
         expect(
           hostMessages[0]?.type === "threadStreamStateChanged"
@@ -18217,6 +18217,6 @@ describe("codex-service terminal turn reconciliation", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

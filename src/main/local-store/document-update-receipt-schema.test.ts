@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -137,7 +137,7 @@ describe("document update receipt schema", () => {
         rejected = (error as Error).message.includes("update_byte_length");
       }
       closeDatabase();
-      expect(rejected).toBeTrue();
+      expect(rejected).toBe(true);
 
       const rolledBack = new Database(databasePath, { readonly: true });
       try {
@@ -146,7 +146,7 @@ describe("document update receipt schema", () => {
           SELECT 1 FROM sqlite_master
           WHERE type = 'table' AND name = 'document_update_receipts'
         `).get();
-        expect(receiptTable === undefined).toBeTrue();
+        expect(receiptTable === undefined).toBe(true);
       } finally {
         rolledBack.close();
       }

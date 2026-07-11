@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -112,7 +112,7 @@ describe("command palette thread search service", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("treats older search index versions as stale", async () => {
@@ -136,13 +136,13 @@ describe("command palette thread search service", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 320));
 
-        expect(backfilled).toBeTrue();
+        expect(backfilled).toBe(true);
       } finally {
         service.shutdown();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("processes backfill recent-first in bounded slices", async () => {
@@ -180,7 +180,7 @@ describe("command palette thread search service", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not update unchanged search units", async () => {
@@ -217,7 +217,7 @@ describe("command palette thread search service", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });
 
@@ -246,9 +246,9 @@ describe("command palette thread search session reader", () => {
       const text = (units ?? []).map((unit) => unit.text).join("\n");
 
       expect(units?.length ?? 0).toBe(2);
-      expect(text.includes("visible user")).toBeTrue();
-      expect(text.includes("visible assistant")).toBeTrue();
-      expect(text.includes("hidden reasoning")).toBeFalse();
+      expect(text.includes("visible user")).toBe(true);
+      expect(text.includes("visible assistant")).toBe(true);
+      expect(text.includes("hidden reasoning")).toBe(false);
     } finally {
       resetThreadSearchSessionReaderCachesForTests();
       if (previousCodexHome === undefined) {

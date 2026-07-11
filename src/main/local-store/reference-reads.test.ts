@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -111,11 +111,11 @@ describe("Project-scoped canonical reference reads", () => {
         expect(resolveProjectScopedCardReference({
           requestingProjectId: "missing-project",
           targetBlockId: targetCard.id,
-        }, database) === null).toBeTrue();
+        }, database) === null).toBe(true);
         expect(readProjectScopedDatabaseViewReference({
           requestingProjectId: "missing-project",
           databaseViewId: "view:target",
-        }, database) === null).toBeTrue();
+        }, database) === null).toBe(true);
       } finally {
         database.close();
       }

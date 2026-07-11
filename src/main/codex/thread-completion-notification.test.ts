@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexThreadDetail, CodexThreadSummary, CodexTurnSummary } from "../../shared/types";
 import { resolveThreadCompletionNotificationContent } from "./thread-completion-notification";
 

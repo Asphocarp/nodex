@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   scrubSentryBreadcrumb,
   scrubSentryData,
@@ -50,8 +50,8 @@ describe("Sentry diagnostics scrubber", () => {
     const request = event.request as Record<string, unknown>;
     expect(event.message).toBe("request failed");
     expect(request.url).toBe("https://api.example.com/items");
-    expect("headers" in request).toBeFalse();
-    expect("data" in request).toBeFalse();
-    expect("query_string" in request).toBeFalse();
+    expect("headers" in request).toBe(false);
+    expect("data" in request).toBe(false);
+    expect("query_string" in request).toBe(false);
   });
 });

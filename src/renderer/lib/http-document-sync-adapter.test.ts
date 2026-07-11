@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
   decodeDocumentApplyHttpRequest,
@@ -100,11 +100,11 @@ describe("createHttpDocumentSyncAdapter", () => {
     });
     await Promise.resolve();
     expect(calls.length).toBe(0);
-    expect(eventSources[0]?.url.includes("/projects/project%2Fa/")).toBeTrue();
+    expect(eventSources[0]?.url.includes("/projects/project%2Fa/")).toBe(true);
 
     eventSources[0]?.open();
     const syncResult = await syncing;
-    expect(syncResult.ok).toBeTrue();
+    expect(syncResult.ok).toBe(true);
     const applyResult = await adapter.applyUpdate({
       documentId: "document-1",
       storeEpoch: "store-1",
@@ -115,18 +115,18 @@ describe("createHttpDocumentSyncAdapter", () => {
       touchedBlockIds: ["block-1"],
       update: new Uint8Array([4]),
     });
-    expect(applyResult.ok).toBeTrue();
+    expect(applyResult.ok).toBe(true);
     expect(calls.length).toBe(2);
-    expect(calls.every((call) => call.init.method === "POST")).toBeTrue();
+    expect(calls.every((call) => call.init.method === "POST")).toBe(true);
     expect(
       calls.every(
         (call) =>
           (call.init.headers as Record<string, string>)["Content-Type"] ===
           DOCUMENT_HTTP_CONTENT_TYPE,
       ),
-    ).toBeTrue();
+    ).toBe(true);
     unsubscribe();
-    expect(eventSources[0]?.closed).toBeTrue();
+    expect(eventSources[0]?.closed).toBe(true);
   });
 
   test("decodes SSE updates, reconnect signals, Awareness, and typed errors", async () => {
@@ -193,17 +193,17 @@ describe("createHttpDocumentSyncAdapter", () => {
       generation: 1,
       update: new Uint8Array([8, 9]),
     });
-    expect(awareness.ok).toBeTrue();
+    expect(awareness.ok).toBe(true);
 
     const sync = await adapter.sync({
       documentId: "document-1",
       clientSessionId: "client-1",
       stateVector: new Uint8Array([0]),
     });
-    expect(sync.ok).toBeFalse();
+    expect(sync.ok).toBe(false);
     if (!sync.ok) {
       expect(sync.error.code).toBe("document_not_ready");
-      expect(sync.error.retryable).toBeTrue();
+      expect(sync.error.retryable).toBe(true);
     }
   });
 
@@ -226,7 +226,7 @@ describe("createHttpDocumentSyncAdapter", () => {
       clientSessionId: "client-1",
       stateVector: new Uint8Array([0]),
     });
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("transport_unavailable");
     }

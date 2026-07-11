@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_NFM_SEND_TO_THREAD_MODE,
   NFM_SEND_TO_THREAD_MODE_STORAGE_KEY,

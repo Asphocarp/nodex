@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildCardSearchText,
   matchesSearchTokens,
@@ -35,19 +35,19 @@ describe("card search", () => {
 
   test("matchesSearchTokens requires all tokens to be present", () => {
     const text = "nfm editor search";
-    expect(matchesSearchTokens(text, ["nfm", "search"])).toBeTrue();
-    expect(matchesSearchTokens(text, ["nfm", "missing"])).toBeFalse();
+    expect(matchesSearchTokens(text, ["nfm", "search"])).toBe(true);
+    expect(matchesSearchTokens(text, ["nfm", "missing"])).toBe(false);
   });
 
   test("buildCardSearchText includes searchable card fields", () => {
     const card = makeCard();
     const searchable = buildCardSearchText(card);
 
-    expect(searchable.includes("abc1234")).toBeTrue();
-    expect(searchable.includes("improve nfm search")).toBeTrue();
-    expect(searchable.includes("token based matching")).toBeTrue();
-    expect(searchable.includes("editor search")).toBeTrue();
-    expect(searchable.includes("alice")).toBeTrue();
-    expect(searchable.includes("implementing")).toBeTrue();
+    expect(searchable.includes("abc1234")).toBe(true);
+    expect(searchable.includes("improve nfm search")).toBe(true);
+    expect(searchable.includes("token based matching")).toBe(true);
+    expect(searchable.includes("editor search")).toBe(true);
+    expect(searchable.includes("alice")).toBe(true);
+    expect(searchable.includes("implementing")).toBe(true);
   });
 });

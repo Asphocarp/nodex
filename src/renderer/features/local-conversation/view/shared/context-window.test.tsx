@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render } from "@/test/dom";
 import { ContextWindowTooltipContent } from "./context-window";
 
@@ -37,7 +37,7 @@ describe("ContextWindowTooltipContent", () => {
 
     expect(view.getByText("71% full").textContent).toBe("71% full");
     expect(view.getByText("182k / 258k tokens used").textContent).toBe("182k / 258k tokens used");
-    expect(view.queryByText("Codex automatically compacts its context") === null).toBeTrue();
+    expect(view.queryByText("Codex automatically compacts its context") === null).toBe(true);
   });
 
   test("falls back to the Codex 0% tooltip when usage data is unavailable", () => {
@@ -54,6 +54,6 @@ describe("ContextWindowTooltipContent", () => {
     );
 
     expect(view.getByText("0% used (100% left)").textContent).toBe("0% used (100% left)");
-    expect(view.queryByText(/tokens used/) === null).toBeTrue();
+    expect(view.queryByText(/tokens used/) === null).toBe(true);
   });
 });

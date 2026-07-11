@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { measurePreWrappedLineCount } from "./use-measured-text-collapse";
 
 function measureByCharacterWidth(characterWidthPx: number) {
@@ -41,8 +41,8 @@ describe("measurePreWrappedLineCount", () => {
       measureTextWidth: measureByCharacterWidth(9),
     });
 
-    expect(measurement?.lineCount === null).toBeFalse();
-    expect((measurement?.lineCount ?? 0) > 1).toBeTrue();
+    expect(measurement?.lineCount === null).toBe(false);
+    expect((measurement?.lineCount ?? 0) > 1).toBe(true);
   });
 
   test("returns null when canvas measurement is unavailable", () => {

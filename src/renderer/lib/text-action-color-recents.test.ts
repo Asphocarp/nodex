@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_TEXT_ACTION_RECENT_COLOR,
   normalizeTextActionRecentColor,
@@ -95,7 +95,7 @@ describe("text action color recents", () => {
     const beforeDefaultAction = storage.getItem(TEXT_ACTION_RECENT_COLOR_STORAGE_KEY);
     const result = recordTextActionRecentColors("text", "default", storage);
 
-    expect(result === null).toBeTrue();
+    expect(result === null).toBe(true);
     expect(storage.getItem(TEXT_ACTION_RECENT_COLOR_STORAGE_KEY)).toBe(beforeDefaultAction);
   });
 });

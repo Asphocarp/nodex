@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { sep } from "path";
 import { configureInstanceScopePaths, resolveInstanceScopePaths } from "./instance-scope";
 

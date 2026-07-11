@@ -1,5 +1,5 @@
 import { act, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
@@ -238,11 +238,11 @@ describe("BlockDocumentSurface", () => {
       expect(runtime?.awareness.getLocalState()).toBe(null);
     });
     expect(adapter.unsubscriptions).toBe(0);
-    expect(runtime?.getStatus().ready).toBeTrue();
+    expect(runtime?.getStatus().ready).toBe(true);
 
     view.rerender(renderSurface(true));
     await waitFor(() => {
-      expect(runtime?.awareness.getLocalState() === null).toBeFalse();
+      expect(runtime?.awareness.getLocalState() === null).toBe(false);
     });
     expect(
       (runtime?.awareness.getLocalState()?.user as { name?: string }).name,
@@ -281,7 +281,7 @@ describe("BlockDocumentSurface", () => {
     await waitFor(() => {
       expect(
         view.getByRole("alert").textContent?.includes("Reload"),
-      ).toBeTrue();
+      ).toBe(true);
     });
     expect(adapter.subscriptions).toBe(0);
     adapter.destroy();
@@ -325,7 +325,7 @@ describe("BlockDocumentSurface", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(reloads).toBe(1));
-    await waitFor(() => expect(adapter.unsubscriptions > 0).toBeTrue());
+    await waitFor(() => expect(adapter.unsubscriptions > 0).toBe(true));
 
     view.unmount();
     adapter.destroy();

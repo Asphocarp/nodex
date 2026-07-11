@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { BoardSummary, CardSummary } from "./types";
 import { applyBoardChangeEventToBoard } from "./board-summary-events";

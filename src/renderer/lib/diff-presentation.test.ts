@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT,
   getNodexDiffOptions,
@@ -46,30 +46,30 @@ describe("getNodexDiffOptions", () => {
 
     expect(
       unsafeCss.includes("grid-template-columns: var(--diffs-column-number-width) auto"),
-    ).toBeTrue();
-    expect(unsafeCss.includes("padding-inline: 2px")).toBeTrue();
-    expect(unsafeCss.includes("margin-left: 34px")).toBeFalse();
-    expect(unsafeCss.includes("width: 44px")).toBeFalse();
+    ).toBe(true);
+    expect(unsafeCss.includes("padding-inline: 2px")).toBe(true);
+    expect(unsafeCss.includes("margin-left: 34px")).toBe(false);
+    expect(unsafeCss.includes("width: 44px")).toBe(false);
   });
 
   test("uses Codex continuous addition bar and mark styling", () => {
     const options = getNodexReviewDiffOptions("dark", true);
     const unsafeCss = String(options.unsafeCSS);
 
-    expect(unsafeCss.includes("--codex-diffs-header-surface")).toBeTrue();
-    expect(unsafeCss.includes("--diffs-bg-buffer-override")).toBeFalse();
-    expect(unsafeCss.includes("--diffs-bg-selection-override")).toBeFalse();
+    expect(unsafeCss.includes("--codex-diffs-header-surface")).toBe(true);
+    expect(unsafeCss.includes("--diffs-bg-buffer-override")).toBe(false);
+    expect(unsafeCss.includes("--diffs-bg-selection-override")).toBe(false);
     expect(
       unsafeCss.includes(
         '+ [data-line-type="change-addition"][data-column-number]::before',
       ),
-    ).toBeTrue();
-    expect(unsafeCss.includes("contain: none")).toBeTrue();
-    expect(unsafeCss.includes("height: calc(100% + 1px)")).toBeTrue();
-    expect(unsafeCss.includes("data-previous-line-type")).toBeFalse();
-    expect(unsafeCss.includes("box-shadow: 0 -2px")).toBeFalse();
-    expect(unsafeCss.includes("mark.codex-thread-find-match")).toBeTrue();
-    expect(unsafeCss.includes("mark[data-mark]")).toBeFalse();
+    ).toBe(true);
+    expect(unsafeCss.includes("contain: none")).toBe(true);
+    expect(unsafeCss.includes("height: calc(100% + 1px)")).toBe(true);
+    expect(unsafeCss.includes("data-previous-line-type")).toBe(false);
+    expect(unsafeCss.includes("box-shadow: 0 -2px")).toBe(false);
+    expect(unsafeCss.includes("mark.codex-thread-find-match")).toBe(true);
+    expect(unsafeCss.includes("mark[data-mark]")).toBe(false);
   });
 
   test("does not mix review line-info styling into inline diffs", () => {
@@ -77,7 +77,7 @@ describe("getNodexDiffOptions", () => {
     const unsafeCss = String(options.unsafeCSS);
 
     expect(options.hunkSeparators).toBe("simple");
-    expect(unsafeCss.includes("color-token-list-active-selection-background) 56%")).toBeFalse();
+    expect(unsafeCss.includes("color-token-list-active-selection-background) 56%")).toBe(false);
   });
 
   test("allows review word diffs to be disabled explicitly", () => {

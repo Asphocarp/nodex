@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import {
   resetSafeSendWarningRateLimitForTests,
   safeBroadcastToWindows,
@@ -79,7 +79,7 @@ describe("ipc-safe-send", () => {
 
     const sent = safeSendToWebContents(contents, "project-sessions-changed", [{ projectId: "p1" }], createOptions(logger.logger));
 
-    expect(sent).toBeFalse();
+    expect(sent).toBe(false);
     expect(contents.sendCalls.length).toBe(0);
     expect(logger.debugCalls.length).toBe(1);
     expect(logger.warnCalls.length).toBe(0);
@@ -114,7 +114,7 @@ describe("ipc-safe-send", () => {
 
     const sent = safeSendToWindow(new FakeWindow(5, contents), "project-sessions-changed", [], createOptions(logger.logger));
 
-    expect(sent).toBeFalse();
+    expect(sent).toBe(false);
     expect(logger.debugCalls.length).toBe(1);
     expect(logger.warnCalls.length).toBe(0);
   });

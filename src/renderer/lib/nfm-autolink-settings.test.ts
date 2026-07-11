@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_NFM_AUTOLINK_SETTINGS,
   NFM_AUTOLINK_SETTINGS_STORAGE_KEY,
@@ -46,9 +46,9 @@ describe("nfm autolink settings", () => {
     withMockLocalStorage(() => {
       mockStorage.clear();
       const settings = readNfmAutolinkSettings();
-      expect(settings.autoLinkWhileTyping).toBeTrue();
-      expect(settings.autoLinkOnPaste).toBeTrue();
-      expect(settings.linkifyBareDomains).toBeTrue();
+      expect(settings.autoLinkWhileTyping).toBe(true);
+      expect(settings.autoLinkOnPaste).toBe(true);
+      expect(settings.linkifyBareDomains).toBe(true);
     });
   });
 
@@ -62,9 +62,9 @@ describe("nfm autolink settings", () => {
         linkifyBareDomains: "nope",
       });
 
-      expect(written.autoLinkWhileTyping).toBeFalse();
-      expect(written.autoLinkOnPaste).toBeTrue();
-      expect(written.linkifyBareDomains).toBeTrue();
+      expect(written.autoLinkWhileTyping).toBe(false);
+      expect(written.autoLinkOnPaste).toBe(true);
+      expect(written.linkifyBareDomains).toBe(true);
       expect(mockStorage.getItem(NFM_AUTOLINK_SETTINGS_STORAGE_KEY)).not.toBeNull();
 
       const normalized = normalizeNfmAutolinkSettings({
@@ -73,22 +73,22 @@ describe("nfm autolink settings", () => {
         linkifyBareDomains: true,
       });
 
-      expect(normalized.autoLinkWhileTyping).toBeFalse();
-      expect(normalized.autoLinkOnPaste).toBeTrue();
-      expect(normalized.linkifyBareDomains).toBeTrue();
+      expect(normalized.autoLinkWhileTyping).toBe(false);
+      expect(normalized.autoLinkOnPaste).toBe(true);
+      expect(normalized.linkifyBareDomains).toBe(true);
     });
   });
 
   test("recognizes explicit web URLs with the default settings", () => {
     expect(
       shouldAutoLinkValue("https://example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       shouldAutoLinkValue("www.example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       shouldAutoLinkValue("mailto:test@example.com", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("rejects path-like and filename-like input even when bare-domain recognition is enabled", () => {
@@ -97,25 +97,25 @@ describe("nfm autolink settings", () => {
         "nfm-editor-copy-behavior.md",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       shouldAutoLinkValue(
         "docs/product-specs/nfm-editor-copy-behavior.md",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       shouldAutoLinkValue(
         "./docs/product-specs/nfm-editor-copy-behavior.md",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       shouldAutoLinkValue(
         "C:\\repo\\docs\\nfm-editor-copy-behavior.md",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("rejects bare domains when the setting is disabled", () => {
@@ -127,37 +127,37 @@ describe("nfm autolink settings", () => {
           linkifyBareDomains: false,
         },
       ),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("allows bare domains with the default settings", () => {
     expect(
       shouldAutoLinkValue("example.com", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       shouldAutoLinkValue(
         "example.co.uk",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       shouldAutoLinkValue(
         "example.com/docs",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("rejects internal and unsupported explicit values", () => {
     expect(
       shouldAutoLinkValue("foo.internal", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       shouldAutoLinkValue("localhost", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       shouldAutoLinkValue("javascript:alert(1)", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("rejects protocol-less matches embedded in path segments on paste", () => {
@@ -168,7 +168,7 @@ describe("nfm autolink settings", () => {
         "action-menu-popper.com",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       shouldAutoLinkMatchInText(
         "docs/example.com",
@@ -176,7 +176,7 @@ describe("nfm autolink settings", () => {
         "example.com",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("allows protocol-less matches when surrounded by soft boundaries", () => {
@@ -187,7 +187,7 @@ describe("nfm autolink settings", () => {
         "action-menu-popper.com",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       shouldAutoLinkMatchInText(
         " action-menu-popper.com ",
@@ -195,6 +195,6 @@ describe("nfm autolink settings", () => {
         "action-menu-popper.com",
         DEFAULT_NFM_AUTOLINK_SETTINGS,
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

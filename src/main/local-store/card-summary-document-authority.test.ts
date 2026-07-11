@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -89,8 +89,8 @@ describe("Card summary Document authority", () => {
 
       const database = getDb();
       const shadow = runLegacyCardShadowProcessorProbe(database);
-      expect(shadow.allCurrentCardsReady).toBeTrue();
-      expect(shadow.allCurrentCardContentInParity).toBeTrue();
+      expect(shadow.allCurrentCardsReady).toBe(true);
+      expect(shadow.allCurrentCardContentInParity).toBe(true);
       const descriptor = getOwnedBlockDocumentDescriptor(
         database,
         project.id,
@@ -108,7 +108,7 @@ describe("Card summary Document authority", () => {
         const beforeEdit = Y.encodeStateVector(loaded.document);
         const envelope = openCardDocument(loaded.document);
         const bodyText = findFirstXmlText(envelope.body);
-        expect(bodyText instanceof Y.XmlText).toBeTrue();
+        expect(bodyText instanceof Y.XmlText).toBe(true);
         if (!bodyText) throw new Error("Expected the genesis paragraph text");
 
         loaded.document.transact(() => {
@@ -151,7 +151,7 @@ describe("Card summary Document authority", () => {
       expect(restartedById?.descriptionLength).toBe(
         "Primary body after collaboration".length,
       );
-      expect(restartedById?.hasDescription).toBeTrue();
+      expect(restartedById?.hasDescription).toBe(true);
       expect(restartedBoard?.title).toBe(restartedById?.title);
       expect(restartedBoard?.descriptionPreview).toBe(
         restartedById?.descriptionPreview,

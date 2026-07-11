@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider } from "../../../../components/ui/tooltip";
 import { render } from "../../../../test/dom";
@@ -28,7 +28,7 @@ describe("ThreadSummaryPanelToggle", () => {
     expect(svg?.getAttribute("height")).toBe("20");
     expect(svg?.getAttribute("fill")).toBe("currentColor");
     expect(svg?.getAttribute("viewBox")).toBe("0 0 20 20");
-    expect(path?.getAttribute("d")?.startsWith("M5.693 11.056")).toBeTrue();
+    expect(path?.getAttribute("d")?.startsWith("M5.693 11.056")).toBe(true);
 
     fireEvent.click(button);
     expect(clickCount).toBe(1);
@@ -52,6 +52,6 @@ describe("ThreadSummaryPanelToggle", () => {
     expect(button.getAttribute("title")).toBe("Toggle summary");
     expect(button.getAttribute("aria-pressed")).toBe("false");
     expect(svg?.getAttribute("viewBox")).toBe("0 0 20 20");
-    expect(path?.getAttribute("d")?.startsWith("M5.693 11.056")).toBeTrue();
+    expect(path?.getAttribute("d")?.startsWith("M5.693 11.056")).toBe(true);
   });
 });

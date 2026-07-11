@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   canonicalizeDocumentOperationBatch,
   canonicalizeDocumentOperationIntent,
@@ -122,7 +122,7 @@ describe("Document operation contract", () => {
     expect(
       canonicalizeDocumentOperationBatch(first) ===
         canonicalizeDocumentOperationBatch(reorderedOperations),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("keeps durable command intent stable across trusted transport identities", () => {
@@ -141,7 +141,7 @@ describe("Document operation contract", () => {
     expect(
       canonicalizeDocumentOperationBatch(operation) ===
         canonicalizeDocumentOperationBatch(retriedOperation),
-    ).toBeFalse();
+    ).toBe(false);
 
     const replacement = { ...BASE, nfm: "Body" };
     expect(canonicalizeReplaceDocumentFromNfmIntent(replacement)).toBe(
@@ -163,7 +163,7 @@ describe("Document operation contract", () => {
         },
         "batch",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejectsContract(
         {
@@ -189,7 +189,7 @@ describe("Document operation contract", () => {
         },
         "batch",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejectsContract(
         {
@@ -204,7 +204,7 @@ describe("Document operation contract", () => {
         },
         "batch",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejectsContract(
         {
@@ -219,7 +219,7 @@ describe("Document operation contract", () => {
         },
         "batch",
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("keeps explicit NFM replacement separate and CAS-bound", () => {
@@ -236,7 +236,7 @@ describe("Document operation contract", () => {
     );
     expect(
       rejectsContract({ ...BASE, nfm: "Body", operations: [] }, "nfm"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("strictly parses transport-neutral success and conflict results", () => {
@@ -265,7 +265,7 @@ describe("Document operation contract", () => {
         duplicate: false,
       },
     });
-    expect(success.ok).toBeTrue();
+    expect(success.ok).toBe(true);
     expect(success.ok ? success.value.headSeq : -1).toBe(5);
 
     const conflict = parseDocumentOperationCommandResult({
@@ -279,7 +279,7 @@ describe("Document operation contract", () => {
         actualHeadSeq: 5,
       },
     });
-    expect(conflict.ok).toBeFalse();
+    expect(conflict.ok).toBe(false);
     expect(conflict.ok ? -1 : conflict.error.actualHeadSeq).toBe(5);
 
     const leaseTimeout = parseDocumentOperationCommandResult({
@@ -291,8 +291,8 @@ describe("Document operation contract", () => {
         mutationId: "operation-1",
       },
     });
-    expect(leaseTimeout.ok).toBeFalse();
-    expect(leaseTimeout.ok ? false : leaseTimeout.error.retryable).toBeTrue();
+    expect(leaseTimeout.ok).toBe(false);
+    expect(leaseTimeout.ok ? false : leaseTimeout.error.retryable).toBe(true);
 
     let rejected = false;
     try {
@@ -308,6 +308,6 @@ describe("Document operation contract", () => {
     } catch (error) {
       rejected = error instanceof DocumentOperationContractError;
     }
-    expect(rejected).toBeTrue();
+    expect(rejected).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODE_FONT_SIZE_STORAGE_KEY,
   DEFAULT_CODE_FONT_SIZE,

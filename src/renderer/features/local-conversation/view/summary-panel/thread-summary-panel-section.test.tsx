@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { MotionConfig } from "motion/react";
 import { createRef, type ReactElement } from "react";
@@ -66,14 +66,14 @@ describe("ThreadSummaryPanelSection", () => {
 
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(label?.textContent).toBe("Environment");
-    expect(iconIndex > labelIndex).toBeTrue();
-    expect(textContent(view.container).includes("Changes")).toBeTrue();
+    expect(iconIndex > labelIndex).toBe(true);
+    expect(textContent(view.container).includes("Changes")).toBe(true);
 
     fireEvent.click(button);
 
     expect(button.getAttribute("aria-expanded")).toBe("false");
     expect(window.localStorage.getItem(`${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`)).toBe("false");
-    expect(textContent(view.container).includes("Changes")).toBeFalse();
+    expect(textContent(view.container).includes("Changes")).toBe(false);
 
     view.unmount();
     const nextView = renderReducedMotion(
@@ -83,7 +83,7 @@ describe("ThreadSummaryPanelSection", () => {
     );
 
     expect(nextView.getByRole("button").getAttribute("aria-expanded")).toBe("false");
-    expect(textContent(nextView.container).includes("Changes")).toBeFalse();
+    expect(textContent(nextView.container).includes("Changes")).toBe(false);
   });
 
   test("shows title suffix only while the section is collapsed", () => {
@@ -100,11 +100,11 @@ describe("ThreadSummaryPanelSection", () => {
     );
 
     const button = view.getByRole("button");
-    expect(textContent(button).includes("2")).toBeFalse();
+    expect(textContent(button).includes("2")).toBe(false);
 
     fireEvent.click(button);
 
-    expect(textContent(button).includes("2")).toBeTrue();
+    expect(textContent(button).includes("2")).toBe(true);
   });
 
   test("supports headerless sections without rendering a toggle", () => {
@@ -116,8 +116,8 @@ describe("ThreadSummaryPanelSection", () => {
       </ThreadSummaryPanelSection>,
     );
 
-    expect(view.queryByRole("button") === null).toBeTrue();
-    expect(textContent(view.container).includes("Browser preview")).toBeTrue();
+    expect(view.queryByRole("button") === null).toBe(true);
+    expect(textContent(view.container).includes("Browser preview")).toBe(true);
   });
 
   test("passes expanded state to the after slot", () => {
@@ -134,11 +134,11 @@ describe("ThreadSummaryPanelSection", () => {
     );
 
     const button = view.getByRole("button");
-    expect(textContent(view.container).includes("Open")).toBeTrue();
+    expect(textContent(view.container).includes("Open")).toBe(true);
 
     fireEvent.click(button);
 
-    expect(textContent(view.container).includes("Closed")).toBeTrue();
+    expect(textContent(view.container).includes("Closed")).toBe(true);
   });
 
   test("exposes imperative expand and collapse methods", () => {
@@ -151,20 +151,20 @@ describe("ThreadSummaryPanelSection", () => {
       </ThreadSummaryPanelSection>,
     );
 
-    expect(ref.current !== null).toBeTrue();
+    expect(ref.current !== null).toBe(true);
     act(() => {
       ref.current?.collapse();
     });
 
     expect(view.getByRole("button").getAttribute("aria-expanded")).toBe("false");
-    expect(textContent(view.container).includes("Context7")).toBeFalse();
+    expect(textContent(view.container).includes("Context7")).toBe(false);
 
     act(() => {
       ref.current?.expand();
     });
 
     expect(view.getByRole("button").getAttribute("aria-expanded")).toBe("true");
-    expect(textContent(view.container).includes("Context7")).toBeTrue();
+    expect(textContent(view.container).includes("Context7")).toBe(true);
   });
 
   test("auto-collapses pending sections and cancels when the user interacts", () => {
@@ -215,7 +215,7 @@ describe("ThreadSummaryPanelSection", () => {
       });
 
       expect(view.getByRole("button").getAttribute("aria-expanded")).toBe("false");
-      expect(textContent(view.container).includes("Subagent output")).toBeFalse();
+      expect(textContent(view.container).includes("Subagent output")).toBe(false);
 
       view.unmount();
       scheduled.clear();
@@ -234,7 +234,7 @@ describe("ThreadSummaryPanelSection", () => {
 
       expect(scheduled.size).toBe(0);
       expect(cancelView.getByRole("button").getAttribute("aria-expanded")).toBe("true");
-      expect(textContent(cancelView.container).includes("Keep visible")).toBeTrue();
+      expect(textContent(cancelView.container).includes("Keep visible")).toBe(true);
     } finally {
       restoreTimerMock();
     }

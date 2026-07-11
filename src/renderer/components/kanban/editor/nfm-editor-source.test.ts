@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { BlockNoteEditor } from "@blocknote/core";
 import * as Y from "yjs";
 
@@ -37,8 +37,8 @@ describe("NfmEditor source boundary", () => {
 
     expect(
       Object.prototype.hasOwnProperty.call(options, "initialContent"),
-    ).toBeFalse();
-    expect(collaboration !== undefined).toBeTrue();
+    ).toBe(false);
+    expect(collaboration !== undefined).toBe(true);
     expect(collaboration?.fragment ?? null).toBe(fragment);
     expect(collaboration?.user.name ?? "").toBe("Local editor");
 
@@ -87,12 +87,12 @@ describe("NfmEditor source boundary", () => {
       true,
     );
 
-    expect(collaborative.canMoveBlocks).toBeTrue();
-    expect(collaborative.canSendBlocksToThread).toBeTrue();
-    expect(withoutCardContext.canMoveBlocks).toBeFalse();
-    expect(withoutCardContext.canSendBlocksToThread).toBeFalse();
-    expect(legacy.canMoveBlocks).toBeTrue();
-    expect(legacy.canSendBlocksToThread).toBeTrue();
+    expect(collaborative.canMoveBlocks).toBe(true);
+    expect(collaborative.canSendBlocksToThread).toBe(true);
+    expect(withoutCardContext.canMoveBlocks).toBe(false);
+    expect(withoutCardContext.canSendBlocksToThread).toBe(false);
+    expect(legacy.canMoveBlocks).toBe(true);
+    expect(legacy.canSendBlocksToThread).toBe(true);
 
     document.destroy();
   });
@@ -117,7 +117,7 @@ describe("NfmEditor source boundary", () => {
     });
 
     expect(repeatedSourceKey).toBe(sameSourceKey);
-    expect(switchedSourceKey === sameSourceKey).toBeFalse();
+    expect(switchedSourceKey === sameSourceKey).toBe(false);
 
     firstDocument.destroy();
     secondDocument.destroy();
@@ -168,7 +168,7 @@ describe("NfmEditor source boundary", () => {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(hintCount > 0).toBeTrue();
+    expect(hintCount > 0).toBe(true);
     expect(snapshotScheduleCount).toBe(0);
     expect(replaceBlocksCount).toBe(0);
 

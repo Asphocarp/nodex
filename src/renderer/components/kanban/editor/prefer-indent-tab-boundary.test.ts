@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
 
 function makeTarget(options?: {
@@ -43,7 +43,7 @@ describe("shouldSuppressPreferIndentBoundaryTab", () => {
       false,
     );
 
-    expect(suppressed).toBeTrue();
+    expect(suppressed).toBe(true);
   });
 
   test("suppresses Shift-Tab when unnesting would be a boundary no-op inside editor content", () => {
@@ -56,7 +56,7 @@ describe("shouldSuppressPreferIndentBoundaryTab", () => {
       true,
     );
 
-    expect(suppressed).toBeTrue();
+    expect(suppressed).toBe(true);
   });
 
   test("does not suppress when the editor can still change nesting", () => {
@@ -69,7 +69,7 @@ describe("shouldSuppressPreferIndentBoundaryTab", () => {
       false,
     );
 
-    expect(suppressed).toBeFalse();
+    expect(suppressed).toBe(false);
   });
 
   test("does not suppress for hover chrome outside the editor content node", () => {
@@ -82,7 +82,7 @@ describe("shouldSuppressPreferIndentBoundaryTab", () => {
       false,
     );
 
-    expect(suppressed).toBeFalse();
+    expect(suppressed).toBe(false);
   });
 
   test("does not suppress inside code blocks or tables where Tab has specialized behavior", () => {
@@ -103,7 +103,7 @@ describe("shouldSuppressPreferIndentBoundaryTab", () => {
       false,
     );
 
-    expect(insideCodeBlock).toBeFalse();
-    expect(insideTable).toBeFalse();
+    expect(insideCodeBlock).toBe(false);
+    expect(insideTable).toBe(false);
   });
 });

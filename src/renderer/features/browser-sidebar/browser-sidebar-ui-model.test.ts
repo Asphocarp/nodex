@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BrowserSidebarLocalServersSnapshot, BrowserSidebarViewport } from "../../../shared/browser-sidebar";
 import {
   readBrowserAddressValue,
@@ -20,10 +20,10 @@ describe("browser-sidebar-ui-model", () => {
   });
 
   test("commits address edits only for meaningful URL changes", () => {
-    expect(shouldCommitBrowserAddressEdit("https://www.google.com/", "google.com")).toBeFalse();
-    expect(shouldCommitBrowserAddressEdit("about:blank", "")).toBeFalse();
-    expect(shouldCommitBrowserAddressEdit("https://example.com", "")).toBeTrue();
-    expect(shouldCommitBrowserAddressEdit("https://example.com", "openai.com")).toBeTrue();
+    expect(shouldCommitBrowserAddressEdit("https://www.google.com/", "google.com")).toBe(false);
+    expect(shouldCommitBrowserAddressEdit("about:blank", "")).toBe(false);
+    expect(shouldCommitBrowserAddressEdit("https://example.com", "")).toBe(true);
+    expect(shouldCommitBrowserAddressEdit("https://example.com", "openai.com")).toBe(true);
   });
 
   test("skips address commits for browser action targets", () => {
@@ -32,8 +32,8 @@ describe("browser-sidebar-ui-model", () => {
     const child = document.createElement("span");
     root.appendChild(child);
 
-    expect(shouldSkipBrowserAddressCommit(child)).toBeTrue();
-    expect(shouldSkipBrowserAddressCommit(document.createElement("div"))).toBeFalse();
+    expect(shouldSkipBrowserAddressCommit(child)).toBe(true);
+    expect(shouldSkipBrowserAddressCommit(document.createElement("div"))).toBe(false);
   });
 
   test("filters, sorts, hides, and caps local server rows", () => {
@@ -62,7 +62,7 @@ describe("browser-sidebar-ui-model", () => {
     expect(online.servers.length).toBe(5);
     expect(online.servers[0]?.origin).toBe("http://localhost:5004");
     expect(online.servers[4]?.origin).toBe("http://localhost:5007");
-    expect(online.hasMore).toBeFalse();
+    expect(online.hasMore).toBe(false);
 
     const all = resolveVisibleLocalServers(snapshot, {
       showMode: "all",
@@ -70,7 +70,7 @@ describe("browser-sidebar-ui-model", () => {
       expandedProjectIds: new Set(),
     });
     expect(all.servers.length).toBe(5);
-    expect(all.hasMore).toBeTrue();
+    expect(all.hasMore).toBe(true);
 
     const hidden = resolveVisibleLocalServers(snapshot, {
       showMode: "hidden",
@@ -86,8 +86,8 @@ describe("browser-sidebar-ui-model", () => {
     writeBrowserLocalServerExpandedProjects(window.localStorage, new Set(["alpha", "beta"]));
 
     const settings = resolveBrowserLocalServerSettings(window.localStorage);
-    expect(settings.expandedProjectIds.has("alpha")).toBeTrue();
-    expect(settings.expandedProjectIds.has("beta")).toBeTrue();
+    expect(settings.expandedProjectIds.has("alpha")).toBe(true);
+    expect(settings.expandedProjectIds.has("beta")).toBe(true);
   });
 
   test("resolves custom zoom options and viewport math", () => {

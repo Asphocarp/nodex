@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { createElement } from "react";
 import { render } from "@/test/dom";
@@ -58,7 +58,7 @@ describe("useWorkedForLabelText", () => {
 
     expect(intervalCallbacks.length).toBe(1);
     expect(clearedIntervals.length).toBe(0);
-    expect(Boolean(view.container.textContent?.includes("Working:0"))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Working:0"))).toBe(true);
 
     for (let renderNonce = 1; renderNonce <= 4; renderNonce += 1) {
       await act(async () => {
@@ -76,6 +76,6 @@ describe("useWorkedForLabelText", () => {
       await Promise.resolve();
     });
 
-    expect(Boolean(view.container.textContent?.includes("Working for 1m 5s:4"))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Working for 1m 5s:4"))).toBe(true);
   });
 });

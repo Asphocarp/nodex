@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { formatRulesV2AsJsonLogic, parseRulesV2FromJsonLogic } from "./rules-v2-jsonlogic";
 import type { ToggleListRulesV2 } from "./types";
 
@@ -88,7 +88,7 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
       op: "hasAny",
       values: ["api", "infra"],
     }));
-    expect(parsed.rules?.includeHostCard).toBeFalse();
+    expect(parsed.rules?.includeHostCard).toBe(false);
   });
 
   test("parses explicit empty-priority jsonlogic conditions", () => {
@@ -153,7 +153,7 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
 
     const json = formatRulesV2AsJsonLogic(rules);
 
-    expect(json.includes("\"missing\"")).toBeTrue();
+    expect(json.includes("\"missing\"")).toBe(true);
 
     const parsed = parseRulesV2FromJsonLogic(json);
     expect(parsed.error).toBe(null);

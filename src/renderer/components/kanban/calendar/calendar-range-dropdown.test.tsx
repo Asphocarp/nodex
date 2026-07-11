@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, useState } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -38,7 +38,7 @@ describe("CalendarRangeDropdown", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("Week") ?? false).toBeTrue();
+    expect(view.getByLabelText("Calendar range").textContent?.includes("Week") ?? false).toBe(true);
   });
 
   test("keeps the menu open while incrementing a custom range", async () => {
@@ -55,8 +55,8 @@ describe("CalendarRangeDropdown", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBeTrue();
-    expect(view.container.ownerDocument.body.textContent?.includes("Multi-Day") ?? false).toBeTrue();
+    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBe(true);
+    expect(view.container.ownerDocument.body.textContent?.includes("Multi-Day") ?? false).toBe(true);
   });
 
   test("selects an inactive custom mode when its stepper changes", async () => {
@@ -73,7 +73,7 @@ describe("CalendarRangeDropdown", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("3 Weeks") ?? false).toBeTrue();
+    expect(view.getByLabelText("Calendar range").textContent?.includes("3 Weeks") ?? false).toBe(true);
   });
 
   test("supports keyboard adjustment from the custom row", async () => {
@@ -86,13 +86,13 @@ describe("CalendarRangeDropdown", () => {
     await openRangeMenu(view);
 
     const row = view.getByText("Multi-Day").closest("[role='menuitem']");
-    expect(row === null).toBeFalse();
+    expect(row === null).toBe(false);
 
     await act(async () => {
       fireEvent.keyDown(row!, { key: "ArrowRight" });
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBeTrue();
+    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBe(true);
   });
 });

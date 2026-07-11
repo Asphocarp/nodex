@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   middleTruncateReviewJumpText,
   selectReviewJumpToFileMatches,
@@ -42,9 +42,9 @@ describe("review jump-to-file model", () => {
     expect(middleTruncateReviewJumpText("src/editor", 20, measureByCharacters)).toBe("src/editor");
 
     const truncated = middleTruncateReviewJumpText("src/renderer/components/kanban/editor", 12, measureByCharacters);
-    expect(truncated.includes("…")).toBeTrue();
-    expect(truncated.startsWith("src/")).toBeTrue();
-    expect(truncated.endsWith("itor")).toBeTrue();
-    expect(truncated.length <= 12).toBeTrue();
+    expect(truncated.includes("…")).toBe(true);
+    expect(truncated.startsWith("src/")).toBe(true);
+    expect(truncated.endsWith("itor")).toBe(true);
+    expect(truncated.length <= 12).toBe(true);
   });
 });

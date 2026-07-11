@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -74,7 +74,7 @@ describe("moveCard", () => {
       );
 
       const undoResult = undoLatest(projectId, "session-move-card-with-patch");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       board = await getBoard(projectId);
       column = board.columns.find((entry) => entry.id === "in_progress");
@@ -83,7 +83,7 @@ describe("moveCard", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("skips history writes for a no-op drag with an unchanged patch", async () => {
@@ -110,6 +110,6 @@ describe("moveCard", () => {
       expect(matchingEntries.length).toBe(0);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

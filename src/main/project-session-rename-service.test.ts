@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ProjectSession, ProjectSessionUpdateInput } from "../shared/types";
 import { renameProjectSessionChat, type ProjectSessionRenameServiceDeps } from "./project-session-rename-service";
 

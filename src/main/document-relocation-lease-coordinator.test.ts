@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DocumentRelocationLeaseCoordinator,
   MAX_DOCUMENT_RELOCATION_LEASE_DEADLINE_MS,
@@ -114,13 +114,13 @@ describe("Document relocation lease coordinator", () => {
       leaseId: "lease-concurrent",
       documents: [documentHead("document-b", 2)],
     });
-    expect(concurrent.ok).toBeFalse();
+    expect(concurrent.ok).toBe(false);
     if (!concurrent.ok) expect(concurrent.error.code).toBe("document_busy");
     const lateSubscription = harness.coordinator.subscribe(
       "participant-late",
       "document-a",
     );
-    expect(lateSubscription.ok).toBeFalse();
+    expect(lateSubscription.ok).toBe(false);
     if (!lateSubscription.ok) {
       expect(lateSubscription.error.code).toBe("document_busy");
     }
@@ -133,7 +133,7 @@ describe("Document relocation lease coordinator", () => {
       generation: 1,
       headSeq: 6,
     });
-    expect(firstAck.ok).toBeTrue();
+    expect(firstAck.ok).toBe(true);
     if (firstAck.ok) expect(firstAck.value.acknowledgedAt).toBe(1_010);
     const duplicateAck = harness.coordinator.acknowledge({
       leaseId: "lease-1",
@@ -142,7 +142,7 @@ describe("Document relocation lease coordinator", () => {
       generation: 1,
       headSeq: 6,
     });
-    expect(duplicateAck.ok).toBeFalse();
+    expect(duplicateAck.ok).toBe(false);
     if (!duplicateAck.ok) expect(duplicateAck.error.code).toBe("duplicate_ack");
 
     harness.time.advanceBy(10);
@@ -160,11 +160,11 @@ describe("Document relocation lease coordinator", () => {
       generation: 1,
       headSeq: 3,
     });
-    expect(finalAck.ok).toBeTrue();
-    if (finalAck.ok) expect(finalAck.value.prepared).toBeTrue();
+    expect(finalAck.ok).toBe(true);
+    if (finalAck.ok) expect(finalAck.value.prepared).toBe(true);
 
     const prepared = await preparation;
-    expect(prepared.ok).toBeTrue();
+    expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
     expect(
       prepared.value.documents.map((document) => document.documentId).join(","),
@@ -178,16 +178,16 @@ describe("Document relocation lease coordinator", () => {
     expect(harness.coordinator.getFencedDocumentIds().length).toBe(2);
 
     const released = harness.coordinator.release("lease-1");
-    expect(released.ok).toBeTrue();
-    if (released.ok) expect(released.value.duplicate).toBeFalse();
+    expect(released.ok).toBe(true);
+    if (released.ok) expect(released.value.duplicate).toBe(false);
     expect(harness.coordinator.getFencedDocumentIds().length).toBe(0);
     expect(
       harness.events.filter((event) => event.kind === "release").length,
     ).toBe(2);
     const duplicateRelease = harness.coordinator.release("lease-1");
-    expect(duplicateRelease.ok).toBeTrue();
+    expect(duplicateRelease.ok).toBe(true);
     if (duplicateRelease.ok)
-      expect(duplicateRelease.value.duplicate).toBeTrue();
+      expect(duplicateRelease.value.duplicate).toBe(true);
   });
 
   test("prepares immediately without active surfaces but retains fences until release", async () => {
@@ -196,7 +196,7 @@ describe("Document relocation lease coordinator", () => {
       leaseId: "lease-empty",
       documents: [documentHead("document-a", 4)],
     });
-    expect(prepared.ok).toBeTrue();
+    expect(prepared.ok).toBe(true);
     if (prepared.ok) {
       expect(prepared.value.acknowledgements.length).toBe(0);
       expect(prepared.value.resolvedHeads[0]?.headSeq).toBe(4);
@@ -231,7 +231,7 @@ describe("Document relocation lease coordinator", () => {
       generation: 2,
       headSeq: 8,
     });
-    expect(foreign.ok).toBeFalse();
+    expect(foreign.ok).toBe(false);
     if (!foreign.ok)
       expect(foreign.error.code).toBe("participant_not_expected");
     const regressed = harness.coordinator.acknowledge({
@@ -241,14 +241,14 @@ describe("Document relocation lease coordinator", () => {
       generation: 2,
       headSeq: 7,
     });
-    expect(regressed.ok).toBeFalse();
+    expect(regressed.ok).toBe(false);
     if (!regressed.ok) {
       expect(regressed.error.code).toBe("document_head_regressed");
     }
 
     harness.time.advanceBy(MAX_DOCUMENT_RELOCATION_LEASE_DEADLINE_MS);
     const timedOut = await preparation;
-    expect(timedOut.ok).toBeFalse();
+    expect(timedOut.ok).toBe(false);
     if (!timedOut.ok) expect(timedOut.error.code).toBe("lease_timeout");
     expect(harness.coordinator.getFencedDocumentIds().length).toBe(0);
     const late = harness.coordinator.acknowledge({
@@ -258,12 +258,12 @@ describe("Document relocation lease coordinator", () => {
       generation: 2,
       headSeq: 8,
     });
-    expect(late.ok).toBeFalse();
+    expect(late.ok).toBe(false);
     if (!late.ok) expect(late.error.code).toBe("lease_closed");
     const duplicateCancel = harness.coordinator.cancel("lease-timeout");
-    expect(duplicateCancel.ok).toBeTrue();
+    expect(duplicateCancel.ok).toBe(true);
     if (duplicateCancel.ok) {
-      expect(duplicateCancel.value.duplicate).toBeTrue();
+      expect(duplicateCancel.value.duplicate).toBe(true);
     }
   });
 
@@ -284,8 +284,8 @@ describe("Document relocation lease coordinator", () => {
 
     const firstFailure = await first;
     const secondFailure = await second;
-    expect(firstFailure.ok).toBeFalse();
-    expect(secondFailure.ok).toBeFalse();
+    expect(firstFailure.ok).toBe(false);
+    expect(secondFailure.ok).toBe(false);
     if (!firstFailure.ok) {
       expect(firstFailure.error.code).toBe("participant_disconnected");
     }
@@ -312,11 +312,11 @@ describe("Document relocation lease coordinator", () => {
       participantSessionKey: "foreign",
       documentId: "document-a",
     });
-    expect(foreign.ok).toBeFalse();
+    expect(foreign.ok).toBe(false);
     if (!foreign.ok)
       expect(foreign.error.code).toBe("participant_not_expected");
     const releaseBeforeAck = harness.coordinator.release("lease-nack");
-    expect(releaseBeforeAck.ok).toBeFalse();
+    expect(releaseBeforeAck.ok).toBe(false);
     if (!releaseBeforeAck.ok) {
       expect(releaseBeforeAck.error.code).toBe("lease_not_prepared");
     }
@@ -326,14 +326,14 @@ describe("Document relocation lease coordinator", () => {
       documentId: "document-a",
       message: "IME could not flush",
     });
-    expect(nack.ok).toBeTrue();
+    expect(nack.ok).toBe(true);
     const failed = await preparation;
-    expect(failed.ok).toBeFalse();
+    expect(failed.ok).toBe(false);
     if (!failed.ok) expect(failed.error.code).toBe("participant_nack");
     const duplicateCancel = harness.coordinator.cancel("lease-nack");
-    expect(duplicateCancel.ok).toBeTrue();
+    expect(duplicateCancel.ok).toBe(true);
     if (duplicateCancel.ok) {
-      expect(duplicateCancel.value.duplicate).toBeTrue();
+      expect(duplicateCancel.value.duplicate).toBe(true);
     }
   });
 
@@ -351,7 +351,7 @@ describe("Document relocation lease coordinator", () => {
       generation: 3,
       headSeq: 3,
     });
-    expect(wrongGeneration.ok).toBeFalse();
+    expect(wrongGeneration.ok).toBe(false);
     if (!wrongGeneration.ok) {
       expect(wrongGeneration.error.code).toBe("document_generation_mismatch");
     }
@@ -362,7 +362,7 @@ describe("Document relocation lease coordinator", () => {
       generation: 4,
       headSeq: 3,
     });
-    expect((await preparation).ok).toBeTrue();
+    expect((await preparation).ok).toBe(true);
     harness.coordinator.release("lease-generation");
   });
 
@@ -375,7 +375,7 @@ describe("Document relocation lease coordinator", () => {
       leaseId: "lease-publish-failure",
       documents: [documentHead("document-a", 1)],
     });
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("prepare_publish_failed");
     expect(harness.coordinator.getFencedDocumentIds().length).toBe(0);
   });

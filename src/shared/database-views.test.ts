@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   createLegacyInlineDatabaseViewConfig,
   evaluateDatabaseViewRows,
@@ -125,11 +125,11 @@ describe("durable Database View contracts", () => {
     });
 
     expect(config.schemaVersion).toBe(1);
-    expect(config.options.includeHostCard).toBeTrue();
+    expect(config.options.includeHostCard).toBe(true);
     expect(config.display.propertyOrder.join(",")).toBe("priority,status");
     expect(config.display.hiddenProperties.join(",")).toBe("estimate,tags");
-    expect(config.display.showEmptyEstimate).toBeTrue();
-    expect(config.display.showEmptyPriority).toBeFalse();
+    expect(config.display.showEmptyEstimate).toBe(true);
+    expect(config.display.showEmptyPriority).toBe(false);
     expect(config.legacy.rulesV2B64).toBe(rulesV2B64);
     expect(JSON.stringify(config.legacy.rulesV2)).toBe(JSON.stringify(rules));
     expect(JSON.stringify(config.filter)).toBe(JSON.stringify(rules.filter));
@@ -146,7 +146,7 @@ describe("durable Database View contracts", () => {
     });
 
     expect(config.legacy.rulesV2B64).toBe("not-valid-base64-json");
-    expect(config.legacy.rulesV2 === null).toBeTrue();
+    expect(config.legacy.rulesV2 === null).toBe(true);
     expect(JSON.stringify(config.filter)).toBe(
       JSON.stringify({
         any: [
@@ -186,7 +186,7 @@ describe("durable Database View contracts", () => {
         { field: "created", direction: "desc" },
       ]),
     );
-    expect(config.options.includeHostCard).toBeFalse();
+    expect(config.options.includeHostCard).toBe(false);
   });
 
   test("normalizes absent and partial effective rules while preserving provenance", () => {
@@ -195,8 +195,8 @@ describe("durable Database View contracts", () => {
       props: { sourceProjectId: "source-project" },
     });
     expect(noRules.legacy.rulesV2B64).toBe("");
-    expect(noRules.legacy.rulesV2 === null).toBeTrue();
-    expect(noRules.options.includeHostCard).toBeFalse();
+    expect(noRules.legacy.rulesV2 === null).toBe(true);
+    expect(noRules.options.includeHostCard).toBe(false);
     expect(JSON.stringify(noRules.sort)).toBe(
       JSON.stringify([
         { field: "board-order", direction: "asc" },
@@ -224,7 +224,7 @@ describe("durable Database View contracts", () => {
     );
     expect(JSON.stringify(partial.filter)).toBe(JSON.stringify(noRules.filter));
     expect(JSON.stringify(partial.sort)).toBe(JSON.stringify(noRules.sort));
-    expect(partial.options.includeHostCard).toBeFalse();
+    expect(partial.options.includeHostCard).toBe(false);
   });
 
   test("keeps an explicit empty-priority exclusion and defaults an empty sort", () => {
@@ -262,7 +262,7 @@ describe("durable Database View contracts", () => {
     const filter = config.filter as {
       any: readonly { all: readonly { includeEmpty?: boolean }[] }[];
     };
-    expect(filter.any[0]?.all[0]?.includeEmpty).toBeFalse();
+    expect(filter.any[0]?.all[0]?.includeEmpty).toBe(false);
     expect(config.sort.length).toBe(2);
 
     const base = makeReadModel(true);

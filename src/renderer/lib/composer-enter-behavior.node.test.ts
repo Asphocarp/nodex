@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY,
   DEFAULT_COMPOSER_ENTER_BEHAVIOR,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT,
   WORKBENCH_AUTOMATION_TEMPLATES,
@@ -40,7 +40,7 @@ describe("workbench automation templates", () => {
     expect(draft.kind).toBe("cron");
     expect(draft.executionEnvironment).toBe("worktree");
     expect(draft.name).toBe("Daily bug scan");
-    expect(draft.prompt.includes("Scan recent commits")).toBeTrue();
+    expect(draft.prompt.includes("Scan recent commits")).toBe(true);
     expect(draft.rrule).toBe("FREQ=DAILY;BYHOUR=9;BYMINUTE=0");
     expect(draft.cwds.length).toBe(0);
   });
@@ -51,9 +51,9 @@ describe("workbench automation templates", () => {
 
     const prompt = buildWorkbenchAutomationTemplatePersonalizationPrompt(template);
 
-    expect(prompt.includes("Personalize this scheduled task")).toBeTrue();
-    expect(prompt.includes("automation_update")).toBeTrue();
-    expect(prompt.includes("mode: \"suggested_create\"")).toBeTrue();
-    expect(prompt.includes("Template: \"Daily bug scan\"")).toBeTrue();
+    expect(prompt.includes("Personalize this scheduled task")).toBe(true);
+    expect(prompt.includes("automation_update")).toBe(true);
+    expect(prompt.includes("mode: \"suggested_create\"")).toBe(true);
+    expect(prompt.includes("Template: \"Daily bug scan\"")).toBe(true);
   });
 });

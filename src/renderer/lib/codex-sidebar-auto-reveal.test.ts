@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION,
   CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION,
@@ -32,9 +32,9 @@ describe("Codex sidebar auto-reveal contract", () => {
   });
 
   test("collapses expanded sidebar only below Codex half-minimum threshold", () => {
-    expect(shouldCollapseCodexSidebarResizeWidth(119)).toBeTrue();
-    expect(shouldCollapseCodexSidebarResizeWidth(120)).toBeFalse();
-    expect(shouldCollapseCodexSidebarResizeWidth(239)).toBeFalse();
+    expect(shouldCollapseCodexSidebarResizeWidth(119)).toBe(true);
+    expect(shouldCollapseCodexSidebarResizeWidth(120)).toBe(false);
+    expect(shouldCollapseCodexSidebarResizeWidth(239)).toBe(false);
   });
 
   test("resolves width with layout, Codex storage, Nodex storage, then default precedence", () => {
@@ -54,36 +54,36 @@ describe("Codex sidebar auto-reveal contract", () => {
   });
 
   test("uses Codex edge-enter and keep-open geometry boundaries", () => {
-    expect(isCodexSidebarEdgeEnterX(null)).toBeFalse();
-    expect(isCodexSidebarEdgeEnterX(-1)).toBeFalse();
-    expect(isCodexSidebarEdgeEnterX(0)).toBeTrue();
-    expect(isCodexSidebarEdgeEnterX(12)).toBeTrue();
-    expect(isCodexSidebarEdgeEnterX(13)).toBeFalse();
+    expect(isCodexSidebarEdgeEnterX(null)).toBe(false);
+    expect(isCodexSidebarEdgeEnterX(-1)).toBe(false);
+    expect(isCodexSidebarEdgeEnterX(0)).toBe(true);
+    expect(isCodexSidebarEdgeEnterX(12)).toBe(true);
+    expect(isCodexSidebarEdgeEnterX(13)).toBe(false);
 
-    expect(isCodexSidebarKeepOpenX(null, 300)).toBeFalse();
-    expect(isCodexSidebarKeepOpenX(-1, 300)).toBeFalse();
-    expect(isCodexSidebarKeepOpenX(0, 300)).toBeTrue();
-    expect(isCodexSidebarKeepOpenX(300, 300)).toBeTrue();
-    expect(isCodexSidebarKeepOpenX(301, 300)).toBeFalse();
+    expect(isCodexSidebarKeepOpenX(null, 300)).toBe(false);
+    expect(isCodexSidebarKeepOpenX(-1, 300)).toBe(false);
+    expect(isCodexSidebarKeepOpenX(0, 300)).toBe(true);
+    expect(isCodexSidebarKeepOpenX(300, 300)).toBe(true);
+    expect(isCodexSidebarKeepOpenX(301, 300)).toBe(false);
   });
 
   test("keeps collapse suppression until the trigger is not hovered and pointer leaves the edge strip", () => {
     expect(shouldClearCodexSidebarHoverSuppression({
       pointerX: null,
       triggerHovered: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldClearCodexSidebarHoverSuppression({
       pointerX: 40,
       triggerHovered: true,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldClearCodexSidebarHoverSuppression({
       pointerX: 12,
       triggerHovered: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldClearCodexSidebarHoverSuppression({
       pointerX: 13,
       triggerHovered: false,
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("derives floating visibility from open, animation, suppression, edge, keep-open, and focus state", () => {
@@ -95,7 +95,7 @@ describe("Codex sidebar auto-reveal contract", () => {
       hoverSuppressed: false,
       focusOverride: false,
       currentlyVisible: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(deriveCodexSidebarFloatingVisibility({
       pointerX: 8,
       leftPanelWidthPx: 300,
@@ -104,7 +104,7 @@ describe("Codex sidebar auto-reveal contract", () => {
       hoverSuppressed: false,
       focusOverride: false,
       currentlyVisible: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(deriveCodexSidebarFloatingVisibility({
       pointerX: 8,
       leftPanelWidthPx: 300,
@@ -113,7 +113,7 @@ describe("Codex sidebar auto-reveal contract", () => {
       hoverSuppressed: true,
       focusOverride: true,
       currentlyVisible: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(deriveCodexSidebarFloatingVisibility({
       pointerX: 12,
       leftPanelWidthPx: 300,
@@ -122,7 +122,7 @@ describe("Codex sidebar auto-reveal contract", () => {
       hoverSuppressed: false,
       focusOverride: false,
       currentlyVisible: false,
-    })).toBeTrue();
+    })).toBe(true);
     expect(deriveCodexSidebarFloatingVisibility({
       pointerX: 301,
       leftPanelWidthPx: 300,
@@ -131,7 +131,7 @@ describe("Codex sidebar auto-reveal contract", () => {
       hoverSuppressed: false,
       focusOverride: false,
       currentlyVisible: true,
-    })).toBeFalse();
+    })).toBe(false);
     expect(deriveCodexSidebarFloatingVisibility({
       pointerX: 301,
       leftPanelWidthPx: 300,
@@ -140,29 +140,29 @@ describe("Codex sidebar auto-reveal contract", () => {
       hoverSuppressed: false,
       focusOverride: true,
       currentlyVisible: true,
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("derives Codex explicit toggle target progress and hover suppression", () => {
     expect(resolveCodexSidebarToggleTargetProgress(true)).toBe(1);
     expect(resolveCodexSidebarToggleTargetProgress(false)).toBe(0);
-    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: false })).toBeTrue();
-    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: false, suppressHoverOpen: false })).toBeFalse();
-    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: true })).toBeFalse();
+    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: false })).toBe(true);
+    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: false, suppressHoverOpen: false })).toBe(false);
+    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: true })).toBe(false);
   });
 
   test("snaps explicit sidebar toggles for reduced motion or animate false", () => {
-    expect(shouldAnimateCodexSidebarToggle({ animate: true, reducedMotion: false })).toBeTrue();
-    expect(shouldAnimateCodexSidebarToggle({ reducedMotion: null })).toBeTrue();
-    expect(shouldAnimateCodexSidebarToggle({ animate: false, reducedMotion: false })).toBeFalse();
-    expect(shouldAnimateCodexSidebarToggle({ animate: true, reducedMotion: true })).toBeFalse();
+    expect(shouldAnimateCodexSidebarToggle({ animate: true, reducedMotion: false })).toBe(true);
+    expect(shouldAnimateCodexSidebarToggle({ reducedMotion: null })).toBe(true);
+    expect(shouldAnimateCodexSidebarToggle({ animate: false, reducedMotion: false })).toBe(false);
+    expect(shouldAnimateCodexSidebarToggle({ animate: true, reducedMotion: true })).toBe(false);
   });
 
   test("keeps the real sidebar mounted while closing progress remains above zero", () => {
-    expect(isCodexSidebarExpandedMounted({ open: true, progress: 0 })).toBeTrue();
-    expect(isCodexSidebarExpandedMounted({ open: false, progress: 0.25 })).toBeTrue();
-    expect(isCodexSidebarExpandedMounted({ open: false, progress: 0 })).toBeFalse();
-    expect(isCodexSidebarExpandedMounted({ open: false, progress: Number.NaN })).toBeFalse();
+    expect(isCodexSidebarExpandedMounted({ open: true, progress: 0 })).toBe(true);
+    expect(isCodexSidebarExpandedMounted({ open: false, progress: 0.25 })).toBe(true);
+    expect(isCodexSidebarExpandedMounted({ open: false, progress: 0 })).toBe(false);
+    expect(isCodexSidebarExpandedMounted({ open: false, progress: Number.NaN })).toBe(false);
   });
 
   test("normalizes pointer coordinates and velocity by the Codex window zoom", () => {
@@ -194,28 +194,28 @@ describe("Codex sidebar auto-reveal contract", () => {
       innerWidth: 800,
       innerHeight: 600,
       relatedTarget: document.body,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
       clientX: 10,
       clientY: 10,
       innerWidth: 800,
       innerHeight: 600,
       relatedTarget: null,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
       clientX: -1,
       clientY: 10,
       innerWidth: 800,
       innerHeight: 600,
       relatedTarget: null,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
       clientX: 800,
       clientY: 10,
       innerWidth: 800,
       innerHeight: 600,
       relatedTarget: null,
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("selects the Codex spring or reduced-motion transition", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { NfmBlock, NfmInlineContent } from "../../../lib/nfm";
 import { formatDateMentionPlainText } from "@/lib/nfm/date-mention";
 import {
@@ -79,15 +79,15 @@ describe("notion paste", () => {
     expect(blocks[0]?.type).toBe("table");
     if (blocks[0]?.type !== "table") return;
 
-    expect(blocks[0].headerRow).toBeTrue();
-    expect(blocks[0].headerColumn).toBeTrue();
+    expect(blocks[0].headerRow).toBe(true);
+    expect(blocks[0].headerColumn).toBe(true);
     expect(blocks[0].columns[0]?.width).toBe(180);
     expect(blocks[0].columns[0]?.color).toBe("blue_bg");
     expect(blocks[0].rows[0]?.color).toBe("gray_bg");
     expect(inlineToText(blocks[0].rows[1]?.cells[0]?.content ?? [])).toBe("Build");
     expect(blocks[0].rows[1]?.cells[1]?.content[0]?.type).toBe("text");
     if (blocks[0].rows[1]?.cells[1]?.content[0]?.type !== "text") return;
-    expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBeTrue();
+    expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBe(true);
   });
 
   test("extracts Notion payload from Chromium web-custom-data", () => {
@@ -178,7 +178,7 @@ describe("notion paste", () => {
     if (!blocks[0] || blocks[0].type !== "heading") return;
 
     expect(blocks[0].level).toBe(2);
-    expect(blocks[0].isToggleable).toBeTrue();
+    expect(blocks[0].isToggleable).toBe(true);
     expect(inlineToText(blocks[0].content)).toBe("a heading with children");
     expect(blocks[0].children.length).toBe(2);
     expect(blocks[0].children[0]?.type).toBe("paragraph");
@@ -271,35 +271,35 @@ describe("notion paste", () => {
 
     const bold = findInlineSpan(blocks[0].content, "bold text");
     expect(bold?.type).toBe("text");
-    expect(bold?.styles.bold).toBeTrue();
+    expect(bold?.styles.bold).toBe(true);
 
     const italic = findInlineSpan(blocks[0].content, "italic text");
     expect(italic?.type).toBe("text");
-    expect(italic?.styles.italic).toBeTrue();
+    expect(italic?.styles.italic).toBe(true);
 
     const strike = findInlineSpan(blocks[0].content, "strikethrough text");
     expect(strike?.type).toBe("text");
-    expect(strike?.styles.strikethrough).toBeTrue();
+    expect(strike?.styles.strikethrough).toBe(true);
 
     const inlineCode = findInlineSpan(blocks[0].content, "inline code");
     expect(inlineCode?.type).toBe("text");
-    expect(inlineCode?.styles.code).toBeTrue();
+    expect(inlineCode?.styles.code).toBe(true);
 
     const underline = findInlineSpan(blocks[1].content, "underlined text");
     expect(underline?.type).toBe("text");
-    expect(underline?.styles.underline).toBeTrue();
+    expect(underline?.styles.underline).toBe(true);
 
     const boldItalic = findInlineSpan(blocks[2].content, "bold italic");
-    expect(boldItalic?.styles.bold).toBeTrue();
-    expect(boldItalic?.styles.italic).toBeTrue();
+    expect(boldItalic?.styles.bold).toBe(true);
+    expect(boldItalic?.styles.italic).toBe(true);
 
     const boldStrike = findInlineSpan(blocks[2].content, "bold strikethrough");
-    expect(boldStrike?.styles.bold).toBeTrue();
-    expect(boldStrike?.styles.strikethrough).toBeTrue();
+    expect(boldStrike?.styles.bold).toBe(true);
+    expect(boldStrike?.styles.strikethrough).toBe(true);
 
     const italicStrike = findInlineSpan(blocks[2].content, "italic strikethrough");
-    expect(italicStrike?.styles.italic).toBeTrue();
-    expect(italicStrike?.styles.strikethrough).toBeTrue();
+    expect(italicStrike?.styles.italic).toBe(true);
+    expect(italicStrike?.styles.strikethrough).toBe(true);
   });
 
   test("maps Notion text/background colors from h annotation", () => {
@@ -379,7 +379,7 @@ describe("notion paste", () => {
       notionBlocks,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(replaceCalls.length).toBe(1);
     expect(JSON.stringify(replaceCalls[0]?.remove)).toBe(JSON.stringify(["selected-1", "selected-2"]));
     expect(replaceCalls[0]?.insertCount).toBe(3);
@@ -410,7 +410,7 @@ describe("notion paste", () => {
       notionBlocks,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(replaceCalls.length).toBe(1);
     expect(JSON.stringify(replaceCalls[0]?.remove)).toBe(JSON.stringify(["cursor-empty"]));
     expect(insertCalls).toBe(0);
@@ -444,7 +444,7 @@ describe("notion paste", () => {
       notionBlocks,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(replaceCalls).toBe(0);
     expect(insertCalls.length).toBe(1);
     expect(insertCalls[0]?.ref).toBe("cursor-non-empty");

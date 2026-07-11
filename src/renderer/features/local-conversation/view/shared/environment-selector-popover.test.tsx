@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -39,8 +39,8 @@ describe("environment selector popover", () => {
     const popover = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
 
     expect(content).not.toBeNull();
-    expect(popover === null).toBeTrue();
-    expect(view.container.ownerDocument.body.textContent?.includes("Local environment") ?? false).toBeTrue();
-    expect(view.container.ownerDocument.body.textContent?.includes("Environment settings") ?? false).toBeTrue();
+    expect(popover === null).toBe(true);
+    expect(view.container.ownerDocument.body.textContent?.includes("Local environment") ?? false).toBe(true);
+    expect(view.container.ownerDocument.body.textContent?.includes("Environment settings") ?? false).toBe(true);
   });
 });

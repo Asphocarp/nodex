@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { expect, test } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -11,7 +11,8 @@ test("createReleaseDownloadAliases copies both DMGs to stable alias filenames", 
   try {
     const arm64Dir = join(tempDir, "arm64");
     const x64Dir = join(tempDir, "x64");
-    Bun.spawnSync(["mkdir", "-p", arm64Dir, x64Dir]);
+    mkdirSync(arm64Dir, { recursive: true });
+    mkdirSync(x64Dir, { recursive: true });
 
     const arm64SourcePath = join(arm64Dir, "Nodex-0.1.6-arm64.dmg");
     const x64SourcePath = join(x64Dir, "Nodex-0.1.6-x64.dmg");
@@ -37,7 +38,8 @@ test("createReleaseDownloadAliases throws when the arm64 DMG is missing", () => 
   try {
     const arm64Dir = join(tempDir, "arm64");
     const x64Dir = join(tempDir, "x64");
-    Bun.spawnSync(["mkdir", "-p", arm64Dir, x64Dir]);
+    mkdirSync(arm64Dir, { recursive: true });
+    mkdirSync(x64Dir, { recursive: true });
     writeFileSync(join(x64Dir, "Nodex-0.1.6-x64.dmg"), "x64-dmg-bytes", "utf8");
 
     let threw = false;
@@ -52,7 +54,7 @@ test("createReleaseDownloadAliases throws when the arm64 DMG is missing", () => 
       threw = true;
     }
 
-    expect(threw).toBeTrue();
+    expect(threw).toBe(true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -64,7 +66,8 @@ test("createReleaseDownloadAliases throws when the x64 DMG is missing", () => {
   try {
     const arm64Dir = join(tempDir, "arm64");
     const x64Dir = join(tempDir, "x64");
-    Bun.spawnSync(["mkdir", "-p", arm64Dir, x64Dir]);
+    mkdirSync(arm64Dir, { recursive: true });
+    mkdirSync(x64Dir, { recursive: true });
     writeFileSync(join(arm64Dir, "Nodex-0.1.6-arm64.dmg"), "arm64-dmg-bytes", "utf8");
 
     let threw = false;
@@ -79,7 +82,7 @@ test("createReleaseDownloadAliases throws when the x64 DMG is missing", () => {
       threw = true;
     }
 
-    expect(threw).toBeTrue();
+    expect(threw).toBe(true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

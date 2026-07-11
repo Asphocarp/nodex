@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "./settings";
 import {
   getDefaultToggleListInlineViewProps,
@@ -43,15 +43,15 @@ describe("toggle-list inline view props", () => {
     });
 
     expect(settings.rulesV2.mode).toBe("advanced");
-    expect(settings.rulesV2.includeHostCard).toBeTrue();
+    expect(settings.rulesV2.includeHostCard).toBe(true);
     expect(settings.rulesV2.sort[0]?.field).toBe("priority");
     expect(settings.rulesV2.sort[0]?.direction).toBe("desc");
     expect(settings.rulesV2.sort[1]?.field).toBe("created");
     expect(settings.rulesV2.sort[1]?.direction).toBe("asc");
-    expect(settings.rulesV2.filter.any[0]?.all[1] && "includeEmpty" in settings.rulesV2.filter.any[0]!.all[1] ? settings.rulesV2.filter.any[0]!.all[1].includeEmpty : true).toBeFalse();
+    expect(settings.rulesV2.filter.any[0]?.all[1] && "includeEmpty" in settings.rulesV2.filter.any[0]!.all[1] ? settings.rulesV2.filter.any[0]!.all[1].includeEmpty : true).toBe(false);
     expect(JSON.stringify(settings.propertyOrder)).toBe(JSON.stringify(["status", "priority", "estimate", "tags"]));
     expect(JSON.stringify(settings.hiddenProperties)).toBe(JSON.stringify(["estimate"]));
-    expect(settings.showEmptyEstimate).toBeTrue();
+    expect(settings.showEmptyEstimate).toBe(true);
   });
 
   test("falls back to defaults when rulesV2 props are invalid", () => {
@@ -65,7 +65,7 @@ describe("toggle-list inline view props", () => {
     expect(JSON.stringify(settings.rulesV2)).toBe(JSON.stringify(defaults.rulesV2));
     expect(JSON.stringify(settings.propertyOrder)).toBe(JSON.stringify(defaults.propertyOrder));
     expect(JSON.stringify(settings.hiddenProperties)).toBe(JSON.stringify([]));
-    expect(settings.showEmptyEstimate).toBeFalse();
+    expect(settings.showEmptyEstimate).toBe(false);
   });
 
   test("merges settings into canonical serializable block props", () => {
@@ -82,7 +82,7 @@ describe("toggle-list inline view props", () => {
 
     expect(merged.sourceProjectId).toBe("alpha");
     expect(typeof merged.rulesV2B64).toBe("string");
-    expect(merged.rulesV2B64.length > 0).toBeTrue();
+    expect(merged.rulesV2B64.length > 0).toBe(true);
     expect(merged.propertyOrderCsv).toBe("priority,estimate,status,tags");
     expect(merged.hiddenPropertiesCsv).toBe("");
     expect(merged.showEmptyEstimate).toBe("true");

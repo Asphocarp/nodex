@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
@@ -217,7 +217,7 @@ describe("LocalConversationFooter", () => {
       </TooltipProvider>,
     );
 
-    expect(view.queryByLabelText("Plan") === null).toBeTrue();
+    expect(view.queryByLabelText("Plan") === null).toBe(true);
 
     view.rerender(
       <TooltipProvider>
@@ -234,8 +234,8 @@ describe("LocalConversationFooter", () => {
 
     const planButton = view.getByLabelText("Plan");
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
-    expect(formFooter !== null).toBeTrue();
-    expect(Boolean(formFooter?.contains(planButton))).toBeTrue();
+    expect(formFooter !== null).toBe(true);
+    expect(Boolean(formFooter?.contains(planButton))).toBe(true);
 
     fireEvent.pointerDown(view.getByLabelText("Add files and more"), { button: 0, ctrlKey: false });
     fireEvent.click(view.getByLabelText("Add files and more"));
@@ -245,7 +245,7 @@ describe("LocalConversationFooter", () => {
       if (!planRow) {
         throw new Error("Expected the Plan mode row.");
       }
-      expect(planRow.querySelector('[data-state="checked"]') !== null).toBeTrue();
+      expect(planRow.querySelector('[data-state="checked"]') !== null).toBe(true);
     });
 
     view.rerender(
@@ -261,7 +261,7 @@ describe("LocalConversationFooter", () => {
       </TooltipProvider>,
     );
 
-    expect(view.queryByLabelText("Plan") === null).toBeTrue();
+    expect(view.queryByLabelText("Plan") === null).toBe(true);
   });
 
   test("renders the catch-up button inside the footer owner", async () => {
@@ -291,7 +291,7 @@ describe("LocalConversationFooter", () => {
     const viewport = container.querySelector(
       "[data-local-conversation-thread-body='true']",
     ) as HTMLDivElement | null;
-    expect(Boolean(viewport)).toBeTrue();
+    expect(Boolean(viewport)).toBe(true);
 
     if (!viewport) return;
 
@@ -326,7 +326,7 @@ describe("LocalConversationFooter", () => {
     fireEvent.scroll(viewport);
 
     await waitFor(() => {
-      expect(Boolean(container.querySelector('[aria-label="Scroll to latest message"]'))).toBeTrue();
+      expect(Boolean(container.querySelector('[aria-label="Scroll to latest message"]'))).toBe(true);
     });
 
     scrollToCalls.length = 0;
@@ -338,15 +338,15 @@ describe("LocalConversationFooter", () => {
     const aboveComposerPortal = footerStack?.querySelector("#above-composer-portal");
     const queuePortal = footerStack?.querySelector("#above-composer-queue-portal");
     const composerShell = footerStack?.querySelector('[data-local-conversation-composer-shell="true"]');
-    expect(footerOwner !== null).toBeTrue();
-    expect(catchUpSlot !== null).toBeTrue();
-    expect(footerStack !== null).toBeTrue();
-    expect(aboveComposerPortal !== null).toBeTrue();
-    expect(queuePortal !== null).toBeTrue();
-    expect(composerShell !== null).toBeTrue();
-    expect(isBefore(catchUpSlot, footerStack)).toBeTrue();
-    expect(isBefore(aboveComposerPortal, queuePortal)).toBeTrue();
-    expect(isBefore(queuePortal, composerShell)).toBeTrue();
+    expect(footerOwner !== null).toBe(true);
+    expect(catchUpSlot !== null).toBe(true);
+    expect(footerStack !== null).toBe(true);
+    expect(aboveComposerPortal !== null).toBe(true);
+    expect(queuePortal !== null).toBe(true);
+    expect(composerShell !== null).toBe(true);
+    expect(isBefore(catchUpSlot, footerStack)).toBe(true);
+    expect(isBefore(aboveComposerPortal, queuePortal)).toBe(true);
+    expect(isBefore(queuePortal, composerShell)).toBe(true);
     expect(scrollToCalls.length).toBe(1);
     expect(scrollToCalls[0]?.top).toBe(0);
   });
@@ -373,13 +373,13 @@ describe("LocalConversationFooter", () => {
     await waitFor(() => {
       const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]');
       if (!overlay) throw new Error("Expected right-panel overlay");
-      expect(overlay.querySelector('[data-thread-find-composer="true"]') !== null).toBeTrue();
-      expect(overlay.querySelector('[data-thread-catch-up-control="true"]') !== null).toBeTrue();
-      expect(overlay.querySelector('[data-thread-footer-stack="true"]') !== null).toBeTrue();
-      expect(overlay.querySelector("#above-composer-portal") !== null).toBeTrue();
-      expect(overlay.querySelector("#above-composer-queue-portal") !== null).toBeTrue();
-      expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]') !== null).toBeTrue();
-      expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]') !== null).toBeTrue();
+      expect(overlay.querySelector('[data-thread-find-composer="true"]') !== null).toBe(true);
+      expect(overlay.querySelector('[data-thread-catch-up-control="true"]') !== null).toBe(true);
+      expect(overlay.querySelector('[data-thread-footer-stack="true"]') !== null).toBe(true);
+      expect(overlay.querySelector("#above-composer-portal") !== null).toBe(true);
+      expect(overlay.querySelector("#above-composer-queue-portal") !== null).toBe(true);
+      expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]') !== null).toBe(true);
+      expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]') !== null).toBe(true);
     });
 
     const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
@@ -394,10 +394,10 @@ describe("LocalConversationFooter", () => {
       throw new Error("Expected overlay fixture nodes");
     }
 
-    expect(isBefore(catchUpSlot, footerStack)).toBeTrue();
-    expect(Boolean(aboveComposerPortal.compareDocumentPosition(queuePortal) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(isBefore(catchUpSlot, footerStack)).toBe(true);
+    expect(Boolean(aboveComposerPortal.compareDocumentPosition(queuePortal) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
 
     fireEvent.animationEnd(overlay);
     await waitFor(() => {
@@ -449,9 +449,9 @@ describe("LocalConversationFooter", () => {
 
     const aboveComposerPortal = container.querySelector("#above-composer-portal");
     const queuePortal = container.querySelector("#above-composer-queue-portal");
-    expect(Boolean(queuePortal?.textContent?.includes("Run the final checks"))).toBeTrue();
-    expect(Boolean(aboveComposerPortal?.textContent?.includes("Run the final checks"))).toBeFalse();
-    expect(container.querySelector("[data-above-composer-fixed-pill]") === null).toBeTrue();
+    expect(Boolean(queuePortal?.textContent?.includes("Run the final checks"))).toBe(true);
+    expect(Boolean(aboveComposerPortal?.textContent?.includes("Run the final checks"))).toBe(false);
+    expect(container.querySelector("[data-above-composer-fixed-pill]") === null).toBe(true);
   });
 
   test("overlay outside pointerdown collapses preview without globally dismissing tooltips", async () => {
@@ -518,10 +518,10 @@ describe("LocalConversationFooter", () => {
       </TooltipProvider>,
     );
 
-    expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBeTrue();
-    expect(container.querySelector('[data-local-conversation-composer-shell="true"]') === null).toBeTrue();
-    expect(container.querySelector('[data-thread-find-composer="true"]') !== null).toBeTrue();
-    expect(container.querySelector("#above-composer-portal") !== null).toBeTrue();
-    expect(container.querySelector("#above-composer-queue-portal") !== null).toBeTrue();
+    expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBe(true);
+    expect(container.querySelector('[data-local-conversation-composer-shell="true"]') === null).toBe(true);
+    expect(container.querySelector('[data-thread-find-composer="true"]') !== null).toBe(true);
+    expect(container.querySelector("#above-composer-portal") !== null).toBe(true);
+    expect(container.querySelector("#above-composer-queue-portal") !== null).toBe(true);
   });
 });

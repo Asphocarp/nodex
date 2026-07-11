@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, mock, test as bunTest } from "bun:test";
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, vi, test as bunTest } from "vitest";
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import type { ReactElement } from "react";
@@ -33,7 +33,7 @@ const pendingByDefaultInvokeChannels = new Set([
   "gh-pr-status",
 ]);
 
-mock.module("../../../../lib/api", () => ({
+vi.mock("../../../../lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     if (mockInvokeImpl) {
@@ -65,7 +65,7 @@ mock.module("../../../../lib/api", () => ({
   subscribeWindowFocusChanges: () => () => undefined,
 }));
 
-mock.module("../shared/user-message-attachments", () => ({
+vi.mock("../shared/user-message-attachments", () => ({
   ImagePreviewDialog: ({
     open,
     src,
@@ -281,13 +281,13 @@ describe("ThreadFloatingSummaryPanel", () => {
       ".origin-top-right",
     ) as HTMLElement | null;
     const widthShell = motionShell?.firstElementChild as HTMLElement | null;
-    expect(outer !== null).toBeTrue();
+    expect(outer !== null).toBe(true);
     expect(motionShell?.style.opacity).toBe("1");
     expect(motionShell?.style.transform).toBe("none");
-    expect(widthShell?.className.includes("pointer-events-auto")).toBeTrue();
+    expect(widthShell?.className.includes("pointer-events-auto")).toBe(true);
     expect(widthShell?.style.width).toBe("300px");
-    expect(textContent(view.container).includes("Rate limits")).toBeFalse();
-    expect(textContent(view.container).includes("82% · 61%")).toBeFalse();
+    expect(textContent(view.container).includes("Rate limits")).toBe(false);
+    expect(textContent(view.container).includes("82% · 61%")).toBe(false);
   });
 
   test("keeps the hidden Codex shell without running panel side effects", async () => {
@@ -315,7 +315,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       ".origin-top-right",
     ) as HTMLElement | null;
     const widthShell = motionShell?.firstElementChild as HTMLElement | null;
-    expect(textContent(view.container).includes("Rate limits")).toBeFalse();
+    expect(textContent(view.container).includes("Rate limits")).toBe(false);
     expect(invokeCalls.length).toBe(0);
     expect(motionShell?.style.opacity).toBe("0");
     expect(motionShell?.style.transform).toBe("translateX(100%) scale(0.8)");
@@ -324,7 +324,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       Boolean(
         view.container.querySelector("[data-testid='thread-summary-panel']"),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("uses the Codex instant invisible branch while overlay popover is open", async () => {
@@ -348,7 +348,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       "[data-thread-summary-panel-hide-immediately='true']",
     );
     const motionShell = outer?.querySelector(".origin-top-right");
-    expect(Boolean(outer)).toBeTrue();
+    expect(Boolean(outer)).toBe(true);
     expect((motionShell as HTMLElement | null)?.style.opacity).toBe("0");
     expect((motionShell as HTMLElement | null)?.style.transform).toBe(
       "translateX(100%) scale(0.8)",
@@ -378,7 +378,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       const popover = view.container.ownerDocument.body.querySelector(
         '[data-thread-summary-panel-mode="popover"]',
       );
-      expect(Boolean(popover)).toBeTrue();
+      expect(Boolean(popover)).toBe(true);
     });
     expect(trigger.getAttribute("aria-pressed")).toBe("true");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
@@ -393,7 +393,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       const popover = view.container.ownerDocument.body.querySelector(
         '[data-thread-summary-panel-mode="popover"]',
       );
-      expect(Boolean(popover)).toBeFalse();
+      expect(Boolean(popover)).toBe(false);
     });
   });
 
@@ -459,14 +459,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     const searchInput = view.container.ownerDocument.body.querySelector(
       'input[placeholder="Search branches"]',
     );
-    expect(searchInput !== null).toBeTrue();
+    expect(searchInput !== null).toBe(true);
 
     expect(
       invokeCalls.some((call) => call[0] === "git:review:snapshot"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       invokeCalls.some((call) => call[0] === "git:branch:state"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("opens the Review surface from the Changes row using the primary git source", async () => {
@@ -610,7 +610,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
@@ -729,7 +729,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const createBranchRow = view
       .getByText("Create branch")
       .closest("[role='button']");
-    expect(Boolean(createBranchRow)).toBeTrue();
+    expect(Boolean(createBranchRow)).toBe(true);
 
     await act(async () => {
       fireEvent.click(createBranchRow as HTMLElement);
@@ -739,7 +739,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const branchNameInput = getBranchSetupInput("review-detached-worktree");
     expect(
       branchNameInput.value.includes("review-detached-worktree"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("creates a branch before opening the detached commit workflow", async () => {
@@ -826,7 +826,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
@@ -916,8 +916,8 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     await waitFor(() => {
-      if (!textContent(view.container).includes("Environment")) {
-        throw new Error("Expected environment section to load.");
+      if (!textContent(view.container).includes("Create branch")) {
+        throw new Error("Expected default-branch action to load.");
       }
     });
 
@@ -931,7 +931,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
     const branchRows = rows.filter((row) => textContent(row).includes("main"));
     expect(createBranchRows.length).toBe(1);
-    expect(branchRows.length > 0).toBeTrue();
+    expect(branchRows.length > 0).toBe(true);
 
     await act(async () => {
       fireEvent.click(createBranchRows[0] as HTMLElement);
@@ -941,7 +941,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const branchNameInput = getBranchSetupInput("default-branch-worktree");
     expect(
       branchNameInput.value.includes("default-branch-worktree"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("creates a branch before opening the managed default-branch push workflow", async () => {
@@ -1031,7 +1031,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       expect(commitRow?.getAttribute("title")).toBe("Create branch");
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
@@ -1072,7 +1072,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       ) {
         throw new Error("Expected push workflow dialog after branch setup.");
       }
-      expect(Boolean(view.getByRole("button", { name: "Push" }))).toBeTrue();
+      expect(Boolean(view.getByRole("button", { name: "Push" }))).toBe(true);
     });
   });
 
@@ -1291,7 +1291,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
@@ -1443,17 +1443,17 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
 
     await waitFor(() => {
-      expect(Boolean(view.getByRole("button", { name: "Commit" }))).toBeTrue();
+      expect(Boolean(view.getByRole("button", { name: "Commit" }))).toBe(true);
       expect(
         Boolean(view.getByRole("button", { name: "Commit and push" })),
-      ).toBeTrue();
-      expect(Boolean(view.getByRole("button", { name: "Push" }))).toBeTrue();
+      ).toBe(true);
+      expect(Boolean(view.getByRole("button", { name: "Push" }))).toBe(true);
     });
 
     await act(async () => {
@@ -1551,7 +1551,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
@@ -1692,7 +1692,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           .getByTestId("thread-summary-panel")
           .querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBeTrue();
+      expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
@@ -1725,7 +1725,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       const cancelButton = view
         .getByTestId("thread-summary-panel")
         .querySelector<HTMLButtonElement>('[aria-label="Cancel git action"]');
-      expect(Boolean(cancelButton)).toBeTrue();
+      expect(Boolean(cancelButton)).toBe(true);
       fireEvent.click(cancelButton as HTMLButtonElement);
       await settleAsyncRender();
     });
@@ -2199,31 +2199,31 @@ describe("ThreadFloatingSummaryPanel", () => {
       "Sources",
     ];
     const indexes = orderedTitles.map((title) => content.indexOf(title));
-    expect(indexes.every((index) => index >= 0)).toBeTrue();
+    expect(indexes.every((index) => index >= 0)).toBe(true);
     expect(indexes.join(",")).toBe(
       indexes
         .slice()
         .sort((left, right) => left - right)
         .join(","),
     );
-    expect(content.includes("Automations")).toBeFalse();
-    expect(content.includes("Review release notes")).toBeTrue();
-    expect(content.includes("Every weekday")).toBeTrue();
-    expect(content.includes("Summary panel parity")).toBeTrue();
-    expect(content.includes("Inspect shell")).toBeFalse();
-    expect(content.includes("app.tsx")).toBeFalse();
-    expect(content.includes("Generated image 1")).toBeTrue();
-    expect(content.includes("Scout")).toBeTrue();
-    expect(content.includes("Investigate layout")).toBeTrue();
-    expect(content.includes("Release notes")).toBeTrue();
+    expect(content.includes("Automations")).toBe(false);
+    expect(content.includes("Review release notes")).toBe(true);
+    expect(content.includes("Every weekday")).toBe(true);
+    expect(content.includes("Summary panel parity")).toBe(true);
+    expect(content.includes("Inspect shell")).toBe(false);
+    expect(content.includes("app.tsx")).toBe(false);
+    expect(content.includes("Generated image 1")).toBe(true);
+    expect(content.includes("Scout")).toBe(true);
+    expect(content.includes("Investigate layout")).toBe(true);
+    expect(content.includes("Release notes")).toBe(true);
     expect(
       view.container.querySelector('[aria-label="Context7"]') !== null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector('[aria-label="Web search"]') !== null,
-    ).toBeTrue();
-    expect(content.includes("bun test")).toBeTrue();
-    expect(content.includes("Environment")).toBeFalse();
+    ).toBe(true);
+    expect(content.includes("bun test")).toBe(true);
+    expect(content.includes("Environment")).toBe(false);
   });
 
   test("opens the scheduled automation row with the reference action payload", async () => {
@@ -2257,8 +2257,8 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const row = view.getByRole("button", { name: "Open scheduled task" });
     expect(row.getAttribute("title")).toBe("Next run: tomorrow at 9:00 AM");
-    expect(textContent(row).includes("Review release notes")).toBeTrue();
-    expect(textContent(row).includes("Every weekday")).toBeTrue();
+    expect(textContent(row).includes("Review release notes")).toBe(true);
+    expect(textContent(row).includes("Every weekday")).toBe(true);
 
     await clickAndSettle(row);
 
@@ -2362,10 +2362,10 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(terminalCall?.turnId).toBe("turn-terminal-1");
     expect(terminalCall?.command).toBe("bun dev");
     expect(String(processManagerOpenCount)).toBe("1");
-    expect(textContent(view.container).includes("Tasks")).toBeTrue();
+    expect(textContent(view.container).includes("Tasks")).toBe(true);
     expect(
       textContent(view.container).includes("Background tasks"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("uses the response-in-progress icon for active side chat rows", async () => {
@@ -2404,8 +2404,8 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const activeRow = view.getByRole("button", { name: "Investigate layout" });
     const idleRow = view.getByRole("button", { name: "Compare bundle" });
-    expect(activeRow.querySelector("svg.animate-spin") !== null).toBeTrue();
-    expect(idleRow.querySelector("svg.animate-spin") === null).toBeTrue();
+    expect(activeRow.querySelector("svg.animate-spin") !== null).toBe(true);
+    expect(idleRow.querySelector("svg.animate-spin") === null).toBe(true);
   });
 
   test("renders the Computer Use PiP as a headerless toggle row when state and action exist", async () => {
@@ -2460,15 +2460,15 @@ describe("ThreadFloatingSummaryPanel", () => {
     const tasksIndex = content.indexOf("Tasks");
     const computerUseIndex = content.indexOf("Computer Use");
     const browserIndex = content.indexOf("Browser");
-    expect(tasksIndex >= 0).toBeTrue();
-    expect(computerUseIndex >= 0).toBeTrue();
-    expect(browserIndex >= 0).toBeTrue();
-    expect(tasksIndex < computerUseIndex).toBeTrue();
-    expect(computerUseIndex < browserIndex).toBeTrue();
+    expect(tasksIndex >= 0).toBe(true);
+    expect(computerUseIndex >= 0).toBe(true);
+    expect(browserIndex >= 0).toBe(true);
+    expect(tasksIndex < computerUseIndex).toBe(true);
+    expect(computerUseIndex < browserIndex).toBe(true);
 
     const row = view.getByRole("button", { name: "Show PiP" });
     expect(row.getAttribute("title")).toBe("Show PiP");
-    expect(textContent(row).includes("Computer Use")).toBeTrue();
+    expect(textContent(row).includes("Computer Use")).toBe(true);
 
     await clickAndSettle(row);
 
@@ -2492,7 +2492,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    expect(textContent(view.container).includes("Computer Use")).toBeFalse();
+    expect(textContent(view.container).includes("Computer Use")).toBe(false);
   });
 
   test("renders browser rows with Codex-style URL, favicon, and working metadata", async () => {
@@ -2539,12 +2539,12 @@ describe("ThreadFloatingSummaryPanel", () => {
           'img[src="https://www.example.com/favicon.ico"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(browserButton.querySelector(".loading-shimmer-pure-text")),
-    ).toBeTrue();
-    expect(Boolean(browserButton.querySelector("svg.animate-spin"))).toBeTrue();
-    expect(textContent(view.container).includes("Right panel")).toBeFalse();
+    ).toBe(true);
+    expect(Boolean(browserButton.querySelector("svg.animate-spin"))).toBe(true);
+    expect(textContent(view.container).includes("Right panel")).toBe(false);
   });
 
   test("renders the start-in row as a summary-panel dropdown trigger", async () => {
@@ -2591,7 +2591,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(trigger.getAttribute("title")).toBe("Select where to run the task");
-    expect(textContent(trigger).includes("Local")).toBeTrue();
+    expect(textContent(trigger).includes("Local")).toBe(true);
 
     await act(async () => {
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
@@ -2600,9 +2600,9 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     const menuText = view.container.ownerDocument.body.textContent ?? "";
-    expect(menuText.includes("Continue in")).toBeTrue();
-    expect(menuText.includes("Work locally")).toBeTrue();
-    expect(menuText.includes("New worktree")).toBeTrue();
+    expect(menuText.includes("Continue in")).toBe(true);
+    expect(menuText.includes("Work locally")).toBe(true);
+    expect(menuText.includes("New worktree")).toBe(true);
   });
 
   test("renders the Sources section with the reference empty state", async () => {
@@ -2624,12 +2624,12 @@ describe("ThreadFloatingSummaryPanel", () => {
     await settleAsyncRender();
 
     const content = textContent(view.container);
-    expect(content.includes("Sources")).toBeTrue();
-    expect(content.includes("No sources yet")).toBeTrue();
-    expect(content.includes("Environment")).toBeFalse();
+    expect(content.includes("Sources")).toBe(true);
+    expect(content.includes("No sources yet")).toBe(true);
+    expect(content.includes("Environment")).toBe(false);
     expect(
       view.container.querySelector('[aria-label="Sources"]') === null,
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("renders search-only sources as a non-openable icon", async () => {
@@ -2667,11 +2667,11 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     expect(
       view.container.querySelector('button[aria-label="Web search"]') === null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector('[role="img"][aria-label="Web search"]') !==
         null,
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("opens page sources externally", async () => {
@@ -2721,7 +2721,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       const sourceButton = view.container.querySelector(
         'button[aria-label="example.com/docs"]',
       ) as HTMLElement | null;
-      expect(Boolean(sourceButton)).toBeTrue();
+      expect(Boolean(sourceButton)).toBe(true);
       await clickAndSettle(sourceButton as HTMLElement);
 
       expect(JSON.stringify(windowOpenCalls[0])).toBe(
@@ -2805,7 +2805,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const sourceButton = view.container.querySelector(
       'button[aria-label="Docs"]',
     ) as HTMLElement | null;
-    expect(Boolean(sourceButton)).toBeTrue();
+    expect(Boolean(sourceButton)).toBe(true);
     await clickAndSettle(sourceButton as HTMLElement);
 
     const call = openCalls[0] as
@@ -2965,7 +2965,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const row = view
       .getByText("Summary panel parity")
       .closest("[role='button']") as HTMLElement | null;
-    expect(Boolean(row)).toBeTrue();
+    expect(Boolean(row)).toBe(true);
     await clickAndSettle(row as HTMLElement);
 
     const call = openCalls[0] as
@@ -2986,7 +2986,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(call?.itemId).toBe("plan-item");
     expect(call?.content).toBe("# Summary panel parity\n\nFull plan body");
     expect(call?.cwd).toBe("/repo/project");
-    expect(call?.hideCodeBlocks).toBeFalse();
+    expect(call?.hideCodeBlocks).toBe(false);
   });
 
   test("does not render changed files as summary panel outputs", async () => {
@@ -3027,8 +3027,8 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     const content = textContent(view.container);
-    expect(content.includes("Outputs")).toBeFalse();
-    expect(content.includes("app.tsx")).toBeFalse();
+    expect(content.includes("Outputs")).toBe(false);
+    expect(content.includes("app.tsx")).toBe(false);
   });
 
   test("suppresses outputs when the active thread is in a git environment", async () => {
@@ -3081,9 +3081,9 @@ describe("ThreadFloatingSummaryPanel", () => {
         throw new Error("Expected git snapshots to load.");
       }
       const content = textContent(view.container);
-      expect(content.includes("Clean")).toBeFalse();
-      expect(content.includes("Outputs")).toBeFalse();
-      expect(content.includes("Generated image 1")).toBeFalse();
+      expect(content.includes("Clean")).toBe(false);
+      expect(content.includes("Outputs")).toBe(false);
+      expect(content.includes("Generated image 1")).toBe(false);
     });
   });
 
@@ -3138,9 +3138,9 @@ describe("ThreadFloatingSummaryPanel", () => {
         throw new Error("Expected git snapshots to load.");
       }
       const content = textContent(renderedView.container);
-      expect(content.includes("Environment")).toBeFalse();
-      expect(content.includes("Outputs")).toBeTrue();
-      expect(content.includes("Generated image 1")).toBeTrue();
+      expect(content.includes("Environment")).toBe(false);
+      expect(content.includes("Outputs")).toBe(true);
+      expect(content.includes("Generated image 1")).toBe(true);
     });
   });
 
@@ -3181,7 +3181,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const outputRow = view
       .getByText("Generated image 1")
       .closest("[role='button']") as HTMLElement | null;
-    expect(Boolean(outputRow)).toBeTrue();
+    expect(Boolean(outputRow)).toBe(true);
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
       await settleAsyncRender();
@@ -3196,7 +3196,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(previewImage.src).toBe("file:///repo/project/generated-one.png");
     expect(
       invokeCalls.some((call) => call[0] === "shell:open-file-link"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("opens non-image summary panel output rows through the side panel opener first", async () => {
@@ -3246,7 +3246,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const outputRow = view
       .getByText("report.txt")
       .closest("[role='button']") as HTMLElement | null;
-    expect(Boolean(outputRow)).toBeTrue();
+    expect(Boolean(outputRow)).toBe(true);
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
       await settleAsyncRender();
@@ -3262,7 +3262,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
     expect(
       invokeCalls.some((call) => call[0] === "shell:open-file-link"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("falls back to the desktop file opener when summary output side panel open is unavailable", async () => {
@@ -3308,7 +3308,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const outputRow = view
       .getByText("report.txt")
       .closest("[role='button']") as HTMLElement | null;
-    expect(Boolean(outputRow)).toBeTrue();
+    expect(Boolean(outputRow)).toBe(true);
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
       await settleAsyncRender();
@@ -3321,7 +3321,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           JSON.stringify(call).includes("/repo/project/dist/report.txt") &&
           JSON.stringify(call).includes("fileManager"),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("opens URL summary panel output rows through the browser opener", async () => {
@@ -3401,7 +3401,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       const outputRow = view
         .getByText("Reference Roadmap")
         .closest("[role='button']") as HTMLElement | null;
-      expect(Boolean(outputRow)).toBeTrue();
+      expect(Boolean(outputRow)).toBe(true);
       await act(async () => {
         fireEvent.click(outputRow as HTMLElement);
         await settleAsyncRender();
@@ -3410,7 +3410,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       expect(openedUrls.join(",")).toBe(driveUrl);
       expect(
         invokeCalls.some((call) => call[0] === "shell:open-file-link"),
-      ).toBeFalse();
+      ).toBe(false);
     } finally {
       Object.defineProperty(window, "open", {
         configurable: true,
@@ -3499,7 +3499,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const row = view
       .getByText("Scout")
       .closest("[role='button']") as HTMLElement | null;
-    expect(Boolean(row)).toBeTrue();
+    expect(Boolean(row)).toBe(true);
     await clickAndSettle(row as HTMLElement);
 
     const call = openCalls[0] as
@@ -3619,36 +3619,36 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     const content = textContent(view.container);
-    expect(Boolean(content.includes("Subagents"))).toBeTrue();
-    expect(Boolean(content.includes("2 working"))).toBeTrue();
-    expect(Boolean(content.includes("1 done"))).toBeTrue();
-    expect(Boolean(content.includes("Listed active"))).toBeTrue();
-    expect(Boolean(content.includes("Listed waiting"))).toBeTrue();
-    expect(Boolean(content.includes("is working"))).toBeTrue();
-    expect(Boolean(content.includes("Waiting"))).toBeFalse();
-    expect(Boolean(content.includes("Done"))).toBeFalse();
-    expect(Boolean(content.includes("+2"))).toBeTrue();
-    expect(Boolean(content.includes("-1"))).toBeTrue();
+    expect(Boolean(content.includes("Subagents"))).toBe(true);
+    expect(Boolean(content.includes("2 working"))).toBe(true);
+    expect(Boolean(content.includes("1 done"))).toBe(true);
+    expect(Boolean(content.includes("Listed active"))).toBe(true);
+    expect(Boolean(content.includes("Listed waiting"))).toBe(true);
+    expect(Boolean(content.includes("is working"))).toBe(true);
+    expect(Boolean(content.includes("Waiting"))).toBe(false);
+    expect(Boolean(content.includes("Done"))).toBe(false);
+    expect(Boolean(content.includes("+2"))).toBe(true);
+    expect(Boolean(content.includes("-1"))).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="inline-active"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="inline-waiting"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="inline-done"]',
       ) === null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="listed-active"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
 
     await clickAndSettle(view.getByRole("button", { name: "Inline active" }));
     const call = openCalls[0] as
@@ -3664,7 +3664,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       | undefined;
     expect(call?.threadId).toBe("inline-active");
     expect(call?.context?.subagent?.conversationId).toBe("inline-active");
-    expect(call?.context?.subagent?.showInlineActivity).toBeTrue();
+    expect(call?.context?.subagent?.showInlineActivity).toBe(true);
   });
 
   test("uses the last four done inline subagents when no inline subagent is working", async () => {
@@ -3704,21 +3704,21 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     const content = textContent(view.container);
-    expect(Boolean(content.includes("5 done"))).toBeTrue();
+    expect(Boolean(content.includes("5 done"))).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="done-inline-1"]',
       ) === null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="done-inline-2"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="done-inline-5"]',
       ) !== null,
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

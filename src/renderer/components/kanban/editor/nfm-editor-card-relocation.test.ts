@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { OwnedBlockDocumentDescriptor } from "../../../../shared/block-documents/contracts";
 import type { NfmEditorCollaborativeDocumentSource } from "./nfm-editor-source";
@@ -67,22 +67,22 @@ describe("NFM editor Card relocation request", () => {
     expect(request.intent.sourceGeneration).toBe(2);
     expect(request.intent.target.documentId).toBe("target-document");
     expect(request.intent.target.generation).toBe(3);
-    expect("expectedSourceHeadSeq" in request.intent).toBeFalse();
+    expect("expectedSourceHeadSeq" in request.intent).toBe(false);
   });
 
   test("rejects self, cross-Project, stale-epoch, and duplicate-ID moves", () => {
-    expect(throws(() => build({ targetCardId: "card-1" }))).toBeTrue();
+    expect(throws(() => build({ targetCardId: "card-1" }))).toBe(true);
     expect(
       throws(() =>
         build({ target: { ...target, projectId: "project-other" } }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       throws(() => build({ target: { ...target, storeEpoch: "store-other" } })),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       throws(() => build({ rootBlockIds: ["block-1", "block-1"] })),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("retries a lost response with the exact same relocation identity", async () => {
@@ -116,7 +116,7 @@ describe("NFM editor Card relocation request", () => {
     );
 
     expect(relocationIds.join(",")).toBe("move-1,move-1");
-    expect(response.ok).toBeFalse();
+    expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe("block_not_found");
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildThreadSummaryPanelPlanRow } from "./thread-summary-panel-plan-model";
 
@@ -72,7 +72,7 @@ describe("buildThreadSummaryPanelPlanRow", () => {
       ],
     });
 
-    expect(row === null).toBeTrue();
+    expect(row === null).toBe(true);
   });
 
   test("falls back to the section title when the plan has no h1", () => {

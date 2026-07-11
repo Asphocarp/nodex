@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { bindKanbanColumnDropSurface } from "./column-drop-surface";
 
 function createCleanupTracker() {

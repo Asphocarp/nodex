@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   deriveToggleListFilterRule,
   getDefaultToggleListSettings,
@@ -33,7 +33,7 @@ describe("toggle-list settings rules v2", () => {
     expect(JSON.stringify(normalized.rulesV2)).toBe(JSON.stringify(defaults.rulesV2));
     expect(JSON.stringify(normalized.propertyOrder)).toBe(JSON.stringify(["status", "priority", "estimate", "tags"]));
     expect(JSON.stringify(normalized.hiddenProperties)).toBe(JSON.stringify(["estimate"]));
-    expect(normalized.showEmptyEstimate).toBeTrue();
+    expect(normalized.showEmptyEstimate).toBe(true);
   });
 
   test("setToggleListRulesV2 keeps canonical rules only", () => {
@@ -61,10 +61,10 @@ describe("toggle-list settings rules v2", () => {
 
     const derivedFilter = deriveToggleListFilterRule(next.rulesV2);
     expect(next.rulesV2.mode).toBe("advanced");
-    expect(next.rulesV2.includeHostCard).toBeTrue();
+    expect(next.rulesV2.includeHostCard).toBe(true);
     expect(JSON.stringify(derivedFilter.statuses)).toBe(JSON.stringify(["draft", "backlog"]));
     expect(JSON.stringify(derivedFilter.priorities)).toBe(JSON.stringify(["p0-critical", "p1-high"]));
-    expect(derivedFilter.includeEmptyPriority).toBeFalse();
+    expect(derivedFilter.includeEmptyPriority).toBe(false);
     expect(JSON.stringify(derivedFilter.tags)).toBe(JSON.stringify(["blocked"]));
     expect(derivedFilter.tagMode).toBe("none");
     expect(resolveToggleListPrimarySort(next.rulesV2).field).toBe("status");
@@ -90,6 +90,6 @@ describe("toggle-list settings rules v2", () => {
     });
 
     const clause = normalized.rulesV2.filter.any[0]?.all[0];
-    expect(clause && "includeEmpty" in clause ? clause.includeEmpty : false).toBeTrue();
+    expect(clause && "includeEmpty" in clause ? clause.includeEmpty : false).toBe(true);
   });
 });

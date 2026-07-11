@@ -18,9 +18,9 @@ The source of truth stays in this repository. Published static output is pushed 
 Run these from the repo root:
 
 ```bash
-bun run dev:landing
-bun run build:landing
-bun run preview:landing
+pnpm run dev:landing
+pnpm run build:landing
+pnpm run preview:landing
 ```
 
 ## Package Layout
@@ -56,7 +56,7 @@ Two workflows manage the site:
 
 - `.github/workflows/landing-site.yml`
   - validates the landing package on pull requests and relevant pushes
-  - installs dependencies and runs `bun run build:landing`
+  - installs dependencies and runs `pnpm run build:landing`
   - also runs when `CHANGELOG.md` changes because `/changelog/` is generated from that file
 
 - `.github/workflows/deploy-landing-site.yml`

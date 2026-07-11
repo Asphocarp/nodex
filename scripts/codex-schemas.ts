@@ -76,17 +76,17 @@ export function verifySchemas(): void {
 
     if (expected.size !== actual.size) {
       throw new Error(
-        `Committed codex-app-server-protocol package is out of date: expected ${expected.size} files, got ${actual.size}. Run bun run codex:schemas:generate.`,
+        `Committed codex-app-server-protocol package is out of date: expected ${expected.size} files, got ${actual.size}. Run pnpm run codex:schemas:generate.`,
       );
     }
 
     for (const [relativePath, expectedContent] of expected.entries()) {
       const actualContent = actual.get(relativePath);
       if (actualContent === undefined) {
-        throw new Error(`Committed codex-app-server-protocol package is missing ${relativePath}. Run bun run codex:schemas:generate.`);
+        throw new Error(`Committed codex-app-server-protocol package is missing ${relativePath}. Run pnpm run codex:schemas:generate.`);
       }
       if (actualContent !== expectedContent) {
-        throw new Error(`Committed codex-app-server-protocol package differs at ${relative(projectRoot, join(schemasOutputPath, relativePath))}. Run bun run codex:schemas:generate.`);
+        throw new Error(`Committed codex-app-server-protocol package differs at ${relative(projectRoot, join(schemasOutputPath, relativePath))}. Run pnpm run codex:schemas:generate.`);
       }
     }
   } finally {

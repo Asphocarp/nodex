@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { DbViewCardRecord } from "@/lib/db-view-prefs";
 import {
   ReferenceExpansionStore,
@@ -53,10 +53,10 @@ describe("ToggleListReferenceRows", () => {
       />,
     );
 
-    expect(view.queryByTestId("owned-card-document") === null).toBeTrue();
+    expect(view.queryByTestId("owned-card-document") === null).toBe(true);
     expect(
       view.container.querySelector('[draggable="true"]') === null,
-    ).toBeTrue();
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(
@@ -76,7 +76,7 @@ describe("ToggleListReferenceRows", () => {
       );
       await Promise.resolve();
     });
-    expect(view.queryByTestId("owned-card-document") === null).toBeTrue();
+    expect(view.queryByTestId("owned-card-document") === null).toBe(true);
   });
 
   test("renders ordered summary metadata without loading or editing a body snapshot", () => {
@@ -100,19 +100,19 @@ describe("ToggleListReferenceRows", () => {
       Boolean(
         status.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING,
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(
         tag.compareDocumentPosition(priority) &
         Node.DOCUMENT_POSITION_FOLLOWING,
       ),
-    ).toBeTrue();
-    expect(view.queryByText("M") === null).toBeTrue();
+    ).toBe(true);
+    expect(view.queryByText("M") === null).toBe(true);
     expect(
       view.container.textContent?.includes(
         "Summary preview is not an editable body",
       ) ?? false,
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("preserves explicit empty priority and estimate display preferences", () => {
@@ -158,6 +158,6 @@ describe("ToggleListReferenceRows", () => {
       view.getByRole("button", { name: "Open Collaborative Card" }),
     );
     expect(opened.join(",")).toBe("project-1:card-1");
-    expect(view.queryByTestId("must-stay-closed") === null).toBeTrue();
+    expect(view.queryByTestId("must-stay-closed") === null).toBe(true);
   });
 });

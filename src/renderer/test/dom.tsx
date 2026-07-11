@@ -18,7 +18,7 @@ export async function settleAsyncRender() {
 
 export async function waitForStreamdownCodeHighlight(node: ParentNode) {
   await waitFor(() => {
-    const highlightedCode = node.querySelector('pre[style*="--shiki-dark-bg"]');
+    const highlightedCode = node.querySelector('pre code span[style*="--sdm-c"]');
     if (!highlightedCode) {
       throw new Error("Expected Streamdown code block highlighting to finish.");
     }

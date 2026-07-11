@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolvePanelTabCloseReplacement } from "./panel-tab-close-routing";
 
 const tabs = [

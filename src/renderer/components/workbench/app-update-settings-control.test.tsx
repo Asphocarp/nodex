@@ -1,15 +1,16 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
-import * as AppUpdateSettingsControlDeps from "./app-update-settings-control-deps";
 
-let invokeCalls: unknown[][] = [];
-let subscribeCallback: ((status: import("../../lib/types").AppUpdateStatus) => void) | null = null;
+const mockState = vi.hoisted(() => ({
+  invokeCalls: [] as unknown[][],
+  subscribeCallback: null as ((status: import("../../lib/types").AppUpdateStatus) => void) | null,
+}));
 
-mock.module("./app-update-settings-control-deps", () => ({
-  ...AppUpdateSettingsControlDeps,
+vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./app-update-settings-control-deps")>(),
   invoke: async (...args: unknown[]) => {
-    invokeCalls.push(args);
+    mockState.invokeCalls.push(args);
     const channel = args[0];
 
     switch (channel) {
@@ -54,44 +55,44 @@ mock.module("./app-update-settings-control-deps", () => ({
     }
   },
   subscribeAppUpdateStatus: (callback: (status: import("../../lib/types").AppUpdateStatus) => void) => {
-    subscribeCallback = callback;
+    mockState.subscribeCallback = callback;
     return () => {
-      subscribeCallback = null;
+      mockState.subscribeCallback = null;
     };
   },
 }));
 
 describe("AppUpdateSettingsControl", () => {
   test("loads settings, reacts to update events, and triggers actions", async () => {
-    invokeCalls = [];
-    subscribeCallback = null;
+    mockState.invokeCalls.length = 0;
+    mockState.subscribeCallback = null;
 
     const { AppUpdateSettingsControl } = await import("./app-update-settings-control");
     const view = render(<AppUpdateSettingsControl open={true} />);
 
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Nodex 0.1.5")).toBeTrue();
-    expect(textContent(view.container).includes("Automatic background checks are ready.")).toBeTrue();
-    expect(invokeCalls.some((entry) => entry[0] === "settings:app-updates:get")).toBeTrue();
-    expect(invokeCalls.some((entry) => entry[0] === "app:update:status")).toBeTrue();
+    expect(textContent(view.container).includes("Nodex 0.1.5")).toBe(true);
+    expect(textContent(view.container).includes("Automatic background checks are ready.")).toBe(true);
+    expect(mockState.invokeCalls.some((entry) => entry[0] === "settings:app-updates:get")).toBe(true);
+    expect(mockState.invokeCalls.some((entry) => entry[0] === "app:update:status")).toBe(true);
 
     fireEvent.click(view.getByRole("switch"));
     await settleAsyncRender();
     expect(
-      invokeCalls.some(
+      mockState.invokeCalls.some(
         (entry) => entry[0] === "settings:app-updates:update"
           && JSON.stringify(entry[1]) === JSON.stringify({ automaticChecksEnabled: false }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
 
     fireEvent.click(view.getByText("Check now"));
     await settleAsyncRender();
-    expect(invokeCalls.some((entry) => entry[0] === "app:update:check")).toBeTrue();
-    expect(textContent(view.container).includes("Checking for updates…")).toBeTrue();
+    expect(mockState.invokeCalls.some((entry) => entry[0] === "app:update:check")).toBe(true);
+    expect(textContent(view.container).includes("Checking for updates…")).toBe(true);
 
     await act(async () => {
-      subscribeCallback?.({
+      mockState.subscribeCallback?.({
         status: "downloaded",
         supported: true,
         currentVersion: "0.1.5",
@@ -108,10 +109,10 @@ describe("AppUpdateSettingsControl", () => {
     });
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Update ready. Restart Nodex to install it.")).toBeTrue();
+    expect(textContent(view.container).includes("Update ready. Restart Nodex to install it.")).toBe(true);
 
     fireEvent.click(view.getByText("Restart to Update"));
     await settleAsyncRender();
-    expect(invokeCalls.some((entry) => entry[0] === "app:update:install")).toBeTrue();
+    expect(mockState.invokeCalls.some((entry) => entry[0] === "app:update:install")).toBe(true);
   });
 });

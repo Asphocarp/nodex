@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildCodexAppDynamicToolFailure,
   buildCodexAppDynamicToolSuccess,
@@ -30,7 +30,7 @@ describe("codex app meta thread tool specs", () => {
       "set_thread_pinned",
       "set_thread_title",
     ].sort()));
-    expect(tools.every((spec) => spec.type === "function")).toBeTrue();
+    expect(tools.every((spec) => spec.type === "function")).toBe(true);
 
     const createThread = tools.find((spec) => spec.name === "create_thread");
     const readThread = tools.find((spec) => spec.name === "read_thread");
@@ -38,7 +38,7 @@ describe("codex app meta thread tool specs", () => {
     const automationUpdate = tools.find((spec) => spec.name === "automation_update");
 
     expect(JSON.stringify((createThread?.inputSchema as Record<string, unknown>).required)).toBe(JSON.stringify(["prompt", "target"]));
-    expect(JSON.stringify((readThread?.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}).includes("maxOutputCharsPerItem")).toBeTrue();
+    expect(JSON.stringify((readThread?.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}).includes("maxOutputCharsPerItem")).toBe(true);
     expect(JSON.stringify((sendMessage?.inputSchema as Record<string, unknown>).required)).toBe(JSON.stringify(["threadId", "prompt"]));
     const automationSchema = automationUpdate?.inputSchema as {
       anyOf?: Array<{
@@ -66,8 +66,8 @@ describe("codex app meta thread tool specs", () => {
       "update",
       "view",
     ].sort()));
-    expect(hasHeartbeatBranch).toBeTrue();
-    expect(hasSetupPathBranch).toBeTrue();
+    expect(hasHeartbeatBranch).toBe(true);
+    expect(hasSetupPathBranch).toBe(true);
   });
 
   test("wraps dynamic tool responses in app-server content items", () => {
@@ -80,10 +80,10 @@ describe("codex app meta thread tool specs", () => {
       ? failure.contentItems[0].text
       : null;
 
-    expect(success.success).toBeTrue();
+    expect(success.success).toBe(true);
     expect(success.contentItems[0]?.type).toBe("inputText");
     expect(successText).toBe("{\"threadId\":\"thread-1\"}");
-    expect(failure.success).toBeFalse();
+    expect(failure.success).toBe(false);
     expect(failureText).toBe("No Codex thread found");
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   StoreMaintenanceGate,
   StoreMaintenanceInProgressError,
@@ -14,7 +14,7 @@ describe("StoreMaintenanceGate", () => {
       return lease;
     });
     await Promise.resolve();
-    expect(maintenanceEntered).toBeFalse();
+    expect(maintenanceEntered).toBe(false);
 
     let rejected = false;
     try {
@@ -22,11 +22,11 @@ describe("StoreMaintenanceGate", () => {
     } catch (error) {
       rejected = error instanceof StoreMaintenanceInProgressError;
     }
-    expect(rejected).toBeTrue();
+    expect(rejected).toBe(true);
 
     mutation.release();
     const maintenance = await pending;
-    expect(maintenanceEntered).toBeTrue();
+    expect(maintenanceEntered).toBe(true);
     maintenance.release();
     const resumed = gate.beginMutation();
     resumed.release();

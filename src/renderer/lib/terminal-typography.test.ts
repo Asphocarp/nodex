@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   resolveTerminalTypography,
   sameTerminalTypography,
@@ -27,8 +27,8 @@ describe("terminal-typography", () => {
 
     const typography = resolveTerminalTypography(host);
 
-    expect(typography.fontFamily.includes("var(")).toBeFalse();
-    expect(typography.fontFamily.includes("monospace")).toBeTrue();
+    expect(typography.fontFamily.includes("var(")).toBe(false);
+    expect(typography.fontFamily.includes("monospace")).toBe(true);
   });
 
   test("does not confuse ui-monospace with the generic monospace fallback", () => {
@@ -49,18 +49,18 @@ describe("terminal-typography", () => {
 
     const typography = resolveTerminalTypography(host);
 
-    expect(typography.fontFamily.length > 0).toBeTrue();
-    expect(typography.fontSize > 0).toBeTrue();
+    expect(typography.fontFamily.length > 0).toBe(true);
+    expect(typography.fontSize > 0).toBe(true);
   });
 
   test("compares terminal typography snapshots", () => {
     expect(sameTerminalTypography(
       { fontFamily: "Menlo, monospace", fontSize: 14 },
       { fontFamily: "Menlo, monospace", fontSize: 14 },
-    )).toBeTrue();
+    )).toBe(true);
     expect(sameTerminalTypography(
       { fontFamily: "Menlo, monospace", fontSize: 14 },
       { fontFamily: "Monaco, monospace", fontSize: 14 },
-    )).toBeFalse();
+    )).toBe(false);
   });
 });

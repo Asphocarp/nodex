@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,9 +62,9 @@ describe("github PR service", () => {
     const status = await readGhCliStatus({ cwd });
     const prStatus = await readGhPrStatus({ cwd });
 
-    expect(status.available).toBeFalse();
-    expect(["missing-gh", "missing-remote", "not-authenticated"].includes(status.status)).toBeTrue();
-    expect(prStatus.available).toBeFalse();
+    expect(status.available).toBe(false);
+    expect(["missing-gh", "missing-remote", "not-authenticated"].includes(status.status)).toBe(true);
+    expect(prStatus.available).toBe(false);
     expect(prStatus.status).toBe("disabled");
     expect(prStatus.disabledReason).toBe(status.status);
   });
@@ -83,7 +83,7 @@ describe("github PR service", () => {
 
     const result = await readGhPrComments({ cwd, prNumber: 7 });
 
-    expect(result.available).toBeTrue();
+    expect(result.available).toBe(true);
     expect(result.comments.length).toBe(1);
     expect(result.comments[0]?.id).toBe("12");
     expect(result.comments[0]?.path).toBe("src/example.ts");
@@ -124,14 +124,14 @@ describe("github PR service", () => {
     });
     const log = readFileSync(logPath, "utf8");
 
-    expect(result.available).toBeTrue();
+    expect(result.available).toBe(true);
     expect(result.url).toBe("https://github.test/c/99");
-    expect(Boolean(log.includes("repos/{owner}/{repo}/pulls/42/comments"))).toBeTrue();
-    expect(Boolean(log.includes("commit_id=abc123"))).toBeTrue();
-    expect(Boolean(log.includes("path=src/example.ts"))).toBeTrue();
-    expect(Boolean(log.includes("line=12"))).toBeTrue();
-    expect(Boolean(log.includes("side=RIGHT"))).toBeTrue();
-    expect(Boolean(log.includes("start_line=10"))).toBeTrue();
+    expect(Boolean(log.includes("repos/{owner}/{repo}/pulls/42/comments"))).toBe(true);
+    expect(Boolean(log.includes("commit_id=abc123"))).toBe(true);
+    expect(Boolean(log.includes("path=src/example.ts"))).toBe(true);
+    expect(Boolean(log.includes("line=12"))).toBe(true);
+    expect(Boolean(log.includes("side=RIGHT"))).toBe(true);
+    expect(Boolean(log.includes("start_line=10"))).toBe(true);
   });
 
   test("rejects empty pull request comment bodies before posting", async () => {
@@ -148,7 +148,7 @@ describe("github PR service", () => {
       body: "   ",
     });
 
-    expect(result.available).toBeFalse();
+    expect(result.available).toBe(false);
     expect(result.disabledReason).toBe("error");
     expect(result.message).toBe("Pull request comment body is required.");
   });

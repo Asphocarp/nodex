@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type {
   CodexMultiAgentActionName,
@@ -550,7 +550,7 @@ describe("bucketizeTurnItems", () => {
     );
     expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantActions");
     const inlineAssistant = turn.agentBodyUnits[0]?.block;
-    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBeTrue();
+    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBe(true);
     const deferredActions = turn.trailingBlocks[0];
     expect(deferredActions?.type === "assistantActions" && deferredActions.actions.copyText).toBe("Done");
   });
@@ -786,7 +786,7 @@ describe("bucketizeTurnItems", () => {
     expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,exec");
     expect(turn.trailingBlocks.map((block) => block.id).join(",")).toBe("turn_1:thinking");
     const inlineAssistant = turn.agentBodyUnits[0]?.block;
-    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBeTrue();
+    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBe(true);
   });
 
   test("only allows default collapse for older completed turns with grouped agent body content", () => {
@@ -829,10 +829,10 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(completedTurn.hasRenderableAgentBodyUnits).toBeTrue();
-    expect(completedTurn.defaultAgentBodyCollapsed).toBeTrue();
-    expect(failedTurn.hasRenderableAgentBodyUnits).toBeFalse();
-    expect(failedTurn.defaultAgentBodyCollapsed).toBeFalse();
+    expect(completedTurn.hasRenderableAgentBodyUnits).toBe(true);
+    expect(completedTurn.defaultAgentBodyCollapsed).toBe(true);
+    expect(failedTurn.hasRenderableAgentBodyUnits).toBe(false);
+    expect(failedTurn.defaultAgentBodyCollapsed).toBe(false);
   });
 
   test("groups exploration-only exec sequences without disturbing surrounding agent order", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexScheduledAutomation } from "@/lib/types";
 import {
   buildWorkbenchAutomationListModel,
@@ -43,9 +43,9 @@ describe("workbench automation list model", () => {
     expect(row.workspaceLabel).toBe("nodex");
     expect(row.scheduleLabel).toBe("Daily");
     expect(row.secondaryStatusLabel).toBe("In progress");
-    expect(row.hasUnreadRuns).toBeTrue();
-    expect(row.isInProgress).toBeTrue();
-    expect(row.isPaused).toBeFalse();
+    expect(row.hasUnreadRuns).toBe(true);
+    expect(row.isInProgress).toBe(true);
+    expect(row.isPaused).toBe(false);
   });
 
   test("groups current and paused rows after search", () => {
@@ -71,9 +71,9 @@ describe("workbench automation list model", () => {
       unreadAutomationIds: new Set(),
     });
 
-    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("customer"))).toBeTrue();
-    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("weekly"))).toBeTrue();
-    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("missing"))).toBeFalse();
+    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("customer"))).toBe(true);
+    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("weekly"))).toBe(true);
+    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("missing"))).toBe(false);
   });
 
   test("formats multi-cwd and heartbeat workspace labels", () => {

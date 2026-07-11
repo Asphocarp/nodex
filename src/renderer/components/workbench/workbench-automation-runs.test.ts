@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexAutomationInboxItem } from "@/lib/types";
 import {
   buildWorkbenchAutomationPreviousRunRowModel,
@@ -48,26 +48,26 @@ describe("workbench automation previous runs", () => {
       item: inboxItem({ status: "PENDING_REVIEW", readAt: null }),
       now: 1_000,
     });
-    expect(active.isUnread).toBeTrue();
-    expect(active.canArchive).toBeTrue();
-    expect(active.canUnarchive).toBeFalse();
-    expect(active.canOpen).toBeTrue();
+    expect(active.isUnread).toBe(true);
+    expect(active.canArchive).toBe(true);
+    expect(active.canUnarchive).toBe(false);
+    expect(active.canOpen).toBe(true);
 
     const running = buildWorkbenchAutomationPreviousRunRowModel({
       item: inboxItem({ status: "IN_PROGRESS" }),
       now: 1_000,
     });
-    expect(running.isInProgress).toBeTrue();
-    expect(running.canArchive).toBeFalse();
+    expect(running.isInProgress).toBe(true);
+    expect(running.canArchive).toBe(false);
 
     const archived = buildWorkbenchAutomationPreviousRunRowModel({
       item: inboxItem({ status: "ARCHIVED", readAt: 500 }),
       now: 1_000,
     });
-    expect(archived.isArchived).toBeTrue();
-    expect(archived.canArchive).toBeFalse();
-    expect(archived.canUnarchive).toBeTrue();
-    expect(archived.canOpen).toBeFalse();
+    expect(archived.isArchived).toBe(true);
+    expect(archived.canArchive).toBe(false);
+    expect(archived.canUnarchive).toBe(true);
+    expect(archived.canOpen).toBe(false);
   });
 
   test("formats compact labels", () => {

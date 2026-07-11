@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -274,28 +274,28 @@ describe("nfm text action menu surface", () => {
     expect(view.getByRole("button", { name: "Equation Mock" }).getAttribute("aria-disabled")).toBe("true");
     expect(view.getByRole("button", { name: "Write a comment Mock" }).getAttribute("aria-disabled")).toBe("true");
     expect(view.getByRole("textbox").getAttribute("aria-disabled")).toBe("true");
-    expect(view.getAllByText("Mock").length > 0).toBeTrue();
-    expect(Boolean(view.getByText("Improve writing"))).toBeTrue();
-    expect(Boolean(view.getByText("⌘⌃E"))).toBeTrue();
+    expect(view.getAllByText("Mock").length > 0).toBe(true);
+    expect(Boolean(view.getByText("Improve writing"))).toBe(true);
+    expect(Boolean(view.getByText("⌘⌃E"))).toBe(true);
 
     const toolbarText = view.getByRole("toolbar", { name: "Text actions" }).textContent ?? "";
     const nodexIndex = toolbarText.indexOf("Actions");
     const skillsIndex = toolbarText.indexOf("Skills");
-    expect(nodexIndex >= 0 && skillsIndex >= 0 && nodexIndex < skillsIndex).toBeTrue();
+    expect(nodexIndex >= 0 && skillsIndex >= 0 && nodexIndex < skillsIndex).toBe(true);
   });
 
   test("hides reference mock controls from the production surface", () => {
     const { view } = renderTextActionMenu({ showReferenceMocks: false });
 
-    expect(view.queryByRole("button", { name: "Equation Mock" }) === null).toBeTrue();
-    expect(view.queryByRole("button", { name: "Write a comment Mock" }) === null).toBeTrue();
-    expect(view.queryByRole("textbox") === null).toBeTrue();
-    expect(view.queryByText("Skills") === null).toBeTrue();
-    expect(view.queryByText("Improve writing") === null).toBeTrue();
-    expect(view.queryByText("Mock") === null).toBeTrue();
-    expect(Boolean(view.getByRole("button", { name: "Bold" }))).toBeTrue();
-    expect(Boolean(view.getByRole("button", { name: "Send to chat" }))).toBeTrue();
-    expect(Boolean(view.getByRole("button", { name: "Move to" }))).toBeTrue();
+    expect(view.queryByRole("button", { name: "Equation Mock" }) === null).toBe(true);
+    expect(view.queryByRole("button", { name: "Write a comment Mock" }) === null).toBe(true);
+    expect(view.queryByRole("textbox") === null).toBe(true);
+    expect(view.queryByText("Skills") === null).toBe(true);
+    expect(view.queryByText("Improve writing") === null).toBe(true);
+    expect(view.queryByText("Mock") === null).toBe(true);
+    expect(Boolean(view.getByRole("button", { name: "Bold" }))).toBe(true);
+    expect(Boolean(view.getByRole("button", { name: "Send to chat" }))).toBe(true);
+    expect(Boolean(view.getByRole("button", { name: "Move to" }))).toBe(true);
   });
 
   test("opens the block type menu and delegates Turn into selections", async () => {
@@ -357,14 +357,14 @@ describe("nfm text action menu surface", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBeTrue();
-    expect(Boolean(view.getByRole("combobox", { name: "Search threads" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBe(true);
+    expect(Boolean(view.getByRole("combobox", { name: "Search threads" }))).toBe(true);
     expect(view.getByRole("button", { name: "Send" }).getAttribute("aria-pressed")).toBe("true");
     expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("false");
     const initialOptions = view.getAllByRole("option");
-    expect(initialOptions[0]?.textContent?.includes("Existing implementation") ?? false).toBeTrue();
-    expect(initialOptions[0]?.textContent?.includes("This session") ?? false).toBeTrue();
-    expect(initialOptions[initialOptions.length - 1]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(initialOptions[0]?.textContent?.includes("Existing implementation") ?? false).toBe(true);
+    expect(initialOptions[0]?.textContent?.includes("This session") ?? false).toBe(true);
+    expect(initialOptions[initialOptions.length - 1]?.textContent?.includes("New chat") ?? false).toBe(true);
 
     await act(async () => {
       fireEvent.pointerMove(view.getByRole("button", { name: "Send & wrap" }));
@@ -376,7 +376,7 @@ describe("nfm text action menu surface", () => {
       fireEvent.pointerMove(view.getByTestId("send-to-thread-wrap-mode-info"));
       await settleAsyncRender();
     });
-    expect(view.getAllByText("Sends the blocks, then replaces them with a collapsed toggle linking to the thread.").length > 0).toBeTrue();
+    expect(view.getAllByText("Sends the blocks, then replaces them with a collapsed toggle linking to the thread.").length > 0).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Send & wrap" }));
@@ -462,11 +462,11 @@ describe("nfm text action menu surface", () => {
 
     const options = view.getAllByRole("option");
     expect(options.length).toBe(3);
-    expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBeTrue();
-    expect(options[0]?.textContent?.includes("This session") ?? false).toBeTrue();
-    expect(options[1]?.textContent?.includes("Recently updated") ?? false).toBeTrue();
-    expect(options[1]?.textContent?.includes("Default") ?? false).toBeTrue();
-    expect(options[2]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBe(true);
+    expect(options[0]?.textContent?.includes("This session") ?? false).toBe(true);
+    expect(options[1]?.textContent?.includes("Recently updated") ?? false).toBe(true);
+    expect(options[1]?.textContent?.includes("Default") ?? false).toBe(true);
+    expect(options[2]?.textContent?.includes("New chat") ?? false).toBe(true);
   });
 
   test("selected-block picker shows a compact snippet for content-only chat matches", async () => {
@@ -508,9 +508,9 @@ describe("nfm text action menu surface", () => {
 
     const options = view.getAllByRole("option");
     expect(options.length).toBe(2);
-    expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBeTrue();
-    expect(options[0]?.textContent?.includes("Review handoff notes before sending.") ?? false).toBeTrue();
-    expect(options[1]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBe(true);
+    expect(options[0]?.textContent?.includes("Review handoff notes before sending.") ?? false).toBe(true);
+    expect(options[1]?.textContent?.includes("New chat") ?? false).toBe(true);
   });
 
   test("selected-block picker displays current session new chat first when the session has no thread", async () => {
@@ -551,9 +551,9 @@ describe("nfm text action menu surface", () => {
 
     const options = view.getAllByRole("option");
     expect(options.length).toBe(2);
-    expect(options[0]?.textContent?.includes("New chat") ?? false).toBeTrue();
-    expect(options[0]?.textContent?.includes("This session") ?? false).toBeTrue();
-    expect(options[1]?.textContent?.includes("Recently updated") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("New chat") ?? false).toBe(true);
+    expect(options[0]?.textContent?.includes("This session") ?? false).toBe(true);
+    expect(options[1]?.textContent?.includes("Recently updated") ?? false).toBe(true);
 
     await act(async () => {
       fireEvent.click(options[0] as HTMLElement);
@@ -605,10 +605,10 @@ describe("nfm text action menu surface", () => {
 
     const options = view.getAllByRole("option");
     expect(options.length).toBe(3);
-    expect(options[0]?.textContent?.includes("Section follow-up") ?? false).toBeTrue();
-    expect(options[0]?.textContent?.includes("Current section") ?? false).toBeTrue();
-    expect(options[1]?.textContent?.includes("Session chat") ?? false).toBeTrue();
-    expect(options[2]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("Section follow-up") ?? false).toBe(true);
+    expect(options[0]?.textContent?.includes("Current section") ?? false).toBe(true);
+    expect(options[1]?.textContent?.includes("Session chat") ?? false).toBe(true);
+    expect(options[2]?.textContent?.includes("New chat") ?? false).toBe(true);
   });
 
   test("thread-section picker can fall back to the current session new chat target", async () => {
@@ -647,9 +647,9 @@ describe("nfm text action menu surface", () => {
 
     const options = view.getAllByRole("option");
     expect(options.length).toBe(2);
-    expect(options[0]?.textContent?.includes("New chat") ?? false).toBeTrue();
-    expect(options[0]?.textContent?.includes("This session") ?? false).toBeTrue();
-    expect(options[1]?.textContent?.includes("Other session") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("New chat") ?? false).toBe(true);
+    expect(options[0]?.textContent?.includes("This session") ?? false).toBe(true);
+    expect(options[1]?.textContent?.includes("Other session") ?? false).toBe(true);
   });
 
   test("keeps New chat available at the bottom for empty search results", async () => {
@@ -667,10 +667,10 @@ describe("nfm text action menu surface", () => {
     );
     await settleAsyncRender();
 
-    expect(Boolean(view.getByText("No matching chats"))).toBeTrue();
+    expect(Boolean(view.getByText("No matching chats"))).toBe(true);
     const options = view.getAllByRole("option");
     expect(options.length).toBe(1);
-    expect(options[0]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("New chat") ?? false).toBe(true);
   });
 
   test("initializes the send-to-chat picker mode from persisted app preference", async () => {
@@ -702,8 +702,8 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.blockActions).toBe(1);
-    expect(view.queryByRole("menuitem", { name: "Block actions" }) === null).toBeTrue();
-    expect(view.queryByRole("menuitem", { name: "Duplicate" }) === null).toBeTrue();
+    expect(view.queryByRole("menuitem", { name: "Block actions" }) === null).toBe(true);
+    expect(view.queryByRole("menuitem", { name: "Duplicate" }) === null).toBe(true);
   });
 
   test("opens the shared move-to popover and submits DB and Card destinations", async () => {
@@ -724,12 +724,12 @@ describe("nfm text action menu surface", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByRole("combobox", { name: "Move blocks to" }))).toBeTrue();
-    expect(Boolean(view.getByText("DB"))).toBeTrue();
-    expect(Boolean(view.getByText("Card"))).toBeTrue();
-    expect(view.queryByText("Move to card") === null).toBeTrue();
-    expect(view.queryByText("Turn into cards") === null).toBeTrue();
-    expect(view.queryByText("Source card") === null).toBeTrue();
+    expect(Boolean(view.getByRole("combobox", { name: "Move blocks to" }))).toBe(true);
+    expect(Boolean(view.getByText("DB"))).toBe(true);
+    expect(Boolean(view.getByText("Card"))).toBe(true);
+    expect(view.queryByText("Move to card") === null).toBe(true);
+    expect(view.queryByText("Turn into cards") === null).toBe(true);
+    expect(view.queryByText("Source card") === null).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("option", { name: "Renderer parity" }));
@@ -737,7 +737,7 @@ describe("nfm text action menu surface", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: "Backlog Renderer parity" }));
+      fireEvent.click(view.getByRole("option", { name: /Backlog\s*Renderer parity/ }));
       await settleAsyncRender();
     });
 
@@ -754,7 +754,7 @@ describe("nfm text action menu surface", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: "Target card Default / Draft" }));
+      fireEvent.click(view.getByRole("option", { name: /Target card\s*Default \/ Draft/ }));
       await settleAsyncRender();
     });
 
@@ -790,9 +790,9 @@ describe("nfm text action menu surface", () => {
       });
 
       const searchInput = view.getByRole("combobox", { name: "Search threads" });
-      expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBeTrue();
-      expect(document.activeElement === focusProbe).toBeTrue();
-      expect(document.activeElement === searchInput).toBeFalse();
+      expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBe(true);
+      expect(document.activeElement === focusProbe).toBe(true);
+      expect(document.activeElement === searchInput).toBe(false);
     } finally {
       focusProbe.remove();
     }
@@ -819,9 +819,9 @@ describe("nfm text action menu surface", () => {
     });
 
     const searchInput = view.getByRole("combobox", { name: "Move blocks to" });
-    expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBeTrue();
-    expect(document.activeElement === moveRow).toBeTrue();
-    expect(document.activeElement === searchInput).toBeFalse();
+    expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBe(true);
+    expect(document.activeElement === moveRow).toBe(true);
+    expect(document.activeElement === searchInput).toBe(false);
   });
 
   test("reports selection preservation while an action picker is active", async () => {
@@ -842,7 +842,7 @@ describe("nfm text action menu surface", () => {
         await settleAsyncRender();
       });
 
-      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBeTrue();
+      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBe(true);
 
       const searchInput = view.getByRole("combobox", { name: "Search threads" });
       await act(async () => {
@@ -850,23 +850,23 @@ describe("nfm text action menu surface", () => {
         fireEvent.focus(searchInput);
         await settleAsyncRender();
       });
-      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBeTrue();
+      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBe(true);
 
       await act(async () => {
         fireEvent.keyDown(searchInput, { key: "Escape" });
         await settleAsyncRender();
       });
 
-      expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBeTrue();
+      expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBe(true);
 
       await act(async () => {
-        const sendRow = view.getByRole("button", { name: "Send to chat" });
-        fireEvent.blur(sendRow, { relatedTarget: focusProbe });
-        focusProbe.focus();
+        view.unmount();
         await settleAsyncRender();
       });
 
-      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBeFalse();
+      await waitFor(() => {
+        expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBe(false);
+      });
     } finally {
       focusProbe.remove();
     }
@@ -896,22 +896,22 @@ describe("nfm text action menu surface", () => {
       fireEvent.pointerEnter(view.getByRole("button", { name: "Send to chat" }));
       await settleAsyncRender();
     });
-    expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBe(true);
 
     await act(async () => {
       fireEvent.pointerEnter(view.getByRole("button", { name: "Move to" }));
       await settleAsyncRender();
     });
 
-    expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBeTrue();
-    expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBeTrue();
+    expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBe(true);
+    expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBe(true);
 
     const firstActiveIndex = actions.selectionHoldStates.indexOf(true);
     const inactiveAfterFirstActive = actions.selectionHoldStates
       .slice(firstActiveIndex + 1)
       .some((active) => !active);
-    expect(firstActiveIndex >= 0).toBeTrue();
-    expect(inactiveAfterFirstActive).toBeFalse();
+    expect(firstActiveIndex >= 0).toBe(true);
+    expect(inactiveAfterFirstActive).toBe(false);
   });
 
   test("shows hover tooltips for icon-only formatting buttons", async () => {
@@ -922,13 +922,13 @@ describe("nfm text action menu surface", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getAllByText("Italic").length > 0).toBeTrue();
+    expect(view.getAllByText("Italic").length > 0).toBe(true);
   });
 
   test("does not show action or skill row tooltips when labels are fully visible", async () => {
     const { view } = renderTextActionMenu();
     const actionRow = view.getByRole("button", { name: "Send to chat" });
-    const skillRow = view.getByRole("button", { name: "Improve writing Mock" });
+    const skillRow = view.getByRole("button", { name: /Improve writing\s*Mock/ });
 
     await act(async () => {
       fireEvent.pointerEnter(actionRow);
@@ -968,7 +968,7 @@ describe("nfm text action menu surface", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getAllByText(longLabel).length > 1).toBeTrue();
+    expect(view.getAllByText(longLabel).length > 1).toBe(true);
   });
 
   test("renders the color trigger as a DOM A over the selected background", () => {
@@ -980,7 +980,7 @@ describe("nfm text action menu surface", () => {
     const colorButton = view.getByRole("button", { name: "Color" });
 
     expect(colorButton.textContent).toBe("A");
-    expect(colorButton.querySelector("svg") === null).toBeTrue();
+    expect(colorButton.querySelector("svg") === null).toBe(true);
   });
 
   test("opens the Notion-style color grid in fixture order", async () => {
@@ -988,10 +988,10 @@ describe("nfm text action menu surface", () => {
 
     await openColorMenu(view);
 
-    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBeTrue();
-    expect(Boolean(view.getByText("Recently used"))).toBeTrue();
-    expect(Boolean(view.getByText("Text color"))).toBeTrue();
-    expect(Boolean(view.getByText("Background color"))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBe(true);
+    expect(Boolean(view.getByText("Recently used"))).toBe(true);
+    expect(Boolean(view.getByText("Text color"))).toBe(true);
+    expect(Boolean(view.getByText("Background color"))).toBe(true);
 
     const itemLabels = view
       .getAllByRole("menuitem")
@@ -1043,7 +1043,7 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.textColors.join(",")).toBe("blue");
-    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("menuitem", { name: "Recently used: Blue text" }));
@@ -1051,7 +1051,7 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.textColors.join(",")).toBe("blue,blue");
-    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("menuitem", { name: "Background color: Yellow" }));
@@ -1059,7 +1059,7 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.backgroundColors.join(",")).toBe("yellow");
-    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBe(true);
   });
 
   test("toggles the active text and background colors back to default without closing", async () => {
@@ -1076,7 +1076,7 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.textColors.join(",")).toBe("default");
-    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("menuitem", { name: "Background color: Yellow" }));
@@ -1084,7 +1084,7 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.backgroundColors.join(",")).toBe("default");
-    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Color" }))).toBe(true);
   });
 
   test("keeps unsupported color controls inert", async () => {
@@ -1096,7 +1096,7 @@ describe("nfm text action menu surface", () => {
 
     await openColorMenu(view);
 
-    expect(view.queryByText("Text color") === null).toBeTrue();
+    expect(view.queryByText("Text color") === null).toBe(true);
     expect(view.getByRole("menuitem", { name: "Recently used: Blue text" }).getAttribute("aria-disabled")).toBe("true");
 
     await act(async () => {
@@ -1120,7 +1120,7 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(view.getByRole("button", { name: "Color" }).getAttribute("aria-disabled")).toBe("true");
-    expect(view.queryByRole("dialog", { name: "Color" }) === null).toBeTrue();
+    expect(view.queryByRole("dialog", { name: "Color" }) === null).toBe(true);
   });
 
   test("does not fire disabled reference mock actions", async () => {

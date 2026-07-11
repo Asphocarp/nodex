@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -183,7 +183,7 @@ describe("legacy Card shadow outbox", () => {
                 updated_at = '2026-07-11T00:00:00.000Z'
             WHERE card_id = ? AND source_event_seq = 2
           `).run(card.id);
-        })).toBeTrue();
+        })).toBe(true);
 
         database.prepare("DELETE FROM cards WHERE id = ?").run(card.id);
         const deleteJob = database.prepare(`
@@ -226,7 +226,7 @@ describe("legacy Card shadow outbox", () => {
       } catch (error) {
         migrationFailed = error instanceof Error && error.message.includes("CHECK constraint failed");
       }
-      expect(migrationFailed).toBeTrue();
+      expect(migrationFailed).toBe(true);
       closeDatabase();
 
       const rolledBack = new Database(getDatabasePath(), { readonly: true });
@@ -263,10 +263,10 @@ describe("legacy Card shadow outbox", () => {
             UPDATE cards SET title = 'Illegal legacy write', revision = revision + 1
             WHERE id = ?
           `).run(card.id);
-        })).toBeTrue();
+        })).toBe(true);
         expect(operationFails(() => {
           database.prepare("DELETE FROM cards WHERE id = ?").run(card.id);
-        })).toBeTrue();
+        })).toBe(true);
 
         const projectionUpdate = database.prepare(`
           UPDATE cards SET description_preview = 'rebuildable projection'

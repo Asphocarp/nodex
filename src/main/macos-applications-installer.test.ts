@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   runMacApplicationsInstallerGate,
   type MacApplicationsInstallerEnvironment,
@@ -47,7 +47,7 @@ describe("runMacApplicationsInstallerGate", () => {
     }));
 
     expect(result).toBe("moved");
-    expect(conflictHandlerResult).toBeTrue();
+    expect(conflictHandlerResult).toBe(true);
   });
 
   test("uses the failed-move prompt when move returns false or throws", async () => {

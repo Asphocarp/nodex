@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationSnapshot, CodexThreadDetail } from "../../shared/types";
 import {
   buildThreadContentFtsMatchQuery,
@@ -83,9 +83,9 @@ describe("command palette thread search helpers", () => {
     const texts = units.map((unit) => unit.text).join("\n");
 
     expect(units.length).toBe(2);
-    expect(texts.includes("Find this user text")).toBeTrue();
-    expect(texts.includes("Find this assistant text")).toBeTrue();
-    expect(texts.includes("Hidden reasoning text")).toBeFalse();
+    expect(texts.includes("Find this user text")).toBe(true);
+    expect(texts.includes("Find this assistant text")).toBe(true);
+    expect(texts.includes("Hidden reasoning text")).toBe(false);
   });
 
   test("extracts only visible user and assistant detail transcript entries", () => {

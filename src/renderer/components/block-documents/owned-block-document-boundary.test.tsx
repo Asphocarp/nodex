@@ -1,5 +1,5 @@
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
   CARD_DOCUMENT_SCHEMA_VERSION,

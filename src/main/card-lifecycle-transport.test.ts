@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import type {
   CardLifecycleMutationCommandResult,
@@ -89,7 +89,7 @@ describe("Card lifecycle IPC/HTTP transport", () => {
     expect(received[0]?.actor.webContentsId).toBe(7);
     expect(received[0]?.clientSessionId).toBe("trusted-window-7");
     expect(received[1]?.actor.kind).toBe("http_loopback");
-    expect(received[1]?.clientSessionId === undefined).toBeTrue();
+    expect(received[1]?.clientSessionId === undefined).toBe(true);
     expect(received[0]?.operationId).toBe(received[1]?.operationId);
   });
 
@@ -116,7 +116,7 @@ describe("Card lifecycle IPC/HTTP transport", () => {
       "project-1",
       request("spoofed", "admin"),
     );
-    expect(ipc?.ok).toBeFalse();
+    expect(ipc?.ok).toBe(false);
 
     const app = new Hono();
     registerCardLifecycleHttpRoute(app, {
@@ -173,7 +173,7 @@ describe("Card lifecycle IPC/HTTP transport", () => {
       "project-1",
       "card-1",
     );
-    expect(ipc?.ok).toBeTrue();
+    expect(ipc?.ok).toBe(true);
 
     const app = new Hono();
     registerCardLifecyclePreflightHttpRoute(app, { readPreflight });
@@ -182,7 +182,7 @@ describe("Card lifecycle IPC/HTTP transport", () => {
     );
     expect(response.status).toBe(200);
     const http = (await response.json()) as CardLifecyclePreflightResult;
-    expect(http.ok).toBeTrue();
+    expect(http.ok).toBe(true);
     expect(reads.join(",")).toBe("project-1:card-1,project-1:card-1");
   });
 });

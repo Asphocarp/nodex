@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { createElement } from "react";
 import { render, settleAsyncRender, textContent } from "../test/dom";

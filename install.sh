@@ -3,14 +3,14 @@ set -euo pipefail
 
 # Install Nodex from source (HEAD) on macOS
 # - Builds the Electron app and copies to /Applications
-# - Links the `nodex` CLI globally via bun
+# - Links the `nodex` CLI globally via pnpm
 # - Installs the agent skill to ~/.agents/skills/nodex-kanban/
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Nodex.app"
 SKILL_DIR="$HOME/.agents/skills/nodex-kanban"
 APP_INSTALL_PATH="/Applications/$APP_NAME"
-CLI_INSTALL_PATH="$HOME/.bun/bin/nodex"
+CLI_INSTALL_PATH="$HOME/.local/bin/nodex"
 APP_RESOURCES_PATH="$APP_INSTALL_PATH/Contents/Resources"
 BUNDLED_BIN_PATH="$APP_RESOURCES_PATH/bin"
 
@@ -113,7 +113,7 @@ fi
 if [ "$install_app" = true ] || [ "$install_cli" = true ]; then
   echo "==> Installing dependencies..."
   cd "$REPO_DIR"
-  bun install
+  pnpm install
 fi
 
 if [ "$install_app" = true ]; then
@@ -129,7 +129,7 @@ if [ "$install_app" = true ]; then
     APPLE_TEAM_ID= \
     APPLE_KEYCHAIN= \
     APPLE_KEYCHAIN_PROFILE= \
-    bun run package:mac
+    pnpm run package:mac
 
   # Find the packaged .app in dist/mac-arm64 or dist/mac
   APP_PATH=""
@@ -158,7 +158,7 @@ fi
 if [ "$install_cli" = true ]; then
   echo "==> Linking nodex CLI..."
   cd "$REPO_DIR"
-  bun link
+  pnpm link --global
   echo "    CLI available as: $(command -v nodex 2>/dev/null || echo "$CLI_INSTALL_PATH")"
 fi
 

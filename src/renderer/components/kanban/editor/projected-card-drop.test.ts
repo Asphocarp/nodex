@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   materializeProjectedCardToggleBlock,
   resolveProjectedCardDropSource,
@@ -58,7 +58,7 @@ describe("projected card drop helpers", () => {
       },
     });
 
-    expect(resolveProjectedCardDropSource(nonProjected) === null).toBeTrue();
+    expect(resolveProjectedCardDropSource(nonProjected) === null).toBe(true);
   });
 
   test("materializes projected card toggle by stripping projection metadata", () => {
@@ -83,15 +83,15 @@ describe("projected card drop helpers", () => {
     if (!source) throw new Error("expected projected source metadata");
 
     const materialized = materializeProjectedCardToggleBlock(projectedBlock, source);
-    expect("id" in materialized).toBeFalse();
+    expect("id" in materialized).toBe(false);
     expect(materialized.type).toBe("cardToggle");
     expect(materialized.props?.cardId).toBe("card-123");
     expect(materialized.props?.sourceProjectId).toBe("default");
     expect(materialized.props?.sourceStatus).toBe("in_progress");
-    expect(materialized.props?.[PROJECTION_OWNER_PROP] === undefined).toBeTrue();
-    expect(materialized.props?.[PROJECTION_SOURCE_PROJECT_PROP] === undefined).toBeTrue();
-    expect(materialized.props?.[PROJECTION_CARD_ID_PROP] === undefined).toBeTrue();
-    expect(materialized.props?.[PROJECTION_KIND_PROP] === undefined).toBeTrue();
+    expect(materialized.props?.[PROJECTION_OWNER_PROP] === undefined).toBe(true);
+    expect(materialized.props?.[PROJECTION_SOURCE_PROJECT_PROP] === undefined).toBe(true);
+    expect(materialized.props?.[PROJECTION_CARD_ID_PROP] === undefined).toBe(true);
+    expect(materialized.props?.[PROJECTION_KIND_PROP] === undefined).toBe(true);
     expect(JSON.stringify(materialized.content)).toBe(
       JSON.stringify(projectedBlock.content),
     );

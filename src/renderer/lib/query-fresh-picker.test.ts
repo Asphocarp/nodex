@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   areQueryFresh,
   resolvePendingQueryFreshAccept,
@@ -16,8 +16,8 @@ const isRowAcceptable = (row: PickerRow) => row.disabled !== true;
 
 describe("query-fresh picker", () => {
   test("recognizes stale rows when the visible query lags behind the live query", () => {
-    expect(areQueryFresh({ liveQuery: "now", rowsQuery: "no" })).toBeFalse();
-    expect(shouldConsumeStalePickerNavigation({ liveQuery: "now", rowsQuery: "no" })).toBeTrue();
+    expect(areQueryFresh({ liveQuery: "now", rowsQuery: "no" })).toBe(false);
+    expect(shouldConsumeStalePickerNavigation({ liveQuery: "now", rowsQuery: "no" })).toBe(true);
   });
 
   test("accepts the focused row when rows are fresh", () => {

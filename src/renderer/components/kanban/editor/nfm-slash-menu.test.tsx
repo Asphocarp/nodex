@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -205,8 +205,8 @@ describe("NfmSlashMenu", () => {
       .map((item) => (item as { key?: string }).key ?? "")
       .join(",");
 
-    expect(keys.includes("card_reference")).toBeTrue();
-    expect(keys.includes("toggle_list_inline_view")).toBeFalse();
+    expect(keys.includes("card_reference")).toBe(true);
+    expect(keys.includes("toggle_list_inline_view")).toBe(false);
 
     const restrictedItems = getNfmSlashMenuCustomItems({}, "project-1", {
       allowCardReferences: false,
@@ -216,10 +216,10 @@ describe("NfmSlashMenu", () => {
       .map((item) => (item as { key?: string }).key ?? "")
       .join(",");
 
-    expect(restrictedKeys.includes("card_reference")).toBeFalse();
-    expect(restrictedKeys.includes("toggle_list_inline_view")).toBeFalse();
-    expect(restrictedKeys.includes("thread_section")).toBeTrue();
-    expect(restrictedKeys.includes("agent_config")).toBeTrue();
+    expect(restrictedKeys.includes("card_reference")).toBe(false);
+    expect(restrictedKeys.includes("toggle_list_inline_view")).toBe(false);
+    expect(restrictedKeys.includes("thread_section")).toBe(true);
+    expect(restrictedKeys.includes("agent_config")).toBe(true);
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
@@ -251,12 +251,12 @@ describe("NfmSlashMenu", () => {
     }));
 
     expect(cardItem.group).toBe("Cards");
-    expect(cardItem.subtext?.includes("Description-only vector clock")).toBeTrue();
-    expect(cardItem.subtext?.includes("card-snippet")).toBeFalse();
+    expect(cardItem.subtext?.includes("Description-only vector clock")).toBe(true);
+    expect(cardItem.subtext?.includes("card-snippet")).toBe(false);
     expect(resolveNfmSuggestionHint(cardItem)).toBe(null);
     expect(threadItem.group).toBe("Chats");
-    expect(threadItem.subtext?.includes("Transcript-only approval heuristic")).toBeTrue();
-    expect(threadItem.subtext?.includes("thr-snippet")).toBeFalse();
+    expect(threadItem.subtext?.includes("Transcript-only approval heuristic")).toBe(true);
+    expect(threadItem.subtext?.includes("thr-snippet")).toBe(false);
     expect(resolveNfmSuggestionHint(threadItem)).toBe(null);
   });
 
@@ -278,10 +278,10 @@ describe("NfmSlashMenu", () => {
     expect(cardBlock.type).toBe("cardRef");
     expect(cardBlock.props?.targetBlockId).toBe("card-2");
     expect(cardBlock.props?.displayHint).toBe("Mention search card");
-    expect(Object.hasOwn(cardBlock.props ?? {}, "sourceProjectId")).toBeFalse();
-    expect(Object.hasOwn(cardBlock.props ?? {}, "cardId")).toBeFalse();
+    expect(Object.hasOwn(cardBlock.props ?? {}, "sourceProjectId")).toBe(false);
+    expect(Object.hasOwn(cardBlock.props ?? {}, "cardId")).toBe(false);
     const firstThreadContent = threadContent[0];
-    expect(typeof firstThreadContent === "string").toBeFalse();
+    expect(typeof firstThreadContent === "string").toBe(false);
     if (typeof firstThreadContent === "string") return;
     expect(firstThreadContent?.type).toBe("threadMention");
     expect(firstThreadContent?.props?.uuid).toBe("thr-payload");
@@ -371,9 +371,9 @@ describe("NfmSlashMenu", () => {
 
     expect(items.length).toBe(4);
     expect(items[0]?.group).toBe("Current project");
-    expect(items[0]?.subtext?.includes("Only transcript content")).toBeTrue();
+    expect(items[0]?.subtext?.includes("Only transcript content")).toBe(true);
     expect(items[1]?.group).toBe("Current project");
-    expect(items[1]?.subtext?.includes("Only card description")).toBeTrue();
+    expect(items[1]?.subtext?.includes("Only card description")).toBe(true);
     expect(items[2]?.title).toBe("Today");
     expect(items[3]?.title).toBe("Now");
   });
@@ -386,7 +386,7 @@ describe("NfmSlashMenu", () => {
       cardResults: [makePaletteCard({ card: makeCard({ title: "Current project card" }) })],
     });
 
-    expect(items.length > 0).toBeTrue();
+    expect(items.length > 0).toBe(true);
     expect(items[0]?.title).toBe("Today");
     expect(items[0]?.group).toBe("Dates");
     expect(items[1]?.title).toBe("Remind today");
@@ -399,7 +399,7 @@ describe("NfmSlashMenu", () => {
       format: "relative",
     }) as Array<{ type?: string; props?: Record<string, string> } | string>;
     const first = inlineContent[0];
-    expect(typeof first === "string").toBeFalse();
+    expect(typeof first === "string").toBe(false);
     if (typeof first === "string") return;
     expect(first.type).toBe("dateMention");
     expect(first.props?.start).toBe("2026-06-28");
@@ -418,19 +418,19 @@ describe("NfmSlashMenu", () => {
     };
 
     const item = getNfmSlashMenuCustomItems(editor, "default").find((candidate) => candidate.title === "Agent Config");
-    expect(item !== undefined).toBeTrue();
+    expect(item !== undefined).toBe(true);
     if (!item) return;
 
     item.onItemClick();
 
-    expect(Array.isArray(insertedContent)).toBeTrue();
+    expect(Array.isArray(insertedContent)).toBe(true);
     const chip = insertedContent?.[0] as { type?: string; props?: Record<string, string> } | undefined;
     expect(chip?.type).toBe("agentConfig");
     expect(chip?.props?.mode).toBe("plan");
     expect(chip?.props?.model).toBe("");
     expect(chip?.props?.reasoning).toBe("");
     expect(insertedContent?.[1]).toBe(" ");
-    expect(insertedUpdateSelection).toBeTrue();
+    expect(insertedUpdateSelection).toBe(true);
   });
 
   test("renders grouped compact suggestion items with stable option ids", () => {
@@ -453,8 +453,8 @@ describe("NfmSlashMenu", () => {
     expect(selected).not.toBeNull();
     expect(selected?.getAttribute("role")).toBe("option");
     expect(selected?.getAttribute("aria-selected")).toBe("true");
-    expect(selected?.textContent?.includes("Agent Config")).toBeTrue();
-    expect(selected?.textContent?.includes("/agent-config")).toBeTrue();
+    expect(selected?.textContent?.includes("Agent Config")).toBe(true);
+    expect(selected?.textContent?.includes("/agent-config")).toBe(true);
   });
 
   test("pins suggestion menu controllers to the body-level portal target", () => {
@@ -660,7 +660,7 @@ describe("NfmSlashMenu", () => {
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip).not.toBeNull();
     expect(tooltip?.textContent).toBe("Plain text block");
-    expect(tooltip?.textContent?.includes("Paragraph")).toBeFalse();
+    expect(tooltip?.textContent?.includes("Paragraph")).toBe(false);
     const tooltipLayer = tooltip?.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null;
     expect(tooltipLayer?.style.zIndex).toBe(String(NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX));
   });
@@ -709,11 +709,11 @@ describe("NfmSlashMenu", () => {
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip).not.toBeNull();
     const tooltipText = tooltip?.textContent ?? "";
-    expect(tooltipText.includes("Alpha")).toBeTrue();
-    expect(tooltipText.includes("Compact transcript snippet.")).toBeTrue();
-    expect(tooltipText.includes("raw-thread-id")).toBeFalse();
-    expect(tooltipText.includes("raw-card-id")).toBeFalse();
-    expect(tooltipText.includes(rawCwd)).toBeFalse();
+    expect(tooltipText.includes("Alpha")).toBe(true);
+    expect(tooltipText.includes("Compact transcript snippet.")).toBe(true);
+    expect(tooltipText.includes("raw-thread-id")).toBe(false);
+    expect(tooltipText.includes("raw-card-id")).toBe(false);
+    expect(tooltipText.includes(rawCwd)).toBe(false);
   });
 
   test("card mention tooltips suppress duplicate column and status labels", async () => {
@@ -744,7 +744,7 @@ describe("NfmSlashMenu", () => {
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip).not.toBeNull();
     const tooltipText = tooltip?.textContent ?? "";
-    expect(tooltipText.includes("Alpha / Draft")).toBeTrue();
-    expect(tooltipText.includes("Draft / draft")).toBeFalse();
+    expect(tooltipText.includes("Alpha / Draft")).toBe(true);
+    expect(tooltipText.includes("Draft / draft")).toBe(false);
   });
 });

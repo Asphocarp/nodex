@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { blockNoteToNfm, serializeNfm } from "../../../lib/nfm";
 import {
   mapDraggedBlocksToCardInputs,
@@ -218,9 +218,9 @@ describe("block drop card mapper", () => {
     });
 
     expect(result[0]?.title).toBe("2fa auth hardening");
-    expect("priority" in result[0]).toBeFalse();
+    expect("priority" in result[0]).toBe(false);
     expect(result[1]?.title).toBe("2(thread broken tag");
-    expect("priority" in result[1]).toBeFalse();
+    expect("priority" in result[1]).toBe(false);
   });
 
   test("keeps original title when stripped prefix would be empty", () => {
@@ -253,9 +253,9 @@ describe("block drop card mapper", () => {
     });
 
     expect(result.title).toBe("1XL(thread) Keep full text");
-    expect("priority" in result).toBeFalse();
-    expect("estimate" in result).toBeFalse();
-    expect("tags" in result).toBeFalse();
+    expect("priority" in result).toBe(false);
+    expect("estimate" in result).toBe(false);
+    expect("tags" in result).toBe(false);
   });
 
   test("parses prefix but preserves full title when strip toggle is off", () => {
@@ -317,7 +317,7 @@ describe("block drop card mapper", () => {
     expect(result.estimate).toBe("m");
     expect(JSON.stringify(result.tags)).toBe(JSON.stringify(["backend", "infra"]));
     expect(result.assignee).toBe("alex");
-    expect(result.agentBlocked).toBeTrue();
+    expect(result.agentBlocked).toBe(true);
     expect(result.dueDate?.toISOString()).toBe("2026-02-10T00:00:00.000Z");
   });
 

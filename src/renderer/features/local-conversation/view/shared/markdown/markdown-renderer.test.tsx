@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender, waitForStreamdownCodeHighlight } from "../../../../../test/dom";
@@ -28,9 +28,9 @@ describe("MarkdownRenderer", () => {
     await settleAsyncRender();
 
     const inlineCode = container.querySelector("span.inline-markdown");
-    expect(Boolean(inlineCode)).toBeTrue();
+    expect(Boolean(inlineCode)).toBe(true);
     expect(inlineCode?.textContent).toBe("bun test");
-    expect(container.querySelector(".codex-markdown code") === null).toBeTrue();
+    expect(container.querySelector(".codex-markdown code") === null).toBe(true);
   });
 
   test("marks heading inline code with the heading-inline-code scope", async () => {
@@ -42,7 +42,7 @@ describe("MarkdownRenderer", () => {
 
     const heading = container.querySelector("h2");
     const inlineCode = heading?.querySelector("span.inline-markdown");
-    expect(Boolean(inlineCode)).toBeTrue();
+    expect(Boolean(inlineCode)).toBe(true);
     expect(inlineCode?.textContent).toBe("inline code");
   });
 
@@ -85,7 +85,7 @@ describe("MarkdownRenderer", () => {
     expect(listItem?.textContent).toBe("First bullet");
     expect(link?.getAttribute("href")).toBe("https://example.com/");
     expect(blockquote?.textContent?.trim()).toBe("Quote block");
-    expect(Boolean(table)).toBeTrue();
+    expect(Boolean(table)).toBe(true);
     expect(summary?.textContent).toBe("More");
     expect(tableHeadingCell?.textContent).toBe("Name");
     expect(tableCell?.textContent).toBe("Foo");
@@ -120,7 +120,7 @@ describe("MarkdownRenderer", () => {
     await settleAsyncRender();
 
     const link = container.querySelector('a[href="/tmp/example.ts#L12"]');
-    expect(Boolean(link)).toBeTrue();
+    expect(Boolean(link)).toBe(true);
     expect(link?.textContent).toBe("/tmp/example.ts#L12");
   });
 
@@ -133,16 +133,16 @@ describe("MarkdownRenderer", () => {
 
     await waitForStreamdownCodeHighlight(container);
 
-    expect(container.querySelector('[data-streamdown="code-block"]') !== null).toBeTrue();
+    expect(container.querySelector('[data-streamdown="code-block"]') !== null).toBe(true);
     const code = container.querySelector('[data-streamdown="code-block"] code');
-    expect(code !== null).toBeTrue();
+    expect(code !== null).toBe(true);
     expect(code?.querySelectorAll(":scope > span").length).toBe(6);
     expect(
       code?.querySelector(':scope > span > span[style*="--sdm-c"]') !== null,
-    ).toBeTrue();
-    expect(container.querySelector('[data-streamdown="code-block"] .inline-markdown') === null).toBeTrue();
-    expect(container.querySelector('[data-streamdown="code-block-copy-button"]') !== null).toBeTrue();
-    expect(container.querySelector('[data-streamdown="code-block-download-button"]') === null).toBeTrue();
+    ).toBe(true);
+    expect(container.querySelector('[data-streamdown="code-block"] .inline-markdown') === null).toBe(true);
+    expect(container.querySelector('[data-streamdown="code-block-copy-button"]') !== null).toBe(true);
+    expect(container.querySelector('[data-streamdown="code-block-download-button"]') === null).toBe(true);
   });
 
   test("copies fenced code through the Nodex clipboard fallback with line breaks intact", async () => {
@@ -178,7 +178,7 @@ describe("MarkdownRenderer", () => {
       const copyButton = container.querySelector<HTMLButtonElement>(
         '[data-streamdown="code-block-copy-button"]',
       );
-      expect(copyButton !== null).toBeTrue();
+      expect(copyButton !== null).toBe(true);
 
       await act(async () => {
         copyButton?.click();
@@ -215,7 +215,7 @@ describe("MarkdownRenderer", () => {
 
     await settleAsyncRender();
 
-    expect(container.querySelectorAll("[data-sd-animate]").length > 0).toBeTrue();
+    expect(container.querySelectorAll("[data-sd-animate]").length > 0).toBe(true);
   });
 
   test("keeps completed prose static even when animation support is enabled", async () => {
@@ -228,6 +228,6 @@ describe("MarkdownRenderer", () => {
 
     await settleAsyncRender();
 
-    expect(container.querySelector("[data-sd-animate]") === null).toBeTrue();
+    expect(container.querySelector("[data-sd-animate]") === null).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import {
   buildTurnErrorItemView,
@@ -63,7 +63,7 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.toolName).toBe("bash");
     expect((item?.toolCall?.args as { command?: string }).command).toBe("bun run lint");
     expect((item?.toolCall?.args as { commandActions?: unknown[] })?.commandActions?.length).toBe(2);
-    expect((item?.toolCall?.result as string | undefined)?.includes("Checked 42 files")).toBeTrue();
+    expect((item?.toolCall?.result as string | undefined)?.includes("Checked 42 files")).toBe(true);
   });
 
   test("normalizes fileChange items with structured diffs", () => {
@@ -212,9 +212,9 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.subtype).toBe("mcp");
     expect(item?.toolCall?.server).toBe("docs");
     expect((item?.toolCall?.args as { query?: string }).query).toBe("thread item schema");
-    expect(((item?.toolCall?.result as { content?: unknown[] } | undefined)?.content?.length ?? 0) > 0).toBeTrue();
+    expect(((item?.toolCall?.result as { content?: unknown[] } | undefined)?.content?.length ?? 0) > 0).toBe(true);
     expect(item?.mcpToolCall?.functionName).toBe("docs__search");
-    expect(item?.mcpToolCall?.completed).toBeFalse();
+    expect(item?.mcpToolCall?.completed).toBe(false);
     expect(item?.mcpToolCall?.result?.type).toBe("success");
     expect(item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.content.length : -1).toBe(1);
   });
@@ -275,7 +275,7 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.subtype).toBe("dynamic");
     expect(item?.dynamicToolCall?.namespace).toBe("codex_app");
     expect(item?.dynamicToolCall?.tool).toBe("read_thread");
-    expect(item?.dynamicToolCall?.completed).toBeTrue();
+    expect(item?.dynamicToolCall?.completed).toBe(true);
     expect(item?.dynamicToolCall?.contentItems?.[0]?.type ?? "").toBe("inputText");
   });
 
@@ -289,7 +289,7 @@ describe("codex-item-normalizer", () => {
     });
 
     expect(item?.status).toBe("failed");
-    expect(item?.mcpToolCall?.completed).toBeTrue();
+    expect(item?.mcpToolCall?.completed).toBe(true);
     expect(item?.mcpToolCall?.result?.type).toBe("error");
     expect(item?.mcpToolCall?.result?.type === "error" ? item.mcpToolCall.result.error : "").toBe("Authentication required");
   });
@@ -536,7 +536,7 @@ describe("codex-item-normalizer", () => {
     expect(item.status).toBe("inProgress");
     expect(item.markdownText).toBe("Reconnecting... 2/5");
     expect(item.additionalDetails).toBe("Network error: connection dropped while streaming.");
-    expect(item.willRetry).toBeTrue();
+    expect(item.willRetry).toBe(true);
   });
 
   test("keeps empty transcript items blank instead of showing internal type labels", () => {
@@ -584,7 +584,7 @@ describe("codex-item-normalizer", () => {
       const item = normalizeThreadItem(variant.payload, "thread-1", "turn-1");
       expect(item).not.toBeNull();
       expect((item?.markdownText ?? "").length).toBe(0);
-      expect(item?.markdownText === variant.unexpectedFallback).toBeFalse();
+      expect(item?.markdownText === variant.unexpectedFallback).toBe(false);
     }
   });
 
@@ -601,10 +601,10 @@ describe("codex-item-normalizer", () => {
     );
 
     expect(item).not.toBeNull();
-    expect(item?.goal ?? false).toBeTrue();
+    expect(item?.goal ?? false).toBe(true);
 
     const transcriptEntry = item ? projectCodexItemViewToTranscriptEntry(item, "live", 0) : null;
-    expect(transcriptEntry?.goal ?? false).toBeTrue();
+    expect(transcriptEntry?.goal ?? false).toBe(true);
   });
 
   test("normalizes user-message images and context attachments separately from markdown text", () => {
@@ -636,7 +636,7 @@ describe("codex-item-normalizer", () => {
     expect(item?.userAttachments?.[1]?.type === "file" ? item.userAttachments[1].sourceKind : "").toBe("skill");
     expect(item?.userAttachments?.[2]?.type === "image" ? item.userAttachments[2].sourceKind : "").toBe("local");
     expect(item?.userAttachments?.[4]?.type === "image" ? item.userAttachments[4].source : "").toBe("remote-image");
-    expect(item?.markdownText?.includes("diagram.png") ?? true).toBeFalse();
+    expect(item?.markdownText?.includes("diagram.png") ?? true).toBe(false);
   });
 
   test("normalizes request_user_input items with transcript answers", () => {

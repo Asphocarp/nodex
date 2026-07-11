@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { editorCodeBlockOptions } from "./code-block-options";
 
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");
@@ -33,7 +33,7 @@ describe("editorCodeBlockOptions", () => {
         shikiParserSymbol
       ];
 
-      expect((typeof parser === "function")).toBeTrue();
+      expect((typeof parser === "function")).toBe(true);
       if (typeof parser !== "function") return;
 
       const content = "const answer = 42";
@@ -44,14 +44,14 @@ describe("editorCodeBlockOptions", () => {
         size: content.length + 2,
       });
 
-      expect(Array.isArray(decorations)).toBeTrue();
+      expect(Array.isArray(decorations)).toBe(true);
       if (!Array.isArray(decorations)) return;
 
       const rootStyle = String(decorations[0]?.type?.attrs?.style ?? "");
       const tokenStyle = String(decorations[1]?.type?.attrs?.style ?? "");
 
-      expect(rootStyle.includes("--shiki-dark")).toBeTrue();
-      expect(tokenStyle.includes("--shiki-dark")).toBeTrue();
+      expect(rootStyle.includes("--shiki-dark")).toBe(true);
+      expect(tokenStyle.includes("--shiki-dark")).toBe(true);
     } finally {
       clearBlockNoteShikiState();
     }

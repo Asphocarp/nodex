@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import type {
   CodexPermissionRequest,
@@ -46,9 +46,9 @@ describe("CodexPermissionRequestCard", () => {
     await settleAsyncRender();
 
     const renderedText = textContent(container);
-    expect(Boolean(renderedText.includes("Allow read and write access to"))).toBeTrue();
-    expect(Boolean(renderedText.includes("/repo/generated"))).toBeTrue();
-    expect(Boolean(renderedText.includes("Need to update generated files."))).toBeTrue();
+    expect(Boolean(renderedText.includes("Allow read and write access to"))).toBe(true);
+    expect(Boolean(renderedText.includes("/repo/generated"))).toBe(true);
+    expect(Boolean(renderedText.includes("Need to update generated files."))).toBe(true);
     const form = container.querySelector("form");
     if (!form) throw new Error("expected permission form");
 

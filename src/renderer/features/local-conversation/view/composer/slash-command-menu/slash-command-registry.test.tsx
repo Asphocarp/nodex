@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ThreadFooterModel, ThreadStageActions } from "../../../thread-stage-types";
 import { buildComposerSlashCommands } from "./slash-command-registry";
 
@@ -79,7 +79,7 @@ describe("buildComposerSlashCommands", () => {
       throw new Error("Expected Goal slash command selection handlers.");
     }
 
-    expect(Boolean(goalCommand.Content)).toBeFalse();
+    expect(Boolean(goalCommand.Content)).toBe(false);
     expect(goalCommand.isVisible).toBe(true);
     expect(goalCommand.requiresEmptyComposer).toBe(false);
     expect(JSON.stringify(goalCommand.triggers)).toBe("[\"/\",\"@\"]");
@@ -101,7 +101,7 @@ describe("buildComposerSlashCommands", () => {
     });
 
     expect(goalModeActivations).toBe(2);
-    expect(clearedInlineTrigger).toBeTrue();
+    expect(clearedInlineTrigger).toBe(true);
   });
 
   test("shows Goal in new-chat when a session thread can be started", async () => {

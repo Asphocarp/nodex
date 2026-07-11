@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -80,12 +80,12 @@ describe("applyCardEditorDrop", () => {
       expect((await getCard(projectId, sourceTwo.id))?.title).toBe("Source two");
       expect((await getCard(projectId, target.id))?.description).toBe("After copy");
 
-      expect(undoLatest(projectId, "session-copy").success).toBeTrue();
+      expect(undoLatest(projectId, "session-copy").success).toBe(true);
       expect((await getCard(projectId, target.id))?.description).toBe("Before");
-      expect(redoLatest(projectId, "session-copy").success).toBeTrue();
+      expect(redoLatest(projectId, "session-copy").success).toBe(true);
       expect((await getCard(projectId, target.id))?.description).toBe("After copy");
     });
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("cross-project move undo and redo restore both projects atomically", async () => {
@@ -113,18 +113,18 @@ describe("applyCardEditorDrop", () => {
         groupId: "group-cross-project-history",
       }, "session-cross-history");
 
-      expect((await getCard(sourceProject.id, source.id)) === null).toBeTrue();
+      expect((await getCard(sourceProject.id, source.id)) === null).toBe(true);
       expect((await getCard(targetProjectId, target.id))?.description).toBe("After");
 
-      expect(undoLatest(targetProjectId, "session-cross-history").success).toBeTrue();
+      expect(undoLatest(targetProjectId, "session-cross-history").success).toBe(true);
       expect((await getCard(sourceProject.id, source.id))?.title).toBe("Cross source");
       expect((await getCard(targetProjectId, target.id))?.description).toBe("Before");
 
-      expect(redoLatest(targetProjectId, "session-cross-history").success).toBeTrue();
-      expect((await getCard(sourceProject.id, source.id)) === null).toBeTrue();
+      expect(redoLatest(targetProjectId, "session-cross-history").success).toBe(true);
+      expect((await getCard(sourceProject.id, source.id)) === null).toBe(true);
       expect((await getCard(targetProjectId, target.id))?.description).toBe("After");
     });
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("updates target description and deletes source card in one grouped undo step", async () => {
@@ -162,7 +162,7 @@ describe("applyCardEditorDrop", () => {
       const sourceAfterMove = await getCard(projectId, source.id);
       const targetAfterMove = await getCard(projectId, target.id);
 
-      expect(sourceAfterMove === null).toBeTrue();
+      expect(sourceAfterMove === null).toBe(true);
       expect(targetAfterMove?.description).toBe("After drop");
 
       const historyAfterMove = getRecentHistory(projectId, 10, 0);
@@ -170,7 +170,7 @@ describe("applyCardEditorDrop", () => {
       expect(groupedEntries.length).toBe(2);
 
       const undoResult = undoLatest(projectId, "session-1");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       const sourceAfterUndo = await getCard(projectId, source.id);
       const targetAfterUndo = await getCard(projectId, target.id);
@@ -178,15 +178,15 @@ describe("applyCardEditorDrop", () => {
       expect(targetAfterUndo?.description).toBe("Before drop");
 
       const redoResult = redoLatest(projectId, "session-1");
-      expect(redoResult.success).toBeTrue();
+      expect(redoResult.success).toBe(true);
 
       const sourceAfterRedo = await getCard(projectId, source.id);
       const targetAfterRedo = await getCard(projectId, target.id);
-      expect(sourceAfterRedo === null).toBeTrue();
+      expect(sourceAfterRedo === null).toBe(true);
       expect(targetAfterRedo?.description).toBe("After drop");
     });
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -221,7 +221,7 @@ describe("applyCardEditorDrop", () => {
       expect(sourceAfterError?.description).toBe("Source description");
     });
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -261,11 +261,11 @@ describe("applyCardEditorDrop", () => {
       expect(moveResult.sourceCardIds.join(",")).toBe(source.id);
       const sourceAfterMove = await getCard(otherProject.id, source.id);
       const targetAfterMove = await getCard(projectId, target.id);
-      expect(sourceAfterMove === null).toBeTrue();
+      expect(sourceAfterMove === null).toBe(true);
       expect(targetAfterMove?.description).toBe("After cross-project drop");
     });
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -318,8 +318,8 @@ describe("applyCardEditorDrop", () => {
       const secondAfterMove = await getCard(projectId, sourceTwo.id);
       const targetAfterMove = await getCard(projectId, target.id);
 
-      expect(firstAfterMove === null).toBeTrue();
-      expect(secondAfterMove === null).toBeTrue();
+      expect(firstAfterMove === null).toBe(true);
+      expect(secondAfterMove === null).toBe(true);
       expect(targetAfterMove?.description).toBe("After");
 
       const historyAfterMove = getRecentHistory(projectId, 10, 0);
@@ -327,7 +327,7 @@ describe("applyCardEditorDrop", () => {
       expect(groupedEntries.length).toBe(3);
     });
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -380,7 +380,7 @@ describe("applyCardEditorDrop", () => {
       expect(moveResult.groupId).toBe("group-drop-same-column-many");
 
       const undoResult = undoLatest(projectId, "session-same-column-many");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       const board = await getBoard(projectId);
       const column = board.columns.find((entry) => entry.id === "in_progress");
@@ -393,7 +393,7 @@ describe("applyCardEditorDrop", () => {
       expect(targetAfterUndo?.description).toBe("Before");
     });
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX,
   BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX,
@@ -63,8 +63,8 @@ describe("BrowserSidebarRendererWebviewManager", () => {
 
     const root = getManagerRoot();
     const webview = root?.querySelector("webview");
-    expect(root !== null).toBeTrue();
-    expect(webview !== null).toBeTrue();
+    expect(root !== null).toBe(true);
+    expect(webview !== null).toBe(true);
     installWebContentsId(webview as Element, 101);
     webview?.dispatchEvent(new Event("did-attach"));
     webview?.dispatchEvent(new Event("dom-ready"));
@@ -75,7 +75,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(root?.style.width).toBe("320px");
     expect(root?.style.height).toBe("240px");
     expect(root?.style.zIndex).toBe("");
-    expect(root?.parentElement === getManagerLayerRoot()).toBeTrue();
+    expect(root?.parentElement === getManagerLayerRoot()).toBe(true);
     expect(getManagerLayerRoot()?.style.pointerEvents).toBe("none");
     expect(getManagerLayerRoot()?.style.zIndex).toBe(String(BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX));
     expect(created.length).toBe(1);
@@ -102,7 +102,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
 
     const root = getManagerRoot("tab-retained");
     expect(root?.style.zIndex).toBe(String(BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX));
-    expect(root?.parentElement === document.body).toBeTrue();
+    expect(root?.parentElement === document.body).toBe(true);
   });
 
   test("does not destroy the current visible host for a stale non-close generation request", () => {
@@ -139,7 +139,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
       teardownId: "stale",
     }, (event) => destroyed.push(event));
 
-    expect(getManagerRoot()?.querySelector("webview") !== null).toBeTrue();
+    expect(getManagerRoot()?.querySelector("webview") !== null).toBe(true);
     expect(destroyed.length).toBe(1);
     expect(destroyed[0]?.mountGeneration).toBe(firstGeneration);
   });
@@ -163,16 +163,16 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const root = getManagerRoot();
     const webview = root?.querySelector("webview");
     const originalParent = webview?.parentElement;
-    expect(webview !== null).toBeTrue();
+    expect(webview !== null).toBe(true);
 
     manager.detachWebview({ sessionId: "session-1", tabId: "tab-browser" }, mountGeneration);
     await Promise.resolve();
 
-    expect(getManagerRoot() === root).toBeTrue();
-    expect(webview?.parentElement === originalParent).toBeTrue();
+    expect(getManagerRoot() === root).toBe(true);
+    expect(webview?.parentElement === originalParent).toBe(true);
     expect(root?.style.left).toBe("-10000px");
     expect(root?.style.visibility).toBe("hidden");
-    expect((webview as HTMLElement).isConnected).toBeTrue();
+    expect((webview as HTMLElement).isConnected).toBe(true);
   });
 
   test("reuses the same guest across panel and background sync without resetting src or parent", () => {
@@ -194,7 +194,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const root = getManagerRoot();
     const webview = root?.querySelector("webview");
     const originalParent = webview?.parentElement;
-    expect(webview !== null).toBeTrue();
+    expect(webview !== null).toBe(true);
 
     const secondGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
     manager.syncWebview({
@@ -210,8 +210,8 @@ describe("BrowserSidebarRendererWebviewManager", () => {
       onHostCreated: () => undefined,
     });
 
-    expect(getManagerRoot() === root).toBeTrue();
-    expect(webview?.parentElement === originalParent).toBeTrue();
+    expect(getManagerRoot() === root).toBe(true);
+    expect(webview?.parentElement === originalParent).toBe(true);
     expect(webview?.getAttribute("src")).toBe("https://example.com/first");
   });
 
@@ -271,7 +271,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     }, (event) => destroyed.push(event));
     webview?.dispatchEvent(new Event("did-attach"));
 
-    expect(root?.isConnected).toBeFalse();
+    expect(root?.isConnected).toBe(false);
     expect(created.length).toBe(1);
     expect(destroyed.length).toBe(1);
     expect(destroyed[0]?.webContentsId).toBe(101);

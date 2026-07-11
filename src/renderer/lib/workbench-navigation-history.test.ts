@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   areNavigationSnapshotsEqual,
   navigateBackInHistory,
@@ -74,8 +74,8 @@ describe("workbench navigation history", () => {
     const next = recordNavigationTransition(initial, second, makeSnapshot({ focusedStage: "threads" }));
 
     expect(next.backStack.length).toBe(2);
-    expect(areNavigationSnapshotsEqual(next.backStack[0] as NavigationSnapshot, first)).toBeTrue();
-    expect(areNavigationSnapshotsEqual(next.backStack[1] as NavigationSnapshot, second)).toBeTrue();
+    expect(areNavigationSnapshotsEqual(next.backStack[0] as NavigationSnapshot, first)).toBe(true);
+    expect(areNavigationSnapshotsEqual(next.backStack[1] as NavigationSnapshot, second)).toBe(true);
   });
 
   test("clears the forward stack on fresh navigation", () => {

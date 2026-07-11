@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BlockDocumentCompactionCandidate } from "./block-document-compaction";
 import { selectBlockDocumentCompactionBatch } from "./block-document-compaction";
 

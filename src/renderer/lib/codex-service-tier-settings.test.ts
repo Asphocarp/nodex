@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY,
   buildCodexServiceTierRequestOverride,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { NodexYProviderStatus } from "./nodex-y-provider";
 import {
   BlockDocumentSyncIndicatorError,
@@ -54,7 +54,7 @@ describe("Block Document sync indicator", () => {
     });
     expect(saving?.label).toBe("Saving…");
     expect(saving?.action).toBe(null);
-    expect(saving?.editingBlocked).toBeFalse();
+    expect(saving?.editingBlocked).toBe(false);
 
     const delayed = resolveBlockDocumentSyncIndicator({
       status: status({
@@ -75,7 +75,7 @@ describe("Block Document sync indicator", () => {
     expect(delayed?.label).toBe("Still saving…");
     expect(delayed?.detail).toBe("Connection lost");
     expect(delayed?.action?.kind).toBe("retry");
-    expect(delayed?.editingBlocked).toBeFalse();
+    expect(delayed?.editingBlocked).toBe(false);
   });
 
   test("delays offline flicker while preserving an actionable retained-outbox state", () => {
@@ -105,7 +105,7 @@ describe("Block Document sync indicator", () => {
       "Changes are kept on this device and will sync after reconnecting.",
     );
     expect(offline?.action?.kind).toBe("retry");
-    expect(offline?.editingBlocked).toBeFalse();
+    expect(offline?.editingBlocked).toBe(false);
   });
 
   test("uses the surface loader for initial connection and sparse reconnect chrome later", () => {
@@ -158,7 +158,7 @@ describe("Block Document sync indicator", () => {
     });
     expect(reset?.label).toBe("Reload required");
     expect(reset?.action?.kind).toBe("reload");
-    expect(reset?.editingBlocked).toBeTrue();
+    expect(reset?.editingBlocked).toBe(true);
     expect(reset?.announce).toBe("assertive");
 
     const fatal = resolveBlockDocumentSyncIndicator({
@@ -179,7 +179,7 @@ describe("Block Document sync indicator", () => {
     expect(fatal?.label).toBe("Couldn’t save changes");
     expect(fatal?.detail).toBe("Document failed validation");
     expect(fatal?.action?.kind).toBe("reload");
-    expect(fatal?.editingBlocked).toBeTrue();
+    expect(fatal?.editingBlocked).toBe(true);
   });
 
   test("rejects invalid timing policy instead of silently changing semantics", () => {
@@ -198,6 +198,6 @@ describe("Block Document sync indicator", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof BlockDocumentSyncIndicatorError).toBeTrue();
+    expect(error instanceof BlockDocumentSyncIndicatorError).toBe(true);
   });
 });

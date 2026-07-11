@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render, textContent } from "../../../test/dom";
 import { ThreadSectionRow, type ThreadSectionRowProps } from "./thread-section-row";
@@ -32,10 +32,10 @@ describe("ThreadSectionRow", () => {
     const { container } = render(<ThreadSectionRow {...buildProps()} />);
 
     const content = textContent(container);
-    expect(content.includes("Investigate parser")).toBeTrue();
-    expect(content.includes("Ready")).toBeTrue();
-    expect(content.includes("Parser thread")).toBeTrue();
-    expect(content.includes("Send")).toBeTrue();
+    expect(content.includes("Investigate parser")).toBe(true);
+    expect(content.includes("Ready")).toBe(true);
+    expect(content.includes("Parser thread")).toBe(true);
+    expect(content.includes("Send")).toBe(true);
   });
 
   test("invokes open and send handlers when actions are available", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexDynamicToolCallView } from "../../../../../lib/types";
 import {
   buildDynamicToolCallSummaryPartKey,
@@ -33,13 +33,13 @@ function dynamicCall(overrides: Partial<CodexDynamicToolCallView> = {}): CodexDy
 
 describe("dynamic tool registry", () => {
   test("resolves Electron-style registry flags from one entry map", () => {
-    expect(continuesCodexAppLiveActivityBetweenCalls(dynamicCall({ tool: "read_thread" }))).toBeTrue();
-    expect(continuesCodexAppLiveActivityBetweenCalls(dynamicCall({ tool: "send_message_to_thread" }))).toBeFalse();
-    expect(isDynamicToolStandaloneInConversation(dynamicCall({ tool: "handoff_thread" }))).toBeTrue();
+    expect(continuesCodexAppLiveActivityBetweenCalls(dynamicCall({ tool: "read_thread" }))).toBe(true);
+    expect(continuesCodexAppLiveActivityBetweenCalls(dynamicCall({ tool: "send_message_to_thread" }))).toBe(false);
+    expect(isDynamicToolStandaloneInConversation(dynamicCall({ tool: "handoff_thread" }))).toBe(true);
     expect(isDynamicToolSummaryOnlyInConversationGroup(dynamicCall({
       tool: "get_handoff_status",
       arguments: { operationId: "operation-1" },
-    }))).toBeTrue();
+    }))).toBe(true);
   });
 
   test("registers automation_update as a standalone scheduled task card renderer", () => {
@@ -63,11 +63,11 @@ describe("dynamic tool registry", () => {
     const state = resolveAutomationUpdateRenderState(call, "thread-current");
 
     expect(entry?.rendererKind ?? "").toBe("automationUpdate");
-    expect(isDynamicToolStandaloneInConversation(call)).toBeTrue();
+    expect(isDynamicToolStandaloneInConversation(call)).toBe(true);
     expect(state?.statusLabel ?? "").toBe("Proposed");
     expect(state?.title ?? "").toBe("Review release notes");
     expect(state?.subtitle ?? "").toBe("Daily");
-    expect(state?.canAccept ?? false).toBeTrue();
+    expect(state?.canAccept ?? false).toBe(true);
     expect(state?.createInput?.cwds?.join(",") ?? "").toBe("/repo/nodex");
     expect(state?.createInput?.executionEnvironment ?? "").toBe("worktree");
   });
@@ -124,7 +124,7 @@ describe("dynamic tool registry", () => {
       },
     }));
 
-    expect(Object.prototype.hasOwnProperty.call(state?.updateInput ?? {}, "localEnvironmentConfigPath")).toBeFalse();
+    expect(Object.prototype.hasOwnProperty.call(state?.updateInput ?? {}, "localEnvironmentConfigPath")).toBe(false);
   });
 
   test("keys completed summary parts through registry-specific keys", () => {
@@ -152,8 +152,8 @@ describe("dynamic tool registry", () => {
     }));
 
     expect(readA).toBe(readB);
-    expect(handoffToHost === handoffLocal).toBeFalse();
-    expect(handoffStatus.endsWith("\u001foperation-1")).toBeTrue();
+    expect(handoffToHost === handoffLocal).toBe(false);
+    expect(handoffStatus.endsWith("\u001foperation-1")).toBe(true);
   });
 
   test("uses handoff operation status for labels instead of only item completion", () => {

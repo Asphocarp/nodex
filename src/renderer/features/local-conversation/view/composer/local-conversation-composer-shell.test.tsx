@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent, within } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
@@ -215,20 +215,20 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     const renderedText = textContent(document.body);
-    expect(Boolean(renderedText.includes("Keep the stage stories on the real projection path."))).toBeFalse();
-    expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBeTrue();
-    expect(Boolean(renderedText.includes("Running 1 terminal"))).toBeTrue();
-    expect(Boolean(renderedText.includes("1 active requests"))).toBeFalse();
-    expect(Boolean(renderedText.includes("Worker 1"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Keep the stage stories on the real projection path."))).toBe(false);
+    expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBe(true);
+    expect(Boolean(renderedText.includes("Running 1 terminal"))).toBe(true);
+    expect(Boolean(renderedText.includes("1 active requests"))).toBe(false);
+    expect(Boolean(renderedText.includes("Worker 1"))).toBe(true);
 
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
-    expect(lowerStatusRow === null).toBeTrue();
-    expect(view.queryByLabelText("Add files and more") === null).toBeTrue();
-    expect(view.queryByLabelText("Permission mode") === null).toBeTrue();
-    expect(view.queryByLabelText("Select Codex model and reasoning") === null).toBeTrue();
-    expect(view.queryByLabelText(/Context window/) === null).toBeTrue();
-    expect(view.queryByLabelText("Send prompt") === null).toBeTrue();
-    expect(view.queryByLabelText("Stop generating") === null).toBeTrue();
+    expect(lowerStatusRow === null).toBe(true);
+    expect(view.queryByLabelText("Add files and more") === null).toBe(true);
+    expect(view.queryByLabelText("Permission mode") === null).toBe(true);
+    expect(view.queryByLabelText("Select Codex model and reasoning") === null).toBe(true);
+    expect(view.queryByLabelText(/Context window/) === null).toBe(true);
+    expect(view.queryByLabelText("Send prompt") === null).toBe(true);
+    expect(view.queryByLabelText("Stop generating") === null).toBe(true);
   });
 
   test("opens composer background agents with subagent context", async () => {
@@ -305,26 +305,26 @@ describe("LocalConversationComposerShell", () => {
     );
     await settleAsyncRender();
 
-    expect(Boolean(textContent(document.body).includes("3 background agents"))).toBeTrue();
-    expect(Boolean(textContent(document.body).includes("(@ to tag agents)"))).toBeFalse();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="thread_child"]') !== null).toBeTrue();
+    expect(Boolean(textContent(document.body).includes("3 background agents"))).toBe(true);
+    expect(Boolean(textContent(document.body).includes("(@ to tag agents)"))).toBe(false);
+    expect(view.container.querySelector('[data-subagent-avatar-seed="thread_child"]') !== null).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Expand background agent details" }));
       await Promise.resolve();
     });
     const renderedText = textContent(document.body);
-    expect(Boolean(renderedText.includes("(@ to tag agents)"))).toBeTrue();
-    expect(Boolean(renderedText.includes("Scout"))).toBeTrue();
-    expect(Boolean(renderedText.includes("is working"))).toBeTrue();
-    expect(Boolean(renderedText.includes("Planner"))).toBeTrue();
-    expect(Boolean(renderedText.includes("is awaiting instruction"))).toBeTrue();
-    expect(Boolean(renderedText.includes("Closer"))).toBeTrue();
-    expect(Boolean(renderedText.includes("is done"))).toBeTrue();
-    expect(Boolean(renderedText.includes("+2"))).toBeTrue();
-    expect(Boolean(renderedText.includes("-1"))).toBeTrue();
-    expect(Boolean(renderedText.includes("+0"))).toBeFalse();
-    expect(Boolean(renderedText.includes("-0"))).toBeFalse();
+    expect(Boolean(renderedText.includes("(@ to tag agents)"))).toBe(true);
+    expect(Boolean(renderedText.includes("Scout"))).toBe(true);
+    expect(Boolean(renderedText.includes("is working"))).toBe(true);
+    expect(Boolean(renderedText.includes("Planner"))).toBe(true);
+    expect(Boolean(renderedText.includes("is awaiting instruction"))).toBe(true);
+    expect(Boolean(renderedText.includes("Closer"))).toBe(true);
+    expect(Boolean(renderedText.includes("is done"))).toBe(true);
+    expect(Boolean(renderedText.includes("+2"))).toBe(true);
+    expect(Boolean(renderedText.includes("-1"))).toBe(true);
+    expect(Boolean(renderedText.includes("+0"))).toBe(false);
+    expect(Boolean(renderedText.includes("-0"))).toBe(false);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Stop all" }));
@@ -384,9 +384,9 @@ describe("LocalConversationComposerShell", () => {
     );
     await settleAsyncRender();
 
-    expect(Boolean(textContent(document.body).includes("Resume paused goal?"))).toBeTrue();
-    expect(Boolean(textContent(document.body).includes("Codex will keep working toward this goal when the thread is idle"))).toBeTrue();
-    expect(Boolean(textContent(document.body).includes("Finish goal parity with the Codex Electron resume prompt"))).toBeTrue();
+    expect(Boolean(textContent(document.body).includes("Resume paused goal?"))).toBe(true);
+    expect(Boolean(textContent(document.body).includes("Codex will keep working toward this goal when the thread is idle"))).toBe(true);
+    expect(Boolean(textContent(document.body).includes("Finish goal parity with the Codex Electron resume prompt"))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Keep paused" }));
@@ -423,8 +423,8 @@ describe("LocalConversationComposerShell", () => {
     );
     await settleAsyncRender();
 
-    expect(Boolean(textContent(document.body).includes("Resume goal?"))).toBeTrue();
-    expect(view.getByRole("button", { name: "Not now" }) !== null).toBeTrue();
+    expect(Boolean(textContent(document.body).includes("Resume goal?"))).toBe(true);
+    expect(view.getByRole("button", { name: "Not now" }) !== null).toBe(true);
 
     const resumeButtons = view.getAllByRole("button", { name: "Resume goal" });
     const resumeDialogSubmitButton = resumeButtons[resumeButtons.length - 1];
@@ -440,7 +440,7 @@ describe("LocalConversationComposerShell", () => {
     expect(setGoalCalls.length).toBe(1);
     expect(call?.threadId).toBe(model.threadId);
     expect(call?.status).toBe("active");
-    expect(Object.prototype.hasOwnProperty.call(call ?? {}, "objective")).toBeFalse();
+    expect(Object.prototype.hasOwnProperty.call(call ?? {}, "objective")).toBe(false);
   });
 
   test("renders active thread goal status row in the above-composer queue portal", async () => {
@@ -464,15 +464,15 @@ describe("LocalConversationComposerShell", () => {
     if (!row) {
       throw new Error("Expected saved goal status row to render");
     }
-    expect(row.closest("[data-above-composer-queue-portal]") !== null).toBeTrue();
-    expect(row.closest("[data-above-composer-portal]") === null).toBeTrue();
+    expect(row.closest("[data-above-composer-queue-portal]") !== null).toBe(true);
+    expect(row.closest("[data-above-composer-portal]") === null).toBe(true);
     const rowView = within(row);
-    expect(rowView.getByText("Pursuing goal") !== null).toBeTrue();
-    expect(rowView.getAllByText(objective).length > 0).toBeTrue();
-    expect(rowView.getByText(/1\.5K \/ 2K/) !== null).toBeTrue();
-    expect(rowView.getByRole("button", { name: "Edit goal" }) !== null).toBeTrue();
-    expect(rowView.getByRole("button", { name: "Pause goal" }) !== null).toBeTrue();
-    expect(rowView.getByRole("button", { name: "Clear goal" }) !== null).toBeTrue();
+    expect(rowView.getByText("Pursuing goal") !== null).toBe(true);
+    expect(rowView.getAllByText(objective).length > 0).toBe(true);
+    expect(rowView.getByText(/1\.5K \/ 2K/) !== null).toBe(true);
+    expect(rowView.getByRole("button", { name: "Edit goal" }) !== null).toBe(true);
+    expect(rowView.getByRole("button", { name: "Pause goal" }) !== null).toBe(true);
+    expect(rowView.getByRole("button", { name: "Clear goal" }) !== null).toBe(true);
   });
 
   test("renders Codex-style elapsed goal time when no token budget is present", async () => {
@@ -489,8 +489,8 @@ describe("LocalConversationComposerShell", () => {
       throw new Error("Expected saved goal status row to render");
     }
     const rowView = within(row);
-    expect(rowView.getByText("Paused goal") !== null).toBeTrue();
-    expect(rowView.getByText(/2m/) !== null).toBeTrue();
+    expect(rowView.getByText("Paused goal") !== null).toBe(true);
+    expect(rowView.getByText(/2m/) !== null).toBe(true);
   });
 
   test("updates and clears thread goal from the status row", async () => {
@@ -524,7 +524,7 @@ describe("LocalConversationComposerShell", () => {
     expect(setGoalCalls.length).toBe(1);
     expect(setGoalCalls[0]?.threadId).toBe(activeModel.threadId);
     expect(setGoalCalls[0]?.status).toBe("paused");
-    expect(Object.prototype.hasOwnProperty.call(setGoalCalls[0] ?? {}, "objective")).toBeFalse();
+    expect(Object.prototype.hasOwnProperty.call(setGoalCalls[0] ?? {}, "objective")).toBe(false);
     expect(clearCalls.length).toBe(1);
     expect(clearCalls[0]).toBe(activeModel.threadId);
     activeView.unmount();
@@ -549,7 +549,7 @@ describe("LocalConversationComposerShell", () => {
     expect(setGoalCalls.length).toBe(2);
     expect(setGoalCalls[1]?.threadId).toBe(pausedModel.threadId);
     expect(setGoalCalls[1]?.status).toBe("active");
-    expect(Object.prototype.hasOwnProperty.call(setGoalCalls[1] ?? {}, "objective")).toBeFalse();
+    expect(Object.prototype.hasOwnProperty.call(setGoalCalls[1] ?? {}, "objective")).toBe(false);
   });
 
   test("opens thread goal edit dialog and saves the changed objective", async () => {
@@ -584,7 +584,7 @@ describe("LocalConversationComposerShell", () => {
     });
     expect((textbox as HTMLTextAreaElement).value).toBe(nextObjective);
     const saveButton = view.getByRole("button", { name: "Save" }) as HTMLButtonElement;
-    expect(saveButton.disabled).toBeFalse();
+    expect(saveButton.disabled).toBe(false);
     await act(async () => {
       fireEvent.submit(textbox.closest("form") as HTMLFormElement);
       await Promise.resolve();
@@ -594,7 +594,7 @@ describe("LocalConversationComposerShell", () => {
     expect(setGoalCalls[0]?.threadId).toBe(model.threadId);
     expect(setGoalCalls[0]?.objective).toBe(nextObjective);
     expect(setGoalCalls[0]?.status).toBe("active");
-    expect(setGoalCalls[0]?.appendTranscriptItem).toBeFalse();
+    expect(setGoalCalls[0]?.appendTranscriptItem).toBe(false);
   });
 
   test("does not render complete thread goal status row", async () => {
@@ -603,7 +603,7 @@ describe("LocalConversationComposerShell", () => {
     const view = renderComposerShell(model);
     await settleAsyncRender();
 
-    expect(view.container.querySelector("[data-thread-goal-status-row=\"true\"]") === null).toBeTrue();
-    expect(view.queryByText("Goal achieved") === null).toBeTrue();
+    expect(view.container.querySelector("[data-thread-goal-status-row=\"true\"]") === null).toBe(true);
+    expect(view.queryByText("Goal achieved") === null).toBe(true);
   });
 });

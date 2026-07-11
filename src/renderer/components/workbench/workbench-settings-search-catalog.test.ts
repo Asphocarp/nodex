@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildSettingsSearchResults,
   buildSettingsSearchTargets,
@@ -31,19 +31,19 @@ function hasSectionResult(query: string, sectionId: SettingsSectionId): boolean 
 describe("workbench settings search catalog", () => {
   test("every visible settings section has a populated search catalog", () => {
     for (const section of SETTINGS_SECTIONS) {
-      expect(section.searchMessages.length > 0).toBeTrue();
+      expect(section.searchMessages.length > 0).toBe(true);
     }
   });
 
   test("indexes setting row descriptions and option labels across panels", () => {
-    expect(hasSectionResult("masked session replays", "general-settings")).toBeTrue();
-    expect(hasSectionResult("force fixed theme", "appearance")).toBeTrue();
-    expect(hasSectionResult("danger-full-access", "agent")).toBeTrue();
-    expect(hasSectionResult("materialize inflating note", "editor")).toBeTrue();
-    expect(hasSectionResult("more-properties toggle", "card")).toBeTrue();
-    expect(hasSectionResult("auto-create branch detached", "worktrees")).toBeTrue();
-    expect(hasSectionResult("CODEX_SOURCE_TREE_PATH", "local-environments")).toBeTrue();
-    expect(hasSectionResult("pruning unlimited", "backups")).toBeTrue();
+    expect(hasSectionResult("masked session replays", "general-settings")).toBe(true);
+    expect(hasSectionResult("force fixed theme", "appearance")).toBe(true);
+    expect(hasSectionResult("danger-full-access", "agent")).toBe(true);
+    expect(hasSectionResult("materialize inflating note", "editor")).toBe(true);
+    expect(hasSectionResult("more-properties toggle", "card")).toBe(true);
+    expect(hasSectionResult("auto-create branch detached", "worktrees")).toBe(true);
+    expect(hasSectionResult("CODEX_SOURCE_TREE_PATH", "local-environments")).toBe(true);
+    expect(hasSectionResult("pruning unlimited", "backups")).toBe(true);
   });
 
   test("uses runtime project names as hidden local-environment terms", () => {

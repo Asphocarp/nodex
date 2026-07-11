@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { cardToToggleBlock } from "./block-mapping";
 import { buildInboundUpdates, buildOutboundPatches } from "./sync";
 import type { ToggleListCard } from "./types";
@@ -108,10 +108,10 @@ describe("toggle-list sync helpers", () => {
     );
 
     expect(updates.length).toBe(1);
-    expect(updates[0].update.children === undefined).toBeFalse();
-    expect(updates[0].toggleStates === undefined).toBeFalse();
+    expect(updates[0].update.children === undefined).toBe(false);
+    expect(updates[0].toggleStates === undefined).toBe(false);
     if (!updates[0].toggleStates) return;
-    expect([...updates[0].toggleStates.values()].some((isOpen) => isOpen)).toBeTrue();
+    expect([...updates[0].toggleStates.values()].some((isOpen) => isOpen)).toBe(true);
   });
 
   test("buildInboundUpdates does not produce spurious update when toggle state matches via DOM", () => {

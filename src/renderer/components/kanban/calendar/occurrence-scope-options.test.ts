@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { resolveOccurrenceScopeOptions } from "./occurrence-scope-options";
 
@@ -8,7 +8,7 @@ describe("resolveOccurrenceScopeOptions", () => {
     expect(JSON.stringify(options.map((option) => option.scope))).toBe(
       JSON.stringify(["this", "this-and-future"]),
     );
-    expect(options[1]?.isPrimary).toBeTrue();
+    expect(options[1]?.isPrimary).toBe(true);
   });
 
   test("shows only this and all on first recurring occurrence", () => {

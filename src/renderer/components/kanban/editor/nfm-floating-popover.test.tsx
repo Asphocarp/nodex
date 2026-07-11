@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NfmFloatingPopover } from "./nfm-floating-popover";
@@ -35,7 +35,7 @@ describe("NfmFloatingPopover", () => {
       });
 
       const popover = view.container.querySelector<HTMLElement>(".inline-popover-test");
-      expect(popover !== null).toBeTrue();
+      expect(popover !== null).toBe(true);
       expect(popover?.style.zIndex).toBe("calc(var(--bn-ui-base-z-index, 0) + 20)");
     } finally {
       anchor.remove();
@@ -66,9 +66,9 @@ describe("NfmFloatingPopover", () => {
       });
 
       const popover = document.body.querySelector<HTMLElement>(".body-popover-test");
-      expect(popover !== null).toBeTrue();
-      expect(popover ? document.body.contains(popover) : false).toBeTrue();
-      expect(popover ? view.container.contains(popover) : true).toBeFalse();
+      expect(popover !== null).toBe(true);
+      expect(popover ? document.body.contains(popover) : false).toBe(true);
+      expect(popover ? view.container.contains(popover) : true).toBe(false);
       expect(popover?.style.zIndex).toBe("calc(var(--bn-ui-base-z-index, 0) + 50)");
     } finally {
       anchor.remove();

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { render, settleAsyncRender } from "../../test/dom";
 
@@ -119,7 +119,7 @@ const mockManager = {
   },
 };
 
-mock.module("./desktop-notification-controller-deps", () => ({
+vi.mock("./desktop-notification-controller-deps", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     if (channel === "electron-window:focus:get") {

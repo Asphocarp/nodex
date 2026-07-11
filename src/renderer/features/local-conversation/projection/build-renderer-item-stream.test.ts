@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationItem } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { buildRendererItemStream } from "./build-renderer-item-stream";
@@ -52,8 +52,8 @@ describe("buildRendererItemStream", () => {
         "Done. ::inbox-item{title=\"Inline remains visible\"}",
       ].join("\n"),
     );
-    expect(assistant?.searchableText.includes("Daily report ready")).toBeFalse();
-    expect(assistant?.searchableText.includes("Inline remains visible")).toBeTrue();
+    expect(assistant?.searchableText.includes("Daily report ready")).toBe(false);
+    expect(assistant?.searchableText.includes("Inline remains visible")).toBe(true);
   });
 
   test("maps transcript entries into richer renderer item types", () => {
@@ -611,6 +611,6 @@ describe("buildRendererItemStream", () => {
     });
 
     expect(items.map((item) => item.id).join(",")).toBe("user_1,commentary_1,exec_1,assistant_1");
-    expect(items.some((item) => item.type === "workedFor")).toBeFalse();
+    expect(items.some((item) => item.type === "workedFor")).toBe(false);
   });
 });

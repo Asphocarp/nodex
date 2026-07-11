@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
@@ -378,7 +378,7 @@ describe("BlockDocumentRuntime", () => {
       );
       const ack = runtime.applyUpdate(request);
 
-      expect(ack.duplicate).toBeFalse();
+      expect(ack.duplicate).toBe(false);
       expect(ack.committedSeq).toBe(2);
       expect(authority.loadCount("document:one")).toBe(1);
       expect(readTitle(syncFromEmpty(runtime, "document:one"))).toBe(
@@ -412,7 +412,7 @@ describe("BlockDocumentRuntime", () => {
 
       const ack = runtime.applyUpdate(request);
 
-      expect(ack.duplicate).toBeFalse();
+      expect(ack.duplicate).toBe(false);
       expect(runtime.getCacheStats().entryCount).toBe(0);
       expect(runtime.getCacheStats().stateBytes).toBe(0);
       const reloaded = syncFromEmpty(runtime, "document:one");
@@ -439,7 +439,7 @@ describe("BlockDocumentRuntime", () => {
       runtime.applyUpdate(request);
       const duplicate = runtime.applyUpdate(request);
 
-      expect(duplicate.duplicate).toBeTrue();
+      expect(duplicate.duplicate).toBe(true);
       expect(duplicate.committedSeq).toBe(2);
       expect(duplicate.headSeq).toBe(2);
       expect(authority.loadCount("document:one")).toBe(1);
@@ -484,7 +484,7 @@ describe("BlockDocumentRuntime", () => {
         } catch (caught) {
           error = caught;
         }
-        expect(error instanceof BlockDocumentStoreError).toBeTrue();
+        expect(error instanceof BlockDocumentStoreError).toBe(true);
         expect((error as BlockDocumentStoreError).code).toBe(code);
         expect(authority.loadCount(documentId)).toBe(1);
 
@@ -556,7 +556,7 @@ describe("BlockDocumentRuntime", () => {
     const authority = new InMemoryBlockDocumentAuthority([
       { documentId: "document:large", title: "A sufficiently large state" },
     ]);
-    expect(authority.stateSize("document:large") > 1).toBeTrue();
+    expect(authority.stateSize("document:large") > 1).toBe(true);
     const runtime = new BlockDocumentRuntime(authority, {
       maxDocuments: 4,
       maxStateBytes: 1,
@@ -592,7 +592,7 @@ describe("BlockDocumentRuntime", () => {
       syncFromEmpty(runtime, "document:two");
 
       expect(runtime.getCacheStats().entryCount).toBe(1);
-      expect(runtime.getCacheStats().stateBytes <= maxStateBytes).toBeTrue();
+      expect(runtime.getCacheStats().stateBytes <= maxStateBytes).toBe(true);
       expect(authority.loadCount("document:one")).toBe(1);
       expect(authority.loadCount("document:two")).toBe(1);
 
@@ -617,8 +617,8 @@ describe("BlockDocumentRuntime", () => {
       first.stateVector.fill(255);
 
       const second = syncFromEmpty(runtime, "document:one");
-      expect(bytesEqual(second.update, expectedUpdate)).toBeTrue();
-      expect(bytesEqual(second.stateVector, expectedStateVector)).toBeTrue();
+      expect(bytesEqual(second.update, expectedUpdate)).toBe(true);
+      expect(bytesEqual(second.stateVector, expectedStateVector)).toBe(true);
       expect(readTitle(second)).toBe("Immutable");
 
       const request = makeApplyRequest(
@@ -631,7 +631,7 @@ describe("BlockDocumentRuntime", () => {
       ack.stateVector.fill(255);
 
       const afterCommit = syncFromEmpty(runtime, "document:one");
-      expect(bytesEqual(afterCommit.stateVector, expectedAckStateVector)).toBeTrue();
+      expect(bytesEqual(afterCommit.stateVector, expectedAckStateVector)).toBe(true);
       expect(readTitle(afterCommit)).toBe("Immutable durable");
       expect(authority.loadCount("document:one")).toBe(1);
     } finally {

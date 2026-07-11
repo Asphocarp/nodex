@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import type {
   Project,
@@ -211,7 +211,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Alpha env")).toBeTrue();
+    expect(textContent(view.container).includes("Alpha env")).toBe(true);
     expect(readCalls.length).toBe(1);
     expect(readCalls[0]?.[0]).toBe("project-alpha");
 
@@ -221,7 +221,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     }
     fireEvent.click(backButton);
     await settleAsyncRender();
-    expect(textContent(view.container).includes("Beta")).toBeTrue();
+    expect(textContent(view.container).includes("Beta")).toBe(true);
     expect(listCalls.length).toBe(4);
 
     const betaButton = findButtonByText(view.container, "Beta");
@@ -231,7 +231,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     fireEvent.click(betaButton);
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Beta env")).toBeTrue();
+    expect(textContent(view.container).includes("Beta env")).toBe(true);
     expect(readCalls.length).toBe(2);
     expect(readCalls[1]?.[0]).toBe("project-beta");
     expect(listCalls.length).toBe(4);
@@ -252,7 +252,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(saveCalls.length).toBe(1);
     expect(saveCalls[0]?.projectId).toBe("project-beta");
     expect(saveCalls[0]?.configPath).toBe(".codex/environments/environment.toml");
-    expect(Boolean(view.container.querySelector("form"))).toBeFalse();
+    expect(Boolean(view.container.querySelector("form"))).toBe(false);
   });
 
   test("opens the action icon dropdown in edit mode", async () => {
@@ -286,7 +286,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     fireEvent.pointerDown(view.getByLabelText("Action 1 icon"));
     await settleAsyncRender();
 
-    expect(textContent(document.body).includes("Debug")).toBeTrue();
-    expect(textContent(document.body).includes("Test")).toBeTrue();
+    expect(textContent(document.body).includes("Debug")).toBe(true);
+    expect(textContent(document.body).includes("Test")).toBe(true);
   });
 });

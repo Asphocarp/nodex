@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   CodexConversationItem,
   CodexConversationSnapshot,
@@ -336,8 +336,8 @@ describe("local-conversation selectors", () => {
       parentTurns,
     });
 
-    expect(entriesA === entriesB).toBeTrue();
-    expect(entriesA[0] === entriesB[0]).toBeTrue();
+    expect(entriesA === entriesB).toBe(true);
+    expect(entriesA[0] === entriesB[0]).toBe(true);
   });
 
   test("prefers the newest turn when selecting the primary live request", () => {
@@ -435,9 +435,9 @@ describe("local-conversation selectors", () => {
     const firstSelection = selectConversationTurnRequestsByTurnId(conversation);
     const secondSelection = selectConversationTurnRequestsByTurnId(conversation);
 
-    expect(firstSelection === secondSelection).toBeTrue();
-    expect(firstSelection.get("turn_1") === secondSelection.get("turn_1")).toBeTrue();
-    expect((firstSelection.get("turn_2") ?? null) === (secondSelection.get("turn_2") ?? null)).toBeTrue();
+    expect(firstSelection === secondSelection).toBe(true);
+    expect(firstSelection.get("turn_1") === secondSelection.get("turn_1")).toBe(true);
+    expect((firstSelection.get("turn_2") ?? null) === (secondSelection.get("turn_2") ?? null)).toBe(true);
   });
 
   test("invalidates request selection when turns reorder under the same requests array", () => {
@@ -487,7 +487,7 @@ describe("local-conversation selectors", () => {
     expect(secondPrimary?.type).toBe("userInput");
     expect(firstLiveRequests[0]?.type).toBe("approval");
     expect(secondLiveRequests[0]?.type).toBe("userInput");
-    expect(firstLiveRequests === secondLiveRequests).toBeFalse();
+    expect(firstLiveRequests === secondLiveRequests).toBe(false);
   });
 
   test("builds searchable user and assistant units from visible turns", () => {

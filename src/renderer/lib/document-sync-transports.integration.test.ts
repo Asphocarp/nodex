@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import { Hono } from "hono";
 import * as Y from "yjs";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   resolveComposerSubmitIntentFromKeyDown,
   resolveStageThreadsComposerActionState,
@@ -16,7 +16,7 @@ describe("resolveStageThreadsComposerActionState", () => {
 
     expect(result.action).toBe("stop");
     expect(result.label).toBe("Stop Codex");
-    expect(result.disabled).toBeFalse();
+    expect(result.disabled).toBe(false);
   });
 
   test("disables stop action while an interrupt request is pending", () => {
@@ -29,7 +29,7 @@ describe("resolveStageThreadsComposerActionState", () => {
     });
 
     expect(result.action).toBe("stop");
-    expect(result.disabled).toBeTrue();
+    expect(result.disabled).toBe(true);
   });
 
   test("switches to steer submit while running when queue mode is off and draft exists", () => {
@@ -45,7 +45,7 @@ describe("resolveStageThreadsComposerActionState", () => {
     expect(result.primarySubmitAction).toBe("steer");
     expect(result.alternateSubmitAction).toBe("queue");
     expect(result.label).toBe("Steer follow-up");
-    expect(result.disabled).toBeFalse();
+    expect(result.disabled).toBe(false);
   });
 
   test("switches to queue submit while running when queue mode is on and draft exists", () => {
@@ -61,7 +61,7 @@ describe("resolveStageThreadsComposerActionState", () => {
     expect(result.primarySubmitAction).toBe("queue");
     expect(result.alternateSubmitAction).toBe("steer");
     expect(result.label).toBe("Queue follow-up");
-    expect(result.disabled).toBeFalse();
+    expect(result.disabled).toBe(false);
   });
 
   test("uses send action when idle and enables it only for non-empty prompts", () => {
@@ -83,10 +83,10 @@ describe("resolveStageThreadsComposerActionState", () => {
     expect(disabled.action).toBe("send");
     expect(disabled.primarySubmitAction).toBe("send");
     expect(disabled.label).toBe("Send prompt");
-    expect(disabled.disabled).toBeTrue();
+    expect(disabled.disabled).toBe(true);
     expect(enabled.action).toBe("send");
     expect(enabled.primarySubmitAction).toBe("send");
-    expect(enabled.disabled).toBeFalse();
+    expect(enabled.disabled).toBe(false);
   });
 
   test("allows send in new-thread mode when a target card exists", () => {
@@ -105,8 +105,8 @@ describe("resolveStageThreadsComposerActionState", () => {
       isQueueingEnabled: false,
     });
 
-    expect(enabled.disabled).toBeFalse();
-    expect(disabled.disabled).toBeTrue();
+    expect(enabled.disabled).toBe(false);
+    expect(disabled.disabled).toBe(true);
   });
 });
 

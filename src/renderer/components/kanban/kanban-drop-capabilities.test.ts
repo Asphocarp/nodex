@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveKanbanDropCapabilities } from "./kanban-drop-capabilities";
 
 describe("resolveKanbanDropCapabilities", () => {
@@ -7,8 +7,8 @@ describe("resolveKanbanDropCapabilities", () => {
       dragMode: { kind: "manual-rank" },
     });
 
-    expect(capabilities.allowCardTargets).toBeTrue();
-    expect(capabilities.allowColumnTargets).toBeTrue();
+    expect(capabilities.allowCardTargets).toBe(true);
+    expect(capabilities.allowColumnTargets).toBe(true);
   });
 
   test("keeps card targets active for inferable property-sorted drags", () => {
@@ -16,8 +16,8 @@ describe("resolveKanbanDropCapabilities", () => {
       dragMode: { kind: "property-sorted", field: "priority" },
     });
 
-    expect(capabilities.allowCardTargets).toBeTrue();
-    expect(capabilities.allowColumnTargets).toBeTrue();
+    expect(capabilities.allowCardTargets).toBe(true);
+    expect(capabilities.allowColumnTargets).toBe(true);
   });
 
   test("disables only card targets under move-only derived sorts so cross-column drops still resolve", () => {
@@ -25,7 +25,7 @@ describe("resolveKanbanDropCapabilities", () => {
       dragMode: { kind: "derived-move-only", field: "title" },
     });
 
-    expect(capabilities.allowCardTargets).toBeFalse();
-    expect(capabilities.allowColumnTargets).toBeTrue();
+    expect(capabilities.allowCardTargets).toBe(false);
+    expect(capabilities.allowColumnTargets).toBe(true);
   });
 });

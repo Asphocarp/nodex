@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as http from "http";
@@ -181,11 +181,11 @@ describe("card status CLI arguments", () => {
 
       const legacyNumeric = await runCli(["ls", "5", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(legacyNumeric.exitCode).toBe(1);
-      expect(legacyNumeric.stderr.includes("Unknown status")).toBeTrue();
+      expect(legacyNumeric.stderr.includes("Unknown status")).toBe(true);
 
       const legacyReady = await runCli(["ls", "5-ready", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(legacyReady.exitCode).toBe(1);
-      expect(legacyReady.stderr.includes("Unknown status")).toBeTrue();
+      expect(legacyReady.stderr.includes("Unknown status")).toBe(true);
 
       const listRequest = requests.find((request) => request.method === "GET");
       expect(listRequest?.path).toBe("/api/projects/default/column?id=in_progress");
@@ -383,7 +383,7 @@ describe("card status CLI arguments", () => {
         homeDir,
       );
       expect(unsafeRetryIdentity.exitCode).toBe(1);
-      expect(unsafeRetryIdentity.stderr.includes("requires --card-id")).toBeTrue();
+      expect(unsafeRetryIdentity.stderr.includes("requires --card-id")).toBe(true);
 
       const addArgs = [
         "add",
@@ -432,7 +432,7 @@ describe("card status CLI arguments", () => {
         homeDir,
       );
       expect(collision.exitCode).toBe(1);
-      expect(collision.stderr.includes("another Card create")).toBeTrue();
+      expect(collision.stderr.includes("another Card create")).toBe(true);
       const collisionMutation = mutations[mutations.length - 1];
       expect(collisionMutation?.operationId).toBe("cli-create-stable");
       expect(

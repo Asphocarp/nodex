@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildThreadSummaryPanelSourceModel } from "./thread-summary-panel-source-model";
 

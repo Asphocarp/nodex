@@ -198,6 +198,37 @@ const clearBlockFoundation = (database: Database.Database): void => {
     for (const table of FOUNDATION_TABLES_IN_DELETE_ORDER) {
       database.exec(`DELETE FROM ${table}`);
     }
+
+    // This fixture rewinds a current database to the v58 authority boundary.
+    // Remove rows owned by newer projection tables so the simulated legacy
+    // database is internally valid before migration safety checks run.
+    for (let pass = 0; pass < 10; pass += 1) {
+      const violations = database.pragma("foreign_key_check") as Array<{
+        table: string;
+        rowid: number | null;
+      }>;
+      if (violations.length === 0) break;
+
+      for (const violation of violations) {
+        invariant(
+          violation.table !== "cards" && violation.table !== "projects",
+          `v58 fixture cleanup would delete legacy ${violation.table} rows`,
+        );
+        const quotedTable = `"${violation.table.replaceAll('"', '""')}"`;
+        if (violation.rowid === null) {
+          database.exec(`DELETE FROM ${quotedTable}`);
+          continue;
+        }
+        database
+          .prepare(`DELETE FROM ${quotedTable} WHERE rowid = ?`)
+          .run(violation.rowid);
+      }
+    }
+
+    invariant(
+      (database.pragma("foreign_key_check") as unknown[]).length === 0,
+      "v58 fixture cleanup left foreign-key violations",
+    );
   } finally {
     database.pragma("foreign_keys = ON");
   }

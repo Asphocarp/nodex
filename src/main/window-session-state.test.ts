@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -110,7 +110,7 @@ describe("WindowSessionState", () => {
       const restored = state.selectStartupSessions("none");
 
       expect(restored.length).toBe(1);
-      expect(restored[0]?.id === oldSession.id).toBeFalse();
+      expect(restored[0]?.id === oldSession.id).toBe(false);
       expect(state.readCatalog()?.sessions.length).toBe(1);
     });
   });
@@ -180,7 +180,7 @@ describe("WindowSessionState", () => {
       expect(catalog?.sessions.length).toBe(2);
       expect(catalog?.sessions[0]?.id).toBe(first.id);
       expect(catalog?.sessions[1]?.id).toBe(second.id);
-      expect(catalog?.sessions.some((session) => session.id === closedBeforeQuit.id)).toBeFalse();
+      expect(catalog?.sessions.some((session) => session.id === closedBeforeQuit.id)).toBe(false);
     });
   });
 
@@ -195,7 +195,7 @@ describe("WindowSessionState", () => {
       const catalog = state.readCatalog();
       expect(catalog?.sessions.length).toBe(1);
       expect(catalog?.sessions[0]?.id).toBe(lastClosed.id);
-      expect(catalog?.sessions.some((session) => session.id === previous.id)).toBeFalse();
+      expect(catalog?.sessions.some((session) => session.id === previous.id)).toBe(false);
     });
   });
 
@@ -231,7 +231,7 @@ describe("WindowSessionState", () => {
       [{ bounds: { x: 0, y: 0, width: 1440, height: 900 } }],
     );
 
-    expect(visible).toBeTrue();
-    expect(offscreen).toBeFalse();
+    expect(visible).toBe(true);
+    expect(offscreen).toBe(false);
   });
 });

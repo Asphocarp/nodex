@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import type {
   CodexRendererClientRequestMessage,
@@ -139,7 +139,7 @@ describe("RendererClientRouter", () => {
       result: "ok",
     });
 
-    expect(accepted).toBeTrue();
+    expect(accepted).toBe(true);
     expect(await resultPromise).toBe("ok");
     expect(router.getPendingRequestCount()).toBe(0);
     expect(timers.size).toBe(0);
@@ -174,14 +174,14 @@ describe("RendererClientRouter", () => {
       result: "wrong",
     };
 
-    expect(router.handleResponse(other, response)).toBeFalse();
+    expect(router.handleResponse(other, response)).toBe(false);
     expect(router.getPendingRequestCount()).toBe(1);
 
     expect(router.handleResponse(target, {
       type: "success",
       requestId: request.requestId,
       result: "right",
-    })).toBeTrue();
+    })).toBe(true);
     expect(await resultPromise).toBe("right");
   });
 
@@ -205,7 +205,7 @@ describe("RendererClientRouter", () => {
     target.destroy();
 
     const message = await readRejectionMessage(resultPromise);
-    expect(message.includes("was destroyed")).toBeTrue();
+    expect(message.includes("was destroyed")).toBe(true);
     expect(router.getClientCount()).toBe(0);
     expect(router.getPendingRequestCount()).toBe(0);
     expect(timers.size).toBe(0);
@@ -248,10 +248,10 @@ describe("RendererClientRouter", () => {
       { timeoutMs: 25 },
     );
 
-    expect(timers.fireNext()).toBeTrue();
+    expect(timers.fireNext()).toBe(true);
 
     const message = await readRejectionMessage(resultPromise);
-    expect(message.includes("timed out after 25ms")).toBeTrue();
+    expect(message.includes("timed out after 25ms")).toBe(true);
     expect(router.getPendingRequestCount()).toBe(0);
   });
 
@@ -276,7 +276,7 @@ describe("RendererClientRouter", () => {
       type: "success",
       requestId: request.requestId,
       result: "owner",
-    })).toBeTrue();
+    })).toBe(true);
     expect(await rolePromise).toBe("owner");
   });
 
@@ -297,11 +297,11 @@ describe("RendererClientRouter", () => {
       type: "success",
       requestId: request.requestId,
       result: "follower",
-    })).toBeTrue();
+    })).toBe(true);
 
     const message = await readRejectionMessage(ownerPromise);
-    expect(message.includes("no-client-found")).toBeTrue();
-    expect(message.includes("not owner")).toBeTrue();
+    expect(message.includes("no-client-found")).toBe(true);
+    expect(message.includes("not owner")).toBe(true);
   });
 
   test("uses Codex Electron complete-history owner request timeout", () => {

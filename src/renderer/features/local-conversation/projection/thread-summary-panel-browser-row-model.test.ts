@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildThreadSummaryPanelBrowserRow,
   isThreadSummaryBrowserRowAgentWorking,
@@ -21,7 +21,7 @@ describe("buildThreadSummaryPanelBrowserRow", () => {
     expect(row.displayUrl).toBe("example.com");
     expect(row.url).toBe("https://www.example.com/docs/page");
     expect(row.faviconUrl).toBe("https://example.com/favicon.ico");
-    expect(row.isAgentWorking).toBeTrue();
+    expect(row.isAgentWorking).toBe(true);
     expect(row.panelId).toBe("right");
     expect(row.leafId).toBe("leaf-a");
   });
@@ -45,7 +45,7 @@ describe("buildThreadSummaryPanelBrowserRow", () => {
     });
 
     expect(row.title).toBe("Browser");
-    expect(row.displayUrl === null).toBeTrue();
+    expect(row.displayUrl === null).toBe(true);
     expect(row.url).toBe("");
   });
 });
@@ -54,9 +54,9 @@ describe("isThreadSummaryBrowserRowAgentWorking", () => {
   test("marks only the active unreleased BrowserUse tab as working", () => {
     const released = new Set(["browser-2"]);
 
-    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", released, "browser-1")).toBeTrue();
-    expect(isThreadSummaryBrowserRowAgentWorking("browser-2", released, "browser-2")).toBeFalse();
-    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", released, "browser-3")).toBeFalse();
-    expect(isThreadSummaryBrowserRowAgentWorking(null, released, "browser-1")).toBeFalse();
+    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", released, "browser-1")).toBe(true);
+    expect(isThreadSummaryBrowserRowAgentWorking("browser-2", released, "browser-2")).toBe(false);
+    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", released, "browser-3")).toBe(false);
+    expect(isThreadSummaryBrowserRowAgentWorking(null, released, "browser-1")).toBe(false);
   });
 });

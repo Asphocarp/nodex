@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   bindTrustedDocumentMutation,
   documentMutationHttpStatus,
@@ -29,7 +29,7 @@ describe("Document operation transport", () => {
         clientSessionId: "renderer-7",
       },
     );
-    expect(bound.ok).toBeTrue();
+    expect(bound.ok).toBe(true);
     if (!bound.ok) return;
     expect(bound.value.clientSessionId).toBe("renderer-7");
     expect(JSON.stringify(bound.value.actor)).toBe(
@@ -46,7 +46,7 @@ describe("Document operation transport", () => {
       "document-1",
       { actor: { kind: "http_loopback" } },
     );
-    expect(wrongProject.ok).toBeFalse();
+    expect(wrongProject.ok).toBe(false);
     if (!wrongProject.ok) {
       expect(wrongProject.error.code).toBe(
         "invalid_document_operation_request",
@@ -60,7 +60,7 @@ describe("Document operation transport", () => {
       "document-1",
       { actor: { kind: "http_loopback" } },
     );
-    expect(malformed.ok).toBeFalse();
+    expect(malformed.ok).toBe(false);
     if (!malformed.ok) expect(malformed.error.mutationId).toBe("mutation-1");
   });
 

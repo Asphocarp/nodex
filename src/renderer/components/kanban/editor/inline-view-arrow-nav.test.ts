@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   deferCollapsedToggleVerticalArrowToBrowser,
   focusInlineSummaryBoundary,
@@ -143,8 +143,8 @@ describe("inline view arrow navigation", () => {
     };
 
     registerInlineSummaryBoundaryHandle("inline-1", handle);
-    expect(focusInlineSummaryBoundary("inline-1", "next")).toBeTrue();
-    expect(focusInlineSummaryBoundary("inline-1", "prev")).toBeFalse();
+    expect(focusInlineSummaryBoundary("inline-1", "next")).toBe(true);
+    expect(focusInlineSummaryBoundary("inline-1", "prev")).toBe(false);
     expect(JSON.stringify(calls)).toBe(JSON.stringify(["next", "prev"]));
     unregisterInlineSummaryBoundaryHandle("inline-1", handle);
   });
@@ -182,10 +182,10 @@ describe("inline view arrow navigation", () => {
       "next",
     );
 
-    expect(moved).toBeTrue();
+    expect(moved).toBe(true);
     expect(movedToId).toBe("block-c");
     expect(movedToPlacement).toBe("start");
-    expect(focused).toBeTrue();
+    expect(focused).toBe(true);
   });
 
   test("moveFromInlineSummaryToNeighborBlock returns false when no neighbor block", () => {
@@ -205,7 +205,7 @@ describe("inline view arrow navigation", () => {
       "prev",
     );
 
-    expect(moved).toBeFalse();
+    expect(moved).toBe(false);
   });
 
   test("handleArrowIntoInlineSummary moves from normal block into inline summary handle", () => {
@@ -256,8 +256,8 @@ describe("inline view arrow navigation", () => {
       "prev",
     );
 
-    expect(downMoved).toBeTrue();
-    expect(upMoved).toBeTrue();
+    expect(downMoved).toBe(true);
+    expect(upMoved).toBe(true);
     expect(JSON.stringify(calls)).toBe(JSON.stringify(["next", "prev"]));
     unregisterInlineSummaryBoundaryHandle("inline-1", handle);
   });
@@ -281,7 +281,7 @@ describe("inline view arrow navigation", () => {
       },
       "next",
     );
-    expect(moved).toBeFalse();
+    expect(moved).toBe(false);
   });
 
   test("handleArrowFromInlineBlockSelection enters first/last summary from selected inline block", () => {
@@ -332,8 +332,8 @@ describe("inline view arrow navigation", () => {
       "next",
     );
 
-    expect(upHandled).toBeTrue();
-    expect(downHandled).toBeTrue();
+    expect(upHandled).toBe(true);
+    expect(downHandled).toBe(true);
     expect(JSON.stringify(calls)).toBe(JSON.stringify(["prev", "next"]));
     unregisterInlineSummaryBoundaryHandle("inline-1", handle);
   });
@@ -357,7 +357,7 @@ describe("inline view arrow navigation", () => {
       },
       "next",
     );
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
   });
 
   test("collapsed-toggle ArrowDown defers for collapsed header selection", () => {
@@ -377,7 +377,7 @@ describe("inline view arrow navigation", () => {
       outsideTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeTrue();
+    expect(shouldDefer).toBe(true);
   });
 
   test("collapsed-toggle ArrowUp defers for collapsed header selection", () => {
@@ -397,7 +397,7 @@ describe("inline view arrow navigation", () => {
       outsideTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeTrue();
+    expect(shouldDefer).toBe(true);
   });
 
   test("collapsed-toggle ArrowDown does not defer when expanded", () => {
@@ -417,7 +417,7 @@ describe("inline view arrow navigation", () => {
       insideHeaderTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeFalse();
+    expect(shouldDefer).toBe(false);
   });
 
   test("collapsed-toggle ArrowDown does not defer when selection is inside child group", () => {
@@ -437,7 +437,7 @@ describe("inline view arrow navigation", () => {
       insideHeaderTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeFalse();
+    expect(shouldDefer).toBe(false);
   });
 
   test("collapsed-toggle ArrowDown falls back to key target when selection is unavailable", () => {
@@ -458,7 +458,7 @@ describe("inline view arrow navigation", () => {
       insideHeaderTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeTrue();
+    expect(shouldDefer).toBe(true);
   });
 
   test("collapsed-toggle ArrowDown does not defer for key target outside header when no selection", () => {
@@ -479,7 +479,7 @@ describe("inline view arrow navigation", () => {
       outsideTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeFalse();
+    expect(shouldDefer).toBe(false);
   });
 
   test("collapsed-toggle ArrowDown defers when next collapsed toggle hides a first non-common child", () => {
@@ -501,7 +501,7 @@ describe("inline view arrow navigation", () => {
       outsideTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeTrue();
+    expect(shouldDefer).toBe(true);
   });
 
   test("collapsed-toggle ArrowUp defers when previous collapsed toggle hides a last non-common child", () => {
@@ -523,7 +523,7 @@ describe("inline view arrow navigation", () => {
       outsideTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeTrue();
+    expect(shouldDefer).toBe(true);
   });
 
   test("collapsed-toggle boundary arrows do not defer for common inline edge children", () => {
@@ -544,7 +544,7 @@ describe("inline view arrow navigation", () => {
       outsideTarget as unknown as EventTarget,
     );
 
-    expect(shouldDefer).toBeFalse();
+    expect(shouldDefer).toBe(false);
   });
 
   test("deferCollapsedToggleVerticalArrowToBrowser stops immediate propagation for hidden edge non-common arrows", () => {
@@ -572,7 +572,7 @@ describe("inline view arrow navigation", () => {
       },
     );
 
-    expect(deferred).toBeTrue();
-    expect(stopped).toBeTrue();
+    expect(deferred).toBe(true);
+    expect(stopped).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import path from "node:path";
 import {
   buildTextMateUrl,
@@ -57,12 +57,12 @@ describe("file link opener", () => {
       "vscode",
       false,
       false,
-    )).toBeTrue();
+    )).toBe(true);
     expect(shouldPreferFileManagerForTarget(
       vscodeIconPath,
       "vscode",
       true,
       false,
-    )).toBeFalse();
+    )).toBe(false);
   });
 });

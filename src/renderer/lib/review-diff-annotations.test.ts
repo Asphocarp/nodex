@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildReviewDiffAnnotationKey,
   captureReviewDiffLocalHunkFromPatch,
@@ -48,8 +48,8 @@ describe("review diff annotations", () => {
       lineNumber: 10,
     });
 
-    expect(Boolean(hunk?.startsWith("@@ -8,3 +8,4 @@"))).toBeTrue();
-    expect(Boolean(hunk?.includes("+export const added = true;"))).toBeTrue();
+    expect(Boolean(hunk?.startsWith("@@ -8,3 +8,4 @@"))).toBe(true);
+    expect(Boolean(hunk?.includes("+export const added = true;"))).toBe(true);
   });
 
   test("builds request-change attachments from selected ranges", () => {
@@ -103,10 +103,10 @@ describe("review diff annotations", () => {
     });
     const promptText = serializeReviewDiffCommentAttachmentForPrompt(attachment);
 
-    expect(Boolean(promptText.includes("Review diff comment:"))).toBeTrue();
-    expect(Boolean(promptText.includes("File: src/example.ts"))).toBeTrue();
-    expect(Boolean(promptText.includes("Side: right"))).toBeTrue();
-    expect(Boolean(promptText.includes("Comment:\nRequest change text"))).toBeTrue();
+    expect(Boolean(promptText.includes("Review diff comment:"))).toBe(true);
+    expect(Boolean(promptText.includes("File: src/example.ts"))).toBe(true);
+    expect(Boolean(promptText.includes("Side: right"))).toBe(true);
+    expect(Boolean(promptText.includes("Comment:\nRequest change text"))).toBe(true);
   });
 
   test("blocks duplicate drafts against existing comments and drafts", () => {
@@ -114,16 +114,16 @@ describe("review diff annotations", () => {
       key: "additions:2",
       existingKeys: new Set(["additions:2"]),
       draftKeys: new Set(),
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldBlockReviewDiffDraft({
       key: "deletions:3",
       existingKeys: new Set(),
       draftKeys: new Set(["deletions:3"]),
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldBlockReviewDiffDraft({
       key: "additions:4",
       existingKeys: new Set(),
       draftKeys: new Set(),
-    })).toBeFalse();
+    })).toBe(false);
   });
 });

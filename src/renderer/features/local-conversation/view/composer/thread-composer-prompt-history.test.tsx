@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { useEffect, useRef, useState } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -183,7 +183,7 @@ describe("composer prompt history helpers", () => {
     }
 
     const history = readScopedPromptHistory(state, "thread-1");
-    expect(unchanged === initial).toBeTrue();
+    expect(unchanged === initial).toBe(true);
     expect(history.length).toBe(MAX_PROMPT_HISTORY);
     expect(history[0]).toBe("prompt 2");
     expect(history[19]).toBe("prompt 21");
@@ -209,9 +209,9 @@ describe("useThreadComposerPromptHistoryRecall", () => {
 
     await act(async () => {
       const result = controllerRef.current?.keyDown("ArrowUp");
-      expect(result?.handled ?? false).toBeTrue();
-      expect(result?.prevented ?? false).toBeTrue();
-      expect(result?.stopped ?? false).toBeTrue();
+      expect(result?.handled ?? false).toBe(true);
+      expect(result?.prevented ?? false).toBe(true);
+      expect(result?.stopped ?? false).toBe(true);
       await Promise.resolve();
     });
     expect(controllerRef.current?.getText() ?? "").toBe("newer");
@@ -244,7 +244,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
 
     await act(async () => {
       const nonEmptyResult = controllerRef.current?.keyDown("ArrowUp");
-      expect(nonEmptyResult?.handled ?? true).toBeFalse();
+      expect(nonEmptyResult?.handled ?? true).toBe(false);
       controllerRef.current?.setComposerText("");
       controllerRef.current?.setCursorAtEnd(false);
       await Promise.resolve();
@@ -252,14 +252,14 @@ describe("useThreadComposerPromptHistoryRecall", () => {
 
     await act(async () => {
       const cursorResult = controllerRef.current?.keyDown("ArrowUp");
-      expect(cursorResult?.handled ?? true).toBeFalse();
+      expect(cursorResult?.handled ?? true).toBe(false);
       controllerRef.current?.setCursorAtEnd(true);
       await Promise.resolve();
     });
 
     await act(async () => {
       const modifierResult = controllerRef.current?.keyDown("ArrowUp", { shiftKey: true });
-      expect(modifierResult?.handled ?? true).toBeFalse();
+      expect(modifierResult?.handled ?? true).toBe(false);
       await Promise.resolve();
     });
 
@@ -285,7 +285,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
 
     await act(async () => {
       const result = controllerRef.current?.keyDown("ArrowDown");
-      expect(result?.handled ?? true).toBeFalse();
+      expect(result?.handled ?? true).toBe(false);
       await Promise.resolve();
     });
 
@@ -310,7 +310,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
 
     await act(async () => {
       const result = controllerRef.current?.keyDown("ArrowUp");
-      expect(result?.handled ?? false).toBeTrue();
+      expect(result?.handled ?? false).toBe(true);
       await Promise.resolve();
     });
 

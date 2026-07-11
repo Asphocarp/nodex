@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
 
 describe("nfm codex prompt input", () => {

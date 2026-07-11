@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
   normalizeWorktreeAutoBranchPrefix,

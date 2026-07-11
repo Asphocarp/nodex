@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
 import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
@@ -106,17 +106,17 @@ describe("MultiAgentActionSurface", () => {
     );
 
     const header = getByTestId("multi-agent-action-header");
-    expect(textContent(header).includes("Messaged")).toBeTrue();
-    expect(textContent(header).includes("an agent")).toBeTrue();
-    expect(Boolean(container.querySelector('[data-subagent-glyph-icon="true"]'))).toBeTrue();
+    expect(textContent(header).includes("Messaged")).toBe(true);
+    expect(textContent(header).includes("an agent")).toBe(true);
+    expect(Boolean(container.querySelector('[data-subagent-glyph-icon="true"]'))).toBe(true);
 
     fireEvent.click(header);
     await settleAsyncRender();
 
     const rows = getByTestId("multi-agent-action-rows");
     const content = textContent(rows);
-    expect(content.includes("Messaged research (worker): Gather the failing tests.")).toBeTrue();
-    expect(Boolean(container.querySelector('[style*="pointer-events: auto"]'))).toBeTrue();
+    expect(content.includes("Messaged research (worker): Gather the failing tests.")).toBe(true);
+    expect(Boolean(container.querySelector('[style*="pointer-events: auto"]'))).toBe(true);
   });
 
   test("keeps in-progress actions open without rendering wait-only entries", () => {
@@ -150,10 +150,10 @@ describe("MultiAgentActionSurface", () => {
 
     const { container } = render(<MultiAgentActionSurface items={[inProgressItem, waitItem]} />);
     const content = textContent(container);
-    expect(content.includes("Creating")).toBeTrue();
-    expect(content.includes("2 agents")).toBeTrue();
-    expect(content.includes("Created")).toBeFalse();
-    expect(content.includes("Waiting")).toBeFalse();
+    expect(content.includes("Creating")).toBe(true);
+    expect(content.includes("2 agents")).toBe(true);
+    expect(content.includes("Created")).toBe(false);
+    expect(content.includes("Waiting")).toBe(false);
   });
 
   test("uses Electron header grammar and count labels", () => {
@@ -265,9 +265,9 @@ describe("MultiAgentActionSurface", () => {
 
     const rows = getByTestId("multi-agent-action-rows");
     const content = textContent(rows);
-    expect(content.includes(`Created agent1 (worker) with the instructions: ${spawnPrompt}`)).toBeTrue();
-    expect(content.includes("Resumed agent2 (worker)")).toBeTrue();
-    expect(content.includes(`Input: ${resumePrompt}`)).toBeTrue();
+    expect(content.includes(`Created agent1 (worker) with the instructions: ${spawnPrompt}`)).toBe(true);
+    expect(content.includes("Resumed agent2 (worker)")).toBe(true);
+    expect(content.includes(`Input: ${resumePrompt}`)).toBe(true);
     expect(container.querySelectorAll('[data-testid="multi-agent-action-inline-prompt"]').length).toBe(1);
     expect(container.querySelectorAll('[data-testid="multi-agent-action-meta-prompt"]').length).toBe(1);
   });
@@ -336,8 +336,8 @@ describe("MultiAgentActionSurface", () => {
     await settleAsyncRender();
 
     const content = textContent(container);
-    expect(content.includes("Euclid (explorer)")).toBeTrue();
-    expect(content.includes("019f3c6a-2ebc-7b82-ab83-cb7edb449ada")).toBeFalse();
+    expect(content.includes("Euclid (explorer)")).toBe(true);
+    expect(content.includes("019f3c6a-2ebc-7b82-ab83-cb7edb449ada")).toBe(false);
 
     fireEvent.click(getByRole("button", { name: "Euclid" }));
     expect(calls[0]?.threadId).toBe("019f3c6a-2ebc-7b82-ab83-cb7edb449ada");
@@ -403,8 +403,8 @@ describe("MultiAgentActionSurface", () => {
     await settleAsyncRender();
 
     const content = textContent(container);
-    expect(content.includes("Nash (worker)")).toBeTrue();
-    expect(content.includes(threadId)).toBeFalse();
+    expect(content.includes("Nash (worker)")).toBe(true);
+    expect(content.includes(threadId)).toBe(false);
 
     fireEvent.click(getByRole("button", { name: "Nash" }));
     expect(calls[0]?.threadId).toBe(threadId);
@@ -454,8 +454,8 @@ describe("MultiAgentActionSurface", () => {
     await settleAsyncRender();
 
     const content = textContent(container);
-    expect(content.includes(threadId)).toBeTrue();
-    expect(content.includes("Structure Scout report preview")).toBeFalse();
+    expect(content.includes(threadId)).toBe(true);
+    expect(content.includes("Structure Scout report preview")).toBe(false);
   });
 
   test("passes Codex-style subagent context from inline agent buttons", async () => {
@@ -602,7 +602,7 @@ describe("MultiAgentActionSurface", () => {
 
     expect(textContent(getByTestId("multi-agent-action-rows"))).toBe("Failed closing");
 
-    expect(queryByRole("button", { name: "thread-agent-1" }) === null).toBeTrue();
+    expect(queryByRole("button", { name: "thread-agent-1" }) === null).toBe(true);
     expect(openedThreadIds.join(",")).toBe("");
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   resolveNfmFormattingToolbarPresentation,
   shouldSuppressNfmFormattingToolbarForSelection,
@@ -34,7 +34,7 @@ describe("nfm formatting toolbar", () => {
       legacyEligibility: true,
     });
 
-    expect(presentation.open).toBeTrue();
+    expect(presentation.open).toBe(true);
     if (!presentation.open) return;
     expect(presentation.mode).toBe("text-action");
     expect(presentation.position.from).toBe(SELECTION_RANGE.from);
@@ -54,7 +54,7 @@ describe("nfm formatting toolbar", () => {
       legacyEligibility: false,
     });
 
-    expect(presentation.open).toBeFalse();
+    expect(presentation.open).toBe(false);
   });
 
   test("opens the legacy toolbar only for non-text node action selections", () => {
@@ -69,7 +69,7 @@ describe("nfm formatting toolbar", () => {
       legacyEligibility: true,
     });
 
-    expect(presentation.open).toBeTrue();
+    expect(presentation.open).toBe(true);
     if (!presentation.open) return;
     expect(presentation.mode).toBe("legacy");
   });
@@ -79,19 +79,19 @@ describe("nfm formatting toolbar", () => {
       show: true,
       selectionRange: { from: 4, to: 10 },
       suppressionRange: { from: 4, to: 10 },
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(shouldSuppressNfmFormattingToolbarForSelection({
       show: true,
       selectionRange: { from: 4, to: 11 },
       suppressionRange: { from: 4, to: 10 },
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(shouldSuppressNfmFormattingToolbarForSelection({
       show: false,
       selectionRange: { from: 4, to: 10 },
       suppressionRange: { from: 4, to: 10 },
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(resolveNfmFormattingToolbarPresentation({
       show: true,
@@ -99,7 +99,7 @@ describe("nfm formatting toolbar", () => {
       suppressionRange: SELECTION_RANGE,
       textActionEligibility: makeTextActionEligibility(),
       legacyEligibility: false,
-    }).open).toBeFalse();
+    }).open).toBe(false);
   });
 
   test("keeps legacy eligibility scoped to table, block, and media selections", () => {
@@ -109,7 +109,7 @@ describe("nfm formatting toolbar", () => {
       isTableCellSelection: false,
       isBlockSelection: false,
       selectedBlocks: [{ type: "paragraph", content: [] }],
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(shouldUseNfmLegacyFormattingToolbar({
       isEditable: true,
@@ -117,7 +117,7 @@ describe("nfm formatting toolbar", () => {
       isTableCellSelection: false,
       isBlockSelection: false,
       selectedBlocks: [{ type: "image", props: { url: "nodex://assets/image.png" } }],
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(shouldUseNfmLegacyFormattingToolbar({
       isEditable: true,
@@ -125,7 +125,7 @@ describe("nfm formatting toolbar", () => {
       isTableCellSelection: true,
       isBlockSelection: false,
       selectedBlocks: [{ type: "table", content: [] }],
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(shouldUseNfmLegacyFormattingToolbar({
       isEditable: true,
@@ -133,7 +133,7 @@ describe("nfm formatting toolbar", () => {
       isTableCellSelection: false,
       isBlockSelection: true,
       selectedBlocks: [{ type: "paragraph", content: [] }],
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(shouldUseNfmLegacyFormattingToolbar({
       isEditable: true,
@@ -141,7 +141,7 @@ describe("nfm formatting toolbar", () => {
       isTableCellSelection: false,
       isBlockSelection: true,
       selectedBlocks: [{ type: "image", props: { url: "nodex://assets/image.png" } }],
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(shouldUseNfmLegacyFormattingToolbar({
       isEditable: false,
@@ -149,14 +149,14 @@ describe("nfm formatting toolbar", () => {
       isTableCellSelection: false,
       isBlockSelection: true,
       selectedBlocks: [{ type: "image", props: { url: "nodex://assets/image.png" } }],
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("omits non-persisted text alignment buttons from the legacy image/file toolbar", () => {
-    expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignLeftButton")).toBeFalse();
-    expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignCenterButton")).toBeFalse();
-    expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignRightButton")).toBeFalse();
-    expect(shouldRenderNfmLegacyFormattingToolbarItem("fileDownloadButton")).toBeTrue();
-    expect(shouldRenderNfmLegacyFormattingToolbarItem("replaceFileButton")).toBeTrue();
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignLeftButton")).toBe(false);
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignCenterButton")).toBe(false);
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignRightButton")).toBe(false);
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("fileDownloadButton")).toBe(true);
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("replaceFileButton")).toBe(true);
   });
 });

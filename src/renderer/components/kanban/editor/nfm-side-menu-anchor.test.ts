@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { NfmPopoverReference } from "./nfm-floating-popover";
 import {
   createNfmSideMenuBlockReference,
@@ -87,7 +87,7 @@ describe("nfm side menu anchor", () => {
     if (!reference) throw new Error("Expected a fallback side-menu reference.");
 
     const rect = readReferenceRect(reference);
-    expect(reference.element === undefined).toBeTrue();
+    expect(reference.element === undefined).toBe(true);
     expect(rect.left).toBe(11);
     expect(rect.top).toBe(22);
     expect(rect.width).toBe(33);
@@ -103,7 +103,7 @@ describe("nfm side menu anchor", () => {
     });
 
     const rect = readReferenceRect(reference);
-    expect(reference.element === undefined).toBeTrue();
+    expect(reference.element === undefined).toBe(true);
     expect(rect.left).toBe(5);
     expect(rect.top).toBe(6);
     expect(rect.width).toBe(7);

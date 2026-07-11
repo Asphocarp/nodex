@@ -2306,7 +2306,7 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
         additionalSearchPaths: [runtimeRoot],
         version: null,
         metadataPath: path.join(runtimeRoot, "runtime.json"),
-        missingBinaryMessage: "Pinned Codex runtime is missing or incomplete. Run `bun run stage:codex-runtime:mac`.",
+        missingBinaryMessage: "Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
       };
     }
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -101,7 +101,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "limit-claim",
       });
       expect(drain.results.length).toBe(1);
-      expect(drain.exhausted).toBeFalse();
+      expect(drain.exhausted).toBe(false);
     });
   });
 
@@ -147,7 +147,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "translation-claim",
       });
       expect(translation.results[0]?.outcome).toBe("applied");
-      expect(translation.results[0]?.documentChanged).toBeTrue();
+      expect(translation.results[0]?.documentChanged).toBe(true);
       const translated = materializePersistedCard(database, card.id);
       expect(translated.headSeq).toBe(2);
       expect(translated.materialization.title).toBe("Translated");
@@ -163,7 +163,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "metadata-claim",
       });
       expect(metadataOnly.results.length).toBe(0);
-      expect(metadataOnly.exhausted).toBeTrue();
+      expect(metadataOnly.exhausted).toBe(true);
       expect(materializePersistedCard(database, card.id).headSeq).toBe(2);
 
       database.prepare(`
@@ -176,7 +176,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "archived-claim",
       });
       expect(archived.results[0]?.outcome).toBe("applied");
-      expect(archived.results[0]?.documentChanged).toBeTrue();
+      expect(archived.results[0]?.documentChanged).toBe(true);
       expect(materializePersistedCard(database, card.id).materialization.title).toBe(
         "Archived translation",
       );
@@ -187,7 +187,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "delete-claim",
       });
       expect(deleted.results[0]?.outcome).toBe("applied");
-      expect(deleted.results[0]?.documentChanged).toBeFalse();
+      expect(deleted.results[0]?.documentChanged).toBe(false);
       const tombstone = database.prepare(`
         SELECT lifecycle FROM blocks WHERE id = ?
       `).get(card.id) as { readonly lifecycle: string };
@@ -215,7 +215,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "rollback-claim",
       });
       expect(drain.results[0]?.outcome).toBe("failed");
-      expect(drain.results[0]?.error?.includes("injected materialization failure")).toBeTrue();
+      expect(drain.results[0]?.error?.includes("injected materialization failure")).toBe(true);
       const document = database.prepare(`
         SELECT head_seq, readiness FROM documents WHERE id = ?
       `).get(`document:${card.id}`) as {
@@ -232,7 +232,7 @@ describe("legacy Card shadow processor", () => {
         SELECT status, last_error FROM legacy_card_shadow_jobs WHERE card_id = ?
       `).get(card.id) as { readonly status: string; readonly last_error: string };
       expect(job.status).toBe("failed");
-      expect(job.last_error.includes("injected materialization failure")).toBeTrue();
+      expect(job.last_error.includes("injected materialization failure")).toBe(true);
     });
   });
 
@@ -244,8 +244,8 @@ describe("legacy Card shadow processor", () => {
         description: "Body",
       });
       const initial = runLegacyCardShadowProcessorProbe(database);
-      expect(initial.allCurrentCardsReady).toBeTrue();
-      expect(initial.allCurrentCardContentInParity).toBeTrue();
+      expect(initial.allCurrentCardsReady).toBe(true);
+      expect(initial.allCurrentCardContentInParity).toBe(true);
 
       database.prepare(`
         UPDATE cards SET title = 'Pending legacy', revision = revision + 1 WHERE id = ?
@@ -259,7 +259,7 @@ describe("legacy Card shadow processor", () => {
         createClaimToken: () => "authority-claim",
       });
       expect(drain.results[0]?.outcome).toBe("failed");
-      expect(drain.results[0]?.error?.includes("authority ydoc_primary")).toBeTrue();
+      expect(drain.results[0]?.error?.includes("authority ydoc_primary")).toBe(true);
       expect(materializePersistedCard(database, card.id).headSeq).toBe(
         headBefore.headSeq,
       );

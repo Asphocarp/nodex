@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
@@ -104,7 +104,7 @@ describe("Block property mutation IPC", () => {
     const harness = register({ trusted: true });
     const result = await harness.invoke("project-1", request);
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(harness.captured.length).toBe(1);
     expect(harness.captured[0]?.mutationId).toBe("mutation-1");
     expect(harness.captured[0]?.clientSessionId).toBe("renderer-1");
@@ -114,14 +114,14 @@ describe("Block property mutation IPC", () => {
   test("rejects untrusted senders and Project mismatches before the writer", async () => {
     const untrusted = register({ trusted: false });
     const unauthorized = await untrusted.invoke("project-1", null);
-    expect(unauthorized.ok).toBeFalse();
+    expect(unauthorized.ok).toBe(false);
     if (unauthorized.ok) return;
     expect(unauthorized.error.code).toBe("invalid_property_mutation_request");
     expect(untrusted.captured.length).toBe(0);
 
     const scoped = register({ trusted: true });
     const mismatch = await scoped.invoke("project-2", request);
-    expect(mismatch.ok).toBeFalse();
+    expect(mismatch.ok).toBe(false);
     if (mismatch.ok) return;
     expect(mismatch.error.code).toBe("invalid_property_mutation_request");
     expect(scoped.captured.length).toBe(0);
@@ -135,10 +135,10 @@ describe("Block property mutation IPC", () => {
       },
     });
     const result = await harness.invoke("project-1", request);
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("unknown");
-    expect(result.error.retryable).toBeTrue();
+    expect(result.error.retryable).toBe(true);
     expect(result.error.mutationId).toBe("mutation-1");
   });
 });

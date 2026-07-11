@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import type { AppUpdateSettings } from "../shared/types";
 import { AppUpdateService } from "./app-update-service";
@@ -58,7 +58,7 @@ describe("AppUpdateService", () => {
 
     const status = service.initialize();
 
-    expect(status.supported).toBeFalse();
+    expect(status.supported).toBe(false);
     expect(status.status).toBe("unsupported");
     expect(status.currentVersion).toBe("0.1.5");
   });
@@ -70,9 +70,9 @@ describe("AppUpdateService", () => {
     service.maybeStartAutomaticChecks(automaticChecksEnabled);
 
     expect(updater.checkCount).toBe(1);
-    expect(updater.autoDownload).toBeTrue();
-    expect(updater.autoInstallOnAppQuit).toBeFalse();
-    expect(updater.allowPrerelease).toBeFalse();
+    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    expect(updater.allowPrerelease).toBe(false);
   });
 
   test("tracks no-update checks", async () => {
@@ -90,7 +90,7 @@ describe("AppUpdateService", () => {
 
     const status = service.getStatus();
     expect(status.status).toBe("upToDate");
-    expect(status.supported).toBeTrue();
+    expect(status.supported).toBe(true);
     expect(status.message).toBe("You’re up to date.");
     expect(status.releaseDate).toBe("2026-03-18T00:00:00.000Z");
   });
@@ -123,7 +123,7 @@ describe("AppUpdateService", () => {
     expect(status.transferredBytes).toBe(512);
     expect(status.totalBytes).toBe(1024);
 
-    expect(service.installUpdateAndRestart()).toBeFalse();
+    expect(service.installUpdateAndRestart()).toBe(false);
     expect(updater.installCount).toBe(0);
 
     updater.emit("update-downloaded", {
@@ -138,7 +138,7 @@ describe("AppUpdateService", () => {
     expect(status.status).toBe("downloaded");
     expect(status.progressPercent).toBe(100);
     expect(status.message).toBe("Update ready. Restart Nodex to install it.");
-    expect(service.installUpdateAndRestart()).toBeTrue();
+    expect(service.installUpdateAndRestart()).toBe(true);
     expect(updater.installCount).toBe(1);
   });
 

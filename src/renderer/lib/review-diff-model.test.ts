@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   REVIEW_DEFERRED_RENDER_FALLBACK_COUNT,
   REVIEW_CAPPED_MATCH_PAGE_SIZE,
@@ -51,12 +51,12 @@ describe("review diff model", () => {
       fileCount: 129,
       totalChangedLines: 0,
       totalChangedBytes: 0,
-    })).toBeTrue();
+    })).toBe(true);
     expect(isReviewLargeDiff({
       fileCount: 1,
       totalChangedLines: 1,
       totalChangedBytes: 1,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("detects codex-style single-file large diffs", () => {
@@ -65,13 +65,13 @@ describe("review diff model", () => {
       totalChangedLines: 1,
       totalChangedBytes: 1,
       largestFileChangedLines: 15_001,
-    })).toBeTrue();
+    })).toBe(true);
     expect(isReviewLargeDiff({
       fileCount: 1,
       totalChangedLines: 1,
       totalChangedBytes: 1,
       largestFileChangedLines: 15_000,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("filters review files by file path only", () => {
@@ -129,7 +129,7 @@ describe("review diff model", () => {
   test("defers non-capped review rendering after the first two files", () => {
     const plan = buildReviewRenderPlan(FILES, false);
 
-    expect(plan.shouldDefer).toBeTrue();
+    expect(plan.shouldDefer).toBe(true);
     expect(plan.visibleFiles.length).toBe(3);
     expect(plan.fallbackFiles.length).toBe(REVIEW_DEFERRED_RENDER_FALLBACK_COUNT);
   });
@@ -137,7 +137,7 @@ describe("review diff model", () => {
   test("does not defer capped review rendering", () => {
     const plan = buildReviewRenderPlan(FILES, true);
 
-    expect(plan.shouldDefer).toBeFalse();
+    expect(plan.shouldDefer).toBe(false);
     expect(plan.fallbackFiles.length).toBe(3);
   });
 

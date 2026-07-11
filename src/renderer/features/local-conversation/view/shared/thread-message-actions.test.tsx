@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render } from "../../../../test/dom";
 import { NodexTooltipProvider } from "../../../../components/ui/tooltip";
@@ -88,7 +88,7 @@ describe("MessageTimestamp", () => {
     const { container } = render(<MessageTimestamp sentAtMs={null} />);
 
     expect(container.textContent).toBe("");
-    expect(container.querySelector("span") === null).toBeTrue();
+    expect(container.querySelector("span") === null).toBe(true);
   });
 
   test("renders the relative calendar timestamp", () => {
@@ -123,8 +123,8 @@ describe("ThreadActionIconButton", () => {
       </ThreadActionIconButton>,
     );
 
-    expect(Boolean(container.querySelector("[data-tooltip-content]"))).toBeFalse();
-    expect(Boolean(getByRole("button", { name: "Edit message" }))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tooltip-content]"))).toBe(false);
+    expect(Boolean(getByRole("button", { name: "Edit message" }))).toBe(true);
   });
 });
 

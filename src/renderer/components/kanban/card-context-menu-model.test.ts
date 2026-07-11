@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   getCardActionMenuEntries,
   getCardMoveTargets,
@@ -15,7 +15,7 @@ describe("card context menu model", () => {
         "Delete",
       ].join(","),
     );
-    expect(actions.some((action) => action.mockReason !== undefined)).toBeFalse();
+    expect(actions.some((action) => action.mockReason !== undefined)).toBe(false);
   });
 
   test("keeps mock actions disabled and marked in dev order", () => {
@@ -36,8 +36,8 @@ describe("card context menu model", () => {
         "Delete",
       ].join(","),
     );
-    expect(duplicate?.disabled).toBeTrue();
-    expect(Boolean(duplicate?.mockReason)).toBeTrue();
+    expect(duplicate?.disabled).toBe(true);
+    expect(Boolean(duplicate?.mockReason)).toBe(true);
   });
 
   test("keeps delete and copy deeplink enabled for real actions", () => {
@@ -45,8 +45,8 @@ describe("card context menu model", () => {
     const copyLink = actions.find((action) => action.id === "copy-link");
     const deleteAction = actions.find((action) => action.id === "delete");
 
-    expect(copyLink?.disabled ?? false).toBeFalse();
-    expect(deleteAction?.disabled ?? false).toBeFalse();
+    expect(copyLink?.disabled ?? false).toBe(false);
+    expect(deleteAction?.disabled ?? false).toBe(false);
   });
 
   test("filters action entries by label and keyword matches", () => {
@@ -76,7 +76,7 @@ describe("card context menu model", () => {
 
     expect(targets.map((target) => target.label).join(",")).toBe("Default,Ops,Research");
     expect(targets[1]?.description).toBe("Current project · /work/ops");
-    expect(targets[1]?.disabled).toBeTrue();
+    expect(targets[1]?.disabled).toBe(true);
     expect(targets[2]?.description).toBe("Project");
   });
 

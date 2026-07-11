@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexMcpToolCallView, ProtocolMcpResourceReadResponse, ProtocolMcpServerStatus } from "../../../../../lib/types";
 import {
   MCP_APP_HTML_MAX_BYTES,
@@ -110,8 +110,8 @@ describe("mcp-tool-call-resource-utils", () => {
     expect(metadata.domain).toBe("https://widgets.example.com");
     expect(metadata.heightHint).toBe(420);
     expect(metadata.minFrameHeight).toBe(360);
-    expect(metadata.prefersBorder).toBeTrue();
-    expect(metadata.isCollapsible).toBeFalse();
+    expect(metadata.prefersBorder).toBe(true);
+    expect(metadata.isCollapsible).toBe(false);
     expect(metadata.csp?.connectDomains?.join(",") ?? "").toBe("https://api.example.com");
     expect(metadata.csp?.resourceDomains?.join(",") ?? "").toBe("https://cdn.example.com");
   });
@@ -129,7 +129,7 @@ describe("mcp-tool-call-resource-utils", () => {
 
     expect(resource?.mode ?? "").toBe("html");
     expect(resource?.metadata.heightHint ?? 0).toBe(320);
-    expect(shouldHideDuplicateMcpTextContent({ type: "text", text: "<main>Docs</main>" }, resource)).toBeTrue();
+    expect(shouldHideDuplicateMcpTextContent({ type: "text", text: "<main>Docs</main>" }, resource)).toBe(true);
   });
 
   test("resolves embedded HTML MCP app resources from successful tool results", () => {
@@ -212,17 +212,17 @@ describe("mcp-tool-call-resource-utils", () => {
       structuredContentJson: "{\n  \"ok\": true\n}",
       hasMcpAppBranch: true,
       hasResourceScope: true,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldShowMcpStructuredContent({
       structuredContentJson: "{\n  \"ok\": true\n}",
       hasMcpAppBranch: true,
       hasResourceScope: false,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldShowMcpStructuredContent({
       structuredContentJson: null,
       hasMcpAppBranch: false,
       hasResourceScope: false,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("checks MCP app HTML size using encoded byte size", () => {
@@ -235,6 +235,6 @@ describe("mcp-tool-call-resource-utils", () => {
     };
 
     expect(getMcpAppHtmlByteSize("é")).toBe(2);
-    expect(isMcpAppHtmlTooLarge(resource)).toBeTrue();
+    expect(isMcpAppHtmlTooLarge(resource)).toBe(true);
   });
 });

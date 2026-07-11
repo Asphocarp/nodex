@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import {
   buildPanelDestinationSections,

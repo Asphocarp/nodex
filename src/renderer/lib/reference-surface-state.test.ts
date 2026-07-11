@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   ReferenceExpansionStore,
   ReferenceSurfaceActivationBudget,
@@ -11,19 +11,19 @@ describe("ReferenceSurfaceActivationBudget", () => {
     budget.setEligible("card-b", true);
     budget.setEligible("card-c", true);
 
-    expect(budget.isActive("card-a")).toBeFalse();
-    expect(budget.isActive("card-b")).toBeTrue();
-    expect(budget.isActive("card-c")).toBeTrue();
+    expect(budget.isActive("card-a")).toBe(false);
+    expect(budget.isActive("card-b")).toBe(true);
+    expect(budget.isActive("card-c")).toBe(true);
 
     budget.setEligible("card-c", false);
-    expect(budget.isActive("card-a")).toBeTrue();
-    expect(budget.isActive("card-b")).toBeTrue();
+    expect(budget.isActive("card-a")).toBe(true);
+    expect(budget.isActive("card-b")).toBe(true);
 
     budget.touch("card-a");
     budget.setEligible("card-c", true);
-    expect(budget.isActive("card-a")).toBeTrue();
-    expect(budget.isActive("card-b")).toBeFalse();
-    expect(budget.isActive("card-c")).toBeTrue();
+    expect(budget.isActive("card-a")).toBe(true);
+    expect(budget.isActive("card-b")).toBe(false);
+    expect(budget.isActive("card-c")).toBe(true);
   });
 
   test("rejects invalid provider limits", () => {
@@ -51,12 +51,12 @@ describe("ReferenceExpansionStore", () => {
 
     store.setExpanded("first", true);
     store.setExpanded("first", true);
-    expect(store.isExpanded("first")).toBeTrue();
+    expect(store.isExpanded("first")).toBe(true);
     expect(firstNotifications).toBe(1);
     expect(secondNotifications).toBe(0);
 
     store.clear();
-    expect(store.isExpanded("first")).toBeFalse();
+    expect(store.isExpanded("first")).toBe(false);
     expect(firstNotifications).toBe(2);
   });
 });

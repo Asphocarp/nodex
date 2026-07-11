@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 
 describe("finalizeSideMenuBlockDrag", () => {
@@ -23,7 +23,7 @@ describe("finalizeSideMenuBlockDrag", () => {
     );
 
     expect(editor.prosemirrorView.dragging).toBe(null);
-    expect(blockDragEnded).toBeTrue();
+    expect(blockDragEnded).toBe(true);
   });
 
   test("removes orphaned drag previews when blockDragEnd is unavailable", () => {
@@ -70,6 +70,6 @@ describe("finalizeSideMenuBlockDrag", () => {
     );
 
     expect(editor.prosemirrorView.dragging).toBe(null);
-    expect(blockDragEnded).toBeFalse();
+    expect(blockDragEnded).toBe(false);
   });
 });

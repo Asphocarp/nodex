@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   prepareBlockDocumentAuthorityForStartup,
   type BlockDocumentStartupWriter,
@@ -118,7 +118,7 @@ describe("Block Document startup authority preparation", () => {
       message = error instanceof Error ? error.message : String(error);
     }
 
-    expect(message.includes("invalid snapshot")).toBeTrue();
+    expect(message.includes("invalid snapshot")).toBe(true);
     expect(calls.join(",")).toBe("shadow,migration");
   });
 
@@ -138,7 +138,7 @@ describe("Block Document startup authority preparation", () => {
       message = error instanceof Error ? error.message : String(error);
     }
 
-    expect(message.includes("still contain legacy foreign-body projections")).toBeTrue();
+    expect(message.includes("still contain legacy foreign-body projections")).toBe(true);
     expect(calls.join(",")).toBe("shadow,migration,cutover");
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { mergeCodexTurnSummaries, mergeCodexTurnSummary } from "./codex-thread-detail-reducer";
 import type { CodexTurnSummary } from "./types";
 

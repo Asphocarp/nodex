@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -192,8 +192,8 @@ describe("codex-app-server-client", () => {
         return entry.msg === "Codex RPC request completed" && entry.method === "echo";
       });
 
-      expect(hasSendLog).toBeTrue();
-      expect(hasResponseLog).toBeTrue();
+      expect(hasSendLog).toBe(true);
+      expect(hasResponseLog).toBe(true);
     } finally {
       unsubscribe();
       await client.stop();

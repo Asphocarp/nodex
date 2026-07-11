@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import {
   __resetCodexAppServerMessageBusForTests,
   subscribeCodexAppServerMessage,
@@ -6,7 +6,7 @@ import {
 
 let hostMessageListener: ((message: unknown) => void) | null = null;
 
-mock.module("./local-conversation-deps", () => ({
+vi.mock("./local-conversation-deps", () => ({
   subscribeCodexHostMessages: (listener: (message: unknown) => void) => {
     hostMessageListener = listener;
     return () => {
@@ -17,7 +17,7 @@ mock.module("./local-conversation-deps", () => ({
 }));
 
 async function loadHostBridgeModule() {
-  return import(`./local-conversation-host-bridge?test=${Date.now()}`);
+  return import("./local-conversation-host-bridge");
 }
 
 describe("local conversation host bridge", () => {

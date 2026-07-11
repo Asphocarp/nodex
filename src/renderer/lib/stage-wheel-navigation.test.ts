@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CALENDAR_SHIFT_WHEEL_SCOPE_ATTR,
   CALENDAR_SHIFT_WHEEL_SCOPE_VALUE,
@@ -162,7 +162,7 @@ describe("shouldDeferStageShiftWheelToNestedScroll", () => {
       stopAt: rail,
       direction: 1,
     });
-    expect(result).toBeTrue();
+    expect(result).toBe(true);
   });
 
   test("returns false when nested scroller is at the direction boundary", () => {
@@ -176,7 +176,7 @@ describe("shouldDeferStageShiftWheelToNestedScroll", () => {
       stopAt: rail,
       direction: 1,
     });
-    expect(result).toBeFalse();
+    expect(result).toBe(false);
   });
 
   test("does not treat the stage container itself as a nested scroller", () => {
@@ -189,7 +189,7 @@ describe("shouldDeferStageShiftWheelToNestedScroll", () => {
       stopAt: rail,
       direction: 1,
     });
-    expect(result).toBeFalse();
+    expect(result).toBe(false);
   });
 });
 
@@ -210,7 +210,7 @@ describe("isInsideCalendarShiftWheelScope", () => {
       parentElement: leaf,
     } as unknown as EventTarget;
 
-    expect(isInsideCalendarShiftWheelScope(target)).toBeTrue();
+    expect(isInsideCalendarShiftWheelScope(target)).toBe(true);
   });
 
   test("returns false when target tree has no calendar scope marker", () => {
@@ -228,7 +228,7 @@ describe("isInsideCalendarShiftWheelScope", () => {
       parentElement: leaf,
     } as unknown as EventTarget;
 
-    expect(isInsideCalendarShiftWheelScope(target)).toBeFalse();
+    expect(isInsideCalendarShiftWheelScope(target)).toBe(false);
   });
 });
 
@@ -248,7 +248,7 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       target,
       shiftKey: true,
       ctrlKey: false,
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("returns false when shift is not pressed", () => {
@@ -260,7 +260,7 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       target,
       shiftKey: false,
       ctrlKey: false,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("returns false for ctrl/meta-modified wheel", () => {
@@ -278,7 +278,7 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       target,
       shiftKey: true,
       ctrlKey: true,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("returns false for non-calendar targets", () => {
@@ -295,6 +295,6 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       target,
       shiftKey: true,
       ctrlKey: false,
-    })).toBeFalse();
+    })).toBe(false);
   });
 });

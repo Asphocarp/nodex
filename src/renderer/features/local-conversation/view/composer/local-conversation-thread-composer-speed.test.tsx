@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import {
@@ -332,7 +332,7 @@ async function renderComposer(
 async function submitCurrentComposerDraft(view: ReturnType<typeof render>): Promise<void> {
   const sendButton = within(view.container).getByLabelText("Send prompt");
   await waitFor(() => {
-    expect((sendButton as HTMLButtonElement).disabled).toBeFalse();
+    expect((sendButton as HTMLButtonElement).disabled).toBe(false);
   });
   await act(async () => {
     fireEvent.click(sendButton);
@@ -401,7 +401,7 @@ async function keyDownComposer(
 
   if (options?.waitForContent !== false) {
     await waitFor(() => {
-      expect(Boolean(composer.textContent ?? "")).toBeTrue();
+      expect(Boolean(composer.textContent ?? "")).toBe(true);
     });
   }
   composer.focus();
@@ -582,7 +582,7 @@ describe("ThreadComposer speed menu", () => {
 
     const primaryButton = view.getByLabelText("Steer follow-up");
     await waitFor(() => {
-      expect((primaryButton as HTMLButtonElement).disabled).toBeFalse();
+      expect((primaryButton as HTMLButtonElement).disabled).toBe(false);
     });
     await act(async () => {
       fireEvent.click(primaryButton);
@@ -677,7 +677,7 @@ describe("ThreadComposer speed menu", () => {
 
     const standardView = await renderComposer();
     const standardModelTrigger = standardView.getByLabelText("Select Codex model and reasoning");
-    expect(Boolean(standardModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeFalse();
+    expect(Boolean(standardModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(false);
 
     standardView.unmount();
 
@@ -686,7 +686,7 @@ describe("ThreadComposer speed menu", () => {
     const fastView = await renderComposer();
     const fastModelTrigger = fastView.getByLabelText("Select Codex model and reasoning");
     const fastIndicator = fastModelTrigger.querySelector('[data-fast-mode-indicator="true"]');
-    expect(Boolean(fastIndicator)).toBeTrue();
+    expect(Boolean(fastIndicator)).toBe(true);
 
     const fastIcon = fastIndicator?.querySelector("svg");
     if (!(fastIcon instanceof SVGSVGElement)) {
@@ -711,7 +711,7 @@ describe("ThreadComposer speed menu", () => {
 
     const modelTrigger = view.getByLabelText("Select Codex model and reasoning");
 
-    expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeFalse();
+    expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(false);
 
     await act(async () => {
       fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
@@ -719,7 +719,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    expect(Boolean(view.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBeTrue();
+    expect(Boolean(view.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBe(true);
 
     const speedTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
       .find((node) => node.textContent?.includes("Speed"));
@@ -744,7 +744,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
-    expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeTrue();
+    expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(true);
   });
 
   test("keeps Speed out of the add-context menu", async () => {
@@ -760,7 +760,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const menuItems = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
-    expect(menuItems.some((node) => node.textContent?.includes("Speed"))).toBeFalse();
+    expect(menuItems.some((node) => node.textContent?.includes("Speed"))).toBe(false);
   });
 
   test("add-context menu uses Codex row order without a title row", async () => {
@@ -786,11 +786,11 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const bodyText = view.container.ownerDocument.body.textContent ?? "";
-    expect(Boolean(bodyText.includes("Add files and more"))).toBeFalse();
-    expect(Boolean(bodyText.includes("Add photos & files"))).toBeTrue();
-    expect(Boolean(bodyText.includes("Plan mode"))).toBeTrue();
-    expect(Boolean(bodyText.includes("Speed"))).toBeFalse();
-    expect(Boolean(bodyText.includes("Plugins"))).toBeFalse();
+    expect(Boolean(bodyText.includes("Add files and more"))).toBe(false);
+    expect(Boolean(bodyText.includes("Add photos & files"))).toBe(true);
+    expect(Boolean(bodyText.includes("Plan mode"))).toBe(true);
+    expect(Boolean(bodyText.includes("Speed"))).toBe(false);
+    expect(Boolean(bodyText.includes("Plugins"))).toBe(false);
 
     const planRow = view.container.ownerDocument.body.querySelector('[data-add-context-row="plan-mode"]');
     if (!(planRow instanceof HTMLElement)) {
@@ -816,7 +816,7 @@ describe("ThreadComposer speed menu", () => {
 
     const wasNotCanceled = await keyDownComposer(view, { key: "Tab", shiftKey: true }, { waitForContent: false });
 
-    expect(wasNotCanceled).toBeFalse();
+    expect(wasNotCanceled).toBe(false);
     expect(selectedModes[0]).toBe("plan");
   });
 
@@ -831,7 +831,7 @@ describe("ThreadComposer speed menu", () => {
       if (!placeholder) {
         throw new Error("Expected Plan mode placeholder.");
       }
-      expect(placeholder.classList.contains("placeholder")).toBeTrue();
+      expect(placeholder.classList.contains("placeholder")).toBe(true);
     });
   });
 
@@ -854,7 +854,7 @@ describe("ThreadComposer speed menu", () => {
       if (!suggestion) {
         throw new Error("Expected plan keyword suggestion.");
       }
-      expect(Boolean(suggestion.textContent?.includes("Create a plan"))).toBeTrue();
+      expect(Boolean(suggestion.textContent?.includes("Create a plan"))).toBe(true);
     });
 
     const usePlanButton = view.container.querySelector('[data-codex-above-composer-suggestion-action="true"]');
@@ -868,7 +868,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedModes[0]).toBe("plan");
-    expect(Boolean(view.container.querySelector('[data-codex-above-composer-suggestion="keyword-plan-mode"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('[data-codex-above-composer-suggestion="keyword-plan-mode"]'))).toBe(true);
     view.unmount();
 
     const dismissView = await renderComposer({
@@ -890,7 +890,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      expect(Boolean(dismissView.container.querySelector('[data-plan-keyword-suggestion="true"]'))).toBeFalse();
+      expect(Boolean(dismissView.container.querySelector('[data-plan-keyword-suggestion="true"]'))).toBe(false);
     });
   });
 
@@ -909,8 +909,8 @@ describe("ThreadComposer speed menu", () => {
     expect(JSON.stringify(promptInput)).toBe(
       "{\"text\":\"Use these\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"text\":\"Pasted requirements\"}],\"mentions\":[{\"name\":\"notes.md\",\"path\":\"/tmp/notes.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
     );
-    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBeTrue();
-    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBeFalse();
+    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBe(true);
+    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBe(false);
   });
 
   test("plugin flyout inserts a structured skill mention", async () => {
@@ -955,14 +955,14 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    expect(Boolean(view.container.textContent?.includes("Computer Use"))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Computer Use"))).toBe(true);
     const sendButton = view.getByLabelText("Send prompt");
     await act(async () => {
       fireEvent.click(sendButton);
       await Promise.resolve();
     });
 
-    expect(Boolean((sentPromptInputs[0] ?? "").includes("\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]"))).toBeTrue();
+    expect(Boolean((sentPromptInputs[0] ?? "").includes("\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]"))).toBe(true);
   });
 
   test("opens the Codex-style inline slash command menu above the composer", async () => {
@@ -977,12 +977,12 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const menu = view.container.querySelector('[data-slash-command-menu="true"]');
       if (!menu) throw new Error("Expected the slash command menu.");
-      expect(Boolean(menu.textContent?.includes("Compact"))).toBeTrue();
-      expect(Boolean(menu.textContent?.includes("Fast"))).toBeTrue();
-      expect(Boolean(menu.textContent?.includes("Feedback"))).toBeTrue();
-      expect(Boolean(menu.textContent?.includes("MCP"))).toBeTrue();
-      expect(Boolean(menu.textContent?.includes("Model"))).toBeTrue();
-      expect(Boolean(menu.textContent?.includes("No commands"))).toBeFalse();
+      expect(Boolean(menu.textContent?.includes("Compact"))).toBe(true);
+      expect(Boolean(menu.textContent?.includes("Fast"))).toBe(true);
+      expect(Boolean(menu.textContent?.includes("Feedback"))).toBe(true);
+      expect(Boolean(menu.textContent?.includes("MCP"))).toBe(true);
+      expect(Boolean(menu.textContent?.includes("Model"))).toBe(true);
+      expect(Boolean(menu.textContent?.includes("No commands"))).toBe(false);
     });
   });
 
@@ -1003,7 +1003,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const planRow = view.container.querySelector('[data-slash-command-row="plan-mode"]');
       if (!planRow) throw new Error("Expected Plan slash command row.");
-      expect(Boolean(planRow.textContent?.includes("Switch to plan mode"))).toBeTrue();
+      expect(Boolean(planRow.textContent?.includes("Switch to plan mode"))).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });
@@ -1025,7 +1025,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const planRow = offView.container.querySelector('[data-slash-command-row="plan-mode"]');
       if (!planRow) throw new Error("Expected Plan slash command row.");
-      expect(Boolean(planRow.textContent?.includes("Switch off plan mode"))).toBeTrue();
+      expect(Boolean(planRow.textContent?.includes("Switch off plan mode"))).toBe(true);
     });
 
     await keyDownComposer(offView, { key: "Enter" });
@@ -1045,7 +1045,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
       if (!goalRow) throw new Error("Expected Goal slash command row.");
-      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBeTrue();
+      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });
@@ -1055,18 +1055,18 @@ describe("ThreadComposer speed menu", () => {
       if (!placeholder) {
         throw new Error("Expected Goal mode placeholder.");
       }
-      expect(placeholder.classList.contains("placeholder")).toBeTrue();
+      expect(placeholder.classList.contains("placeholder")).toBe(true);
     });
 
     const goalButton = view.getByLabelText("Clear goal");
-    expect(Boolean(goalButton.textContent?.includes("Goal"))).toBeTrue();
+    expect(Boolean(goalButton.textContent?.includes("Goal"))).toBe(true);
 
     await act(async () => {
       fireEvent.click(goalButton);
       await Promise.resolve();
     });
 
-    expect(view.queryByLabelText("Clear goal") === null).toBeTrue();
+    expect(view.queryByLabelText("Clear goal") === null).toBe(true);
   });
 
   test("saved thread goal renders a footer chip that clears the persisted goal", async () => {
@@ -1099,7 +1099,7 @@ describe("ThreadComposer speed menu", () => {
       if (!placeholder) {
         throw new Error("Expected the normal follow-up placeholder for a saved goal.");
       }
-      expect(Boolean(view.getByLabelText("Clear goal").textContent?.includes("Goal"))).toBeTrue();
+      expect(Boolean(view.getByLabelText("Clear goal").textContent?.includes("Goal"))).toBe(true);
     });
 
     await act(async () => {
@@ -1219,19 +1219,19 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
       if (!goalRow) throw new Error("Expected Goal slash command row.");
-      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBeTrue();
+      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });
 
     await waitFor(() => {
-      expect(view.queryByLabelText("Clear goal") !== null).toBeTrue();
+      expect(view.queryByLabelText("Clear goal") !== null).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" }, { waitForContent: false });
 
     await waitFor(() => {
-      expect(view.queryByLabelText("Clear goal") === null).toBeTrue();
+      expect(view.queryByLabelText("Clear goal") === null).toBe(true);
     });
     expect(setGoalCalls.length).toBe(0);
     expect(sentPrompts.length).toBe(0);
@@ -1267,9 +1267,9 @@ describe("ThreadComposer speed menu", () => {
     await submitCurrentComposerDraft(view);
 
     await waitFor(() => {
-      expect(Boolean(view.getByText("Replace current goal?"))).toBeTrue();
+      expect(Boolean(view.getByText("Replace current goal?"))).toBe(true);
     });
-    expect(Boolean(view.getByText("Replace with the current composer objective"))).toBeTrue();
+    expect(Boolean(view.getByText("Replace with the current composer objective"))).toBe(true);
     expect(setGoalCalls.length).toBe(0);
 
     await act(async () => {
@@ -1278,7 +1278,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      expect(view.queryByText("Replace current goal?") === null).toBeTrue();
+      expect(view.queryByText("Replace current goal?") === null).toBe(true);
     });
     expect(setGoalCalls.length).toBe(0);
   });
@@ -1317,7 +1317,7 @@ describe("ThreadComposer speed menu", () => {
     await submitCurrentComposerDraft(view);
 
     await waitFor(() => {
-      expect(Boolean(view.getByText("Replace current goal?"))).toBeTrue();
+      expect(Boolean(view.getByText("Replace current goal?"))).toBe(true);
     });
 
     await act(async () => {
@@ -1333,7 +1333,7 @@ describe("ThreadComposer speed menu", () => {
     );
     expect(sentPrompts.length).toBe(0);
     await waitFor(() => {
-      expect(view.queryByText("Replace current goal?") === null).toBeTrue();
+      expect(view.queryByText("Replace current goal?") === null).toBe(true);
     });
   });
 
@@ -1437,7 +1437,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const fastRow = view.container.querySelector('[data-slash-command-row="service-tier:fast"]');
       if (!(fastRow instanceof HTMLElement)) throw new Error("Expected Fast slash command row.");
-      expect(Boolean(view.container.textContent?.includes("Compact"))).toBeFalse();
+      expect(Boolean(view.container.textContent?.includes("Compact"))).toBe(false);
     });
 
     const fastRow = view.container.querySelector('[data-slash-command-row="service-tier:fast"]');
@@ -1451,7 +1451,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
-    expect(view.container.querySelector('[data-slash-command-menu="true"]') === null).toBeTrue();
+    expect(view.container.querySelector('[data-slash-command-menu="true"]') === null).toBe(true);
   });
 
   test("runs the Compact slash command through the thread action boundary", async () => {
@@ -1516,7 +1516,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      expect(Boolean(view.container.textContent?.includes("GPT-5.5"))).toBeTrue();
+      expect(Boolean(view.container.textContent?.includes("GPT-5.5"))).toBe(true);
     });
 
     const nextModelButton = Array.from(view.container.querySelectorAll("button"))
@@ -1546,11 +1546,11 @@ describe("ThreadComposer speed menu", () => {
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
 
-    expect(formFooter !== null).toBeTrue();
-    expect(lowerStatusRow === null).toBeTrue();
-    expect(formFooter?.contains(permissionTrigger)).toBeTrue();
-    expect(formFooter?.contains(contextTrigger)).toBeTrue();
-    expect(invokedChannels.some((channel) => channel.startsWith("git:branch:"))).toBeFalse();
+    expect(formFooter !== null).toBe(true);
+    expect(lowerStatusRow === null).toBe(true);
+    expect(formFooter?.contains(permissionTrigger)).toBe(true);
+    expect(formFooter?.contains(contextTrigger)).toBe(true);
+    expect(invokedChannels.some((channel) => channel.startsWith("git:branch:"))).toBe(false);
   });
 
   test("places the new-chat project selector in the lower status row before run target", async () => {
@@ -1602,16 +1602,16 @@ describe("ThreadComposer speed menu", () => {
     const composerFrame = composerSurface?.parentElement;
     const lowerText = lowerStatusRow?.textContent ?? "";
 
-    expect(lowerStatusRow !== null).toBeTrue();
-    expect(externalFooterSlot !== null).toBeTrue();
-    expect(formFooter !== null).toBeTrue();
-    expect(externalFooterSlot?.contains(lowerStatusRow)).toBeTrue();
-    expect(composerFrame?.nextElementSibling === externalFooterSlot).toBeTrue();
-    expect(lowerStatusRow?.contains(projectSelector)).toBeTrue();
-    expect(formFooter?.contains(projectSelector)).toBeFalse();
-    expect(lowerText.indexOf("Nodex") >= 0).toBeTrue();
-    expect(lowerText.indexOf("Work locally") >= 0).toBeTrue();
-    expect(lowerText.indexOf("Nodex") < lowerText.indexOf("Work locally")).toBeTrue();
+    expect(lowerStatusRow !== null).toBe(true);
+    expect(externalFooterSlot !== null).toBe(true);
+    expect(formFooter !== null).toBe(true);
+    expect(externalFooterSlot?.contains(lowerStatusRow)).toBe(true);
+    expect(composerFrame?.nextElementSibling === externalFooterSlot).toBe(true);
+    expect(lowerStatusRow?.contains(projectSelector)).toBe(true);
+    expect(formFooter?.contains(projectSelector)).toBe(false);
+    expect(lowerText.indexOf("Nodex") >= 0).toBe(true);
+    expect(lowerText.indexOf("Work locally") >= 0).toBe(true);
+    expect(lowerText.indexOf("Nodex") < lowerText.indexOf("Work locally")).toBe(true);
   });
 
   test("hides the lower status row after a new-chat tab materializes a conversation", async () => {
@@ -1631,9 +1631,9 @@ describe("ThreadComposer speed menu", () => {
     const externalFooterSlot = view.container.querySelector('[data-composer-external-footer-slot="true"]');
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
 
-    expect(formFooter !== null).toBeTrue();
-    expect(lowerStatusRow === null).toBeTrue();
-    expect(externalFooterSlot === null).toBeTrue();
+    expect(formFooter !== null).toBe(true);
+    expect(lowerStatusRow === null).toBe(true);
+    expect(externalFooterSlot === null).toBe(true);
   });
 
   test("keeps prompt scrolling owned by the ProseMirror prompt editor", async () => {
@@ -1652,24 +1652,24 @@ describe("ThreadComposer speed menu", () => {
     const attachmentStrip = view.container.querySelector<HTMLElement>('[data-composer-attachments="true"]');
     const formFooter = view.container.querySelector<HTMLElement>('[data-composer-form-footer="true"]');
 
-    expect(composer !== null).toBeTrue();
-    expect(composer?.classList.contains("ProseMirror") ?? false).toBeTrue();
+    expect(composer !== null).toBe(true);
+    expect(composer?.classList.contains("ProseMirror") ?? false).toBe(true);
     expect(composer?.getAttribute("contenteditable")).toBe("true");
     expect(composer?.getAttribute("data-virtualkeyboard")).toBe("true");
     expect(composer?.getAttribute("translate")).toBe("no");
     expect(composer?.getAttribute("spellcheck")).toBe("true");
-    expect(Boolean(composer?.getAttribute("style")?.includes("min-height: 2.75rem"))).toBeTrue();
-    expect(promptFrame !== null).toBeTrue();
-    expect(promptFrame?.contains(composer)).toBeTrue();
-    expect(promptFrame?.classList.contains("text-size-chat") ?? false).toBeTrue();
-    expect(promptFrame?.classList.contains("text-base") ?? false).toBeTrue();
-    expect(composerSurface !== null).toBeTrue();
+    expect(Boolean(composer?.getAttribute("style")?.includes("min-height: 2.75rem"))).toBe(true);
+    expect(promptFrame !== null).toBe(true);
+    expect(promptFrame?.contains(composer)).toBe(true);
+    expect(promptFrame?.classList.contains("text-size-chat") ?? false).toBe(true);
+    expect(promptFrame?.classList.contains("text-base") ?? false).toBe(true);
+    expect(composerSurface !== null).toBe(true);
     expect(composerSurface?.tagName).toBe("DIV");
-    expect(composerSurface?.classList.contains("_multilineSurface_1u8sk_2") ?? false).toBeTrue();
-    expect(attachmentStrip?.classList.contains("_attachmentsDefault_1u8sk_2") ?? false).toBeTrue();
-    expect(attachmentStrip?.classList.contains("empty:hidden") ?? true).toBeFalse();
-    expect(formFooter?.classList.contains("_footer_1u8sk_2") ?? false).toBeTrue();
-    expect(editorScrollContainer?.contains(composer)).toBeTrue();
+    expect(composerSurface?.classList.contains("_multilineSurface_1u8sk_2") ?? false).toBe(true);
+    expect(attachmentStrip?.classList.contains("_attachmentsDefault_1u8sk_2") ?? false).toBe(true);
+    expect(attachmentStrip?.classList.contains("empty:hidden") ?? true).toBe(false);
+    expect(formFooter?.classList.contains("_footer_1u8sk_2") ?? false).toBe(true);
+    expect(editorScrollContainer?.contains(composer)).toBe(true);
   });
 
   test("renders the Codex new-chat placeholder inside the ProseMirror document", async () => {
@@ -1698,13 +1698,13 @@ describe("ThreadComposer speed menu", () => {
     });
     const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
 
-    expect(composer !== null).toBeTrue();
+    expect(composer !== null).toBe(true);
     await waitFor(() => {
       const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Do anything"]');
       if (!placeholder) {
         throw new Error("Expected Codex placeholder.");
       }
-      expect(placeholder.classList.contains("placeholder")).toBeTrue();
+      expect(placeholder.classList.contains("placeholder")).toBe(true);
     });
   });
 
@@ -1719,8 +1719,8 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const trigger = modelView.getByLabelText("Select Codex model and reasoning");
-    expect(Boolean(trigger.textContent?.includes("5.3"))).toBeTrue();
-    expect(Boolean(trigger.textContent?.includes("High"))).toBeTrue();
+    expect(Boolean(trigger.textContent?.includes("5.3"))).toBe(true);
+    expect(Boolean(trigger.textContent?.includes("High"))).toBe(true);
 
     await act(async () => {
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
@@ -1729,10 +1729,10 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const menuItems = Array.from(modelView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
-    expect(Boolean(modelView.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBeTrue();
-    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="high"]'))).toBeTrue();
-    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="medium"]'))).toBeTrue();
-    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="low"]'))).toBeFalse();
+    expect(Boolean(modelView.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBe(true);
+    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="high"]'))).toBe(true);
+    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="medium"]'))).toBe(true);
+    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="low"]'))).toBe(false);
 
     const modelTrigger = menuItems.find((node) => node.textContent?.includes("GPT-5.3 Codex"));
     if (!(modelTrigger instanceof HTMLElement)) {
@@ -1913,10 +1913,10 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const modelMenuText = view.container.ownerDocument.body.textContent ?? "";
-    expect(Boolean(modelMenuText.includes("Change model"))).toBeTrue();
-    expect(Boolean(modelMenuText.includes("Other models"))).toBeTrue();
-    expect(Boolean(modelMenuText.includes("Latest Codex model"))).toBeFalse();
-    expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBeFalse();
+    expect(Boolean(modelMenuText.includes("Change model"))).toBe(true);
+    expect(Boolean(modelMenuText.includes("Other models"))).toBe(true);
+    expect(Boolean(modelMenuText.includes("Latest Codex model"))).toBe(false);
+    expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBe(false);
   });
 
   test("renders active Plan mode as a direct toggle chip", async () => {
@@ -1937,17 +1937,17 @@ describe("ThreadComposer speed menu", () => {
     const planButton = view.getByLabelText("Plan");
     const planAccessoryDivider = formFooter?.querySelector('[data-composer-footer-accessory-divider="true"]');
 
-    expect(formFooter !== null).toBeTrue();
-    expect(formFooter?.contains(addContextButton)).toBeTrue();
-    expect(formFooter?.contains(permissionTrigger)).toBeTrue();
-    expect(formFooter?.contains(planButton)).toBeTrue();
-    expect(planButton.hasAttribute("aria-haspopup")).toBeFalse();
-    expect(planButton.getAttribute("data-slot") === "dropdown-trigger").toBeFalse();
-    expect(planAccessoryDivider !== null).toBeTrue();
-    expect(Boolean(addContextButton.compareDocumentPosition(permissionTrigger) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(permissionTrigger.compareDocumentPosition(planButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(permissionTrigger.nextElementSibling === planAccessoryDivider).toBeTrue();
-    expect(planAccessoryDivider?.nextElementSibling === planButton).toBeTrue();
+    expect(formFooter !== null).toBe(true);
+    expect(formFooter?.contains(addContextButton)).toBe(true);
+    expect(formFooter?.contains(permissionTrigger)).toBe(true);
+    expect(formFooter?.contains(planButton)).toBe(true);
+    expect(planButton.hasAttribute("aria-haspopup")).toBe(false);
+    expect(planButton.getAttribute("data-slot") === "dropdown-trigger").toBe(false);
+    expect(planAccessoryDivider !== null).toBe(true);
+    expect(Boolean(addContextButton.compareDocumentPosition(permissionTrigger) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(permissionTrigger.compareDocumentPosition(planButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(permissionTrigger.nextElementSibling === planAccessoryDivider).toBe(true);
+    expect(planAccessoryDivider?.nextElementSibling === planButton).toBe(true);
 
     await act(async () => {
       fireEvent.click(planButton);

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildChatGptDesktopUserAgent,
   CHATGPT_DESKTOP_ORIGINATOR,
@@ -134,8 +134,8 @@ describe("chatgpt desktop request helper", () => {
     expect(response.status).toBe(200);
     expect(refreshFlags.join(",")).toBe("false,true");
     expect(seenAuthorizations.length).toBe(2);
-    expect(seenAuthorizations[0]?.includes("acct_first")).toBeFalse();
-    expect(seenAuthorizations[1]?.includes("acct_second")).toBeFalse();
+    expect(seenAuthorizations[0]?.includes("acct_first")).toBe(false);
+    expect(seenAuthorizations[1]?.includes("acct_second")).toBe(false);
   });
 
   test("does not retry a 403 response", async () => {
@@ -186,7 +186,7 @@ describe("chatgpt desktop request helper", () => {
       expect((error as Error).message).toBe("ChatGPT authentication is required for dictation.");
     }
 
-    expect(didThrow).toBeTrue();
+    expect(didThrow).toBe(true);
   });
 
   test("extracts the ChatGPT account id from a JWT payload", () => {

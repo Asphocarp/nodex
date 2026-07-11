@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";
@@ -16,7 +16,7 @@ import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-
 let invokeCalls: Array<{ channel: string; args: unknown[]; threadId?: string; active?: boolean }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 
-mock.module("../local-conversation-deps", () => ({
+vi.mock("../local-conversation-deps", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     const firstArg = args[0];
     invokeCalls.push({
@@ -426,7 +426,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.channel === "codex:thread:view-active:set" &&
         call.threadId === "thread_active" &&
         call.active === true),
-    ).toBeTrue();
+    ).toBe(true);
 
     await act(async () => {
       view.unmount();
@@ -438,7 +438,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.channel === "codex:thread:view-active:set" &&
         call.threadId === "thread_active" &&
         call.active === false),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("does not mark ordinary child thread mounts as opened for full-fidelity subagent streaming", async () => {
@@ -469,7 +469,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     expect(invokeCalls.some((call) =>
       call.channel === "codex:subagent-thread:opened" &&
       call.threadId === "thread_active"
-    )).toBeFalse();
+    )).toBe(false);
 
     await act(async () => {
       view.unmount();
@@ -526,7 +526,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
 
     expect(
       invokeCalls.some((call) => call.channel === "codex:thread:resume:request"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("auto-resumes non-archived active thread summaries", async () => {
@@ -543,7 +543,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       invokeCalls.some((call) =>
         call.channel === "codex:thread:resume:request" &&
       call.threadId === "thread_active"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("does not mark or resume hidden idle thread viewports", async () => {
@@ -558,10 +558,10 @@ describe("ConnectedThreadStage archived resume behavior", () => {
 
     expect(
       invokeCalls.some((call) => call.channel === "codex:thread:view-active:set"),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       invokeCalls.some((call) => call.channel === "codex:thread:resume:request"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("keeps resume and view-active behavior for hidden active threads", async () => {
@@ -583,12 +583,12 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.channel === "codex:thread:view-active:set" &&
         call.threadId === "thread_active" &&
         call.active === true),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       invokeCalls.some((call) =>
         call.channel === "codex:thread:resume:request" &&
         call.threadId === "thread_active"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });
 
@@ -606,27 +606,27 @@ describe("ConnectedThreadStage new-chat home", () => {
     const projectTriggers = view.getAllByLabelText("Select project") as HTMLButtonElement[];
     const renderedText = textContent(view.container);
 
-    expect(home !== null).toBeTrue();
-    expect(hero !== null).toBeTrue();
-    expect(renderedText.includes("What should we build in Nodex?")).toBeTrue();
-    expect(composer !== null).toBeTrue();
-    expect(promptEditor !== null).toBeTrue();
+    expect(home !== null).toBe(true);
+    expect(hero !== null).toBe(true);
+    expect(renderedText.includes("What should we build in Nodex?")).toBe(true);
+    expect(composer !== null).toBe(true);
+    expect(promptEditor !== null).toBe(true);
     expect(projectTriggers.length).toBe(2);
-    expect(projectTriggers.some((trigger) => trigger.disabled)).toBeFalse();
+    expect(projectTriggers.some((trigger) => trigger.disabled)).toBe(false);
     await waitFor(() => {
       if (!view.container.querySelector("[data-placeholder='Do anything']")) {
         throw new Error("Expected Codex composer placeholder.");
       }
     });
     const branchTrigger = view.getByLabelText("Switch branch");
-    expect(branchTrigger !== null).toBeTrue();
+    expect(branchTrigger !== null).toBe(true);
     expect(branchTrigger.getAttribute("title")).toBe("Switch branch");
-    expect(lowerStatusRow !== null).toBeTrue();
-    expect(externalFooterSlot?.contains(lowerStatusRow)).toBeTrue();
-    expect(renderedText.includes("Work locally")).toBeTrue();
-    expect(renderedText.includes("Start a new thread")).toBeFalse();
-    expect(renderedText.includes("Connect Codex web")).toBeFalse();
-    expect(renderedText.includes("Send to cloud")).toBeFalse();
+    expect(lowerStatusRow !== null).toBe(true);
+    expect(externalFooterSlot?.contains(lowerStatusRow)).toBe(true);
+    expect(renderedText.includes("Work locally")).toBe(true);
+    expect(renderedText.includes("Start a new thread")).toBe(false);
+    expect(renderedText.includes("Connect Codex web")).toBe(false);
+    expect(renderedText.includes("Send to cloud")).toBe(false);
   });
 
   test("uses ready thread start progress to render the materialized first turn", async () => {
@@ -664,16 +664,16 @@ describe("ConnectedThreadStage new-chat home", () => {
     const renderedText = textContent(view.container);
     const home = view.container.querySelector<HTMLElement>("[data-new-thread-home-main='true']");
 
-    expect(home === null).toBeTrue();
-    expect(renderedText.includes("What should we build in Nodex?")).toBeFalse();
-    expect(renderedText.includes("Remove the redundant transitions.")).toBeTrue();
-    expect(renderedText.includes("Thinking")).toBeTrue();
-    expect(renderedText.includes("Sending message")).toBeFalse();
-    expect(renderedText.includes("Message sent.")).toBeFalse();
+    expect(home === null).toBe(true);
+    expect(renderedText.includes("What should we build in Nodex?")).toBe(false);
+    expect(renderedText.includes("Remove the redundant transitions.")).toBe(true);
+    expect(renderedText.includes("Thinking")).toBe(true);
+    expect(renderedText.includes("Sending message")).toBe(false);
+    expect(renderedText.includes("Message sent.")).toBe(false);
     expect(invokeCalls.some((call) =>
       call.channel === "codex:thread:view-active:set" &&
       call.threadId === threadId &&
       call.active === true
-    )).toBeTrue();
+    )).toBe(true);
   });
 });

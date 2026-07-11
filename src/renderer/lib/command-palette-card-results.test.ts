@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CommandPaletteCard } from "./command-palette";
 import {
   buildCommandPaletteCardItemsFromBoardSummaries,
@@ -143,7 +143,7 @@ describe("command palette card result selection", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.card.id).toBe("content-only");
-    expect(results[0]?.searchPreview?.excerpt.includes("vector clocks")).toBeTrue();
+    expect(results[0]?.searchPreview?.excerpt.includes("vector clocks")).toBe(true);
   });
 
   test("can prioritize active-project description hits before final result limits", () => {
@@ -194,7 +194,7 @@ describe("command palette card result selection", () => {
 
     expect(defaultResults[0]?.card.id).toBe("other-metadata");
     expect(prioritizedResults[0]?.card.id).toBe("active-content-only");
-    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active card body")).toBeTrue();
+    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active card body")).toBe(true);
   });
 
   test("keeps current-project and board-order fallbacks for empty card queries", () => {
@@ -265,8 +265,8 @@ describe("command palette card result selection", () => {
     });
 
     expect(results.length).toBe(1);
-    expect(results[0]?.searchPreview?.excerpt.includes("Local OCR pipeline")).toBeTrue();
-    expect(results[0]?.searchPreview?.excerpt.includes("Server OCR")).toBeFalse();
+    expect(results[0]?.searchPreview?.excerpt.includes("Local OCR pipeline")).toBe(true);
+    expect(results[0]?.searchPreview?.excerpt.includes("Server OCR")).toBe(false);
   });
 
   test("does not merge stale description batches from another query", () => {

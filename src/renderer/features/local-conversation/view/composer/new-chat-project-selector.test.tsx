@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -120,7 +120,7 @@ describe("NewChatProjectSelector", () => {
     const view = await renderSelector(buildModel());
 
     const trigger = view.getByRole("button", { name: "Select project" });
-    expect(trigger.textContent?.includes("Nodex")).toBeTrue();
+    expect(trigger.textContent?.includes("Nodex")).toBe(true);
 
     await openMenu(trigger);
 
@@ -132,7 +132,7 @@ describe("NewChatProjectSelector", () => {
     const view = await renderSelector(buildModel({ projects: [], selectedProjectId: null }));
 
     await openMenu(view.getByRole("button", { name: "Select project" }));
-    expect(document.body.textContent?.includes("No folders found")).toBeTrue();
+    expect(document.body.textContent?.includes("No folders found")).toBe(true);
   });
 
   test("emits project selection", async () => {
@@ -172,7 +172,7 @@ describe("NewChatProjectSelector", () => {
     );
 
     const trigger = view.getByRole("button", { name: "Select project" });
-    expect(trigger.textContent?.includes("Nodex")).toBeTrue();
+    expect(trigger.textContent?.includes("Nodex")).toBe(true);
 
     await openMenu(trigger);
     const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { render, textContent } from "../../../../../test/dom";
 import {
@@ -23,9 +23,9 @@ describe("ThreadActivityShell", () => {
 
     const header = container.querySelector<HTMLElement>("[data-testid='activity-header']");
     expect(header?.tagName).toBe("DIV");
-    expect(Boolean(container.querySelector("button[aria-expanded]"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Read file"))).toBeTrue();
+    expect(Boolean(container.querySelector("button[aria-expanded]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Read file"))).toBe(true);
   });
 
   test("renders disclosure headers as buttons and forwards toggle events", async () => {
@@ -80,7 +80,7 @@ describe("ThreadActivityShell", () => {
 
     const expandedButton = view.container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
     expect(expandedButton?.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(view.container.querySelector("[data-testid='activity-body']"))).toBeTrue();
+    expect(Boolean(view.container.querySelector("[data-testid='activity-body']"))).toBe(true);
   });
 });
 
@@ -112,7 +112,7 @@ describe("ThreadActivityDisclosure", () => {
 
       const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
       expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-      expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBeFalse();
+      expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(false);
 
       await act(async () => {
         fireEvent.click(button as HTMLButtonElement);
@@ -122,7 +122,7 @@ describe("ThreadActivityDisclosure", () => {
       const mountedBeforeFrame = container.querySelector<HTMLElement>("[data-testid='activity-body']");
       expect(expandCount).toBe(1);
       expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-      expect(Boolean(mountedBeforeFrame)).toBeTrue();
+      expect(Boolean(mountedBeforeFrame)).toBe(true);
       expect(mountedBeforeFrame?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
       expect(mountedBeforeFrame?.style.pointerEvents ?? "").toBe("none");
 
@@ -134,7 +134,7 @@ describe("ThreadActivityDisclosure", () => {
 
       const expandedBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
       expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
-      expect(Boolean(expandedBody)).toBeTrue();
+      expect(Boolean(expandedBody)).toBe(true);
       expect(expandedBody?.getAttribute("data-thread-find-skip") ?? "").toBe("");
       expect(expandedBody?.style.pointerEvents ?? "").toBe("auto");
     } finally {
@@ -158,7 +158,7 @@ describe("ThreadActivityDisclosure", () => {
 
     const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(true);
 
     await act(async () => {
       fireEvent.click(button as HTMLButtonElement);
@@ -167,7 +167,7 @@ describe("ThreadActivityDisclosure", () => {
 
     const collapsingBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(collapsingBody)).toBeTrue();
+    expect(Boolean(collapsingBody)).toBe(true);
     expect(collapsingBody?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
     expect(collapsingBody?.style.pointerEvents ?? "").toBe("none");
 
@@ -193,7 +193,7 @@ describe("ThreadActivityDisclosure", () => {
     const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
     const body = container.querySelector<HTMLElement>("[data-testid='activity-body']");
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(body)).toBeTrue();
+    expect(Boolean(body)).toBe(true);
     expect(body?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
     expect(body?.style.pointerEvents ?? "").toBe("none");
   });
@@ -212,8 +212,8 @@ describe("ThreadActivityDisclosure", () => {
 
     const header = container.querySelector<HTMLElement>("[data-testid='activity-header']");
     expect(header?.tagName).toBe("DIV");
-    expect(Boolean(container.querySelector("button[aria-expanded]"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBeFalse();
+    expect(Boolean(container.querySelector("button[aria-expanded]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(false);
   });
 });
 
@@ -304,7 +304,7 @@ describe("ThreadActivitySummaryText", () => {
 
       expect(textContent(view.container)).toBe("Editing src/old.ts");
       expect(scheduledDelay).toBe(900);
-      expect(Boolean(scheduledCallback)).toBeTrue();
+      expect(Boolean(scheduledCallback)).toBe(true);
 
       now = 1000;
       await act(async () => {
@@ -359,7 +359,7 @@ describe("ThreadActivitySummaryText", () => {
         );
         await Promise.resolve();
       });
-      expect(Boolean(scheduledCallback)).toBeTrue();
+      expect(Boolean(scheduledCallback)).toBe(true);
 
       now = 150;
       await act(async () => {
@@ -372,7 +372,7 @@ describe("ThreadActivitySummaryText", () => {
       });
 
       expect(clearCount).toBe(1);
-      expect(Boolean(scheduledCallback)).toBeFalse();
+      expect(Boolean(scheduledCallback)).toBe(false);
       expect(textContent(view.container)).toBe("Final summary");
     } finally {
       Date.now = originalDateNow;
@@ -399,12 +399,12 @@ describe("ThreadActivityList", () => {
 
     const list = container.querySelector<HTMLElement>("[data-testid='activity-list']");
     const content = list?.firstElementChild as HTMLElement | null;
-    expect(Boolean(list)).toBeTrue();
+    expect(Boolean(list)).toBe(true);
     expect(list?.style.maxHeight ?? "").toBe("7rem");
-    expect(Boolean(list?.classList.contains("vertical-scroll-fade-mask"))).toBeTrue();
-    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBeTrue();
-    expect(Boolean(list?.classList.contains("overflow-x-hidden"))).toBeTrue();
-    expect(Boolean(content?.classList.contains("pb-1"))).toBeTrue();
+    expect(Boolean(list?.classList.contains("vertical-scroll-fade-mask"))).toBe(true);
+    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBe(true);
+    expect(Boolean(list?.classList.contains("overflow-x-hidden"))).toBe(true);
+    expect(Boolean(content?.classList.contains("pb-1"))).toBe(true);
     expect(textContent(content ?? container)).toBe("firstsecond");
   });
 
@@ -420,7 +420,7 @@ describe("ThreadActivityList", () => {
 
     const expandedList = view.container.querySelector<HTMLElement>("[data-testid='activity-list']");
     expect(expandedList?.style.maxHeight ?? "").toBe("20rem");
-    expect(Boolean(view.container.querySelector("[data-testid='first-row']"))).toBeTrue();
+    expect(Boolean(view.container.querySelector("[data-testid='first-row']"))).toBe(true);
 
     view.rerender(
       <ThreadActivityList
@@ -432,9 +432,9 @@ describe("ThreadActivityList", () => {
     );
 
     const collapsedList = view.container.querySelector<HTMLElement>("[data-testid='activity-list']");
-    expect(Boolean(collapsedList)).toBeTrue();
+    expect(Boolean(collapsedList)).toBe(true);
     expect(collapsedList?.style.maxHeight ?? "").toBe("0px");
-    expect(Boolean(view.container.querySelector("[data-testid='first-row']"))).toBeFalse();
+    expect(Boolean(view.container.querySelector("[data-testid='first-row']"))).toBe(false);
     expect(textContent(collapsedList ?? view.container)).toBe("");
   });
 
@@ -452,8 +452,8 @@ describe("ThreadActivityList", () => {
     );
 
     const list = container.querySelector<HTMLElement>("[data-testid='activity-list']");
-    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBeFalse();
-    expect(Boolean(list?.classList.contains("overflow-x-hidden"))).toBeFalse();
+    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBe(false);
+    expect(Boolean(list?.classList.contains("overflow-x-hidden"))).toBe(false);
     expect(list?.style.maxHeight ?? "").toBe("");
     expect(textContent(list ?? container)).toBe("firstsecond");
   });

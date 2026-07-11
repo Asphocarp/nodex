@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -197,7 +197,7 @@ describe("authoritative Card lifecycle kernel", () => {
           fixture.database
             .prepare("SELECT 1 FROM cards WHERE id = ?")
             .get(firstId) === undefined,
-        ).toBeTrue();
+        ).toBe(true);
         const card = readAuthoritativeCardById(
           fixture.database,
           fixture.projectId,
@@ -235,21 +235,21 @@ describe("authoritative Card lifecycle kernel", () => {
             fixture.projectId,
             firstId,
           ) === null,
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           fixture.database
             .prepare(
               "SELECT 1 FROM top_level_block_placements WHERE block_id = ?",
             )
             .get(firstId) === undefined,
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           fixture.database
             .prepare(
               "SELECT 1 FROM database_memberships WHERE card_block_id = ? AND removed_at IS NULL",
             )
             .get(firstId) === undefined,
-        ).toBeTrue();
+        ).toBe(true);
 
         const continuityBefore = verifyCardDocumentContinuity(
           fixture.database,
@@ -285,7 +285,7 @@ describe("authoritative Card lifecycle kernel", () => {
             fixture.projectId,
             firstId,
           )?.archived,
-        ).toBeTrue();
+        ).toBe(true);
 
         const duplicate = applyCardLifecycleMutation(
           fixture.database,
@@ -303,8 +303,8 @@ describe("authoritative Card lifecycle kernel", () => {
             },
           }),
         );
-        expect(duplicate.ok).toBeTrue();
-        if (duplicate.ok) expect(duplicate.value.duplicate).toBeTrue();
+        expect(duplicate.ok).toBe(true);
+        if (duplicate.ok) expect(duplicate.value.duplicate).toBe(true);
       });
     },
   );
@@ -338,7 +338,7 @@ describe("authoritative Card lifecycle kernel", () => {
             },
           }),
         );
-        expect(injected.ok).toBeFalse();
+        expect(injected.ok).toBe(false);
         if (!injected.ok)
           expect(injected.error.code).toBe("delete_evidence_invalid");
         expect(readBlock(fixture, cardId).lifecycle).toBe("deleted");
@@ -359,21 +359,21 @@ describe("authoritative Card lifecycle kernel", () => {
             },
           }),
         );
-        expect(exactRetry.ok).toBeFalse();
+        expect(exactRetry.ok).toBe(false);
         expect(
           fixture.database
             .prepare(
               "SELECT outcome FROM block_mutations WHERE mutation_id = 'restore-injected'",
             )
             .get() !== undefined,
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           fixture.database
             .prepare(
               "SELECT 1 FROM change_log WHERE operation_id = 'restore-injected'",
             )
             .get() === undefined,
-        ).toBeTrue();
+        ).toBe(true);
       });
     },
   );
@@ -414,7 +414,7 @@ describe("authoritative Card lifecycle kernel", () => {
               "SELECT 1 FROM database_memberships WHERE card_block_id = ? AND removed_at IS NULL",
             )
             .get(cardId) === undefined,
-        ).toBeTrue();
+        ).toBe(true);
       });
     },
   );
@@ -440,7 +440,7 @@ describe("authoritative Card lifecycle kernel", () => {
             priority: "p1-high",
           }),
         );
-        expect(result.ok).toBeFalse();
+        expect(result.ok).toBe(false);
         if (!result.ok) {
           expect(result.error.code).toBe("database_property_value_invalid");
         }
@@ -448,7 +448,7 @@ describe("authoritative Card lifecycle kernel", () => {
           fixture.database
             .prepare("SELECT 1 FROM blocks WHERE id = ?")
             .get(cardId) === undefined,
-        ).toBeTrue();
+        ).toBe(true);
       });
     },
   );
@@ -468,7 +468,7 @@ describe("authoritative Card lifecycle kernel", () => {
           fixture.projectId,
           cardId,
         );
-        expect(active.ok).toBeTrue();
+        expect(active.ok).toBe(true);
         if (!active.ok) return;
         const activeCard = active.value.value?.card;
         expect(active.value.storeEpoch).toBe(fixture.storeEpoch);
@@ -483,7 +483,7 @@ describe("authoritative Card lifecycle kernel", () => {
           active.value.value?.primaryDatabase.query.rows.some(
             (row) => row.card.blockId === cardId,
           ) ?? false,
-        ).toBeTrue();
+        ).toBe(true);
 
         const deleted = committed(fixture, "delete-preflight", {
           kind: "delete_card",
@@ -496,7 +496,7 @@ describe("authoritative Card lifecycle kernel", () => {
           fixture.projectId,
           cardId,
         );
-        expect(tombstone.ok).toBeTrue();
+        expect(tombstone.ok).toBe(true);
         if (!tombstone.ok) return;
         expect(tombstone.value.changeLogSeq).toBe(deleted.changeLogSeq);
         expect(tombstone.value.value?.card?.lifecycle).toBe("deleted");
@@ -532,7 +532,7 @@ describe("authoritative Card lifecycle kernel", () => {
           fixture.projectId,
           cardId,
         );
-        expect(result.ok).toBeTrue();
+        expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.value.value?.card).toBe(null);
         expect(result.value.value?.reservedBlockType).toBe("card");
@@ -574,17 +574,17 @@ describe("authoritative Card lifecycle kernel", () => {
           } catch {
             failed = true;
           }
-          expect(failed).toBeTrue();
+          expect(failed).toBe(true);
           expect(
             fixture.database
               .prepare("SELECT 1 FROM blocks WHERE id = ?")
               .get(cardId) === undefined,
-          ).toBeTrue();
+          ).toBe(true);
           expect(
             fixture.database
               .prepare("SELECT 1 FROM block_mutations WHERE mutation_id = ?")
               .get(`create-fault-${index}`) === undefined,
-          ).toBeTrue();
+          ).toBe(true);
         }
 
         const cardId = createUuidV7();
@@ -602,13 +602,13 @@ describe("authoritative Card lifecycle kernel", () => {
         } catch {
           responseLost = true;
         }
-        expect(responseLost).toBeTrue();
+        expect(responseLost).toBe(true);
         const retried = applyCardLifecycleMutation(
           fixture.database,
           request(fixture, "create-after-commit", createOperation(cardId)),
         );
-        expect(retried.ok).toBeTrue();
-        if (retried.ok) expect(retried.value.duplicate).toBeTrue();
+        expect(retried.ok).toBe(true);
+        if (retried.ok) expect(retried.value.duplicate).toBe(true);
       });
     },
   );

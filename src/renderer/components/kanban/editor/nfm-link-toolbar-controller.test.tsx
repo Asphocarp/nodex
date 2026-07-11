@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { render, settleAsyncRender } from "../../../test/dom";
@@ -23,7 +23,7 @@ let currentHoveredLink:
     }
   | undefined;
 
-mock.module("./nfm-link-toolbar-controller-deps", () => ({
+vi.mock("./nfm-link-toolbar-controller-deps", () => ({
   useBlockNoteEditor: () => ({
     domElement: editorDomElement,
     isEditable: true,
@@ -105,7 +105,7 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("toolbar"))).toBeTrue();
+    expect(Boolean(view.getByTestId("toolbar"))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Freeze" }));
@@ -120,8 +120,8 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("toolbar"))).toBeTrue();
-    expect(view.container.textContent?.includes("https://community.openai.com/t/example") ?? false).toBeTrue();
+    expect(Boolean(view.getByTestId("toolbar"))).toBe(true);
+    expect(view.container.textContent?.includes("https://community.openai.com/t/example") ?? false).toBe(true);
   });
 
   test("does not retarget the frozen snapshot when editor selection changes", async () => {
@@ -175,8 +175,8 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    expect(view.container.textContent?.includes("https://community.openai.com/t/example") ?? false).toBeTrue();
-    expect(view.container.textContent?.includes("https://example.com/changed") ?? false).toBeFalse();
+    expect(view.container.textContent?.includes("https://community.openai.com/t/example") ?? false).toBe(true);
+    expect(view.container.textContent?.includes("https://example.com/changed") ?? false).toBe(false);
   });
 
   test("clears the toolbar when the editor loses the selected link without freezing", async () => {
@@ -202,7 +202,7 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("toolbar"))).toBeTrue();
+    expect(Boolean(view.getByTestId("toolbar"))).toBe(true);
 
     currentSelectionLink = undefined;
 
@@ -212,6 +212,6 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    expect(view.queryByTestId("toolbar") === null).toBeTrue();
+    expect(view.queryByTestId("toolbar") === null).toBe(true);
   });
 });

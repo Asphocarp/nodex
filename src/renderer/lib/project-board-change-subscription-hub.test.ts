@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
 
 describe("ProjectBoardChangeSubscriptionHub", () => {
@@ -52,7 +52,7 @@ describe("ProjectBoardChangeSubscriptionHub", () => {
     expect(refreshCounts.size).toBe(20);
     expect(
       [...refreshCounts.values()].every((refreshCount) => refreshCount === 1),
-    ).toBeTrue();
+    ).toBe(true);
     expect(refreshCounts.get("card:0")).toBe(1);
 
     for (const unsubscribe of unsubscribers.slice(0, -1)) {

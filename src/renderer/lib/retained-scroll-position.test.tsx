@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   forgetRetainedScrollPosition,
   readRetainedScrollPosition,
@@ -45,7 +45,7 @@ describe("retained scroll position", () => {
     rememberRetainedScrollPosition(key, element);
     setScrollPosition(element, 0, 0);
 
-    expect(restoreRetainedScrollPosition(key, element)).toBeTrue();
+    expect(restoreRetainedScrollPosition(key, element)).toBe(true);
     expect(element.scrollTop).toBe(128);
     expect(element.scrollLeft).toBe(24);
   });
@@ -59,14 +59,14 @@ describe("retained scroll position", () => {
 
     rememberRetainedScrollPosition(key, source);
 
-    expect(restoreRetainedScrollPosition(key, target, { axis: "vertical" })).toBeTrue();
+    expect(restoreRetainedScrollPosition(key, target, { axis: "vertical" })).toBe(true);
     expect(target.scrollTop).toBe(128);
     expect(target.scrollLeft).toBe(0);
   });
 
   test("returns no snapshot for missing keys", () => {
     forgetRetainedScrollPosition("test:retained-scroll:missing");
-    expect(readRetainedScrollPosition("test:retained-scroll:missing") === null).toBeTrue();
+    expect(readRetainedScrollPosition("test:retained-scroll:missing") === null).toBe(true);
   });
 
   test("flushes the latest mounted element position on cleanup", () => {
@@ -74,6 +74,10 @@ describe("retained scroll position", () => {
     forgetRetainedScrollPosition(key);
     const view = render(<ScrollProbe scrollKey={key} />);
     const element = view.getByTestId("scroll-probe");
+    Object.defineProperty(element, "getClientRects", {
+      configurable: true,
+      value: () => [{ width: 40, height: 40 }],
+    });
 
     setScrollPosition(element, 96, 12);
     act(() => {
@@ -117,7 +121,7 @@ describe("retained scroll position", () => {
     }) as typeof requestAnimationFrame;
 
     try {
-      expect(restoreRetainedScrollPosition(key, target, { retryFrames: 2 })).toBeTrue();
+      expect(restoreRetainedScrollPosition(key, target, { retryFrames: 2 })).toBe(true);
       expect(target.scrollTop).toBe(220);
       setScrollPosition(target, 0, 0);
       callbacks.shift()?.(0);
@@ -222,7 +226,7 @@ describe("retained scroll position", () => {
       rememberRetainedScrollPosition(`test:retained-scroll:lru:${index}`, element);
     }
 
-    expect(readRetainedScrollPosition("test:retained-scroll:lru:0") === null).toBeTrue();
+    expect(readRetainedScrollPosition("test:retained-scroll:lru:0") === null).toBe(true);
     expect(readRetainedScrollPosition("test:retained-scroll:lru:249")?.top ?? -1).toBe(249);
   });
 });

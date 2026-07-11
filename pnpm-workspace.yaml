@@ -1,3 +1,37 @@
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+packages:
+  - "packages/*"
+  - "third_party/blocknote/packages/*"
+
+overrides:
+  "@babel/core": 7.29.7
+  "@xmldom/xmldom": 0.8.13
+  dompurify: 3.4.11
+  flatted: 3.4.2
+  form-data: 4.0.6
+  immutable: 4.3.8
+  lodash: 4.18.1
+  lodash-es: 4.18.1
+  mermaid: 11.15.0
+  nanoid: 3.3.12
+  node-abi: ^4.31.0
+  picomatch: 4.0.4
+  postcss: 8.5.15
+  prosemirror-model: 1.25.9
+  prosemirror-transform: 1.12.0
+  prosemirror-view: 1.41.9
+  rollup: 4.62.0
+  sass: 1.101.0
+  tar: 7.5.16
+  tmp: 0.2.7
+  yaml: 2.9.0
+
+allowBuilds:
+  '@parcel/watcher': true
+  '@sentry/cli': true
+  better-sqlite3: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  node-pty: true
+  sharp: false
+  unrs-resolver: false

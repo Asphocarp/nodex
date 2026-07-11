@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-settings";
@@ -112,24 +112,24 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Running command"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Running bun test"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='run-command']"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Running command"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Running bun test"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='run-command']"))).toBe(true);
     const shimmer = container.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(shimmer?.textContent ?? "").toBe("Running command");
-    expect(Boolean(shimmer?.textContent?.includes("bun test"))).toBeFalse();
+    expect(Boolean(shimmer?.textContent?.includes("bun test"))).toBe(false);
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
-    expect(Boolean(collapsedBody)).toBeTrue();
-    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(collapsedBody)).toBe(true);
+    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
   });
 
   test("resolves Electron command summary labels for generic, date, background, and skill-script commands", () => {
-    expect(isDateCommand("/bin/date -u +%Y-%m-%d")).toBeTrue();
-    expect(isDateCommand("date --rfc-3339=seconds")).toBeTrue();
-    expect(isDateCommand("date tomorrow")).toBeFalse();
-    expect(isDateCommand("date ''")).toBeFalse();
+    expect(isDateCommand("/bin/date -u +%Y-%m-%d")).toBe(true);
+    expect(isDateCommand("date --rfc-3339=seconds")).toBe(true);
+    expect(isDateCommand("date tomorrow")).toBe(false);
+    expect(isDateCommand("date ''")).toBe(false);
 
     expect(resolveCommandSummaryLabel({
       command: "bun test",
@@ -198,12 +198,12 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Ran bun test"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Ran bun test"))).toBe(true);
 
     await expandCommandShell(container);
 
-    expect(Boolean(textContent(container).includes("Ran command"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Ran bun test"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Ran command"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Ran bun test"))).toBe(false);
   });
 
   test("renders date and background terminal command summaries", () => {
@@ -223,7 +223,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Checking the current date and time"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Checking the current date and time"))).toBe(true);
     expect(container.querySelector<HTMLElement>(".loading-shimmer-pure-text")?.textContent ?? "").toBe(
       "Checking the current date and time",
     );
@@ -243,7 +243,7 @@ describe("CommandToolCall render state", () => {
         </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
-    expect(Boolean(textContent(container).includes("Checked the current date and time"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Checked the current date and time"))).toBe(true);
 
     rerender(
       <TooltipProvider>
@@ -263,8 +263,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Started background terminal with bun run dev"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Started background terminal with bun run dev"))).toBe(true);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("keeps settled commands collapsed on first mount in steps-with-commands mode", () => {
@@ -276,8 +276,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
-    expect(Boolean(collapsedBody)).toBeTrue();
-    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
+    expect(Boolean(collapsedBody)).toBe(true);
+    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBe(true);
   });
 
   test("keeps settled commands collapsed on first mount in steps-with-output mode", () => {
@@ -292,10 +292,10 @@ describe("CommandToolCall render state", () => {
     );
 
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
-    expect(Boolean(collapsedBody)).toBeTrue();
-    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(collapsedBody)).toBe(true);
+    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
   });
 
   test("suppresses command cards entirely in steps mode", () => {
@@ -339,8 +339,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Reading Review Helper skill"))).toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Reading Review Helper skill"))).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
   });
 
   test("renders a completed single read action as a compact row without shell chrome", () => {
@@ -365,11 +365,11 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Read src/index.ts"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Explored"))).toBeFalse();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-command-tool-summary-toggle]"))).toBeFalse();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Read src/index.ts"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Explored"))).toBe(false);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-command-tool-summary-toggle]"))).toBe(false);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
   });
 
   test("hides an in-progress single read action", () => {
@@ -398,7 +398,7 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(textContent(container)).toBe("");
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
   });
 
   test("renders completed single search and list actions as compact rows", () => {
@@ -423,9 +423,9 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Searched for command in src"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Searched for command in src"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
 
     rerender(
       <TooltipProvider>
@@ -447,9 +447,9 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Listed files in src"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Listed files in src"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
   });
 
   test("renders completed search and list fallback labels", () => {
@@ -474,8 +474,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Searched for command"))).toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Searched for command"))).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
 
     rerender(
       <TooltipProvider>
@@ -498,8 +498,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Searched for files"))).toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Searched for files"))).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
 
     rerender(
       <TooltipProvider>
@@ -521,8 +521,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Listed files"))).toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Listed files"))).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
   });
 
   test("hides in-progress single search and list actions", () => {
@@ -600,8 +600,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Read Review Helper skill"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Read .codex/skills/review-helper/SKILL.md"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Read Review Helper skill"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Read .codex/skills/review-helper/SKILL.md"))).toBe(false);
   });
 
   test("lets in-progress commands expand and collapse manually", async () => {
@@ -627,22 +627,22 @@ describe("CommandToolCall render state", () => {
     );
 
     const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     const expandedBody = container.querySelector('[data-thread-find-skip]');
-    expect(Boolean(expandedBody)).toBeFalse();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
+    expect(Boolean(expandedBody)).toBe(false);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
-    expect(Boolean(collapsedBody)).toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(collapsedBody)).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
   });
 
   test("keeps an expanded command shell open when a running command settles", async () => {
@@ -671,7 +671,7 @@ describe("CommandToolCall render state", () => {
     );
 
     const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
@@ -686,8 +686,8 @@ describe("CommandToolCall render state", () => {
 
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('[data-thread-find-skip="true"]'))).toBeFalse();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-thread-find-skip="true"]'))).toBe(false);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
   });
 
   test("renders attached automatic approval reviews before the command shell body", async () => {
@@ -702,8 +702,8 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeFalse();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(false);
+    expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
 
     await expandCommandShell(container);
 
@@ -712,14 +712,14 @@ describe("CommandToolCall render state", () => {
     const shellLabel = Array.from(container.querySelectorAll<HTMLElement>("span"))
       .find((element) => textContent(element) === "Shell") ?? null;
 
-    expect(Boolean(reviewButton)).toBeTrue();
-    expect(Boolean(shellLabel)).toBeTrue();
+    expect(Boolean(reviewButton)).toBe(true);
+    expect(Boolean(shellLabel)).toBe(true);
     expect(Boolean(
       reviewButton && shellLabel
         ? reviewButton.compareDocumentPosition(shellLabel) & Node.DOCUMENT_POSITION_FOLLOWING
         : false,
-    )).toBeTrue();
-    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeTrue();
+    )).toBe(true);
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
   });
 
   test("wraps parsed command summaries with attached automatic approval review rows", async () => {
@@ -742,18 +742,18 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Searched for needle in src"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeFalse();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Searched for needle in src"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(false);
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
 
     const disclosure = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
-    expect(Boolean(disclosure)).toBeTrue();
+    expect(Boolean(disclosure)).toBe(true);
 
     fireEvent.click(disclosure as HTMLButtonElement);
     await settleAsyncRender();
 
     expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
   });
 
   test("expands a long command line when clicked", async () => {
@@ -774,7 +774,7 @@ describe("CommandToolCall render state", () => {
     await expandCommandShell(container);
 
     const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
-    expect(Boolean(toggle)).toBeTrue();
+    expect(Boolean(toggle)).toBe(true);
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle as HTMLElement);
     await settleAsyncRender();
@@ -800,7 +800,7 @@ describe("CommandToolCall render state", () => {
     await expandCommandShell(container);
 
     const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
-    expect(Boolean(toggle)).toBeTrue();
+    expect(Boolean(toggle)).toBe(true);
     fireEvent.keyDown(toggle as HTMLElement, { key: "Enter" });
     await settleAsyncRender();
 
@@ -831,7 +831,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("No output"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("No output"))).toBe(false);
   });
 
   test("shows a no-output placeholder once a blank command output has settled", async () => {
@@ -859,7 +859,7 @@ describe("CommandToolCall render state", () => {
     );
 
     await expandCommandShell(container);
-    expect(Boolean(textContent(container).includes("No output"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("No output"))).toBe(true);
   });
 
   test("renders explicit canonical exit codes without parsing output text", async () => {
@@ -881,7 +881,7 @@ describe("CommandToolCall render state", () => {
     );
 
     await expandCommandShell(container);
-    expect(Boolean(textContent(container).includes("Exit code 7"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Exit code 7"))).toBe(true);
   });
 
   test("renders stopped, success, and unknown command footer labels", async () => {
@@ -901,7 +901,7 @@ describe("CommandToolCall render state", () => {
     );
 
     await expandCommandShell(container);
-    expect(Boolean(textContent(container).includes("Stopped"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Stopped"))).toBe(true);
 
     rerender(
       <TooltipProvider>
@@ -916,7 +916,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
     await settleAsyncRender();
-    expect(Boolean(textContent(container).includes("Success"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Success"))).toBe(true);
 
     rerender(
       <TooltipProvider>
@@ -931,6 +931,6 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
     await settleAsyncRender();
-    expect(Boolean(textContent(container).includes("Exit code unknown"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Exit code unknown"))).toBe(true);
   });
 });

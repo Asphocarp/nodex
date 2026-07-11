@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 
 const invokeCalls: unknown[][] = [];
 let closeListener: ((...args: unknown[]) => void) | null = null;
 
-mock.module("./app-close-flush-deps", () => ({
+vi.mock("./app-close-flush-deps", () => ({
   invoke: async (...args: unknown[]) => {
     invokeCalls.push(args);
     return undefined;
@@ -24,7 +24,8 @@ mock.module("./app-close-flush-deps", () => ({
 }));
 
 async function loadAppCloseFlushModule() {
-  return import(`./app-close-flush?test=${Date.now()}`);
+  vi.resetModules();
+  return import("./app-close-flush");
 }
 
 describe("app-close-flush", () => {

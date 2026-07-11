@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   hasDefaultMode,
   hasPlanMode,
@@ -14,10 +14,10 @@ const modes = [
 
 describe("composer plan mode helpers", () => {
   test("detects available plan and default modes", () => {
-    expect(hasPlanMode(modes)).toBeTrue();
-    expect(hasDefaultMode(modes)).toBeTrue();
-    expect(isPlanMode("plan")).toBeTrue();
-    expect(isPlanMode("default")).toBeFalse();
+    expect(hasPlanMode(modes)).toBe(true);
+    expect(hasDefaultMode(modes)).toBe(true);
+    expect(isPlanMode("plan")).toBe(true);
+    expect(isPlanMode("default")).toBe(false);
   });
 
   test("toggles between default and plan mode", () => {
@@ -32,24 +32,24 @@ describe("composer plan mode helpers", () => {
       currentMode: "default",
       modes,
       dismissed: false,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldShowComposerPlanKeywordSuggestion({
       prompt: "please plan this migration",
       currentMode: "plan",
       modes,
       dismissed: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldShowComposerPlanKeywordSuggestion({
       prompt: "please plan this migration",
       currentMode: "default",
       modes,
       dismissed: true,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldShowComposerPlanKeywordSuggestion({
       prompt: "please explain this migration",
       currentMode: "default",
       modes,
       dismissed: false,
-    })).toBeFalse();
+    })).toBe(false);
   });
 });

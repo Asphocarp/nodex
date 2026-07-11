@@ -1,10 +1,9 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import type { ComponentProps } from "react";
 import { render, textContent } from "../../../test/dom";
-import * as PasteResourceDialogDeps from "./paste-resource-dialog-deps";
 
-mock.module("./paste-resource-dialog-deps", () => ({
-  ...PasteResourceDialogDeps,
+vi.mock("./paste-resource-dialog-deps", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./paste-resource-dialog-deps")>(),
   Button: ({ children, ...props }: ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
@@ -56,9 +55,9 @@ describe("paste resource dialog", () => {
       />,
     );
 
-    expect(textContent(withLinkRender.container).includes("Keep as Link")).toBeTrue();
-    expect(textContent(withoutLinkRender.container).includes("Keep as Link")).toBeFalse();
-    expect(textContent(withoutLinkRender.container).includes("Save a Copy")).toBeTrue();
+    expect(textContent(withLinkRender.container).includes("Keep as Link")).toBe(true);
+    expect(textContent(withoutLinkRender.container).includes("Keep as Link")).toBe(false);
+    expect(textContent(withoutLinkRender.container).includes("Save a Copy")).toBe(true);
   });
 
   test("renders user-friendly oversized-text actions without link mode", async () => {
@@ -87,12 +86,12 @@ Please keep the markdown formatting when this is pasted inline.`;
       />,
     );
 
-    expect(textContent(container).includes("Paste Anyway")).toBeTrue();
-    expect(textContent(container).includes("Keep as Link")).toBeFalse();
-    expect(textContent(container).includes("Save a copy to assets and link to it, paste it anyway, or cancel.")).toBeTrue();
-    expect(textContent(container).includes("# Incident note")).toBeTrue();
-    expect(textContent(container).includes("145 characters")).toBeTrue();
-    expect(textContent(container).includes("4 lines")).toBeTrue();
+    expect(textContent(container).includes("Paste Anyway")).toBe(true);
+    expect(textContent(container).includes("Keep as Link")).toBe(false);
+    expect(textContent(container).includes("Save a copy to assets and link to it, paste it anyway, or cancel.")).toBe(true);
+    expect(textContent(container).includes("# Incident note")).toBe(true);
+    expect(textContent(container).includes("145 characters")).toBe(true);
+    expect(textContent(container).includes("4 lines")).toBe(true);
   });
 
   test("hides save copy for folder paste and keeps link action", async () => {
@@ -115,8 +114,8 @@ Please keep the markdown formatting when this is pasted inline.`;
       />,
     );
 
-    expect(textContent(container).includes("Keep as Link")).toBeTrue();
-    expect(textContent(container).includes("Save a Copy")).toBeFalse();
-    expect(textContent(container).includes("Keep a link to the original folder, or cancel.")).toBeTrue();
+    expect(textContent(container).includes("Keep as Link")).toBe(true);
+    expect(textContent(container).includes("Save a Copy")).toBe(false);
+    expect(textContent(container).includes("Keep a link to the original folder, or cancel.")).toBe(true);
   });
 });

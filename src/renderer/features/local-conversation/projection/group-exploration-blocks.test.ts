@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexCommandAction, CodexConversationItem, CodexSemanticItemKind } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type {
@@ -969,7 +969,7 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
 
     expect(grouped.map((entry) => entry.type).join(",")).toBe("dynamicToolCallGroup");
     const group = grouped[0];
-    expect(group?.type === "dynamicToolCallGroup" ? group.canExpand === false : false).toBeTrue();
+    expect(group?.type === "dynamicToolCallGroup" ? group.canExpand === false : false).toBe(true);
   });
 
   test("extracts typed collapsed activity summary facts", () => {
@@ -1047,7 +1047,7 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
     expect(explorationFact.type === "exploration" ? explorationFact.searchCount : 0).toBe(1);
     expect(explorationFact.type === "exploration" ? explorationFact.runningSearchCount : 0).toBe(1);
     expect(explorationFact.type === "exploration" ? explorationFact.listCount : 0).toBe(1);
-    expect(execFact.type === "exec" ? execFact.isInProgress : false).toBeTrue();
+    expect(execFact.type === "exec" ? execFact.isInProgress : false).toBe(true);
     expect(mcpFact.type === "mcpToolCall" ? mcpFact.source?.key ?? "" : "").toBe("browser-use");
     expect(mcpFact.type === "mcpToolCall" ? mcpFact.source?.name ?? "" : "").toBe("browser-use");
     expect(webFact.type === "webSearch" ? `${webFact.count}:${webFact.runningCount}` : "").toBe("2:1");
@@ -1118,8 +1118,8 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
     expect(completedActive).toBe(null);
     expect(completedFallback?.kind ?? "").toBe("fileChange");
     expect(completedFallback?.kind === "fileChange" ? completedFallback.label : "").toBe("Editing");
-    expect(shouldDisplayCollapsedToolActivityActiveSummary(completedFallback, "STEPS_COMMANDS")).toBeTrue();
-    expect(shouldDisplayCollapsedToolActivityActiveSummary(completedFallback, "STEPS_PROSE")).toBeFalse();
+    expect(shouldDisplayCollapsedToolActivityActiveSummary(completedFallback, "STEPS_COMMANDS")).toBe(true);
+    expect(shouldDisplayCollapsedToolActivityActiveSummary(completedFallback, "STEPS_PROSE")).toBe(false);
   });
 
   test("resolves active summaries for exploration, web search, and approval fallback rows", () => {

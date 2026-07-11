@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -50,7 +50,7 @@ describe("Block reference read model", () => {
         expect(resolved.status).toBe("available");
         if (resolved.status !== "available") return;
         expect(resolved.projectId).toBe(targetProject.id);
-        expect(resolved.projectId === sourceProject.id).toBeFalse();
+        expect(resolved.projectId === sourceProject.id).toBe(false);
         expect(resolved.summary.title).toBe("Cross-project target");
         expect(resolved.document.documentId).toBe(`document:${target.id}`);
         expect(resolved.document.readiness).toBe("ready");

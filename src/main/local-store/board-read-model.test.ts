@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -60,14 +60,14 @@ describe("board summary read model", () => {
       const summaryCard = await findSummaryCard(projectId, created.id);
 
       expect(summaryCard?.id).toBe(created.id);
-      expect(Object.hasOwn(summaryCard ?? {}, "description")).toBeFalse();
-      expect(summaryCard?.hasDescription).toBeTrue();
+      expect(Object.hasOwn(summaryCard ?? {}, "description")).toBe(false);
+      expect(summaryCard?.hasDescription).toBe(true);
       expect(summaryCard?.descriptionLength).toBe(description.length);
-      expect((summaryCard?.descriptionPreview.length ?? 0) <= 240).toBeTrue();
-      expect(JSON.stringify(summaryCard).includes("hidden-body-marker")).toBeFalse();
+      expect((summaryCard?.descriptionPreview.length ?? 0) <= 240).toBe(true);
+      expect(JSON.stringify(summaryCard).includes("hidden-body-marker")).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("getCardsDetails returns full cards in requested order", async () => {
@@ -90,7 +90,7 @@ describe("board summary read model", () => {
       expect(details[1]?.description).toBe("First full body");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("searchCards matches description text and returns only ids, score, and excerpt", async () => {
@@ -110,11 +110,11 @@ describe("board summary read model", () => {
       expect(results.length).toBe(1);
       expect(results[0]?.cardId).toBe(created.id);
       expect(results[0]?.projectId).toBe(projectId);
-      expect(results[0]?.excerpt.includes("rare-search-token")).toBeTrue();
-      expect(Object.hasOwn(results[0] ?? {}, "description")).toBeFalse();
+      expect(results[0]?.excerpt.includes("rare-search-token")).toBe(true);
+      expect(Object.hasOwn(results[0] ?? {}, "description")).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("summary payload stays bounded for many cards with large descriptions", async () => {
@@ -131,11 +131,11 @@ describe("board summary read model", () => {
       const summary = await getBoardSummary(projectId);
       const payload = JSON.stringify(summary);
 
-      expect(payload.includes(hiddenMarker)).toBeFalse();
-      expect(payload.length < 1_000_000).toBeTrue();
+      expect(payload.includes(hiddenMarker)).toBe(false);
+      expect(payload.length < 1_000_000).toBe(true);
       expect(summary.columns.flatMap((column) => column.cards).length).toBe(500);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

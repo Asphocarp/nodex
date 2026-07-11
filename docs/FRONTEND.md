@@ -255,8 +255,8 @@
 - Keep component chrome subdued. Secondary actions should stay small, low-emphasis, and hover-revealed unless the product surface makes them primary. Hover reveal does not imply sequential keyboard focus.
 
 ## Frontend Testing
-- Run targeted tests while iterating: `bun test src/renderer/...`
-- Run isolated UI harness: `bun run dev:storybook`
+- Run targeted tests while iterating: `pnpm test src/renderer/...`
+- Run isolated UI harness: `pnpm run dev:storybook`
 - Treat Storybook as part of the UI contract. When adding or changing any user-visible UI, update or add the focused stories in the same change instead of leaving Storybook behind.
 - Keep Storybook scenes canvas-first: use story variants, `args`, and `argTypes` for presets and controls instead of rendering custom preset/control sidebars inside story pages.
 - Keep Storybook scenes production-backed: thread and card-stage stories should build state from the same projection/helpers used by shipped UI instead of hand-authoring parallel fake view models.

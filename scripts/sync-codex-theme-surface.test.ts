@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -66,10 +66,10 @@ describe("sync-codex-theme-surface", () => {
 
     expect(generatedCss.includes(
       '[data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) .app-shell-left-panel',
-    )).toBeTrue();
-    expect(generatedCss.includes("background: color-mix(in srgb, var(--color-token-editor-background) 55%, transparent);")).toBeTrue();
-    expect(generatedCss.includes("overflow: visible;")).toBeTrue();
-    expect(generatedCss.includes(".app-shell-left-panel:after")).toBeTrue();
-    expect(generatedCss.includes("background: inherit;")).toBeTrue();
+    )).toBe(true);
+    expect(generatedCss.includes("background: color-mix(in srgb, var(--color-token-editor-background) 55%, transparent);")).toBe(true);
+    expect(generatedCss.includes("overflow: visible;")).toBe(true);
+    expect(generatedCss.includes(".app-shell-left-panel:after")).toBe(true);
+    expect(generatedCss.includes("background: inherit;")).toBe(true);
   });
 });

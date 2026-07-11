@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DatabaseFractionalRankError,
   MAX_DATABASE_RANK_REBALANCE_ITEMS,
@@ -17,9 +17,9 @@ describe("Database fractional rank planner", () => {
       targetId: "b",
       beforeId: "a",
     });
-    expect(isDatabaseFractionalRankKey(first.rankKey)).toBeTrue();
-    expect(isDatabaseFractionalRankKey(second.rankKey)).toBeTrue();
-    expect(second.rankKey < first.rankKey).toBeTrue();
+    expect(isDatabaseFractionalRankKey(first.rankKey)).toBe(true);
+    expect(isDatabaseFractionalRankKey(second.rankKey)).toBe(true);
+    expect(second.rankKey < first.rankKey).toBe(true);
   });
 
   test("order-preservingly rebalances legacy, duplicate, and exhausted keys", () => {
@@ -34,10 +34,10 @@ describe("Database fractional rank planner", () => {
     expect(legacy.rebalancedRankKeys.size).toBe(2);
     expect(
       (legacy.rebalancedRankKeys.get("a") ?? "") < legacy.rankKey,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       legacy.rankKey < (legacy.rebalancedRankKeys.get("b") ?? ""),
-    ).toBeTrue();
+    ).toBe(true);
 
     const exhausted = planDatabaseFractionalRank({
       items: [

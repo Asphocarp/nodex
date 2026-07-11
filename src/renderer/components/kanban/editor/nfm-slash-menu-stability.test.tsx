@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
@@ -234,7 +234,7 @@ describe("useNfmMentionGetItems", () => {
 
     const items = await getItems("now");
 
-    expect(items.length > 0).toBeTrue();
+    expect(items.length > 0).toBe(true);
     expect(items[0]?.title).toBe("Now");
     expect(items[0]?.group).toBe("Dates");
   });

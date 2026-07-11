@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   handleChildGroupEmptyEnter,
   handleParentEnterSplitToFirstChild,
@@ -313,15 +313,15 @@ function makeToggleFallbackEditor(
 
 describe("isToggleOpenInDom", () => {
   test("returns true when data-show-children is true", () => {
-    expect(isToggleOpenInDom(makeDom("t1", "true"), "t1")).toBeTrue();
+    expect(isToggleOpenInDom(makeDom("t1", "true"), "t1")).toBe(true);
   });
 
   test("returns false when data-show-children is false", () => {
-    expect(isToggleOpenInDom(makeDom("t1", "false"), "t1")).toBeFalse();
+    expect(isToggleOpenInDom(makeDom("t1", "false"), "t1")).toBe(false);
   });
 
   test("returns false when dom is undefined", () => {
-    expect(isToggleOpenInDom(undefined, "t1")).toBeFalse();
+    expect(isToggleOpenInDom(undefined, "t1")).toBe(false);
   });
 });
 
@@ -331,40 +331,40 @@ describe("handleChildGroupEmptyEnter", () => {
 
     const handled = handleChildGroupEmptyEnter(editor);
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(editor._insertedAfter()).toBe("child-1");
     expect(editor._cursorTarget()).toBe("new-sibling-1");
-    expect(editor._focused()).toBeTrue();
+    expect(editor._focused()).toBe(true);
   });
 
   test("supports toggle-like inline parent blocks", () => {
     const editor = makeChildEditor({ parentType: "toggleListItem", parentInline: true });
-    expect(handleChildGroupEmptyEnter(editor)).toBeTrue();
+    expect(handleChildGroupEmptyEnter(editor)).toBe(true);
   });
 
   test("returns false when parent is not inline", () => {
     const editor = makeChildEditor({ parentType: "image", parentInline: false });
-    expect(handleChildGroupEmptyEnter(editor)).toBeFalse();
+    expect(handleChildGroupEmptyEnter(editor)).toBe(false);
   });
 
   test("returns false when child is not empty", () => {
     const editor = makeChildEditor({ contentSize: 3 });
-    expect(handleChildGroupEmptyEnter(editor)).toBeFalse();
+    expect(handleChildGroupEmptyEnter(editor)).toBe(false);
   });
 
   test("returns false when block has children", () => {
     const editor = makeChildEditor({ blockHasChildren: true });
-    expect(handleChildGroupEmptyEnter(editor)).toBeFalse();
+    expect(handleChildGroupEmptyEnter(editor)).toBe(false);
   });
 
   test("returns false when no parent exists", () => {
     const editor = makeChildEditor({ hasParent: false });
-    expect(handleChildGroupEmptyEnter(editor)).toBeFalse();
+    expect(handleChildGroupEmptyEnter(editor)).toBe(false);
   });
 
   test("returns false when selection is not empty", () => {
     const editor = makeChildEditor({ selectionEmpty: false });
-    expect(handleChildGroupEmptyEnter(editor)).toBeFalse();
+    expect(handleChildGroupEmptyEnter(editor)).toBe(false);
   });
 });
 
@@ -378,9 +378,9 @@ describe("handleParentEnterSplitToFirstChild", () => {
 
     const handled = handleParentEnterSplitToFirstChild(editor);
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(editor._splitParentId()).toBe("parent-1");
-    expect(editor._focused()).toBeTrue();
+    expect(editor._focused()).toBe(true);
   });
 
   test("splits at end into an empty first child", () => {
@@ -390,7 +390,7 @@ describe("handleParentEnterSplitToFirstChild", () => {
       contentSize: 6,
     });
 
-    expect(handleParentEnterSplitToFirstChild(editor)).toBeTrue();
+    expect(handleParentEnterSplitToFirstChild(editor)).toBe(true);
     expect(editor._splitParentId()).toBe("parent-1");
   });
 
@@ -401,7 +401,7 @@ describe("handleParentEnterSplitToFirstChild", () => {
       contentSize: 6,
     });
 
-    expect(handleParentEnterSplitToFirstChild(editor)).toBeFalse();
+    expect(handleParentEnterSplitToFirstChild(editor)).toBe(false);
   });
 
   test("returns false when selection is a range", () => {
@@ -410,7 +410,7 @@ describe("handleParentEnterSplitToFirstChild", () => {
       childCount: 2,
     });
 
-    expect(handleParentEnterSplitToFirstChild(editor)).toBeFalse();
+    expect(handleParentEnterSplitToFirstChild(editor)).toBe(false);
   });
 
   test("returns false when parent has no children", () => {
@@ -418,7 +418,7 @@ describe("handleParentEnterSplitToFirstChild", () => {
       childCount: 0,
     });
 
-    expect(handleParentEnterSplitToFirstChild(editor)).toBeFalse();
+    expect(handleParentEnterSplitToFirstChild(editor)).toBe(false);
   });
 
   test("returns false when parent is not inline", () => {
@@ -428,7 +428,7 @@ describe("handleParentEnterSplitToFirstChild", () => {
       childCount: 2,
     });
 
-    expect(handleParentEnterSplitToFirstChild(editor)).toBeFalse();
+    expect(handleParentEnterSplitToFirstChild(editor)).toBe(false);
   });
 });
 
@@ -444,34 +444,34 @@ describe("handleToggleEnterToChild", () => {
 
     const handled = handleToggleEnterToChild(editor);
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(editor._cursorTarget()).toBe("new-child-0");
-    expect(editor._focused()).toBeTrue();
+    expect(editor._focused()).toBe(true);
     expect(editor._updatedChildren()?.length).toBe(1);
   });
 
   test("returns false for non-toggle blocks", () => {
     const editor = makeToggleFallbackEditor({ blockType: "paragraph" });
-    expect(handleToggleEnterToChild(editor)).toBeFalse();
+    expect(handleToggleEnterToChild(editor)).toBe(false);
   });
 
   test("returns false when toggle is collapsed", () => {
     const editor = makeToggleFallbackEditor({ showChildren: "false" });
-    expect(handleToggleEnterToChild(editor)).toBeFalse();
+    expect(handleToggleEnterToChild(editor)).toBe(false);
   });
 
   test("returns false when toggle already has children", () => {
     const editor = makeToggleFallbackEditor({ childCount: 1 });
-    expect(handleToggleEnterToChild(editor)).toBeFalse();
+    expect(handleToggleEnterToChild(editor)).toBe(false);
   });
 
   test("returns false when cursor is not at end", () => {
     const editor = makeToggleFallbackEditor({ parentOffset: 2, contentSize: 4 });
-    expect(handleToggleEnterToChild(editor)).toBeFalse();
+    expect(handleToggleEnterToChild(editor)).toBe(false);
   });
 
   test("returns false for range selection", () => {
     const editor = makeToggleFallbackEditor({ selectionEmpty: false });
-    expect(handleToggleEnterToChild(editor)).toBeFalse();
+    expect(handleToggleEnterToChild(editor)).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { parseNfm } from "../nfm/parser";
 import { nfmToBlockNoteWithIds } from "./nfm-blocknote-adapter";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import * as Y from "yjs";
 import {
@@ -180,7 +180,7 @@ const subscribe = (
   clientSessionId: string,
 ): void => {
   const result = hub.subscribe(target, { documentId, clientSessionId });
-  expect(result.ok).toBeTrue();
+  expect(result.ok).toBe(true);
 };
 
 const clearSent = (...targets: readonly FakeTarget[]): void => {
@@ -273,7 +273,7 @@ const syncSubscription = async (
     clientSessionId,
     stateVector: new Uint8Array([0]),
   });
-  expect(result.ok).toBeTrue();
+  expect(result.ok).toBe(true);
 };
 
 describe("DocumentSyncHub", () => {
@@ -315,7 +315,7 @@ describe("DocumentSyncHub", () => {
 
     resolveApply(applyAck(request));
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(first.sent.length).toBe(1);
     expect(second.sent.length).toBe(1);
     expect(otherDocument.sent.length).toBe(0);
@@ -362,7 +362,7 @@ describe("DocumentSyncHub", () => {
     };
 
     const failed = await hub.applyUpdate(first, request);
-    expect(failed.ok).toBeFalse();
+    expect(failed.ok).toBe(false);
     if (!failed.ok) {
       expect(failed.error.code).toBe("future_base_head");
     }
@@ -370,7 +370,7 @@ describe("DocumentSyncHub", () => {
 
     mode = "duplicate";
     const duplicate = await hub.applyUpdate(first, request);
-    expect(duplicate.ok).toBeTrue();
+    expect(duplicate.ok).toBe(true);
     expect(second.sent.length).toBe(0);
   });
 
@@ -393,10 +393,10 @@ describe("DocumentSyncHub", () => {
       touchedBlockIds: [],
       update: new Uint8Array([1]),
     });
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("transport_unavailable");
-      expect(result.error.retryable).toBeTrue();
+      expect(result.error.retryable).toBe(true);
     }
     expect(target.sent.length).toBe(0);
   });
@@ -411,7 +411,7 @@ describe("DocumentSyncHub", () => {
       documentId: "doc-1",
       clientSessionId: "session-1",
     });
-    expect(spoofedSubscribe.ok).toBeFalse();
+    expect(spoofedSubscribe.ok).toBe(false);
     if (!spoofedSubscribe.ok) {
       expect(spoofedSubscribe.error.code).toBe("unauthorized");
     }
@@ -420,7 +420,7 @@ describe("DocumentSyncHub", () => {
       clientSessionId: "session-1",
       stateVector: new Uint8Array([0]),
     });
-    expect(spoofedSync.ok).toBeFalse();
+    expect(spoofedSync.ok).toBe(false);
   });
 
   test("broadcasts awareness removal when a subscribed window is destroyed", async () => {
@@ -452,7 +452,7 @@ describe("DocumentSyncHub", () => {
       generation: 1,
       update,
     });
-    expect(published.ok).toBeTrue();
+    expect(published.ok).toBe(true);
 
     const remoteDocument = new Y.Doc();
     const remoteAwareness = new Awareness(remoteDocument);
@@ -555,11 +555,11 @@ describe("DocumentSyncHub", () => {
         generation: delivery.event.generation,
         headSeq,
       });
-      expect(response.ok).toBeTrue();
+      expect(response.ok).toBe(true);
     }
 
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(prepareCalls).toBe(2);
     expect(relocateCalls).toBe(1);
     const sharedKinds = shared.sent.map(
@@ -622,9 +622,9 @@ describe("DocumentSyncHub", () => {
       reason: "surface_prepare_failed",
       message: "IME did not flush",
     });
-    expect(nack.ok).toBeTrue();
+    expect(nack.ok).toBe(true);
     const failed = await pending;
-    expect(failed.ok).toBeFalse();
+    expect(failed.ok).toBe(false);
     if (!failed.ok) expect(failed.error.code).toBe("relocation_lease_timeout");
     expect(relocateCalls).toBe(0);
     expect(
@@ -633,14 +633,14 @@ describe("DocumentSyncHub", () => {
           (sent.value as DocumentSyncRealtimeEvent).kind ===
           "relocation-lease-cancel",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     const afterCancel = new FakeTarget(21);
     expect(
       hub.subscribe(afterCancel, {
         documentId: "doc-source",
         clientSessionId: "session-after-cancel",
       }).ok,
-    ).toBeTrue();
+    ).toBe(true);
     clearSent(source, afterCancel);
     const retry = hub.relocate(source, intent);
     await waitUntil(() =>
@@ -661,7 +661,7 @@ describe("DocumentSyncHub", () => {
         > => event.kind === "relocation-lease-prepare",
       );
     if (!retryPrepare) throw new Error("Missing retry lease prepare event");
-    expect(retryPrepare.leaseId === prepare.leaseId).toBeFalse();
+    expect(retryPrepare.leaseId === prepare.leaseId).toBe(false);
     hub.respondToRelocationLease(source, {
       response: "nack",
       leaseId: retryPrepare.leaseId,
@@ -673,7 +673,7 @@ describe("DocumentSyncHub", () => {
       reason: "surface_prepare_failed",
       message: "cancel retry probe",
     });
-    expect((await retry).ok).toBeFalse();
+    expect((await retry).ok).toBe(false);
 
     let timeoutCallback: (() => void) | null = null;
     const timeoutIntent = relocationIntent("relocation-timeout");
@@ -717,7 +717,7 @@ describe("DocumentSyncHub", () => {
     if (!fireTimeout) throw new Error("Missing lease timeout callback");
     fireTimeout();
     const timedOut = await timedPending;
-    expect(timedOut.ok).toBeFalse();
+    expect(timedOut.ok).toBe(false);
     if (!timedOut.ok) {
       expect(timedOut.error.code).toBe("relocation_lease_timeout");
     }
@@ -748,8 +748,8 @@ describe("DocumentSyncHub", () => {
     await syncSubscription(hub, source, "doc-source", "session-source");
     clearSent(source);
     const result = await hub.relocate(source, intent);
-    expect(result.ok).toBeTrue();
-    if (result.ok) expect(result.value.duplicate).toBeTrue();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.duplicate).toBe(true);
     expect(prepareCalls).toBe(0);
     expect(relocateCalls).toBe(0);
     expect(
@@ -757,7 +757,7 @@ describe("DocumentSyncHub", () => {
         (sent) =>
           (sent.value as DocumentSyncRealtimeEvent).kind === "resync-required",
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("authorization and post-commit fanout failures never create a retryable mutation seam", async () => {
@@ -781,7 +781,7 @@ describe("DocumentSyncHub", () => {
     const hub = new DocumentSyncHub(backend);
     const attacker = new FakeTarget(40);
     const unauthorized = await hub.relocate(attacker, intent);
-    expect(unauthorized.ok).toBeFalse();
+    expect(unauthorized.ok).toBe(false);
     expect(lookupCalls).toBe(0);
 
     const source = new FakeTarget(41);
@@ -818,7 +818,7 @@ describe("DocumentSyncHub", () => {
       generation: prepare.generation,
       headSeq: prepare.expectedHeadSeq,
     });
-    expect(spoofed.ok).toBeFalse();
+    expect(spoofed.ok).toBe(false);
     if (!spoofed.ok) expect(spoofed.error.code).toBe("unauthorized");
     expect(
       hub.respondToRelocationLease(source, {
@@ -830,10 +830,10 @@ describe("DocumentSyncHub", () => {
         generation: prepare.generation,
         headSeq: prepare.expectedHeadSeq,
       }).ok,
-    ).toBeTrue();
+    ).toBe(true);
     const result = await pending;
-    expect(result.ok).toBeTrue();
-    if (result.ok) expect(result.value.duplicate).toBeFalse();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.duplicate).toBe(false);
   });
 
   test("merge-friendly and duplicate Document mutations commit without a lease", async () => {
@@ -843,7 +843,7 @@ describe("DocumentSyncHub", () => {
       ...createBackend(),
       applyDocumentMutation: async (received, writeFence) => {
         calls += 1;
-        expect(writeFence === undefined).toBeTrue();
+        expect(writeFence === undefined).toBe(true);
         return documentMutationCommitted(received, {
           duplicate: calls === 2,
         });
@@ -855,26 +855,26 @@ describe("DocumentSyncHub", () => {
     clearSent(surface);
 
     const committed = await hub.applyDocumentMutation(request);
-    expect(committed.ok).toBeTrue();
+    expect(committed.ok).toBe(true);
     expect(
       surface.sent.some(
         (delivery) =>
           (delivery.value as DocumentSyncRealtimeEvent).kind ===
           "relocation-lease-prepare",
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       surface.sent.some(
         (delivery) =>
           (delivery.value as DocumentSyncRealtimeEvent).kind ===
           "resync-required",
       ),
-    ).toBeTrue();
+    ).toBe(true);
 
     clearSent(surface);
     const duplicate = await hub.applyDocumentMutation(request);
-    expect(duplicate.ok).toBeTrue();
-    if (duplicate.ok) expect(duplicate.value.duplicate).toBeTrue();
+    expect(duplicate.ok).toBe(true);
+    if (duplicate.ok) expect(duplicate.value.duplicate).toBe(true);
     expect(calls).toBe(2);
     expect(
       surface.sent.some(
@@ -882,7 +882,7 @@ describe("DocumentSyncHub", () => {
           (delivery.value as DocumentSyncRealtimeEvent).kind ===
           "resync-required",
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("coordinates checkpoint restore as a first-class fenced mutation", async () => {
@@ -921,11 +921,11 @@ describe("DocumentSyncHub", () => {
     });
 
     const result = await hub.applyDocumentMutation(request);
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.mutationKind).toBe("document_version_restore");
     expect(proofs.length).toBe(2);
-    expect(proofs[0] === undefined).toBeTrue();
+    expect(proofs[0] === undefined).toBe(true);
     expect(proofs[1]?.headSeq).toBe(0);
   });
 
@@ -992,21 +992,21 @@ describe("DocumentSyncHub", () => {
           generation: prepare.generation,
           headSeq: prepare.expectedHeadSeq,
         }).ok,
-      ).toBeTrue();
+      ).toBe(true);
     }
 
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(proofs.length).toBe(2);
-    expect(proofs[0] === undefined).toBeTrue();
+    expect(proofs[0] === undefined).toBe(true);
     expect(proofs[1]?.documentId).toBe("doc-source");
     expect(proofs[1]?.headSeq).toBe(0);
     for (const surface of [left, right]) {
       const eventKinds = surface.sent.map(
         (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
       );
-      expect(eventKinds.includes("resync-required")).toBeTrue();
-      expect(eventKinds.includes("relocation-lease-release")).toBeTrue();
+      expect(eventKinds.includes("resync-required")).toBe(true);
+      expect(eventKinds.includes("relocation-lease-release")).toBe(true);
     }
   });
 
@@ -1064,15 +1064,15 @@ describe("DocumentSyncHub", () => {
         generation: prepare.generation,
         headSeq: prepare.expectedHeadSeq + 1,
       }).ok,
-    ).toBeTrue();
+    ).toBe(true);
 
     const result = await pending;
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("document_head_conflict");
       expect(result.error.expectedHeadSeq).toBe(0);
       expect(result.error.actualHeadSeq).toBe(1);
-      expect(result.error.retryable).toBeFalse();
+      expect(result.error.retryable).toBe(false);
     }
     expect(calls).toBe(1);
     expect(
@@ -1081,7 +1081,7 @@ describe("DocumentSyncHub", () => {
           (delivery.value as DocumentSyncRealtimeEvent).kind ===
           "relocation-lease-cancel",
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("store replacement resets every surface and invalidates old Hub authorization", async () => {
@@ -1115,7 +1115,7 @@ describe("DocumentSyncHub", () => {
       clientSessionId: "surface-left",
       stateVector: new Uint8Array([0]),
     });
-    expect(staleSync.ok).toBeFalse();
+    expect(staleSync.ok).toBe(false);
     if (!staleSync.ok) expect(staleSync.error.code).toBe("unauthorized");
     const staleApply = await hub.applyUpdate(left, {
       documentId: "doc-source",
@@ -1127,7 +1127,7 @@ describe("DocumentSyncHub", () => {
       touchedBlockIds: [],
       update: new Uint8Array([0]),
     });
-    expect(staleApply.ok).toBeFalse();
+    expect(staleApply.ok).toBe(false);
     expect(durableApplyCalls).toBe(0);
 
     subscribe(hub, left, "doc-source", "surface-left");
@@ -1136,6 +1136,6 @@ describe("DocumentSyncHub", () => {
       clientSessionId: "surface-left",
       stateVector: new Uint8Array([0]),
     });
-    expect(freshSync.ok).toBeTrue();
+    expect(freshSync.ok).toBe(true);
   });
 });

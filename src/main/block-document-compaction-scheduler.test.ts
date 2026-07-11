@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CompactEligibleBlockDocumentsResult } from "./local-store/block-document-compaction";
 import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationSnapshot } from "../../../lib/types";
 import { buildComposerShellModel } from "./build-composer-shell-model";
 
@@ -242,8 +242,8 @@ describe("buildComposerShellModel", () => {
     expect(model.backgroundTerminalRows.length).toBe(1);
     expect(model.backgroundAgentRows.length).toBe(1);
     expect(model.backgroundAgentRows[0]?.status).toBe("active");
-    expect(model.showRequestCards).toBeTrue();
-    expect(model.showComposer).toBeFalse();
+    expect(model.showRequestCards).toBe(true);
+    expect(model.showComposer).toBe(false);
   });
 
   test("keeps child approval selection in membership order", () => {
@@ -430,7 +430,7 @@ describe("buildComposerShellModel", () => {
     expect(row?.status).toBe("active");
     expect(row?.statusSummary).toBe("checking files");
     expect(`${row?.diffStats?.linesAdded ?? -1}:${row?.diffStats?.linesRemoved ?? -1}`).toBe("2:1");
-    expect(row?.showInlineActivity).toBeFalse();
+    expect(row?.showInlineActivity).toBe(false);
   });
 
   test("normalizes background subagent status matrix edges", () => {

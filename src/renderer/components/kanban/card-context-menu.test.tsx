@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render, textContent } from "@/test/dom";
 import { CardContextMenuActionRowContent } from "./card-context-menu-row";
 import { getCardActionMenuEntries, type CardActionMenuEntry } from "./card-context-menu-model";
@@ -17,7 +17,7 @@ describe("card context menu action row content", () => {
   test("does not receive reference mock rows from the production menu model", () => {
     const actions = getCardActionMenuEntries({ query: "", showMockActions: false });
 
-    expect(actions.some((action) => action.mockReason !== undefined)).toBeFalse();
+    expect(actions.some((action) => action.mockReason !== undefined)).toBe(false);
     expect(actions.map((action) => action.id).join(",")).toBe("copy-link,move-to,delete");
   });
 
@@ -29,9 +29,9 @@ describe("card context menu action row content", () => {
       </div>,
     );
 
-    expect(favorite.disabled).toBeTrue();
-    expect(Boolean(favorite.mockReason)).toBeTrue();
-    expect(textContent(view.container).includes("Add to Favorites")).toBeTrue();
-    expect(textContent(view.container).includes("Mock")).toBeTrue();
+    expect(favorite.disabled).toBe(true);
+    expect(Boolean(favorite.mockReason)).toBe(true);
+    expect(textContent(view.container).includes("Add to Favorites")).toBe(true);
+    expect(textContent(view.container).includes("Mock")).toBe(true);
   });
 });

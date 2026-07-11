@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -209,7 +209,7 @@ describe("occurrence actions", () => {
         "session-recurring-current",
       );
 
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
@@ -224,7 +224,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -242,7 +242,7 @@ describe("occurrence actions", () => {
         source: "calendar",
       });
 
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
@@ -265,7 +265,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -285,7 +285,7 @@ describe("occurrence actions", () => {
         source: "calendar",
       });
 
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart).toBe(undefined);
@@ -298,7 +298,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -314,14 +314,14 @@ describe("occurrence actions", () => {
         source: "calendar",
       });
 
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const archives = archiveRows();
       expect(archives.length).toBe(0);
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -343,7 +343,7 @@ describe("occurrence actions", () => {
           scheduledEnd: new Date(detachedEndIso),
         },
       });
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
@@ -364,7 +364,7 @@ describe("occurrence actions", () => {
       const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(2);
       const detachedRow = rows.find((row) => row.id !== card.id);
-      expect(Boolean(detachedRow)).toBeTrue();
+      expect(Boolean(detachedRow)).toBe(true);
       expect(toIso(detachedRow?.scheduled_start)).toBe(detachedStartIso);
       expect(toIso(detachedRow?.scheduled_end)).toBe(detachedEndIso);
       expect(detachedRow?.recurrence_json).toBe("null");
@@ -377,16 +377,16 @@ describe("occurrence actions", () => {
       expect(occurrences.length).toBe(2);
       expect(occurrences[0]?.scheduledStart?.toISOString()).toBe(detachedStartIso);
       expect(occurrences[0]?.scheduledEnd?.toISOString()).toBe(detachedEndIso);
-      expect(occurrences[0]?.isRecurring).toBeFalse();
-      expect(occurrences[0]?.thisAndFutureEquivalentToAll).toBeFalse();
+      expect(occurrences[0]?.isRecurring).toBe(false);
+      expect(occurrences[0]?.thisAndFutureEquivalentToAll).toBe(false);
       expect(occurrences[1]?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
       expect(occurrences[1]?.scheduledEnd?.toISOString()).toBe("2026-03-02T11:00:00.000Z");
-      expect(occurrences[1]?.isRecurring).toBeTrue();
-      expect(occurrences[1]?.thisAndFutureEquivalentToAll).toBeFalse();
+      expect(occurrences[1]?.isRecurring).toBe(true);
+      expect(occurrences[1]?.thisAndFutureEquivalentToAll).toBe(false);
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -409,12 +409,12 @@ describe("occurrence actions", () => {
       );
 
       expect(first?.occurrenceStart.toISOString()).toBe(startIso);
-      expect(first?.thisAndFutureEquivalentToAll).toBeTrue();
-      expect(second?.thisAndFutureEquivalentToAll).toBeFalse();
+      expect(first?.thisAndFutureEquivalentToAll).toBe(true);
+      expect(second?.thisAndFutureEquivalentToAll).toBe(false);
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -429,11 +429,11 @@ describe("occurrence actions", () => {
       );
 
       expect(occurrences.length).toBe(1);
-      expect(occurrences[0]?.isAllDay).toBeTrue();
+      expect(occurrences[0]?.isAllDay).toBe(true);
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -456,7 +456,7 @@ describe("occurrence actions", () => {
           scheduledEnd: new Date(splitEndIso),
         },
       });
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
@@ -470,7 +470,7 @@ describe("occurrence actions", () => {
       expect(rows.length).toBe(2);
 
       const splitRow = rows.find((row) => row.id !== card.id);
-      expect(Boolean(splitRow)).toBeTrue();
+      expect(Boolean(splitRow)).toBe(true);
       expect(toIso(splitRow?.scheduled_start)).toBe(splitStartIso);
       expect(toIso(splitRow?.scheduled_end)).toBe(splitEndIso);
       const splitRecurrence =
@@ -486,7 +486,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -508,7 +508,7 @@ describe("occurrence actions", () => {
           scheduledEnd: new Date(updatedEndIso),
         },
       });
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(1);
@@ -520,7 +520,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -542,7 +542,7 @@ describe("occurrence actions", () => {
           scheduledEnd: new Date(allEndIso),
         },
       });
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(allStartIso);
@@ -557,7 +557,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -583,7 +583,7 @@ describe("occurrence actions", () => {
           scheduledEnd: new Date(shiftedEndIso),
         },
       });
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(shiftedStartIso);
@@ -594,7 +594,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -621,7 +621,7 @@ describe("occurrence actions", () => {
           scheduledEnd: new Date(shiftedSplitEndIso),
         },
       });
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
 
       const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(2);
@@ -636,7 +636,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -654,7 +654,7 @@ describe("occurrence actions", () => {
         occurrenceStart: new Date(startIso),
         source: "calendar",
       });
-      expect(completeResult.success).toBeTrue();
+      expect(completeResult.success).toBe(true);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
@@ -675,7 +675,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -700,8 +700,8 @@ describe("occurrence actions", () => {
         },
         "first-session",
       );
-      expect(first.success).toBeTrue();
-      expect(first.duplicate).toBeFalse();
+      expect(first.success).toBe(true);
+      expect(first.duplicate).toBe(false);
       const countAfterFirst = executeReadOnlyQuery(
         "SELECT COUNT(*) AS count FROM blocks WHERE project_id = ? AND type = 'card'",
         [projectId],
@@ -719,8 +719,8 @@ describe("occurrence actions", () => {
         },
         "retry-session",
       );
-      expect(retry.success).toBeTrue();
-      expect(retry.duplicate).toBeTrue();
+      expect(retry.success).toBe(true);
+      expect(retry.duplicate).toBe(true);
       expect(retry.createdCardId).toBe(first.createdCardId);
       expect(retry.changeLogSeq).toBe(first.changeLogSeq);
       expect(
@@ -736,7 +736,7 @@ describe("occurrence actions", () => {
         occurrenceStart: new Date("2026-03-02T10:00:00.000Z"),
         source: "notification",
       });
-      expect(collision.success).toBeFalse();
+      expect(collision.success).toBe(false);
       expect(collision.code).toBe("operation_id_collision");
 
       const history = listBlockChangeHistory(getDb(), {
@@ -749,7 +749,7 @@ describe("occurrence actions", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -767,8 +767,8 @@ describe("occurrence actions", () => {
         },
         "rejected-first-session",
       );
-      expect(first.success).toBeFalse();
-      expect(first.duplicate).toBeFalse();
+      expect(first.success).toBe(false);
+      expect(first.duplicate).toBe(false);
       expect(first.code).toBe("card_not_found");
       const ledger = executeReadOnlyQuery(
         `SELECT outcome, change_log_seq
@@ -797,8 +797,8 @@ describe("occurrence actions", () => {
         },
         "rejected-retry-session",
       );
-      expect(retry.success).toBeFalse();
-      expect(retry.duplicate).toBeTrue();
+      expect(retry.success).toBe(false);
+      expect(retry.duplicate).toBe(true);
       expect(retry.code).toBe(first.code);
       expect(retry.error).toBe(first.error);
 
@@ -808,12 +808,12 @@ describe("occurrence actions", () => {
         occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
         source: "notification",
       });
-      expect(collision.success).toBeFalse();
+      expect(collision.success).toBe(false);
       expect(collision.code).toBe("operation_id_collision");
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 });

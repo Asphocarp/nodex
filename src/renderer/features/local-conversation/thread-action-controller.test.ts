@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
   GIT_ACTION_CREATE_PR_PROMPT,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -111,7 +111,7 @@ describe("thread mention inline content", () => {
     await settleAsyncRender();
 
     expect(openedThreadId).toBe("019-thread");
-    expect(document.body.querySelector('[role="dialog"]') === null).toBeTrue();
+    expect(document.body.querySelector('[role="dialog"]') === null).toBe(true);
   });
 
   test("reveals thread metadata in a hover tooltip", async () => {

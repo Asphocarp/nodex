@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { blockNoteToNfm, serializeNfm } from "@/lib/nfm";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
 

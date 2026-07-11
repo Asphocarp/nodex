@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   appendInlineCardAncestor,
   isInlineCardCycle,
@@ -11,9 +11,9 @@ describe("inline Card reference ancestry", () => {
 
     expect(root.join(",")).toBe("card-a");
     expect(nested.join(",")).toBe("card-a,card-b");
-    expect(isInlineCardCycle(nested, "card-a")).toBeTrue();
-    expect(isInlineCardCycle(nested, "card-b")).toBeTrue();
-    expect(isInlineCardCycle(nested, "card-c")).toBeFalse();
-    expect(appendInlineCardAncestor(nested, "card-a") === nested).toBeTrue();
+    expect(isInlineCardCycle(nested, "card-a")).toBe(true);
+    expect(isInlineCardCycle(nested, "card-b")).toBe(true);
+    expect(isInlineCardCycle(nested, "card-c")).toBe(false);
+    expect(appendInlineCardAncestor(nested, "card-a") === nested).toBe(true);
   });
 });

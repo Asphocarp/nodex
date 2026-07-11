@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
   canMaterializePasteResourceItems,
@@ -13,19 +13,19 @@ import { DEFAULT_PASTE_RESOURCE_SETTINGS } from "../../../lib/paste-resource-set
 
 describe("paste resource helpers", () => {
   test("canMaterializePasteResourceItems rejects folders", () => {
-    expect(canMaterializePasteResourceItems([{ kind: "file", name: "report.txt" }])).toBeTrue();
-    expect(canMaterializePasteResourceItems([{ kind: "folder", name: "Designs" }])).toBeFalse();
+    expect(canMaterializePasteResourceItems([{ kind: "file", name: "report.txt" }])).toBe(true);
+    expect(canMaterializePasteResourceItems([{ kind: "folder", name: "Designs" }])).toBe(false);
     expect(canMaterializePasteResourceItems([
       { kind: "file", name: "report.txt" },
       { kind: "folder", name: "Designs" },
-    ])).toBeFalse();
+    ])).toBe(false);
   });
 
   test("shouldPromptForOversizedText gates on payload size and projected document size", () => {
-    expect(shouldPromptForOversizedText("short", 0, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBeFalse();
-    expect(shouldPromptForOversizedText("x".repeat(100_000), 0, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBeTrue();
-    expect(shouldPromptForOversizedText("x".repeat(10), 749_995, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBeTrue();
-    expect(shouldPromptForOversizedText("   ", 900_000)).toBeFalse();
+    expect(shouldPromptForOversizedText("short", 0, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBe(false);
+    expect(shouldPromptForOversizedText("x".repeat(100_000), 0, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBe(true);
+    expect(shouldPromptForOversizedText("x".repeat(10), 749_995, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBe(true);
+    expect(shouldPromptForOversizedText("   ", 900_000)).toBe(false);
   });
 
   test("normalizeClipboardFileDraftItems marks pasted blobs as files without links", () => {
@@ -120,8 +120,8 @@ describe("paste resource helpers", () => {
 
   test("createPastedTextUploadFile keeps a .txt asset filename", () => {
     const file = createPastedTextUploadFile("# Incident summary\nBody");
-    expect(file.name.endsWith(".txt")).toBeTrue();
-    expect(file.type.startsWith("text/plain")).toBeTrue();
+    expect(file.name.endsWith(".txt")).toBe(true);
+    expect(file.type.startsWith("text/plain")).toBe(true);
   });
 
   test("insertAttachmentsAtPasteTarget inserts inline content when the cursor supports it", () => {
@@ -155,8 +155,8 @@ describe("paste resource helpers", () => {
       },
     ]);
 
-    expect(inserted).toBeTrue();
-    expect(calls[0]?.includes("\"attachment\"")).toBeTrue();
+    expect(inserted).toBe(true);
+    expect(calls[0]?.includes("\"attachment\"")).toBe(true);
   });
 
   test("insertAttachmentsAtPasteTarget falls back to a paragraph block when inline insertion is unavailable", () => {
@@ -187,11 +187,11 @@ describe("paste resource helpers", () => {
       },
     ]);
 
-    expect(inserted).toBeTrue();
+    expect(inserted).toBe(true);
     expect(calls.length).toBe(1);
     const paragraph = calls[0]?.blocks[0] as { type?: string; content?: unknown[] } | undefined;
     expect(paragraph?.type).toBe("paragraph");
-    expect(Array.isArray(paragraph?.content)).toBeTrue();
+    expect(Array.isArray(paragraph?.content)).toBe(true);
   });
 
   test("continueInlinePaste replays html, markdown, and plain text using paste semantics", () => {
@@ -212,19 +212,19 @@ describe("paste resource helpers", () => {
     expect(continueInlinePaste(editor, {
       textPayload: "**bold**",
       htmlPayload: "<p><strong>bold</strong></p>",
-    })).toBeTrue();
+    })).toBe(true);
     expect(calls[0]).toBe("md:**bold**");
 
     expect(continueInlinePaste(editor, {
       textPayload: "plain",
       htmlPayload: "<p>plain</p>",
-    })).toBeTrue();
+    })).toBe(true);
     expect(calls[1]).toBe("html:<p>plain</p>");
 
     expect(continueInlinePaste(editor, {
       textPayload: "plain",
       blocknoteHtmlPayload: "<div data-blocknote>plain</div>",
-    })).toBeTrue();
+    })).toBe(true);
     expect(calls[2]).toBe("blocknote:<div data-blocknote>plain</div>");
   });
 });

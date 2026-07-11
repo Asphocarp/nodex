@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { createElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
@@ -151,12 +151,12 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(view.getAllByLabelText("Copy message").length > 0).toBeTrue();
-    expect(Boolean(view.getByLabelText("Edit message"))).toBeTrue();
-    expect(view.queryByLabelText("Fork from this message") === null).toBeTrue();
-    expect(view.queryByLabelText("Ask in side chat") === null).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes(staleStartedTime))).toBeFalse();
+    expect(view.getAllByLabelText("Copy message").length > 0).toBe(true);
+    expect(Boolean(view.getByLabelText("Edit message"))).toBe(true);
+    expect(view.queryByLabelText("Fork from this message") === null).toBe(true);
+    expect(view.queryByLabelText("Ask in side chat") === null).toBe(true);
+    expect(Boolean(view.container.textContent?.includes(expectedTime))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes(staleStartedTime))).toBe(false);
   });
 
   test("renders Codex goal status below goal user messages", async () => {
@@ -187,7 +187,7 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(Boolean(view.getByText("Sent as goal"))).toBeTrue();
+    expect(Boolean(view.getByText("Sent as goal"))).toBe(true);
 
     const emptyGoalTurn = buildTurn("turn_empty_goal_user_status", "", "Done", {
       items: [
@@ -215,8 +215,8 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(Boolean(view.getByText("Sent as goal"))).toBeTrue();
-    expect(view.queryByLabelText("Copy message") === null).toBeTrue();
+    expect(Boolean(view.getByText("Sent as goal"))).toBe(true);
+    expect(view.queryByLabelText("Copy message") === null).toBe(true);
   });
 
   test("renders pending and accepted steering surfaces separately", async () => {
@@ -252,9 +252,9 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(Boolean(view.container.textContent?.includes("Steering conversation"))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes("Try the compact path."))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes("Tighten the layout."))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Steering conversation"))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes("Try the compact path."))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes("Tighten the layout."))).toBe(true);
     expect(view.getAllByText("Steered conversation").length).toBe(2);
   });
 
@@ -301,13 +301,13 @@ describe("LocalConversationTurnEntry", () => {
     const thumbsDownIndex = labels.indexOf("Bad response");
     const forkIndex = labels.indexOf("Fork from this point");
 
-    expect(assistantCopyIndex >= 0).toBeTrue();
-    expect(thumbsUpIndex > assistantCopyIndex).toBeTrue();
-    expect(thumbsDownIndex > thumbsUpIndex).toBeTrue();
-    expect(forkIndex > thumbsDownIndex).toBeTrue();
-    expect(labels.includes("Ask in side chat")).toBeFalse();
-    expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBeFalse();
+    expect(assistantCopyIndex >= 0).toBe(true);
+    expect(thumbsUpIndex > assistantCopyIndex).toBe(true);
+    expect(thumbsDownIndex > thumbsUpIndex).toBe(true);
+    expect(forkIndex > thumbsDownIndex).toBe(true);
+    expect(labels.includes("Ask in side chat")).toBe(false);
+    expect(Boolean(view.container.textContent?.includes(expectedTime))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBe(false);
 
     const turnRoot = view.container.querySelector('[data-content-search-turn-key="turn_assistant_actions"]');
     if (turnRoot === null) {
@@ -318,7 +318,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(forkInputs.length).toBe(1);
     expect(forkInputs[0]?.turnId).toBe("turn_assistant_actions");
     expect(forkInputs[0]?.message).toBe("");
-    expect(forkInputs[0]?.isLatestTurn).toBeFalse();
+    expect(forkInputs[0]?.isLatestTurn).toBe(false);
   });
 
   test("nests completed turn diff before assistant actions inside the final assistant DOM", async () => {
@@ -358,8 +358,8 @@ describe("LocalConversationTurnEntry", () => {
       throw new Error("expected final assistant wrapper, assistant-after diff, and copy button");
     }
 
-    expect(Boolean(diffCard.textContent?.includes("Edited"))).toBeTrue();
-    expect(Boolean(diffCard.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(diffCard.textContent?.includes("Edited"))).toBe(true);
+    expect(Boolean(diffCard.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   test("suppresses assistant copy and rating while streaming or empty", async () => {
@@ -393,9 +393,9 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(view.queryByLabelText("Good response") === null).toBeTrue();
-    expect(view.queryByLabelText("Bad response") === null).toBeTrue();
-    expect(view.queryByLabelText("Fork from this point") === null).toBeTrue();
+    expect(view.queryByLabelText("Good response") === null).toBe(true);
+    expect(view.queryByLabelText("Bad response") === null).toBe(true);
+    expect(view.queryByLabelText("Fork from this point") === null).toBe(true);
 
     view.rerender(
       createElement(
@@ -414,9 +414,9 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(view.queryByLabelText("Good response") === null).toBeTrue();
-    expect(view.queryByLabelText("Bad response") === null).toBeTrue();
-    expect(Boolean(view.getByLabelText("Fork from this point"))).toBeTrue();
+    expect(view.queryByLabelText("Good response") === null).toBe(true);
+    expect(view.queryByLabelText("Bad response") === null).toBe(true);
+    expect(Boolean(view.getByLabelText("Fork from this point"))).toBe(true);
   });
 
   test("renders historical collapsed agent body as worked duration instead of previous messages", async () => {
@@ -465,8 +465,8 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(Boolean(view.container.textContent?.includes("Worked for 2m 5s"))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes("previous messages"))).toBeFalse();
+    expect(Boolean(view.container.textContent?.includes("Worked for 2m 5s"))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes("previous messages"))).toBe(false);
 
     const workedForButton = view.getByRole("button", { name: /Worked for 2m 5s/ });
     expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
@@ -477,7 +477,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(workedForTextInner?.tagName).toBe("SPAN");
 
     const workedForShell = workedForButton.parentElement?.parentElement;
-    expect(workedForShell?.contains(workedForButton)).toBeTrue();
+    expect(workedForShell?.contains(workedForButton)).toBe(true);
   });
 
   test("renders active working-for as a plain divider without a toggle button", async () => {
@@ -527,11 +527,11 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(Boolean(view.container.textContent?.includes("Working for 1m 5s"))).toBeTrue();
-    expect(view.queryByRole("button", { name: /Working/ }) === null).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Working for 1m 5s"))).toBe(true);
+    expect(view.queryByRole("button", { name: /Working/ }) === null).toBe(true);
 
     const workingText = view.getByText("Working for 1m 5s");
-    expect(Boolean(workingText.parentElement?.textContent?.includes("previous messages"))).toBeFalse();
+    expect(Boolean(workingText.parentElement?.textContent?.includes("previous messages"))).toBe(false);
   });
 
   test("does not rerender unchanged older turns when a different turn updates", async () => {
@@ -660,10 +660,10 @@ describe("LocalConversationTurnEntry", () => {
       throw new Error("expected attachment strip and user bubble");
     }
 
-    expect(Boolean(strip.textContent?.includes("notes.md"))).toBeTrue();
-    expect(Boolean(bubble.textContent?.includes("Inspect these images"))).toBeTrue();
-    expect(Boolean(strip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(strip.querySelector("img") !== null).toBeTrue();
+    expect(Boolean(strip.textContent?.includes("notes.md"))).toBe(true);
+    expect(Boolean(bubble.textContent?.includes("Inspect these images"))).toBe(true);
+    expect(Boolean(strip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(strip.querySelector("img") !== null).toBe(true);
 
     const previewTrigger = view.getByLabelText("Open image preview");
     fireEvent.click(previewTrigger);
@@ -671,7 +671,7 @@ describe("LocalConversationTurnEntry", () => {
     if (!(preview instanceof HTMLImageElement)) {
       throw new Error("expected image preview dialog");
     }
-    expect(preview.src.startsWith("data:image/png;base64")).toBeTrue();
+    expect(preview.src.startsWith("data:image/png;base64")).toBe(true);
   });
 
   test("renders assistant before later exec rows inside the agent body when exec arrives after it", async () => {
@@ -755,11 +755,11 @@ describe("LocalConversationTurnEntry", () => {
       throw new Error("expected exec summary toggle");
     }
 
-    expect(Boolean(view.container.textContent?.includes("Done"))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes("Final message"))).toBeFalse();
+    expect(Boolean(view.container.textContent?.includes("Done"))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes("Final message"))).toBe(false);
     expect(
       Boolean(assistantAfter.compareDocumentPosition(execToggle) & Node.DOCUMENT_POSITION_FOLLOWING),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("keeps the latest-assistant search unit when later exploration rows are grouped inline", async () => {
@@ -856,9 +856,9 @@ describe("LocalConversationTurnEntry", () => {
     fireEvent.click(activityButton);
     await settleAsyncRender();
 
-    expect(Boolean(view.container.textContent?.includes("Done"))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes("Read src/app.ts"))).toBeTrue();
-    expect(Boolean(view.container.textContent?.includes("Final message"))).toBeFalse();
+    expect(Boolean(view.container.textContent?.includes("Done"))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes("Read src/app.ts"))).toBe(true);
+    expect(Boolean(view.container.textContent?.includes("Final message"))).toBe(false);
   });
 
   test("renders stopped-turn tool groups before deferred assistant actions", async () => {
@@ -927,10 +927,10 @@ describe("LocalConversationTurnEntry", () => {
       throw new Error("expected stopped assistant, exploration group, and deferred action anchor");
     }
 
-    expect(assistantBlock.querySelector('[aria-label="Copy"]') === null).toBeTrue();
-    expect(Boolean(assistantBlock.compareDocumentPosition(explorationButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(explorationButton.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(explorationButton.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(view.getByLabelText("Fork from this point"))).toBeTrue();
+    expect(assistantBlock.querySelector('[aria-label="Copy"]') === null).toBe(true);
+    expect(Boolean(assistantBlock.compareDocumentPosition(explorationButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(explorationButton.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(explorationButton.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(view.getByLabelText("Fork from this point"))).toBe(true);
   });
 });

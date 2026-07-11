@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildComposerThreadGoalDraft } from "./composer-thread-goal-draft";
 
 describe("buildComposerThreadGoalDraft", () => {
@@ -84,6 +84,6 @@ describe("buildComposerThreadGoalDraft", () => {
 
     expect(empty.status).toBe("empty");
     expect(attachmentOnly.status).toBe("ready");
-    expect(attachmentOnly.status === "ready" ? attachmentOnly.draft.hasAttachments : false).toBeTrue();
+    expect(attachmentOnly.status === "ready" ? attachmentOnly.draft.hasAttachments : false).toBe(true);
   });
 });

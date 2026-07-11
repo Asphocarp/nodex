@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render } from "@/test/dom";
 import {
   applyNfmEditorWriteFence,
@@ -35,14 +35,14 @@ describe("NfmEditor relocation write fence", () => {
     content.focus();
     await prepareNfmEditorForRelocation(runtime, container);
     expect(blurCalls).toBe(1);
-    expect(content.ownerDocument.activeElement === content).toBeFalse();
-    expect(runtime.isEditable).toBeFalse();
+    expect(content.ownerDocument.activeElement === content).toBe(false);
+    expect(runtime.isEditable).toBe(false);
 
     applyNfmEditorWriteFence(runtime, false);
-    expect(runtime.isEditable).toBeTrue();
+    expect(runtime.isEditable).toBe(true);
     other.focus();
     await prepareNfmEditorForRelocation(runtime, container);
-    expect(other.ownerDocument.activeElement === other).toBeTrue();
+    expect(other.ownerDocument.activeElement === other).toBe(true);
     expect(blurCalls).toBe(1);
   });
 });

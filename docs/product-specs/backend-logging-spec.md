@@ -104,7 +104,7 @@ Example:
 NODEX_LOG_LEVEL=debug \
 NODEX_LOG_RETENTION_DAYS=30 \
 NODEX_LOG_DIR=/tmp/nodex-logs \
-bun run dev
+pnpm run dev
 ```
 
 ## Log Entry Shape

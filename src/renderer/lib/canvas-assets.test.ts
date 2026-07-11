@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CanvasBinaryFileResolver,
   collectCanvasReferencedFileIds,
@@ -50,7 +50,7 @@ describe("Canvas managed asset bridge", () => {
         },
       },
       {
-        fetchAsset: async () => new Response(new Blob(["bytes"])),
+        fetchAsset: async () => new Response("bytes"),
         blobToDataUrl: async () => "data:image/png;base64,Ynl0ZXM=",
         now: () => 20,
       },
@@ -65,7 +65,7 @@ describe("Canvas managed asset bridge", () => {
     const resolver = new CanvasBinaryFileResolver({
       fetchAsset: async (url) => {
         fetched.push(url);
-        return new Response(new Blob([url]));
+        return new Response(url);
       },
       blobToDataUrl: async (blob) => `data:${await blob.text()}`,
       now: () => 50,
@@ -130,7 +130,7 @@ describe("Canvas managed asset bridge", () => {
       fetchAsset: async () => {
         fetchCount += 1;
         if (fail) return new Response(null, { status: 503 });
-        return new Response(new Blob(["ok"]));
+        return new Response("ok");
       },
       blobToDataUrl: async () => "data:image/png;base64,b2s=",
     });
@@ -155,8 +155,8 @@ describe("Canvas managed asset bridge", () => {
     } catch (error) {
       secondError = error;
     }
-    expect(firstError instanceof Error).toBeTrue();
-    expect(secondError instanceof Error).toBeTrue();
+    expect(firstError instanceof Error).toBe(true);
+    expect(secondError instanceof Error).toBe(true);
     expect(fetchCount).toBe(1);
 
     fail = false;
@@ -170,6 +170,6 @@ describe("Canvas managed asset bridge", () => {
     } catch (error) {
       destroyedError = error;
     }
-    expect(destroyedError instanceof Error).toBeTrue();
+    expect(destroyedError instanceof Error).toBe(true);
   });
 });

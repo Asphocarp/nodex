@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CommandPaletteThread } from "./command-palette";
 import {
   type CommandPaletteThreadContentSearchBatch,
@@ -74,7 +74,7 @@ describe("command palette chat result selection", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.threadId).toBe("thr-projectless");
-    expect(results[0]?.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("merges content-only transcript hits into chat results", () => {
@@ -101,7 +101,7 @@ describe("command palette chat result selection", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.threadId).toBe("thr-content");
     expect(results[0]?.searchPreview?.source).toBe("content");
-    expect(results[0]?.searchPreview?.excerpt.includes("approval heuristic")).toBeTrue();
+    expect(results[0]?.searchPreview?.excerpt.includes("approval heuristic")).toBe(true);
   });
 
   test("can prioritize active-project content hits before final result limits", () => {
@@ -149,7 +149,7 @@ describe("command palette chat result selection", () => {
 
     expect(defaultResults[0]?.threadId).toBe("thr-other-metadata");
     expect(prioritizedResults[0]?.threadId).toBe("thr-active-content");
-    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active transcript")).toBeTrue();
+    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active transcript")).toBe(true);
   });
 
   test("keeps metadata preview when content search also returns the same chat", () => {
@@ -176,7 +176,7 @@ describe("command palette chat result selection", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.threadId).toBe("thr-preview");
     expect(results[0]?.searchPreview?.source).toBe("metadata");
-    expect(results[0]?.searchPreview?.excerpt.includes("Discuss retry budget")).toBeTrue();
+    expect(results[0]?.searchPreview?.excerpt.includes("Discuss retry budget")).toBe(true);
   });
 
   test("does not merge stale transcript batches from another query", () => {

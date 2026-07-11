@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { findToggleButtonForBlock, toggleCurrentToggleBlock } from "./toggle-shortcut";
 
 describe("toggle shortcut", () => {
@@ -36,8 +36,8 @@ describe("toggle shortcut", () => {
       }),
     });
 
-    expect(didToggle).toBeTrue();
-    expect(clicked).toBeTrue();
+    expect(didToggle).toBe(true);
+    expect(clicked).toBe(true);
   });
 
   test("toggleCurrentToggleBlock returns false for non-toggle blocks", () => {
@@ -52,6 +52,6 @@ describe("toggle shortcut", () => {
       }),
     });
 
-    expect(didToggle).toBeFalse();
+    expect(didToggle).toBe(false);
   });
 });

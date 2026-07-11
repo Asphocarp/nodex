@@ -1,8 +1,12 @@
 import { resolve } from "path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import react from "@vitejs/plugin-react";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { resolveRendererManualChunk } from "./config/renderer-manual-chunks";
+import {
+  createRendererVitePlugins,
+  rendererViteCss,
+  rendererViteResolve,
+} from "./config/renderer-vite-shared";
 
 function hasSentrySourceMapUploadConfig(): boolean {
   return Boolean(
@@ -82,18 +86,8 @@ export default defineConfig({
         },
       },
     },
-    resolve: {
-      alias: {
-        "@": resolve(__dirname, "src/renderer"),
-      },
-    },
-    plugins: [react(), ...createSentryPlugins()],
-    css: {
-      postcss: {
-        plugins: [
-          (await import("@tailwindcss/postcss")).default,
-        ],
-      },
-    },
+    resolve: rendererViteResolve,
+    plugins: [...createRendererVitePlugins(), ...createSentryPlugins()],
+    css: rendererViteCss,
   },
 });

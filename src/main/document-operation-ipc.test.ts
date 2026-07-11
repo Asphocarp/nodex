@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -98,7 +98,7 @@ describe("Document mutation IPC", () => {
   test("binds host identity before calling the Hub", async () => {
     const harness = register({ trusted: true });
     const result = await harness.invoke("project-1", "document-1", request);
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(harness.captured.length).toBe(1);
     expect(harness.captured[0]?.clientSessionId).toBe("renderer-1");
     expect(harness.captured[0]?.actor.kind).toBe("electron_renderer");
@@ -111,7 +111,7 @@ describe("Document mutation IPC", () => {
       "document-1",
       request,
     );
-    expect(unauthorized.ok).toBeFalse();
+    expect(unauthorized.ok).toBe(false);
     expect(untrusted.captured.length).toBe(0);
 
     const scoped = register({ trusted: true });
@@ -120,7 +120,7 @@ describe("Document mutation IPC", () => {
       "document-2",
       request,
     );
-    expect(mismatch.ok).toBeFalse();
+    expect(mismatch.ok).toBe(false);
     expect(scoped.captured.length).toBe(0);
   });
 
@@ -132,10 +132,10 @@ describe("Document mutation IPC", () => {
       },
     });
     const result = await harness.invoke("project-1", "document-1", request);
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("unknown");
-    expect(result.error.retryable).toBeTrue();
+    expect(result.error.retryable).toBe(true);
     expect(result.error.mutationId).toBe("mutation-1");
   });
 });

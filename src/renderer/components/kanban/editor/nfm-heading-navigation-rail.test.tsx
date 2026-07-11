@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import {
@@ -210,7 +210,7 @@ describe("NfmHeadingNavigationRail", () => {
     const nav = container.querySelector('nav[aria-label="Headings"]');
     const rows = container.querySelectorAll("[data-marker-navigation-item-id]");
 
-    expect(Boolean(nav)).toBeTrue();
+    expect(Boolean(nav)).toBe(true);
     expect(rows.length).toBe(4);
     expect(rows[0]?.getAttribute("aria-label")).toBe("Jump to heading 1: Heading 1");
   });
@@ -219,7 +219,7 @@ describe("NfmHeadingNavigationRail", () => {
     const { container } = render(<HeadingRailHarness headingCount={3} />);
     await settleHeadingRail();
 
-    expect(Boolean(container.querySelector('nav[aria-label="Headings"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('nav[aria-label="Headings"]'))).toBe(false);
   });
 
   test("click navigation reveals the matching heading smoothly", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveHistoryShortcutAction } from "./use-keyboard-shortcuts";
 
 type ShortcutEvent = Parameters<typeof resolveHistoryShortcutAction>[0];

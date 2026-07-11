@@ -1,7 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYDoc, yDocToBlocks } from "@blocknote/core/yjs";
-import { spawnSync } from "node:child_process";
 import {
   headlessBlockDocumentSchema,
   type HeadlessBlockDocumentPartialBlock,
@@ -9,42 +8,22 @@ import {
 
 describe("headless Block Document schema", () => {
   test("imports and converts Yjs content in a DOM-free process", () => {
-    const probe = spawnSync(
-      process.execPath,
-      [
-        "-e",
-        `
-        import { BlockNoteEditor } from "@blocknote/core";
-        import { blocksToYDoc, yDocToBlocks } from "@blocknote/core/yjs";
-        import { headlessBlockDocumentSchema } from "./src/shared/block-documents/headless-blocknote-schema.ts";
+    expect(Reflect.has(globalThis, "document")).toBe(false);
+    expect(Reflect.has(globalThis, "window")).toBe(false);
 
-        if (Reflect.has(globalThis, "document") || Reflect.has(globalThis, "window")) {
-          throw new Error("DOM globals were installed before the headless schema loaded");
-        }
+    const editor = BlockNoteEditor.create({
+      schema: headlessBlockDocumentSchema,
+      initialContent: [{
+        id: "headless-probe",
+        type: "cardRef",
+        props: { sourceProjectId: "project-1", cardId: "card-1" },
+      }],
+    });
+    const document = blocksToYDoc(editor, editor.document, "body");
+    const decoded = yDocToBlocks(editor, document, "body");
 
-        const editor = BlockNoteEditor.create({
-          schema: headlessBlockDocumentSchema,
-          initialContent: [{
-            id: "headless-probe",
-            type: "cardRef",
-            props: { sourceProjectId: "project-1", cardId: "card-1" },
-          }],
-        });
-        const document = blocksToYDoc(editor, editor.document, "body");
-        const decoded = yDocToBlocks(editor, document, "body");
-
-        if (!editor.headless || decoded[0]?.id !== "headless-probe") {
-          throw new Error("Headless Yjs conversion did not preserve the block");
-        }
-        console.log("headless-schema-ok");
-        `,
-      ],
-      { cwd: process.cwd(), encoding: "utf8" },
-    );
-
-    expect(probe.status).toBe(0);
-    expect(probe.stderr).toBe("");
-    expect(probe.stdout.trim()).toBe("headless-schema-ok");
+    expect(editor.headless).toBe(true);
+    expect(decoded[0]?.id).toBe("headless-probe");
   });
 
   test("round-trips all custom block and inline shapes through Yjs", () => {
@@ -180,7 +159,7 @@ describe("headless Block Document schema", () => {
       initialContent,
     });
 
-    expect(editor.headless).toBeTrue();
+    expect(editor.headless).toBe(true);
     const document = blocksToYDoc(editor, editor.document, "body");
     const decoded = yDocToBlocks(editor, document, "body");
 

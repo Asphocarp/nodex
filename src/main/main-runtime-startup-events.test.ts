@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { collectSecondInstancesForStartupReplay } from "./main-runtime-startup-events";
 
 describe("collectSecondInstancesForStartupReplay", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BoardSummary } from "@/lib/types";
 import { emptyCardSelection, toggleCardSelection } from "./card-selection";
 import {
@@ -79,16 +79,16 @@ describe("pragmatic drag data", () => {
       targetCardId: "card-1",
       source: dragData,
       instanceId,
-    })).toBeFalse();
+    })).toBe(false);
     expect(canDropOnKanbanCard({
       targetCardId: "card-2",
       source: dragData,
       instanceId,
-    })).toBeFalse();
+    })).toBe(false);
     expect(canDropOnKanbanCard({
       targetCardId: "card-3",
       source: dragData,
       instanceId,
-    })).toBeTrue();
+    })).toBe(true);
   });
 });

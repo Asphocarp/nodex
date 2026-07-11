@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveThreadCardResult, resolveThreadCardStatus } from "./thread-card-fetch";
 
 const CARD = {

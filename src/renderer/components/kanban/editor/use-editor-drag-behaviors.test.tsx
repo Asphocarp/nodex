@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { createRef, type RefObject } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -84,9 +84,9 @@ describe("useEditorDragBehaviors", () => {
     );
     await settleAsyncRender();
 
-    expect(editor.prosemirrorView?.dragging === null).toBeFalse();
+    expect(editor.prosemirrorView?.dragging === null).toBe(false);
     expect(blockDragEndCount).toBe(0);
-    expect(getActiveExternalEditorDragSession() === null).toBeFalse();
+    expect(getActiveExternalEditorDragSession() === null).toBe(false);
 
     fireEvent.dragEnd(container);
 

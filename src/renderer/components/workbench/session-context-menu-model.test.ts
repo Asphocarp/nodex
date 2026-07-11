@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ProjectSession } from "@/lib/types";
 import {
   SESSION_CONTEXT_MENU_ACTION_IDS,
@@ -122,8 +122,8 @@ describe("session context menu model", () => {
       const localFork = blankFork.submenu[0];
       const worktreeFork = blankFork.submenu[1];
       if (localFork?.type !== "separator" && worktreeFork?.type !== "separator") {
-        expect(localFork?.enabled).toBeFalse();
-        expect(worktreeFork?.enabled).toBeFalse();
+        expect(localFork?.enabled).toBe(false);
+        expect(worktreeFork?.enabled).toBe(false);
       }
     }
 
@@ -149,8 +149,8 @@ describe("session context menu model", () => {
       const localFork = nonGitFork.submenu[0];
       const worktreeFork = nonGitFork.submenu[1];
       if (localFork?.type !== "separator" && worktreeFork?.type !== "separator") {
-        expect(localFork?.enabled).toBeTrue();
-        expect(worktreeFork?.enabled).toBeFalse();
+        expect(localFork?.enabled).toBe(true);
+        expect(worktreeFork?.enabled).toBe(false);
       }
     }
   });

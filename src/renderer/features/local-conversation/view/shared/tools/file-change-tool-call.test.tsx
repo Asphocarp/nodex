@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import {
@@ -140,24 +140,24 @@ describe("FileChangeToolCall", () => {
     );
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(container.textContent?.includes("Edited file"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("local-conversation-stage-screen.tsx"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("+2"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("-0"))).toBeTrue();
-    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Edited file"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("local-conversation-stage-screen.tsx"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("+2"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("-0"))).toBe(true);
+    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBe(true);
 
     const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
-    expect(Boolean(body)).toBeTrue();
+    expect(Boolean(body)).toBe(true);
     expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
     const diffHost = body?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
-    expect(Boolean(diffHost)).toBeTrue();
+    expect(Boolean(diffHost)).toBe(true);
     await waitFor(() => {
-      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("StoryShell"))).toBeTrue();
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("StoryShell"))).toBe(true);
     });
   });
 
@@ -171,11 +171,11 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("+2"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("-0"))).toBeTrue();
-    expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBeFalse();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("+2"))).toBe(true);
+    expect(Boolean(textContent(container).includes("-0"))).toBe(true);
+    expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBe(false);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
   });
 
   test("derives pending and stopped row states from approval and turn state", () => {
@@ -198,7 +198,7 @@ describe("FileChangeToolCall", () => {
     );
 
     expect(pendingRows[0]?.state ?? "").toBe("pending");
-    expect(pendingRows[0]?.showActionLabel ?? true).toBeFalse();
+    expect(pendingRows[0]?.showActionLabel ?? true).toBe(false);
     expect(stoppedRows[0]?.state ?? "").toBe("stopped");
     expect(stoppedRows[0]?.label ?? "").toBe("Stopped creating");
   });
@@ -249,11 +249,11 @@ describe("FileChangeToolCall", () => {
     );
 
     const filenameButton = container.querySelector('button[data-state="closed"].max-w-full');
-    expect(Boolean(filenameButton)).toBeTrue();
+    expect(Boolean(filenameButton)).toBe(true);
     fireEvent.click(filenameButton as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(container.textContent?.includes("Edited file"))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("Edited file"))).toBe(false);
   });
 
   test("derives parsed file diff stats from actual changed lines", () => {
@@ -396,11 +396,11 @@ describe("FileChangeToolCall", () => {
     await waitFor(() => {
       expect(container.querySelectorAll("[data-file-change-row-body] diffs-container").length).toBe(1);
     });
-    expect(Boolean(textContent(container).includes("Edited file"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Edited file"))).toBe(true);
 
     const diffHost = container.querySelector<HTMLElement>(".nodex-inline-diff");
-    expect(Boolean(diffHost)).toBeTrue();
-    expect(Boolean(diffHost?.shadowRoot?.querySelector("[data-diffs-header]"))).toBeFalse();
+    expect(Boolean(diffHost)).toBe(true);
+    expect(Boolean(diffHost?.shadowRoot?.querySelector("[data-diffs-header]"))).toBe(false);
   });
 
   test("keeps the file-change body on explicit pixel height instead of switching to auto", async () => {
@@ -414,14 +414,14 @@ describe("FileChangeToolCall", () => {
     );
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     const body = container.querySelector<HTMLElement>('[data-file-change-row-body]');
-    expect(Boolean(body)).toBeTrue();
-    expect(body?.style.height === "auto").toBeFalse();
+    expect(Boolean(body)).toBe(true);
+    expect(body?.style.height === "auto").toBe(false);
   });
 
   test("does not mount non-streaming collapsed diff content before expansion", async () => {
@@ -435,19 +435,19 @@ describe("FileChangeToolCall", () => {
     );
 
     const collapsedBody = container.querySelector<HTMLElement>("[data-file-change-row-body]");
-    expect(Boolean(collapsedBody)).toBeTrue();
-    expect(Boolean(collapsedBody?.querySelector("diffs-container"))).toBeFalse();
-    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeFalse();
+    expect(Boolean(collapsedBody)).toBe(true);
+    expect(Boolean(collapsedBody?.querySelector("diffs-container"))).toBe(false);
+    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBe(false);
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     const expandedBody = container.querySelector<HTMLElement>("[data-file-change-row-body]");
-    expect(Boolean(expandedBody?.querySelector("diffs-container"))).toBeTrue();
-    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeTrue();
+    expect(Boolean(expandedBody?.querySelector("diffs-container"))).toBe(true);
+    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBe(true);
   });
 
   test("renders created files from v2 protocol changes as inline diffs", async () => {
@@ -481,19 +481,19 @@ describe("FileChangeToolCall", () => {
     );
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
-    expect(Boolean(textContent(container).includes("Created"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("+7"))).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
+    expect(Boolean(textContent(container).includes("Created"))).toBe(true);
+    expect(Boolean(textContent(container).includes("+7"))).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("Created file"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("local-conversation-resume-loader.tsx"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Created file"))).toBe(true);
+    expect(Boolean(textContent(container).includes("local-conversation-resume-loader.tsx"))).toBe(true);
     const diffHost = container.querySelector<HTMLElement>(".nodex-inline-diff");
-    expect(Boolean(diffHost)).toBeTrue();
+    expect(Boolean(diffHost)).toBe(true);
     await waitFor(() => {
-      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("NodexLogoMarkIcon"))).toBeTrue();
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("NodexLogoMarkIcon"))).toBe(true);
     });
     const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
     expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
@@ -537,14 +537,14 @@ describe("FileChangeToolCall", () => {
     fireEvent.click(toggles[0]!);
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("Created file"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("extract-thread-floating-activity-card-artifacts.mjs"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Created file"))).toBe(true);
+    expect(Boolean(textContent(container).includes("extract-thread-floating-activity-card-artifacts.mjs"))).toBe(true);
     const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
     expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
     const diffHost = body?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
-    expect(Boolean(diffHost)).toBeTrue();
+    expect(Boolean(diffHost)).toBe(true);
     await waitFor(() => {
-      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("extractArtifacts"))).toBeTrue();
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("extractArtifacts"))).toBe(true);
     });
   });
 
@@ -583,13 +583,13 @@ describe("FileChangeToolCall", () => {
     );
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("*** Begin Patch"))).toBeFalse();
-    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeTrue();
+    expect(Boolean(textContent(container).includes("*** Begin Patch"))).toBe(false);
+    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBe(true);
   });
 
   test("renders declined file changes with rejected status copy", async () => {
@@ -622,15 +622,15 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Rejected"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Rejected"))).toBe(true);
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("Created file"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Created file"))).toBe(false);
   });
 
   test("renders failed file changes with rejected status copy", () => {
@@ -700,22 +700,22 @@ describe("FileChangeToolCall", () => {
     );
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
-    expect(Boolean(summaryToggle?.querySelector("svg"))).toBeTrue();
+    expect(Boolean(summaryToggle)).toBe(true);
+    expect(Boolean(summaryToggle?.querySelector("svg"))).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
       .find((element) => textContent(element).includes("Auto-review denied high risk")) ?? null;
-    expect(Boolean(reviewButton)).toBeTrue();
-    expect(Boolean(textContent(reviewButton as HTMLElement).includes("Auto-review denied high risk"))).toBeTrue();
-    expect(Boolean(textContent(reviewButton as HTMLElement).includes("High risk"))).toBeFalse();
+    expect(Boolean(reviewButton)).toBe(true);
+    expect(Boolean(textContent(reviewButton as HTMLElement).includes("Auto-review denied high risk"))).toBe(true);
+    expect(Boolean(textContent(reviewButton as HTMLElement).includes("High risk"))).toBe(false);
     expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("false");
 
     fireEvent.click(reviewButton as HTMLElement);
     await settleAsyncRender();
     expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("true");
-    expect(Boolean(textContent(container).includes("This edit is high risk."))).toBeTrue();
+    expect(Boolean(textContent(container).includes("This edit is high risk."))).toBe(true);
   });
 });

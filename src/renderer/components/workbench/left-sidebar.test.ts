@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 
 function makeSection(itemStates: Array<{ id: string; active?: boolean }>) {
@@ -39,8 +39,8 @@ describe("resolveStageSidebarSectionRenderState", () => {
       {},
     );
 
-    expect(state.expanded).toBeFalse();
-    expect(state.hasOverflow).toBeFalse();
+    expect(state.expanded).toBe(false);
+    expect(state.hasOverflow).toBe(false);
     expect(state.visibleItems.length).toBe(0);
     expect(state.pinnedItems.map((item) => item.id).join(",")).toBe("card-2");
   });
@@ -55,7 +55,7 @@ describe("resolveStageSidebarSectionRenderState", () => {
       {},
     );
 
-    expect(state.expanded).toBeFalse();
+    expect(state.expanded).toBe(false);
     expect(state.visibleItems.length).toBe(0);
     expect(state.pinnedItems.map((item) => item.id).join(",")).toBe("card-2");
   });
@@ -67,8 +67,8 @@ describe("resolveStageSidebarSectionRenderState", () => {
       {},
     );
 
-    expect(state.expanded).toBeTrue();
-    expect(state.hasOverflow).toBeTrue();
+    expect(state.expanded).toBe(true);
+    expect(state.hasOverflow).toBe(true);
     expect(state.visibleItems.length).toBe(10);
     expect(state.overflowItems.length).toBe(2);
     expect(state.pinnedItems.length).toBe(0);
@@ -84,7 +84,7 @@ describe("resolveStageSidebarSectionRenderState", () => {
       {},
     );
 
-    expect(state.expanded).toBeTrue();
+    expect(state.expanded).toBe(true);
     expect(state.visibleItems.map((item) => item.id).join(",")).toBe("session-1,session-2");
     expect(state.pinnedItems.length).toBe(0);
   });

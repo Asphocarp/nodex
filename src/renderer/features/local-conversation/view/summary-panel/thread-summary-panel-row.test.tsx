@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render, textContent } from "../../../../test/dom";
 
@@ -44,7 +44,7 @@ describe("ThreadSummaryPanelRow", () => {
 
     expect(String(count)).toBe("0");
     expect(row.getAttribute("aria-disabled")).toBe("true");
-    expect(row.hasAttribute("tabindex")).toBeFalse();
+    expect(row.hasAttribute("tabindex")).toBe(false);
   });
 
   test("treats pointer and key handlers as row interactions", async () => {
@@ -96,7 +96,7 @@ describe("ThreadSummaryPanelRow", () => {
     expect(String(pointerDownCount)).toBe("0");
     expect(String(keyDownCount)).toBe("0");
     expect(row.getAttribute("aria-disabled")).toBe("true");
-    expect(row.hasAttribute("tabindex")).toBeFalse();
+    expect(row.hasAttribute("tabindex")).toBe(false);
   });
 
   test("shows trailing content when requested", async () => {
@@ -110,7 +110,7 @@ describe("ThreadSummaryPanelRow", () => {
     );
 
     const content = textContent(container);
-    expect(content.includes("+12 -4")).toBeTrue();
+    expect(content.includes("+12 -4")).toBe(true);
   });
 
   test("does not propagate accessory clicks to the row action", async () => {

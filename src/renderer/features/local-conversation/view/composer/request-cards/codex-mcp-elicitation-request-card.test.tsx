@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import type { CodexMcpServerElicitationRequest } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
@@ -41,8 +41,8 @@ describe("CodexMcpElicitationRequestCard", () => {
     );
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("Context7"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Context7 requests information"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Context7"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Context7 requests information"))).toBe(true);
 
     const form = container.querySelector("form");
     if (!form) throw new Error("expected MCP form");
@@ -51,7 +51,7 @@ describe("CodexMcpElicitationRequestCard", () => {
       fireEvent.submit(form);
       await settleAsyncRender();
     });
-    expect(Boolean(textContent(container).includes("Complete this field to continue"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Complete this field to continue"))).toBe(true);
 
     const libraryInput = getByLabelText("Library") as HTMLInputElement;
     await act(async () => {

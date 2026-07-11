@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
@@ -41,7 +41,7 @@ describe("workspace-file-model", () => {
     const entry = makeEntry("README.md", "/repo/docs/README.md");
 
     expect(getWorkspaceFileName(entry.path)).toBe("README.md");
-    expect(shouldIncludeWorkspaceTreeEntry(entry, "docs")).toBeTrue();
-    expect(shouldIncludeWorkspaceTreeEntry(entry, "missing")).toBeFalse();
+    expect(shouldIncludeWorkspaceTreeEntry(entry, "docs")).toBe(true);
+    expect(shouldIncludeWorkspaceTreeEntry(entry, "missing")).toBe(false);
   });
 });

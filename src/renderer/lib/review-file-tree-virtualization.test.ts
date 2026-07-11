@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
   REVIEW_FILE_TREE_FALLBACK_ITEM_HEIGHT_PX,
@@ -50,7 +50,7 @@ describe("review file tree virtualization", () => {
       itemHeight: REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
     }, previousRange);
 
-    expect(areReviewFileTreeRangesEqual(previousRange, nextRange)).toBeTrue();
+    expect(areReviewFileTreeRangesEqual(previousRange, nextRange)).toBe(true);
   });
 
   test("computes offset and window heights for the sticky shell", () => {
@@ -80,9 +80,9 @@ describe("review file tree virtualization", () => {
   });
 
   test("virtualization enablement respects the threshold", () => {
-    expect(isReviewFileTreeVirtualizationEnabled(0, 0)).toBeFalse();
-    expect(isReviewFileTreeVirtualizationEnabled(5, 10)).toBeFalse();
-    expect(isReviewFileTreeVirtualizationEnabled(10, 10)).toBeTrue();
+    expect(isReviewFileTreeVirtualizationEnabled(0, 0)).toBe(false);
+    expect(isReviewFileTreeVirtualizationEnabled(5, 10)).toBe(false);
+    expect(isReviewFileTreeVirtualizationEnabled(10, 10)).toBe(true);
   });
 
   test("resolves the row height from the tree host CSS variable", () => {

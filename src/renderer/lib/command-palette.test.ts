@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   areCommandPaletteCardFiltersEqual,
   filterCommandPaletteItems,
@@ -269,7 +269,7 @@ describe("filterCommandPaletteItems", () => {
     expect(result.cards.length).toBe(0);
     expect(result.threads.length).toBe(1);
     expect(result.threads[0]?.threadId).toBe("thr-search");
-    expect(result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("filters cards by explicit tag and status filters", () => {
@@ -408,7 +408,7 @@ describe("filterCommandPaletteItems", () => {
       });
       const read = readCommandPaletteCardFilters();
 
-      expect(areCommandPaletteCardFiltersEqual(read, written)).toBeTrue();
+      expect(areCommandPaletteCardFiltersEqual(read, written)).toBe(true);
       expect(read.projectIds[0]).toBe("ops");
       expect(read.assignees[0]).toBe("Alex");
     });
@@ -442,7 +442,7 @@ describe("filterCommandPaletteItems", () => {
 
     expect(result.commands.length).toBe(2);
     expect(result.commands[0]?.id).toBe("navigateBack");
-    expect(result.commands[0]?.disabled).toBeTrue();
+    expect(result.commands[0]?.disabled).toBe(true);
     expect(result.commands[1]?.id).toBe("navigateForward");
   });
 });

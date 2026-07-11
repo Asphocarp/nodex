@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   canonicalizeCardLifecycleMutationRequest,
   CardLifecycleContractError,
@@ -47,7 +47,7 @@ describe("Card lifecycle contract", () => {
     expect(
       parsed.operation.reminders.map((item) => item.offsetMinutes).join(","),
     ).toBe("5,30");
-    expect(parsed.operation.isAllDay).toBeFalse();
+    expect(parsed.operation.isAllDay).toBe(false);
     expect(parsed.operation.runInTarget).toBe("localProject");
     expect(parsed.operation.recurrence).toBe(null);
   });
@@ -91,7 +91,7 @@ describe("Card lifecycle contract", () => {
       failsWithContractError(() =>
         parseCardLifecycleMutationRequest(invalidTimestamp),
       ),
-    ).toBeTrue();
+    ).toBe(true);
 
     const partialRange = createRequest();
     delete (partialRange.operation as { scheduledEnd?: string }).scheduledEnd;
@@ -99,7 +99,7 @@ describe("Card lifecycle contract", () => {
       failsWithContractError(() =>
         parseCardLifecycleMutationRequest(partialRange),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("requires revision fences and rejects unknown operation fields", () => {
@@ -120,7 +120,7 @@ describe("Card lifecycle contract", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
 
     const parsed = parseCardLifecycleMutationRequest({
       version: 1,
@@ -182,12 +182,12 @@ describe("Card lifecycle contract", () => {
         committedAt: "2026-07-11T10:00:00.000Z",
       },
     };
-    expect(parseCardLifecycleMutationCommandResult(receipt).ok).toBeTrue();
+    expect(parseCardLifecycleMutationCommandResult(receipt).ok).toBe(true);
     receipt.value.documentHeadSeq = 0;
     expect(
       failsWithContractError(() =>
         parseCardLifecycleMutationCommandResult(receipt),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

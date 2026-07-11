@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   modifyCurrentBlock,
   type ModifyShortcutEditor,
@@ -38,7 +38,7 @@ describe("modifyCurrentBlock", () => {
 
     const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(updateJson).toBe(
       JSON.stringify({
         target: block,
@@ -62,7 +62,7 @@ describe("modifyCurrentBlock", () => {
 
     const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(updateJson).toBe(
       JSON.stringify({
         target: block,
@@ -85,8 +85,8 @@ describe("modifyCurrentBlock", () => {
 
     const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
 
-    expect(handled).toBeTrue();
-    expect(clicked).toBeTrue();
+    expect(handled).toBe(true);
+    expect(clicked).toBe(true);
   });
 
   test("clicks the current toggle heading button", () => {
@@ -103,8 +103,8 @@ describe("modifyCurrentBlock", () => {
 
     const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
 
-    expect(handled).toBeTrue();
-    expect(clicked).toBeTrue();
+    expect(handled).toBe(true);
+    expect(clicked).toBe(true);
   });
 
   test("opens image preview for an image block", () => {
@@ -122,7 +122,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(previewKey).toBe("asset://image-1|Diagram");
   });
 
@@ -132,7 +132,7 @@ describe("modifyCurrentBlock", () => {
       { projectId: "project-1" },
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
   });
 
   test("opens a card reference target", () => {
@@ -150,7 +150,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(opened).toBe(JSON.stringify({
       projectId: "project-2",
       cardId: "card-1",
@@ -181,8 +181,8 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    expect(handled).toBeTrue();
-    expect(clicked).toBeFalse();
+    expect(handled).toBe(true);
+    expect(clicked).toBe(false);
     expect(opened).toBe(JSON.stringify({
       projectId: "project-2",
       cardId: "card-1",
@@ -207,8 +207,8 @@ describe("modifyCurrentBlock", () => {
 
     const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
 
-    expect(handled).toBeTrue();
-    expect(clicked).toBeTrue();
+    expect(handled).toBe(true);
+    expect(clicked).toBe(true);
   });
 
   test("opens a bound thread section", () => {
@@ -226,7 +226,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(openedThreadId).toBe("thread-1");
   });
 
@@ -243,7 +243,7 @@ describe("modifyCurrentBlock", () => {
       },
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
   });
 
   test("uses a single selected modifiable block before the cursor block", () => {
@@ -266,7 +266,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(previewKey).toBe("asset://selected-image|Selected");
   });
 
@@ -290,7 +290,7 @@ describe("modifyCurrentBlock", () => {
 
     const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
     expect(updateCount).toBe(0);
   });
 });

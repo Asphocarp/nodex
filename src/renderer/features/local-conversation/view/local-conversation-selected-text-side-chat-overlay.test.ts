@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   resolveCommonSelectedTextTarget,
   resolveSelectedTextOverlayLayout,
@@ -32,7 +32,7 @@ describe("selected text side chat overlay helpers", () => {
       focusNode: second,
     });
 
-    expect(resolved === target).toBeTrue();
+    expect(resolved === target).toBe(true);
   });
 
   test("rejects selections that cross selected-text targets", () => {
@@ -53,7 +53,7 @@ describe("selected text side chat overlay helpers", () => {
       focusNode: second,
     });
 
-    expect(resolved === null).toBeTrue();
+    expect(resolved === null).toBe(true);
   });
 
   test("does not place an overlay for empty selected text", () => {
@@ -66,7 +66,7 @@ describe("selected text side chat overlay helpers", () => {
       footerRect: null,
     });
 
-    expect(layout === null).toBeTrue();
+    expect(layout === null).toBe(true);
   });
 
   test("places the overlay above a visible selected range", () => {
@@ -108,6 +108,6 @@ describe("selected text side chat overlay helpers", () => {
       footerRect: rect({ left: 100, top: 170, width: 400, height: 80 }),
     });
 
-    expect(layout === null).toBeTrue();
+    expect(layout === null).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { settleAsyncRender } from "../../../../test/dom";
 import { render, textContent } from "../../../../test/dom";
@@ -43,8 +43,8 @@ describe("ReasoningSurface", () => {
     );
 
     const renderedText = textContent(container);
-    expect(Boolean(renderedText.includes("Thinking"))).toBeTrue();
-    expect(Boolean(renderedText.includes("Checking the failing story state."))).toBeTrue();
+    expect(Boolean(renderedText.includes("Thinking"))).toBe(true);
+    expect(Boolean(renderedText.includes("Checking the failing story state."))).toBe(true);
   });
 
   test("starts collapsed once reasoning is completed and toggles the body open", () => {
@@ -59,13 +59,13 @@ describe("ReasoningSurface", () => {
 
     const toggle = getByRole("button", { name: /Thought/i });
     const body = container.querySelector("[data-thread-find-skip]");
-    expect(Boolean(textContent(container).includes("Thought"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Thought"))).toBe(true);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(body?.getAttribute("data-thread-find-skip")).toBe("true");
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(Boolean(textContent(container).includes("Checking the failing story state."))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Checking the failing story state."))).toBe(true);
   });
 
   test("renders reasoning body markdown after expansion", async () => {

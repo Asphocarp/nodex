@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { cutRelease } from "./release-cut";
 
 let tempDir = "";
@@ -68,9 +68,9 @@ test("cutRelease bumps package version, rolls the changelog, commits, and tags",
   expect(result.version).toBe("0.1.2");
   expect(result.tagName).toBe("v0.1.2");
   expect(packageJson.version).toBe("0.1.2");
-  expect(changelog.includes("## [0.1.2] - ")).toBeTrue();
-  expect(changelog.includes("## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed")).toBeTrue();
-  expect(latestCommitMessage.startsWith("release: v0.1.2")).toBeTrue();
+  expect(changelog.includes("## [0.1.2] - ")).toBe(true);
+  expect(changelog.includes("## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed")).toBe(true);
+  expect(latestCommitMessage.startsWith("release: v0.1.2")).toBe(true);
   expect(tagName).toBe("v0.1.2");
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -60,8 +60,8 @@ describe("card update revision conflict handling", () => {
       );
       expect(firstUpdate.status).toBe("updated");
       if (firstUpdate.status === "updated") {
-        expect(Object.hasOwn(firstUpdate, "card")).toBeFalse();
-        expect(Object.hasOwn(firstUpdate.summary, "description")).toBeFalse();
+        expect(Object.hasOwn(firstUpdate, "card")).toBe(false);
+        expect(Object.hasOwn(firstUpdate.summary, "description")).toBe(false);
         expect(firstUpdate.revision).toBe(2);
         expect(firstUpdate.summary.title).toBe("First writer");
       }
@@ -88,6 +88,6 @@ describe("card update revision conflict handling", () => {
       expect(card?.revision).toBe(2);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

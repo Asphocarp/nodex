@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import {
   DocumentMaterializationStoreError,
@@ -119,6 +119,6 @@ describe("document materialization store", () => {
     } catch (error) {
       rejected = error instanceof DocumentMaterializationStoreError;
     }
-    expect(rejected).toBeTrue();
+    expect(rejected).toBe(true);
   });
 });

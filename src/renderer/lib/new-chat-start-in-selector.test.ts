@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   getNewChatStartInTriggerIconKey,
   getNewChatStartInTriggerLabel,
@@ -15,8 +15,8 @@ describe("new-chat start-in selector", () => {
 
     expect(local?.label).toBe("Work locally");
     expect(local?.iconKey).toBe("local");
-    expect(local?.selected).toBeTrue();
-    expect(local?.disabled).toBeFalse();
+    expect(local?.selected).toBe(true);
+    expect(local?.disabled).toBe(false);
     expect(getNewChatStartInTriggerLabel("localProject")).toBe("Work locally");
     expect(getNewChatStartInTriggerIconKey("localProject")).toBe("local");
   });
@@ -30,8 +30,8 @@ describe("new-chat start-in selector", () => {
 
     expect(worktree?.label).toBe("New worktree");
     expect(worktree?.iconKey).toBe("worktree");
-    expect(worktree?.selected).toBeTrue();
-    expect(worktree?.disabled).toBeFalse();
+    expect(worktree?.selected).toBe(true);
+    expect(worktree?.disabled).toBe(false);
     expect(getNewChatStartInTriggerLabel("newWorktree")).toBe("New worktree");
     expect(getNewChatStartInTriggerIconKey("newWorktree")).toBe("worktree");
   });
@@ -46,7 +46,7 @@ describe("new-chat start-in selector", () => {
 
     expect(cloud?.label).toBe("Send to cloud");
     expect(cloud?.iconKey).toBe("cloud");
-    expect(cloud?.disabled).toBeTrue();
+    expect(cloud?.disabled).toBe(true);
   });
 
   test("disables new worktree for non-git projects", () => {
@@ -56,7 +56,7 @@ describe("new-chat start-in selector", () => {
     });
     const worktree = options.find((option) => option.value === "newWorktree");
 
-    expect(worktree?.disabled).toBeTrue();
-    expect(Boolean(worktree?.tooltipText?.includes("git repo"))).toBeTrue();
+    expect(worktree?.disabled).toBe(true);
+    expect(Boolean(worktree?.tooltipText?.includes("git repo"))).toBe(true);
   });
 });

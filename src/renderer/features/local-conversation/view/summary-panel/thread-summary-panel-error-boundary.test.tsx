@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act, useState } from "react";
 import { render, textContent } from "../../../../test/dom";
@@ -77,7 +77,7 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
     await withMutedReactErrorLogs(async () => {
       const { container } = render(<RetryHarness />);
 
-      expect(textContent(container).includes("Summary panel couldn't render")).toBeTrue();
+      expect(textContent(container).includes("Summary panel couldn't render")).toBe(true);
       expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]')).not.toBeNull();
       expect((container.querySelector('[data-pip-obstacle="thread-summary-panel"]') as HTMLElement).style.width).toBe("300px");
 
@@ -89,8 +89,8 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
         await Promise.resolve();
       });
 
-      expect(textContent(container).includes("Rendered summary panel")).toBeTrue();
-      expect(textContent(container).includes("Summary panel couldn't render")).toBeFalse();
+      expect(textContent(container).includes("Rendered summary panel")).toBe(true);
+      expect(textContent(container).includes("Summary panel couldn't render")).toBe(false);
     });
   });
 
@@ -98,7 +98,7 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
     await withMutedReactErrorLogs(async () => {
       const { container } = render(<ResetKeyHarness />);
 
-      expect(textContent(container).includes("Summary panel couldn't render")).toBeTrue();
+      expect(textContent(container).includes("Summary panel couldn't render")).toBe(true);
 
       const switchButton = container.querySelector("button");
       expect(switchButton).not.toBeNull();
@@ -109,7 +109,7 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
       });
 
       await waitFor(() => {
-        expect(textContent(container).includes("Rendered summary panel")).toBeTrue();
+        expect(textContent(container).includes("Rendered summary panel")).toBe(true);
       });
     });
   });
@@ -119,10 +119,10 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
       <ThreadSummaryPanelRenderErrorFallback mounted={false} onRetry={() => {}} open={true} />,
     );
 
-    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBeTrue();
+    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBe(true);
 
     rerender(<ThreadSummaryPanelRenderErrorFallback mounted={true} onRetry={() => {}} open={false} />);
 
-    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBeTrue();
+    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBe(true);
   });
 });

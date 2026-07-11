@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { Project } from "../../lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -11,7 +11,7 @@ let getCodexSidebarSortableStyle: typeof import("./codex-sidebar")["getCodexSide
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
-mock.module("@/lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
@@ -125,17 +125,17 @@ describe("SidebarProjectsSection", () => {
     );
 
     expect(getByText("Projects").textContent).toBe("Projects");
-    expect(container.querySelector('[data-app-action-sidebar-projects-collapse-action]') === null).toBeTrue();
+    expect(container.querySelector('[data-app-action-sidebar-projects-collapse-action]') === null).toBe(true);
     expect(getByLabelText("Project sidebar options").getAttribute("aria-disabled")).toBe(null);
     expect(getByLabelText("Add new project").getAttribute("aria-label")).toBe("Add new project");
-    expect(textContent(container).indexOf("Beta") < textContent(container).indexOf("Alpha")).toBeTrue();
-    expect(textContent(container).includes("/repo/beta")).toBeFalse();
-    expect(textContent(container).includes("/alpha")).toBeFalse();
+    expect(textContent(container).indexOf("Beta") < textContent(container).indexOf("Alpha")).toBe(true);
+    expect(textContent(container).includes("/repo/beta")).toBe(false);
+    expect(textContent(container).includes("/alpha")).toBe(false);
 
     const section = container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
     expect(section?.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
     const sectionBody = section?.querySelector("[data-app-action-sidebar-section-body-motion]");
-    expect(Boolean(sectionBody)).toBeTrue();
+    expect(Boolean(sectionBody)).toBe(true);
 
     const rows = Array.from(container.querySelectorAll("[data-app-action-sidebar-project-row]"));
     expect(rows.length).toBe(2);
@@ -196,10 +196,10 @@ describe("SidebarProjectsSection", () => {
     });
 
     await waitFor(() => {
-      expect(textContent(document.body).includes("Archive all chats")).toBeTrue();
-      expect(textContent(document.body).includes("Organize pins")).toBeTrue();
-      expect(textContent(document.body).includes("Organize sidebar")).toBeTrue();
-      expect(textContent(document.body).includes("Sort by")).toBeTrue();
+      expect(textContent(document.body).includes("Archive all chats")).toBe(true);
+      expect(textContent(document.body).includes("Organize pins")).toBe(true);
+      expect(textContent(document.body).includes("Organize sidebar")).toBe(true);
+      expect(textContent(document.body).includes("Sort by")).toBe(true);
     });
 
     const sortByItem = getByText("Sort by").closest('[role="menuitem"]');
@@ -214,9 +214,9 @@ describe("SidebarProjectsSection", () => {
     });
 
     await waitFor(() => {
-      expect(textContent(document.body).includes("Manual order")).toBeTrue();
-      expect(textContent(document.body).includes("Created")).toBeTrue();
-      expect(textContent(document.body).includes("Updated")).toBeTrue();
+      expect(textContent(document.body).includes("Manual order")).toBe(true);
+      expect(textContent(document.body).includes("Created")).toBe(true);
+      expect(textContent(document.body).includes("Updated")).toBe(true);
     });
   });
 
@@ -287,7 +287,7 @@ describe("SidebarProjectsSection", () => {
       await Promise.resolve();
     });
 
-    expect(invokeCalls.some((call) => call[0] === "projects:pick-source-root")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "projects:pick-source-root")).toBe(true);
     expect(JSON.stringify(updateCalls[0])).toBe(JSON.stringify([
       "beta",
       { sources: ["/repo/beta", "/repo/selected"] },
@@ -298,10 +298,10 @@ describe("SidebarProjectsSection", () => {
     const { container, getByText } = renderProjectRowWithSessions();
 
     const motionDisclosure = container.querySelector("[data-app-action-sidebar-project-list-motion]");
-    expect(Boolean(motionDisclosure)).toBeTrue();
+    expect(Boolean(motionDisclosure)).toBe(true);
 
     const sessionList = container.querySelector("[data-app-action-sidebar-project-list-id='alpha']");
-    expect(Boolean(sessionList)).toBeTrue();
+    expect(Boolean(sessionList)).toBe(true);
     expect(sessionList?.getAttribute("data-app-action-sidebar-project-show-all")).toBe("false");
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
@@ -317,7 +317,7 @@ describe("SidebarProjectsSection", () => {
       throw new Error("Expected project label and disclosure chevron");
     }
 
-    expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
 
     rerender(
       <NodexTooltipProvider>
@@ -337,7 +337,7 @@ describe("SidebarProjectsSection", () => {
     );
 
     const collapsedChevronIcon = container.querySelector("[data-app-action-sidebar-project-toggle-chevron] svg");
-    expect(collapsedChevronIcon !== null).toBeTrue();
+    expect(collapsedChevronIcon !== null).toBe(true);
   });
 
   test("unmounts project session children when collapsed", () => {
@@ -351,7 +351,7 @@ describe("SidebarProjectsSection", () => {
     const { container, getByText } = renderProjectRowWithSessions({ animateChildren: false });
 
     const staticDisclosure = container.querySelector("[data-app-action-sidebar-project-list-static]");
-    expect(Boolean(staticDisclosure)).toBeTrue();
+    expect(Boolean(staticDisclosure)).toBe(true);
     expect(container.querySelector("[data-app-action-sidebar-project-list-motion]")).toBe(null);
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
@@ -363,7 +363,7 @@ describe("SidebarProjectsSection", () => {
     );
 
     expect(style.transform).toBe("translate3d(12px, 34px, 0)");
-    expect(String(style.transform).includes("scale")).toBeFalse();
+    expect(String(style.transform).includes("scale")).toBe(false);
     expect(style.transition).toBe("transform 200ms ease");
   });
 });

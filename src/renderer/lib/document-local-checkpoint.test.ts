@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   createCardDocument,
@@ -38,7 +38,7 @@ describe("document local checkpoints", () => {
       "local-checkpoint",
     );
 
-    expect(hasDocumentUpdateContent(missing)).toBeTrue();
+    expect(hasDocumentUpdateContent(missing)).toBe(true);
     Y.applyUpdate(server, missing);
     expect(openCardDocument(server).title.toString()).toBe("Base local");
     expect(openCardDocument(restarted).title.toString()).toBe("Base local");
@@ -63,7 +63,7 @@ describe("document local checkpoints", () => {
       "local-checkpoint",
     );
 
-    expect(hasDocumentUpdateContent(missing)).toBeFalse();
+    expect(hasDocumentUpdateContent(missing)).toBe(false);
     server.destroy();
     restarted.destroy();
   });
@@ -92,9 +92,9 @@ describe("document local checkpoints", () => {
       rejected = error instanceof DocumentLocalCheckpointError;
     }
 
-    expect(rejected).toBeTrue();
+    expect(rejected).toBe(true);
     const after = Y.encodeStateAsUpdate(mounted);
-    expect(Buffer.from(after).equals(Buffer.from(before))).toBeTrue();
+    expect(Buffer.from(after).equals(Buffer.from(before))).toBe(true);
     mounted.destroy();
     corrupt.destroy();
   });

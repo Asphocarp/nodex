@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildNfmSideMenuSections,
   filterNfmSideMenuSections,
@@ -31,7 +31,7 @@ describe("nfm side menu model", () => {
     const rows = flattenNfmSideMenuRows(sections);
 
     expect(rows.map(({ row }) => row.label).join(",")).toBe("Turn into,Color,Duplicate,Move to,Delete");
-    expect(rows.some(({ row }) => row.mockReason !== undefined)).toBeFalse();
+    expect(rows.some(({ row }) => row.mockReason !== undefined)).toBe(false);
     expect(rows[3]?.sectionKey).toBe("selection");
     expect(rows[3]?.row.kind).toBe("submenu");
     expect(rows[3]?.row.submenu).toBe("move-to");
@@ -61,8 +61,8 @@ describe("nfm side menu model", () => {
     const copyLink = flattenNfmSideMenuRows(sections).find(({ row }) => row.key === "copy-link-to-block")?.row;
 
     expect(copyLink?.label).toBe("Copy links to all");
-    expect(copyLink?.enabled).toBeFalse();
-    expect(Boolean(copyLink?.mockReason)).toBeTrue();
+    expect(copyLink?.enabled).toBe(false);
+    expect(Boolean(copyLink?.mockReason)).toBe(true);
   });
 
   test("keeps reference mock actions disabled and marked in dev contexts", () => {
@@ -72,14 +72,14 @@ describe("nfm side menu model", () => {
     const duplicate = rows.find(({ row }) => row.key === "duplicate")?.row;
     const moveTo = rows.find(({ row }) => row.key === "move-to")?.row;
 
-    expect(copyLink?.enabled).toBeFalse();
-    expect(Boolean(copyLink?.mockReason)).toBeTrue();
+    expect(copyLink?.enabled).toBe(false);
+    expect(Boolean(copyLink?.mockReason)).toBe(true);
     expect(present?.badge).toBe("Beta");
-    expect(Boolean(present?.mockReason)).toBeTrue();
-    expect(duplicate?.enabled).toBeTrue();
-    expect(duplicate?.mockReason === undefined).toBeTrue();
-    expect(moveTo?.enabled).toBeTrue();
-    expect(moveTo?.mockReason === undefined).toBeTrue();
+    expect(Boolean(present?.mockReason)).toBe(true);
+    expect(duplicate?.enabled).toBe(true);
+    expect(duplicate?.mockReason === undefined).toBe(true);
+    expect(moveTo?.enabled).toBe(true);
+    expect(moveTo?.mockReason === undefined).toBe(true);
   });
 
   test("keeps Move to visible as a real disabled row when block moves are unavailable", () => {
@@ -100,8 +100,8 @@ describe("nfm side menu model", () => {
     const moveTo = rows.find(({ row }) => row.key === "move-to")?.row;
 
     expect(moveTo?.key).toBe("move-to");
-    expect(moveTo?.enabled).toBeFalse();
-    expect(moveTo?.mockReason === undefined).toBeTrue();
+    expect(moveTo?.enabled).toBe(false);
+    expect(moveTo?.mockReason === undefined).toBe(true);
   });
 
   test("adds divider and table specific Nodex sections only when relevant", () => {
@@ -142,9 +142,9 @@ describe("nfm side menu model", () => {
     });
     const rows = flattenNfmSideMenuRows(sections);
 
-    expect(rows.some(({ row }) => row.key === "convert-divider-to-thread-section")).toBeFalse();
-    expect(rows.some(({ row }) => row.key === "table-header-row")).toBeFalse();
-    expect(rows.some(({ row }) => row.key === "table-header-column")).toBeFalse();
+    expect(rows.some(({ row }) => row.key === "convert-divider-to-thread-section")).toBe(false);
+    expect(rows.some(({ row }) => row.key === "table-header-row")).toBe(false);
+    expect(rows.some(({ row }) => row.key === "table-header-column")).toBe(false);
   });
 
   test("adds disabled table parity mock rows in mock mode", () => {
@@ -165,10 +165,10 @@ describe("nfm side menu model", () => {
     const fitWidth = rows.find(({ row }) => row.key === "table-fit-width")?.row;
     const createCards = rows.find(({ row }) => row.key === "table-create-cards-from-rows")?.row;
 
-    expect(fitWidth?.enabled).toBeFalse();
+    expect(fitWidth?.enabled).toBe(false);
     expect(typeof fitWidth?.mockReason).toBe("string");
     expect(createCards?.badge).toBe("Nodex");
-    expect(createCards?.enabled).toBeFalse();
+    expect(createCards?.enabled).toBe(false);
   });
 
   test("resolves section titles from top-level selected block descriptors", () => {

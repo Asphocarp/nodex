@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -22,10 +22,10 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
   const row = db.prepare("SELECT id FROM projects WHERE name = ?").get(name) as
     | { id: string }
     | undefined;
-  expect(row !== undefined).toBeTrue();
+  expect(row !== undefined).toBe(true);
   const projectId = row?.id ?? "";
-  expect(projectId === name).toBeFalse();
-  expect(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)).toBeTrue();
+  expect(projectId === name).toBe(false);
+  expect(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)).toBe(true);
   return projectId;
 }
 
@@ -112,8 +112,8 @@ describe("schema initialization", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(63))).toBe(expectedTargetsAfter(63));
     expect(JSON.stringify(getSchemaMigrationTargets(64))).toBe(expectedTargetsAfter(64));
     expect(JSON.stringify(getSchemaMigrationTargets(65))).toBe(expectedTargetsAfter(65));
-    expect(getSchemaMigrationTargets(29) === null).toBeTrue();
-    expect(getSchemaMigrationTargets(20) === null).toBeTrue();
+    expect(getSchemaMigrationTargets(29) === null).toBe(true);
+    expect(getSchemaMigrationTargets(20) === null).toBe(true);
   });
 
   test("migrates schema 53 databases with Codex background process registry", async () => {
@@ -145,26 +145,26 @@ describe("schema initialization", () => {
           expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
           const backgroundProcessColumnNames = tableColumnNames(migrated, "codex_background_processes");
-          expect(backgroundProcessColumnNames.includes("process_record_id")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("thread_id")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("thread_title")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("item_id")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("turn_id")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("command")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("cwd")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("app_server_process_id")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("os_pid")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("terminal_session_id")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("source")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("started_at_ms")).toBeTrue();
-          expect(backgroundProcessColumnNames.includes("updated_at_ms")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("process_record_id")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("thread_id")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("thread_title")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("item_id")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("turn_id")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("command")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("cwd")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("app_server_process_id")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("os_pid")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("terminal_session_id")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("source")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("started_at_ms")).toBe(true);
+          expect(backgroundProcessColumnNames.includes("updated_at_ms")).toBe(true);
 
           const backgroundProcessTableSql = migrated.prepare(`
             SELECT sql
             FROM sqlite_master
             WHERE type = 'table' AND name = 'codex_background_processes'
           `).get() as { sql: string } | undefined;
-          expect((backgroundProcessTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+          expect((backgroundProcessTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBe(true);
 
           const backgroundProcessIndex = migrated.prepare(`
             SELECT 1
@@ -172,7 +172,7 @@ describe("schema initialization", () => {
             WHERE type = 'index'
               AND name = 'idx_codex_background_processes_thread_updated'
           `).get();
-          expect(backgroundProcessIndex !== undefined).toBeTrue();
+          expect(backgroundProcessIndex !== undefined).toBe(true);
 
           migrated.prepare(`
             INSERT INTO codex_background_processes (
@@ -197,7 +197,7 @@ describe("schema initialization", () => {
         }
       } catch (error) {
         if (isUnsupportedSqliteError(error)) {
-          expect(true).toBeTrue();
+          expect(true).toBe(true);
         } else {
           throw error;
         }
@@ -232,32 +232,32 @@ describe("schema initialization", () => {
         dflt_value: string | null;
       }>;
       const cardColumnNames = cardColumns.map((column) => column.name);
-      expect(cardColumnNames.includes("revision")).toBeTrue();
-      expect(cardColumnNames.includes("run_in_environment_path")).toBeTrue();
-      expect(cardColumnNames.includes("description_revision_id")).toBeTrue();
-      expect(cardColumnNames.includes("description_preview")).toBeTrue();
-      expect(cardColumnNames.includes("description_length")).toBeTrue();
-      expect(cardColumnNames.includes("has_description")).toBeTrue();
-      expect(cardColumnNames.includes("description_read_model_revision")).toBeTrue();
+      expect(cardColumnNames.includes("revision")).toBe(true);
+      expect(cardColumnNames.includes("run_in_environment_path")).toBe(true);
+      expect(cardColumnNames.includes("description_revision_id")).toBe(true);
+      expect(cardColumnNames.includes("description_preview")).toBe(true);
+      expect(cardColumnNames.includes("description_length")).toBe(true);
+      expect(cardColumnNames.includes("has_description")).toBe(true);
+      expect(cardColumnNames.includes("description_read_model_revision")).toBe(true);
       const priorityColumn = cardColumns.find((column) => column.name === "priority");
       expect(priorityColumn?.notnull).toBe(0);
       expect(priorityColumn?.dflt_value ?? null).toBe(null);
 
       const historyColumnNames = tableColumnNames(db, "history");
-      expect(historyColumnNames.includes("previous_description_revision_id")).toBeTrue();
-      expect(historyColumnNames.includes("snapshot_description_revision_id")).toBeTrue();
+      expect(historyColumnNames.includes("previous_description_revision_id")).toBe(true);
+      expect(historyColumnNames.includes("snapshot_description_revision_id")).toBe(true);
 
       const cardHistorySnapshotColumnNames = tableColumnNames(db, "card_history_snapshots");
-      expect(cardHistorySnapshotColumnNames.includes("history_id")).toBeTrue();
-      expect(cardHistorySnapshotColumnNames.includes("card_snapshot")).toBeTrue();
-      expect(cardHistorySnapshotColumnNames.includes("description_revision_id")).toBeTrue();
+      expect(cardHistorySnapshotColumnNames.includes("history_id")).toBe(true);
+      expect(cardHistorySnapshotColumnNames.includes("card_snapshot")).toBe(true);
+      expect(cardHistorySnapshotColumnNames.includes("description_revision_id")).toBe(true);
       const cardHistorySnapshotIndex = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'index'
           AND name = 'idx_card_history_snapshots_project_card_history'
       `).get();
-      expect(cardHistorySnapshotIndex !== undefined).toBeTrue();
+      expect(cardHistorySnapshotIndex !== undefined).toBe(true);
 
       const codexThreadColumns = db.prepare("PRAGMA table_info(codex_threads)").all() as Array<{
         name: string;
@@ -265,92 +265,92 @@ describe("schema initialization", () => {
         notnull: number;
       }>;
       const codexThreadColumnNames = codexThreadColumns.map((column) => column.name);
-      expect(codexThreadColumnNames.includes("id")).toBeFalse();
+      expect(codexThreadColumnNames.includes("id")).toBe(false);
       expect(codexThreadColumns.find((column) => column.name === "thread_id")?.pk).toBe(1);
       expect(codexThreadColumns.find((column) => column.name === "project_id")?.notnull).toBe(0);
-      expect(codexThreadColumnNames.includes("thread_source")).toBeTrue();
-      expect(codexThreadColumnNames.includes("agent_nickname")).toBeTrue();
-      expect(codexThreadColumnNames.includes("agent_role")).toBeTrue();
-      expect(codexThreadColumnNames.includes("managed_worktree_path")).toBeTrue();
-      expect(codexThreadColumnNames.includes("projectless_output_directory")).toBeTrue();
-      expect(codexThreadColumnNames.includes("card_id")).toBeFalse();
+      expect(codexThreadColumnNames.includes("thread_source")).toBe(true);
+      expect(codexThreadColumnNames.includes("agent_nickname")).toBe(true);
+      expect(codexThreadColumnNames.includes("agent_role")).toBe(true);
+      expect(codexThreadColumnNames.includes("managed_worktree_path")).toBe(true);
+      expect(codexThreadColumnNames.includes("projectless_output_directory")).toBe(true);
+      expect(codexThreadColumnNames.includes("card_id")).toBe(false);
 
       const codexTableSql = db.prepare(`
         SELECT sql
         FROM sqlite_master
         WHERE type = 'table' AND name = 'codex_threads'
       `).get() as { sql: string } | undefined;
-      expect((codexTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+      expect((codexTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBe(true);
 
       const scheduledAutomationColumnNames = tableColumnNames(db, "codex_scheduled_automations");
-      expect(scheduledAutomationColumnNames.includes("automation_id")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("kind")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("status")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("prompt")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("rrule")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("model")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("reasoning_effort")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("cwds_json")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("execution_environment")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("local_environment_config_path")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("next_run_at")).toBeTrue();
-      expect(scheduledAutomationColumnNames.includes("last_run_at")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("automation_id")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("kind")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("status")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("prompt")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("rrule")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("model")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("reasoning_effort")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("cwds_json")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("execution_environment")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("local_environment_config_path")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("next_run_at")).toBe(true);
+      expect(scheduledAutomationColumnNames.includes("last_run_at")).toBe(true);
       const scheduledAutomationTableSql = db.prepare(`
         SELECT sql
         FROM sqlite_master
         WHERE type = 'table' AND name = 'codex_scheduled_automations'
       `).get() as { sql: string } | undefined;
-      expect((scheduledAutomationTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+      expect((scheduledAutomationTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBe(true);
       const scheduledAutomationIndex = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'index'
           AND name = 'idx_codex_scheduled_automations_target'
       `).get();
-      expect(scheduledAutomationIndex !== undefined).toBeTrue();
+      expect(scheduledAutomationIndex !== undefined).toBe(true);
 
       const automationRunColumnNames = tableColumnNames(db, "codex_automation_runs");
-      expect(automationRunColumnNames.includes("thread_id")).toBeTrue();
-      expect(automationRunColumnNames.includes("automation_id")).toBeTrue();
-      expect(automationRunColumnNames.includes("status")).toBeTrue();
-      expect(automationRunColumnNames.includes("read_at")).toBeTrue();
-      expect(automationRunColumnNames.includes("thread_title")).toBeTrue();
-      expect(automationRunColumnNames.includes("source_cwd")).toBeTrue();
-      expect(automationRunColumnNames.includes("inbox_title")).toBeTrue();
-      expect(automationRunColumnNames.includes("inbox_summary")).toBeTrue();
-      expect(automationRunColumnNames.includes("archived_user_message")).toBeTrue();
-      expect(automationRunColumnNames.includes("archived_assistant_message")).toBeTrue();
-      expect(automationRunColumnNames.includes("archived_reason")).toBeTrue();
+      expect(automationRunColumnNames.includes("thread_id")).toBe(true);
+      expect(automationRunColumnNames.includes("automation_id")).toBe(true);
+      expect(automationRunColumnNames.includes("status")).toBe(true);
+      expect(automationRunColumnNames.includes("read_at")).toBe(true);
+      expect(automationRunColumnNames.includes("thread_title")).toBe(true);
+      expect(automationRunColumnNames.includes("source_cwd")).toBe(true);
+      expect(automationRunColumnNames.includes("inbox_title")).toBe(true);
+      expect(automationRunColumnNames.includes("inbox_summary")).toBe(true);
+      expect(automationRunColumnNames.includes("archived_user_message")).toBe(true);
+      expect(automationRunColumnNames.includes("archived_assistant_message")).toBe(true);
+      expect(automationRunColumnNames.includes("archived_reason")).toBe(true);
       const automationRunIndex = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'index'
           AND name = 'idx_codex_automation_runs_automation_status_created'
       `).get();
-      expect(automationRunIndex !== undefined).toBeTrue();
+      expect(automationRunIndex !== undefined).toBe(true);
 
       const backgroundProcessColumnNames = tableColumnNames(db, "codex_background_processes");
-      expect(backgroundProcessColumnNames.includes("process_record_id")).toBeTrue();
-      expect(backgroundProcessColumnNames.includes("thread_id")).toBeTrue();
-      expect(backgroundProcessColumnNames.includes("item_id")).toBeTrue();
-      expect(backgroundProcessColumnNames.includes("turn_id")).toBeTrue();
-      expect(backgroundProcessColumnNames.includes("command")).toBeTrue();
-      expect(backgroundProcessColumnNames.includes("app_server_process_id")).toBeTrue();
-      expect(backgroundProcessColumnNames.includes("terminal_session_id")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("process_record_id")).toBe(true);
+      expect(backgroundProcessColumnNames.includes("thread_id")).toBe(true);
+      expect(backgroundProcessColumnNames.includes("item_id")).toBe(true);
+      expect(backgroundProcessColumnNames.includes("turn_id")).toBe(true);
+      expect(backgroundProcessColumnNames.includes("command")).toBe(true);
+      expect(backgroundProcessColumnNames.includes("app_server_process_id")).toBe(true);
+      expect(backgroundProcessColumnNames.includes("terminal_session_id")).toBe(true);
       const backgroundProcessTableSql = db.prepare(`
         SELECT sql
         FROM sqlite_master
         WHERE type = 'table' AND name = 'codex_background_processes'
       `).get() as { sql: string } | undefined;
-      expect((backgroundProcessTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+      expect((backgroundProcessTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBe(true);
       const backgroundProcessIndex = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'index'
           AND name = 'idx_codex_background_processes_thread_updated'
       `).get();
-      expect(backgroundProcessIndex !== undefined).toBeTrue();
+      expect(backgroundProcessIndex !== undefined).toBe(true);
 
       const autoVacuum = db.prepare("PRAGMA auto_vacuum").get() as
         | { auto_vacuum: number }
@@ -362,8 +362,8 @@ describe("schema initialization", () => {
       const defaultProjectId = expectUuidProjectNamed(db, "Default");
 
       const projectColumns = tableColumnNames(db, "projects");
-      expect(projectColumns.includes("workspace_path")).toBeFalse();
-      expect(projectColumns.includes("updated")).toBeTrue();
+      expect(projectColumns.includes("workspace_path")).toBe(false);
+      expect(projectColumns.includes("updated")).toBe(true);
 
       const tableRows = db.prepare(`
         SELECT name
@@ -371,70 +371,70 @@ describe("schema initialization", () => {
         WHERE type = 'table'
       `).all() as Array<{ name: string }>;
       const tableNames = tableRows.map((row) => row.name);
-      expect(tableNames.includes("project_id_aliases")).toBeFalse();
-      expect(tableNames.includes("project_sources")).toBeTrue();
-      expect(tableNames.includes("project_order")).toBeTrue();
-      expect(tableNames.includes("pinned_project_order")).toBeTrue();
-      expect(tableNames.includes("project_sessions")).toBeTrue();
-      expect(tableNames.includes("project_session_tabs")).toBeTrue();
-      expect(tableNames.includes("project_session_threads")).toBeTrue();
-      expect(tableNames.includes("thread_search_units")).toBeTrue();
-      expect(tableNames.includes("thread_search_thread_state")).toBeTrue();
-      expect(tableNames.includes("thread_search_units_fts")).toBeTrue();
-      expect(tableNames.includes("card_search_units")).toBeTrue();
-      expect(tableNames.includes("card_search_units_fts")).toBeTrue();
-      expect(tableNames.includes("codex_scheduled_automations")).toBeTrue();
-      expect(tableNames.includes("codex_background_processes")).toBeTrue();
-      expect(tableNames.includes("codex_thread_card_links")).toBeFalse();
-      expect(tableNames.includes("card_history_snapshots")).toBeTrue();
-      expect(tableColumnNames(db, "codex_threads").includes("card_id")).toBeFalse();
-      expect(tableColumnNames(db, "codex_threads").includes("thread_source")).toBeTrue();
+      expect(tableNames.includes("project_id_aliases")).toBe(false);
+      expect(tableNames.includes("project_sources")).toBe(true);
+      expect(tableNames.includes("project_order")).toBe(true);
+      expect(tableNames.includes("pinned_project_order")).toBe(true);
+      expect(tableNames.includes("project_sessions")).toBe(true);
+      expect(tableNames.includes("project_session_tabs")).toBe(true);
+      expect(tableNames.includes("project_session_threads")).toBe(true);
+      expect(tableNames.includes("thread_search_units")).toBe(true);
+      expect(tableNames.includes("thread_search_thread_state")).toBe(true);
+      expect(tableNames.includes("thread_search_units_fts")).toBe(true);
+      expect(tableNames.includes("card_search_units")).toBe(true);
+      expect(tableNames.includes("card_search_units_fts")).toBe(true);
+      expect(tableNames.includes("codex_scheduled_automations")).toBe(true);
+      expect(tableNames.includes("codex_background_processes")).toBe(true);
+      expect(tableNames.includes("codex_thread_card_links")).toBe(false);
+      expect(tableNames.includes("card_history_snapshots")).toBe(true);
+      expect(tableColumnNames(db, "codex_threads").includes("card_id")).toBe(false);
+      expect(tableColumnNames(db, "codex_threads").includes("thread_source")).toBe(true);
 
       const threadSearchColumns = tableColumnNames(db, "thread_search_units");
-      expect(threadSearchColumns.includes("project_id")).toBeTrue();
-      expect(threadSearchColumns.includes("session_id")).toBeTrue();
+      expect(threadSearchColumns.includes("project_id")).toBe(true);
+      expect(threadSearchColumns.includes("session_id")).toBe(true);
       const threadSearchStateColumns = tableColumnNames(db, "thread_search_thread_state");
-      expect(threadSearchStateColumns.includes("index_version")).toBeTrue();
-      expect(threadSearchStateColumns.includes("last_error")).toBeTrue();
-      expect(threadSearchStateColumns.includes("failed_at")).toBeTrue();
-      expect(threadSearchStateColumns.includes("retry_after")).toBeTrue();
+      expect(threadSearchStateColumns.includes("index_version")).toBe(true);
+      expect(threadSearchStateColumns.includes("last_error")).toBe(true);
+      expect(threadSearchStateColumns.includes("failed_at")).toBe(true);
+      expect(threadSearchStateColumns.includes("retry_after")).toBe(true);
       const threadSearchTrigger = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'trigger'
           AND name = 'thread_search_units_ai'
       `).get();
-      expect(threadSearchTrigger !== undefined).toBeTrue();
+      expect(threadSearchTrigger !== undefined).toBe(true);
       const cardSearchTrigger = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'trigger'
           AND name = 'card_search_units_ai'
       `).get();
-      expect(cardSearchTrigger !== undefined).toBeTrue();
+      expect(cardSearchTrigger !== undefined).toBe(true);
 
       const sessionColumnNames = tableColumnNames(db, "project_sessions");
-      expect(sessionColumnNames.includes("title")).toBeFalse();
-      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
-      expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
-      expect(sessionColumnNames.includes("is_overview")).toBeFalse();
-      expect(sessionColumnNames.includes("pinned")).toBeTrue();
-      expect(sessionColumnNames.includes("pinned_order")).toBeTrue();
-      expect(sessionColumnNames.includes("archived")).toBeTrue();
-      expect(sessionColumnNames.includes("archived_at")).toBeTrue();
-      expect(sessionColumnNames.includes("unread")).toBeTrue();
+      expect(sessionColumnNames.includes("title")).toBe(false);
+      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBe(true);
+      expect(sessionColumnNames.includes("panel_state_json")).toBe(true);
+      expect(sessionColumnNames.includes("is_overview")).toBe(false);
+      expect(sessionColumnNames.includes("pinned")).toBe(true);
+      expect(sessionColumnNames.includes("pinned_order")).toBe(true);
+      expect(sessionColumnNames.includes("archived")).toBe(true);
+      expect(sessionColumnNames.includes("archived_at")).toBe(true);
+      expect(sessionColumnNames.includes("unread")).toBe(true);
       const sessionSidebarIndex = db.prepare(`
         SELECT 1
         FROM sqlite_master
         WHERE type = 'index'
           AND name = 'idx_project_sessions_project_sidebar'
       `).get();
-      expect(sessionSidebarIndex !== undefined).toBeTrue();
+      expect(sessionSidebarIndex !== undefined).toBe(true);
 
       const sessionTabColumnNames = tableColumnNames(db, "project_session_tabs");
-      expect(sessionTabColumnNames.includes("panel_id")).toBeTrue();
-      expect(sessionTabColumnNames.includes("state_key")).toBeTrue();
-      expect(sessionTabColumnNames.includes("state_json")).toBeTrue();
+      expect(sessionTabColumnNames.includes("panel_id")).toBe(true);
+      expect(sessionTabColumnNames.includes("state_key")).toBe(true);
+      expect(sessionTabColumnNames.includes("state_json")).toBe(true);
 
       let invalidPanelRejected = false;
       try {
@@ -451,7 +451,7 @@ describe("schema initialization", () => {
       } catch {
         invalidPanelRejected = true;
       }
-      expect(invalidPanelRejected).toBeTrue();
+      expect(invalidPanelRejected).toBe(true);
 
       let legacyBrowserKindRejected = false;
       try {
@@ -468,7 +468,7 @@ describe("schema initialization", () => {
       } catch {
         legacyBrowserKindRejected = true;
       }
-      expect(legacyBrowserKindRejected).toBeTrue();
+      expect(legacyBrowserKindRejected).toBe(true);
 
       let durableSideChatKindRejected = false;
       try {
@@ -485,7 +485,7 @@ describe("schema initialization", () => {
       } catch {
         durableSideChatKindRejected = true;
       }
-      expect(durableSideChatKindRejected).toBeTrue();
+      expect(durableSideChatKindRejected).toBe(true);
 
       let legacyFilesKindRejected = false;
       try {
@@ -502,7 +502,7 @@ describe("schema initialization", () => {
       } catch {
         legacyFilesKindRejected = true;
       }
-      expect(legacyFilesKindRejected).toBeTrue();
+      expect(legacyFilesKindRejected).toBe(true);
 
       const databaseViewSession = db.prepare(`
         SELECT id, project_id, no_thread_fallback_title, "order", pinned, pinned_order, left_pane_collapsed, panel_state_json
@@ -520,8 +520,8 @@ describe("schema initialization", () => {
           panel_state_json: string;
         }
         | undefined;
-      expect(databaseViewSession !== undefined).toBeTrue();
-      expect(databaseViewSession?.id.startsWith("overview:") ?? true).toBeFalse();
+      expect(databaseViewSession !== undefined).toBe(true);
+      expect(databaseViewSession?.id.startsWith("overview:") ?? true).toBe(false);
       expect(databaseViewSession?.project_id).toBe(defaultProjectId);
       expect(databaseViewSession?.no_thread_fallback_title).toBe("Database View");
       expect(databaseViewSession?.order).toBe(0);
@@ -534,8 +534,8 @@ describe("schema initialization", () => {
         FROM project_session_tabs
         WHERE session_id = ?
       `).get(databaseViewSession?.id ?? "") as { id: string; panel_id: string; kind: string; config_json: string } | undefined;
-      expect(databaseViewTab !== undefined).toBeTrue();
-      expect(databaseViewTab?.id.startsWith("overview:") ?? true).toBeFalse();
+      expect(databaseViewTab !== undefined).toBe(true);
+      expect(databaseViewTab?.id.startsWith("overview:") ?? true).toBe(false);
       expect(databaseViewTab?.panel_id).toBe("right");
       expect(databaseViewTab?.kind).toBe("db_view");
       expect(databaseViewTab?.config_json).toBe(
@@ -550,10 +550,10 @@ describe("schema initialization", () => {
         right?: { collapsed?: boolean; layout?: { version?: number }; size?: { fullWidth?: boolean } };
         bottom?: { collapsed?: boolean; layout?: { version?: number } };
       };
-      expect(parsedPanelState.right?.collapsed).toBeFalse();
+      expect(parsedPanelState.right?.collapsed).toBe(false);
       expect(parsedPanelState.right?.layout?.version).toBe(2);
-      expect(parsedPanelState.right?.size?.fullWidth).toBeTrue();
-      expect(parsedPanelState.bottom?.collapsed).toBeTrue();
+      expect(parsedPanelState.right?.size?.fullWidth).toBe(true);
+      expect(parsedPanelState.bottom?.collapsed).toBe(true);
       expect(parsedPanelState.bottom?.layout?.version).toBe(2);
 
       db.close();
@@ -570,7 +570,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -604,9 +604,9 @@ describe("schema initialization", () => {
         expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
         const snapshotColumnNames = tableColumnNames(migrated, "card_history_snapshots");
-        expect(snapshotColumnNames.includes("history_id")).toBeTrue();
-        expect(snapshotColumnNames.includes("card_snapshot")).toBeTrue();
-        expect(snapshotColumnNames.includes("description_revision_id")).toBeTrue();
+        expect(snapshotColumnNames.includes("history_id")).toBe(true);
+        expect(snapshotColumnNames.includes("card_snapshot")).toBe(true);
+        expect(snapshotColumnNames.includes("description_revision_id")).toBe(true);
 
         const snapshotIndex = migrated.prepare(`
           SELECT 1
@@ -614,7 +614,7 @@ describe("schema initialization", () => {
           WHERE type = 'index'
             AND name = 'idx_card_history_snapshots_project_card_history'
         `).get();
-        expect(snapshotIndex !== undefined).toBeTrue();
+        expect(snapshotIndex !== undefined).toBe(true);
 
         const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
         expect(foreignKeyProblems.length).toBe(0);
@@ -634,7 +634,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -727,7 +727,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -755,7 +755,7 @@ describe("schema initialization", () => {
 
       expect(
         message.includes(`Unsupported Nodex database schema version ${legacyVersion}`),
-      ).toBeTrue();
+      ).toBe(true);
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
         initializationRan = false;
@@ -769,7 +769,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -787,7 +787,7 @@ describe("schema initialization", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
       delete process.env.NODEX_DIR;
       if (isUnsupportedSqliteError(error)) {
-        expect(true).toBeTrue();
+        expect(true).toBe(true);
         return;
       }
       throw error;
@@ -925,7 +925,7 @@ describe("schema initialization", () => {
           FROM project_session_tabs
           WHERE id = 'tab-side'
         `).get();
-        expect(sideChatRow === undefined).toBeTrue();
+        expect(sideChatRow === undefined).toBe(true);
       } finally {
         migrated.close();
       }
@@ -1090,7 +1090,7 @@ describe("schema initialization", () => {
           FROM project_sessions
           WHERE id = 'session-1'
         `).get() as { panel_state_json: string } | undefined;
-        expect((stateRow?.panel_state_json ?? "").includes("tab-side")).toBeFalse();
+        expect((stateRow?.panel_state_json ?? "").includes("tab-side")).toBe(false);
         const panels = JSON.parse(stateRow?.panel_state_json ?? "{}") as {
           right?: { layout?: { root?: { tabIds?: string[]; activeTabId?: string | null } } };
           bottom?: { collapsed?: boolean; layout?: { root?: { tabIds?: string[]; activeTabId?: string | null } } };
@@ -1098,7 +1098,7 @@ describe("schema initialization", () => {
         expect(JSON.stringify(panels.right?.layout?.root?.tabIds ?? [])).toBe(JSON.stringify(["tab-review"]));
         expect(panels.right?.layout?.root?.activeTabId).toBe("tab-review");
         expect(JSON.stringify(panels.bottom?.layout?.root?.tabIds ?? [])).toBe("[]");
-        expect(panels.bottom?.collapsed).toBeTrue();
+        expect(panels.bottom?.collapsed).toBe(true);
 
         let sideChatKindRejected = false;
         try {
@@ -1115,7 +1115,7 @@ describe("schema initialization", () => {
         } catch {
           sideChatKindRejected = true;
         }
-        expect(sideChatKindRejected).toBeTrue();
+        expect(sideChatKindRejected).toBe(true);
       } finally {
         migrated.close();
       }
@@ -1132,7 +1132,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -1258,9 +1258,9 @@ describe("schema initialization", () => {
       const alphaProjectId = expectUuidProjectNamed(migrated, "Alpha");
 
       const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-      expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
-      expect(sessionColumnNames.includes("right_pane_collapsed")).toBeFalse();
-      expect(sessionColumnNames.includes("right_pane_layout_json")).toBeFalse();
+      expect(sessionColumnNames.includes("panel_state_json")).toBe(true);
+      expect(sessionColumnNames.includes("right_pane_collapsed")).toBe(false);
+      expect(sessionColumnNames.includes("right_pane_layout_json")).toBe(false);
 
       const stateRow = migrated.prepare(`
         SELECT left_pane_collapsed, panel_state_json
@@ -1318,7 +1318,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -1459,7 +1459,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -1613,16 +1613,16 @@ describe("schema initialization", () => {
         const betaProjectId = expectUuidProjectNamed(migrated, "Beta");
 
         const projectColumns = tableColumnNames(migrated, "projects");
-        expect(projectColumns.includes("workspace_path")).toBeFalse();
-        expect(projectColumns.includes("updated")).toBeTrue();
+        expect(projectColumns.includes("workspace_path")).toBe(false);
+        expect(projectColumns.includes("updated")).toBe(true);
         const tableRows = migrated.prepare(`
           SELECT name
           FROM sqlite_master
           WHERE type = 'table'
         `).all() as Array<{ name: string }>;
         const tableNames = tableRows.map((row) => row.name);
-        expect(tableNames.includes("project_id_aliases")).toBeFalse();
-        expect(tableNames.includes("canvas")).toBeFalse();
+        expect(tableNames.includes("project_id_aliases")).toBe(false);
+        expect(tableNames.includes("canvas")).toBe(false);
 
         const oldProjectRows = migrated.prepare(`
           SELECT COUNT(*) AS count
@@ -1678,7 +1678,7 @@ describe("schema initialization", () => {
             FROM ${tableName}
             WHERE project_id = ?
           `).get(alphaProjectId) as { count: number };
-          expect(canonicalCount.count > 0).toBeTrue();
+          expect(canonicalCount.count > 0).toBe(true);
         }
 
         const countCanvasOwners = migrated.prepare(`
@@ -1701,8 +1701,8 @@ describe("schema initialization", () => {
           WHERE project_id = ? AND is_overview = 1
         `).get(alphaProjectId) as { id: string; panel_state_json: string } | undefined;
         expect(overview?.id).toBe(`overview:${alphaProjectId}`);
-        expect((overview?.panel_state_json ?? "").includes(`overview:${alphaProjectId}:db`)).toBeTrue();
-        expect((overview?.panel_state_json ?? "").includes("overview:alpha:db")).toBeFalse();
+        expect((overview?.panel_state_json ?? "").includes(`overview:${alphaProjectId}:db`)).toBe(true);
+        expect((overview?.panel_state_json ?? "").includes("overview:alpha:db")).toBe(false);
 
         const tab = migrated.prepare(`
           SELECT id, session_id, config_json
@@ -1744,7 +1744,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -1805,7 +1805,7 @@ describe("schema initialization", () => {
           WHERE type = 'table'
         `).all() as Array<{ name: string }>;
         const tableNames = tableRows.map((row) => row.name);
-        expect(tableNames.includes("project_id_aliases")).toBeFalse();
+        expect(tableNames.includes("project_id_aliases")).toBe(false);
 
         const project = migrated.prepare(`
           SELECT id, name, description, icon
@@ -1850,7 +1850,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -1954,16 +1954,16 @@ describe("schema initialization", () => {
         FROM sqlite_master
         WHERE type = 'table' AND name = 'codex_card_threads'
       `).get();
-      expect(legacyThreadTable === undefined).toBeTrue();
+      expect(legacyThreadTable === undefined).toBe(true);
 
-      expect(tableColumnNames(migrated, "codex_threads").includes("card_id")).toBeFalse();
+      expect(tableColumnNames(migrated, "codex_threads").includes("card_id")).toBe(false);
 
       const cardLinkTable = migrated.prepare(`
         SELECT name
         FROM sqlite_master
         WHERE type = 'table' AND name = 'codex_thread_card_links'
       `).get();
-      expect(cardLinkTable === undefined).toBeTrue();
+      expect(cardLinkTable === undefined).toBe(true);
 
       const thread = migrated.prepare(`
         SELECT project_id, parent_thread_id, thread_name
@@ -1996,11 +1996,11 @@ describe("schema initialization", () => {
       expect(sessionLink?.linked_at).toBe("2026-01-01T00:00:00.000Z");
 
       const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-      expect(sessionColumnNames.includes("title")).toBeFalse();
-      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
-      expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
-      expect(sessionColumnNames.includes("right_pane_collapsed")).toBeFalse();
-      expect(sessionColumnNames.includes("right_pane_layout_json")).toBeFalse();
+      expect(sessionColumnNames.includes("title")).toBe(false);
+      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBe(true);
+      expect(sessionColumnNames.includes("panel_state_json")).toBe(true);
+      expect(sessionColumnNames.includes("right_pane_collapsed")).toBe(false);
+      expect(sessionColumnNames.includes("right_pane_layout_json")).toBe(false);
 
       const overview = migrated.prepare(`
         SELECT id, left_pane_collapsed, panel_state_json
@@ -2014,9 +2014,9 @@ describe("schema initialization", () => {
         right?: { collapsed?: boolean; size?: { fullWidth?: boolean } };
         bottom?: { collapsed?: boolean };
       };
-      expect(panelState.right?.collapsed).toBeFalse();
-      expect(panelState.right?.size?.fullWidth).toBeTrue();
-      expect(panelState.bottom?.collapsed).toBeTrue();
+      expect(panelState.right?.collapsed).toBe(false);
+      expect(panelState.right?.size?.fullWidth).toBe(true);
+      expect(panelState.bottom?.collapsed).toBe(true);
 
       const overviewTab = migrated.prepare(`
         SELECT panel_id, kind, config_json
@@ -2049,7 +2049,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -2152,15 +2152,15 @@ describe("schema initialization", () => {
         | undefined;
       expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
       const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-      expect(sessionColumnNames.includes("title")).toBeFalse();
-      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
-      expect(tableColumnNames(migrated, "codex_threads").includes("card_id")).toBeFalse();
+      expect(sessionColumnNames.includes("title")).toBe(false);
+      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBe(true);
+      expect(tableColumnNames(migrated, "codex_threads").includes("card_id")).toBe(false);
       const oldLinkTable = migrated.prepare(`
         SELECT name
         FROM sqlite_master
         WHERE type = 'table' AND name = 'codex_thread_card_links'
       `).get();
-      expect(oldLinkTable === undefined).toBeTrue();
+      expect(oldLinkTable === undefined).toBe(true);
 
       const sessionLink = migrated.prepare(`
         SELECT s.project_id, s.no_thread_fallback_title, s.is_overview, pst.thread_id, pst.linked_at
@@ -2192,7 +2192,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -2334,8 +2334,8 @@ describe("schema initialization", () => {
       expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
       const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-      expect(sessionColumnNames.includes("title")).toBeFalse();
-      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
+      expect(sessionColumnNames.includes("title")).toBe(false);
+      expect(sessionColumnNames.includes("no_thread_fallback_title")).toBe(true);
 
       const migratedSession = migrated.prepare(`
         SELECT no_thread_fallback_title
@@ -2368,7 +2368,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -2501,8 +2501,8 @@ describe("schema initialization", () => {
         expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
         const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-        expect(sessionColumnNames.includes("title")).toBeFalse();
-        expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
+        expect(sessionColumnNames.includes("title")).toBe(false);
+        expect(sessionColumnNames.includes("no_thread_fallback_title")).toBe(true);
 
         const migratedSession = migrated.prepare(`
           SELECT no_thread_fallback_title
@@ -2529,7 +2529,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -2609,7 +2609,7 @@ describe("schema initialization", () => {
         expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
         const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-        expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
+        expect(sessionColumnNames.includes("no_thread_fallback_title")).toBe(true);
 
         const defaultSession = migrated.prepare(`
           SELECT ps.no_thread_fallback_title, pst.kind
@@ -2638,7 +2638,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -2839,13 +2839,13 @@ describe("schema initialization", () => {
         expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
         const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
-        expect(sessionColumnNames.includes("is_overview")).toBeFalse();
+        expect(sessionColumnNames.includes("is_overview")).toBe(false);
         const overviewIndex = migrated.prepare(`
           SELECT 1
           FROM sqlite_master
           WHERE type = 'index' AND name = 'idx_project_sessions_overview'
         `).get();
-        expect(overviewIndex === undefined).toBeTrue();
+        expect(overviewIndex === undefined).toBe(true);
 
         const oldOverviewCount = migrated.prepare(`
           SELECT COUNT(*) AS count
@@ -2871,8 +2871,8 @@ describe("schema initialization", () => {
           left_pane_collapsed: number;
           panel_state_json: string;
         } | undefined;
-        expect(alphaDatabaseView !== undefined).toBeTrue();
-        expect(alphaDatabaseView?.id.startsWith("overview:") ?? true).toBeFalse();
+        expect(alphaDatabaseView !== undefined).toBe(true);
+        expect(alphaDatabaseView?.id.startsWith("overview:") ?? true).toBe(false);
         expect(alphaDatabaseView?.order).toBe(0);
         expect(alphaDatabaseView?.pinned).toBe(1);
         expect(alphaDatabaseView?.pinned_order).toBe(0);
@@ -2885,9 +2885,9 @@ describe("schema initialization", () => {
           right?: { collapsed?: boolean; size?: { fullWidth?: boolean } };
           bottom?: { collapsed?: boolean };
         };
-        expect(panelState.right?.collapsed).toBeFalse();
-        expect(panelState.right?.size?.fullWidth).toBeTrue();
-        expect(panelState.bottom?.collapsed).toBeTrue();
+        expect(panelState.right?.collapsed).toBe(false);
+        expect(panelState.right?.size?.fullWidth).toBe(true);
+        expect(panelState.bottom?.collapsed).toBe(true);
 
         const alphaDatabaseViewTab = migrated.prepare(`
           SELECT session_id, project_id, panel_id, kind, title, config_json
@@ -2939,8 +2939,8 @@ describe("schema initialization", () => {
           FROM project_sessions
           WHERE project_id = 'beta' AND no_thread_fallback_title = 'Database View'
         `).get() as { id: string; no_thread_fallback_title: string; pinned: number; pinned_order: number | null } | undefined;
-        expect(betaDatabaseView !== undefined).toBeTrue();
-        expect(betaDatabaseView?.id.startsWith("overview:") ?? true).toBeFalse();
+        expect(betaDatabaseView !== undefined).toBe(true);
+        expect(betaDatabaseView?.id.startsWith("overview:") ?? true).toBe(false);
         expect(betaDatabaseView?.pinned).toBe(1);
         expect(betaDatabaseView?.pinned_order).toBe(0);
 
@@ -2962,7 +2962,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -3013,12 +3013,12 @@ describe("schema initialization", () => {
           | undefined;
         expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
         const columnNames = tableColumnNames(migrated, "codex_threads");
-        expect(columnNames.includes("thread_source")).toBeTrue();
-        expect(columnNames.includes("agent_nickname")).toBeTrue();
-        expect(columnNames.includes("agent_role")).toBeTrue();
-        expect(columnNames.includes("managed_worktree_path")).toBeTrue();
-        expect(columnNames.includes("projectless_output_directory")).toBeTrue();
-        expect(columnNames.includes("projectless_workspace_browser_root")).toBeTrue();
+        expect(columnNames.includes("thread_source")).toBe(true);
+        expect(columnNames.includes("agent_nickname")).toBe(true);
+        expect(columnNames.includes("agent_role")).toBe(true);
+        expect(columnNames.includes("managed_worktree_path")).toBe(true);
+        expect(columnNames.includes("projectless_output_directory")).toBe(true);
+        expect(columnNames.includes("projectless_workspace_browser_root")).toBe(true);
         const row = migrated.prepare("SELECT thread_name, thread_source, agent_nickname, agent_role, projectless_output_directory, projectless_workspace_browser_root FROM codex_threads WHERE thread_id = 'thread-1'")
           .get() as {
             thread_name: string;
@@ -3050,7 +3050,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -3084,27 +3084,27 @@ describe("schema initialization", () => {
         expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
 
         const scheduledAutomationColumnNames = tableColumnNames(migrated, "codex_scheduled_automations");
-        expect(scheduledAutomationColumnNames.includes("automation_id")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("kind")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("status")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("name")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("prompt")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("rrule")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("model")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("reasoning_effort")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("cwds_json")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("execution_environment")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("local_environment_config_path")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("next_run_at")).toBeTrue();
-        expect(scheduledAutomationColumnNames.includes("last_run_at")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("automation_id")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("kind")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("status")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("name")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("prompt")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("rrule")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("model")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("reasoning_effort")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("cwds_json")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("execution_environment")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("local_environment_config_path")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("next_run_at")).toBe(true);
+        expect(scheduledAutomationColumnNames.includes("last_run_at")).toBe(true);
 
         const scheduledAutomationTableSql = migrated.prepare(`
           SELECT sql
           FROM sqlite_master
           WHERE type = 'table' AND name = 'codex_scheduled_automations'
         `).get() as { sql: string } | undefined;
-        expect((scheduledAutomationTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+        expect((scheduledAutomationTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBe(true);
 
         const scheduledAutomationIndex = migrated.prepare(`
           SELECT 1
@@ -3112,19 +3112,19 @@ describe("schema initialization", () => {
           WHERE type = 'index'
             AND name = 'idx_codex_scheduled_automations_target'
         `).get();
-        expect(scheduledAutomationIndex !== undefined).toBeTrue();
+        expect(scheduledAutomationIndex !== undefined).toBe(true);
 
         const automationRunColumnNames = tableColumnNames(migrated, "codex_automation_runs");
-        expect(automationRunColumnNames.includes("thread_id")).toBeTrue();
-        expect(automationRunColumnNames.includes("automation_id")).toBeTrue();
-        expect(automationRunColumnNames.includes("status")).toBeTrue();
-        expect(automationRunColumnNames.includes("read_at")).toBeTrue();
+        expect(automationRunColumnNames.includes("thread_id")).toBe(true);
+        expect(automationRunColumnNames.includes("automation_id")).toBe(true);
+        expect(automationRunColumnNames.includes("status")).toBe(true);
+        expect(automationRunColumnNames.includes("read_at")).toBe(true);
 
         const codexThreadColumnNames = tableColumnNames(migrated, "codex_threads");
-        expect(codexThreadColumnNames.includes("thread_source")).toBeTrue();
-        expect(codexThreadColumnNames.includes("agent_nickname")).toBeTrue();
-        expect(codexThreadColumnNames.includes("agent_role")).toBeTrue();
-        expect(codexThreadColumnNames.includes("projectless_output_directory")).toBeTrue();
+        expect(codexThreadColumnNames.includes("thread_source")).toBe(true);
+        expect(codexThreadColumnNames.includes("agent_nickname")).toBe(true);
+        expect(codexThreadColumnNames.includes("agent_role")).toBe(true);
+        expect(codexThreadColumnNames.includes("projectless_output_directory")).toBe(true);
 
         migrated.prepare(`
           INSERT INTO codex_scheduled_automations (
@@ -3159,7 +3159,7 @@ describe("schema initialization", () => {
     }
 
     if (!initializationRan) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 });

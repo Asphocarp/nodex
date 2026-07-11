@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -58,7 +58,7 @@ const expectThrowsCode = (
     error = caught;
   }
 
-  expect(error instanceof BlockDocumentStoreError).toBeTrue();
+  expect(error instanceof BlockDocumentStoreError).toBe(true);
   expect((error as BlockDocumentStoreError).code).toBe(code);
 };
 
@@ -185,8 +185,8 @@ describe("BlockDocumentStore", () => {
       ),
     );
     expect(dependency.code).toBe("document_update_missing_dependencies");
-    expect(dependency.retryable).toBeTrue();
-    expect(dependency.resetRequired).toBeFalse();
+    expect(dependency.retryable).toBe(true);
+    expect(dependency.resetRequired).toBe(false);
 
     const beforeCutover = toDocumentSyncCommandError(
       new BlockDocumentStoreError(
@@ -195,28 +195,28 @@ describe("BlockDocumentStore", () => {
       ),
     );
     expect(beforeCutover.code).toBe("document_not_ready");
-    expect(beforeCutover.retryable).toBeTrue();
-    expect(beforeCutover.resetRequired).toBeFalse();
+    expect(beforeCutover.retryable).toBe(true);
+    expect(beforeCutover.resetRequired).toBe(false);
 
     const restoredStore = toDocumentSyncCommandError(
       new BlockDocumentStoreError("store_epoch_mismatch", "restored store"),
     );
     expect(restoredStore.code).toBe("store_epoch_mismatch");
-    expect(restoredStore.retryable).toBeFalse();
-    expect(restoredStore.resetRequired).toBeTrue();
+    expect(restoredStore.retryable).toBe(false);
+    expect(restoredStore.resetRequired).toBe(true);
 
     const malformed = toDocumentSyncCommandError(
       new BlockDocumentStoreError("invalid_document_update", "bad update"),
     );
-    expect(malformed.retryable).toBeFalse();
-    expect(malformed.resetRequired).toBeFalse();
+    expect(malformed.retryable).toBe(false);
+    expect(malformed.resetRequired).toBe(false);
 
     const infrastructure = toDocumentSyncCommandError(
       new Error("worker database unavailable"),
     );
     expect(infrastructure.code).toBe("unknown");
-    expect(infrastructure.retryable).toBeFalse();
-    expect(infrastructure.resetRequired).toBeFalse();
+    expect(infrastructure.retryable).toBe(false);
+    expect(infrastructure.resetRequired).toBe(false);
   });
 
   sqliteTest(
@@ -262,7 +262,7 @@ describe("BlockDocumentStore", () => {
         expect(genesisAck.updateId).toBe("genesis-1");
         expect(genesisAck.committedSeq).toBe(1);
         expect(genesisAck.storeEpoch).toBe(storeEpoch);
-        expect(genesisAck.duplicate).toBeFalse();
+        expect(genesisAck.duplicate).toBe(false);
         const duplicateGenesis = initializeCardDocumentGenesis(database, {
           documentId,
           storeEpoch,
@@ -274,7 +274,7 @@ describe("BlockDocumentStore", () => {
         expect(duplicateGenesis.headSeq).toBe(1);
         expect(duplicateGenesis.committedSeq).toBe(1);
         expect(duplicateGenesis.storeEpoch).toBe(storeEpoch);
-        expect(duplicateGenesis.duplicate).toBeTrue();
+        expect(duplicateGenesis.duplicate).toBe(true);
 
         expectThrowsCode(
           () => getBlockDocumentRuntimeIdentity(database, documentId),
@@ -388,7 +388,7 @@ describe("BlockDocumentStore", () => {
         });
         expect(duplicateB.headSeq).toBe(3);
         expect(duplicateB.committedSeq).toBe(3);
-        expect(duplicateB.duplicate).toBeTrue();
+        expect(duplicateB.duplicate).toBe(true);
 
         const rejectedUpdate = captureOneUpdate(clientA, () => {
           const title = openCardDocument(clientA).title;
@@ -420,15 +420,15 @@ describe("BlockDocumentStore", () => {
           );
         }
         database.exec("DROP TRIGGER reject_test_document_update");
-        expect(rejected).toBeTrue();
+        expect(rejected).toBe(true);
 
         const afterConcurrent = loadBlockDocument(database, documentId);
         expect(afterConcurrent.head.headSeq).toBe(3);
         const concurrentTitle = openCardDocument(
           afterConcurrent.document,
         ).title.toString();
-        expect(concurrentTitle.includes(" A")).toBeTrue();
-        expect(concurrentTitle.includes(" B")).toBeTrue();
+        expect(concurrentTitle.includes(" A")).toBe(true);
+        expect(concurrentTitle.includes(" B")).toBe(true);
 
         const dependentClient = new Y.Doc({ guid: documentId });
         Y.applyUpdate(
@@ -515,7 +515,7 @@ describe("BlockDocumentStore", () => {
         expect(reloaded.head.headSeq).toBe(5);
         expect(
           openCardDocument(reloaded.document).title.toString().includes(" 1 2"),
-        ).toBeTrue();
+        ).toBe(true);
 
         database.exec(`
           CREATE TRIGGER corrupt_test_document_compaction_snapshot
@@ -570,7 +570,7 @@ describe("BlockDocumentStore", () => {
           );
         }
         database.exec("DROP TRIGGER reject_test_document_compaction");
-        expect(compactionRejected).toBeTrue();
+        expect(compactionRejected).toBe(true);
         const rolledBackSnapshot = database
           .prepare(
             `
@@ -590,7 +590,7 @@ describe("BlockDocumentStore", () => {
         expect(compacted.snapshotSeq).toBe(5);
         expect(compacted.prunedUpdateCount).toBe(5);
         expect(compacted.retainedReceiptCount).toBe(5);
-        expect(compacted.snapshotBytes > 0).toBeTrue();
+        expect(compacted.snapshotBytes > 0).toBe(true);
 
         const lateDuplicateB = applyBlockDocumentUpdate(database, {
           documentId,
@@ -604,7 +604,7 @@ describe("BlockDocumentStore", () => {
         });
         expect(lateDuplicateB.committedSeq).toBe(3);
         expect(lateDuplicateB.headSeq).toBe(5);
-        expect(lateDuplicateB.duplicate).toBeTrue();
+        expect(lateDuplicateB.duplicate).toBe(true);
 
         expectThrowsCode(
           () =>
@@ -781,7 +781,7 @@ describe("BlockDocumentStore", () => {
             } catch (error) {
               caught = error;
             }
-            expect(caught instanceof BlockDocumentStoreError).toBeTrue();
+            expect(caught instanceof BlockDocumentStoreError).toBe(true);
             return caught as BlockDocumentStoreError;
           };
 
@@ -829,7 +829,7 @@ describe("BlockDocumentStore", () => {
             JSON.parse(
               derivedArtifact.derived_touched_block_ids_json ?? "[]",
             ).includes("moving-root"),
-          ).toBeTrue();
+          ).toBe(true);
           expect(derivedArtifact.relocation_ids_json).toBe(
             '["recovery-relocation"]',
           );
@@ -975,7 +975,7 @@ describe("BlockDocumentStore", () => {
             openCardDocument(safeReload.document)
               .title.toString()
               .includes("safe offline title"),
-          ).toBeTrue();
+          ).toBe(true);
           safeReload.document.destroy();
 
           const targetCurrent = loadBlockDocument(database, target.documentId);

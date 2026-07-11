@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   RelocationIntent,
   RelocationResult,
@@ -86,7 +86,7 @@ describe("Block relocation renderer transports", () => {
         clientSessionId: "surface-1",
         intent,
       });
-      expect(response.ok).toBeTrue();
+      expect(response.ok).toBe(true);
       if (response.ok) {
         expect(response.value.targetCommit?.update?.join(",")).toBe("3");
       }
@@ -95,7 +95,7 @@ describe("Block relocation renderer transports", () => {
         capturedUrl.endsWith(
           "/api/projects/project-1/documents/document-1/relocations",
         ),
-      ).toBeTrue();
+      ).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -116,7 +116,7 @@ describe("Block relocation renderer transports", () => {
       bridge,
     ).relocateBlocks({ clientSessionId: "surface-2", intent });
 
-    expect(response.ok).toBeTrue();
+    expect(response.ok).toBe(true);
     expect(capturedChannel).toBe("document-sync:relocate");
     expect(capturedSession).toBe("surface-2");
   });

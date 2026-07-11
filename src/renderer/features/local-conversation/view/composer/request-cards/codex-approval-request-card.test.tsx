@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
@@ -37,14 +37,14 @@ describe("CodexApprovalRequestCard", () => {
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes("Do you want to let me restage the thread Storybook files and verify the index state before committing?"))).toBeTrue();
-    expect(Boolean(rendered.includes("git add docs/FRONTEND.md && git status --short"))).toBeTrue();
-    expect(Boolean(rendered.includes("in /workspace/nodex"))).toBeFalse();
-    expect(Boolean(rendered.includes("Yes"))).toBeTrue();
-    expect(Boolean(rendered.includes("Yes, and don't ask again for commands that start with"))).toBeTrue();
-    expect(Boolean(rendered.includes("No, and tell Codex what to do differently"))).toBeTrue();
-    expect(Boolean(rendered.includes("Skip"))).toBeTrue();
-    expect(Boolean(rendered.includes("Submit"))).toBeTrue();
+    expect(Boolean(rendered.includes("Do you want to let me restage the thread Storybook files and verify the index state before committing?"))).toBe(true);
+    expect(Boolean(rendered.includes("git add docs/FRONTEND.md && git status --short"))).toBe(true);
+    expect(Boolean(rendered.includes("in /workspace/nodex"))).toBe(false);
+    expect(Boolean(rendered.includes("Yes"))).toBe(true);
+    expect(Boolean(rendered.includes("Yes, and don't ask again for commands that start with"))).toBe(true);
+    expect(Boolean(rendered.includes("No, and tell Codex what to do differently"))).toBe(true);
+    expect(Boolean(rendered.includes("Skip"))).toBe(true);
+    expect(Boolean(rendered.includes("Submit"))).toBe(true);
     expect(container.querySelector(".request-input-panel__inline-freeform")).not.toBeNull();
     expect(container.querySelector(".rounded-2xl.border.backdrop-blur-sm")).not.toBeNull();
   });
@@ -74,10 +74,10 @@ describe("CodexApprovalRequestCard", () => {
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes("Do you want to run this command?"))).toBeTrue();
-    expect(Boolean(rendered.includes("cat package.json && rg TODO src"))).toBeTrue();
-    expect(Boolean(rendered.includes("bash -lc"))).toBeFalse();
-    expect(Boolean(rendered.includes("legacy fallback"))).toBeFalse();
+    expect(Boolean(rendered.includes("Do you want to run this command?"))).toBe(true);
+    expect(Boolean(rendered.includes("cat package.json && rg TODO src"))).toBe(true);
+    expect(Boolean(rendered.includes("bash -lc"))).toBe(false);
+    expect(Boolean(rendered.includes("legacy fallback"))).toBe(false);
   });
 
   test("renders command approval previews from execpolicy amendment fallback", async () => {
@@ -102,7 +102,7 @@ describe("CodexApprovalRequestCard", () => {
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes('git commit -m "hello world"'))).toBeTrue();
+    expect(Boolean(rendered.includes('git commit -m "hello world"'))).toBe(true);
   });
 
   test("renders network approval reason without a command preview", async () => {
@@ -132,10 +132,10 @@ describe("CodexApprovalRequestCard", () => {
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes('Do you want to approve network access to "api.example.com"?'))).toBeTrue();
-    expect(Boolean(rendered.includes("Reason: api.example.com isn't on the current network allowlist"))).toBeTrue();
-    expect(Boolean(rendered.includes("Yes, and allow this host in the future"))).toBeTrue();
-    expect(Boolean(rendered.includes("git add docs/FRONTEND.md"))).toBeFalse();
+    expect(Boolean(rendered.includes('Do you want to approve network access to "api.example.com"?'))).toBe(true);
+    expect(Boolean(rendered.includes("Reason: api.example.com isn't on the current network allowlist"))).toBe(true);
+    expect(Boolean(rendered.includes("Yes, and allow this host in the future"))).toBe(true);
+    expect(Boolean(rendered.includes("git add docs/FRONTEND.md"))).toBe(false);
   });
 
   test("renders a background actor inline in the prompt instead of as a separate header", async () => {
@@ -159,8 +159,8 @@ describe("CodexApprovalRequestCard", () => {
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes("Do you want Worker 1 to run this command?"))).toBeTrue();
-    expect(Boolean(rendered.includes("Worker 1Worker 1"))).toBeFalse();
+    expect(Boolean(rendered.includes("Do you want Worker 1 to run this command?"))).toBe(true);
+    expect(Boolean(rendered.includes("Worker 1Worker 1"))).toBe(false);
   });
 
   test("maps approval submit and skip actions to distinct response paths", async () => {
@@ -253,10 +253,10 @@ describe("CodexApprovalRequestCard", () => {
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes("Do you want to make these changes?"))).toBeTrue();
-    expect(Boolean(rendered.includes("src/app.ts"))).toBeTrue();
+    expect(Boolean(rendered.includes("Do you want to make these changes?"))).toBe(true);
+    expect(Boolean(rendered.includes("src/app.ts"))).toBe(true);
     expect(rendered.split("src/app.ts").length - 1).toBe(1);
-    expect(Boolean(rendered.includes("+2 -1"))).toBeTrue();
-    expect(Boolean(rendered.includes("+1 -0"))).toBeFalse();
+    expect(Boolean(rendered.includes("+2 -1"))).toBe(true);
+    expect(Boolean(rendered.includes("+1 -0"))).toBe(false);
   });
 });

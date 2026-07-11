@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   createCommandPaletteCardSearchIndex,
   hydrateCommandPaletteCardSearchIndex,
@@ -110,9 +110,9 @@ describe("command palette card search index", () => {
 
     const results = index.search("commnd palete");
 
-    expect(results.length > 0).toBeTrue();
+    expect(results.length > 0).toBe(true);
     expect(results[0]?.item.card.id).toBe("fuzzy-target");
-    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("matches description-only queries", () => {
@@ -131,8 +131,8 @@ describe("command palette card search index", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.item.card.id).toBe("description-hit");
-    expect(results[0]?.item.searchPreview?.excerpt.includes("OCR pipeline")).toBeTrue();
-    expect(results[0]?.item.searchPreview?.segments.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchPreview?.excerpt.includes("OCR pipeline")).toBe(true);
+    expect(results[0]?.item.searchPreview?.segments.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("supports prefix matching for multi-term queries", () => {
@@ -195,7 +195,7 @@ describe("command palette card search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.card.id).toBe("title-hit");
     expect(results[0]?.item.searchPreview ?? null).toBe(null);
-    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("adds matched field badges for secondary field hits", () => {
@@ -216,8 +216,8 @@ describe("command palette card search index", () => {
     const results = index.search("telemetry");
 
     expect(results.length).toBe(1);
-    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "tag")).toBeTrue();
-    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "status")).toBeTrue();
+    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "tag")).toBe(true);
+    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "status")).toBe(true);
   });
 
   test("hydrates a persisted cache snapshot and incrementally updates changed cards", async () => {

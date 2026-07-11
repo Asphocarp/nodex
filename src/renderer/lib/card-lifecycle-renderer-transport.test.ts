@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CardLifecycleMutationRequest } from "../../shared/card-lifecycle";
 import { browserRendererTransport } from "./browser-renderer-transport";
 import {
@@ -81,18 +81,18 @@ describe("Card lifecycle renderer transport", () => {
         request.projectId,
         request,
       );
-      expect(preflight.ok).toBeTrue();
-      expect(mutation.ok).toBeTrue();
+      expect(preflight.ok).toBe(true);
+      expect(mutation.ok).toBe(true);
       expect(
         urls[0]?.endsWith(
           "/api/projects/project%2Fone/card-lifecycle-preflight?cardId=card%2Fone",
         ) ?? false,
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         urls[1]?.endsWith(
           "/api/projects/project%2Fone/card-lifecycle-mutations",
         ) ?? false,
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         (bodies[0] as { readonly operationId?: string }).operationId,
       ).toBe(request.operationId);
@@ -114,7 +114,7 @@ describe("Card lifecycle renderer transport", () => {
     await electron.mutateCardLifecycle(request.projectId, request);
     expect(calls[0]?.channel).toBe("cards:lifecycle:preflight");
     expect(calls[1]?.channel).toBe("cards:lifecycle:apply");
-    expect(calls[1]?.args[1] === request).toBeTrue();
+    expect(calls[1]?.args[1] === request).toBe(true);
   });
 
   test("fans a lifecycle change to every window subscribed to the Project", () => {

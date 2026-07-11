@@ -7813,6 +7813,9 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
   migrateLegacyDatabaseFileName(dir);
 
   const db = new Database(dbPath);
+  if (getUserVersion(db) === 0) {
+    db.pragma("auto_vacuum = INCREMENTAL");
+  }
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 

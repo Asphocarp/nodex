@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardInput, CardStatus, CardSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
 import { resolveKanbanImportInference } from "./kanban-import-inference";

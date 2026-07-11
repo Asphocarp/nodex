@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createRef } from "react";
 import { render } from "@/test/dom";
 import { Input } from "./input";
@@ -8,7 +8,7 @@ describe("shared input", () => {
     const view = render(<Input placeholder="Project name" />);
     const input = view.container.querySelector('input[placeholder="Project name"]') as HTMLInputElement | null;
 
-    expect(Boolean(input)).toBeTrue();
+    expect(Boolean(input)).toBe(true);
     expect(input?.getAttribute("data-slot")).toBe("input");
   });
 
@@ -16,7 +16,7 @@ describe("shared input", () => {
     const ref = createRef<HTMLInputElement>();
     render(<Input ref={ref} defaultValue="Nodex" />);
 
-    expect(ref.current instanceof HTMLInputElement).toBeTrue();
-    expect(ref.current?.value === "Nodex").toBeTrue();
+    expect(ref.current instanceof HTMLInputElement).toBe(true);
+    expect(ref.current?.value === "Nodex").toBe(true);
   });
 });

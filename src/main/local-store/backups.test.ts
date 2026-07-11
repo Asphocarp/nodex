@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -14,7 +14,7 @@ const state = {
   failEpochRotation: false,
 };
 
-mock.module("./backups-deps", () => ({
+vi.mock("./backups-deps", () => ({
   getLocalStoreDir: () => fixtureRoot,
   getDatabasePath: () => liveDbPath,
   dbNotifier: {
@@ -32,7 +32,7 @@ mock.module("./backups-deps", () => ({
   }),
 }));
 
-mock.module("../whole-store-maintenance-runtime", () => ({
+vi.mock("../whole-store-maintenance-runtime", () => ({
   wholeStoreMaintenance: {
     snapshot: async <T>(operation: () => Promise<T>) => {
       state.maintenanceEvents.push("snapshot:start");
@@ -53,7 +53,7 @@ mock.module("../whole-store-maintenance-runtime", () => ({
   },
 }));
 
-mock.module("./backup-store-validation", () => ({
+vi.mock("./backup-store-validation", () => ({
   validateBackupStore: (databasePath: string) => {
     const content = fs.readFileSync(databasePath, "utf8");
     if (content.startsWith("invalid")) throw new Error("invalid database");
@@ -108,14 +108,14 @@ describe("backup service", () => {
     });
 
     expect(backup.trigger).toBe("manual");
-    expect(backup.includesAssets).toBeTrue();
-    expect(backup.dbBytes > 0).toBeTrue();
-    expect(backup.totalBytes >= backup.dbBytes).toBeTrue();
+    expect(backup.includesAssets).toBe(true);
+    expect(backup.dbBytes > 0).toBe(true);
+    expect(backup.totalBytes >= backup.dbBytes).toBe(true);
 
     const backupDir = path.join(fixtureRoot, "backups", backup.id);
-    expect(fs.existsSync(path.join(backupDir, "manifest.json"))).toBeTrue();
-    expect(fs.existsSync(path.join(backupDir, "nodex.db"))).toBeTrue();
-    expect(fs.existsSync(path.join(backupDir, "assets", "a.txt"))).toBeTrue();
+    expect(fs.existsSync(path.join(backupDir, "manifest.json"))).toBe(true);
+    expect(fs.existsSync(path.join(backupDir, "nodex.db"))).toBe(true);
+    expect(fs.existsSync(path.join(backupDir, "assets", "a.txt"))).toBe(true);
     expect(state.maintenanceEvents.join(",")).toBe(
       "snapshot:start,snapshot:end",
     );
@@ -148,7 +148,7 @@ describe("backup service", () => {
       message = (error as Error).message;
     }
 
-    expect(message.includes("confirm=true")).toBeTrue();
+    expect(message.includes("confirm=true")).toBe(true);
   });
 
   test("restore creates pre-restore safety backup by default", async () => {
@@ -162,17 +162,17 @@ describe("backup service", () => {
       confirm: true,
     });
 
-    expect(result.success).toBeTrue();
+    expect(result.success).toBe(true);
     expect(result.restoredBackupId).toBe(target.id);
-    expect(Boolean(result.safetyBackupId)).toBeTrue();
-    expect(state.notifications.length > 0).toBeTrue();
+    expect(Boolean(result.safetyBackupId)).toBe(true);
+    expect(state.notifications.length > 0).toBe(true);
     expect(state.maintenanceEvents.join(",")).toBe(
       "restore:start,reset:epoch-restored",
     );
 
     const allBackups = await backupService.listBackups();
     const safety = allBackups.find((item) => item.id === result.safetyBackupId);
-    expect(Boolean(safety)).toBeTrue();
+    expect(Boolean(safety)).toBe(true);
     expect(safety?.trigger).toBe("pre-restore");
   });
 
@@ -181,11 +181,11 @@ describe("backup service", () => {
     const backup = await backupService.createBackup({ trigger: "manual", label: "delete-me" });
 
     const result = await backupService.deleteBackup(backup.id);
-    expect(result.success).toBeTrue();
+    expect(result.success).toBe(true);
     expect(result.deletedBackupId).toBe(backup.id);
 
     const backupDir = path.join(fixtureRoot, "backups", backup.id);
-    expect(fs.existsSync(backupDir)).toBeFalse();
+    expect(fs.existsSync(backupDir)).toBe(false);
 
     const backups = await backupService.listBackups();
     expect(backups.length).toBe(0);
@@ -229,7 +229,7 @@ describe("backup service", () => {
       failed = true;
     }
 
-    expect(failed).toBeTrue();
+    expect(failed).toBe(true);
     expect(fs.readFileSync(liveDbPath, "utf8")).toBe("baseline-live-db");
   });
 
@@ -251,7 +251,7 @@ describe("backup service", () => {
       failed = true;
     }
 
-    expect(failed).toBeTrue();
+    expect(failed).toBe(true);
     expect(fs.readFileSync(liveDbPath, "utf8")).toBe("newer-live-db");
     expect(state.maintenanceEvents.join(",")).toBe("restore:start");
   });
@@ -270,7 +270,7 @@ describe("backup service", () => {
       message = (error as Error).message;
     }
 
-    expect(message.includes("Invalid backup id")).toBeTrue();
+    expect(message.includes("Invalid backup id")).toBe(true);
   });
 
   test("delete rejects missing backup ids", async () => {
@@ -283,6 +283,6 @@ describe("backup service", () => {
       message = (error as Error).message;
     }
 
-    expect(message.includes("Backup not found")).toBeTrue();
+    expect(message.includes("Backup not found")).toBe(true);
   });
 });

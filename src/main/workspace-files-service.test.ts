@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -33,8 +33,8 @@ describe("workspace-files-service", () => {
     const result = await listWorkspaceDirectoryEntries({ workspaceRoot: root, includeHidden: true });
 
     expect(JSON.stringify(result.entries.map((entry) => entry.name))).toBe(JSON.stringify(["src", "README.md"]));
-    expect(result.entries[0]?.isDirectory).toBeTrue();
-    expect(result.entries[1]?.isFile).toBeTrue();
+    expect(result.entries[0]?.isDirectory).toBe(true);
+    expect(result.entries[1]?.isFile).toBe(true);
   });
 
   test("reads text, binary, metadata, writes files, and checks existence", async () => {
@@ -51,12 +51,12 @@ describe("workspace-files-service", () => {
     const exists = await readWorkspacePathsExist({ paths: [textPath, written.path, join(root, "missing.txt")] });
 
     expect(text.content).toBe("# Notes\n");
-    expect(text.binary).toBeFalse();
-    expect(binaryMetadata.binary).toBeTrue();
+    expect(text.binary).toBe(false);
+    expect(binaryMetadata.binary).toBe(true);
     expect(binary.dataBase64).toBe("AAECAw==");
-    expect(exists.paths[textPath]).toBeTrue();
-    expect(exists.paths[written.path]).toBeTrue();
-    expect(exists.paths[join(root, "missing.txt")]).toBeFalse();
+    expect(exists.paths[textPath]).toBe(true);
+    expect(exists.paths[written.path]).toBe(true);
+    expect(exists.paths[join(root, "missing.txt")]).toBe(false);
   });
 
   test("rejects directory traversal outside the workspace root", async () => {

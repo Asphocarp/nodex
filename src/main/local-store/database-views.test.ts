@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -162,15 +162,15 @@ describe("durable Database View store", () => {
       expect(reseeded.positionsAdded).toBe(1);
       expect(readDatabaseView(sourceProject.id, created.view.id)?.rows.length).toBe(3);
 
-      expect(await deleteCard(sourceProject.id, "draft", third.id)).toBeTrue();
+      expect(await deleteCard(sourceProject.id, "draft", third.id)).toBe(true);
       const afterDelete = readDatabaseView(sourceProject.id, created.view.id);
       expect(afterDelete?.rows.length).toBe(2);
-      expect(afterDelete?.rows.some((row) => row.card.id === third.id) ?? true).toBeFalse();
+      expect(afterDelete?.rows.some((row) => row.card.id === third.id) ?? true).toBe(false);
 
-      expect(readDatabaseViewDefinition(hostProject.id, created.view.id) === null).toBeTrue();
+      expect(readDatabaseViewDefinition(hostProject.id, created.view.id) === null).toBe(true);
       expect(readDatabaseViewById(created.view.id)?.view.projectId).toBe(sourceProject.id);
-      expect(readDatabaseView(sourceProject.id, "missing") === null).toBeTrue();
-      expect(second.id === first.id).toBeFalse();
+      expect(readDatabaseView(sourceProject.id, "missing") === null).toBe(true);
+      expect(second.id === first.id).toBe(false);
     });
   });
 
@@ -211,7 +211,7 @@ describe("durable Database View store", () => {
 
       const persisted = readDatabaseViewDefinition(firstSource.id, created.view.id);
       expect(persisted?.projectId).toBe(firstSource.id);
-      expect(readDatabaseViewDefinition(secondSource.id, created.view.id) === null).toBeTrue();
+      expect(readDatabaseViewDefinition(secondSource.id, created.view.id) === null).toBe(true);
       const collisionCount = getDb().prepare(`
         SELECT COUNT(*) AS count
         FROM database_views

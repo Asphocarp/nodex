@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { AppStartupScreen } from "./app-startup-screen";
 import { render } from "../test/dom";
 

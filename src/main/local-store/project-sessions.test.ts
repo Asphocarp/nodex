@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -125,15 +125,15 @@ describe("project session service", () => {
       if (!defaultProject) throw new Error("Missing default project");
       const defaultSessions = listProjectSessions(defaultProject.id);
       expect(defaultSessions.length).toBe(1);
-      expect(defaultSessions[0]?.id.includes(":") ?? true).toBeFalse();
+      expect(defaultSessions[0]?.id.includes(":") ?? true).toBe(false);
       expect(defaultSessions[0]?.noThreadFallbackTitle).toBe("Database View");
       expect(defaultSessions[0]?.displayTitle).toBe("Database View");
-      expect(defaultSessions[0]?.pinned).toBeTrue();
+      expect(defaultSessions[0]?.pinned).toBe(true);
       expect(defaultSessions[0]?.pinnedOrder).toBe(0);
-      expect(defaultSessions[0]?.leftPaneCollapsed).toBeTrue();
-      expect(defaultSessions[0]?.panels.right.collapsed).toBeFalse();
-      expect(defaultSessions[0]?.panels.right.size.fullWidth).toBeTrue();
-      expect(defaultSessions[0]?.panels.bottom.collapsed).toBeTrue();
+      expect(defaultSessions[0]?.leftPaneCollapsed).toBe(true);
+      expect(defaultSessions[0]?.panels.right.collapsed).toBe(false);
+      expect(defaultSessions[0]?.panels.right.size.fullWidth).toBe(true);
+      expect(defaultSessions[0]?.panels.bottom.collapsed).toBe(true);
       expect(defaultSessions[0]?.tabs.length).toBe(1);
       expect(defaultSessions[0]?.tabs[0]?.panelId).toBe("right");
       expect(defaultSessions[0]?.tabs[0]?.kind).toBe("db_view");
@@ -148,15 +148,15 @@ describe("project session service", () => {
       const alphaProject = createProject({ name: "Alpha", sources: ["/tmp/alpha"] });
       const alphaSessions = listProjectSessions(alphaProject.id);
       expect(alphaSessions.length).toBe(1);
-      expect(alphaSessions[0]?.id.includes(":") ?? true).toBeFalse();
+      expect(alphaSessions[0]?.id.includes(":") ?? true).toBe(false);
       expect(alphaSessions[0]?.displayTitle).toBe("Database View");
-      expect(alphaSessions[0]?.pinned).toBeTrue();
-      expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
+      expect(alphaSessions[0]?.pinned).toBe(true);
+      expect(alphaSessions[0]?.panels.right.collapsed).toBe(false);
       expect(alphaSessions[0]?.tabs[0]?.kind).toBe("db_view");
       expect(alphaSessions[0]?.tabs[0]?.title).toBe("DB View");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not recreate the Database View session during listing after user removal", async () => {
@@ -169,7 +169,7 @@ describe("project session service", () => {
       expect(listProjectSessions(projectId).length).toBe(0);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("lists lightweight project session summaries without panel or tab payloads", async () => {
@@ -208,18 +208,18 @@ describe("project session service", () => {
         .find((candidate) => candidate.id === session.id);
       const detail = getProjectSession(session.id);
 
-      expect(summary !== undefined).toBeTrue();
-      expect(detail !== null).toBeTrue();
-      expect(Object.prototype.hasOwnProperty.call(summary as object, "tabs")).toBeFalse();
-      expect(Object.prototype.hasOwnProperty.call(summary as object, "panels")).toBeFalse();
+      expect(summary !== undefined).toBe(true);
+      expect(detail !== null).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(summary as object, "tabs")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(summary as object, "panels")).toBe(false);
       expect(summary?.displayTitle).toBe("Thread summary title");
       expect(summary?.thread?.threadId).toBe("thread-summary-test");
       expect(summary?.thread?.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-summary-test");
       expect(detail?.tabs.length).toBe(1);
-      expect(detail?.panels.right.collapsed).toBeFalse();
+      expect(detail?.panels.right.collapsed).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("supports projectless chat sessions without overview or project-scoped tabs", async () => {
@@ -246,7 +246,7 @@ describe("project session service", () => {
       expect(error).toBe("Projectless sessions cannot own project-scoped tabs");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("accepts 2000 character session and tab titles", async () => {
@@ -267,7 +267,7 @@ describe("project session service", () => {
       expect(tab.title.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects session and tab titles above 2000 characters", async () => {
@@ -276,7 +276,7 @@ describe("project session service", () => {
       const sessionError = runValidation(() => {
         createProjectSession({ projectId: projectId, noThreadFallbackTitle: tooLongTitle });
       });
-      expect(sessionError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBeTrue();
+      expect(sessionError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBe(true);
 
       const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Valid session" });
       const tabError = runValidation(() => {
@@ -289,10 +289,10 @@ describe("project session service", () => {
           config: { projectId: projectId, cardId: "card-too-long", titleSnapshot: tooLongTitle },
         });
       });
-      expect(tabError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBeTrue();
+      expect(tabError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("creates tabs with a supplied client tab id", async () => {
@@ -310,11 +310,11 @@ describe("project session service", () => {
       const updated = getProjectSession(session.id);
 
       expect(tab.id).toBe("tab:card-stage-preview");
-      expect(updated?.tabs.some((item) => item.id === "tab:card-stage-preview") ?? false).toBeTrue();
+      expect(updated?.tabs.some((item) => item.id === "tab:card-stage-preview") ?? false).toBe(true);
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe("tab:card-stage-preview");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects invalid or duplicate client tab ids", async () => {
@@ -353,11 +353,11 @@ describe("project session service", () => {
         });
       });
 
-      expect(invalidError !== null).toBeTrue();
-      expect(duplicateError?.includes("Project session tab id already exists") ?? false).toBeTrue();
+      expect(invalidError !== null).toBe(true);
+      expect(duplicateError?.includes("Project session tab id already exists") ?? false).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("loads a stored v1 panel layout as a fresh v2 layout from tab rows", async () => {
@@ -406,14 +406,14 @@ describe("project session service", () => {
       );
 
       const loaded = getProjectSession(session.id);
-      expect(loaded?.panels.right.collapsed).toBeFalse();
+      expect(loaded?.panels.right.collapsed).toBe(false);
       expect(loaded?.panels.right.size.widthPx).toBe(777);
-      expect(loaded?.panels.right.size.fullWidth).toBeTrue();
+      expect(loaded?.panels.right.size.fullWidth).toBe(true);
       expect(loaded?.panels.right.layout.version).toBe(2);
       expect(JSON.stringify(flattenProjectSessionPanelTabIds(loaded!.panels.right.layout))).toBe(
         JSON.stringify([review.id]),
       );
-      expect(loaded?.panels.bottom.collapsed).toBeFalse();
+      expect(loaded?.panels.bottom.collapsed).toBe(false);
       expect(loaded?.panels.bottom.size.heightPx).toBe(333);
       expect(loaded?.panels.bottom.layout.version).toBe(2);
       expect(JSON.stringify(flattenProjectSessionPanelTabIds(loaded!.panels.bottom.layout))).toBe(
@@ -421,7 +421,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("creates and reorders sessions and tabs with validated tab config", async () => {
@@ -429,8 +429,8 @@ describe("project session service", () => {
       const databaseView = listProjectSessions(projectId)[0];
       if (!databaseView) throw new Error("Missing Database View session");
       const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Build" });
-      expect(session.panels.right.collapsed).toBeTrue();
-      expect(session.panels.bottom.collapsed).toBeTrue();
+      expect(session.panels.right.collapsed).toBe(true);
+      expect(session.panels.bottom.collapsed).toBe(true);
 
       const sessions = reorderProjectSessions(projectId, [session.id, databaseView.id]);
       expect(JSON.stringify(sessions.map((item) => item.id))).toBe(
@@ -478,7 +478,7 @@ describe("project session service", () => {
         panelId: "right",
         orderedTabIds: [browser.id],
       });
-      expect(reordered !== null).toBeTrue();
+      expect(reordered !== null).toBe(true);
       expect(reordered?.tabs.find((tab) => tab.id === terminal.id)?.panelId).toBe("bottom");
       expect(reordered?.tabs.find((tab) => tab.id === browser.id)?.panelId).toBe("right");
       expect(reordered?.panels.right.layout.root.type).toBe("leaf");
@@ -511,10 +511,10 @@ describe("project session service", () => {
       } catch (error) {
         validationMessage = (error as Error).message;
       }
-      expect(validationMessage.length > 0).toBeTrue();
+      expect(validationMessage.length > 0).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("preserves cross-project card-stage tab content project", async () => {
@@ -553,7 +553,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("inserts newly created project sessions at the top below pinned Database View", async () => {
@@ -572,7 +572,7 @@ describe("project session service", () => {
       expect(sessions.find((session) => session.id === first.id)?.order).toBe(1);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("pins, reorders pinned sessions, and archives without deleting sessions", async () => {
@@ -585,7 +585,7 @@ describe("project session service", () => {
 
       const pinnedAlpha = setProjectSessionPinned(alpha.id, { pinned: true });
       const pinnedGamma = setProjectSessionPinned(gamma.id, { pinned: true });
-      expect(pinnedAlpha?.pinned).toBeTrue();
+      expect(pinnedAlpha?.pinned).toBe(true);
       expect(pinnedAlpha?.pinnedOrder).toBe(1);
       expect(pinnedGamma?.pinnedOrder).toBe(2);
 
@@ -600,12 +600,12 @@ describe("project session service", () => {
       );
 
       const unreadGamma = markProjectSessionUnread(gamma.id, { unread: true });
-      expect(unreadGamma?.unread).toBeTrue();
+      expect(unreadGamma?.unread).toBe(true);
       const archivedGamma = archiveProjectSession(gamma.id);
-      expect(archivedGamma?.archived).toBeTrue();
-      expect(archivedGamma?.pinned).toBeFalse();
+      expect(archivedGamma?.archived).toBe(true);
+      expect(archivedGamma?.pinned).toBe(false);
       expect(archivedGamma?.pinnedOrder).toBe(null);
-      expect(archivedGamma?.unread).toBeFalse();
+      expect(archivedGamma?.unread).toBe(false);
 
       sessions = listProjectSessions(projectId);
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
@@ -613,10 +613,10 @@ describe("project session service", () => {
       );
 
       const archivedVisible = listProjectSessions(projectId, { includeArchived: true });
-      expect(archivedVisible.some((session) => session.id === gamma.id)).toBeTrue();
+      expect(archivedVisible.some((session) => session.id === gamma.id)).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("dedupes DB tabs by durable View identity and singleton tabs by kind", async () => {
@@ -652,7 +652,7 @@ describe("project session service", () => {
         title: "Secondary DB View",
         config: { projectId: projectId, databaseViewId: secondaryViewId, view: "list" },
       });
-      expect(secondaryDbView.id === dbView.id).toBeFalse();
+      expect(secondaryDbView.id === dbView.id).toBe(false);
       const betaDbView = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -661,7 +661,7 @@ describe("project session service", () => {
         title: "Beta DB View",
         config: { projectId: betaProject.id, view: "kanban" },
       });
-      expect(betaDbView.id === dbView.id).toBeFalse();
+      expect(betaDbView.id === dbView.id).toBe(false);
 
       const review = createProjectSessionTab({
         sessionId: session.id,
@@ -697,7 +697,7 @@ describe("project session service", () => {
         title: "Website",
         config: { projectId: projectId, url: "https://example.com" },
       });
-      expect(duplicateBrowser.id === browser.id).toBeFalse();
+      expect(duplicateBrowser.id === browser.id).toBe(false);
 
       const terminalOne = createProjectSessionTab({
         sessionId: session.id,
@@ -715,7 +715,7 @@ describe("project session service", () => {
         title: "Terminal",
         config: { projectId: projectId, terminalSessionId: "term-2" },
       });
-      expect(terminalOne.id === terminalTwo.id).toBeFalse();
+      expect(terminalOne.id === terminalTwo.id).toBe(false);
 
       const updated = getProjectSession(session.id);
       expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(3);
@@ -727,7 +727,7 @@ describe("project session service", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects missing, deleted, and cross-Project Database View identities", async () => {
@@ -795,17 +795,17 @@ describe("project session service", () => {
         });
       });
 
-      expect(crossProjectError?.includes("was not found in Project") ?? false).toBeTrue();
-      expect(missingError?.includes("was not found in Project") ?? false).toBeTrue();
-      expect(deletedError?.includes("was not found in Project") ?? false).toBeTrue();
-      expect(rejectedUpdate?.includes("was not found in Project") ?? false).toBeTrue();
+      expect(crossProjectError?.includes("was not found in Project") ?? false).toBe(true);
+      expect(missingError?.includes("was not found in Project") ?? false).toBe(true);
+      expect(deletedError?.includes("was not found in Project") ?? false).toBe(true);
+      expect(rejectedUpdate?.includes("was not found in Project") ?? false).toBe(true);
       expect(
         (getProjectSession(session.id)?.tabs[0]?.config as { databaseViewId?: string })
           .databaseViewId,
       ).toBe(readPrimaryDatabaseViewId(projectId));
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("round-trips and restarts arbitrary Database View tabs by stable identity", async () => {
@@ -853,7 +853,7 @@ describe("project session service", () => {
       expect(duplicate.id).toBe(tab.id);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("normalizes a legacy overview config once only through the active primary View", async () => {
@@ -933,10 +933,10 @@ describe("project session service", () => {
           config: { projectId, view: "kanban" },
         });
       });
-      expect(unresolvedError?.includes("cannot resolve one active primary View") ?? false).toBeTrue();
+      expect(unresolvedError?.includes("cannot resolve one active primary View") ?? false).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("attaches and detaches session-owned thread metadata", async () => {
@@ -987,13 +987,13 @@ describe("project session service", () => {
       expect(owners[0]?.sessionId).toBe(session.id);
       expect(owners[0]?.projectId).toBe(projectId);
 
-      expect(detachProjectSessionThread(session.id)).toBeTrue();
-      expect(getProjectSession(session.id)?.thread === null).toBeTrue();
+      expect(detachProjectSessionThread(session.id)).toBe(true);
+      expect(getProjectSession(session.id)?.thread === null).toBe(true);
       expect(getProjectSession(session.id)?.displayTitle).toBe("Agent run");
-      expect(detachProjectSessionThread(session.id)).toBeFalse();
+      expect(detachProjectSessionThread(session.id)).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("keeps session tab configs project-scoped after project name update", async () => {
@@ -1025,7 +1025,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("updates panel state and moves tabs between panels while preserving state", async () => {
@@ -1056,7 +1056,7 @@ describe("project session service", () => {
         collapsed: false,
         size: { heightPx: 360 },
       });
-      expect(sized?.panels.bottom.collapsed).toBeFalse();
+      expect(sized?.panels.bottom.collapsed).toBe(false);
       expect(sized?.panels.bottom.size.heightPx).toBe(360);
 
       const moved = moveProjectSessionTab({
@@ -1078,7 +1078,7 @@ describe("project session service", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("persists split group membership and leaf-scoped tab movement", async () => {
@@ -1139,10 +1139,10 @@ describe("project session service", () => {
         JSON.stringify([review.id, shell.id]),
       );
       expect(reordered?.panels.right.layout.version).toBe(2);
-      expect(activeLeafId.length > 0).toBeTrue();
+      expect(activeLeafId.length > 0).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("creates a new tab in the requested target leaf", async () => {
@@ -1194,7 +1194,7 @@ describe("project session service", () => {
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe(card.id);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("ensures a right-side empty leaf and preserves full-width panel state", async () => {
@@ -1223,15 +1223,15 @@ describe("project session service", () => {
       const sourceLeaf = leaves.find((leaf) => leaf.id === sourceLeafId);
       const targetLeaf = leaves.find((leaf) => leaf.id === ensured?.leafId);
 
-      expect(ensured?.created).toBeTrue();
+      expect(ensured?.created).toBe(true);
       expect(leaves.length).toBe(2);
       expect(JSON.stringify(sourceLeaf?.tabIds ?? [])).toBe(JSON.stringify([dbTab.id]));
       expect(JSON.stringify(targetLeaf?.tabIds ?? [])).toBe(JSON.stringify([]));
-      expect(updated?.panels.right.size.fullWidth).toBeTrue();
+      expect(updated?.panels.right.size.fullWidth).toBe(true);
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).id).toBe(ensured?.leafId ?? "");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("reuses an existing nearest right leaf instead of creating another one", async () => {
@@ -1274,7 +1274,7 @@ describe("project session service", () => {
       });
       const updated = getProjectSession(session.id);
 
-      expect(ensured?.created).toBeFalse();
+      expect(ensured?.created).toBe(false);
       expect(ensured?.leafId).toBe(rightLeaf?.id ?? "");
       expect(listProjectSessionPanelLeaves(updated!.panels.right.layout).length).toBe(2);
       expect(JSON.stringify(flattenProjectSessionPanelTabIds(updated!.panels.right.layout))).toBe(
@@ -1282,7 +1282,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("edge-dropping a tab to the right of its own multi-tab group creates a sibling group", async () => {
@@ -1320,7 +1320,7 @@ describe("project session service", () => {
       expect(getProjectSessionPanelActiveLeaf(moved!.panels.right.layout).activeTabId).toBe(shell.id);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("deleting the last durable tab in a split group removes the empty group", async () => {
@@ -1356,15 +1356,15 @@ describe("project session service", () => {
       const deleted = deleteProjectSessionTab(shell.id);
       const next = getProjectSession(session.id);
 
-      expect(deleted).toBeTrue();
+      expect(deleted).toBe(true);
       expect(next ? listProjectSessionPanelLeaves(next.panels.right.layout).length : 0).toBe(1);
       expect(JSON.stringify(next ? flattenProjectSessionPanelTabIds(next.panels.right.layout) : [])).toBe(
         JSON.stringify([review.id]),
       );
-      expect(next?.panels.right.collapsed ?? true).toBeFalse();
+      expect(next?.panels.right.collapsed ?? true).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("deleting an active tab persists the preferred replacement tab", async () => {
@@ -1405,7 +1405,7 @@ describe("project session service", () => {
       });
       const next = getProjectSession(session.id);
 
-      expect(deleted).toBeTrue();
+      expect(deleted).toBe(true);
       const activeLeaf = getProjectSessionPanelActiveLeaf(next!.panels.right.layout);
       expect(activeLeaf.activeTabId).toBe(browser.id);
       expect(activeLeaf.mruTabIds[0]).toBe(browser.id);
@@ -1414,7 +1414,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("activating panel tabs persists leaf tab MRU order", async () => {
@@ -1467,7 +1467,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("moving the last durable tab out of a group removes the empty source group", async () => {
@@ -1514,7 +1514,7 @@ describe("project session service", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("preserveEmptyLeafIds keeps an otherwise empty source group for renderer-local tabs", async () => {
@@ -1556,11 +1556,11 @@ describe("project session service", () => {
         ? listProjectSessionPanelLeaves(moved.panels.right.layout).find((leaf) => leaf.id === sourceLeafId)
         : null;
 
-      expect(sourceLeaf === null).toBeFalse();
+      expect(sourceLeaf === null).toBe(false);
       expect(JSON.stringify(sourceLeaf?.tabIds ?? [])).toBe(JSON.stringify([]));
       expect(listProjectSessionPanelLeaves(moved!.panels.right.layout).length).toBe(2);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

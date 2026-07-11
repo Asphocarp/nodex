@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   RIGHT_PANEL_COMPOSER_OVERLAY_DURATION_MS,
   RIGHT_PANEL_COMPOSER_OVERLAY_HEIGHT_PX,

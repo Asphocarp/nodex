@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   BlockDocumentCodecError,
@@ -84,8 +84,8 @@ describe("CardDocumentCodec", () => {
     expect(genesis.materialization.assetRefs[1]?.managedFileName).toBe(
       "image.png",
     );
-    expect(genesis.materialization.plainText.includes("demo.txt")).toBeTrue();
-    expect(genesis.materialization.plainText.includes("gpt-5.5")).toBeTrue();
+    expect(genesis.materialization.plainText.includes("demo.txt")).toBe(true);
+    expect(genesis.materialization.plainText.includes("gpt-5.5")).toBe(true);
   });
 
   test("preserves application identities through encoded reload", () => {
@@ -142,7 +142,7 @@ describe("CardDocumentCodec", () => {
       nfm: "Body",
     });
     const result = migrateCardDocument(genesis.document, 1);
-    expect(result.changed).toBeFalse();
+    expect(result.changed).toBe(false);
     expect(result.update.byteLength).toBe(0);
 
     let message = "";

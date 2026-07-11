@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CONTENT_SEARCH_LOCAL_MATCH_LIMIT,
   buildContentSearchResultLabel,

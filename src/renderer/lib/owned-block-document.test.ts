@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
 import {

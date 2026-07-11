@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   applyCanvasSceneSnapshot,
@@ -54,7 +54,7 @@ describe("CanvasSceneBinding", () => {
       inspectCanvasDocument(envelope.document).materialization.elements.some(
         (candidate) => candidate.id === "deleted" && candidate.isDeleted === true,
       ),
-    ).toBeTrue();
+    ).toBe(true);
     binding.destroy();
   });
 
@@ -199,7 +199,7 @@ describe("CanvasSceneBinding", () => {
     );
     expect(
       scene.elements.some((candidate) => candidate.id === "remote-image"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       scene.elements.find((candidate) => candidate.id === "local-image")?.x,
     ).toBe(20);
@@ -305,8 +305,8 @@ describe("CanvasSceneBinding", () => {
     } catch (error) {
       flushError = error;
     }
-    expect(submitError instanceof Error).toBeTrue();
-    expect(flushError instanceof Error).toBeTrue();
+    expect(submitError instanceof Error).toBe(true);
+    expect(flushError instanceof Error).toBe(true);
     expect(errorCount).toBe(1);
     expect(binding.getCurrentScene().elements.length).toBe(0);
 
@@ -379,10 +379,10 @@ describe("CanvasSceneBinding", () => {
     });
     const relocated = Promise.resolve(relocationPreparer());
     await Promise.resolve();
-    expect(persistCompleted).toBeFalse();
+    expect(persistCompleted).toBe(false);
     releaseUpload();
     await Promise.all([submission, persisted, relocated]);
-    expect(persistCompleted).toBeTrue();
+    expect(persistCompleted).toBe(true);
     unregister();
     unregister();
     expect(unregisterCount).toBe(2);

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -135,7 +135,7 @@ describe("scheduled automation IPC contract", () => {
       "codex:automation-runs:set-read-state",
       "codex:automation-runs:mark-all-read",
     ]) {
-      expect(registeredHandlers.has(channel)).toBeTrue();
+      expect(registeredHandlers.has(channel)).toBe(true);
     }
   });
 
@@ -163,7 +163,7 @@ describe("scheduled automation IPC contract", () => {
       expect(latestScheduledChangedEvent().automationId).toBe("daily-report");
 
       const listResponse = await invokeIpc("codex:scheduled-automations:list") as CodexScheduledAutomationListResponse;
-      expect(Array.isArray(listResponse.items)).toBeTrue();
+      expect(Array.isArray(listResponse.items)).toBe(true);
       expect(listResponse.items.length).toBe(1);
       expect(listResponse.items[0]?.id).toBe("daily-report");
 
@@ -197,14 +197,14 @@ describe("scheduled automation IPC contract", () => {
         path.join(tempDir, "automations", "daily-report", "automation.toml"),
         "utf8",
       );
-      expect(updatedToml.includes("model = \"gpt-5.1\"")).toBeTrue();
-      expect(updatedToml.includes("reasoning_effort = \"high\"")).toBeTrue();
+      expect(updatedToml.includes("model = \"gpt-5.1\"")).toBe(true);
+      expect(updatedToml.includes("reasoning_effort = \"high\"")).toBe(true);
 
       const deleteResponse = await invokeIpc("codex:scheduled-automations:delete", {
         id: "daily-report",
       }) as CodexScheduledAutomationDeleteResponse;
 
-      expect(deleteResponse.success).toBeTrue();
+      expect(deleteResponse.success).toBe(true);
       expect(deleteResponse.status).toBe("deleted");
       expect(deleteResponse.item?.id).toBe("daily-report");
       expect(countEvents("codex:scheduled-automations:changed")).toBe(3);
@@ -214,12 +214,12 @@ describe("scheduled automation IPC contract", () => {
         id: "daily-report",
       }) as CodexScheduledAutomationDeleteResponse;
 
-      expect(deleteAgainResponse.success).toBeTrue();
+      expect(deleteAgainResponse.success).toBe(true);
       expect(deleteAgainResponse.status).toBe("not_found");
       expect(deleteAgainResponse.item).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("forwards run-now input to the automation runtime and returns success", async () => {
@@ -229,7 +229,7 @@ describe("scheduled automation IPC contract", () => {
       permissions: null,
     }) as CodexScheduledAutomationRunNowResponse;
 
-    expect(response.success).toBeTrue();
+    expect(response.success).toBe(true);
     expect(runNowInputs.length).toBe(1);
     expect(JSON.stringify(runNowInputs[0])).toBe(JSON.stringify({
       id: "heartbeat-follow-up",
@@ -256,8 +256,8 @@ describe("scheduled automation IPC contract", () => {
         threadTitle: "Review Runs execution",
         sourceCwd: "/repo/project-alpha",
         now: 10,
-      })).toBeTrue();
-      expect(markCodexAutomationRunPendingReview("thread-run-1", 20)).toBeTrue();
+      })).toBe(true);
+      expect(markCodexAutomationRunPendingReview("thread-run-1", 20)).toBe(true);
 
       const inboxResponse = await invokeIpc("codex:automation-runs:inbox-items", 25) as CodexAutomationRunsInboxResponse;
       expect(inboxResponse.items.length).toBe(1);
@@ -279,13 +279,13 @@ describe("scheduled automation IPC contract", () => {
         archivedUserMessage: "Please run it.",
         archivedReason: "manual",
       }) as CodexAutomationRunMutationResponse;
-      expect(archiveResponse.success).toBeTrue();
+      expect(archiveResponse.success).toBe(true);
       expect(latestAutomationRunsUpdatedEvent().reason).toBe("archive");
 
       const unarchiveResponse = await invokeIpc("codex:automation-runs:unarchive", {
         threadId: "thread-run-1",
       }) as CodexAutomationRunMutationResponse;
-      expect(unarchiveResponse.success).toBeTrue();
+      expect(unarchiveResponse.success).toBe(true);
       expect(unarchivedThreadIds[0]).toBe("thread-run-1");
       expect(latestAutomationRunsUpdatedEvent().reason).toBe("unarchive");
 
@@ -297,10 +297,10 @@ describe("scheduled automation IPC contract", () => {
       const deleteResponse = await invokeIpc("codex:automation-runs:delete", {
         threadId: "thread-run-1",
       }) as CodexAutomationRunMutationResponse;
-      expect(deleteResponse.success).toBeTrue();
+      expect(deleteResponse.success).toBe(true);
       expect(latestAutomationRunsUpdatedEvent().reason).toBe("delete");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

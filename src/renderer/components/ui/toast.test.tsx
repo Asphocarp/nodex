@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -45,7 +45,7 @@ describe("Nodex toast system", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.baseElement.textContent?.includes("Closable toast"))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Closable toast"))).toBe(true);
 
     await act(async () => {
       handle.close();
@@ -69,7 +69,7 @@ describe("Nodex toast system", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.baseElement.textContent?.includes("Sticky toast"))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Sticky toast"))).toBe(true);
 
     await act(async () => {
       handle.close();
@@ -159,10 +159,10 @@ describe("Nodex toast system", () => {
     });
 
     const alert = view.baseElement.querySelector('[role="alert"]');
-    expect(alert === null).toBeFalse();
-    expect(Boolean(alert?.textContent?.includes("Workspace warning"))).toBeTrue();
-    expect(Boolean(alert?.textContent?.includes("The checkout is behind origin/main."))).toBeTrue();
-    expect(Boolean(view.getByRole("button", { name: "Dismiss notification" }))).toBeTrue();
+    expect(alert === null).toBe(false);
+    expect(Boolean(alert?.textContent?.includes("Workspace warning"))).toBe(true);
+    expect(Boolean(alert?.textContent?.includes("The checkout is behind origin/main."))).toBe(true);
+    expect(Boolean(view.getByRole("button", { name: "Dismiss notification" }))).toBe(true);
   });
 
   test("renders custom toasts and lets the custom content close itself", async () => {
@@ -185,7 +185,7 @@ describe("Nodex toast system", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.baseElement.textContent?.includes("danger"))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("danger"))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Dismiss custom toast" }));
@@ -225,7 +225,7 @@ describe("Nodex toast system", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.baseElement.textContent?.includes("Hook toast"))).toBeTrue();
-    expect(Boolean(view.baseElement.querySelector('[data-slot="toast-viewport"]'))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Hook toast"))).toBe(true);
+    expect(Boolean(view.baseElement.querySelector('[data-slot="toast-viewport"]'))).toBe(true);
   });
 });

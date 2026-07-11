@@ -1,11 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-
-function mountThemeSurfaceStyle() {
-  const styleElement = document.createElement("style");
-  styleElement.textContent = readFileSync(new URL("./theme-surface.css", import.meta.url), "utf8");
-  document.head.append(styleElement);
-}
+import { describe, expect, test } from "vitest";
+import "./theme-surface.css";
 
 function mountAppShellFrame(layout: string) {
   const viewport = document.createElement("div");
@@ -24,8 +18,6 @@ function mountAppShellFrame(layout: string) {
 
 describe("theme surface app shell layout", () => {
   test("thread edge-scroll frames keep the guarded toolbar-height offset before the wide container query applies", () => {
-    mountThemeSurfaceStyle();
-
     const { viewport } = mountAppShellFrame("thread-edge-scroll");
 
     expect(
@@ -34,8 +26,6 @@ describe("theme surface app shell layout", () => {
   });
 
   test("thread edge-scroll uses the base floating inset before the wide container query applies", () => {
-    mountThemeSurfaceStyle();
-
     const { viewport } = mountAppShellFrame("thread-edge-scroll");
 
     expect(
@@ -44,8 +34,6 @@ describe("theme surface app shell layout", () => {
   });
 
   test("full-bleed frames clear the toolbar-height top offset", () => {
-    mountThemeSurfaceStyle();
-
     const { frame } = mountAppShellFrame("full-bleed");
 
     expect(

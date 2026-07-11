@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
@@ -208,7 +208,7 @@ describe("Document sync HTTP routes", () => {
     const error = decodeDocumentHttpError(await response.text());
     expect(error.code).toBe("document_not_ready");
     expect(error.message).toBe("legacy projections still need migration");
-    expect(error.retryable).toBeTrue();
+    expect(error.retryable).toBe(true);
   });
 
   test("requires project-scoped SSE before binary sync and durable fanout", async () => {

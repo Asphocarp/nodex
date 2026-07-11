@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   detectComposerSlashTrigger,
   filterComposerSlashCommands,
@@ -19,7 +19,7 @@ describe("composer slash command filtering", () => {
   test("detects a slash token at the cursor", () => {
     const trigger = detectComposerSlashTrigger({ text: "prefix /mo", cursor: "prefix /mo".length });
 
-    expect(trigger.active).toBeTrue();
+    expect(trigger.active).toBe(true);
     expect(trigger.trigger).toBe("/");
     expect(trigger.query).toBe("mo");
     expect(trigger.from).toBe(7);
@@ -29,7 +29,7 @@ describe("composer slash command filtering", () => {
   test("detects an at-command token at the cursor", () => {
     const trigger = detectComposerSlashTrigger({ text: "ask @go", cursor: "ask @go".length });
 
-    expect(trigger.active).toBeTrue();
+    expect(trigger.active).toBe(true);
     expect(trigger.trigger).toBe("@");
     expect(trigger.query).toBe("go");
     expect(trigger.from).toBe(4);
@@ -37,9 +37,9 @@ describe("composer slash command filtering", () => {
   });
 
   test("rejects command tokens after another slash, email text, or cursor drift", () => {
-    expect(detectComposerSlashTrigger({ text: "http://x", cursor: "http://x".length }).active).toBeFalse();
-    expect(detectComposerSlashTrigger({ text: "email@example.com", cursor: "email@example.com".length }).active).toBeFalse();
-    expect(detectComposerSlashTrigger({ text: "/model later", cursor: "/model later".length }).active).toBeFalse();
+    expect(detectComposerSlashTrigger({ text: "http://x", cursor: "http://x".length }).active).toBe(false);
+    expect(detectComposerSlashTrigger({ text: "email@example.com", cursor: "email@example.com".length }).active).toBe(false);
+    expect(detectComposerSlashTrigger({ text: "/model later", cursor: "/model later".length }).active).toBe(false);
   });
 
   test("applies empty-composer gating and fuzzy matching", () => {

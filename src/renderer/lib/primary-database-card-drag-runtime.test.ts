@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   DatabaseMutationCommandResult,
   DatabaseMutationRequest,
@@ -184,7 +184,7 @@ describe("primary Database Card drag runtime", () => {
       dependencies,
     });
 
-    expect(committed).toBeTrue();
+    expect(committed).toBe(true);
     expect(requests.length).toBe(1);
     expect(requests[0]?.operationId).toBe("drag-operation-1");
     expect(
@@ -292,7 +292,7 @@ describe("primary Database Card drag runtime", () => {
       dependencies,
     });
 
-    expect(committed).toBeTrue();
+    expect(committed).toBe(true);
     expect(requests.length).toBe(2);
     expect(requests[0]).toBe(requests[1]);
     expect(requests[1]?.operationId).toBe("drag-operation-lost-response");

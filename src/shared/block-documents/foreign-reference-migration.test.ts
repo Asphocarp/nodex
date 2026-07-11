@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   createCardDocumentGenesis,
@@ -61,7 +61,7 @@ describe("foreign reference Document migration", () => {
     ]);
 
     expect(materializeCardDocument(source.document).nfm).toBe(before.nfm);
-    expect(migration.materialization.references.some(isLegacyForeignBodyReference)).toBeFalse();
+    expect(migration.materialization.references.some(isLegacyForeignBodyReference)).toBe(false);
     expect(migration.migratedBlockIds.join(",")).toBe(
       [cardReferenceId, cardToggleId, queryId].join(","),
     );
@@ -104,8 +104,8 @@ describe("foreign reference Document migration", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof ForeignReferenceMigrationError).toBeTrue();
-    expect(Buffer.from(Y.encodeStateAsUpdate(source.document)).equals(Buffer.from(before))).toBeTrue();
+    expect(error instanceof ForeignReferenceMigrationError).toBe(true);
+    expect(Buffer.from(Y.encodeStateAsUpdate(source.document)).equals(Buffer.from(before))).toBe(true);
     source.document.destroy();
   });
 });

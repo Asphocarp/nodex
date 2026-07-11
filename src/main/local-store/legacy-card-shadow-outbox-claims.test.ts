@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -78,7 +78,7 @@ describe("legacy Card shadow outbox claims", () => {
         } catch (error) {
           staleRejected = error instanceof LegacyCardShadowOutboxError;
         }
-        expect(staleRejected).toBeTrue();
+        expect(staleRejected).toBe(true);
 
         if (!reclaimed) throw new Error("Expected reclaimed job");
         markLegacyCardShadowJobSuperseded(database, reclaimed);

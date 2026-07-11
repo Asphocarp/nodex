@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   resolveNfmDeferredExternalContentSyncDecision,
   resolveNfmExternalContentSyncDecision,
@@ -15,7 +15,7 @@ describe("nfm external content sync", () => {
     });
 
     expect(decision.action).toBe("skip");
-    expect(decision.action === "skip" ? decision.cancelPending : false).toBeTrue();
+    expect(decision.action === "skip" ? decision.cancelPending : false).toBe(true);
   });
 
   test("skips replacement for the editor's own emitted value", () => {
@@ -27,7 +27,7 @@ describe("nfm external content sync", () => {
     });
 
     expect(decision.action).toBe("skip");
-    expect(decision.action === "skip" ? decision.cancelPending : true).toBeFalse();
+    expect(decision.action === "skip" ? decision.cancelPending : true).toBe(false);
   });
 
   test("does not cancel a newer pending edit for an old save acknowledgement", () => {
@@ -40,7 +40,7 @@ describe("nfm external content sync", () => {
     });
 
     expect(decision.action).toBe("skip");
-    expect(decision.action === "skip" ? decision.cancelPending : true).toBeFalse();
+    expect(decision.action === "skip" ? decision.cancelPending : true).toBe(false);
   });
 
   test("defers different external content while local editing is active", () => {
@@ -74,7 +74,7 @@ describe("nfm external content sync", () => {
       currentSerializedContent: "Current body",
     });
 
-    expect(shouldReplace).toBeTrue();
+    expect(shouldReplace).toBe(true);
   });
 });
 
@@ -143,6 +143,6 @@ describe("nfm deferred external content sync", () => {
     });
 
     expect(decision.action).toBe("skip");
-    expect(decision.action === "skip" ? decision.cancelPending : false).toBeTrue();
+    expect(decision.action === "skip" ? decision.cancelPending : false).toBe(true);
   });
 });

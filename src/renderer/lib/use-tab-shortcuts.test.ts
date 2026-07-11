@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { handleTabShortcut, type TabShortcutActions } from "./use-tab-shortcuts";
 import type { Tab } from "./use-tabs";
 

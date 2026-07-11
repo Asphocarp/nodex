@@ -110,7 +110,7 @@ export function cutRelease(options: ReleaseCutOptions): { tagName: string; versi
   ensureCleanWorktree(options.cwd);
 
   try {
-    runCommand(options.cwd, "bun", ["pm", "version", options.target, "--no-git-tag-version"]);
+    runCommand(options.cwd, "pnpm", ["version", options.target, "--no-git-tag-version"]);
     const version = readPackageVersion(options.cwd);
     const tagName = `v${version}`;
     ensureTagDoesNotExist(options.cwd, tagName);

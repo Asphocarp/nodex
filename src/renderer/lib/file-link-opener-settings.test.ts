@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   FILE_LINK_OPENER_STORAGE_KEY,
   readFileLinkOpener,

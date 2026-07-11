@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render, textContent } from "../../test/dom";
 
@@ -33,7 +33,7 @@ describe("AppUpdateRestartNotice", () => {
       />,
     );
 
-    expect(textContent(view.container).includes("Nodex 0.1.6 is ready.")).toBeTrue();
+    expect(textContent(view.container).includes("Nodex 0.1.6 is ready.")).toBe(true);
 
     fireEvent.click(view.getByText("Restart to Update"));
     fireEvent.click(view.getByText("Later"));

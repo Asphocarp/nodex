@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildThreadSummaryPanelSectionModel,
   hasThreadSummaryPanelSection,
@@ -47,7 +47,7 @@ describe("buildThreadSummaryPanelSectionModel", () => {
       sourceCount: 0,
     });
 
-    expect(hasThreadSummaryPanelSection(sections, "outputs")).toBeFalse();
+    expect(hasThreadSummaryPanelSection(sections, "outputs")).toBe(false);
     expect(sections.map((section) => section.kind).join(",")).toBe("environment,sources");
   });
 
@@ -67,7 +67,7 @@ describe("buildThreadSummaryPanelSectionModel", () => {
       sourceCount: 0,
     });
 
-    expect(hasThreadSummaryPanelSection(sections, "environment")).toBeFalse();
+    expect(hasThreadSummaryPanelSection(sections, "environment")).toBe(false);
     expect(sections.map((section) => section.kind).join(",")).toBe("outputs,sources");
   });
 
@@ -92,7 +92,7 @@ describe("buildThreadSummaryPanelSectionModel", () => {
 
     const subagents = sections.find((section) => section.kind === "subagents");
     expect(subagents?.count).toBe(2);
-    expect(subagents?.autoCollapse).toBeTrue();
+    expect(subagents?.autoCollapse).toBe(true);
   });
 
   test("hides the Subagents header count when inline activity owns the compact summary", () => {
@@ -116,7 +116,7 @@ describe("buildThreadSummaryPanelSectionModel", () => {
 
     const subagents = sections.find((section) => section.kind === "subagents");
     expect(subagents?.count ?? "null").toBe("null");
-    expect(subagents?.autoCollapse).toBeFalse();
+    expect(subagents?.autoCollapse).toBe(false);
   });
 
   test("keeps Sources and blank-thread hint as explicit model entries", () => {

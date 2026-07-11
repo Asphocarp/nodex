@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   CodexConversationSnapshot,
   CodexPermissionState,
@@ -125,7 +125,7 @@ describe("heartbeat automation controller helpers", () => {
       permissionState: permissionState(),
     });
 
-    expect(state.isEligible).toBeTrue();
+    expect(state.isEligible).toBe(true);
     expect(state.reason).toBe(null);
     expect(typeof state.collaborationMode === "object" ? state.collaborationMode?.mode : null).toBe("plan");
     expect(state.permissions?.approvalPolicy).toBe("on-request");
@@ -133,16 +133,16 @@ describe("heartbeat automation controller helpers", () => {
   });
 
   test("marks missing or blocked conversations ineligible and resumable", () => {
-    expect(shouldResumeHeartbeatAutomationTarget(null)).toBeTrue();
-    expect(shouldResumeHeartbeatAutomationTarget(conversation({ resumeState: "needs_resume" }))).toBeTrue();
-    expect(shouldResumeHeartbeatAutomationTarget(conversation())).toBeFalse();
+    expect(shouldResumeHeartbeatAutomationTarget(null)).toBe(true);
+    expect(shouldResumeHeartbeatAutomationTarget(conversation({ resumeState: "needs_resume" }))).toBe(true);
+    expect(shouldResumeHeartbeatAutomationTarget(conversation())).toBe(false);
 
     const missing = buildHeartbeatAutomationThreadState({
       threadId: "thread-1",
       conversation: null,
       permissionState: null,
     });
-    expect(missing.isEligible).toBeFalse();
+    expect(missing.isEligible).toBe(false);
     expect(missing.reason).toBe("conversation_missing");
 
     const waiting = buildHeartbeatAutomationThreadState({
@@ -150,7 +150,7 @@ describe("heartbeat automation controller helpers", () => {
       conversation: conversation({ statusActiveFlags: ["waitingOnApproval"] }),
       permissionState: permissionState(),
     });
-    expect(waiting.isEligible).toBeFalse();
+    expect(waiting.isEligible).toBe(false);
     expect(waiting.reason).toBe("waiting_on_approval");
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   beginDatabaseMaintenance,
   getDb,
@@ -10,7 +10,7 @@ describe("database maintenance lease", () => {
   test("fails closed until its owning lease is released", () => {
     const lease = beginDatabaseMaintenance();
     try {
-      expect(isDatabaseMaintenanceActive()).toBeTrue();
+      expect(isDatabaseMaintenanceActive()).toBe(true);
 
       let blocked = false;
       try {
@@ -18,7 +18,7 @@ describe("database maintenance lease", () => {
       } catch (error) {
         blocked = isDatabaseMaintenanceInProgressError(error);
       }
-      expect(blocked).toBeTrue();
+      expect(blocked).toBe(true);
 
       let nestedBlocked = false;
       try {
@@ -26,12 +26,12 @@ describe("database maintenance lease", () => {
       } catch (error) {
         nestedBlocked = isDatabaseMaintenanceInProgressError(error);
       }
-      expect(nestedBlocked).toBeTrue();
+      expect(nestedBlocked).toBe(true);
     } finally {
       lease.release();
       lease.release();
     }
 
-    expect(isDatabaseMaintenanceActive()).toBeFalse();
+    expect(isDatabaseMaintenanceActive()).toBe(false);
   });
 });

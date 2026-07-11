@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { buildGeneratedUtilitiesCss } from "./sync-codex-theme-utilities";
 
@@ -33,16 +33,16 @@ describe("sync-codex-theme-utilities", () => {
 
     const generatedCss = buildGeneratedUtilitiesCss(css);
 
-    expect(generatedCss.includes(".duration-relaxed")).toBeTrue();
-    expect(generatedCss.includes("--tw-duration: var(--transition-duration-relaxed);")).toBeTrue();
-    expect(generatedCss.includes(".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *")).toBeTrue();
+    expect(generatedCss.includes(".duration-relaxed")).toBe(true);
+    expect(generatedCss.includes("--tw-duration: var(--transition-duration-relaxed);")).toBe(true);
+    expect(generatedCss.includes(".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *")).toBe(true);
     expect(
       generatedCss.includes(
         "color: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);",
       ),
-    ).toBeTrue();
-    expect(generatedCss.includes(".ignored-utility")).toBeFalse();
-    expect(generatedCss.includes("@supports (color: color-mix(in lab, red, red)) {\n    \n  }")).toBeFalse();
+    ).toBe(true);
+    expect(generatedCss.includes(".ignored-utility")).toBe(false);
+    expect(generatedCss.includes("@supports (color: color-mix(in lab, red, red)) {\n    \n  }")).toBe(false);
   });
 
   test("keeps allowlisted top-level utility selectors outside @layer blocks", () => {
@@ -66,10 +66,10 @@ describe("sync-codex-theme-utilities", () => {
 
     const generatedCss = buildGeneratedUtilitiesCss(css);
 
-    expect(generatedCss.includes(".icon-2xs")).toBeTrue();
-    expect(generatedCss.includes("width: 14px;")).toBeTrue();
-    expect(generatedCss.includes(".heading-dialog")).toBeTrue();
-    expect(generatedCss.includes(".ignored-top-level")).toBeFalse();
+    expect(generatedCss.includes(".icon-2xs")).toBe(true);
+    expect(generatedCss.includes("width: 14px;")).toBe(true);
+    expect(generatedCss.includes(".heading-dialog")).toBe(true);
+    expect(generatedCss.includes(".ignored-top-level")).toBe(false);
   });
 
   test("drops reference font-face rules while preserving allowlisted utilities", () => {
@@ -89,10 +89,10 @@ describe("sync-codex-theme-utilities", () => {
 
     const generatedCss = buildGeneratedUtilitiesCss(css);
 
-    expect(generatedCss.includes("@font-face")).toBeFalse();
-    expect(generatedCss.includes("KaTeX_Main")).toBeFalse();
-    expect(generatedCss.includes("KaTeX_Main-Regular-B22Nviop.woff2")).toBeFalse();
-    expect(generatedCss.includes(".icon-2xs")).toBeTrue();
+    expect(generatedCss.includes("@font-face")).toBe(false);
+    expect(generatedCss.includes("KaTeX_Main")).toBe(false);
+    expect(generatedCss.includes("KaTeX_Main-Regular-B22Nviop.woff2")).toBe(false);
+    expect(generatedCss.includes(".icon-2xs")).toBe(true);
   });
 
   test("emits the toolbar padding utility when the reference css omits it", () => {
@@ -104,9 +104,9 @@ describe("sync-codex-theme-utilities", () => {
       }
     `);
 
-    expect(generatedCss.includes(".px-toolbar")).toBeTrue();
-    expect(generatedCss.includes("padding-inline: var(--padding-toolbar);")).toBeTrue();
-    expect(generatedCss.includes(".ignored-utility")).toBeFalse();
+    expect(generatedCss.includes(".px-toolbar")).toBe(true);
+    expect(generatedCss.includes("padding-inline: var(--padding-toolbar);")).toBe(true);
+    expect(generatedCss.includes(".ignored-utility")).toBe(false);
   });
 
   test("keeps the complete Codex scroll fade mask utility family", () => {
@@ -180,16 +180,16 @@ describe("sync-codex-theme-utilities", () => {
       }
     `);
 
-    expect(generatedCss.includes(".vertical-scroll-fade-mask")).toBeTrue();
-    expect(generatedCss.includes(".vertical-scroll-fade-mask-top")).toBeTrue();
-    expect(generatedCss.includes(".vertical-scroll-fade-mask-bottom")).toBeTrue();
-    expect(generatedCss.includes(".horizontal-scroll-fade-mask")).toBeTrue();
-    expect(generatedCss.includes("@property --left-fade")).toBeTrue();
-    expect(generatedCss.includes("@property --right-fade")).toBeTrue();
-    expect(generatedCss.includes("@keyframes edge-fade-bottom")).toBeTrue();
-    expect(generatedCss.includes("@keyframes edge-fade-horizontal")).toBeTrue();
-    expect(generatedCss.includes("animation-timeline: scroll(self y);")).toBeTrue();
-    expect(generatedCss.includes("animation-timeline: scroll(self x);")).toBeTrue();
+    expect(generatedCss.includes(".vertical-scroll-fade-mask")).toBe(true);
+    expect(generatedCss.includes(".vertical-scroll-fade-mask-top")).toBe(true);
+    expect(generatedCss.includes(".vertical-scroll-fade-mask-bottom")).toBe(true);
+    expect(generatedCss.includes(".horizontal-scroll-fade-mask")).toBe(true);
+    expect(generatedCss.includes("@property --left-fade")).toBe(true);
+    expect(generatedCss.includes("@property --right-fade")).toBe(true);
+    expect(generatedCss.includes("@keyframes edge-fade-bottom")).toBe(true);
+    expect(generatedCss.includes("@keyframes edge-fade-horizontal")).toBe(true);
+    expect(generatedCss.includes("animation-timeline: scroll(self y);")).toBe(true);
+    expect(generatedCss.includes("animation-timeline: scroll(self x);")).toBe(true);
   });
 
   test("keeps allowlisted selectors from the Codex components layer", () => {
@@ -215,10 +215,10 @@ describe("sync-codex-theme-utilities", () => {
 
     const generatedCss = buildGeneratedUtilitiesCss(css);
 
-    expect(generatedCss.includes("@layer components")).toBeTrue();
-    expect(generatedCss.includes(".icon-2xs")).toBeTrue();
-    expect(generatedCss.includes(".heading-dialog")).toBeTrue();
-    expect(generatedCss.includes(".ignored-component-class")).toBeFalse();
+    expect(generatedCss.includes("@layer components")).toBe(true);
+    expect(generatedCss.includes(".icon-2xs")).toBe(true);
+    expect(generatedCss.includes(".heading-dialog")).toBe(true);
+    expect(generatedCss.includes(".ignored-component-class")).toBe(false);
   });
 
   test("keeps shipped window-variant arbitrary property utility selectors", () => {
@@ -246,13 +246,13 @@ describe("sync-codex-theme-utilities", () => {
 
     const generatedCss = buildGeneratedUtilitiesCss(css);
 
-    expect(generatedCss.includes('[data-codex-window-type="electron"]')).toBeTrue();
-    expect(generatedCss.includes('[data-codex-window-type="browser"]')).toBeTrue();
+    expect(generatedCss.includes('[data-codex-window-type="electron"]')).toBe(true);
+    expect(generatedCss.includes('[data-codex-window-type="browser"]')).toBe(true);
     expect(
       generatedCss.includes(
         "--color-token-description-foreground: color-mix(in srgb, var(--color-token-foreground) 70%, transparent);",
       ),
-    ).toBeTrue();
-    expect(generatedCss.includes(".ignored-arbitrary")).toBeFalse();
+    ).toBe(true);
+    expect(generatedCss.includes(".ignored-arbitrary")).toBe(false);
   });
 });

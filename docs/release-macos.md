@@ -92,7 +92,7 @@ Before triggering it:
 If the workflow cannot be used, cut the version locally:
 
 ```bash
-bun run release:cut -- 0.1.3
+pnpm run release:cut -- 0.1.3
 git push origin HEAD
 git push origin v0.1.3
 ```
@@ -105,14 +105,14 @@ Use this when `Prepare Release` fails in the Ubuntu validation path and you need
 
 ```bash
 brew install act
-bun run release:prepare:act:list
-bun run release:prepare:act -- --release-type patch
+pnpm run release:prepare:act:list
+pnpm run release:prepare:act -- --release-type patch
 ```
 
 For an explicit version:
 
 ```bash
-bun run release:prepare:act -- --release-type custom --custom-version 0.1.3
+pnpm run release:prepare:act -- --release-type custom --custom-version 0.1.3
 ```
 
 Supporting files:
@@ -150,16 +150,16 @@ Inputs:
 
 Steps:
 1. Check out the repository with full history.
-2. Install the Bun version pinned in `package.json#packageManager`, then install dependencies with `bun install --frozen-lockfile`.
-3. Run `bun run typecheck`.
-4. Run `bun run lint`.
-5. Run `bun test`.
+2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies with `pnpm install --frozen-lockfile`.
+3. Run `pnpm run typecheck`.
+4. Run `pnpm run lint`.
+5. Run `pnpm test`.
 6. When `github.event.act` is true, stop after validation and skip all candidate-build, git-mutation, and publish steps.
 7. Resolve the target version:
    - for `patch`/`minor`/`major`, use Bun semver bumping
    - for `custom`, use the explicit version string
-8. Run `bun pm version ... --no-git-tag-version`.
-9. Run `bun run release:prepare` to:
+8. Run `pnpm version ... --no-git-tag-version`.
+9. Run `pnpm run release:prepare` to:
    - roll `CHANGELOG.md` forward
    - generate release notes
    - generate the release commit message
@@ -200,11 +200,11 @@ Runner:
 
 Responsibilities:
 1. Check out the release tag or passed git ref.
-2. Install the Bun version pinned in `package.json#packageManager`, then install dependencies.
+2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies.
 3. Resolve the release tag and semver version.
 4. Materialize `APPLE_API_KEY_B64` into `${RUNNER_TEMP}/AuthKey_<id>.p8`.
 5. Export `APPLE_API_KEY=<temp-path>` into the job environment.
-6. Run `bun run package:mac:arm64` with a larger CI-only `NODE_OPTIONS=--max-old-space-size=6144` heap limit to avoid the default Node old-space cap during renderer bundling.
+6. Run `pnpm run package:mac:arm64` with a larger CI-only `NODE_OPTIONS=--max-old-space-size=6144` heap limit to avoid the default Node old-space cap during renderer bundling.
    - When `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are configured, this build emits hidden source maps, uploads them to Sentry under `nodex@<version>`, and deletes the generated `.map` files before packaging artifacts are uploaded.
 7. Package on a macOS 26 runner so `electron-builder` can compile the checked-in `resources/icon.icon` asset with `actool >= 26`.
 8. Assert these files exist:
@@ -240,7 +240,7 @@ Secrets consumed:
 Runner:
 - `macos-26-intel`
 
-Responsibilities are the same as the arm64 job, except it runs `bun run package:mac:x64`, expects `x64` artifacts, and uploads them as `macos-x64-release`. It also must stay on a macOS 26 image because `mac.icon` packaging now requires the Xcode 26 `actool` toolchain.
+Responsibilities are the same as the arm64 job, except it runs `pnpm run package:mac:x64`, expects `x64` artifacts, and uploads them as `macos-x64-release`. It also must stay on a macOS 26 image because `mac.icon` packaging now requires the Xcode 26 `actool` toolchain.
 
 #### `publish-release`
 
@@ -253,14 +253,14 @@ Dependencies:
 
 Responsibilities:
 1. Check out the same release ref.
-2. Install the Bun version pinned in `package.json#packageManager`, then install dependencies.
+2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies.
 3. Download the `macos-arm64-release` artifact.
 4. Download the `macos-x64-release` artifact.
 5. Merge the two per-arch `latest-mac.yml` files into one canonical `latest-mac.yml`.
 6. Create stable landing-page aliases by copying the versioned DMGs to:
    - `Nodex-latest-arm64.dmg`
    - `Nodex-latest-x64.dmg`
-7. Extract release notes for the resolved version from `CHANGELOG.md` with `bun run release:notes`.
+7. Extract release notes for the resolved version from `CHANGELOG.md` with `pnpm run release:notes`.
 8. Publish a non-draft GitHub Release using `softprops/action-gh-release`.
 9. Attach release assets:
    - arm64 DMG
@@ -287,12 +287,12 @@ Dependencies:
 
 Responsibilities:
 1. Check out the same release ref.
-2. Install the Bun version pinned in `package.json#packageManager`, then install dependencies.
+2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies.
 3. Download the arm64 and x64 release artifacts.
 4. Locate the released DMGs for both architectures.
 5. Compute `sha256` for both DMGs with `shasum -a 256`.
 6. Clone `junyudev/homebrew-tap` using `HOMEBREW_TAP_GITHUB_TOKEN`.
-7. Run `bun run release:cask` to generate `Casks/nodex.rb`.
+7. Run `pnpm run release:cask` to generate `Casks/nodex.rb`.
 8. Commit the cask update:
    - `chore: update nodex cask to v<version>`
 9. Push the tap update if the generated file changed.
@@ -354,8 +354,8 @@ gh run view --repo junyudev/nodex --log
 
 `Prepare Release` failure:
 - cause: typecheck, lint, or test regression
-- action: reproduce locally with `bun run release:prepare:act -- --release-type patch`, fix the repo state on the default branch, then rerun `Prepare Release`
-- note: if the Ubuntu suite fails while isolated renderer tests pass locally, audit top-level `mock.module()` calls in renderer tests first; under Bun they can leak across later files and create Linux-only order-dependent failures
+- action: reproduce locally with `pnpm run release:prepare:act -- --release-type patch`, fix the repo state on the default branch, then rerun `Prepare Release`
+- note: if the Ubuntu suite fails while isolated renderer tests pass locally, audit top-level `mock.module()` calls in renderer tests first; under Vitest they can leak across later files and create Linux-only order-dependent failures
 
 `build-macos-*` failure before notarization:
 - cause: missing signing secrets, malformed `.p12`, wrong certificate, missing `APPLE_API_ISSUER`, packaging regression, or Node heap exhaustion during `electron-vite build`
@@ -402,7 +402,7 @@ If `finalize-release` succeeds but `publish-release` or `update-homebrew-tap` fa
 Before trusting CI with signing secrets, do one local dry run on a Mac that has the certificate and API key available:
 
 ```bash
-bun run package:mac:arm64
+pnpm run package:mac:arm64
 "dist/mac-arm64/Nodex.app/Contents/Resources/bin/codex" --version
 codesign -dvvv "dist/mac-arm64/Nodex.app/Contents/Resources/bin/codex" 2>&1 | rg "TeamIdentifier=2DC432GLL2"
 codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Nodex.app"
@@ -410,4 +410,4 @@ spctl --assess --type execute --verbose=4 "dist/mac-arm64/Nodex.app"
 xcrun stapler validate "dist/mac-arm64/Nodex.app"
 ```
 
-Repeat the same flow for `bun run package:mac:x64` if Intel packaging is being validated locally.
+Repeat the same flow for `pnpm run package:mac:x64` if Intel packaging is being validated locally.

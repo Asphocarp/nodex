@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -72,14 +72,14 @@ describe("codex automation runs store", () => {
         threadTitle: "Daily report run",
         sourceCwd: "/repo/project",
         now: 10,
-      })).toBeTrue();
-      expect(markCodexAutomationRunPendingReview("thread-run-1", 20)).toBeTrue();
+      })).toBe(true);
+      expect(markCodexAutomationRunPendingReview("thread-run-1", 20)).toBe(true);
       expect(setCodexAutomationRunInboxItem({
         threadId: "thread-run-1",
         inboxTitle: "Report ready",
         inboxSummary: "Review the generated summary.",
         now: 30,
-      })).toBeTrue();
+      })).toBe(true);
 
       const unread = getCodexAutomationRunUnreadCounts();
       expect(unread.total).toBe(1);
@@ -98,16 +98,16 @@ describe("codex automation runs store", () => {
         threadId: "thread-run-1",
         archivedAssistantMessage: "Done",
         now: 50,
-      })).toBeTrue();
-      expect(archiveCodexAutomationRun("thread-run-1", "manual", 60)).toBeTrue();
+      })).toBe(true);
+      expect(archiveCodexAutomationRun("thread-run-1", "manual", 60)).toBe(true);
       expect(getCodexAutomationRun("thread-run-1")?.status).toBe("ARCHIVED");
-      expect(unarchiveCodexAutomationRun("thread-run-1", 70)).toBeTrue();
+      expect(unarchiveCodexAutomationRun("thread-run-1", 70)).toBe(true);
       expect(getCodexAutomationRun("thread-run-1")?.status).toBe("ACCEPTED");
-      expect(deleteCodexAutomationRun("thread-run-1")).toBeTrue();
+      expect(deleteCodexAutomationRun("thread-run-1")).toBe(true);
       expect(getCodexAutomationRun("thread-run-1")).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("settles pending and active interrupted runs", async () => {
@@ -127,7 +127,7 @@ describe("codex automation runs store", () => {
         pendingThreadId: "pending:run-2",
         threadId: "thread-run-2",
         now: 20,
-      })).toBeTrue();
+      })).toBe(true);
 
       const settled = settleInterruptedCodexAutomationRuns(30);
       expect(settled.archivedPendingCount).toBe(1);
@@ -135,10 +135,10 @@ describe("codex automation runs store", () => {
       expect(getCodexAutomationRun("pending:run-1")?.status).toBe("ARCHIVED");
       expect(getCodexAutomationRun("thread-run-2")?.status).toBe("PENDING_REVIEW");
 
-      expect(markCodexAutomationRunAccepted("thread-run-2", 40)).toBeTrue();
+      expect(markCodexAutomationRunAccepted("thread-run-2", 40)).toBe(true);
       expect(markAllCodexAutomationRunsRead(50)).toBe(2);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

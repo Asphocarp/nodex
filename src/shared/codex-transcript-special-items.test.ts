@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildAutomaticApprovalReviewActionSummary,
   buildAutomaticApprovalReviewSummary,
@@ -65,15 +65,15 @@ describe("codex-transcript-special-items", () => {
       threadId: "thread-1",
       kind: "tooManyDenials",
       message: "Different text",
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldShowAutoReviewInterruptionWarning({
       threadId: "thread-1",
       message: "Automatic approval review rejected too many approval requests for this turn.",
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldShowAutoReviewInterruptionWarning({
       threadId: "thread-1",
       message: "Different guardian warning",
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("formats automatic approval review title and fallback detail like the thread row", () => {

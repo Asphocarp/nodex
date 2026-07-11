@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { ToolbarDropdownMenu } from "./toolbar-dropdown-menu";
@@ -39,7 +39,7 @@ describe("toolbar dropdown menu", () => {
     const selectedItem = view.container.ownerDocument.body.querySelector('[data-radix-collection-item][data-reasoning-selected="true"]');
 
     expect(content).not.toBeNull();
-    expect(view.container.ownerDocument.body.textContent?.includes("Balanced output")).toBeTrue();
+    expect(view.container.ownerDocument.body.textContent?.includes("Balanced output")).toBe(true);
     expect(selectedItem?.getAttribute("data-reasoning-selected")).toBe("true");
     expect(onSelectCalls.length).toBe(0);
   });

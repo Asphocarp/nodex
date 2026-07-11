@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -78,7 +78,7 @@ describe("codex-runtime", () => {
         threw = true;
       }
 
-      expect(threw).toBeTrue();
+      expect(threw).toBe(true);
     } finally {
       fixture.cleanup();
     }
@@ -98,7 +98,7 @@ describe("codex-runtime", () => {
       expect(runtime.additionalSearchPaths[0]).toBe(path.join(fixture.projectRootPath, ".generated", "codex-runtime", "bin"));
       expect(runtime.version).toBe("0.115.0");
       expect(runtime.metadataPath).toBe(path.join(fixture.projectRootPath, ".generated", "codex-runtime", "bin", "runtime.json"));
-      expect(runtime.missingBinaryMessage).toBe("Pinned Codex runtime is missing or incomplete. Run `bun run stage:codex-runtime:mac`.");
+      expect(runtime.missingBinaryMessage).toBe("Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.");
     } finally {
       fixture.cleanup();
     }
@@ -118,7 +118,7 @@ describe("codex-runtime", () => {
         threw = true;
       }
 
-      expect(threw).toBeTrue();
+      expect(threw).toBe(true);
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }

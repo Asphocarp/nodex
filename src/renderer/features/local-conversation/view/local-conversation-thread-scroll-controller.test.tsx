@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { useEffect } from "react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
@@ -116,12 +116,12 @@ describe("LocalConversationThreadScrollLayout", () => {
     const shiftedContent = scrollContainer?.firstElementChild as HTMLElement | null;
     const widthWrapper = shiftedContent?.querySelector("[data-mcp-app-portal-target='true']") as HTMLElement | null;
 
-    expect(scrollContainer !== null).toBeTrue();
+    expect(scrollContainer !== null).toBe(true);
     expect(scrollContainer?.getAttribute(REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE)).toBe(
       REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
     );
-    expect(widthWrapper !== null).toBeTrue();
-    expect(shiftedContent?.style.transform.includes("translateX(-158px)")).toBeTrue();
+    expect(widthWrapper !== null).toBe(true);
+    expect(shiftedContent?.style.transform.includes("translateX(-158px)")).toBe(true);
   });
 
   test("measures sticky footer height into Codex scroll padding", () => {
@@ -179,8 +179,8 @@ describe("LocalConversationThreadScrollLayout", () => {
     const footer = view.container.querySelector("[data-thread-scroll-footer='true']");
     const footerObstacle = view.container.querySelector(`[${REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE}='thread-footer']`);
 
-    expect(Boolean(footer)).toBeTrue();
-    expect(Boolean(footerObstacle)).toBeTrue();
+    expect(Boolean(footer)).toBe(true);
+    expect(Boolean(footerObstacle)).toBe(true);
     expect(scrollContainer?.style.getPropertyValue("--thread-scroll-padding-bottom")).toBe("64px");
   });
 
@@ -236,7 +236,7 @@ describe("LocalConversationThreadScrollLayout", () => {
       message.type === "remote-hosted-pip-host-layout-changed"
       && message.layout.anchorRect !== null
     );
-    expect(layoutMessage !== undefined).toBeTrue();
+    expect(layoutMessage !== undefined).toBe(true);
     if (layoutMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
 
     const bottomRight = layoutMessage.layout.anchors?.find((anchor) => anchor.alignment === "bottom-right");
@@ -252,8 +252,8 @@ describe("LocalConversationThreadScrollLayout", () => {
     expect(lastMessage?.type ?? "").toBe("remote-hosted-pip-host-layout-changed");
     if (lastMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
 
-    expect(lastMessage.layout.anchorRect === null).toBeTrue();
-    expect(lastMessage.layout.anchors === null).toBeTrue();
+    expect(lastMessage.layout.anchorRect === null).toBe(true);
+    expect(lastMessage.layout.anchors === null).toBe(true);
   });
 
   test("records pending latest-turn placement against response spacer height", async () => {
@@ -277,7 +277,7 @@ describe("LocalConversationThreadScrollLayout", () => {
     const scrollContainer = view.container.querySelector(
       "[data-local-conversation-thread-body='true']",
     ) as HTMLDivElement | null;
-    expect(scrollContainer !== null).toBeTrue();
+    expect(scrollContainer !== null).toBe(true);
     if (!scrollContainer || controller === null) return;
 
     Object.defineProperty(scrollContainer, "scrollHeight", {
@@ -308,9 +308,9 @@ describe("LocalConversationThreadScrollLayout", () => {
     const placement = controller.prepareLatestTurnSubmitPlacement();
     expect(placement?.distanceFromBottomPx ?? 0).toBe(280);
     expect(placement?.scrollHeightPx ?? 0).toBe(1000);
-    expect(placement?.shouldPlaceLatestTurn ?? false).toBeTrue();
+    expect(placement?.shouldPlaceLatestTurn ?? false).toBe(true);
     expect(controller.consumePendingLatestTurnSubmitPlacement()?.distanceFromBottomPx ?? 0).toBe(280);
-    expect(controller.consumePendingLatestTurnSubmitPlacement() === null).toBeTrue();
+    expect(controller.consumePendingLatestTurnSubmitPlacement() === null).toBe(true);
   });
 });
 

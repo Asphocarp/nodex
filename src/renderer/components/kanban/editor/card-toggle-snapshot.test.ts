@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   applyCardToggleMetaEdit,
   cardInputFromCardToggleSnapshot,
@@ -63,9 +63,9 @@ describe("card toggle snapshot helpers", () => {
     const decoded = parseCardToggleSnapshot(cleared);
     const input = cardInputFromCardToggleSnapshot(cleared);
 
-    expect(Object.prototype.hasOwnProperty.call(decoded?.card ?? {}, "priority")).toBeTrue();
-    expect(decoded?.card?.priority === null).toBeTrue();
-    expect(input.priority === null).toBeTrue();
+    expect(Object.prototype.hasOwnProperty.call(decoded?.card ?? {}, "priority")).toBe(true);
+    expect(decoded?.card?.priority === null).toBe(true);
+    expect(input.priority === null).toBe(true);
   });
 
   test("cardInputFromCardToggleSnapshot extracts persisted card properties", () => {
@@ -94,11 +94,11 @@ describe("card toggle snapshot helpers", () => {
     expect(input.estimate).toBe("l");
     expect(JSON.stringify(input.tags)).toBe(JSON.stringify(["ops"]));
     expect(input.assignee).toBe("taylor");
-    expect(input.agentBlocked).toBeTrue();
+    expect(input.agentBlocked).toBe(true);
     expect(input.dueDate?.toISOString()).toBe("2026-02-14T00:00:00.000Z");
     expect(input.scheduledStart?.toISOString()).toBe("2026-02-14T13:00:00.000Z");
     expect(input.scheduledEnd?.toISOString()).toBe("2026-02-14T14:15:00.000Z");
-    expect(input.isAllDay).toBeTrue();
+    expect(input.isAllDay).toBe(true);
   });
 
   test("cardInputFromCardToggleSnapshot skips invalid schedule ranges", () => {

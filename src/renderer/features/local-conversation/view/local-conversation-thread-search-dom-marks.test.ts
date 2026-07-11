@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { applyThreadSearchDomMarks } from "./local-conversation-thread-search-dom-marks";
 
 describe("applyThreadSearchDomMarks", () => {
@@ -31,10 +31,10 @@ describe("applyThreadSearchDomMarks", () => {
       '[data-content-search-turn-key="turn_1"]',
     ) as HTMLDivElement | null;
 
-    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/4"))).toBeTrue();
-    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/7"))).toBeTrue();
-    expect(Boolean(matchedTurn?.className.includes("bg-token-foreground/3"))).toBeTrue();
-    expect(Boolean(unmatchedUnit?.className.includes("bg-token-foreground/4"))).toBeFalse();
+    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/4"))).toBe(true);
+    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/7"))).toBe(true);
+    expect(Boolean(matchedTurn?.className.includes("bg-token-foreground/3"))).toBe(true);
+    expect(Boolean(unmatchedUnit?.className.includes("bg-token-foreground/4"))).toBe(false);
 
     applyThreadSearchDomMarks({
       root,
@@ -43,8 +43,8 @@ describe("applyThreadSearchDomMarks", () => {
       activeSearchUnitKey: null,
     });
 
-    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/4"))).toBeFalse();
-    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/7"))).toBeFalse();
-    expect(Boolean(matchedTurn?.className.includes("bg-token-foreground/3"))).toBeFalse();
+    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/4"))).toBe(false);
+    expect(Boolean(matchedUnit?.className.includes("bg-token-foreground/7"))).toBe(false);
+    expect(Boolean(matchedTurn?.className.includes("bg-token-foreground/3"))).toBe(false);
   });
 });

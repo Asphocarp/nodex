@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
   getAssetSource,
@@ -14,14 +14,14 @@ describe("shared asset helpers", () => {
     const parsed = parseAssetSource("nodex://assets/abc.png");
 
     expect(parsed?.fileName).toBe("abc.png");
-    expect(Boolean(parsed)).toBeTrue();
+    expect(Boolean(parsed)).toBe(true);
   });
 
   test("parseAssetSource rejects nested asset paths", () => {
-    expect(parseAssetSource("nodex://assets/default/abc.png") === null).toBeTrue();
+    expect(parseAssetSource("nodex://assets/default/abc.png") === null).toBe(true);
   });
 
   test("parseAssetSource rejects invalid nested asset paths", () => {
-    expect(parseAssetSource("nodex://assets/default/extra/abc.png") === null).toBeTrue();
+    expect(parseAssetSource("nodex://assets/default/extra/abc.png") === null).toBe(true);
   });
 });

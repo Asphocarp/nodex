@@ -1,5 +1,5 @@
 import { act, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { render } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { TestQueryProvider } from "@/test/query";

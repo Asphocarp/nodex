@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";
 import {
@@ -57,8 +57,8 @@ describe("Y.Text title input", () => {
     });
 
     expect(reconciliation.value).toBe("remote hello brave world");
-    expect(reconciliation.localChanged).toBeTrue();
-    expect(reconciliation.remoteChanged).toBeTrue();
+    expect(reconciliation.localChanged).toBe(true);
+    expect(reconciliation.remoteChanged).toBe(true);
     expect(reconciliation.edit?.index).toBe("remote hello ".length);
     expect(reconciliation.edit?.deleteLength).toBe(0);
     expect(reconciliation.edit?.insertText).toBe("brave ");
@@ -103,8 +103,8 @@ describe("Y.Text title input", () => {
 
     expect(reconciliation.value).toBe("Remote Base");
     expect(reconciliation.edit).toBe(null);
-    expect(reconciliation.localChanged).toBeFalse();
-    expect(reconciliation.remoteChanged).toBeTrue();
+    expect(reconciliation.localChanged).toBe(false);
+    expect(reconciliation.remoteChanged).toBe(true);
   });
 
   test("enforces the canonical UTF-16 title limit before mutating Y.Text", () => {
@@ -122,7 +122,7 @@ describe("Y.Text title input", () => {
       error = caught;
     }
 
-    expect(error instanceof YTextInputReconciliationError).toBeTrue();
+    expect(error instanceof YTextInputReconciliationError).toBe(true);
     expect(text.toString()).toBe("Safe");
   });
 

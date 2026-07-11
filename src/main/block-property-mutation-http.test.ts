@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import type {
   BlockPropertyMutationCommandError,
@@ -99,12 +99,12 @@ describe("Block property mutation HTTP route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(captured.length).toBe(1);
     expect(captured[0]?.mutationId).toBe("mutation-1");
     expect(captured[0]?.clientSessionId).toBe("http-loopback");
     expect(captured[0]?.actor.kind).toBe("http_loopback");
-    expect(captured[0]?.actor.userId === undefined).toBeTrue();
+    expect(captured[0]?.actor.userId === undefined).toBe(true);
   });
 
   test("maps typed conflicts and missing scope to stable HTTP statuses", async () => {
@@ -116,7 +116,7 @@ describe("Block property mutation HTTP route", () => {
     expect(conflict.status).toBe(409);
     const conflictBody =
       (await conflict.json()) as BlockPropertyMutationCommandResult;
-    expect(conflictBody.ok).toBeFalse();
+    expect(conflictBody.ok).toBe(false);
 
     const missing = await post(
       createApp(async () => failure("block_not_found")),
@@ -139,7 +139,7 @@ describe("Block property mutation HTTP route", () => {
     const result =
       (await response.json()) as BlockPropertyMutationCommandResult;
     expect(response.status).toBe(400);
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     expect(calls).toBe(0);
   });
 
@@ -154,10 +154,10 @@ describe("Block property mutation HTTP route", () => {
     const result =
       (await response.json()) as BlockPropertyMutationCommandResult;
     expect(response.status).toBe(500);
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("unknown");
-    expect(result.error.retryable).toBeTrue();
+    expect(result.error.retryable).toBe(true);
     expect(result.error.mutationId).toBe("mutation-1");
   });
 });

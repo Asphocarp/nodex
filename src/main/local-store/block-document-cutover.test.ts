@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -68,7 +68,7 @@ const expectCutoverCode = (
   } catch (caught) {
     error = caught;
   }
-  expect(error instanceof BlockDocumentCutoverError).toBeTrue();
+  expect(error instanceof BlockDocumentCutoverError).toBe(true);
   expect((error as BlockDocumentCutoverError).code).toBe(code);
 };
 
@@ -100,11 +100,11 @@ describe("Card Document cutover", () => {
       `).run(archivedHost.id);
 
       const first = cutoverEligibleCardDocumentsToPrimary(database);
-      expect(first.cutoverDocumentIds.includes(`document:${simple.id}`)).toBeTrue();
-      expect(first.cutoverDocumentIds.includes(`document:${target.id}`)).toBeFalse();
+      expect(first.cutoverDocumentIds.includes(`document:${simple.id}`)).toBe(true);
+      expect(first.cutoverDocumentIds.includes(`document:${target.id}`)).toBe(false);
       expect(
         first.cutoverDocumentIds.includes(`document:${archivedTarget.id}`),
-      ).toBeFalse();
+      ).toBe(false);
       expect(first.deferredForeignReferences).toBe(3);
       expect(
         getOwnedBlockDocumentDescriptor(database, project.id, host.id).authority,
@@ -143,11 +143,11 @@ describe("Card Document cutover", () => {
       runLegacyCardShadowProcessorProbe(database);
 
       const result = cutoverEligibleCardDocumentsToPrimary(database);
-      expect(result.cutoverDocumentIds.includes(`document:${host.id}`)).toBeFalse();
-      expect(result.cutoverDocumentIds.includes(`document:${firstRow.id}`)).toBeFalse();
+      expect(result.cutoverDocumentIds.includes(`document:${host.id}`)).toBe(false);
+      expect(result.cutoverDocumentIds.includes(`document:${firstRow.id}`)).toBe(false);
       expect(
         result.cutoverDocumentIds.includes(`document:${futureRuleMatch.id}`),
-      ).toBeFalse();
+      ).toBe(false);
       expect(
         getOwnedBlockDocumentDescriptor(database, sourceProject.id, firstRow.id).authority,
       ).toBe("legacy_shadow");
@@ -176,8 +176,8 @@ describe("Card Document cutover", () => {
         description: "First\nSecond",
       });
       const probe = runLegacyCardShadowProcessorProbe(database);
-      expect(probe.allCurrentCardsReady).toBeTrue();
-      expect(probe.allCurrentCardContentInParity).toBeTrue();
+      expect(probe.allCurrentCardsReady).toBe(true);
+      expect(probe.allCurrentCardContentInParity).toBe(true);
 
       const shadow = getOwnedBlockDocumentDescriptor(
         database,
@@ -194,7 +194,7 @@ describe("Card Document cutover", () => {
       });
       expect(primary.authority).toBe("ydoc_primary");
       expect(primary.documentId).toBe(shadow.documentId);
-      expect(primary.stateVector.byteLength > 0).toBeTrue();
+      expect(primary.stateVector.byteLength > 0).toBe(true);
 
       const retry = cutoverCardDocumentToPrimary(database, {
         projectId: project.id,
@@ -262,7 +262,7 @@ describe("Card Document cutover", () => {
         description: `<card-ref project="${project.id}" card="${target.id}" />`,
       });
       const parity = runLegacyCardShadowProcessorProbe(database);
-      expect(parity.allCurrentCardsReady).toBeTrue();
+      expect(parity.allCurrentCardsReady).toBe(true);
       const referenceDescriptor = getOwnedBlockDocumentDescriptor(
         database,
         project.id,

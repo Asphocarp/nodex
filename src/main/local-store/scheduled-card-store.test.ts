@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -115,7 +115,7 @@ describe("scheduled Card authority reads", () => {
       });
       const database = getDb();
       const shadow = runLegacyCardShadowProcessorProbe(database);
-      expect(shadow.allCurrentCardsReady).toBeTrue();
+      expect(shadow.allCurrentCardsReady).toBe(true);
       const descriptor = getOwnedBlockDocumentDescriptor(
         database,
         project.id,
@@ -265,6 +265,6 @@ describe("scheduled Card authority reads", () => {
       expect(staleCode).toBe("scheduled_index_stale");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

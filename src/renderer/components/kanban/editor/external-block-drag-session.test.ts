@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { projectDocumentWithoutBlocks } from "./external-block-drag-session";
 
 describe("prepared external block drag", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CommandPaletteThread } from "./command-palette";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
 
@@ -42,9 +42,9 @@ describe("command palette thread search index", () => {
 
     const results = index.search("commnd palete");
 
-    expect(results.length > 0).toBeTrue();
+    expect(results.length > 0).toBe(true);
     expect(results[0]?.item.threadId).toBe("thr-target");
-    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("builds preview snippets for metadata preview matches", () => {
@@ -62,7 +62,7 @@ describe("command palette thread search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-preview");
     expect(results[0]?.item.searchPreview?.source).toBe("metadata");
-    expect(results[0]?.item.searchPreview?.segments.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchPreview?.segments.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("matches project and cwd fields without inventing a content preview", () => {
@@ -82,7 +82,7 @@ describe("command palette thread search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-cwd");
     expect(results[0]?.item.searchPreview ?? null).toBe(null);
-    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
   test("matches projectless chats through the Chats context label", () => {
@@ -102,6 +102,6 @@ describe("command palette thread search index", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-projectless");
-    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBeTrue();
+    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 });

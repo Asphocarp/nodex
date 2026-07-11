@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { NfmBlock } from "./types";
 import { serializeClipboardText } from "./clipboard-text-serializer";
 import { parseNfm } from "./parser";
@@ -13,7 +13,7 @@ describe("NFM code fences", () => {
     expect(blocks[0]?.type).toBe("table");
     if (blocks[0]?.type !== "table") return;
 
-    expect(blocks[0].headerRow).toBeTrue();
+    expect(blocks[0].headerRow).toBe(true);
     expect(blocks[0].columns.length).toBe(3);
     expect(blocks[0].columns[0]?.align).toBe("left");
     expect(blocks[0].columns[1]?.align).toBe("center");
@@ -21,7 +21,7 @@ describe("NFM code fences", () => {
     expect(blocks[0].rows.length).toBe(3);
     expect(blocks[0].rows[1]?.cells[1]?.content[0]?.type).toBe("text");
     if (blocks[0].rows[1]?.cells[1]?.content[0]?.type !== "text") return;
-    expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBeTrue();
+    expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBe(true);
     expect(serializeNfm(blocks)).toBe(input);
     expect(serializeClipboardText(blocks)).toBe("Name\tStatus\tScore\nAlpha\tReady\t10\nBeta\tBlocked\t2");
   });
@@ -67,8 +67,8 @@ describe("NFM code fences", () => {
     if (blocks[0]?.type !== "table") return;
 
     expect(blocks[0].headerRow).toBe(undefined);
-    expect(blocks[0].headerColumn).toBeTrue();
-    expect(blocks[0].fitPageWidth).toBeTrue();
+    expect(blocks[0].headerColumn).toBe(true);
+    expect(blocks[0].fitPageWidth).toBe(true);
     expect(blocks[0].columns[0]?.width).toBe(180);
     expect(blocks[0].columns[0]?.color).toBe("blue_bg");
     expect(blocks[0].columns[0]?.align).toBe("right");

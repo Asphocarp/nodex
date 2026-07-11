@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import {
@@ -193,10 +193,10 @@ describe("buildThreadSummaryPanelOutputRows", () => {
     const imageView = rows.find((row) => outputPath(row) === "/tmp/nodex/reference.jpg");
     const generated = rows.find((row) => outputPath(row) === "/tmp/nodex/generated.png");
 
-    expect(chart ? isThreadSummaryPanelImagePreviewableOutput(chart) : false).toBeTrue();
-    expect(imageView ? isThreadSummaryPanelImagePreviewableOutput(imageView) : false).toBeTrue();
-    expect(generated ? isThreadSummaryPanelImagePreviewableOutput(generated) : false).toBeTrue();
-    expect(report ? isThreadSummaryPanelImagePreviewableOutput(report) : true).toBeFalse();
+    expect(chart ? isThreadSummaryPanelImagePreviewableOutput(chart) : false).toBe(true);
+    expect(imageView ? isThreadSummaryPanelImagePreviewableOutput(imageView) : false).toBe(true);
+    expect(generated ? isThreadSummaryPanelImagePreviewableOutput(generated) : false).toBe(true);
+    expect(report ? isThreadSummaryPanelImagePreviewableOutput(report) : true).toBe(false);
   });
 
   test("promotes referenced image files to generated image outputs", () => {

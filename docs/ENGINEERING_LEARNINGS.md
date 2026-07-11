@@ -1,5 +1,14 @@
 # Engineering Learnings
 
+### Native addons must be loaded by the runtime they were rebuilt for
+
+`electron-builder install-app-deps` rebuilds `better-sqlite3` and `node-pty`
+for Electron's Node ABI. A host Node process must not load those artifacts even
+when its JavaScript version looks compatible: ABI identity belongs to the
+embedding runtime. Run main/store tests and native probes by launching Vitest or
+the probe bundle through Electron with `ELECTRON_RUN_AS_NODE=1`; reserve host
+Node for code that does not import Electron-targeted native addons.
+
 Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
@@ -471,8 +480,11 @@ The host manager keeps one canonical conversation state and separates "snapshot 
 ### Renderer must not keep a shadow `resumeState`
 The active thread route consumes the host manager's conversation snapshot and `resumeState`; it does not maintain a second local resume reducer that can disagree with the manager. Nodex regressions appeared when the renderer eagerly set `resuming` / `needs_resume` before the host manager finished emitting canonical snapshots. Keep `resumeState` manager-owned, let snapshot host messages carry the only truth, and reserve renderer state for UI-only concerns such as collapse/search/composer focus.
 
-### Release CI should inherit Bun from `packageManager`, not `setup-bun` `latest`
-When GitHub Actions pins `oven-sh/setup-bun` to `latest`, release validation can drift onto a just-published Bun build that no developer or lockfile update has exercised yet. In Nodex, that surfaced as Ubuntu-only renderer test failures through the `radix-ui` umbrella package while the same commit stayed green locally. Keep `package.json#packageManager` as the single Bun source of truth, let `setup-bun` read that pinned version, and only advance Bun by an explicit repo change that also reruns typecheck/lint/tests.
+### Release CI must use the repository's pinned Node and pnpm versions
+Release validation must read Node from `.node-version` and pnpm from
+`package.json#packageManager`. Floating CI tool versions can change dependency
+resolution or test behavior without a lockfile change. Advance either runtime
+only through an explicit repository change that reruns the complete release gate.
 
 ### Release workflows must not push version commits or tags before packaging succeeds
 On March 16, 2026, Nodex release CI created and pushed `release: v0.1.3` before the macOS packaging job proved the candidate could build. The subsequent `electron-vite build` then failed on the hosted macOS runners with a Node old-space heap OOM during renderer chunk generation, leaving partial git release state behind. The release entry workflow should stage an unpushed release candidate, build and verify from that candidate, and only then commit, tag, and push. Also keep a CI-only `NODE_OPTIONS=--max-old-space-size=...` safety margin on the macOS packaging steps, because hosted runner defaults can be lower than what the renderer bundle shape needs.
@@ -498,13 +510,13 @@ Under Bun's sequential test runner, `mock.module()` replacements can bleed into 
 The same rule applies to shared transport, editor package entrypoints, and re-export facades. Do not mock `src/renderer/lib/api`, `@blocknote/react`, `@/lib/nfm-link-actions`, `@/lib/use-file-link-opener`, or reusable surface modules from a focused component test. Put the external boundary behind a feature-local `*-deps.ts` module and mock that local facade instead. If the facade re-exports runtime values from modules that are also tested directly, prefer local imported bindings over bare `export { ... } from` re-exports, and keep the test mock self-contained rather than spreading the real facade into the mock object.
 
 ### GitHub-only Bun flakes on macOS need exact-SHA `act` reproduction plus full-suite order perturbation
-For renderer flakes that only fail on GitHub cloud, a green local `bun test`, a green local `act` run on `HEAD`, or even a green `act` run of the exact workflow does not clear the issue. In Nodex, the March 30, 2026 Ubuntu release-workflow failures only reproduced locally after all of the following matched the cloud run together:
+For renderer flakes that only fail on GitHub cloud, a green local `pnpm test`, a green local `act` run on `HEAD`, or even a green `act` run of the exact workflow does not clear the issue. In Nodex, the March 30, 2026 Ubuntu release-workflow failures only reproduced locally after all of the following matched the cloud run together:
 
 - use the exact failing commit SHA in a detached worktree, not the current branch tip
 - use the repo's `.actrc` runner mapping: `linux/amd64` plus `ghcr.io/catthehacker/ubuntu:act-24.04`
 - on Apple Silicon, explicitly pass `--container-architecture linux/amd64`
 - run the exact workflow/job first so the container has the same installed dependency tree and checkout shape
-- rerun the full suite inside that exact `act` job container with `bun test --randomize --seed <n>`
+- rerun the full suite inside that exact `act` job container with `pnpm test --randomize --seed <n>`
 
 The successful local reproduction ladder was:
 
@@ -523,7 +535,7 @@ act workflow_dispatch \
 docker exec <act-container-id> bash -lc '
   cd /abs/path/to/.repro-<sha>
   export PATH=/root/.bun/bin:$PATH
-  bun test --randomize --seed 1
+  pnpm test --randomize --seed 1
 '
 ```
 
@@ -920,7 +932,7 @@ When a renderer utility consumes a semantic token like `bg-token-input-backgroun
 Compiled utility CSS is an output, not a second hand-maintained renderer utility mirror. Keep `theme-source.css`, `theme-token-bridge.css`, and `theme-surface.css` as the authored renderer source, then let Tailwind compile the utility surface directly from those files plus the scanned renderer/story inputs. This keeps the utility layer aligned with the authored source of truth instead of drifting behind a parallel vendored dump.
 
 ### Randomized renderer tests should not trust global DOM constructors or shared parser imports
-`bun test --randomize --seed ...` exposed two test-suite fragilities:
+`pnpm test --randomize --seed ...` exposed two test-suite fragilities:
 
 - `instanceof HTMLElement` / `instanceof HTMLDivElement` is not reliable in a long-running happy-dom suite when some tests temporarily replace `window` or other browser globals. Prefer existence checks, `nodeType === Node.ELEMENT_NODE`, or realm-aware constructor checks via `node.ownerDocument.defaultView`.
 - If a component test needs to stub diff parsing or diff rendering, route those dependencies through the component's own adapter seam instead of importing shared parser/renderer modules directly in the test path. For `review-diff-panel`, moving `parsePatchFiles` behind `review-diff-panel-deps.ts` and injecting a local test parser removed randomized-order pollution from shared module state.

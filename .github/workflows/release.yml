@@ -30,10 +30,17 @@ jobs:
         fetch-depth: 0
         ref: ${{ env.RELEASE_GIT_REF }}
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Resolve release metadata
       id: release_meta
@@ -76,7 +83,7 @@ jobs:
         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         SENTRY_RELEASE: nodex@${{ steps.release_meta.outputs.version }}
-      run: bun run package:mac:arm64
+      run: pnpm run package:mac:arm64
 
     - name: Resolve artifact paths
       id: artifact_paths
@@ -149,10 +156,17 @@ jobs:
         fetch-depth: 0
         ref: ${{ env.RELEASE_GIT_REF }}
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Resolve release metadata
       id: release_meta
@@ -195,7 +209,7 @@ jobs:
         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         SENTRY_RELEASE: nodex@${{ steps.release_meta.outputs.version }}
-      run: bun run package:mac:x64
+      run: pnpm run package:mac:x64
 
     - name: Resolve artifact paths
       id: artifact_paths
@@ -268,10 +282,17 @@ jobs:
         fetch-depth: 0
         ref: ${{ env.RELEASE_GIT_REF }}
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Download arm64 artifacts
       uses: actions/download-artifact@v8
@@ -286,20 +307,20 @@ jobs:
         path: ${{ runner.temp }}/release-artifacts/x64
 
     - name: Extract release notes from CHANGELOG
-      run: bun run release:notes -- --version "${{ needs.build-macos-arm64.outputs.version }}" --release-notes-output "${RUNNER_TEMP}/release-notes.md"
+      run: pnpm run release:notes -- --version "${{ needs.build-macos-arm64.outputs.version }}" --release-notes-output "${RUNNER_TEMP}/release-notes.md"
 
     - name: Merge macOS update manifests
       shell: bash
       run: |
         mkdir -p "${RUNNER_TEMP}/release-artifacts/merged"
-        bun run release:merge-mac-update-manifest -- \
+        pnpm run release:merge-mac-update-manifest -- \
           --input "${RUNNER_TEMP}/release-artifacts/arm64/latest-mac.yml" \
           --input "${RUNNER_TEMP}/release-artifacts/x64/latest-mac.yml" \
           --output "${RUNNER_TEMP}/release-artifacts/merged/latest-mac.yml"
 
     - name: Create stable macOS download aliases
       run: |
-        bun run release:download-aliases -- \
+        pnpm run release:download-aliases -- \
           --version "${{ needs.build-macos-arm64.outputs.version }}" \
           --arm64-dir "${RUNNER_TEMP}/release-artifacts/arm64" \
           --x64-dir "${RUNNER_TEMP}/release-artifacts/x64"
@@ -332,10 +353,17 @@ jobs:
         fetch-depth: 0
         ref: ${{ env.RELEASE_GIT_REF }}
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Download arm64 artifacts
       uses: actions/download-artifact@v8
@@ -365,7 +393,7 @@ jobs:
         tap_workdir="${RUNNER_TEMP}/homebrew-tap"
 
         git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}@github.com/${HOMEBREW_TAP_REPO}.git" "${tap_workdir}"
-        bun run release:cask -- \
+        pnpm run release:cask -- \
           --version "${{ needs.build-macos-arm64.outputs.version }}" \
           --arm64-sha256 "${arm64_sha}" \
           --x64-sha256 "${x64_sha}" \

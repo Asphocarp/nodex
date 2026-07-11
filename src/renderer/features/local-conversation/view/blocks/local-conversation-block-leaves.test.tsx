@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
@@ -436,8 +436,8 @@ describe("UserMessageBubble collapse", () => {
     const { queryByText } = renderUserMessageBubble("Short request");
     await settleAsyncRender();
 
-    expect(queryByText("Show more") === null).toBeTrue();
-    expect(queryByText("Show less") === null).toBeTrue();
+    expect(queryByText("Show more") === null).toBe(true);
+    expect(queryByText("Show less") === null).toBe(true);
   });
 
   test("collapses long measured user messages and toggles expansion", async () => {
@@ -451,7 +451,7 @@ describe("UserMessageBubble collapse", () => {
     expect(collapsedButton?.getAttribute("aria-expanded")).toBe("false");
 
     const collapsedStyle = getUserMarkdownRoot(container).getAttribute("style") ?? "";
-    expect(collapsedStyle.includes("overflow: hidden")).toBeTrue();
+    expect(collapsedStyle.includes("overflow: hidden")).toBe(true);
     expect(getWebkitLineClamp(getUserMarkdownRoot(container))).toBe("20");
 
     fireEvent.click(collapsedButton as HTMLElement);
@@ -460,7 +460,7 @@ describe("UserMessageBubble collapse", () => {
     const expandedButton = getByText("Show less").closest("button");
     expect(expandedButton?.getAttribute("aria-expanded")).toBe("true");
     expect(getUserMarkdownRoot(container).getAttribute("style") ?? "").toBe("");
-    expect(Boolean(expandedButton?.querySelector(".rotate-180"))).toBeTrue();
+    expect(Boolean(expandedButton?.querySelector(".rotate-180"))).toBe(true);
 
     fireEvent.click(expandedButton as HTMLElement);
     await settleAsyncRender();
@@ -475,7 +475,7 @@ describe("UserMessageBubble collapse", () => {
     const zeroWidthView = renderUserMessageBubble(longMessage);
     await settleAsyncRender();
 
-    expect(zeroWidthView.queryByText("Show more") === null).toBeTrue();
+    expect(zeroWidthView.queryByText("Show more") === null).toBe(true);
     zeroWidthView.unmount();
 
     installTextCollapseMeasurement({ clientWidth: 320, characterWidthPx: 7 });
@@ -487,7 +487,7 @@ describe("UserMessageBubble collapse", () => {
     const missingCanvasView = renderUserMessageBubble(longMessage);
     await settleAsyncRender();
 
-    expect(missingCanvasView.queryByText("Show more") === null).toBeTrue();
+    expect(missingCanvasView.queryByText("Show more") === null).toBe(true);
   });
 
   test("collapses again when expanded text changes", async () => {
@@ -532,7 +532,7 @@ describe("ThreadAssistantBodyBlock streaming markdown", () => {
 
     await settleAsyncRender();
 
-    expect(container.querySelector("[data-sd-animate]") === null).toBeTrue();
+    expect(container.querySelector("[data-sd-animate]") === null).toBe(true);
   });
 
   test("keeps animation enabled for the in-progress assistant item", async () => {
@@ -549,7 +549,7 @@ describe("ThreadAssistantBodyBlock streaming markdown", () => {
 
     await settleAsyncRender();
 
-    expect(container.querySelectorAll("[data-sd-animate]").length > 0).toBeTrue();
+    expect(container.querySelectorAll("[data-sd-animate]").length > 0).toBe(true);
   });
 });
 
@@ -594,25 +594,25 @@ describe("ThreadExplorationGroupBlock", () => {
     );
 
     const summaryText = textContent(getByRole("button"));
-    expect(summaryText.includes("Explored")).toBeTrue();
-    expect(summaryText.includes("1 file")).toBeTrue();
-    expect(summaryText.includes("1 search")).toBeTrue();
-    expect(summaryText.includes("1 list")).toBeTrue();
+    expect(summaryText.includes("Explored")).toBe(true);
+    expect(summaryText.includes("1 file")).toBe(true);
+    expect(summaryText.includes("1 search")).toBe(true);
+    expect(summaryText.includes("1 list")).toBe(true);
 
     const body = getByTestId("exploration-accordion-body");
-    expect(Boolean(body.getAttribute("style")?.includes("height: 0px"))).toBeTrue();
+    expect(Boolean(body.getAttribute("style")?.includes("height: 0px"))).toBe(true);
 
     fireEvent.click(getByRole("button"));
     await settleAsyncRender();
 
     const scroller = container.querySelector(".vertical-scroll-fade-mask");
-    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBeTrue();
-    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBeFalse();
-    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 320px"))).toBeTrue();
+    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBe(true);
+    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBe(false);
+    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 320px"))).toBe(true);
     const content = textContent(container);
-    expect(content.includes("Read src/a.ts")).toBeTrue();
-    expect(content.includes("Searched for thing in src")).toBeTrue();
-    expect(content.includes("Listed files in src")).toBeTrue();
+    expect(content.includes("Read src/a.ts")).toBe(true);
+    expect(content.includes("Searched for thing in src")).toBe(true);
+    expect(content.includes("Listed files in src")).toBe(true);
     expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(1);
     expect(container.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(0);
   });
@@ -648,13 +648,13 @@ describe("ThreadExplorationGroupBlock", () => {
 
     const body = getByTestId("exploration-accordion-body");
     const scroller = container.querySelector(".vertical-scroll-fade-mask");
-    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBeTrue();
-    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBeFalse();
-    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 112px"))).toBeTrue();
+    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBe(true);
+    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBe(false);
+    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 112px"))).toBe(true);
 
     const summaryText = textContent(getByRole("button"));
-    expect(summaryText.includes("Exploring")).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(summaryText.includes("Exploring")).toBe(true);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
   });
 });
 
@@ -722,17 +722,17 @@ describe("ThreadPendingMcpToolCallsBlock", () => {
 
     const button = getAllByRole("button", { name: "Click" })[0];
     expect(button.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBeTrue();
-    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBeFalse();
+    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBe(true);
+    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBe(false);
     const collapsedList = container.querySelector(".vertical-scroll-fade-mask");
-    expect(Boolean(collapsedList?.getAttribute("style")?.includes("max-height: 0px"))).toBeTrue();
+    expect(Boolean(collapsedList?.getAttribute("style")?.includes("max-height: 0px"))).toBe(true);
 
     fireEvent.click(button);
     await settleAsyncRender();
 
     expect(button.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBeTrue();
-    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBeTrue();
+    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBe(true);
+    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBe(true);
   });
 
   test("renders completed Node REPL pending groups with command-count wording", () => {
@@ -805,7 +805,7 @@ describe("ThreadPendingMcpToolCallsBlock", () => {
       </TestQueryProvider>,
     );
 
-    expect(Boolean(getByRole("button", { name: "Ran 2 commands" }))).toBeTrue();
+    expect(Boolean(getByRole("button", { name: "Ran 2 commands" }))).toBe(true);
   });
 });
 
@@ -840,7 +840,7 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByRole("button", { name: /Read thread 2 times · Sent message to thread/i }))).toBeTrue();
+    expect(Boolean(getByRole("button", { name: /Read thread\s*2 times\s*·\s*Sent message to thread/i }))).toBe(true);
   });
 
   test("mounts compact dynamic rows inside the inner grouped body on expand", async () => {
@@ -872,10 +872,10 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(queryByTestId("dynamic-tool-call-group-body"))).toBeFalse();
+    expect(Boolean(queryByTestId("dynamic-tool-call-group-body"))).toBe(false);
 
     await act(async () => {
-      fireEvent.click(getByRole("button", { name: /Read thread · Sent message to thread/i }));
+      fireEvent.click(getByRole("button", { name: /Read thread\s*·\s*Sent message to thread/i }));
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
       });
@@ -883,10 +883,10 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
 
     const body = getByTestId("dynamic-tool-call-group-body");
     expect(body.parentElement?.getAttribute("data-testid") ?? "").toBe("");
-    expect(textContent(body).includes("Read thread")).toBeTrue();
-    expect(textContent(body).includes("Sent message to thread")).toBeTrue();
-    expect(textContent(container).includes("thread-1")).toBeFalse();
-    expect(textContent(container).includes("{\"ok\":true}")).toBeFalse();
+    expect(textContent(body).includes("Read thread")).toBe(true);
+    expect(textContent(body).includes("Sent message to thread")).toBe(true);
+    expect(textContent(container).includes("thread-1")).toBe(false);
+    expect(textContent(container).includes("{\"ok\":true}")).toBe(false);
   });
 
   test("renders the latest incomplete dynamic item as the active group header", () => {
@@ -924,7 +924,7 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByRole("button", { name: /Sending message to thread/i }))).toBeTrue();
+    expect(Boolean(getByRole("button", { name: /Sending message to thread/i }))).toBe(true);
   });
 
   test("defers active dynamic summary changes and immediately shows settled aggregate summaries", async () => {
@@ -990,7 +990,7 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
 
       const getHeaderText = () => textContent(view.container.querySelector("button[aria-expanded]") ?? view.container);
 
-      expect(Boolean(getHeaderText().includes("Reading thread"))).toBeTrue();
+      expect(Boolean(getHeaderText().includes("Reading thread"))).toBe(true);
 
       now = 100;
       await act(async () => {
@@ -1015,10 +1015,10 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
         await Promise.resolve();
       });
 
-      expect(Boolean(getHeaderText().includes("Reading thread"))).toBeTrue();
-      expect(Boolean(getHeaderText().includes("Sending message to thread"))).toBeFalse();
+      expect(Boolean(getHeaderText().includes("Reading thread"))).toBe(true);
+      expect(Boolean(getHeaderText().includes("Sending message to thread"))).toBe(false);
       expect(scheduledDelay).toBe(900);
-      expect(Boolean(scheduledCallback)).toBeTrue();
+      expect(Boolean(scheduledCallback)).toBe(true);
 
       now = 150;
       await act(async () => {
@@ -1038,10 +1038,10 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
       });
 
       const content = getHeaderText();
-      expect(Boolean(content.includes("Read thread · Sent message to thread"))).toBeTrue();
-      expect(Boolean(content.includes("Reading thread"))).toBeFalse();
+      expect(Boolean(content.includes("Read thread · Sent message to thread"))).toBe(true);
+      expect(Boolean(content.includes("Reading thread"))).toBe(false);
       expect(clearCount).toBe(1);
-      expect(Boolean(scheduledCallback)).toBeFalse();
+      expect(Boolean(scheduledCallback)).toBe(false);
     } finally {
       Date.now = originalDateNow;
       window.setTimeout = originalSetTimeout;
@@ -1082,9 +1082,9 @@ describe("ThreadDynamicToolCallGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    expect(textContent(container).includes("Checked handoff status 2 times")).toBeTrue();
-    expect(Boolean(queryByRole("button", { name: /Checked handoff status 2 times/i }))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-testid='dynamic-tool-call-group-body']"))).toBeFalse();
+    expect(textContent(container).includes("Checked handoff status 2 times")).toBe(true);
+    expect(Boolean(queryByRole("button", { name: /Checked handoff status 2 times/i }))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='dynamic-tool-call-group-body']"))).toBe(false);
   });
 });
 
@@ -1135,15 +1135,20 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Read a file/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBe(false);
 
-    fireEvent.click(summaryButton);
+    await act(async () => {
+      fireEvent.click(summaryButton);
+      await Promise.resolve();
+    });
     await settleAsyncRender();
 
-    expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    await waitFor(() => {
+      expect(getByRole("button", { name: /Read a file/i }).getAttribute("aria-expanded") ?? "").toBe("true");
+    });
+    expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Exploration"))).toBe(false);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("shimmers only the latest streaming active summary", () => {
@@ -1194,7 +1199,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     const summaryButton = getByRole("button", { name: /Running bun test/i });
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(shimmer?.textContent ?? "").toBe("Running bun test");
-    expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBeFalse();
+    expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBe(false);
   });
 
   test("does not shimmer a latest streaming completed fallback summary", () => {
@@ -1266,8 +1271,8 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     );
 
     const summaryButton = getByRole("button", { name: /Searched the web/i });
-    expect(Boolean(textContent(summaryButton).includes("Searching the web"))).toBeFalse();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(textContent(summaryButton).includes("Searching the web"))).toBe(false);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("defers live active summary changes through the shared activity disclosure", async () => {
@@ -1317,7 +1322,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
         </TooltipProvider>,
       );
 
-      expect(Boolean(textContent(view.container).includes("Running first command"))).toBeTrue();
+      expect(Boolean(textContent(view.container).includes("Running first command"))).toBe(true);
 
       now = 100;
       await act(async () => {
@@ -1333,10 +1338,10 @@ describe("ThreadCollapsedToolActivityBlock", () => {
         await Promise.resolve();
       });
 
-      expect(textContent(view.container).includes("Running first command")).toBeTrue();
-      expect(textContent(view.container).includes("Running second command")).toBeFalse();
+      expect(textContent(view.container).includes("Running first command")).toBe(true);
+      expect(textContent(view.container).includes("Running second command")).toBe(false);
       expect(scheduledDelay).toBe(900);
-      expect(Boolean(scheduledCallback)).toBeTrue();
+      expect(Boolean(scheduledCallback)).toBe(true);
 
       now = 1000;
       await act(async () => {
@@ -1344,7 +1349,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
         await Promise.resolve();
       });
 
-      expect(textContent(view.container).includes("Running second command")).toBeTrue();
+      expect(textContent(view.container).includes("Running second command")).toBe(true);
     } finally {
       Date.now = originalDateNow;
       window.setTimeout = originalSetTimeout;
@@ -1410,22 +1415,22 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const summaryButton = container.querySelector<HTMLButtonElement>("button[aria-expanded='false']");
     if (!summaryButton) throw new Error("Expected collapsed activity summary button");
-    expect(Boolean(textContent(summaryButton).includes("Creating"))).toBeTrue();
-    expect(Boolean(textContent(summaryButton).includes("poem.md"))).toBeTrue();
+    expect(Boolean(textContent(summaryButton).includes("Creating"))).toBe(true);
+    expect(Boolean(textContent(summaryButton).includes("poem.md"))).toBe(true);
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(Boolean(shimmer)).toBeTrue();
+    expect(Boolean(shimmer)).toBe(true);
     expect(shimmer?.textContent ?? "").toBe("Creating");
-    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBeTrue();
-    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBeTrue();
-    expect(Boolean(textContent(summaryButton).includes("Creating a file • writing"))).toBeFalse();
+    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBe(true);
+    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBe(true);
+    expect(Boolean(textContent(summaryButton).includes("Creating a file • writing"))).toBe(false);
 
     fireEvent.click(summaryButton);
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('[data-testid="collapsed-tool-activity-body"]'))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Creating"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("poem.md"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="collapsed-tool-activity-body"]'))).toBe(true);
+    expect(Boolean(textContent(container).includes("Creating"))).toBe(true);
+    expect(Boolean(textContent(container).includes("poem.md"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Exploration"))).toBe(false);
   });
 
   test("keeps completed collapsed summaries static", () => {
@@ -1469,7 +1474,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     );
 
     getByRole("button", { name: /Read a file, ran a command/i });
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("shimmers running aggregate text without shimmering the writing-lines segment", () => {
@@ -1503,10 +1508,10 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     const summaryButton = getByRole("button", { name: /Creating a file/i });
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(shimmer?.textContent ?? "").toBe("Creating a file");
-    expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBeTrue();
-    expect(Boolean(shimmer?.textContent?.includes("writing 3 lines"))).toBeFalse();
+    expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBe(true);
+    expect(Boolean(shimmer?.textContent?.includes("writing 3 lines"))).toBe(false);
     const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='collapsed-tool-activity-body']");
-    expect(Boolean(initiallyMountedBody)).toBeTrue();
+    expect(Boolean(initiallyMountedBody)).toBe(true);
     expect(initiallyMountedBody?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
   });
 
@@ -1547,8 +1552,8 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     );
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
-    expect(Boolean(textContent(summaryButton).includes("2 lines"))).toBeFalse();
-    expect(Boolean(textContent(container).includes("edited.ts"))).toBeFalse();
+    expect(Boolean(textContent(summaryButton).includes("2 lines"))).toBe(false);
+    expect(Boolean(textContent(container).includes("edited.ts"))).toBe(false);
 
     fireEvent.click(summaryButton);
     await waitFor(() => {
@@ -1558,10 +1563,10 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     });
 
     const content = textContent(container);
-    expect(Boolean(content.includes("Edited"))).toBeTrue();
-    expect(Boolean(content.includes("edited.ts"))).toBeTrue();
-    expect(Boolean(content.includes("+1"))).toBeTrue();
-    expect(Boolean(content.includes("-1"))).toBeTrue();
+    expect(Boolean(content.includes("Edited"))).toBe(true);
+    expect(Boolean(content.includes("edited.ts"))).toBe(true);
+    expect(Boolean(content.includes("+1"))).toBe(true);
+    expect(Boolean(content.includes("-1"))).toBe(true);
   });
 
   test("shows aggregate file-change line counts in the prose detail level", () => {
@@ -1684,11 +1689,11 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     await settleAsyncRender();
 
     const content = textContent(container);
-    expect(content.includes("Read src/a.ts")).toBeTrue();
-    expect(content.includes("Searched for thing in src")).toBeTrue();
-    expect(content.includes("Listed files in src")).toBeTrue();
-    expect(content.includes("Ran bun test")).toBeTrue();
-    expect(content.includes("Edited")).toBeTrue();
+    expect(content.includes("Read src/a.ts")).toBe(true);
+    expect(content.includes("Searched for thing in src")).toBe(true);
+    expect(content.includes("Listed files in src")).toBe(true);
+    expect(content.includes("Ran bun test")).toBe(true);
+    expect(content.includes("Edited")).toBe(true);
     expect(container.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
     expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
     expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(0);
@@ -1727,9 +1732,9 @@ describe("ThreadContextCompactionBlock", () => {
     );
 
     getByText("Context automatically compacted");
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
     expect(container.querySelectorAll(".border-current\\/20").length).toBe(2);
-    expect(Boolean(container.querySelector("svg"))).toBeTrue();
+    expect(Boolean(container.querySelector("svg"))).toBe(true);
   });
 
   test("renders the in-progress Codex shimmer row", () => {
@@ -1762,8 +1767,8 @@ describe("ThreadContextCompactionBlock", () => {
     );
 
     getByText("Automatically compacting context");
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
-    expect(Boolean(container.querySelector("svg"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
+    expect(Boolean(container.querySelector("svg"))).toBe(false);
   });
 });
 
@@ -1799,8 +1804,8 @@ describe("ThreadPlanCardBlock", () => {
     );
 
     getByText("Writing plan");
-    expect(Boolean(textContent(container).includes("Proposed plan"))).toBeFalse();
-    expect(Boolean(textContent(container).includes("Expand plan"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Proposed plan"))).toBe(false);
+    expect(Boolean(textContent(container).includes("Expand plan"))).toBe(false);
   });
 
   test("opens the side panel from a completed proposed-plan item", () => {
@@ -1846,7 +1851,7 @@ describe("ThreadPlanCardBlock", () => {
     );
 
     const overlay = container.querySelector("button[aria-hidden='true'][tabindex='-1']");
-    expect(Boolean(overlay)).toBeTrue();
+    expect(Boolean(overlay)).toBe(true);
 
     fireEvent.click(overlay as HTMLButtonElement);
 
@@ -1891,9 +1896,9 @@ describe("ThreadPlanCardBlock", () => {
     );
 
     const body = container.querySelector("[data-plan-preview-body='true']");
-    expect(Boolean(getByRole("button", { name: "Close plan side panel" }))).toBeTrue();
+    expect(Boolean(getByRole("button", { name: "Close plan side panel" }))).toBe(true);
     expect(body?.getAttribute("aria-hidden")).toBe("true");
-    expect(Boolean(body?.hasAttribute("inert"))).toBeTrue();
+    expect(Boolean(body?.hasAttribute("inert"))).toBe(true);
   });
 });
 
@@ -1938,10 +1943,10 @@ describe("ThreadBlockRenderer proposed-plan block", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByRole("button", { name: "Open plan in side panel" }))).toBeTrue();
+    expect(Boolean(getByRole("button", { name: "Open plan in side panel" }))).toBe(true);
 
     const overlay = container.querySelector("button[aria-hidden='true'][tabindex='-1']");
-    expect(Boolean(overlay)).toBeTrue();
+    expect(Boolean(overlay)).toBe(true);
 
     fireEvent.click(overlay as HTMLButtonElement);
 
@@ -1996,12 +2001,12 @@ describe("ThreadBlockRenderer subagent activity block", () => {
     const group = getByTestId("subagent-activity-inline-group");
     const buttons = container.querySelectorAll("button[aria-label$='subagent']");
 
-    expect(Boolean(group)).toBeTrue();
+    expect(Boolean(group)).toBe(true);
     expect(buttons.length).toBe(3);
-    expect(Boolean(getByText("and 1 other subagent updated"))).toBeTrue();
-    expect(Boolean(queryByText("Tester"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-animate-entrance]"))).toBeTrue();
-    expect(Boolean(container.querySelector('[data-subagent-avatar-seed="thread-child-1"]'))).toBeTrue();
+    expect(Boolean(getByText("and 1 other subagent updated"))).toBe(true);
+    expect(Boolean(queryByText("Tester"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-animate-entrance]"))).toBe(true);
+    expect(Boolean(container.querySelector('[data-subagent-avatar-seed="thread-child-1"]'))).toBe(true);
 
     fireEvent.click(getByRole("button", { name: "Open Scout subagent" }));
 
@@ -2011,7 +2016,7 @@ describe("ThreadBlockRenderer subagent activity block", () => {
     expect(opened[0]?.context?.subagent?.displayName).toBe("Scout");
     expect(opened[0]?.context?.subagent?.status).toBe("active");
     expect(opened[0]?.context?.subagent?.statusSummary).toBe("Scout updated");
-    expect(opened[0]?.context?.subagent?.showInlineActivity ?? false).toBeTrue();
+    expect(opened[0]?.context?.subagent?.showInlineActivity ?? false).toBe(true);
   });
 });
 
@@ -2054,13 +2059,13 @@ describe("ThreadStreamErrorBlock", () => {
     );
 
     getByText("Reconnecting... 2/5");
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
-    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
+    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBe(false);
 
     fireEvent.click(getByText("Reconnecting... 2/5"));
     await settleAsyncRender();
 
-    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBe(true);
   });
 });
 
@@ -2096,7 +2101,7 @@ describe("ThreadSystemErrorBlock", () => {
     );
 
     getByText("Failed to reconnect to the stream.");
-    expect(Boolean(container.querySelector(".uppercase"))).toBeFalse();
+    expect(Boolean(container.querySelector(".uppercase"))).toBe(false);
   });
 });
 
@@ -2152,7 +2157,7 @@ describe("ThreadTurnDiffBlock", () => {
     );
 
     getByText("2 files changed");
-    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBeTrue();
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
     fireEvent.click(container.querySelector("button") as HTMLElement);
     expect(selectedTurnId).toBe("turn-1");

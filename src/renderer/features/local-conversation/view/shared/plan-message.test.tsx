@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { render, textContent } from "../../../../test/dom";
@@ -33,13 +33,13 @@ describe("PlanMessage", () => {
     const body = container.querySelector("[data-plan-preview-body='true']");
     const overlay = container.querySelector("button[aria-hidden='true'][tabindex='-1']");
 
-    expect(Boolean(body)).toBeTrue();
-    expect(Boolean(body?.getAttribute("style")?.includes("max-height: 160px"))).toBeTrue();
-    expect(Boolean(body?.hasAttribute("inert"))).toBeFalse();
-    expect(Boolean(overlay)).toBeTrue();
-    expect(Boolean(getByRole("button", { name: "Open plan in side panel" }))).toBeTrue();
-    expect(Boolean(queryByRole("button", { name: "Expand plan summary" }))).toBeFalse();
-    expect(Boolean(queryByRole("button", { name: "Expand plan" }))).toBeFalse();
+    expect(Boolean(body)).toBe(true);
+    expect(Boolean(body?.getAttribute("style")?.includes("max-height: 160px"))).toBe(true);
+    expect(Boolean(body?.hasAttribute("inert"))).toBe(false);
+    expect(Boolean(overlay)).toBe(true);
+    expect(Boolean(getByRole("button", { name: "Open plan in side panel" }))).toBe(true);
+    expect(Boolean(queryByRole("button", { name: "Expand plan summary" }))).toBe(false);
+    expect(Boolean(queryByRole("button", { name: "Expand plan" }))).toBe(false);
 
     fireEvent.click(overlay as HTMLButtonElement);
     expect(openCount).toBe(1);
@@ -64,12 +64,12 @@ describe("PlanMessage", () => {
     const actionGroup = container.querySelector("[data-plan-action-group='true']");
     const closeButton = getByRole("button", { name: "Close plan side panel" });
 
-    expect(Boolean(body)).toBeTrue();
+    expect(Boolean(body)).toBe(true);
     expect(body?.getAttribute("aria-hidden")).toBe("true");
-    expect(Boolean(body?.hasAttribute("inert"))).toBeTrue();
-    expect(Boolean(body?.getAttribute("style")?.includes("max-height: 0px"))).toBeTrue();
+    expect(Boolean(body?.hasAttribute("inert"))).toBe(true);
+    expect(Boolean(body?.getAttribute("style")?.includes("max-height: 0px"))).toBe(true);
     expect(actionGroup?.getAttribute("aria-hidden")).toBe("true");
-    expect(Boolean(actionGroup?.hasAttribute("hidden"))).toBeTrue();
+    expect(Boolean(actionGroup?.hasAttribute("hidden"))).toBe(true);
 
     fireEvent.click(closeButton);
     expect(closeCount).toBe(1);
@@ -86,9 +86,9 @@ describe("PlanMessage", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Writing plan"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
-    expect(Boolean(queryByRole("button", { name: "Open plan in side panel" }))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Writing plan"))).toBe(true);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
+    expect(Boolean(queryByRole("button", { name: "Open plan in side panel" }))).toBe(false);
   });
 
   test("downloads markdown as PLAN.md", () => {

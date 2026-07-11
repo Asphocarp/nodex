@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "./browser-url";
 
 describe("browser URL helpers", () => {
   test("normalizes empty input to the blank browser page", () => {
     expect(normalizeBrowserNavigationUrl("")).toBe("about:blank");
     expect(normalizeBrowserNavigationUrl("   ")).toBe("about:blank");
-    expect(isBlankBrowserUrl("about:blank")).toBeTrue();
+    expect(isBlankBrowserUrl("about:blank")).toBe(true);
   });
 
   test("normalizes localhost and hostnames without changing explicit schemes", () => {

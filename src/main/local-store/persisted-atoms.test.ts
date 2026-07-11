@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -37,7 +37,7 @@ describe("persisted atom local store", () => {
       });
 
       expect(JSON.stringify(nextState)).toBe("{\"prompt-history\":[\"first prompt\"]}");
-      expect(existsSync(atomsPath)).toBeTrue();
+      expect(existsSync(atomsPath)).toBe(true);
       expect(readFileSync(atomsPath, "utf8")).toBe("{\n  \"prompt-history\": [\n    \"first prompt\"\n  ]\n}");
     });
   });

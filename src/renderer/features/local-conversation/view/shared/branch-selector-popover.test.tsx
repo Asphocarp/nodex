@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -45,9 +45,9 @@ describe("branch selector popover", () => {
     const searchInput = view.container.ownerDocument.body.querySelector('input[placeholder="Search branches"]');
 
     expect(content).not.toBeNull();
-    expect(popover === null).toBeTrue();
+    expect(popover === null).toBe(true);
     expect(searchInput).not.toBeNull();
-    expect(view.container.ownerDocument.body.textContent?.includes("Create and checkout new branch…") ?? false).toBeTrue();
+    expect(view.container.ownerDocument.body.textContent?.includes("Create and checkout new branch…") ?? false).toBe(true);
   });
 
   test("matches reference search Enter behavior", () => {
@@ -122,10 +122,10 @@ describe("branch selector popover", () => {
       await settleAsyncRender();
     });
 
-    expect(view.container.ownerDocument.body.textContent?.includes("Create and checkout branch") ?? false).toBeTrue();
+    expect(view.container.ownerDocument.body.textContent?.includes("Create and checkout branch") ?? false).toBe(true);
     const branchNameInput = view.container.ownerDocument.body.querySelector('input[aria-label="Branch name"]');
     if (!(branchNameInput instanceof HTMLInputElement)) throw new Error("Expected branch name input");
-    expect((view.getByText("Create and checkout") as HTMLButtonElement).disabled).toBeTrue();
+    expect((view.getByText("Create and checkout") as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("renders branch menu loading and error states", async () => {
@@ -160,7 +160,7 @@ describe("branch selector popover", () => {
       fireEvent.click(trigger);
       await settleAsyncRender();
     });
-    expect(view.container.ownerDocument.body.textContent?.includes("Loading branches…") ?? false).toBeTrue();
+    expect(view.container.ownerDocument.body.textContent?.includes("Loading branches…") ?? false).toBe(true);
 
     await act(async () => {
       view.rerender(
@@ -185,7 +185,7 @@ describe("branch selector popover", () => {
       await settleAsyncRender();
     });
 
-    expect(view.container.ownerDocument.body.textContent?.includes("Unable to load branches") ?? false).toBeTrue();
+    expect(view.container.ownerDocument.body.textContent?.includes("Unable to load branches") ?? false).toBe(true);
     await act(async () => {
       fireEvent.click(view.getByText("Retry"));
       await settleAsyncRender();

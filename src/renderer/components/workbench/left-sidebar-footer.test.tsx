@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexAccountSnapshot } from "@/lib/types";
@@ -43,9 +43,9 @@ describe("LeftSidebarFooter", () => {
     );
 
     const ring = view.getByRole("button", { name: "Usage remaining: 5h 82%, weekly 61%" });
-    expect(Boolean(ring.querySelector('[data-rate-limit-ring="outer"]'))).toBeTrue();
-    expect(Boolean(ring.querySelector('[data-rate-limit-ring="inner"]'))).toBeTrue();
-    expect(textContent(view.container).includes("82% · 61%")).toBeFalse();
+    expect(Boolean(ring.querySelector('[data-rate-limit-ring="outer"]'))).toBe(true);
+    expect(Boolean(ring.querySelector('[data-rate-limit-ring="inner"]'))).toBe(true);
+    expect(textContent(view.container).includes("82% · 61%")).toBe(false);
   });
 
   test("shows existing account details on focus and refreshes once while opening", async () => {
@@ -95,7 +95,7 @@ describe("LeftSidebarFooter", () => {
       </NodexTooltipProvider>,
     );
 
-    expect(Boolean(view.queryByTestId("sidebar-account-rate-limit-ring"))).toBeFalse();
-    expect(Boolean(view.getByRole("button", { name: "Settings" }))).toBeTrue();
+    expect(Boolean(view.queryByTestId("sidebar-account-rate-limit-ring"))).toBe(false);
+    expect(Boolean(view.getByRole("button", { name: "Settings" }))).toBe(true);
   });
 });

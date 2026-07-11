@@ -20,9 +20,9 @@ Usage:
   scripts/run-prepare-release-act.sh [--release-type patch|minor|major|custom] [--custom-version X.Y.Z] [--secret-file PATH] [-- ACT_ARGS...]
 
 Examples:
-  bun run release:prepare:act:list
-  bun run release:prepare:act -- --release-type patch
-  bun run release:prepare:act -- --release-type custom --custom-version 0.1.3
+  pnpm run release:prepare:act:list
+  pnpm run release:prepare:act -- --release-type patch
+  pnpm run release:prepare:act -- --release-type custom --custom-version 0.1.3
 EOF
 }
 

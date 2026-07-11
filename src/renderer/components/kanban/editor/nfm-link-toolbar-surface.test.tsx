@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -147,7 +147,7 @@ describe("nfm compact link toolbar", () => {
     });
 
     expect(copied).toBe(1);
-    expect(view.container.textContent?.includes("Closed") ?? false).toBeFalse();
+    expect(view.container.textContent?.includes("Closed") ?? false).toBe(false);
   });
 
   test("replaces the toolbar with the edit dialog when edit is clicked", async () => {
@@ -204,9 +204,9 @@ describe("nfm compact link toolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBeTrue();
+    expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBe(true);
     expect(view.getByTestId("nfm-link-edit-dialog").getAttribute("role")).toBe("dialog");
-    expect(Boolean(view.getByText("Page or URL"))).toBeTrue();
+    expect(Boolean(view.getByText("Page or URL"))).toBe(true);
   });
 });
 
@@ -259,8 +259,8 @@ describe("nfm link edit dialog surface", () => {
       />,
     );
 
-    expect(Boolean(view.getByLabelText("Page or URL"))).toBeTrue();
-    expect(Boolean(view.getByLabelText("Link title"))).toBeTrue();
+    expect(Boolean(view.getByLabelText("Page or URL"))).toBe(true);
+    expect(Boolean(view.getByLabelText("Link title"))).toBe(true);
   });
 
   test("renders the compact create-link dialog and invokes submit", async () => {
@@ -280,7 +280,7 @@ describe("nfm link edit dialog surface", () => {
       />,
     );
 
-    expect(Boolean(view.getByLabelText("Page or URL"))).toBeTrue();
+    expect(Boolean(view.getByLabelText("Page or URL"))).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Add link" }));

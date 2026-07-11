@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveReferencedProjectContext } from "./referenced-project-context";
 
 describe("resolveReferencedProjectContext", () => {
@@ -22,6 +22,6 @@ describe("resolveReferencedProjectContext", () => {
   test("falls back safely while the Project list is loading", () => {
     const context = resolveReferencedProjectContext("target-project", []);
     expect(context.projectName).toBe("target-project");
-    expect(context.projectWorkspacePath === null).toBeTrue();
+    expect(context.projectWorkspacePath === null).toBe(true);
   });
 });

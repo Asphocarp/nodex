@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   createCardDocumentGenesis,
@@ -120,7 +120,7 @@ describe("Block subtree relocation", () => {
       target: { parentBlockId: "parent", beforeBlockId: "y" },
     });
 
-    expect(result.sameDocument).toBeFalse();
+    expect(result.sameDocument).toBe(false);
     expect(result.forest.rootBlockIds.join(",")).toBe("a,c");
     expect(result.sourceBlockIdsAfter.join(",")).toBe("b");
     expect(result.targetBlockIdsAfter.join(",")).toBe(
@@ -175,7 +175,7 @@ describe("Block subtree relocation", () => {
       target: { parentBlockId: "destination" },
     });
 
-    expect(result.sameDocument).toBeTrue();
+    expect(result.sameDocument).toBe(true);
     expect(result.sourceBlockIdsBefore.join(",")).toBe(
       "destination,first,second",
     );

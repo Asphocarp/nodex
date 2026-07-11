@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, useEffect, useState } from "react";
 import { render } from "@/test/dom";
@@ -43,38 +43,38 @@ describe("codex tooltip", () => {
     });
 
     expect(view.getByText("Hover me").tagName).toBe("BUTTON");
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(tooltipIsMounted()).toBe(false);
 
     await act(async () => {
       dismissNodexTooltips();
     });
 
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(tooltipIsMounted()).toBe(false);
   });
 
   test("dismisses an open uncontrolled tooltip through the shared dismiss event", async () => {
     await renderOpenTooltip();
 
-    expect(tooltipIsMounted()).toBeTrue();
+    expect(tooltipIsMounted()).toBe(true);
 
     await act(async () => {
       dismissNodexTooltips();
     });
 
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(tooltipIsMounted()).toBe(false);
   });
 
   test("dismisses an open tooltip without remounting the trigger", async () => {
     const view = await renderOpenTooltip();
     const triggerBefore = view.getByRole("button", { name: "Hover me" });
 
-    expect(tooltipIsMounted()).toBeTrue();
+    expect(tooltipIsMounted()).toBe(true);
 
     await act(async () => {
       dismissNodexTooltips();
     });
 
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(tooltipIsMounted()).toBe(false);
     expect(view.getByRole("button", { name: "Hover me" })).toBe(triggerBefore);
   });
 
@@ -124,19 +124,19 @@ describe("codex tooltip", () => {
   test("dismisses open tooltips when the window blurs", async () => {
     await renderOpenTooltip();
 
-    expect(tooltipIsMounted()).toBeTrue();
+    expect(tooltipIsMounted()).toBe(true);
 
     await act(async () => {
       window.dispatchEvent(new Event("blur"));
     });
 
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(tooltipIsMounted()).toBe(false);
   });
 
   test("dismisses open tooltips when the document becomes hidden", async () => {
     await renderOpenTooltip();
 
-    expect(tooltipIsMounted()).toBeTrue();
+    expect(tooltipIsMounted()).toBe(true);
 
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, "visibilityState", {
@@ -155,7 +155,7 @@ describe("codex tooltip", () => {
       });
     }
 
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(tooltipIsMounted()).toBe(false);
   });
 
   test("notifies controlled tooltips when global dismissal requests close", async () => {
@@ -184,14 +184,14 @@ describe("codex tooltip", () => {
       render(<ControlledTooltip />);
     });
 
-    expect(tooltipIsMounted()).toBeTrue();
+    expect(tooltipIsMounted()).toBe(true);
 
     await act(async () => {
       dismissNodexTooltips();
     });
 
     expect(openChanges.length).toBe(1);
-    expect(openChanges[0]).toBeFalse();
-    expect(tooltipIsMounted()).toBeFalse();
+    expect(openChanges[0]).toBe(false);
+    expect(tooltipIsMounted()).toBe(false);
   });
 });

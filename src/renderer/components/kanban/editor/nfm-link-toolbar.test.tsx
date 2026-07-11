@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -21,7 +21,7 @@ let createLinkButtonState:
     }
   | undefined;
 
-mock.module("./nfm-link-toolbar-deps", () => ({
+vi.mock("./nfm-link-toolbar-deps", () => ({
   useFileLinkOpener: () => ({
     opener: () => undefined,
   }),
@@ -102,7 +102,7 @@ describe("NfmLinkToolbar", () => {
       </NodexTooltipProvider>,
     );
 
-    expect(Boolean(view.getByRole("button", { name: "Add link" }))).toBeTrue();
+    expect(Boolean(view.getByRole("button", { name: "Add link" }))).toBe(true);
 
     createLinkButtonState = undefined;
 
@@ -115,7 +115,7 @@ describe("NfmLinkToolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(view.queryByRole("button", { name: "Add link" }) === null).toBeTrue();
+    expect(view.queryByRole("button", { name: "Add link" }) === null).toBe(true);
   });
 
   test("opens the create-link dialog from a custom render trigger", async () => {
@@ -148,7 +148,7 @@ describe("NfmLinkToolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("nfm-create-link-dialog"))).toBeTrue();
+    expect(Boolean(view.getByTestId("nfm-create-link-dialog"))).toBe(true);
   });
 
   test("keeps the edit dialog open for the current link after clicking edit", async () => {
@@ -173,8 +173,8 @@ describe("NfmLinkToolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBeTrue();
-    expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBeTrue();
+    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
+    expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBe(true);
   });
 
   test("keeps the edit dialog mounted across parent rerenders when the wrapper component identity is stable", async () => {
@@ -224,7 +224,7 @@ describe("NfmLinkToolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBeTrue();
-    expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBeTrue();
+    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
+    expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBe(true);
   });
 });

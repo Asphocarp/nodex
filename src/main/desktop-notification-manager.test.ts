@@ -1,7 +1,7 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import type { DesktopNotificationActionPayload } from "../shared/types";
 
-mock.module("electron", () => ({
+vi.mock("electron", () => ({
   Notification: class Notification {
     static isSupported() {
       return true;
@@ -81,13 +81,13 @@ describe("DesktopNotificationManager", () => {
       conversationId: "thread-1",
     }, createOriginWebContents(8), () => undefined);
 
-    expect(constructorOptions[0]?.hasReply).toBeTrue();
+    expect(constructorOptions[0]?.hasReply).toBe(true);
     expect(constructorOptions[0]?.replyPlaceholder).toBe("Reply to Codex");
     expect(String(constructorOptions[0]?.actions?.length ?? 0)).toBe("4");
-    expect(constructorOptions[1]?.hasReply === true).toBeFalse();
+    expect(constructorOptions[1]?.hasReply === true).toBe(false);
     expect(constructorOptions[1]?.timeoutType).toBe("never");
-    expect(notifications[0]?.shown).toBeTrue();
-    expect(notifications[1]?.shown).toBeTrue();
+    expect(notifications[0]?.shown).toBe(true);
+    expect(notifications[1]?.shown).toBe(true);
   });
 
   test("routes click, action, and reply events and dismisses notifications by conversation id", async () => {
@@ -133,6 +133,6 @@ describe("DesktopNotificationManager", () => {
     expect(actions[2]?.reply).toBe("Ship it");
 
     manager.dismissByConversationId("thread-1");
-    expect(notifications[0]?.closed).toBeTrue();
+    expect(notifications[0]?.closed).toBe(true);
   });
 });

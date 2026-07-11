@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { copyImageToClipboardWithInvoke } from "./copy-image";
 
@@ -13,7 +13,7 @@ describe("copy image helper", () => {
       },
     );
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
       ["clipboard:write-image", { source: "nodex://assets/diagram.png" }],
     ]));
@@ -25,7 +25,7 @@ describe("copy image helper", () => {
       async () => ({ ok: false, message: "Could not load the image file." }),
     );
 
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     expect("message" in result ? result.message : "").toBe("Could not load the image file.");
   });
 
@@ -37,7 +37,7 @@ describe("copy image helper", () => {
       },
     );
 
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     expect("message" in result ? result.message : "").toBe("boom");
   });
 });

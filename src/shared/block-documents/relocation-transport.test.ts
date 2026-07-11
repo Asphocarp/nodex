@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   RelocationCommandError,
   RelocationIntent,
@@ -89,7 +89,7 @@ describe("Block relocation HTTP transport", () => {
       throws(() =>
         decodeRelocationHttpRequest(encoded, "project-2", "document-a"),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("round-trips both binary Document commits without base64 metadata", () => {
@@ -117,9 +117,9 @@ describe("Block relocation HTTP transport", () => {
       intent,
     );
 
-    expect(decoded.duplicate).toBeTrue();
-    expect(decoded.sourceCommit.update === null).toBeTrue();
-    expect(decoded.targetCommit?.update === null).toBeTrue();
+    expect(decoded.duplicate).toBe(true);
+    expect(decoded.sourceCommit.update === null).toBe(true);
+    expect(decoded.targetCommit?.update === null).toBe(true);
   });
 
   test("rejects a response from a different logical move", () => {
@@ -130,7 +130,7 @@ describe("Block relocation HTTP transport", () => {
           target: { ...intent.target, documentId: "document-c" },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("round-trips typed relocation failures", () => {

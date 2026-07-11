@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { planCanvasSceneFileProjections } from "./block-document-projections";
 
 describe("Canvas scene asset projection planner", () => {
@@ -41,10 +41,10 @@ describe("Canvas scene asset projection planner", () => {
     const unchanged = plans.find((plan) => plan.fileId === "unchanged");
     const changed = plans.find((plan) => plan.fileId === "changed");
     const added = plans.find((plan) => plan.fileId === "added");
-    expect(unchanged?.requiresAssetRead).toBeFalse();
+    expect(unchanged?.requiresAssetRead).toBe(false);
     expect(unchanged?.reusableAssetHash).toBe("a".repeat(64));
     expect(unchanged?.reusableByteLength).toBe(42);
-    expect(changed?.requiresAssetRead).toBeTrue();
-    expect(added?.requiresAssetRead).toBeTrue();
+    expect(changed?.requiresAssetRead).toBe(true);
+    expect(added?.requiresAssetRead).toBe(true);
   });
 });

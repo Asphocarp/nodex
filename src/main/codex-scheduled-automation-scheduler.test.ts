@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexScheduledAutomation } from "../shared/types";
 import {
   CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS,
@@ -98,12 +98,12 @@ describe("codex scheduled automation scheduler", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(intervalMs).toBe(CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS);
-    expect(unrefCalled).toBeTrue();
+    expect(unrefCalled).toBe(true);
     expect(runsUpdated).toBe(1);
     expect(JSON.stringify(runIds)).toBe(JSON.stringify(["first", "second", "third"]));
 
     scheduler.dispose();
-    expect(cleared).toBeTrue();
+    expect(cleared).toBe(true);
   });
 
   test("skips overlapping ticks while a run is active", async () => {
@@ -170,7 +170,7 @@ describe("codex scheduled automation scheduler", () => {
     const initial = contexts[0] as {
       heartbeat?: { automationsEnabled?: boolean };
     };
-    expect(initial.heartbeat?.automationsEnabled).toBeFalse();
+    expect(initial.heartbeat?.automationsEnabled).toBe(false);
 
     scheduler.setHeartbeatThreadRendererState({
       threadId: "thread-follow-up",
@@ -201,8 +201,8 @@ describe("codex scheduled automation scheduler", () => {
         permissions?: { approvalPolicy?: string | null } | null;
       };
     };
-    expect(enabled.heartbeat?.automationsEnabled).toBeTrue();
-    expect(enabled.heartbeat?.rendererState?.isEligible).toBeTrue();
+    expect(enabled.heartbeat?.automationsEnabled).toBe(true);
+    expect(enabled.heartbeat?.rendererState?.isEligible).toBe(true);
     expect(enabled.heartbeat?.rendererState?.reason).toBe(null);
     expect(enabled.heartbeat?.collaborationMode).toBe("plan");
     expect(enabled.heartbeat?.permissions?.approvalPolicy).toBe("on-request");

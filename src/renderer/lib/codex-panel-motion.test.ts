@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION,
   CODEX_SUMMARY_SHIFT_X,
@@ -72,32 +72,32 @@ describe("Codex panel motion helpers", () => {
     expect(resolveCodexHeaderEdgeScroll({
       layout: "thread-edge-scroll",
       mainContentWidth: 1535,
-    })).toBeFalse();
+    })).toBe(false);
     expect(resolveCodexHeaderEdgeScroll({
       layout: "thread-edge-scroll",
       mainContentWidth: 1536,
-    })).toBeTrue();
+    })).toBe(true);
     expect(resolveCodexHeaderEdgeScroll({
       layout: "thread-edge-scroll",
       mainContentWidth: 1536,
       rightPanelFullWidth: true,
-    })).toBeFalse();
+    })).toBe(false);
     expect(resolveCodexHeaderEdgeScroll({
       layout: "full-bleed",
       mainContentWidth: 1536,
-    })).toBeFalse();
+    })).toBe(false);
     expect(resolveCodexMainContentFrameBorder({
       rightPanelOpen: false,
       headerEdgeScroll: true,
-    })).toBeFalse();
+    })).toBe(false);
     expect(resolveCodexMainContentFrameBorder({
       rightPanelOpen: true,
       headerEdgeScroll: true,
-    })).toBeTrue();
+    })).toBe(true);
     expect(resolveCodexMainContentFrameBorder({
       rightPanelOpen: false,
       headerEdgeScroll: false,
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("applies Codex shift only for pinned shift mode", () => {
@@ -109,9 +109,9 @@ describe("Codex panel motion helpers", () => {
   });
 
   test("snaps panel motion for reduced motion or explicit non-animated updates", () => {
-    expect(shouldSnapCodexMotion(true, true)).toBeTrue();
-    expect(shouldSnapCodexMotion(false, false)).toBeTrue();
-    expect(shouldSnapCodexMotion(null, true)).toBeFalse();
-    expect(shouldSnapCodexMotion(false, true)).toBeFalse();
+    expect(shouldSnapCodexMotion(true, true)).toBe(true);
+    expect(shouldSnapCodexMotion(false, false)).toBe(true);
+    expect(shouldSnapCodexMotion(null, true)).toBe(false);
+    expect(shouldSnapCodexMotion(false, true)).toBe(false);
   });
 });

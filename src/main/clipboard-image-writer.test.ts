@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 
 class FakeImage {
@@ -26,7 +26,7 @@ describe("clipboard image writer", () => {
       },
     });
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(writeCalls.length).toBe(1);
   });
 
@@ -45,7 +45,7 @@ describe("clipboard image writer", () => {
       },
     });
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(writeCalls.length).toBe(1);
   });
 
@@ -69,7 +69,7 @@ describe("clipboard image writer", () => {
       resolveAssetPath: (fileName) => fileName,
     });
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(writeCalls.length).toBe(1);
   });
 
@@ -93,7 +93,7 @@ describe("clipboard image writer", () => {
       resolveAssetPath: (fileName) => fileName,
     });
 
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     expect("message" in result ? result.message : "").toBe("Could not decode this image format for clipboard copy.");
     expect(writeCalls.length).toBe(0);
   });
@@ -115,7 +115,7 @@ describe("clipboard image writer", () => {
       resolveAssetPath: (fileName) => fileName,
     });
 
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     expect("message" in result ? result.message : "").toBe("Could not copy image.");
   });
 });

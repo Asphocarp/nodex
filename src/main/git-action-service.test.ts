@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   cancelGitAction,
   commitGitChanges,
@@ -76,9 +76,9 @@ describe("git-action-service", () => {
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
 
     const before = await readGitActionStatus({ cwd: repo });
-    expect(before.isGitRepository).toBeTrue();
-    expect(before.hasUncommittedChanges).toBeTrue();
-    expect(before.canCommit).toBeTrue();
+    expect(before.isGitRepository).toBe(true);
+    expect(before.hasUncommittedChanges).toBe(true);
+    expect(before.canCommit).toBe(true);
 
     const result = await commitGitChanges({
       cwd: repo,
@@ -90,7 +90,7 @@ describe("git-action-service", () => {
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
     expect(log.stdout.trim()).toBe("feat: add feature file");
     const after = await readGitActionStatus({ cwd: repo });
-    expect(after.hasUncommittedChanges).toBeFalse();
+    expect(after.hasUncommittedChanges).toBe(false);
   });
 
   test("generates a commit message with the provided generator when the input message is blank", async () => {
@@ -113,10 +113,10 @@ describe("git-action-service", () => {
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
     expect(log.stdout.trim()).toBe("feat: generated feature");
-    expect(capturedPrompt.includes("Changes:")).toBeTrue();
-    expect(capturedPrompt.includes("diff --git")).toBeTrue();
-    expect(capturedPrompt.includes("feature.txt")).toBeTrue();
-    expect(capturedPrompt.includes("Testing note:")).toBeTrue();
+    expect(capturedPrompt.includes("Changes:")).toBe(true);
+    expect(capturedPrompt.includes("diff --git")).toBe(true);
+    expect(capturedPrompt.includes("feature.txt")).toBe(true);
+    expect(capturedPrompt.includes("Testing note:")).toBe(true);
   });
 
   test("falls back to a local subject when no commit message generator is provided", async () => {
@@ -154,12 +154,12 @@ describe("git-action-service", () => {
 
     expect(result.status).toBe("success");
     expect(result.message).toBe("feat: generated feature");
-    expect(capturedPrompt.includes("Changes:")).toBeTrue();
-    expect(capturedPrompt.includes("feature.txt")).toBeTrue();
+    expect(capturedPrompt.includes("Changes:")).toBe(true);
+    expect(capturedPrompt.includes("feature.txt")).toBe(true);
 
     const after = await readGitActionStatus({ cwd: repo });
-    expect(after.hasStagedChanges).toBeTrue();
-    expect(after.hasUncommittedChanges).toBeTrue();
+    expect(after.hasStagedChanges).toBe(true);
+    expect(after.hasUncommittedChanges).toBe(true);
   });
 
   test("generates a pull request title and body from branch diff context", async () => {
@@ -200,11 +200,11 @@ describe("git-action-service", () => {
     expect(result.status).toBe("success");
     expect(result.title).toBe("Generated PR title");
     expect(result.body).toBe("Generated PR body");
-    expect(capturedPrompt.includes("Branches:")).toBeTrue();
-    expect(capturedPrompt.includes("- Head: feature/summary-panel")).toBeTrue();
-    expect(capturedPrompt.includes("- Base: main")).toBeTrue();
-    expect(capturedPrompt.includes("Changes:")).toBeTrue();
-    expect(capturedPrompt.includes("feature.txt")).toBeTrue();
+    expect(capturedPrompt.includes("Branches:")).toBe(true);
+    expect(capturedPrompt.includes("- Head: feature/summary-panel")).toBe(true);
+    expect(capturedPrompt.includes("- Base: main")).toBe(true);
+    expect(capturedPrompt.includes("Changes:")).toBe(true);
+    expect(capturedPrompt.includes("feature.txt")).toBe(true);
   });
 
   test("does not commit when generated commit message is empty", async () => {
@@ -224,7 +224,7 @@ describe("git-action-service", () => {
     expect(result.errorMessage).toBe("Couldn't generate a commit message");
 
     const after = await readGitActionStatus({ cwd: repo });
-    expect(after.hasUncommittedChanges).toBeTrue();
+    expect(after.hasUncommittedChanges).toBe(true);
   });
 
   test("cancels an active commit operation by operation id", async () => {
@@ -247,7 +247,7 @@ describe("git-action-service", () => {
     const cancelResult = cancelGitAction({ operationId });
     const result = await pendingCommit;
 
-    expect(cancelResult.canceled).toBeTrue();
+    expect(cancelResult.canceled).toBe(true);
     expect(result.status).toBe("error");
     expect(result.errorMessage).toBe("Git action was canceled.");
   });
@@ -266,15 +266,15 @@ describe("git-action-service", () => {
     });
 
     const before = await readGitActionStatus({ cwd: repo });
-    expect(before.canPush).toBeTrue();
-    expect(before.pushNeedsUpstream).toBeTrue();
+    expect(before.canPush).toBe(true);
+    expect(before.pushNeedsUpstream).toBe(true);
 
     const result = await pushGitChanges({ cwd: repo });
 
     expect(result.status).toBe("success");
     const after = await readGitActionStatus({ cwd: repo });
-    expect(after.pushNeedsUpstream).toBeFalse();
-    expect(Boolean(after.upstreamBranch)).toBeTrue();
+    expect(after.pushNeedsUpstream).toBe(false);
+    expect(Boolean(after.upstreamBranch)).toBe(true);
     expect(after.commitsAhead).toBe(0);
   });
 });

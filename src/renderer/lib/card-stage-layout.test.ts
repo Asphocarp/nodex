@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   readCardStageContentWidthPreference,
   readCardStageShowRawContentPreference,
@@ -34,7 +34,7 @@ describe("card-stage layout", () => {
 
   test("defaults to limiting the main content width", () => {
     withMockLocalStorage(() => {
-      expect(readCardStageContentWidthPreference()).toBeTrue();
+      expect(readCardStageContentWidthPreference()).toBe(true);
     });
   });
 
@@ -42,13 +42,13 @@ describe("card-stage layout", () => {
     withMockLocalStorage(() => {
       writeCardStageContentWidthPreference(false);
 
-      expect(readCardStageContentWidthPreference()).toBeFalse();
+      expect(readCardStageContentWidthPreference()).toBe(false);
     });
   });
 
   test("defaults to hiding raw content mode", () => {
     withMockLocalStorage(() => {
-      expect(readCardStageShowRawContentPreference()).toBeFalse();
+      expect(readCardStageShowRawContentPreference()).toBe(false);
     });
   });
 
@@ -57,8 +57,8 @@ describe("card-stage layout", () => {
       writeCardStageContentWidthPreference(false);
       writeCardStageShowRawContentPreference(true);
 
-      expect(readCardStageContentWidthPreference()).toBeFalse();
-      expect(readCardStageShowRawContentPreference()).toBeTrue();
+      expect(readCardStageContentWidthPreference()).toBe(false);
+      expect(readCardStageShowRawContentPreference()).toBe(true);
     });
   });
 });

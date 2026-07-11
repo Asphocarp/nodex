@@ -158,7 +158,7 @@ export function reconstructDescription(
   `).all(...hashes) as DescriptionBlockRow[];
   const byHash = new Map(rows.map((row) => [row.hash, row.content]));
   const blocks = hashes.map((hash) => byHash.get(hash) ?? "");
-  return blocks.join("\n");
+  return blocks.join("\n\n");
 }
 
 export function buildDescriptionSnapshotView(

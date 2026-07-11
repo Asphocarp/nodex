@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -75,7 +75,7 @@ describe("moveCards", () => {
       expect(new Set(groupedEntries.map((entry) => entry.groupId)).size).toBe(1);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("undo restores original order for same-column grouped moves", async () => {
@@ -97,7 +97,7 @@ describe("moveCards", () => {
       expect(result).toBe("moved");
 
       const undoResult = undoLatest(projectId, "session-move-many-same-column-undo");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       const board = await getBoard(projectId);
       const column = board.columns.find((entry) => entry.id === "in_progress");
@@ -105,7 +105,7 @@ describe("moveCards", () => {
       expect(column?.cards.map((card) => card.order).join(",")).toBe("0,1,2,3");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("moves cards to another column and undoes the group in one step", async () => {
@@ -138,7 +138,7 @@ describe("moveCards", () => {
       expect(groupedEntries.length).toBe(2);
 
       const undoResult = undoLatest(projectId, "session-move-many-cross-column");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       board = await getBoard(projectId);
       sourceColumn = board.columns.find((entry) => entry.id === "in_progress");
@@ -148,7 +148,7 @@ describe("moveCards", () => {
       expect(targetColumn?.cards.map((card) => card.title).join(",")).toBe("Existing review");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("moves a cross-column selection into one target column in board order", async () => {
@@ -178,7 +178,7 @@ describe("moveCards", () => {
       expect(doneColumn?.cards.map((card) => card.title).join(",")).toBe("In Progress 1,Review 1");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("applies a grouped priority patch and restores it on undo", async () => {
@@ -211,7 +211,7 @@ describe("moveCards", () => {
       );
 
       const undoResult = undoLatest(projectId, "session-move-many-with-patch");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       board = await getBoard(projectId);
       column = board.columns.find((entry) => entry.id === "in_progress");
@@ -220,7 +220,7 @@ describe("moveCards", () => {
       );
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("skips history writes for a no-op drag with an unchanged patch", async () => {
@@ -247,6 +247,6 @@ describe("moveCards", () => {
       expect(matchingEntries.length).toBe(0);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

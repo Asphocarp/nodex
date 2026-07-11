@@ -1,5 +1,5 @@
 import { act } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ReactNode } from "react";
 import {
   useCardStageController,
@@ -306,8 +306,8 @@ describe("useCardStageController", () => {
 
     expect(updatesSeen.length).toBe(1);
     expect(updatesSeen[0]?.priority).toBe("p1-high");
-    expect(Object.hasOwn(updatesSeen[0] ?? {}, "title")).toBeFalse();
-    expect(Object.hasOwn(updatesSeen[0] ?? {}, "description")).toBeFalse();
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "title")).toBe(false);
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "description")).toBe(false);
     result.view.unmount();
   });
 
@@ -378,8 +378,8 @@ describe("useCardStageController", () => {
     await settleAsyncRender();
 
     expect(updatesSeen.length).toBe(1);
-    expect(Object.hasOwn(updatesSeen[0] ?? {}, "title")).toBeTrue();
-    expect(Object.hasOwn(updatesSeen[0] ?? {}, "description")).toBeTrue();
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "title")).toBe(true);
+    expect(Object.hasOwn(updatesSeen[0] ?? {}, "description")).toBe(true);
 
     result.rerender(buildProps({
       ...legacyProps,
@@ -392,8 +392,8 @@ describe("useCardStageController", () => {
     await settleAsyncRender();
 
     expect(updatesSeen.length).toBe(2);
-    expect(Object.hasOwn(updatesSeen[1] ?? {}, "title")).toBeFalse();
-    expect(Object.hasOwn(updatesSeen[1] ?? {}, "description")).toBeFalse();
+    expect(Object.hasOwn(updatesSeen[1] ?? {}, "title")).toBe(false);
+    expect(Object.hasOwn(updatesSeen[1] ?? {}, "description")).toBe(false);
     result.view.unmount();
   });
 
@@ -421,7 +421,7 @@ describe("useCardStageController", () => {
       await result.controller.handleClose();
     });
 
-    expect(flushCount > 0).toBeTrue();
+    expect(flushCount > 0).toBe(true);
     expect(updatesSeen.length).toBe(1);
     expect(updatesSeen[0]?.description).toBe("Flushed body");
     result.view.unmount();
@@ -444,7 +444,7 @@ describe("useCardStageController", () => {
       result.controller.handleToggleShowRawContent();
     });
 
-    expect(flushCount > 0).toBeTrue();
+    expect(flushCount > 0).toBe(true);
     result.view.unmount();
   });
 
@@ -689,8 +689,8 @@ describe("useCardStageController", () => {
     const view = render(<Harness />);
     await settleAsyncRender();
 
-    expect(closeRef.current === null).toBeFalse();
-    expect(persistRef.current === null).toBeFalse();
+    expect(closeRef.current === null).toBe(false);
+    expect(persistRef.current === null).toBe(false);
     expect(sessionSnapshotRef.current?.cardId).toBe("active-card");
 
     await act(async () => {
@@ -816,7 +816,7 @@ describe("useCardStageController", () => {
     });
     await settleAsyncRender();
 
-    expect(flushCount > 0).toBeTrue();
+    expect(flushCount > 0).toBe(true);
     expect(updatesSeen.length).toBe(1);
     expect(updatesSeen[0]?.description).toBe("Persisted on deactivate");
     result.view.unmount();

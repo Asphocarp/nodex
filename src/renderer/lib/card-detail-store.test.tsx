@@ -1,5 +1,5 @@
 import { act, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { render } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import {
@@ -70,7 +70,7 @@ describe("card detail store", () => {
       await Promise.resolve();
     });
 
-    expect(getCardDetail("project-1", "card-1") === newerCard).toBeTrue();
+    expect(getCardDetail("project-1", "card-1") === newerCard).toBe(true);
     expect(view.getByTestId("detail-title").textContent).toBe("Newer title");
     expect(renderCount).toBe(1);
     view.unmount();
@@ -105,7 +105,7 @@ describe("card detail store", () => {
       await Promise.resolve();
     });
 
-    expect(getCardDetail("project-1", "card-1") === cachedCard).toBeTrue();
+    expect(getCardDetail("project-1", "card-1") === cachedCard).toBe(true);
     expect(view.getByTestId("detail-title").textContent).toBe("Cached title");
     expect(renderCount).toBe(1);
     view.unmount();

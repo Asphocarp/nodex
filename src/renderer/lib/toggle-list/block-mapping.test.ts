@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   blockToCardPatch,
   cardToToggleBlock,
@@ -53,17 +53,17 @@ describe("toggle-list block mapping", () => {
     const blockA = cardToToggleBlock("proj-a", makeCard({ id: "a" }), ["priority", "estimate", "status"], []);
     const blockB = cardToToggleBlock("proj-a", makeCard({ id: "b" }), ["priority", "estimate", "status"], []);
 
-    expect(hasCardToggleStructure([blockA, blockB], ["a", "b"])).toBeTrue();
-    expect(hasCardToggleStructure([blockA, blockB], ["b", "a"])).toBeFalse();
-    expect(hasCardToggleStructure([blockA], ["a", "b"])).toBeFalse();
+    expect(hasCardToggleStructure([blockA, blockB], ["a", "b"])).toBe(true);
+    expect(hasCardToggleStructure([blockA, blockB], ["b", "a"])).toBe(false);
+    expect(hasCardToggleStructure([blockA], ["a", "b"])).toBe(false);
   });
 
   test("hasCardToggleStructure treats empty expected list as valid when no card toggles remain", () => {
     const paragraphBlock = { id: "note", type: "paragraph", content: "No cards", children: [] };
     const cardBlock = cardToToggleBlock("proj-a", makeCard({ id: "a" }), ["priority", "estimate", "status"], []);
 
-    expect(hasCardToggleStructure([paragraphBlock], [])).toBeTrue();
-    expect(hasCardToggleStructure([cardBlock], [])).toBeFalse();
+    expect(hasCardToggleStructure([paragraphBlock], [])).toBe(true);
+    expect(hasCardToggleStructure([cardBlock], [])).toBe(false);
   });
 
   test("cardToToggleBlock collects toggle states when requested", () => {

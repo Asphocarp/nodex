@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
   applyPreviewToScheduledEvents,
@@ -27,7 +27,7 @@ describe("calendar event interaction", () => {
       gridPosition: { dayIndex: 2, slot: 40 },
     });
 
-    expect(resolved.activated).toBeTrue();
+    expect(resolved.activated).toBe(true);
     expect(JSON.stringify(resolved.preview)).toBe(
       JSON.stringify({
         eventId: "event-1",
@@ -53,7 +53,7 @@ describe("calendar event interaction", () => {
       gridPosition: { dayIndex: 2, slot: 40 },
     });
 
-    expect(resolved.activated).toBeFalse();
+    expect(resolved.activated).toBe(false);
     expect(resolved.preview).toBe(null);
   });
 
@@ -87,7 +87,7 @@ describe("calendar event interaction", () => {
       gridPosition: { dayIndex: 1, slot: 43 },
     });
 
-    expect(startResolved.activated).toBeTrue();
+    expect(startResolved.activated).toBe(true);
     expect(JSON.stringify(startResolved.preview)).toBe(
       JSON.stringify({
         eventId: "event-1",
@@ -96,7 +96,7 @@ describe("calendar event interaction", () => {
       }),
     );
 
-    expect(endResolved.activated).toBeTrue();
+    expect(endResolved.activated).toBe(true);
     expect(JSON.stringify(endResolved.preview)).toBe(
       JSON.stringify({
         eventId: "event-1",
@@ -122,7 +122,7 @@ describe("calendar event interaction", () => {
       gridPosition: { dayIndex: 0, slot: 95 },
     });
 
-    expect(resolved.activated).toBeTrue();
+    expect(resolved.activated).toBe(true);
     expect(JSON.stringify(resolved.preview?.range)).toBe(
       JSON.stringify({ startSlot: 92, endSlot: 95 }),
     );
@@ -140,13 +140,13 @@ describe("calendar event interaction", () => {
       range: { startSlot: 39, endSlot: 42 },
     };
 
-    expect(areCalendarEventPreviewsEqual(left, right)).toBeTrue();
+    expect(areCalendarEventPreviewsEqual(left, right)).toBe(true);
     expect(
       areCalendarEventPreviewsEqual(left, {
         ...right,
         range: { startSlot: 39, endSlot: 43 },
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("move drag preview freezes lane-driving schedule updates", () => {
@@ -203,7 +203,7 @@ describe("calendar event interaction", () => {
         { eventId: "event-1", mode: "move" },
         preview,
       ),
-    ).toBeTrue();
+    ).toBe(true);
 
     const overlay = resolveMovePreviewOverlayEvent(byId, preview, visibleDays, {
       isMovePreviewActive: true,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   findInlineContentForBlock,
   selectCurrentBlockContent,
@@ -62,8 +62,8 @@ describe("select block shortcut", () => {
       selection,
     );
 
-    expect(didSelect).toBeTrue();
-    expect(removedRanges).toBeTrue();
+    expect(didSelect).toBe(true);
+    expect(removedRanges).toBe(true);
     expect(addedRange).toBe(range);
     expect(selectedNode).toBe(inlineContent);
   });
@@ -88,6 +88,6 @@ describe("select block shortcut", () => {
       selection,
     );
 
-    expect(didSelect).toBeFalse();
+    expect(didSelect).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import type { CardInput } from "../../shared/types";
 import { MAX_CARD_DESCRIPTION_LENGTH, MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";

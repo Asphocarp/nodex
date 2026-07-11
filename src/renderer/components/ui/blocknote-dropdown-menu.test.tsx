@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,8 +28,8 @@ describe("BlockNote shadcn dropdown menu", () => {
     const host = view.getByTestId("menu-host");
     const parentMenu = view.getByTestId("parent-menu");
 
-    expect(host.contains(parentMenu)).toBeFalse();
-    expect(document.body.contains(parentMenu)).toBeTrue();
+    expect(host.contains(parentMenu)).toBe(false);
+    expect(document.body.contains(parentMenu)).toBe(true);
   });
 
   test("portals submenu content outside the parent dropdown clipping container", async () => {
@@ -55,8 +55,8 @@ describe("BlockNote shadcn dropdown menu", () => {
     const parentMenu = view.getByTestId("parent-menu");
     const submenu = view.getByTestId("color-submenu");
 
-    expect(parentMenu.contains(submenu)).toBeFalse();
-    expect(host.contains(submenu)).toBeFalse();
-    expect(document.body.contains(submenu)).toBeTrue();
+    expect(parentMenu.contains(submenu)).toBe(false);
+    expect(host.contains(submenu)).toBe(false);
+    expect(document.body.contains(submenu)).toBe(true);
   });
 });

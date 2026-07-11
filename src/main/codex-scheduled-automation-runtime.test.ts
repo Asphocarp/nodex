@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
   buildCodexScheduledAutomationHeartbeatPrompt,
@@ -54,12 +54,12 @@ function makeModel(
 
 describe("codex scheduled automation runtime helpers", () => {
   test("uses the automation memory and final directive developer contract", () => {
-    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Response MUST end with a remark-directive block.")).toBeTrue();
-    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("use the memory file at `$CODEX_HOME/automations/<automation_id>/memory.md` (create it if missing)")).toBeTrue();
-    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Read it first (if present) to avoid repeating recent work")).toBeTrue();
-    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Before returning the directive, write a concise summary of what you did/decided plus the current run time.")).toBeTrue();
-    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Output exactly ONE inbox-item directive.")).toBeTrue();
-    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Invalid: `::inbox-item{title=\"Sample title\",summary=\"Place description here\"}`")).toBeTrue();
+    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Response MUST end with a remark-directive block.")).toBe(true);
+    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("use the memory file at `$CODEX_HOME/automations/<automation_id>/memory.md` (create it if missing)")).toBe(true);
+    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Read it first (if present) to avoid repeating recent work")).toBe(true);
+    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Before returning the directive, write a concise summary of what you did/decided plus the current run time.")).toBe(true);
+    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Output exactly ONE inbox-item directive.")).toBe(true);
+    expect(CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS.includes("Invalid: `::inbox-item{title=\"Sample title\",summary=\"Place description here\"}`")).toBe(true);
   });
 
   test("builds the first turn prompt with automation identity, memory path, and previous last run", () => {
@@ -67,15 +67,15 @@ describe("codex scheduled automation runtime helpers", () => {
       lastRunAt: Date.UTC(2026, 6, 8, 1, 2, 3),
     }));
 
-    expect(prompt.startsWith("Automation: Daily report\nAutomation ID: daily-report\n")).toBeTrue();
-    expect(prompt.includes("Automation memory: $CODEX_HOME/automations/daily-report/memory.md")).toBeTrue();
-    expect(prompt.includes("Last run: 2026-07-08T01:02:03.000Z (1783472523000)")).toBeTrue();
-    expect(prompt.endsWith("\n\nSummarize the repo.")).toBeTrue();
+    expect(prompt.startsWith("Automation: Daily report\nAutomation ID: daily-report\n")).toBe(true);
+    expect(prompt.includes("Automation memory: $CODEX_HOME/automations/daily-report/memory.md")).toBe(true);
+    expect(prompt.includes("Last run: 2026-07-08T01:02:03.000Z (1783472523000)")).toBe(true);
+    expect(prompt.endsWith("\n\nSummarize the repo.")).toBe(true);
   });
 
   test("uses never for automations without a previous run", () => {
     const prompt = buildCodexScheduledAutomationRunPrompt(makeAutomation());
-    expect(prompt.includes("Last run: never")).toBeTrue();
+    expect(prompt.includes("Last run: never")).toBe(true);
   });
 
   test("builds the heartbeat follow-up prompt with automation identity and current time", () => {
@@ -128,10 +128,10 @@ describe("codex scheduled automation runtime helpers", () => {
       workspaceBrowserRoot: "/Users/test/Documents/Codex",
     });
 
-    expect(instructions.includes("### Projectless Chat")).toBeTrue();
-    expect(instructions.includes("Use work/ for intermediate files")).toBeTrue();
-    expect(instructions.includes("/Users/test/Documents/Codex/2026-07-08/daily/outputs")).toBeTrue();
-    expect(instructions.includes("Do not write directly in the home directory")).toBeTrue();
+    expect(instructions.includes("### Projectless Chat")).toBe(true);
+    expect(instructions.includes("Use work/ for intermediate files")).toBe(true);
+    expect(instructions.includes("/Users/test/Documents/Codex/2026-07-08/daily/outputs")).toBe(true);
+    expect(instructions.includes("Do not write directly in the home directory")).toBe(true);
   });
 
   test("uses the requested available model and reasoning effort", () => {

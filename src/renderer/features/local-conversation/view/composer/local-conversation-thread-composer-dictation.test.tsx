@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { render } from "../../../../test/dom";
@@ -279,7 +279,7 @@ describe("ThreadComposer dictation", () => {
       },
     });
 
-    expect((getByLabelText("Dictate") as HTMLButtonElement).disabled).toBeTrue();
+    expect((getByLabelText("Dictate") as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("starts on click and inserts the transcript on stop", async () => {
@@ -298,7 +298,7 @@ describe("ThreadComposer dictation", () => {
       fireEvent.click(getByLabelText("Dictate"));
     });
     await waitFor(() => {
-      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBeTrue();
+      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
     });
 
     await act(async () => {
@@ -332,7 +332,7 @@ describe("ThreadComposer dictation", () => {
       fireEvent.keyDown(document, { key: "m", ctrlKey: true });
     });
     await waitFor(() => {
-      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBeTrue();
+      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
     });
 
     await act(async () => {
@@ -372,7 +372,7 @@ describe("ThreadComposer dictation", () => {
       fireEvent.click(getByLabelText("Dictate"));
     });
     await waitFor(() => {
-      expect(Boolean(document.querySelector('[aria-label="Transcribe and send"]'))).toBeTrue();
+      expect(Boolean(document.querySelector('[aria-label="Transcribe and send"]'))).toBe(true);
     });
 
     await act(async () => {

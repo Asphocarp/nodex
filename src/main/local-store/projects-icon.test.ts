@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,7 +52,7 @@ describe("project icon persistence", () => {
       expect(getProject(project.id)?.primaryWorkspaceRoot).toBe("/tmp/alpha-2");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("stores empty icon when icon is missing or invalid", async () => {
@@ -64,6 +64,6 @@ describe("project icon persistence", () => {
       expect(updated?.icon).toBe("");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -70,13 +70,13 @@ describe("Document operation renderer transports", () => {
         "document-1",
         request,
       );
-      expect(response.ok).toBeTrue();
+      expect(response.ok).toBe(true);
       expect(capturedMutationId).toBe(request.mutationId);
       expect(
         capturedUrl.endsWith(
           "/api/projects/project-1/documents/document-1/mutations",
         ),
-      ).toBeTrue();
+      ).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -100,7 +100,7 @@ describe("Document operation renderer transports", () => {
       bridge,
     ).mutateDocument("project-1", "document-1", request);
 
-    expect(response.ok).toBeTrue();
+    expect(response.ok).toBe(true);
     expect(capturedChannel).toBe("block-documents:mutate");
     expect(capturedDocumentId).toBe("document-1");
   });

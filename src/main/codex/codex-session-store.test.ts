@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -193,7 +193,7 @@ describe("codex-session-store", () => {
         link: makeLink("thr_session"),
       });
 
-      expect(hasCodexSessionMaterialized("thr_session")).toBeTrue();
+      expect(hasCodexSessionMaterialized("thr_session")).toBe(true);
       expect(detail?.threadName).toBe("Imported thread");
       expect(detail?.cwd).toBe("/tmp/project");
       expect(detail?.turns.length).toBe(1);

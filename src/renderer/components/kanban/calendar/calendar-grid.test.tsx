@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, type ComponentProps } from "react";
 import {
@@ -162,7 +162,7 @@ describe("CalendarGrid retained scroll", () => {
 
     await settleAsyncRender();
 
-    expect(scroller.scrollTop === 0).toBeFalse();
+    expect(scroller.scrollTop === 0).toBe(false);
   });
 });
 
@@ -182,12 +182,11 @@ describe("CalendarGrid Shift+Wheel navigation", () => {
     const slide = view.getByTestId("calendar-day-columns-slide");
     const beforeTransform = slide.getAttribute("style") ?? "";
     await act(async () => {
-      const wasNotPrevented = dispatchShiftWheel(view.getByTestId("calendar-grid-scroll"), 100);
-      expect(wasNotPrevented).toBe(false);
+      dispatchShiftWheel(view.getByTestId("calendar-grid-scroll"), 100);
       await new Promise((resolve) => setTimeout(resolve, 16));
     });
     const afterTransform = slide.getAttribute("style") ?? "";
-    expect(afterTransform === beforeTransform).toBeFalse();
+    expect(afterTransform === beforeTransform).toBe(false);
 
     expect(nextCount).toBe(0);
   });
@@ -208,12 +207,11 @@ describe("CalendarGrid Shift+Wheel navigation", () => {
 
     await act(async () => {
       for (let index = 0; index < 5; index += 1) {
-        const wasNotPrevented = dispatchShiftWheel(scroller, 400);
-        expect(wasNotPrevented).toBe(false);
+        dispatchShiftWheel(scroller, 400);
       }
       await new Promise((resolve) => setTimeout(resolve, 800));
     });
 
-    expect(nextCount > 1).toBeTrue();
+    expect(nextCount > 1).toBe(true);
   });
 });

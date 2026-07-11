@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   readDatabaseViewReference,
   resolveCardReference,
@@ -75,7 +75,7 @@ describe("reference read renderer transport", () => {
       requestingProjectId: "host/project",
       databaseViewId: "missing",
     });
-    expect(absent === null).toBeTrue();
+    expect(absent === null).toBe(true);
     expect(requestedUrls[0]).toBe(
       "http://localhost:51283/api/projects/host%2Fproject/references/cards/card%2Ftarget",
     );
@@ -160,12 +160,12 @@ describe("reference read renderer transport", () => {
 
     expect(card?.status).toBe("available");
     if (!card || card.status !== "available") return;
-    expect(card.summary.created instanceof Date).toBeTrue();
-    expect(card.summary.dueDate instanceof Date).toBeTrue();
-    expect(card.summary.scheduledStart instanceof Date).toBeTrue();
-    expect(card.summary.scheduledEnd instanceof Date).toBeTrue();
-    expect(view?.rows[0]?.card.created instanceof Date).toBeTrue();
-    expect(view?.rows[0]?.card.scheduledEnd instanceof Date).toBeTrue();
+    expect(card.summary.created instanceof Date).toBe(true);
+    expect(card.summary.dueDate instanceof Date).toBe(true);
+    expect(card.summary.scheduledStart instanceof Date).toBe(true);
+    expect(card.summary.scheduledEnd instanceof Date).toBe(true);
+    expect(view?.rows[0]?.card.created instanceof Date).toBe(true);
+    expect(view?.rows[0]?.card.scheduledEnd instanceof Date).toBe(true);
   });
 
   test("rejects invalid browser reference JSON with a typed boundary error", async () => {
@@ -200,6 +200,6 @@ describe("reference read renderer transport", () => {
       caught = error;
     }
 
-    expect(caught instanceof ReferenceReadHttpBoundaryError).toBeTrue();
+    expect(caught instanceof ReferenceReadHttpBoundaryError).toBe(true);
   });
 });

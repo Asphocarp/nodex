@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   CANVAS_BLOCK_TYPE,
@@ -131,7 +131,7 @@ describe("Canvas scene_graph Document", () => {
       | undefined;
     expect(customData?.type).toBe("nodex-card-reference");
     expect(customData?.targetBlockId).toBe("card-1");
-    expect(customData?.cardId === undefined).toBeTrue();
+    expect(customData?.cardId === undefined).toBe(true);
   });
 
   test("treats appState and files as exact roots without inferring element deletion", () => {
@@ -245,7 +245,7 @@ describe("Canvas scene_graph Document", () => {
     ).toBe(25);
     expect(
       materialization.elements.some((candidate) => candidate.id === "remote"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("prunes an uploaded file when the post-merge remote element wins", () => {
@@ -304,7 +304,7 @@ describe("Canvas scene_graph Document", () => {
     } catch (error) {
       rootError = error;
     }
-    expect(rootError instanceof CanvasDocumentSchemaError).toBeTrue();
+    expect(rootError instanceof CanvasDocumentSchemaError).toBe(true);
 
     const malformed = createCanvasDocument({
       documentId: "document:canvas:bad-key",
@@ -316,7 +316,7 @@ describe("Canvas scene_graph Document", () => {
     } catch (error) {
       keyError = error;
     }
-    expect(keyError instanceof CanvasDocumentSchemaError).toBeTrue();
+    expect(keyError instanceof CanvasDocumentSchemaError).toBe(true);
   });
 
   test("rejects inline file payloads before they can enter the Y.Doc", () => {
@@ -338,7 +338,7 @@ describe("Canvas scene_graph Document", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof CanvasDocumentSchemaError).toBeTrue();
+    expect(error instanceof CanvasDocumentSchemaError).toBe(true);
   });
 
   test("rejects non-canonical managed asset URIs", () => {
@@ -360,7 +360,7 @@ describe("Canvas scene_graph Document", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof CanvasDocumentSchemaError).toBeTrue();
+    expect(error instanceof CanvasDocumentSchemaError).toBe(true);
   });
 
   test("fails closed when a stored derived projection is tampered", () => {
@@ -382,7 +382,7 @@ describe("Canvas scene_graph Document", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof CanvasDocumentSchemaError).toBeTrue();
+    expect(error instanceof CanvasDocumentSchemaError).toBe(true);
   });
 
   test("canonicalizes trusted scene state beyond the public update envelope", () => {
@@ -400,7 +400,7 @@ describe("Canvas scene_graph Document", () => {
     const materialization = inspectCanvasDocument(
       envelope.document,
     ).materialization;
-    expect(Y.encodeStateAsUpdate(envelope.document).byteLength > 2 * 1024 * 1024).toBeTrue();
+    expect(Y.encodeStateAsUpdate(envelope.document).byteLength > 2 * 1024 * 1024).toBe(true);
     const parsed = parseCanvasSceneMaterialization({
       documentId: envelope.documentId,
       value: materialization,
@@ -483,7 +483,7 @@ describe("Canvas scene_graph Document", () => {
     const winner = chooseCanvasElementWinner(left, right);
     const reverseWinner = chooseCanvasElementWinner(right, left);
     expect(JSON.stringify(winner)).toBe(JSON.stringify(reverseWinner));
-    expect(canvasElementRevisionKey(left) === canvasElementRevisionKey(right)).toBeFalse();
+    expect(canvasElementRevisionKey(left) === canvasElementRevisionKey(right)).toBe(false);
   });
 
   test("merges disjoint edits without whole-scene replacement", () => {
@@ -558,7 +558,7 @@ describe("Canvas scene_graph Document", () => {
     expect(materializedElementsJson(left)).toBe(materializedElementsJson(right));
     expect(
       inspectCanvasDocument(left).materialization.elements[0]?.isDeleted,
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("canonical contender cleanup reaches a no-op without a repair loop", () => {
@@ -596,7 +596,7 @@ describe("Canvas scene_graph Document", () => {
       elements: [winner],
     });
     merged.off("update", countUpdate);
-    expect(cleanup.byteLength > 2).toBeTrue();
+    expect(cleanup.byteLength > 2).toBe(true);
     expect(noOpUpdateCount).toBe(0);
     expect(inspectCanvasDocument(merged).envelope.elements.size).toBe(1);
   });
@@ -661,7 +661,7 @@ describe("Canvas scene_graph Document", () => {
     );
     expect(kept?.text).toBe("checkpoint");
     expect(kept?.version).toBe(6);
-    expect(removed?.isDeleted).toBeTrue();
+    expect(removed?.isDeleted).toBe(true);
     expect(removed?.version).toBe(8);
     expect(JSON.stringify(restored.appState)).toBe(
       JSON.stringify({ gridModeEnabled: true }),
@@ -670,7 +670,7 @@ describe("Canvas scene_graph Document", () => {
     expect(canonicalCanvasSceneSemanticFingerprint(restored)).toBe(
       canonicalCanvasSceneSemanticFingerprint(target),
     );
-    expect(forwardUpdate.byteLength > 2).toBeTrue();
+    expect(forwardUpdate.byteLength > 2).toBe(true);
 
     const replica = new Y.Doc({ guid: "document:canvas:forward-restore" });
     Y.applyUpdate(replica, beforeUpdate);

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -107,7 +107,7 @@ describe("atomic Block relocation schema", () => {
           expect(version).toBe(CURRENT_SCHEMA_VERSION);
           expect(
             V64_TABLES.every((tableName) => hasTable(migrated, tableName)),
-          ).toBeTrue();
+          ).toBe(true);
           expect(JSON.stringify(migrated.pragma("foreign_key_check"))).toBe(
             "[]",
           );
@@ -167,22 +167,22 @@ describe("atomic Block relocation schema", () => {
           } finally {
             closeDatabase();
           }
-          expect(rejected).toBeTrue();
+          expect(rejected).toBe(true);
 
           const unchanged = new Database(databasePath, { readonly: true });
           try {
             expect(
               unchanged.pragma("user_version", { simple: true }) as number,
             ).toBe(63);
-            expect(hasTable(unchanged, "change_log")).toBeTrue();
-            expect(hasTable(unchanged, "block_relocations")).toBeFalse();
-            expect(hasTable(unchanged, "block_relocation_members")).toBeFalse();
+            expect(hasTable(unchanged, "change_log")).toBe(true);
+            expect(hasTable(unchanged, "block_relocations")).toBe(false);
+            expect(hasTable(unchanged, "block_relocation_members")).toBe(false);
             expect(
               hasTable(unchanged, "block_relocation_source_states"),
-            ).toBeFalse();
+            ).toBe(false);
             expect(
               hasTable(unchanged, "document_recovery_artifacts"),
-            ).toBeFalse();
+            ).toBe(false);
             const columns = unchanged
               .prepare("PRAGMA table_info(change_log)")
               .all() as Array<{ name: string }>;

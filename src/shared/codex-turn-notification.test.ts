@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   hasCodexPendingContinuation,
   isCodexConversationDesktopNotificationEligible,
@@ -75,16 +75,16 @@ describe("codex-turn-notification helpers", () => {
   });
 
   test("detects notification-ineligible internal and side conversations", () => {
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation())).toBeTrue();
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ ephemeral: true }))).toBeFalse();
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ threadSource: "system" }))).toBeFalse();
+    expect(isCodexConversationDesktopNotificationEligible(baseConversation())).toBe(true);
+    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ ephemeral: true }))).toBe(false);
+    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ threadSource: "system" }))).toBe(false);
     expect(isCodexConversationDesktopNotificationEligible(baseConversation({
       source: { parentThreadId: "parent", sideConversation: true },
-    }))).toBeFalse();
+    }))).toBe(false);
   });
 
   test("detects pending continuation from queues, steers, and active goals", () => {
-    expect(hasCodexPendingContinuation(baseConversation())).toBeFalse();
+    expect(hasCodexPendingContinuation(baseConversation())).toBe(false);
     expect(hasCodexPendingContinuation(baseConversation({
       queuedFollowUps: [{
         followUpId: "follow-1",
@@ -93,7 +93,7 @@ describe("codex-turn-notification helpers", () => {
         createdAt: 1,
         serviceTier: null,
       }],
-    }))).toBeTrue();
+    }))).toBe(true);
     expect(hasCodexPendingContinuation(baseConversation({
       queuedFollowUps: [{
         followUpId: "follow-1",
@@ -103,7 +103,7 @@ describe("codex-turn-notification helpers", () => {
         serviceTier: null,
         pausedReason: "waiting",
       }],
-    }))).toBeFalse();
+    }))).toBe(false);
     expect(hasCodexPendingContinuation(baseConversation({
       pendingSteers: [{
         steerId: "steer-1",
@@ -112,7 +112,7 @@ describe("codex-turn-notification helpers", () => {
         prompt: "Use this direction",
         createdAt: 1,
       }],
-    }))).toBeTrue();
+    }))).toBe(true);
     expect(hasCodexPendingContinuation(baseConversation({
       threadGoal: {
         threadId: "thread-1",
@@ -124,6 +124,6 @@ describe("codex-turn-notification helpers", () => {
         createdAt: 1,
         updatedAt: 1,
       },
-    }))).toBeTrue();
+    }))).toBe(true);
   });
 });

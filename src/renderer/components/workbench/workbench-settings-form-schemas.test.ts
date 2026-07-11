@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   BackupScheduleFormSchema,
   HistoryRetentionFormSchema,
@@ -27,7 +27,7 @@ describe("workbench settings form schemas", () => {
       retentionCount: "30",
     });
 
-    expect(parsed.success).toBeFalse();
+    expect(parsed.success).toBe(false);
     if (parsed.success) return;
     expect(parsed.error.issues[0]?.message ?? "").toBe("Frequency must be an integer >= 1.");
   });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationSnapshot, CodexTurnDiffReviewTarget } from "@/lib/types";
 import { connectedReviewDiffPanelTestHelpers } from "./connected-review-diff-panel";
 
@@ -74,7 +74,7 @@ describe("connected review diff panel", () => {
       null,
     );
 
-    expect(refreshed?.patch.includes("+new") ?? false).toBeTrue();
-    expect(refreshed?.showRevertButton ?? false).toBeTrue();
+    expect(refreshed?.patch.includes("+new") ?? false).toBe(true);
+    expect(refreshed?.showRevertButton ?? false).toBe(true);
   });
 });

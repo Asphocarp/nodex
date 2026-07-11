@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { parseNfm } from "../nfm/parser";
 import { serializeNfm } from "../nfm/serializer";
@@ -53,8 +53,8 @@ describe("Block-first reference codec", () => {
     const source = '<card-ref project="legacy-project" card="legacy-card" />';
     const block = requireCardRef(parseNfm(source)[0]);
 
-    expect(isLegacyNfmCardRef(block)).toBeTrue();
-    expect(isCanonicalNfmCardRef(block)).toBeFalse();
+    expect(isLegacyNfmCardRef(block)).toBe(true);
+    expect(isCanonicalNfmCardRef(block)).toBe(false);
     expect(block.sourceProjectId).toBe("legacy-project");
     expect(block.cardId).toBe("legacy-card");
     expect(serializeNfm([block])).toBe(source);
@@ -67,7 +67,7 @@ describe("Block-first reference codec", () => {
       )[0],
     );
 
-    expect(isCanonicalNfmCardRef(block)).toBeTrue();
+    expect(isCanonicalNfmCardRef(block)).toBe(true);
     expect(block.targetBlockId).toBe("target-card");
     expect(block.displayHint).toBe("A & B");
     expect(serializeNfm([block])).toBe(
@@ -152,7 +152,7 @@ describe("Block-first reference codec", () => {
       } catch (error) {
         if (error instanceof BlockDocumentCodecError) message = error.message;
       }
-      expect(message.includes("must not contain child Blocks")).toBeTrue();
+      expect(message.includes("must not contain child Blocks")).toBe(true);
     }
   });
 
@@ -199,7 +199,7 @@ describe("Block-first reference codec", () => {
       },
     ];
 
-    expect(canonicalReferences.some(isLegacyForeignBodyReference)).toBeFalse();
+    expect(canonicalReferences.some(isLegacyForeignBodyReference)).toBe(false);
   });
 
   test("rejects display hints large enough to become a hidden content snapshot", () => {

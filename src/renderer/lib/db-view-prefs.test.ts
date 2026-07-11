@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   filterDbViewCards,
   getDefaultDbViewPrefs,
@@ -57,11 +57,11 @@ describe("db view prefs", () => {
       },
     });
 
-    expect(normalized.summaryExpanded).toBeFalse();
+    expect(normalized.summaryExpanded).toBe(false);
     expect(normalized.rules.sort[0]?.field).toBe("assignee");
     expect(JSON.stringify(normalized.display.propertyOrder)).toBe(JSON.stringify([]));
     expect(JSON.stringify(normalized.display.hiddenProperties)).toBe(JSON.stringify([]));
-    expect(normalized.display.showEmptyEstimate).toBeTrue();
+    expect(normalized.display.showEmptyEstimate).toBe(true);
   });
 
   test("migrates legacy toggle-list display prefs onto the generic display field", () => {
@@ -79,7 +79,7 @@ describe("db view prefs", () => {
     expect(JSON.stringify(normalized.display.hiddenProperties)).toBe(
       JSON.stringify(["priority"]),
     );
-    expect(normalized.display.showEmptyEstimate).toBeTrue();
+    expect(normalized.display.showEmptyEstimate).toBe(true);
   });
 
   test("uses kanban-specific display properties by default", () => {
@@ -237,10 +237,10 @@ describe("db view prefs", () => {
     const kanbanPrefs = getDefaultDbViewPrefs("kanban");
     const listPrefs = getDefaultDbViewPrefs("list");
 
-    expect(hasActiveDbViewRules("kanban", kanbanPrefs.rules)).toBeFalse();
-    expect(hasActiveDbViewRules("list", listPrefs.rules)).toBeFalse();
+    expect(hasActiveDbViewRules("kanban", kanbanPrefs.rules)).toBe(false);
+    expect(hasActiveDbViewRules("list", listPrefs.rules)).toBe(false);
 
     kanbanPrefs.rules.sort = [{ field: "priority", direction: "asc" }];
-    expect(hasActiveDbViewRules("kanban", kanbanPrefs.rules)).toBeTrue();
+    expect(hasActiveDbViewRules("kanban", kanbanPrefs.rules)).toBe(true);
   });
 });

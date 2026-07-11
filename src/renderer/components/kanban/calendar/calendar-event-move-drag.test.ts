@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
   resolveCalendarMoveDropSchedule,
@@ -65,7 +65,7 @@ describe("calendar event move drag helpers", () => {
     );
 
     expect(schedule).not.toBeNull();
-    expect(schedule?.isAllDay).toBeFalse();
+    expect(schedule?.isAllDay).toBe(false);
     expect(schedule?.start.getHours()).toBe(8);
     expect(schedule?.start.getMinutes()).toBe(0);
     expect(schedule?.end.getHours()).toBe(9);
@@ -88,7 +88,7 @@ describe("calendar event move drag helpers", () => {
     );
 
     expect(schedule).not.toBeNull();
-    expect(schedule?.isAllDay).toBeTrue();
+    expect(schedule?.isAllDay).toBe(true);
     expect(schedule?.start.getDate()).toBe(15);
     expect(schedule?.end.getDate()).toBe(17);
   });

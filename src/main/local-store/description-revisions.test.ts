@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import { parseNfm } from "../../shared/nfm";
 import {
@@ -80,7 +80,7 @@ describe("description revision service", () => {
       database.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
-        expect(true).toBeTrue();
+        expect(true).toBe(true);
         return;
       }
       throw error;
@@ -118,7 +118,7 @@ describe("description revision service", () => {
       database.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
-        expect(true).toBeTrue();
+        expect(true).toBe(true);
         return;
       }
       throw error;
@@ -163,7 +163,7 @@ describe("description revision service", () => {
       database.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
-        expect(true).toBeTrue();
+        expect(true).toBe(true);
         return;
       }
       throw error;
@@ -205,7 +205,7 @@ describe("description revision service", () => {
       database.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
-        expect(true).toBeTrue();
+        expect(true).toBe(true);
         return;
       }
       throw error;

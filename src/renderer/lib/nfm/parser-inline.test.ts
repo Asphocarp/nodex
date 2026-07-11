@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { parseInlineContent } from "./parser-inline";
 import { serializeInlineContent } from "./serializer-inline";
@@ -35,7 +35,7 @@ describe("parser-inline link escapes", () => {
 
     const backslashRuns = [...afterMany.matchAll(/(\\+)\*/g)];
     expect(backslashRuns.length).toBe(4);
-    expect(backslashRuns.every((match) => match[1].length === 1)).toBeTrue();
+    expect(backslashRuns.every((match) => match[1].length === 1)).toBe(true);
   });
 
   test("invalid span color parses as plain text content", () => {

@@ -129,6 +129,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   const hasAgentNicknameInput = Object.prototype.hasOwnProperty.call(input, "agentNickname");
   const hasAgentRoleInput = Object.prototype.hasOwnProperty.call(input, "agentRole");
   const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(input, "managedWorktreePath");
+  const hasArchivedInput = Object.prototype.hasOwnProperty.call(input, "archived");
   const hasProjectlessOutputDirectoryInput = Object.prototype.hasOwnProperty.call(input, "projectlessOutputDirectory");
   const hasProjectlessWorkspaceBrowserRootInput = Object.prototype.hasOwnProperty.call(input, "projectlessWorkspaceBrowserRoot");
   const projectId = hasProjectIdInput && input.projectId ? requireProjectId(input.projectId) : null;
@@ -175,7 +176,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       projectless_workspace_browser_root = CASE WHEN ? = 1 THEN excluded.projectless_workspace_browser_root ELSE codex_threads.projectless_workspace_browser_root END,
       status_type = excluded.status_type,
       status_active_flags_json = excluded.status_active_flags_json,
-      archived = excluded.archived,
+      archived = CASE WHEN ? = 1 THEN excluded.archived ELSE codex_threads.archived END,
       updated_at = excluded.updated_at,
       linked_at = COALESCE(codex_threads.linked_at, excluded.linked_at)
   `).run(
@@ -205,6 +206,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     hasManagedWorktreePathInput ? 1 : 0,
     hasProjectlessOutputDirectoryInput ? 1 : 0,
     hasProjectlessWorkspaceBrowserRootInput ? 1 : 0,
+    hasArchivedInput ? 1 : 0,
   );
   if (Object.prototype.hasOwnProperty.call(input, "pinned")) {
     setCodexThreadPinned(input.threadId, input.pinned === true);

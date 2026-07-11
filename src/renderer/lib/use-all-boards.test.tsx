@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { createTestQueryClient, TestQueryProvider } from "@/test/query";
@@ -154,7 +154,7 @@ describe("useBoardsForProjects", () => {
     });
 
     const firstLoadedResult = snapshots.at(-1);
-    expect(firstLoadedResult !== undefined).toBeTrue();
+    expect(firstLoadedResult !== undefined).toBe(true);
     if (!firstLoadedResult) return;
 
     view.rerender(
@@ -165,7 +165,7 @@ describe("useBoardsForProjects", () => {
     await settleAsyncRender();
 
     const secondLoadedResult = snapshots.at(-1);
-    expect(secondLoadedResult !== undefined).toBeTrue();
+    expect(secondLoadedResult !== undefined).toBe(true);
     if (!secondLoadedResult) return;
     expect(firstLoadedResult.boards).toBe(secondLoadedResult.boards);
     expect(invokeCalls.length).toBe(1);

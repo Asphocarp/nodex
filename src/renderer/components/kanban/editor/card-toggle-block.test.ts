@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createCardToggleBlockSpec } from "./card-toggle-block";
 
 function createBlock(meta: string) {
@@ -67,7 +67,7 @@ describe("card toggle block", () => {
     if (meta === null) return;
 
     expect(result.contentDOM?.tagName).toBe("SPAN");
-    expect(row.lastElementChild === result.contentDOM).toBeTrue();
+    expect(row.lastElementChild === result.contentDOM).toBe(true);
   });
 
   test("keeps exported meta text inline with the exported title container", () => {
@@ -89,7 +89,7 @@ describe("card toggle block", () => {
     if (paragraph === null) return;
 
     expect(result.contentDOM?.tagName).toBe("SPAN");
-    expect(paragraph.lastElementChild === result.contentDOM).toBeTrue();
+    expect(paragraph.lastElementChild === result.contentDOM).toBe(true);
     expect(paragraph.firstElementChild?.tagName).toBe("SPAN");
   });
 });

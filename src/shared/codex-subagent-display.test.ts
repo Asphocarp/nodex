@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveCodexSubagentDisplayName } from "./codex-subagent-display";
 import type { CodexConversationChildMembership, CodexThreadSummary } from "./types";
 import type { CodexMultiAgentReceiverThread } from "./codex-transcript-special-items";

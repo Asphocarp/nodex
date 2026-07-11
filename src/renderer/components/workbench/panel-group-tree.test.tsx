@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { PanelGroupTree } from "./panel-group-tree";
 import { makeProjectSessionPanelLayout, splitProjectSessionPanelLeaf } from "../../../shared/project-session-panel-layout";
 import type { AppShellTabItem } from "./app-shell-tabs";
@@ -64,17 +64,17 @@ describe("PanelGroupTree", () => {
 
     expect(view.container.querySelectorAll('[style*="width: 208px"]').length).toBe(1);
     expect(view.container.querySelectorAll('[style*="width: 102px"]').length).toBe(1);
-    expect(leftHeader?.className.includes("draggable")).toBeFalse();
+    expect(leftHeader?.className.includes("draggable")).toBe(false);
     expect(leftLeaf?.querySelectorAll('[style*="width: 208px"]').length ?? 0).toBe(1);
     expect(leftLeaf?.querySelectorAll('[style*="width: 102px"]').length ?? 0).toBe(0);
     expect(rightLeaf?.querySelectorAll('[style*="width: 208px"]').length ?? 0).toBe(0);
     expect(rightLeaf?.querySelectorAll('[style*="width: 102px"]').length ?? 0).toBe(1);
     expect(rightTabRow instanceof HTMLElement ? rightTabRow.style.scrollPaddingInlineEnd : "").toBe("28px");
-    expect(leftLeaf?.querySelector('[data-testid="after-list:main"]') === null).toBeTrue();
-    expect(rightLeaf?.querySelector('[data-testid="after-list:leaf:right"]') !== null).toBeTrue();
-    expect(startSpacer?.className.includes("no-drag")).toBeTrue();
-    expect(endSpacer?.className.includes("no-drag")).toBeTrue();
-    expect(afterList?.parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(leftLeaf?.querySelector('[data-testid="after-list:main"]') === null).toBe(true);
+    expect(rightLeaf?.querySelector('[data-testid="after-list:leaf:right"]') !== null).toBe(true);
+    expect(startSpacer?.className.includes("no-drag")).toBe(true);
+    expect(endSpacer?.className.includes("no-drag")).toBe(true);
+    expect(afterList?.parentElement?.className.includes("no-drag")).toBe(true);
   });
 
   test("applies header start and after-list slots to empty top-left and top-right headers", () => {
@@ -140,15 +140,15 @@ describe("PanelGroupTree", () => {
     const afterList = rightLeaf?.querySelector('[data-testid="after-list:leaf:right"]');
 
     expect(view.container.querySelectorAll('[style*="width: 208px"]').length).toBe(1);
-    expect(leftHeader?.className.includes("draggable")).toBeFalse();
+    expect(leftHeader?.className.includes("draggable")).toBe(false);
     expect(leftLeaf?.querySelectorAll('[style*="width: 208px"]').length ?? 0).toBe(1);
     expect(rightLeaf?.querySelectorAll('[style*="width: 208px"]').length ?? 0).toBe(0);
-    expect(leftLeaf?.querySelector('[data-testid="after-list:main"]') === null).toBeTrue();
-    expect(rightLeaf?.querySelector('[data-testid="after-list:leaf:right"]') !== null).toBeTrue();
-    expect(leftLeaf?.querySelector('[data-testid="after-tabs:main"]') !== null).toBeTrue();
-    expect(rightLeaf?.querySelector('[data-testid="after-tabs:leaf:right"]') !== null).toBeTrue();
-    expect(startSpacer?.className.includes("no-drag")).toBeTrue();
-    expect(afterTabs?.parentElement?.className.includes("no-drag")).toBeTrue();
-    expect(afterList?.parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(leftLeaf?.querySelector('[data-testid="after-list:main"]') === null).toBe(true);
+    expect(rightLeaf?.querySelector('[data-testid="after-list:leaf:right"]') !== null).toBe(true);
+    expect(leftLeaf?.querySelector('[data-testid="after-tabs:main"]') !== null).toBe(true);
+    expect(rightLeaf?.querySelector('[data-testid="after-tabs:leaf:right"]') !== null).toBe(true);
+    expect(startSpacer?.className.includes("no-drag")).toBe(true);
+    expect(afterTabs?.parentElement?.className.includes("no-drag")).toBe(true);
+    expect(afterList?.parentElement?.className.includes("no-drag")).toBe(true);
   });
 });

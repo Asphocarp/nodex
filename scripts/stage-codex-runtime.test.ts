@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,18 +52,18 @@ describe("stage-codex-runtime", () => {
 
       expect(metadata.codexVersion).toBe("0.137.0");
       expect(metadata.targetTriple).toBe("aarch64-apple-darwin");
-      expect(fs.existsSync(path.join(outputPath, "bin", "codex"))).toBeTrue();
-      expect(fs.existsSync(path.join(outputPath, "bin", "rg"))).toBeTrue();
-      expect(fs.existsSync(path.join(outputPath, "bin", "runtime.json"))).toBeTrue();
-      expect(fs.existsSync(path.join(outputPath, "stale.txt"))).toBeFalse();
+      expect(fs.existsSync(path.join(outputPath, "bin", "codex"))).toBe(true);
+      expect(fs.existsSync(path.join(outputPath, "bin", "rg"))).toBe(true);
+      expect(fs.existsSync(path.join(outputPath, "bin", "runtime.json"))).toBe(true);
+      expect(fs.existsSync(path.join(outputPath, "stale.txt"))).toBe(false);
 
       const writtenMetadata = JSON.parse(
         fs.readFileSync(path.join(outputPath, "bin", "runtime.json"), "utf8"),
       ) as { sourcePackage?: string; binarySha256?: string; rgSha256?: string };
 
       expect(writtenMetadata.sourcePackage).toBe("@openai/codex-darwin-arm64@0.137.0-darwin-arm64");
-      expect(typeof writtenMetadata.binarySha256 === "string" && writtenMetadata.binarySha256.length > 0).toBeTrue();
-      expect(typeof writtenMetadata.rgSha256 === "string" && writtenMetadata.rgSha256.length > 0).toBeTrue();
+      expect(typeof writtenMetadata.binarySha256 === "string" && writtenMetadata.binarySha256.length > 0).toBe(true);
+      expect(typeof writtenMetadata.rgSha256 === "string" && writtenMetadata.rgSha256.length > 0).toBe(true);
     } finally {
       fakePackage.cleanup();
       fs.rmSync(outputRoot, { recursive: true, force: true });
@@ -84,8 +84,8 @@ describe("stage-codex-runtime", () => {
       });
 
       expect(metadata.codexVersion).toBe("0.115.0");
-      expect(fs.existsSync(path.join(outputPath, "bin", "codex"))).toBeTrue();
-      expect(fs.existsSync(path.join(outputPath, "bin", "rg"))).toBeTrue();
+      expect(fs.existsSync(path.join(outputPath, "bin", "codex"))).toBe(true);
+      expect(fs.existsSync(path.join(outputPath, "bin", "rg"))).toBe(true);
     } finally {
       fakePackage.cleanup();
       fs.rmSync(outputRoot, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
   CODEX_THREAD_DIVIDER_ENTER_ANIMATE,

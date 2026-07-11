@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { DatabaseMutationRequest } from "../../shared/database-kernel";
 import { browserRendererTransport } from "./browser-renderer-transport";
 
@@ -119,10 +119,10 @@ describe("Database renderer transport", () => {
       expect(secondWindowEvents).toBe(1);
       unsubscribeFirst();
       unsubscribeSecond();
-      expect(FakeEventSource.instances[0]?.closed).toBeFalse();
+      expect(FakeEventSource.instances[0]?.closed).toBe(false);
       unsubscribeBoard();
       unsubscribeSessions();
-      expect(FakeEventSource.instances.every((source) => source.closed)).toBeTrue();
+      expect(FakeEventSource.instances.every((source) => source.closed)).toBe(true);
     } finally {
       unsubscribeFirst();
       unsubscribeSecond();
@@ -219,53 +219,53 @@ describe("Database renderer transport", () => {
         request.projectId,
         request,
       )) as { readonly ok: boolean };
-      expect(mutation.ok).toBeTrue();
+      expect(mutation.ok).toBe(true);
       const descriptor = (await browserRendererTransport.invoke(
         "databases:descriptor:get",
         request.projectId,
         "database/one",
       )) as { readonly ok: boolean };
-      expect(descriptor.ok).toBeTrue();
+      expect(descriptor.ok).toBe(true);
       const primary = (await browserRendererTransport.invoke(
         "databases:primary:get",
         request.projectId,
       )) as { readonly ok: boolean };
-      expect(primary.ok).toBeTrue();
+      expect(primary.ok).toBe(true);
       const primaryViewSnapshot = (await browserRendererTransport.invoke(
         "database-views:primary:snapshot",
         request.projectId,
       )) as { readonly ok: boolean };
-      expect(primaryViewSnapshot.ok).toBeTrue();
+      expect(primaryViewSnapshot.ok).toBe(true);
       const query = (await browserRendererTransport.invoke(
         "database-views:query",
         request.projectId,
         "view/one",
       )) as { readonly ok: boolean };
-      expect(query.ok).toBeTrue();
+      expect(query.ok).toBe(true);
       expect((bodies[0] as { readonly operationId?: string }).operationId).toBe(
         "renderer-database-operation",
       );
       expect(
         urls[0]?.endsWith("/api/projects/project%2Fone/database-mutations"),
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         urls[1]?.endsWith(
           "/api/projects/project%2Fone/databases/database%2Fone",
         ),
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         urls[2]?.endsWith("/api/projects/project%2Fone/databases/primary"),
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         urls[3]?.endsWith(
           "/api/projects/project%2Fone/database-views/primary/snapshot",
         ),
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         urls[4]?.endsWith(
           "/api/projects/project%2Fone/database-views/view%2Fone/query",
         ),
-      ).toBeTrue();
+      ).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }

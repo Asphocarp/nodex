@@ -1,13 +1,12 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, vi, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import type { HistoryCardVersionPreview, HistoryPanelEntry } from "../../../shared/ipc-api";
 import type { Card } from "../../../shared/types";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
-import * as HistoryPanelDeps from "./history-panel-deps";
 
-mock.module("./history-panel-deps", () => ({
-  ...HistoryPanelDeps,
+vi.mock("./history-panel-deps", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./history-panel-deps")>(),
   TAB_BAR_HEIGHT: 48,
   ARCHIVED_CARD_OPTION_ID: "archived",
   ARCHIVED_CARD_OPTION_NAME: "Archived",
@@ -119,9 +118,9 @@ describe("history panel", () => {
     );
 
     expect(getByText("Description").textContent).toBe("Description");
-    expect(textContent(container).includes("Alpha paragraph")).toBeTrue();
-    expect(textContent(container).includes("Gamma paragraph")).toBeTrue();
-    expect(container.querySelectorAll("summary").length > 0).toBeTrue();
+    expect(textContent(container).includes("Alpha paragraph")).toBe(true);
+    expect(textContent(container).includes("Gamma paragraph")).toBe(true);
+    expect(container.querySelectorAll("summary").length > 0).toBe(true);
     expect(getByText("Full description diff").textContent).toBe("Full description diff");
     expect(getByText("Tags").textContent).toBe("Tags");
   });
@@ -138,7 +137,7 @@ describe("history panel", () => {
     );
 
     expect(container.querySelector('[data-diff="true"]')).not.toBeNull();
-    expect(textContent(container).includes("Alpha paragraph => Beta paragraph")).toBeTrue();
+    expect(textContent(container).includes("Alpha paragraph => Beta paragraph")).toBe(true);
   });
 
   test("renders the version-history modal with a reconstructed preview and actions", async () => {
@@ -188,10 +187,10 @@ describe("history panel", () => {
       }
     });
 
-    expect(document.body.querySelector('[role="dialog"]') !== null).toBeTrue();
-    expect(textContent(document.body).includes("Version history")).toBeTrue();
-    expect(textContent(document.body).includes("Snapshot body")).toBeTrue();
-    expect(textContent(document.body).includes("ui, history")).toBeTrue();
+    expect(document.body.querySelector('[role="dialog"]') !== null).toBe(true);
+    expect(textContent(document.body).includes("Version history")).toBe(true);
+    expect(textContent(document.body).includes("Snapshot body")).toBe(true);
+    expect(textContent(document.body).includes("ui, history")).toBe(true);
     const previewNode = document.body.querySelector('[data-testid="readonly-nfm-blocknote-preview"]');
     expect(previewNode).not.toBeNull();
     if (!(previewNode instanceof HTMLElement)) return;
@@ -201,7 +200,7 @@ describe("history panel", () => {
     expect(previewNode.dataset.projectWorkspacePath).toBe("/workspace/alpha");
 
     fireEvent.click(getByRole("button", { name: "Restore" }));
-    expect(textContent(document.body).includes("Confirm restore")).toBeTrue();
+    expect(textContent(document.body).includes("Confirm restore")).toBe(true);
     fireEvent.click(getByRole("button", { name: "Confirm restore" }));
     await settleAsyncRender();
     expect(restoredHistoryId).toBe(2);
@@ -249,10 +248,10 @@ describe("history panel", () => {
       }
     });
 
-    expect(previewRequested).toBeFalse();
-    expect(textContent(document.body).includes("unavailable")).toBeTrue();
-    expect((getByRole("button", { name: "Restore" }) as HTMLButtonElement).disabled).toBeTrue();
-    expect(textContent(document.body).includes("Revert update")).toBeFalse();
+    expect(previewRequested).toBe(false);
+    expect(textContent(document.body).includes("unavailable")).toBe(true);
+    expect((getByRole("button", { name: "Restore" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(textContent(document.body).includes("Revert update")).toBe(false);
   });
 });
 

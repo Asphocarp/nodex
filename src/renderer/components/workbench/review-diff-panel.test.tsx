@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { createElement, type ComponentProps } from "react";
 import {
   act,
@@ -715,7 +715,7 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(getByText("Last turn").textContent).toBe("Last turn");
-    expect(textContent(container).includes("example.ts")).toBeTrue();
+    expect(textContent(container).includes("example.ts")).toBe(true);
     expect(
       container.querySelector('[data-file-diff="src/example.ts"]'),
     ).not.toBeNull();
@@ -780,42 +780,42 @@ describe("review diff panel", () => {
           '.codex-review-diff-card[data-review-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(
         view.container.querySelector(
           '.codex-review-diff-card[data-review-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(
         view.container.querySelector(
           '.codex-review-diff-card[data-review-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(
         view.container.querySelector(
           'button[data-review-tree-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(
         view.container.querySelector(
           'button[data-review-tree-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(
         view.container.querySelector(
           'button[data-review-tree-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]',
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("folds repeated diff sections for the same path into one review entry", async () => {
@@ -853,8 +853,8 @@ describe("review diff panel", () => {
     expect(treeRows.length).toBe(1);
     expect(renderedFileDiffs.length).toBe(1);
     expect(renderedFileDiffs[0]?.getAttribute("data-file-additions")).toBe("2");
-    expect(rowStats?.textContent?.includes("+3") ?? false).toBeTrue();
-    expect(rowStats?.textContent?.includes("-2") ?? false).toBeTrue();
+    expect(rowStats?.textContent?.includes("+3") ?? false).toBe(true);
+    expect(rowStats?.textContent?.includes("-2") ?? false).toBe(true);
   });
 
   test("prefers the raw completed turn-diff item over stale last-turn diff text", async () => {
@@ -938,18 +938,18 @@ describe("review diff panel", () => {
         .querySelector("svg path")
         ?.getAttribute("d") ?? "";
 
-    expect(jumpIconPath.startsWith("M13.75 10.76")).toBeTrue();
-    expect(commitIconPath.startsWith("M15.0001 14.9967")).toBeTrue();
-    expect(createPrIconPath.startsWith("M2.54004 0")).toBeTrue();
-    expect(fileTreeTogglePath.includes("15.833-3.333")).toBeTrue();
+    expect(jumpIconPath.startsWith("M13.75 10.76")).toBe(true);
+    expect(commitIconPath.startsWith("M15.0001 14.9967")).toBe(true);
+    expect(createPrIconPath.startsWith("M2.54004 0")).toBe(true);
+    expect(fileTreeTogglePath.includes("15.833-3.333")).toBe(true);
     expect(
       textContent(view.getByLabelText("Commit or push")).includes(
         "Commit or push",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.getByLabelText("Create PR")).includes("Create PR"),
-    ).toBeTrue();
+    ).toBe(true);
 
     const fileRow = view.container.querySelector(
       '.codex-review-diff-card[data-review-path="src/example.ts"]',
@@ -972,13 +972,13 @@ describe("review diff panel", () => {
       (
         toggleButton.querySelector("svg path")?.getAttribute("d") ?? ""
       ).startsWith("M7.52925 3.7793"),
-    ).toBeTrue();
+    ).toBe(true);
     expect((openButton.textContent ?? "").trim()).toBe("");
     expect(
       (
         openButton.querySelector("svg path")?.getAttribute("d") ?? ""
       ).startsWith("M4.30164 12.197"),
-    ).toBeTrue();
+    ).toBe(true);
 
     const rowStats = fileRow.querySelector(
       'span[data-thread-find-skip="true"]',
@@ -986,13 +986,13 @@ describe("review diff panel", () => {
     if (!isDomElement(rowStats)) {
       throw new Error("Expected Codex review row diff stats.");
     }
-    expect(rowStats.className.includes("text-xs")).toBeFalse();
-    expect(rowStats.className.includes("tabular-nums")).toBeTrue();
+    expect(rowStats.className.includes("text-xs")).toBe(false);
+    expect(rowStats.className.includes("tabular-nums")).toBe(true);
     expect(
       rowStats
         .querySelector(".text-token-git-decoration-added-resource-foreground")
         ?.className.includes("items-center") ?? false,
-    ).toBeTrue();
+    ).toBe(true);
 
     const aggregateStats = Array.from(
       view.container.querySelectorAll('span[data-thread-find-skip="true"]'),
@@ -1002,9 +1002,9 @@ describe("review diff panel", () => {
     if (!aggregateStats) {
       throw new Error("Expected Codex review aggregate diff stats.");
     }
-    expect(aggregateStats.className.includes("text-size-chat")).toBeTrue();
-    expect(aggregateStats.className.includes("text-xs")).toBeFalse();
-    expect(aggregateStats.className.includes("select-none")).toBeTrue();
+    expect(aggregateStats.className.includes("text-size-chat")).toBe(true);
+    expect(aggregateStats.className.includes("text-xs")).toBe(false);
+    expect(aggregateStats.className.includes("select-none")).toBe(true);
   });
 
   test("prefers the explicitly selected turn diff when provided", async () => {
@@ -1032,7 +1032,7 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(getByText("Last turn").textContent).toBe("Last turn");
-    expect(textContent(container).includes("selected.ts")).toBeTrue();
+    expect(textContent(container).includes("selected.ts")).toBe(true);
     expect(
       container.querySelector('[data-file-diff="src/selected.ts"]'),
     ).not.toBeNull();
@@ -1070,7 +1070,7 @@ describe("review diff panel", () => {
       );
 
       await waitFor(() => {
-        expect(scrollTargets.includes("src/selected.ts")).toBeTrue();
+        expect(scrollTargets.includes("src/selected.ts")).toBe(true);
       });
       expect(
         container.querySelector('[data-review-path="src/selected.ts"]'),
@@ -1106,8 +1106,8 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container).includes("example.ts")).toBeTrue();
-    expect(textContent(container).includes("selected.ts")).toBeFalse();
+    expect(textContent(container).includes("example.ts")).toBe(true);
+    expect(textContent(container).includes("selected.ts")).toBe(false);
     expect(
       container.querySelector('[data-review-path="src/example.ts"]'),
     ).not.toBeNull();
@@ -1133,8 +1133,8 @@ describe("review diff panel", () => {
     expect(
       view.getByPlaceholderText("Filter files…").getAttribute("placeholder"),
     ).toBe("Filter files…");
-    expect(textContent(view.container).includes("src")).toBeTrue();
-    expect(textContent(view.container).includes("example.ts")).toBeTrue();
+    expect(textContent(view.container).includes("src")).toBe(true);
+    expect(textContent(view.container).includes("example.ts")).toBe(true);
     expect(
       view.container.querySelector('[data-item-type="folder"]'),
     ).not.toBeNull();
@@ -1234,7 +1234,7 @@ describe("review diff panel", () => {
     const renderedTreeRows = view.container.querySelectorAll(
       '[data-review-tree-item="true"]',
     );
-    expect(renderedTreeRows.length < 120).toBeTrue();
+    expect(renderedTreeRows.length < 120).toBe(true);
   });
 
   test("collapses and expands folder rows in the review file tree", async () => {
@@ -1264,7 +1264,7 @@ describe("review diff panel", () => {
         (node) =>
           node.getAttribute("data-review-tree-path") === "src/example.ts",
       ),
-    ).toBeFalse();
+    ).toBe(false);
 
     await dispatchReviewEvent(() => {
       fireEvent.click(folderRow);
@@ -1277,7 +1277,7 @@ describe("review diff panel", () => {
         (node) =>
           node.getAttribute("data-review-tree-path") === "src/example.ts",
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("tracks folder selection and focus with tree item ids", async () => {
@@ -1324,13 +1324,13 @@ describe("review diff panel", () => {
     );
     const visiblePaths = state.rows.map((row) => row.path).join("|");
 
-    expect(visiblePaths.includes("src")).toBeTrue();
-    expect(visiblePaths.includes("src/domain-01")).toBeTrue();
-    expect(visiblePaths.includes("src/domain-01/feature-01")).toBeTrue();
+    expect(visiblePaths.includes("src")).toBe(true);
+    expect(visiblePaths.includes("src/domain-01")).toBe(true);
+    expect(visiblePaths.includes("src/domain-01/feature-01")).toBe(true);
     expect(
       visiblePaths.includes("src/domain-01/feature-01/file-001.ts"),
-    ).toBeTrue();
-    expect(visiblePaths.includes("domain-02")).toBeFalse();
+    ).toBe(true);
+    expect(visiblePaths.includes("domain-02")).toBe(false);
   });
 
   test("keeps folder change metadata without rendering modified status markers", async () => {
@@ -1430,7 +1430,7 @@ describe("review diff panel", () => {
 
     expect(
       textContent(view.container).includes("Binary file changed"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(view.container.querySelector("[data-file-diff]")).toBe(null);
     expect(view.container.querySelector('[data-multi-file-diff="true"]')).toBe(
       null,
@@ -1516,7 +1516,7 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    expect(textContent(view.container).includes("Find in review")).toBeFalse();
+    expect(textContent(view.container).includes("Find in review")).toBe(false);
 
     await act(async () => {
       view.rerender(
@@ -1533,7 +1533,7 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
     await settleAsyncRender();
-    expect(textContent(view.container).includes("Find in review")).toBeFalse();
+    expect(textContent(view.container).includes("Find in review")).toBe(false);
   });
 
   test("switches review source without starting a protocol review", async () => {
@@ -1573,12 +1573,12 @@ describe("review diff panel", () => {
     });
     await settleAsyncRender();
     const menuText = textContent(view.baseElement);
-    expect(menuText.includes("Unstaged")).toBeTrue();
-    expect(menuText.includes("Staged")).toBeTrue();
-    expect(menuText.includes("Commit")).toBeTrue();
-    expect(menuText.includes("Branch")).toBeTrue();
-    expect(menuText.includes("Last turn")).toBeTrue();
-    expect(menuText.includes("Review uncommitted changes")).toBeFalse();
+    expect(menuText.includes("Unstaged")).toBe(true);
+    expect(menuText.includes("Staged")).toBe(true);
+    expect(menuText.includes("Commit")).toBe(true);
+    expect(menuText.includes("Branch")).toBe(true);
+    expect(menuText.includes("Last turn")).toBe(true);
+    expect(menuText.includes("Review uncommitted changes")).toBe(false);
     const unstagedItem = await waitForMenuItem(
       view.baseElement as HTMLElement,
       "Unstaged",
@@ -1588,10 +1588,10 @@ describe("review diff panel", () => {
     await waitForGitReviewSnapshotCall();
     expect(
       invokeCalls.some((call) => call[0] === "git:review:diff"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       invokeCalls.some((call) => call[0] === "codex:review:start"),
-    ).toBeFalse();
+    ).toBe(false);
     await unmountReviewView(view);
   });
 
@@ -1632,17 +1632,17 @@ describe("review diff panel", () => {
 
     expect(
       textContent(view.container).includes("No staged changes"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.container).includes("Accept edits to stage them"),
-    ).toBeTrue();
-    expect(textContent(view.container).includes("View branch diff")).toBeTrue();
+    ).toBe(true);
+    expect(textContent(view.container).includes("View branch diff")).toBe(true);
     expect(
       view.getByPlaceholderText("Filter files…").getAttribute("placeholder"),
     ).toBe("Filter files…");
     expect(
       textContent(view.container).includes("No matching files"),
-    ).toBeTrue();
+    ).toBe(true);
 
     await dispatchReviewEvent(() => {
       fireEvent.click(view.getByText("View branch diff"));
@@ -1665,7 +1665,7 @@ describe("review diff panel", () => {
 
     expect(
       invokeCalls.some((call) => call[0] === "codex:review:start"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("renders Codex unstaged empty state copy", async () => {
@@ -1704,16 +1704,16 @@ describe("review diff panel", () => {
 
     expect(
       textContent(view.container).includes("No unstaged changes"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.container).includes("Code changes will appear here"),
-    ).toBeTrue();
-    expect(textContent(view.container).includes("View branch diff")).toBeTrue();
+    ).toBe(true);
+    expect(textContent(view.container).includes("View branch diff")).toBe(true);
     expect(
       textContent(view.container).includes(
         "The latest diffs are no longer available.",
       ),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("renders Codex last-turn committed-or-reverted empty state when a stale diff has no files", async () => {
@@ -1738,23 +1738,23 @@ describe("review diff panel", () => {
 
     expect(
       textContent(view.container).includes("No file changes yet"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.container).includes(
         "The last turn was committed or reverted.",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.container).includes(
         "The latest diffs are no longer available.",
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       textContent(view.container).includes(
         "Changes in this project will appear here.",
       ),
-    ).toBeFalse();
-    expect(textContent(view.container).includes("View branch diff")).toBeTrue();
+    ).toBe(false);
+    expect(textContent(view.container).includes("View branch diff")).toBe(true);
   });
 
   test("keeps Codex latest-unavailable copy when last-turn has no diff payload", async () => {
@@ -1775,22 +1775,22 @@ describe("review diff panel", () => {
 
     expect(
       textContent(view.container).includes("No file changes yet"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.container).includes(
         "The latest diffs are no longer available.",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       textContent(view.container).includes(
         "The last turn was committed or reverted.",
       ),
-    ).toBeFalse();
+    ).toBe(false);
     const illustrationPath =
       view.container
         .querySelector('svg[viewBox="0 0 66 73"] path')
         ?.getAttribute("d") ?? "";
-    expect(illustrationPath.startsWith("M20.4622 0.247806")).toBeTrue();
+    expect(illustrationPath.startsWith("M20.4622 0.247806")).toBe(true);
   });
 
   test("exposes Codex review options in the parity toolbar", async () => {
@@ -1837,27 +1837,27 @@ describe("review diff panel", () => {
       Boolean(
         view.baseElement.textContent?.includes("Review uncommitted changes"),
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       Boolean(
         view.baseElement.textContent?.includes("Review against a base branch"),
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       Boolean(view.baseElement.textContent?.includes("Copy git apply command")),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(view.baseElement.textContent?.includes("Enable word wrap")),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(view.baseElement.textContent?.includes("Disable word diffs")),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       Boolean(view.baseElement.textContent?.includes("Don't load full files")),
-    ).toBeTrue();
+    ).toBe(true);
     await dispatchReviewEvent(() => {
       fireEvent.keyDown(view.baseElement.ownerDocument, { key: "Escape" });
     });
@@ -1967,11 +1967,11 @@ describe("review diff panel", () => {
 
     expect(
       invokeCalls.some((call) => call[0] === "git:review:file-contents"),
-    ).toBeTrue();
+    ).toBe(true);
     await openReviewOptionsMenu(view);
     expect(
       Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("builds last-turn added file full contents from the patch without reading the workspace file", async () => {
@@ -2026,7 +2026,7 @@ describe("review diff panel", () => {
     expect(fullDiff?.getAttribute("data-new-file-contents")).toBe(
       'export const created = true;\nexport const source = "patch";\n',
     );
-    expect(invokeCalls.some((call) => call[0] === "read-file")).toBeFalse();
+    expect(invokeCalls.some((call) => call[0] === "read-file")).toBe(false);
   });
 
   test("cancels delayed git review snapshot loading after unmount", async () => {
@@ -2061,10 +2061,10 @@ describe("review diff panel", () => {
 
     expect(
       invokeCalls.some((call) => call[0] === "git:review:snapshot"),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       invokeCalls.some((call) => call[0] === "git:review:diff"),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("starts commit and pull-request prompts from the parity action buttons", async () => {
@@ -2136,8 +2136,8 @@ describe("review diff panel", () => {
     expect(turnStartCalls.length).toBe(2);
     expect(
       String(turnStartCalls[0]?.[2]).includes("Commit or push"),
-    ).toBeTrue();
-    expect(String(turnStartCalls[1]?.[2]).includes("pull request")).toBeTrue();
+    ).toBe(true);
+    expect(String(turnStartCalls[1]?.[2]).includes("pull request")).toBe(true);
   });
 
   test("renders codex-style review options with icons and diff toggle labels", async () => {
@@ -2192,26 +2192,26 @@ describe("review diff panel", () => {
     );
     expect(
       menuItems.every((node) => node.querySelector("svg") !== null),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       menuItems.some((node) =>
         node.textContent?.includes("Review uncommitted changes"),
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       menuItems.some((node) =>
         node.textContent?.includes("Review against a base branch"),
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       menuItems.some((node) => node.textContent?.includes("Wrap lines")),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       menuItems.some((node) => node.textContent?.includes("Hide whitespace")),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       menuItems.some((node) => node.textContent?.includes("Unified")),
-    ).toBeFalse();
+    ).toBe(false);
     expect(view.getByLabelText("Switch to split diff").tagName).toBe("BUTTON");
     await unmountReviewView(view);
   });
@@ -2277,11 +2277,11 @@ describe("review diff panel", () => {
       copiedCommand.startsWith(
         " (cd \"$(git rev-parse --show-toplevel)\" && git apply --3way <<'EOF'",
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       copiedCommand.includes("diff --git a/src/git.ts b/src/git.ts"),
-    ).toBeTrue();
-    expect(copiedCommand.endsWith("EOF\n)")).toBeTrue();
+    ).toBe(true);
+    expect(copiedCommand.endsWith("EOF\n)")).toBe(true);
     await unmountReviewView(view);
   });
 
@@ -2340,8 +2340,8 @@ describe("review diff panel", () => {
       "file-003.ts",
     );
     const fileItemText = textContent(fileItem);
-    expect(fileItemText.includes("file-003.ts")).toBeTrue();
-    expect(fileItemText.includes("src")).toBeTrue();
+    expect(fileItemText.includes("file-003.ts")).toBe(true);
+    expect(fileItemText.includes("src")).toBe(true);
     expect(
       fileItem.querySelector(".text-token-description-foreground")?.textContent,
     ).toBe("src");
@@ -2426,7 +2426,7 @@ describe("review diff panel", () => {
       textContent(view.container).includes(
         "This diff is large, showing one file at a time",
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("renders code-comment directives as anchored review annotations", async () => {
@@ -2458,14 +2458,14 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Check value")).toBeTrue();
+    expect(textContent(view.container).includes("Check value")).toBe(true);
     expect(
       textContent(view.container).includes("Comment on line R2"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector('[data-review-code-comments="true"]') ===
         null,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector(
         '[data-rendered-line-annotation="additions:2"]',
@@ -2522,15 +2522,15 @@ describe("review diff panel", () => {
     });
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Local comment")).toBeTrue();
+    expect(textContent(view.container).includes("Local comment")).toBe(true);
     expect(
       textContent(view.container).includes("Comment on line R2"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       view.container.querySelector('[data-placeholder="Request change"]'),
     ).not.toBeNull();
-    expect(textContent(view.container).includes("Cancel")).toBeTrue();
-    expect(textContent(view.container).includes("Comment")).toBeTrue();
+    expect(textContent(view.container).includes("Cancel")).toBe(true);
+    expect(textContent(view.container).includes("Comment")).toBe(true);
     expect(
       view.container
         .querySelector("[data-file-diff]")

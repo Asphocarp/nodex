@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import { render } from "../../test/dom";
 
 let useTerminalCalls: unknown[] = [];
 
-mock.module("@/lib/use-terminal", () => ({
+vi.mock("@/lib/use-terminal", () => ({
   useTerminal: (options: unknown) => {
     useTerminalCalls.push(options);
     return {
@@ -25,7 +25,7 @@ describe("TerminalPanel", () => {
     );
 
     const terminalRoot = document.querySelector("[data-codex-terminal='true']");
-    expect(terminalRoot instanceof HTMLElement).toBeTrue();
+    expect(terminalRoot instanceof HTMLElement).toBe(true);
     expect(terminalRoot?.getAttribute("data-codex-xterm")).toBe("true");
     expect(queryByText("Session Terminal")).toBe(null);
     expect(getByText("Terminal requires the Electron desktop app").textContent)

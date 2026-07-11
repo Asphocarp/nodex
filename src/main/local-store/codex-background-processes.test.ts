@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -110,7 +110,7 @@ describe("codex background process store", () => {
       expect(updated.terminalSessionId).toBe("terminal-1");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("lists records by thread scope", async () => {
@@ -150,7 +150,7 @@ describe("codex background process store", () => {
       expect(listCodexBackgroundProcesses().length).toBe(2);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("can refresh start time for terminal action restarts", async () => {
@@ -191,6 +191,6 @@ describe("codex background process store", () => {
       expect(restarted.terminalSessionId).toBe("terminal-new");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

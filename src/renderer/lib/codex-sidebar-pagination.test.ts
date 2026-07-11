@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_SIDEBAR_PAGE_INCREMENT,
   CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS,
@@ -52,7 +52,7 @@ describe("paginateCodexSidebarItems", () => {
     });
 
     expect(result.visibleItems.length).toBe(5);
-    expect(result.showPager).toBeTrue();
+    expect(result.showPager).toBe(true);
   });
 
   test("starts projectless chats at fifty with pager controls", () => {
@@ -66,7 +66,7 @@ describe("paginateCodexSidebarItems", () => {
 
     expect(result.visibleItems.length).toBe(50);
     expect(result.hiddenItems.length).toBe(5);
-    expect(result.showPager).toBeTrue();
+    expect(result.showPager).toBe(true);
   });
 
   test("filters suppressed items before slicing", () => {
@@ -86,7 +86,7 @@ describe("paginateCodexSidebarItems", () => {
       "item-6",
       "item-7",
     ]));
-    expect(result.showPager).toBeFalse();
+    expect(result.showPager).toBe(false);
   });
 
   test("appends a forced visible overflow item once", () => {
@@ -107,6 +107,6 @@ describe("paginateCodexSidebarItems", () => {
       "item-5",
       "item-8",
     ]));
-    expect(result.showPager).toBeTrue();
+    expect(result.showPager).toBe(true);
   });
 });

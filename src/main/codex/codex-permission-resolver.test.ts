@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirements } from "@nodex/codex-app-server-protocol/v2/ConfigRequirements";
 import {
@@ -114,8 +114,8 @@ describe("codex-permission-resolver", () => {
       requirements: null,
     });
 
-    expect(state.autoReviewAvailable).toBeTrue();
-    expect(state.availableModes.includes("guardian-approvals")).toBeTrue();
+    expect(state.autoReviewAvailable).toBe(true);
+    expect(state.availableModes.includes("guardian-approvals")).toBe(true);
     expect(state.mode).toBe("guardian-approvals");
     expect(state.effectivePreset).toBe("guardian-approvals");
     expect(state.approvalsReviewer).toBe("auto_review");
@@ -149,16 +149,16 @@ describe("codex-permission-resolver", () => {
       }),
     });
 
-    expect(flatState.autoReviewAvailable).toBeFalse();
-    expect(flatState.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(flatState.autoReviewAvailable).toBe(false);
+    expect(flatState.availableModes.includes("guardian-approvals")).toBe(false);
     expect(flatState.mode).toBe("auto");
     expect(flatState.approvalsReviewer).toBe("user");
-    expect(nestedState.autoReviewAvailable).toBeFalse();
-    expect(nestedState.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(nestedState.autoReviewAvailable).toBe(false);
+    expect(nestedState.availableModes.includes("guardian-approvals")).toBe(false);
     expect(nestedState.mode).toBe("auto");
     expect(nestedState.approvalsReviewer).toBe("user");
-    expect(requirementsState.autoReviewAvailable).toBeFalse();
-    expect(requirementsState.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(requirementsState.autoReviewAvailable).toBe(false);
+    expect(requirementsState.availableModes.includes("guardian-approvals")).toBe(false);
     expect(requirementsState.mode).toBe("auto");
     expect(requirementsState.approvalsReviewer).toBe("user");
   });
@@ -172,7 +172,7 @@ describe("codex-permission-resolver", () => {
     });
     const overrides = buildThreadPermissionOverrides({ permissionState: state });
 
-    expect(state.autoReviewAvailable).toBeTrue();
+    expect(state.autoReviewAvailable).toBe(true);
     expect(state.mode).toBe("guardian-approvals");
     expect(state.effectivePreset).toBe("guardian-approvals");
     expect(state.approvalsReviewer).toBe("auto_review");
@@ -189,8 +189,8 @@ describe("codex-permission-resolver", () => {
       }),
     });
 
-    expect(state.availableModes.includes("guardian-approvals")).toBeFalse();
-    expect(state.autoReviewAvailable).toBeFalse();
+    expect(state.availableModes.includes("guardian-approvals")).toBe(false);
+    expect(state.autoReviewAvailable).toBe(false);
     expect(state.mode).toBe("auto");
     expect(state.effectivePreset).toBe("auto");
     expect(state.approvalsReviewer).toBe("user");
@@ -206,8 +206,8 @@ describe("codex-permission-resolver", () => {
       }),
     });
 
-    expect(state.availableModes.includes("guardian-approvals")).toBeTrue();
-    expect(state.availableModes.includes("auto")).toBeFalse();
+    expect(state.availableModes.includes("guardian-approvals")).toBe(true);
+    expect(state.availableModes.includes("auto")).toBe(false);
     expect(state.mode).toBe("guardian-approvals");
     expect(state.effectivePreset).toBe("guardian-approvals");
     expect(state.approvalsReviewer).toBe("auto_review");
@@ -223,9 +223,9 @@ describe("codex-permission-resolver", () => {
       }),
     });
 
-    expect(state.autoReviewAvailable).toBeTrue();
-    expect(state.availableModes.includes("guardian-approvals")).toBeTrue();
-    expect(state.availableModes.includes("auto")).toBeFalse();
+    expect(state.autoReviewAvailable).toBe(true);
+    expect(state.availableModes.includes("guardian-approvals")).toBe(true);
+    expect(state.availableModes.includes("auto")).toBe(false);
     expect(state.mode).toBe("guardian-approvals");
     expect(state.effectivePreset).toBe("guardian-approvals");
     expect(state.approvalsReviewer).toBe("auto_review");
@@ -244,10 +244,10 @@ describe("codex-permission-resolver", () => {
       }),
     });
 
-    expect(state.autoReviewAvailable).toBeFalse();
-    expect(state.availableModes.includes("auto")).toBeFalse();
-    expect(state.availableModes.includes("guardian-approvals")).toBeFalse();
-    expect(state.availableModes.includes("full-access")).toBeTrue();
+    expect(state.autoReviewAvailable).toBe(false);
+    expect(state.availableModes.includes("auto")).toBe(false);
+    expect(state.availableModes.includes("guardian-approvals")).toBe(false);
+    expect(state.availableModes.includes("full-access")).toBe(true);
     expect(state.mode).toBe("full-access");
     expect(state.effectivePreset).toBe("full-access");
     expect(state.approvalsReviewer).toBe("user");
@@ -264,7 +264,7 @@ describe("codex-permission-resolver", () => {
 
     expect(state.mode).toBe("auto");
     expect(state.effectivePreset).toBe("auto");
-    expect(state.availableModes.includes("custom")).toBeTrue();
+    expect(state.availableModes.includes("custom")).toBe(true);
   });
 
   test("does not expose Custom when permission profiles constrain the mode space", () => {
@@ -282,7 +282,7 @@ describe("codex-permission-resolver", () => {
     });
 
     expect(state.mode).toBe("auto");
-    expect(state.availableModes.includes("custom")).toBeFalse();
+    expect(state.availableModes.includes("custom")).toBe(false);
   });
 
   test("does not expose Custom when explicit config is denied by requirements", () => {
@@ -300,6 +300,6 @@ describe("codex-permission-resolver", () => {
     });
 
     expect(state.mode).toBe("auto");
-    expect(state.availableModes.includes("custom")).toBeFalse();
+    expect(state.availableModes.includes("custom")).toBe(false);
   });
 });

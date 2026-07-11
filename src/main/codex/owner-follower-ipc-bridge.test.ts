@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import type {
   CodexHostMessage,
@@ -169,8 +169,8 @@ describe("owner/follower IPC bridge", () => {
       },
     });
 
-    expect(accepted).toBeTrue();
-    expect(rejected).toBeFalse();
+    expect(accepted).toBe(true);
+    expect(rejected).toBe(false);
     expect(String(service.hostMessages.length)).toBe("1");
 
     const hostMessage = service.hostMessages[0];
@@ -227,7 +227,7 @@ describe("owner/follower IPC bridge", () => {
       type: "success",
       requestId: roleRequest.requestId,
       result: "owner",
-    })).toBeTrue();
+    })).toBe(true);
     await flushPromises();
 
     const actionRequest = readRendererRequest(owner, 1);
@@ -239,10 +239,10 @@ describe("owner/follower IPC bridge", () => {
       type: "success",
       requestId: actionRequest.requestId,
       result: { ok: true },
-    })).toBeTrue();
+    })).toBe(true);
 
     const result = await resultPromise as { ok?: boolean };
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(router.getPendingRequestCount()).toBe(0);
     expect(timers.size).toBe(0);
   });
@@ -273,8 +273,8 @@ describe("owner/follower IPC bridge", () => {
       },
     ));
 
-    expect(message.includes("no-client-found")).toBeTrue();
-    expect(message.includes("thread-1")).toBeTrue();
+    expect(message.includes("no-client-found")).toBe(true);
+    expect(message.includes("thread-1")).toBe(true);
   });
 
   test("normalizes missing owners for every follower action from bundle 40602-40933 and 47201-47228", async () => {
@@ -300,8 +300,8 @@ describe("owner/follower IPC bridge", () => {
       },
     ));
 
-    expect(message.includes("no-client-found")).toBeTrue();
-    expect(message.includes("thread-missing-owner")).toBeTrue();
+    expect(message.includes("no-client-found")).toBe(true);
+    expect(message.includes("thread-missing-owner")).toBe(true);
     expect(String(follower.sent.length)).toBe("0");
   });
 });

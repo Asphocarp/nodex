@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import type { DiagnosticsSettings } from "./types";
 import {
   initializeRendererSentry,
@@ -52,7 +52,7 @@ describe("renderer Sentry diagnostics", () => {
       },
     });
 
-    expect(initialized).toBeFalse();
+    expect(initialized).toBe(false);
     expect(initCount).toBe(0);
   });
 
@@ -74,7 +74,7 @@ describe("renderer Sentry diagnostics", () => {
         },
       });
 
-      expect(initialized).toBeFalse();
+      expect(initialized).toBe(false);
     } finally {
       mutableGlobal.process = originalProcess;
     }
@@ -104,7 +104,7 @@ describe("renderer Sentry diagnostics", () => {
         },
       });
 
-      expect(initialized).toBeTrue();
+      expect(initialized).toBe(true);
       expect(initCount).toBe(1);
     } finally {
       mutableGlobal.process = originalProcess;
@@ -128,9 +128,9 @@ describe("renderer Sentry diagnostics", () => {
       },
     });
 
-    expect(initialized).toBeTrue();
-    expect(initOptions[0]?.sendDefaultPii).toBeFalse();
-    expect(initOptions[0]?.attachScreenshot).toBeFalse();
+    expect(initialized).toBe(true);
+    expect(initOptions[0]?.sendDefaultPii).toBe(false);
+    expect(initOptions[0]?.attachScreenshot).toBe(false);
     expect(initOptions[0]?.integrations).toBe(undefined);
     expect(processTag).toBe("renderer");
   });
@@ -160,10 +160,10 @@ describe("renderer Sentry diagnostics", () => {
     });
 
     const integrations = initOptions[0]?.integrations as unknown[] | undefined;
-    expect(initialized).toBeTrue();
-    expect(replayOptions[0]?.maskAllText).toBeTrue();
-    expect(replayOptions[0]?.maskAllInputs).toBeTrue();
-    expect(replayOptions[0]?.blockAllMedia).toBeTrue();
+    expect(initialized).toBe(true);
+    expect(replayOptions[0]?.maskAllText).toBe(true);
+    expect(replayOptions[0]?.maskAllInputs).toBe(true);
+    expect(replayOptions[0]?.blockAllMedia).toBe(true);
     expect(integrations?.length).toBe(1);
     expect(integrations?.[0]).toBe(replayToken);
     expect(initOptions[0]?.replaysSessionSampleRate).toBe(0.1);

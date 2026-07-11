@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   handleChildGroupBackspace,
   type EditorForChildGroupBackspace,
@@ -166,10 +166,10 @@ describe("handleChildGroupBackspace", () => {
       currentContent: [],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
-    expect(editor._focused()).toBeTrue();
+    expect(editor._focused()).toBe(true);
   });
 
   test("resets empty nested bullet-list middle child to paragraph in place", () => {
@@ -180,7 +180,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: [],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -193,7 +193,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: [],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -206,7 +206,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: ["childB"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -219,7 +219,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: ["childB"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -232,7 +232,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: ["childB"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -245,7 +245,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: [],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -258,7 +258,7 @@ describe("handleChildGroupBackspace", () => {
       currentContent: ["childB"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe("paragraph");
     expect(editor._mergedTarget()).toBe(undefined);
   });
@@ -271,7 +271,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["childA"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._updatedType()).toBe(undefined);
     expect(editor._mergedTarget()).toBe("child-0");
     expect(editor._mergedSource()).toBe("child-1");
@@ -287,10 +287,10 @@ describe("handleChildGroupBackspace", () => {
 
     const handled = handleChildGroupBackspace(editor);
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(editor._mergedTarget()).toBe("child-0");
     expect(editor._mergedSource()).toBe("child-1");
-    expect(editor._focused()).toBeTrue();
+    expect(editor._focused()).toBe(true);
   });
 
   test("merges first child into parent when no previous sibling", () => {
@@ -304,7 +304,7 @@ describe("handleChildGroupBackspace", () => {
 
     const handled = handleChildGroupBackspace(editor);
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(editor._mergedTarget()).toBe("parent-1");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -318,7 +318,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["1111"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("parent-1");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -333,7 +333,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["1111"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("parent-1");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -348,7 +348,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["childA"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("child-0");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -363,7 +363,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["childA"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("child-0");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -377,7 +377,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["quote parent"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("parent-1");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -391,7 +391,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["bullet parent"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("parent-1");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -406,7 +406,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: ["heading parent"],
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(handleChildGroupBackspace(editor)).toBe(true);
     expect(editor._mergedTarget()).toBe("parent-1");
     expect(editor._mergedSource()).toBe("child-1");
   });
@@ -417,7 +417,7 @@ describe("handleChildGroupBackspace", () => {
       parentInline: false,
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
     expect(editor._mergedTarget()).toBe(undefined);
   });
 
@@ -426,7 +426,7 @@ describe("handleChildGroupBackspace", () => {
       targetContent: { invalid: true },
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
     expect(editor._mergedTarget()).toBe(undefined);
   });
 
@@ -435,26 +435,26 @@ describe("handleChildGroupBackspace", () => {
       currentContent: "invalid",
     });
 
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
   });
 
   test("returns false when block has children", () => {
     const editor = makeEditor({ blockHasChildren: true });
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
   });
 
   test("returns false when selection is a range", () => {
     const editor = makeEditor({ selectionEmpty: false });
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
   });
 
   test("returns false when cursor is not at block start", () => {
     const editor = makeEditor({ atBlockStart: false });
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
   });
 
   test("returns false when parent does not exist", () => {
     const editor = makeEditor({ hasParent: false });
-    expect(handleChildGroupBackspace(editor)).toBeFalse();
+    expect(handleChildGroupBackspace(editor)).toBe(false);
   });
 });

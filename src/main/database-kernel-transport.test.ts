@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import type {
   DatabaseMutationCommandResult,
@@ -128,7 +128,7 @@ describe("Database IPC/HTTP transport", () => {
       "project-1",
       request("electron-window-1", "electron_actor"),
     )) as DatabaseMutationCommandResult;
-    expect(ipc.ok && ipc.value.duplicate).toBeFalse();
+    expect(ipc.ok && ipc.value.duplicate).toBe(false);
     const untrusted = (await handlers.get(DATABASE_MUTATION_IPC_CHANNEL)?.(
       "untrusted-subframe",
       "project-1",
@@ -137,7 +137,7 @@ describe("Database IPC/HTTP transport", () => {
     expect(
       !untrusted.ok &&
         untrusted.error.code === "invalid_database_mutation_request",
-    ).toBeTrue();
+    ).toBe(true);
     expect(received.length).toBe(1);
 
     const app = new Hono();
@@ -158,7 +158,7 @@ describe("Database IPC/HTTP transport", () => {
     );
     const http = (await response.json()) as DatabaseMutationCommandResult;
     expect(response.status).toBe(200);
-    expect(http.ok && http.value.duplicate).toBeTrue();
+    expect(http.ok && http.value.duplicate).toBe(true);
     expect(received[0]?.clientSessionId).toBe("trusted-electron-window");
     expect(received[1]?.clientSessionId).toBe("http-loopback");
     expect(received[0]?.actor.kind).toBe("electron_renderer");

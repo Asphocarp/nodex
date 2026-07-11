@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   BlockDocumentValidationError,
@@ -141,7 +141,7 @@ describe("Card block document envelope", () => {
       error = caught;
     }
 
-    expect(error instanceof CardDocumentRootValidationError).toBeTrue();
+    expect(error instanceof CardDocumentRootValidationError).toBe(true);
   });
 
   test("rejects unsupported named roots carried by an encoded update", () => {
@@ -161,7 +161,7 @@ describe("Card block document envelope", () => {
       error = caught;
     }
 
-    expect(error instanceof CardDocumentRootValidationError).toBeTrue();
+    expect(error instanceof CardDocumentRootValidationError).toBe(true);
   });
 });
 
@@ -227,7 +227,7 @@ describe("registered document-bearing Block envelopes", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof SyncedBlockDocumentRootValidationError).toBeTrue();
+    expect(error instanceof SyncedBlockDocumentRootValidationError).toBe(true);
   });
 
   test("registers Template and Large Document as distinct body-only schemas", () => {
@@ -295,7 +295,7 @@ describe("registered document-bearing Block envelopes", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof TypeError).toBeTrue();
+    expect(error instanceof TypeError).toBe(true);
     valid.document.destroy();
     invalid.document.destroy();
   });
@@ -316,7 +316,7 @@ describe("registered document-bearing Block envelopes", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof BodyOnlyBlockDocumentRootValidationError).toBeTrue();
+    expect(error instanceof BodyOnlyBlockDocumentRootValidationError).toBe(true);
     envelope.document.destroy();
   });
 });
@@ -382,7 +382,7 @@ describe("Block document structural validation", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error instanceof BlockDocumentValidationError).toBeTrue();
+    expect(error instanceof BlockDocumentValidationError).toBe(true);
   });
 
   test("rejects multiple root block groups", () => {
@@ -405,7 +405,7 @@ describe("Block document structural validation", () => {
     const scan = scanBlockDocument(envelope.body);
     expect(
       scan.issues.some((issue) => issue.code === "unsupported_xml_text_embed"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("rejects nested shared types in XML attributes before persistence", () => {
@@ -420,7 +420,7 @@ describe("Block document structural validation", () => {
     const scan = scanBlockDocument(envelope.body);
     expect(
       scan.issues.some((issue) => issue.code === "unsupported_xml_value"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });
 
@@ -435,12 +435,12 @@ describe("portable Y.Xml subtree codec", () => {
     const targetDocument = new Y.Doc();
     targetDocument.getXmlFragment("body").insert(0, [cloned]);
 
-    expect(cloned instanceof Y.XmlElement).toBeTrue();
+    expect(cloned instanceof Y.XmlElement).toBe(true);
     if (!(cloned instanceof Y.XmlElement)) return;
     expect(
       Object.prototype.hasOwnProperty.call(cloned.getAttributes(), "origin"),
-    ).toBeTrue();
-    expect(cloned.getAttribute("origin") === undefined).toBeTrue();
+    ).toBe(true);
+    expect(cloned.getAttribute("origin") === undefined).toBe(true);
   });
 
   test("clones nested IDs and formatting, then replays source and target updates idempotently", () => {

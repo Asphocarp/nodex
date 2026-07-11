@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { createElement } from "react";
 import { render } from "../test/dom";
@@ -85,7 +85,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(direction).toBe(1);
   });
 
@@ -106,7 +106,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(direction).toBe(-1);
   });
 
@@ -127,7 +127,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(selectedIndex).toBe(2);
   });
 
@@ -152,7 +152,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(source).toBe("keyboard_shortcut");
   });
 
@@ -177,8 +177,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
-    expect(opened).toBeFalse();
+    expect(handled).toBe(false);
+    expect(opened).toBe(false);
   });
 
   test("Cmd+5 does not map to a stage index", () => {
@@ -198,7 +198,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
     expect(selectedIndex).toBe(-1);
   });
 
@@ -216,7 +216,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
   });
 
   test("Cmd+N is reserved for the workbench shell new chat action", () => {
@@ -240,8 +240,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
-    expect(called).toBeFalse();
+    expect(handled).toBe(false);
+    expect(called).toBe(false);
   });
 
   test("Cmd+Shift+N requests a new window", () => {
@@ -265,8 +265,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
   });
 
   test("Cmd+K opens the command palette even inside inputs", () => {
@@ -290,8 +290,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
   });
 
   test("Cmd+P opens cards search", () => {
@@ -315,7 +315,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(mode).toBe("cards");
   });
 
@@ -343,7 +343,7 @@ describe("handleWorkbenchShortcut", () => {
         true,
       );
 
-      expect(handled).toBeTrue();
+      expect(handled).toBe(true);
       expect(mode).toBe("cards");
     }
 
@@ -371,7 +371,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(mode).toBe("chats");
   });
 
@@ -394,7 +394,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(source).toBe("keyboard_shortcut");
   });
 
@@ -417,7 +417,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(source).toBe("composer_sidebar_shortcut");
   });
 
@@ -440,8 +440,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
-    expect(called).toBeFalse();
+    expect(handled).toBe(false);
+    expect(called).toBe(false);
   });
 
   test("Cmd+F opens content search in conversation mode when the Threads stage is focused", () => {
@@ -472,10 +472,10 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(contentSearchProjectId).toBe("a");
     expect(contentSearchDomain).toBe("conversation");
-    expect(taskSearchCalled).toBeFalse();
+    expect(taskSearchCalled).toBe(false);
   });
 
   test("Cmd+F opens content search in diff mode when the Diffs stage is focused", () => {
@@ -506,10 +506,10 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(contentSearchProjectId).toBe("a");
     expect(contentSearchDomain).toBe("diff");
-    expect(taskSearchCalled).toBeFalse();
+    expect(taskSearchCalled).toBe(false);
   });
 
   test("Cmd+F keeps task search blocked inside editable inputs outside the Threads stage", () => {
@@ -534,8 +534,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
-    expect(taskSearchCalled).toBeFalse();
+    expect(handled).toBe(false);
+    expect(taskSearchCalled).toBe(false);
   });
 
   test("Cmd+[ navigates back even inside inputs", () => {
@@ -560,8 +560,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
     expect(source).toBe("keyboard_shortcut");
   });
 
@@ -587,8 +587,8 @@ describe("handleWorkbenchShortcut", () => {
       false,
     );
 
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
     expect(source).toBe("keyboard_shortcut");
   });
 
@@ -613,8 +613,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
   });
 
   test("custom command keymap shortcut drives settings toggle", () => {
@@ -639,8 +639,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(opened).toBeTrue();
+    expect(handled).toBe(true);
+    expect(opened).toBe(true);
   });
 
   test("Cmd+Shift+slash opens keyboard shortcuts settings globally", () => {
@@ -664,8 +664,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
   });
 
   test("custom command keymap shortcut opens keyboard shortcuts settings", () => {
@@ -690,8 +690,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(opened).toBeTrue();
+    expect(handled).toBe(true);
+    expect(opened).toBe(true);
   });
 
   test("Ctrl+Alt+M opens the process manager", () => {
@@ -715,8 +715,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(opened).toBeTrue();
+    expect(handled).toBe(true);
+    expect(opened).toBe(true);
   });
 
   test("Cmd+H shifts the sliding window left", () => {
@@ -736,7 +736,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(direction).toBe(-1);
   });
 
@@ -757,7 +757,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
     expect(direction).toBe(null);
   });
 
@@ -778,7 +778,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(selectedProjectIndex).toBe(1);
   });
 
@@ -799,7 +799,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(mode).toBe("root");
   });
 
@@ -825,7 +825,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(calledWithProjectId).toBe("c");
   });
 
@@ -851,8 +851,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
-    expect(called).toBeFalse();
+    expect(handled).toBe(false);
+    expect(called).toBe(false);
   });
 
   test("Cmd+number switches stage inside NFM editor target", () => {
@@ -873,7 +873,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(selectedIndex).toBe(2);
   });
 
@@ -895,7 +895,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(direction).toBe(1);
   });
 
@@ -917,7 +917,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(mode).toBe("root");
   });
 
@@ -945,7 +945,7 @@ describe("handleWorkbenchShortcut", () => {
         true,
       );
 
-      expect(handled).toBeTrue();
+      expect(handled).toBe(true);
       expect(lastMode).toBe("root");
     }
 
@@ -970,8 +970,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
-    expect(called).toBeFalse();
+    expect(handled).toBe(false);
+    expect(called).toBe(false);
   });
 
   test("Cmd+Alt+number remains unhandled inside NFM editor target", () => {
@@ -992,7 +992,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
     expect(selectedProjectIndex).toBe(-1);
   });
 
@@ -1014,7 +1014,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
     expect(selectedIndex).toBe(-1);
   });
 
@@ -1035,7 +1035,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
   });
 
   test("Cmd+H remains blocked for plain input targets", () => {
@@ -1056,7 +1056,7 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
     expect(direction).toBe(null);
   });
 });
@@ -1079,7 +1079,7 @@ describe("handleWorkbenchMouseNavigationShortcut", () => {
       }),
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(source).toBe("mouse_back");
   });
 
@@ -1094,7 +1094,7 @@ describe("handleWorkbenchMouseNavigationShortcut", () => {
       }),
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(source).toBe("mouse_forward");
   });
 
@@ -1104,7 +1104,7 @@ describe("handleWorkbenchMouseNavigationShortcut", () => {
       makeActions(),
     );
 
-    expect(handled).toBeFalse();
+    expect(handled).toBe(false);
   });
 });
 
@@ -1132,7 +1132,7 @@ describe("useWorkbenchShortcuts", () => {
 
     input.remove();
     view.unmount();
-    expect(called).toBeTrue();
-    expect(targetSawDefaultPrevented).toBeTrue();
+    expect(called).toBe(true);
+    expect(targetSawDefaultPrevented).toBe(true);
   });
 });

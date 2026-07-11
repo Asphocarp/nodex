@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
 
 describe("Block Document compaction main runtime", () => {
@@ -14,15 +14,15 @@ describe("Block Document compaction main runtime", () => {
       };
     });
 
-    expect(runtime.start()).toBeTrue();
-    expect(runtime.start()).toBeFalse();
-    expect(runtime.isRunning()).toBeTrue();
+    expect(runtime.start()).toBe(true);
+    expect(runtime.start()).toBe(false);
+    expect(runtime.isRunning()).toBe(true);
     expect(starts).toBe(1);
 
     runtime.dispose();
     runtime.dispose();
-    expect(runtime.isRunning()).toBeFalse();
-    expect(runtime.start()).toBeFalse();
+    expect(runtime.isRunning()).toBe(false);
+    expect(runtime.start()).toBe(false);
     expect(disposals).toBe(1);
   });
 
@@ -40,9 +40,9 @@ describe("Block Document compaction main runtime", () => {
     } catch {
       failed = true;
     }
-    expect(failed).toBeTrue();
-    expect(runtime.isRunning()).toBeFalse();
-    expect(runtime.start()).toBeTrue();
+    expect(failed).toBe(true);
+    expect(runtime.isRunning()).toBe(false);
+    expect(runtime.start()).toBe(true);
     expect(starts).toBe(2);
     runtime.dispose();
   });

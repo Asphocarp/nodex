@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "../../../../test/browser-globals";
 import { UserAttachmentStrip } from "./user-message-attachments";
@@ -20,7 +20,7 @@ describe("UserAttachmentStrip", () => {
 
     const image = view.container.querySelector("img");
     expect(image?.getAttribute("src")).toBe("data:image/png;base64,aW1hZ2U=");
-    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBe(true);
   });
 
   test("hides failed remote thumbnails after the loading state", async () => {
@@ -40,10 +40,10 @@ describe("UserAttachmentStrip", () => {
         />,
       );
 
-      expect(textContent(view.container).includes("...")).toBeTrue();
+      expect(textContent(view.container).includes("...")).toBe(true);
       await settleAsyncRender();
-      expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBeFalse();
-      expect(textContent(view.container).includes("...")).toBeFalse();
+      expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBe(false);
+      expect(textContent(view.container).includes("...")).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -78,7 +78,7 @@ describe("UserAttachmentStrip", () => {
     await settleAsyncRender();
 
     expect(invokeCount).toBe(0);
-    expect(Boolean(view.container.querySelector('[aria-label="Image unavailable"]'))).toBeTrue();
-    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBeFalse();
+    expect(Boolean(view.container.querySelector('[aria-label="Image unavailable"]'))).toBe(true);
+    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBe(false);
   });
 });

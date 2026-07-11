@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -54,19 +54,19 @@ describe("thread goal attachment materialization", () => {
       },
     });
 
-    expect(materialized.attachmentDirectory !== null).toBeTrue();
+    expect(materialized.attachmentDirectory !== null).toBe(true);
     const directory = materialized.attachmentDirectory ?? "";
     const pastedText = await readFile(join(directory, "pasted-text-1.txt"), "utf8");
     const imageText = await readFile(join(directory, "image-1.png"), "utf8");
 
     expect(pastedText).toBe("Pasted requirements");
     expect(imageText).toBe("image-bytes");
-    expect(Boolean(materialized.objective.includes("Referenced pasted text files:"))).toBeTrue();
-    expect(Boolean(materialized.objective.includes(`- pasted text file: ${join(directory, "pasted-text-1.txt")}. Read this file before continuing.`))).toBeTrue();
-    expect(Boolean(materialized.objective.includes("Referenced image files:"))).toBeTrue();
-    expect(Boolean(materialized.objective.includes(`- [Image #1]: ${join(directory, "image-1.png")}`))).toBeTrue();
-    expect(Boolean(materialized.objective.includes("Referenced image URLs:"))).toBeTrue();
-    expect(Boolean(materialized.objective.includes("- [Image #2]: https://example.com/remote.png"))).toBeTrue();
+    expect(Boolean(materialized.objective.includes("Referenced pasted text files:"))).toBe(true);
+    expect(Boolean(materialized.objective.includes(`- pasted text file: ${join(directory, "pasted-text-1.txt")}. Read this file before continuing.`))).toBe(true);
+    expect(Boolean(materialized.objective.includes("Referenced image files:"))).toBe(true);
+    expect(Boolean(materialized.objective.includes(`- [Image #1]: ${join(directory, "image-1.png")}`))).toBe(true);
+    expect(Boolean(materialized.objective.includes("Referenced image URLs:"))).toBe(true);
+    expect(Boolean(materialized.objective.includes("- [Image #2]: https://example.com/remote.png"))).toBe(true);
   });
 
   test("stores long objectives in goal-objective.md and loads them for editing", async () => {
@@ -81,8 +81,8 @@ describe("thread goal attachment materialization", () => {
     });
 
     const objectiveFilePath = parseThreadGoalObjectiveFileReference(materialized.objective);
-    expect(objectiveFilePath !== null).toBeTrue();
-    expect(Boolean(objectiveFilePath?.endsWith("goal-objective.md"))).toBeTrue();
+    expect(objectiveFilePath !== null).toBe(true);
+    expect(Boolean(objectiveFilePath?.endsWith("goal-objective.md"))).toBe(true);
     expect(await readFile(objectiveFilePath ?? "", "utf8")).toBe(longObjective);
     expect(await readThreadGoalEditableObjective({ attachmentsRoot, objective: materialized.objective })).toBe(longObjective);
     expect(await readThreadGoalEditableObjective({
@@ -105,7 +105,7 @@ describe("thread goal attachment materialization", () => {
     await removeOwnedThreadGoalAttachmentDirectory(directory);
 
     const directoryStat = await stat(directory).catch(() => null);
-    expect(directoryStat === null).toBeTrue();
+    expect(directoryStat === null).toBe(true);
 
     let rejectedOutsideRoot = false;
     try {
@@ -116,6 +116,6 @@ describe("thread goal attachment materialization", () => {
     } catch {
       rejectedOutsideRoot = true;
     }
-    expect(rejectedOutsideRoot).toBeTrue();
+    expect(rejectedOutsideRoot).toBe(true);
   });
 });

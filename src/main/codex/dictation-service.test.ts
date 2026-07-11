@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ChatGptDesktopRequestInput } from "./chatgpt-desktop-request";
 import { CodexDictationService } from "./dictation-service";
@@ -50,7 +50,7 @@ describe("CodexDictationService", () => {
     const headers = new Headers(request.headers);
     expect(headers.get("Content-Type")).toBe("multipart/form-data; boundary=test");
     expect(headers.get("X-Codex-Base64")).toBe("1");
-    expect(request.refreshOn401).toBeTrue();
+    expect(request.refreshOn401).toBe(true);
     expect(request.missingAuthErrorMessage).toBe(
       "ChatGPT authentication is required for dictation.",
     );
@@ -115,7 +115,7 @@ describe("CodexDictationService", () => {
       expect((error as Error).message).toBe("Unable to transcribe audio");
     }
 
-    expect(didThrow).toBeTrue();
+    expect(didThrow).toBe(true);
     const fields = warningFields as unknown as Record<string, unknown>;
     if (!fields) {
       throw new Error("Expected warning fields");

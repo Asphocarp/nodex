@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -237,10 +237,10 @@ describe("general Database kernel", () => {
         fixture.database,
         fixture.projectId,
       );
-      expect(primary.ok).toBeTrue();
+      expect(primary.ok).toBe(true);
       if (!primary.ok || !primary.value.value) return;
-      expect(primary.value.value.database.isPrimary).toBeTrue();
-      expect(primary.value.value.database.blockId === "database-secondary").toBeFalse();
+      expect(primary.value.value.database.isPrimary).toBe(true);
+      expect(primary.value.value.database.blockId === "database-secondary").toBe(false);
       expect(primary.value.storeEpoch).toBe(fixture.storeEpoch);
     });
   });
@@ -251,7 +251,7 @@ describe("general Database kernel", () => {
         fixture.database,
         fixture.projectId,
       );
-      expect(snapshot.ok).toBeTrue();
+      expect(snapshot.ok).toBe(true);
       if (!snapshot.ok) return;
       expect(snapshot.value.descriptor.storeEpoch).toBe(fixture.storeEpoch);
       expect(snapshot.value.query.storeEpoch).toBe(fixture.storeEpoch);
@@ -293,7 +293,7 @@ describe("general Database kernel", () => {
           actor: { kind: "cli" },
           clientSessionId: "other-session",
         });
-        expect(retry.ok ? retry.value.duplicate : false).toBeTrue();
+        expect(retry.ok ? retry.value.duplicate : false).toBe(true);
         expect(
           resultCode(
             applyDatabaseMutation(fixture.database, {
@@ -334,7 +334,7 @@ describe("general Database kernel", () => {
           readonly change_log_seq: number | null;
         };
         expect(rejection.outcome).toBe("rejected");
-        expect(rejection.change_log_seq === null).toBeTrue();
+        expect(rejection.change_log_seq === null).toBe(true);
         expect(
           resultCode(
             applyDatabaseMutation(fixture.database, {
@@ -358,19 +358,19 @@ describe("general Database kernel", () => {
               },
             }),
           ),
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           fixture.database
             .prepare("SELECT 1 FROM blocks WHERE id = 'database-fault'")
             .get() === undefined,
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           fixture.database
             .prepare(
               "SELECT 1 FROM block_mutations WHERE mutation_id = 'fault-create'",
             )
             .get() === undefined,
-        ).toBeTrue();
+        ).toBe(true);
 
         const lostResponse = request(
           fixture,
@@ -385,9 +385,9 @@ describe("general Database kernel", () => {
               },
             }),
           ),
-        ).toBeTrue();
+        ).toBe(true);
         const recovered = applyDatabaseMutation(fixture.database, lostResponse);
-        expect(recovered.ok ? recovered.value.duplicate : false).toBeTrue();
+        expect(recovered.ok ? recovered.value.duplicate : false).toBe(true);
         const history = fixture.database
           .prepare(
             `
@@ -414,7 +414,7 @@ describe("general Database kernel", () => {
               fixture.database,
             ),
           ),
-        ).toBeTrue();
+        ).toBe(true);
       });
     },
   );
@@ -559,14 +559,14 @@ describe("general Database kernel", () => {
           fixture.database
             .prepare("SELECT 1 FROM cards WHERE id = 'card-block-only'")
             .get() === undefined,
-        ).toBeTrue();
+        ).toBe(true);
         expect(
           fixture.database
             .prepare(
               "SELECT 1 FROM database_memberships WHERE card_block_id = 'card-block-only' AND removed_at IS NULL",
             )
             .get() === undefined,
-        ).toBeTrue();
+        ).toBe(true);
 
         fixture.database
           .prepare(
@@ -581,7 +581,7 @@ describe("general Database kernel", () => {
               fixture.database,
             ),
           ),
-        ).toBeTrue();
+        ).toBe(true);
       });
     },
   );

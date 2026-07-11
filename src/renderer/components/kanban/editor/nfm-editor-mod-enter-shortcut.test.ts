@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   handleNfmEditorModEnterShortcut,
 } from "./nfm-editor-mod-enter-shortcut";
@@ -30,7 +30,7 @@ describe("handleNfmEditorModEnterShortcut", () => {
       showMissingThreadSectionHint: () => undefined,
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(checked).toBe("true");
     expect(sendCount).toBe(0);
   });
@@ -56,7 +56,7 @@ describe("handleNfmEditorModEnterShortcut", () => {
       showMissingThreadSectionHint: () => undefined,
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(sentBlockId).toBe("paragraph-1");
   });
 
@@ -80,7 +80,7 @@ describe("handleNfmEditorModEnterShortcut", () => {
       },
     });
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(hintCount).toBe(1);
   });
 });

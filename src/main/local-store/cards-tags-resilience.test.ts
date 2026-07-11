@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,7 +55,7 @@ describe("card tag JSON resilience", () => {
 
       const board = await getBoard(projectId);
       const column = board.columns.find((entry) => entry.id === "draft");
-      expect(column !== undefined).toBeTrue();
+      expect(column !== undefined).toBe(true);
       expect(JSON.stringify(column?.cards[0]?.tags ?? null)).toBe("[]");
 
       const updated = await updateCard(projectId, "draft", created.id, {
@@ -68,6 +68,6 @@ describe("card tag JSON resilience", () => {
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

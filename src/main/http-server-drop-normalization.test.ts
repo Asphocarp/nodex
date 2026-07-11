@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   normalizeBlockDropImportBody,
   normalizeCardEditorDropBody,
@@ -35,12 +35,12 @@ describe("http drop payload normalization", () => {
       ? normalizedUpdate.updates as Record<string, unknown>
       : null;
 
-    expect(normalizedCard instanceof Object).toBeTrue();
-    expect(normalizedCard?.dueDate instanceof Date).toBeTrue();
+    expect(normalizedCard instanceof Object).toBe(true);
+    expect(normalizedCard?.dueDate instanceof Date).toBe(true);
     expect((normalizedCard?.dueDate as Date | undefined)?.toISOString()).toBe(
       "2026-02-15T00:00:00.000Z",
     );
-    expect(normalizedUpdateFields?.dueDate instanceof Date).toBeTrue();
+    expect(normalizedUpdateFields?.dueDate instanceof Date).toBe(true);
     expect((normalizedUpdateFields?.dueDate as Date | undefined)?.toISOString()).toBe(
       "2026-02-16T00:00:00.000Z",
     );
@@ -68,7 +68,7 @@ describe("http drop payload normalization", () => {
       ? normalizedUpdate.updates as Record<string, unknown>
       : null;
 
-    expect(normalizedUpdateFields?.dueDate instanceof Date).toBeTrue();
+    expect(normalizedUpdateFields?.dueDate instanceof Date).toBe(true);
     expect((normalizedUpdateFields?.dueDate as Date | undefined)?.toISOString()).toBe(
       "2026-02-17T00:00:00.000Z",
     );

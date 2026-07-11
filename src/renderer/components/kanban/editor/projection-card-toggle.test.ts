@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ToggleListCard } from "../../../lib/toggle-list/types";
 import {
   applyCardToggleMetaEdit,
@@ -48,7 +48,7 @@ describe("projection card toggle helpers", () => {
     const third = makeProjectedCardToggleBlockId("embed-2", "default", "abc");
 
     expect(first).toBe(second);
-    expect(first === third).toBeFalse();
+    expect(first === third).toBe(false);
   });
 
   test("buildProjectedCardToggleBlock marks projection metadata", () => {
@@ -61,7 +61,7 @@ describe("projection card toggle helpers", () => {
       hiddenProperties: [],
     }) as { props?: Record<string, unknown> };
 
-    expect(isProjectedCardToggleBlock(block, "embed-1")).toBeTrue();
+    expect(isProjectedCardToggleBlock(block, "embed-1")).toBe(true);
     expect(block.props?.[PROJECTION_OWNER_PROP]).toBe("embed-1");
     expect(block.props?.[PROJECTION_CARD_ID_PROP]).toBe("abc");
     expect(block.props?.[PROJECTION_SOURCE_PROJECT_PROP]).toBe("default");
@@ -203,8 +203,8 @@ describe("projection card toggle helpers", () => {
 
     const patches = collectProjectedCardPatchesForOwner([projected], "embed-1");
     expect(patches.length).toBe(1);
-    expect(Object.prototype.hasOwnProperty.call(patches[0]?.updates ?? {}, "priority")).toBeTrue();
-    expect(patches[0]?.updates.priority === null).toBeTrue();
+    expect(Object.prototype.hasOwnProperty.call(patches[0]?.updates ?? {}, "priority")).toBe(true);
+    expect(patches[0]?.updates.priority === null).toBe(true);
   });
 
   test("collectProjectedCardPatchesForOwner strips nested projected rows from description", () => {
@@ -337,7 +337,7 @@ describe("projection card toggle helpers", () => {
       getParentBlock: (id: string) => parents.get(id),
     };
 
-    expect(hasRecursiveCardRefAncestor(editor, "leaf", "default:abc")).toBeTrue();
+    expect(hasRecursiveCardRefAncestor(editor, "leaf", "default:abc")).toBe(true);
   });
 
   test("recursive ancestor detection for inline project checks ancestor inline blocks", () => {
@@ -358,7 +358,7 @@ describe("projection card toggle helpers", () => {
       getParentBlock: (id: string) => parents.get(id),
     };
 
-    expect(hasRecursiveInlineProjectAncestor(editor, "leaf", "default")).toBeTrue();
+    expect(hasRecursiveInlineProjectAncestor(editor, "leaf", "default")).toBe(true);
   });
 
   test("resolveProjectedCardOwnerContext returns the nearest projected card ancestor", () => {

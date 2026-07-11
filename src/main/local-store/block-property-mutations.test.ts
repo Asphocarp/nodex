@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -262,9 +262,9 @@ describe("Block property mutation store", () => {
         const first = applyBlockPropertyMutation(fixture.database, request, {
           now: () => "2026-07-11T01:00:00.000Z",
         });
-        expect(first.ok).toBeTrue();
+        expect(first.ok).toBe(true);
         if (!first.ok) throw new Error(first.error.message);
-        expect(first.value.duplicate).toBeFalse();
+        expect(first.value.duplicate).toBe(false);
         expect(first.value.fields.length).toBe(2);
         expect(readIntrinsic(fixture, "agent.status").value_json).toBe(
           JSON.stringify("running"),
@@ -275,9 +275,9 @@ describe("Block property mutation store", () => {
         expect(readMetadataRevision(fixture)).toBe(metadataBefore + 1);
 
         const retry = applyBlockPropertyMutation(fixture.database, request);
-        expect(retry.ok).toBeTrue();
+        expect(retry.ok).toBe(true);
         if (!retry.ok) throw new Error(retry.error.message);
-        expect(retry.value.duplicate).toBeTrue();
+        expect(retry.value.duplicate).toBe(true);
         expect(retry.value.changeLogSeq).toBe(first.value.changeLogSeq);
         expect(readIntrinsic(fixture, "agent.status").revision).toBe(
           intrinsicBefore.revision + 1,
@@ -301,7 +301,7 @@ describe("Block property mutation store", () => {
         expect(canonicalHistory[0]?.kind).toBe("block_mutation");
         expect(canonicalHistory[0]?.mutationKind).toBe("property_batch");
         const fieldChanges = canonicalHistory[0]?.payload.fieldChanges;
-        expect(Array.isArray(fieldChanges)).toBeTrue();
+        expect(Array.isArray(fieldChanges)).toBe(true);
         if (!Array.isArray(fieldChanges)) {
           throw new Error("Property history is missing field changes");
         }
@@ -344,7 +344,7 @@ describe("Block property mutation store", () => {
               : field,
           ),
         });
-        expect(collision.ok).toBeFalse();
+        expect(collision.ok).toBe(false);
         if (collision.ok) throw new Error("Expected a mutation ID collision");
         expect(collision.error.code).toBe("mutation_id_collision");
         expect(readIntrinsic(fixture, "agent.status").value_json).toBe(
@@ -375,7 +375,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(status.ok).toBeTrue();
+        expect(status.ok).toBe(true);
 
         const independent = applyBlockPropertyMutation(
           fixture.database,
@@ -390,7 +390,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(independent.ok).toBeTrue();
+        expect(independent.ok).toBe(true);
         expect(readMetadataRevision(fixture)).toBe(metadataBefore + 2);
 
         const staleRequest = makeRequest(fixture, "stale-batch", [
@@ -415,7 +415,7 @@ describe("Block property mutation store", () => {
           fixture.database,
           staleRequest,
         );
-        expect(stale.ok).toBeFalse();
+        expect(stale.ok).toBe(false);
         if (stale.ok) throw new Error("Expected a property conflict");
         expect(stale.error.code).toBe("property_conflict");
         expect(stale.error.expectedRevision).toBe(statusBefore.revision);
@@ -440,13 +440,13 @@ describe("Block property mutation store", () => {
           readonly change_log_seq: number | null;
         };
         expect(rejected.outcome).toBe("rejected");
-        expect(rejected.change_log_seq === null).toBeTrue();
+        expect(rejected.change_log_seq === null).toBe(true);
 
         const retry = applyBlockPropertyMutation(
           fixture.database,
           staleRequest,
         );
-        expect(retry.ok).toBeFalse();
+        expect(retry.ok).toBe(false);
         if (retry.ok) throw new Error("Expected a replayed property conflict");
         expect(retry.error.code).toBe("property_conflict");
       });
@@ -470,7 +470,7 @@ describe("Block property mutation store", () => {
           },
         ]);
         const added = applyBlockPropertyMutation(fixture.database, add);
-        expect(added.ok).toBeTrue();
+        expect(added.ok).toBe(true);
         expect(readDatabaseValue(fixture, "tags").value_json).toBe(
           JSON.stringify(["alpha", "zeta"]),
         );
@@ -490,7 +490,7 @@ describe("Block property mutation store", () => {
           fixture.database,
           exchange,
         );
-        expect(exchanged.ok).toBeTrue();
+        expect(exchanged.ok).toBe(true);
         const afterExchange = readDatabaseValue(fixture, "tags");
         expect(afterExchange.value_json).toBe(
           JSON.stringify(["alpha", "beta"]),
@@ -498,9 +498,9 @@ describe("Block property mutation store", () => {
         expect(afterExchange.revision).toBe(tagsBefore.revision + 2);
 
         const retry = applyBlockPropertyMutation(fixture.database, exchange);
-        expect(retry.ok).toBeTrue();
+        expect(retry.ok).toBe(true);
         if (!retry.ok) throw new Error(retry.error.message);
-        expect(retry.value.duplicate).toBeTrue();
+        expect(retry.value.duplicate).toBe(true);
         expect(readDatabaseValue(fixture, "tags").revision).toBe(
           tagsBefore.revision + 2,
         );
@@ -519,7 +519,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(wrongOperation.ok).toBeFalse();
+        expect(wrongOperation.ok).toBe(false);
         if (wrongOperation.ok)
           throw new Error("Expected a property type error");
         expect(wrongOperation.error.code).toBe("property_type_mismatch");
@@ -546,7 +546,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(committed.ok).toBeTrue();
+        expect(committed.ok).toBe(true);
         expect(readPrimaryViewGroup(fixture)).toBe("in_progress");
 
         const invalidStatus = applyBlockPropertyMutation(
@@ -563,7 +563,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(invalidStatus.ok).toBeFalse();
+        expect(invalidStatus.ok).toBe(false);
         if (invalidStatus.ok) throw new Error("Expected invalid status");
         expect(invalidStatus.error.code).toBe("property_value_invalid");
         expect(readPrimaryViewGroup(fixture)).toBe("in_progress");
@@ -582,7 +582,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(invalidTarget.ok).toBeFalse();
+        expect(invalidTarget.ok).toBe(false);
         if (invalidTarget.ok) throw new Error("Expected invalid run target");
         expect(invalidTarget.error.code).toBe("property_value_invalid");
         expect(readIntrinsic(fixture, "run.target").revision).toBe(
@@ -610,7 +610,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(invalid.ok).toBeFalse();
+        expect(invalid.ok).toBe(false);
         if (invalid.ok) throw new Error("Expected invalid all-day schedule");
         expect(invalid.error.code).toBe("property_value_invalid");
         expect(readIntrinsic(fixture, "schedule.isAllDay").revision).toBe(
@@ -650,7 +650,7 @@ describe("Block property mutation store", () => {
             },
           ]),
         );
-        expect(committed.ok).toBeTrue();
+        expect(committed.ok).toBe(true);
         const schedule = fixture.database
           .prepare(
             `
@@ -715,7 +715,7 @@ describe("Block property mutation store", () => {
           } catch {
             failed = true;
           }
-          expect(failed).toBeTrue();
+          expect(failed).toBe(true);
           expect(readDatabaseValue(fixture, "status").value_json).toBe(
             before.value_json,
           );

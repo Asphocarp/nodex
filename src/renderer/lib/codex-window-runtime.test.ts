@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   isCodexCompactWindowUrl,
   resolveCodexRendererOsFromText,
@@ -22,14 +22,14 @@ describe("codex window runtime helpers", () => {
   });
 
   test("detects compact Codex window routes", () => {
-    expect(isCodexCompactWindowUrl("app://-/avatar-overlay")).toBeTrue();
-    expect(isCodexCompactWindowUrl("app://-/global-dictation")).toBeTrue();
-    expect(isCodexCompactWindowUrl("app://-/global-dictation/session")).toBeTrue();
-    expect(isCodexCompactWindowUrl("app://-/hotkey-window")).toBeTrue();
-    expect(isCodexCompactWindowUrl("app://-/?initialRoute=/hotkey-window")).toBeTrue();
-    expect(isCodexCompactWindowUrl("app://-/?initialRoute=/avatar-overlay?x=1")).toBeTrue();
-    expect(isCodexCompactWindowUrl("app://-/")).toBeFalse();
-    expect(isCodexCompactWindowUrl("app://-/settings")).toBeFalse();
-    expect(isCodexCompactWindowUrl("not a url")).toBeFalse();
+    expect(isCodexCompactWindowUrl("app://-/avatar-overlay")).toBe(true);
+    expect(isCodexCompactWindowUrl("app://-/global-dictation")).toBe(true);
+    expect(isCodexCompactWindowUrl("app://-/global-dictation/session")).toBe(true);
+    expect(isCodexCompactWindowUrl("app://-/hotkey-window")).toBe(true);
+    expect(isCodexCompactWindowUrl("app://-/?initialRoute=/hotkey-window")).toBe(true);
+    expect(isCodexCompactWindowUrl("app://-/?initialRoute=/avatar-overlay?x=1")).toBe(true);
+    expect(isCodexCompactWindowUrl("app://-/")).toBe(false);
+    expect(isCodexCompactWindowUrl("app://-/settings")).toBe(false);
+    expect(isCodexCompactWindowUrl("not a url")).toBe(false);
   });
 });

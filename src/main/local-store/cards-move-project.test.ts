@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -73,7 +73,7 @@ describe("moveCardToProject", () => {
 
       const sourceAfterMove = await getCard(sourceProject.id, movedCard.id);
       const targetAfterMove = await getCard(targetProject.id, movedCard.id);
-      expect(sourceAfterMove === null).toBeTrue();
+      expect(sourceAfterMove === null).toBe(true);
       expect(targetAfterMove?.status).toBe("in_progress");
 
       const defaultBoard = await getBoard(sourceProject.id);
@@ -88,7 +88,7 @@ describe("moveCardToProject", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 
@@ -114,7 +114,7 @@ describe("moveCardToProject", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 });

@@ -63,7 +63,7 @@ const run = (): void => {
     "/*",
     " * Synced from the Codex Electron reference CSS.",
     " * Do not edit by hand. Update the reference file, then rerun:",
-    " *   bun run scripts/sync-codex-theme-surface.ts",
+    " *   pnpm run scripts/sync-codex-theme-surface.ts",
     " */",
     "",
     formatRawBlock(

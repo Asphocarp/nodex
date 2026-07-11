@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexScheduledAutomation } from "@/lib/types";
 import { buildThreadSummaryPanelScheduledAutomationRow } from "./thread-summary-panel-scheduled-automation-model";
 

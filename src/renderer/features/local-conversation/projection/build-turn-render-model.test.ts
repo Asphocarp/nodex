@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { buildTurnRenderModel } from "./build-turn-render-model";
@@ -187,11 +187,11 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
     expect(model.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
-    expect(model.searchableText.includes("+next")).toBeFalse();
+    expect(model.searchableText.includes("+next")).toBe(false);
     const rawItem = model.aboveComposerBlocks?.[0]?.type === "turnDiff"
       ? model.aboveComposerBlocks[0].entry.rawItem as { unifiedDiff?: unknown } | undefined
       : null;
-    expect(String(rawItem?.unifiedDiff ?? "").includes("+next")).toBeTrue();
+    expect(String(rawItem?.unifiedDiff ?? "").includes("+next")).toBe(true);
   });
 
   test("keeps an addressable search unit for empty user messages", () => {
@@ -284,9 +284,9 @@ describe("buildTurnRenderModel", () => {
     expect(model.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
       "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
     );
-    expect(indexedText.includes("Refactor the renderer")).toBeTrue();
-    expect(indexedText.includes("Done")).toBeTrue();
-    expect(indexedText.includes("HIDDEN_")).toBeFalse();
+    expect(indexedText.includes("Refactor the renderer")).toBe(true);
+    expect(indexedText.includes("Done")).toBe(true);
+    expect(indexedText.includes("HIDDEN_")).toBe(false);
   });
 
   test("does not duplicate a transcript turn-diff when turn.diff is also present", () => {
@@ -466,8 +466,8 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,exec");
     expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,exec");
-    expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBeFalse();
-    expect(model.searchableText.includes("Working")).toBeFalse();
+    expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
+    expect(model.searchableText.includes("Working")).toBe(false);
   });
 
   test("consumes completed worked-for rows into the collapsed label source", () => {
@@ -491,8 +491,8 @@ describe("buildTurnRenderModel", () => {
     expect(model.workedForItem?.status ?? "").toBe("worked");
     expect(model.workedForItem?.startedAtMs ?? 0).toBe(1_000);
     expect(model.workedForItem?.completedAtMs ?? 0).toBe(8_000);
-    expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBeFalse();
-    expect(model.hasRenderableAgentBodyUnits).toBeTrue();
+    expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBe(false);
+    expect(model.hasRenderableAgentBodyUnits).toBe(true);
   });
 
   test("falls back to completed duration when no explicit worked-for row exists", () => {
@@ -514,7 +514,7 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.workedForItem).toBe(null);
     expect(model.workedDurationMs).toBe(125_000);
-    expect(model.hasRenderableAgentBodyUnits).toBeTrue();
+    expect(model.hasRenderableAgentBodyUnits).toBe(true);
   });
 
   test("does not keep completed worked-for timing without a renderable final assistant boundary", () => {
@@ -535,7 +535,7 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.workedForItem).toBe(null);
-    expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBeFalse();
+    expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBe(false);
     expect(model.collapsedMessageCount).toBe(1);
   });
 });

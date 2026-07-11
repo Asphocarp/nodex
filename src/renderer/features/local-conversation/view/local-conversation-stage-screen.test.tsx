@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createElement } from "react";
 import { render } from "../../../test/dom";
 
@@ -14,10 +14,10 @@ describe("LocalConversationStageScreen", () => {
       />,
     );
 
-    expect(Boolean(container.querySelector("[data-local-conversation-header='true']"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-local-conversation-floating='true']"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-local-conversation-header='true']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-local-conversation-floating='true']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBe(true);
   });
 
   test("keeps an empty sticky header slot when embedded without a header", async () => {
@@ -30,7 +30,7 @@ describe("LocalConversationStageScreen", () => {
       />,
     );
 
-    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildCreateCardTransform,
   buildDeleteCardTransform,
@@ -242,7 +242,7 @@ describe("kanban store", () => {
 
     const indexedCard = store.getSnapshot().cardIndex.get("card-1");
     expect(channelName).toBe("board:summary:get");
-    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
+    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBe(false);
     expect(indexedCard?.descriptionPreview).toBe("Initial description");
   });
 
@@ -425,7 +425,7 @@ describe("kanban store", () => {
     expect(indexedCard?.title).toBe("Remote title");
     expect(indexedCard?.descriptionPreview).toBe(summary.descriptionPreview);
     expect(indexedCard?.descriptionLength).toBe(summary.descriptionLength);
-    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
+    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBe(false);
   });
 
   test("merges remote card summary acknowledgements without a full body", async () => {
@@ -456,7 +456,7 @@ describe("kanban store", () => {
     expect(indexedCard?.title).toBe("Ack title");
     expect(indexedCard?.descriptionPreview).toBe("Ack preview");
     expect(indexedCard?.descriptionLength).toBe(128);
-    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
+    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBe(false);
   });
 
   test("local draft overlays do not bump card revision", async () => {
@@ -516,7 +516,7 @@ describe("kanban store", () => {
     });
     const after = store.getSnapshot();
 
-    expect(changed).toBeFalse();
+    expect(changed).toBe(false);
     expect(after.board).toBe(before.board);
     expect(after.cardIndex).toBe(before.cardIndex);
   });
@@ -683,10 +683,10 @@ describe("kanban store", () => {
       },
     });
 
-    expect(store.getSnapshot().cardIndex.has("card-1")).toBeFalse();
+    expect(store.getSnapshot().cardIndex.has("card-1")).toBe(false);
     const result = await mutation;
-    expect(result.ok).toBeFalse();
-    expect(store.getSnapshot().cardIndex.has("card-1")).toBeTrue();
+    expect(result.ok).toBe(false);
+    expect(store.getSnapshot().cardIndex.has("card-1")).toBe(true);
   });
 
   test("patches local board events and cooldowns ambiguous refreshes", async () => {
@@ -724,7 +724,7 @@ describe("kanban store", () => {
     callbacks.onBoardChange?.(deleteEvent);
     await waitForMicrotasks();
     expect(boardFetchCount).toBe(1);
-    expect(store.getSnapshot().cardIndex.has("card-1")).toBeFalse();
+    expect(store.getSnapshot().cardIndex.has("card-1")).toBe(false);
 
     const ambiguousEvent: BoardChangeEvent = {
       projectId: "default",
@@ -773,7 +773,7 @@ describe("kanban store", () => {
     await waitForMicrotasks();
 
     const queued = store.applyLocalPatch("draft", "card-1", { title: "Queued title" });
-    expect(queued).toBeTrue();
+    expect(queued).toBe(true);
     expect(store.getSnapshot().board).toBe(null);
 
     deferredBoard.resolve(createBoard());

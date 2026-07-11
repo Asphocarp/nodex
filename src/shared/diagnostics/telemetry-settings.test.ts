@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { isTelemetrySettings } from "./telemetry-settings";
 
 const VALID_SETTINGS = {
@@ -16,7 +16,7 @@ const VALID_SETTINGS = {
 
 describe("telemetry settings guard", () => {
   test("accepts a complete telemetry settings payload", () => {
-    expect(isTelemetrySettings(VALID_SETTINGS)).toBeTrue();
+    expect(isTelemetrySettings(VALID_SETTINGS)).toBe(true);
   });
 
   test("rejects incomplete environment override state", () => {
@@ -25,18 +25,18 @@ describe("telemetry settings guard", () => {
       envOverrides: {
         enabled: false,
       },
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("rejects invalid field types", () => {
     expect(isTelemetrySettings({
       ...VALID_SETTINGS,
       clientKey: null,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(isTelemetrySettings({
       ...VALID_SETTINGS,
       autoCaptureEnabled: "true",
-    })).toBeFalse();
+    })).toBe(false);
   });
 });

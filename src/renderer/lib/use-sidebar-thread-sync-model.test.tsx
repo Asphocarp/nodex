@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { createElement, useEffect } from "react";
 import type {
@@ -138,7 +138,7 @@ describe("useSidebarThreadSyncModel", () => {
       call[0] === "codex:sidebar:sync" &&
       (call[1] as { policy?: string } | undefined)?.policy === "force" &&
       (call[1] as { reason?: string } | undefined)?.reason === "mount"
-    )).toBeFalse();
+    )).toBe(false);
     affectedResults.length = 0;
     snapshots.length = 0;
     const callsBeforeMessage = invokeCalls.length;
@@ -163,7 +163,7 @@ describe("useSidebarThreadSyncModel", () => {
     });
 
     expect(invokeCalls.length).toBe(callsBeforeMessage);
-    expect(affectedResults[affectedResults.length - 1]?.changedProjectIds.includes("beta")).toBeTrue();
+    expect(affectedResults[affectedResults.length - 1]?.changedProjectIds.includes("beta")).toBe(true);
     await waitFor(() => {
       if (snapshots[snapshots.length - 1]?.projectAssignments.thr_beta !== "beta") {
         throw new Error("missing beta snapshot");

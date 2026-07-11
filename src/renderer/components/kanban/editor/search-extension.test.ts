@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   escapeAttributeValue,
   getCollapsedToggleAncestorIds,
@@ -22,8 +22,8 @@ describe("search extension helpers", () => {
   test("escapeAttributeValue returns a selector-safe string", () => {
     const escaped = escapeAttributeValue('a"b\\c');
     expect(typeof escaped).toBe("string");
-    expect(escaped.includes("a")).toBeTrue();
-    expect(escaped.includes("b")).toBeTrue();
+    expect(escaped.includes("a")).toBe(true);
+    expect(escaped.includes("b")).toBe(true);
   });
 
   test("getCollapsedToggleAncestorIds returns only collapsed ancestors root-first", () => {

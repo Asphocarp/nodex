@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { MultipleNodeSelection } from "@blocknote/core/extensions";
 import { Schema, type Node } from "@tiptap/pm/model";
 import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
@@ -239,7 +239,7 @@ describe("nfm side menu selection helpers", () => {
 
     expect(snapshot?.selectionFrom).toBe(selectionFrom);
     expect(snapshot?.selectionTo).toBe(selectionTo);
-    expect(snapshot?.selectedBlockIds === undefined).toBeTrue();
+    expect(snapshot?.selectedBlockIds === undefined).toBe(true);
   });
 
   test("snapshots a multiple block selection as block ids", () => {
@@ -258,8 +258,8 @@ describe("nfm side menu selection helpers", () => {
     });
 
     expect(snapshot?.selectedBlockIds?.join(",")).toBe("b,c");
-    expect(snapshot?.selectionFrom === undefined).toBeTrue();
-    expect(snapshot?.selectionTo === undefined).toBeTrue();
+    expect(snapshot?.selectionFrom === undefined).toBe(true);
+    expect(snapshot?.selectionTo === undefined).toBe(true);
   });
 
   test("snapshots a node selection as one block id", () => {
@@ -286,7 +286,7 @@ describe("nfm side menu selection helpers", () => {
       },
     });
 
-    expect(snapshot === null).toBeTrue();
+    expect(snapshot === null).toBe(true);
   });
 
   test("deduplicates repeated descendants while expanding block children", () => {
@@ -313,7 +313,7 @@ describe("nfm side menu selection helpers", () => {
       },
     });
 
-    expect(applied).toBeTrue();
+    expect(applied).toBe(true);
     expect(calls.join(",")).toBe("a:b:c|b");
   });
 
@@ -335,8 +335,8 @@ describe("nfm side menu selection helpers", () => {
       source: "clicked-block",
     });
 
-    expect(applied).toBeTrue();
-    expect(appliedSelection instanceof MultipleNodeSelection).toBeTrue();
+    expect(applied).toBe(true);
+    expect(appliedSelection instanceof MultipleNodeSelection).toBe(true);
   });
 
   test("reports adapter failure without throwing", () => {
@@ -354,7 +354,7 @@ describe("nfm side menu selection helpers", () => {
       },
     });
 
-    expect(applied).toBeFalse();
+    expect(applied).toBe(false);
     expect(calls.join(",")).toBe("failed");
   });
 });

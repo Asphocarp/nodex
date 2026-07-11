@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
   CodexBackgroundProcessRecord,
@@ -70,7 +70,7 @@ describe("buildCodexBackgroundProcessRow", () => {
 
     expect(row.status).toBe("running");
     expect(row.osPid).toBe(7301);
-    expect(row.terminal === null).toBeTrue();
+    expect(row.terminal === null).toBe(true);
     expect(row.terminalSession?.sessionId).toBe("terminal-session");
   });
 
@@ -132,6 +132,6 @@ describe("buildCodexBackgroundProcessRow", () => {
 
     expect(row.status).toBe("not-found");
     expect(row.osPid).toBe(7301);
-    expect(row.terminalSession === null).toBeTrue();
+    expect(row.terminalSession === null).toBe(true);
   });
 });

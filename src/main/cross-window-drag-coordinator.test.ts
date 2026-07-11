@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CROSS_WINDOW_DRAG_TOKEN_VERSION,
   type CrossWindowDragPreview,
@@ -96,11 +96,11 @@ describe("cross-window drag coordinator", () => {
     expect(harness.coordinator.complete(20, {
       sessionId: SESSION_ONE,
       result: "invalid" as never,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(
       harness.coordinator.complete(20, { sessionId: SESSION_ONE, result: "copy" }),
-    ).toBeTrue();
+    ).toBe(true);
     expect(harness.sourceResults[0]?.sourceId).toBe(10);
     expect(harness.sourceResults[0]?.result.result).toBe("copy");
   });
@@ -112,7 +112,7 @@ describe("cross-window drag coordinator", () => {
     expect(harness.sourceResults[0]?.result.result).toBe("cancel");
     expect(harness.coordinator.getActive()?.sessionId).toBe(SESSION_TWO);
 
-    expect(harness.coordinator.sourceEnded(11, SESSION_TWO)).toBeTrue();
+    expect(harness.coordinator.sourceEnded(11, SESSION_TWO)).toBe(true);
     harness.runNewestTimer();
     expect(harness.sourceResults[1]?.result.result).toBe("cancel");
 

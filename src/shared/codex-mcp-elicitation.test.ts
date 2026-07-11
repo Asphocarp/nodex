@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildCodexMcpElicitationFormModel,
   buildCodexMcpServerElicitationResponse,
@@ -20,7 +20,7 @@ describe("isRenderableMcpServerElicitationRequest", () => {
       message: "Open this URL?",
       url: "http://example.test",
       elicitationId: "elicitation-1",
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("accepts ordinary https url-mode elicitations", () => {
@@ -33,7 +33,7 @@ describe("isRenderableMcpServerElicitationRequest", () => {
       message: "Open this URL?",
       url: "https://example.test/path",
       elicitationId: "elicitation-1",
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("requires Codex Apps auth failure metadata on ChatGPT hosts", () => {
@@ -50,7 +50,7 @@ describe("isRenderableMcpServerElicitationRequest", () => {
     expect(isRenderableMcpServerElicitationRequest({
       ...base,
       _meta: null,
-    })).toBeFalse();
+    })).toBe(false);
     expect(isRenderableMcpServerElicitationRequest({
       ...base,
       _meta: {
@@ -64,7 +64,7 @@ describe("isRenderableMcpServerElicitationRequest", () => {
           },
         },
       },
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("normalizes action-only and contentful MCP elicitation responses", () => {

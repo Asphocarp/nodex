@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createRef } from "react";
 import { CalendarDays, SquareKanban, Table2 } from "lucide-react";
 import { render, textContent } from "../../test/dom";
@@ -57,12 +57,12 @@ describe("DbViewToolbar", () => {
     const { resolveDbViewToolbarClearAction } = await import("./db-view-toolbar");
 
     const emptyAction = resolveDbViewToolbarClearAction(false);
-    expect(emptyAction.shouldClear).toBeFalse();
-    expect(emptyAction.shouldClose).toBeTrue();
+    expect(emptyAction.shouldClear).toBe(false);
+    expect(emptyAction.shouldClose).toBe(true);
 
     const activeAction = resolveDbViewToolbarClearAction(true);
-    expect(activeAction.shouldClear).toBeTrue();
-    expect(activeAction.shouldClose).toBeTrue();
+    expect(activeAction.shouldClear).toBe(true);
+    expect(activeAction.shouldClose).toBe(true);
   });
 
   test("renders database view tabs and the idle search trigger", async () => {
@@ -82,7 +82,7 @@ describe("DbViewToolbar", () => {
     expect(getByText("Calendar").textContent).toBe("Calendar");
     expect(container.querySelectorAll('[data-tab-label-visible="true"]').length).toBe(1);
     expect(getByLabelText("Search").getAttribute("aria-label")).toBe("Search");
-    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null).toBeTrue();
+    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null).toBe(true);
   });
 
   test("renders the inline search field when open or when a query is active", async () => {
@@ -95,7 +95,7 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(openRender.container.querySelector('[aria-hidden="false"]') !== null).toBeTrue();
+    expect(openRender.container.querySelector('[aria-hidden="false"]') !== null).toBe(true);
     expect(openRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
     expect(openRender.getByLabelText("Clear search").getAttribute("aria-label")).toBe("Clear search");
     expect(openRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
@@ -110,7 +110,7 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(filteredRender.container.querySelector('[aria-hidden="false"]') !== null).toBeTrue();
+    expect(filteredRender.container.querySelector('[aria-hidden="false"]') !== null).toBe(true);
     expect(filteredRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
     expect(filteredRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
   });
@@ -126,9 +126,9 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(container.querySelector('[aria-label="Search"]') === null).toBeTrue();
-    expect(container.querySelector('[aria-label="Search tasks"]') === null).toBeTrue();
-    expect(textContent(container).includes("bugfix")).toBeFalse();
+    expect(container.querySelector('[aria-label="Search"]') === null).toBe(true);
+    expect(container.querySelector('[aria-label="Search tasks"]') === null).toBe(true);
+    expect(textContent(container).includes("bugfix")).toBe(false);
   });
 
   test("renders the active rules summary row for supported views", async () => {
@@ -153,9 +153,9 @@ describe("DbViewToolbar", () => {
     );
 
     expect(getByText("Board Order").textContent).toBe("Board Order");
-    expect(textContent(container).includes("Status")).toBeTrue();
-    expect(textContent(container).includes("Backlog, In Progress")).toBeTrue();
-    expect(textContent(container).includes("Ascending")).toBeFalse();
+    expect(textContent(container).includes("Status")).toBe(true);
+    expect(textContent(container).includes("Backlog, In Progress")).toBe(true);
+    expect(textContent(container).includes("Ascending")).toBe(false);
   });
 
   test("collapses multiple active sorts into a single count chip", async () => {
@@ -184,10 +184,10 @@ describe("DbViewToolbar", () => {
     );
 
     expect(getByText("2 sorts").textContent).toBe("2 sorts");
-    expect(textContent(container).includes("Priority")).toBeTrue();
-    expect(textContent(container).includes("P0, P1")).toBeTrue();
-    expect(textContent(container).includes("Ascending")).toBeFalse();
-    expect(textContent(container).includes("Descending")).toBeFalse();
+    expect(textContent(container).includes("Priority")).toBe(true);
+    expect(textContent(container).includes("P0, P1")).toBe(true);
+    expect(textContent(container).includes("Ascending")).toBe(false);
+    expect(textContent(container).includes("Descending")).toBe(false);
   });
 
   test("shows empty-first sort placement in the single-sort summary label", async () => {
@@ -207,7 +207,7 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(textContent(container).includes("Priority · Empty First")).toBeTrue();
+    expect(textContent(container).includes("Priority · Empty First")).toBe(true);
   });
 
   test("renders empty priority in the summary row when selected explicitly", async () => {
@@ -232,7 +232,7 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(textContent(container).includes("Priority")).toBeTrue();
-    expect(textContent(container).includes("P0, -")).toBeTrue();
+    expect(textContent(container).includes("Priority")).toBe(true);
+    expect(textContent(container).includes("P0, -")).toBe(true);
   });
 });

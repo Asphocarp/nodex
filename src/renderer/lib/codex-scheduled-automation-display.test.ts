@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { formatCodexScheduledAutomationRruleSummary } from "./codex-scheduled-automation-display";
 
 describe("codex scheduled automation display", () => {

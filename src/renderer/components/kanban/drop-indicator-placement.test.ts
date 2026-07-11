@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { resolveDropIndicatorPlacement } from "./drop-indicator-placement";
 
 describe("resolveDropIndicatorPlacement", () => {
@@ -8,20 +8,20 @@ describe("resolveDropIndicatorPlacement", () => {
     const placement = resolveDropIndicatorPlacement(cards, new Set(["a"]), 0);
 
     expect(placement.beforeCardId).toBe("b");
-    expect(placement.atEnd).toBeFalse();
+    expect(placement.atEnd).toBe(false);
   });
 
   test("renders before the matching remaining card in an unfiltered list", () => {
     const placement = resolveDropIndicatorPlacement(cards, new Set<string>(), 1);
 
     expect(placement.beforeCardId).toBe("b");
-    expect(placement.atEnd).toBeFalse();
+    expect(placement.atEnd).toBe(false);
   });
 
   test("renders at the end when the indicator targets the final slot", () => {
     const placement = resolveDropIndicatorPlacement(cards, new Set(["a"]), 2);
 
     expect(placement.beforeCardId).toBe(null);
-    expect(placement.atEnd).toBeTrue();
+    expect(placement.atEnd).toBe(true);
   });
 });

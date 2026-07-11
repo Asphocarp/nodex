@@ -1,8 +1,8 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { EventEmitter } from "node:events";
 import type { BrowserSidebarCommandResult } from "../shared/browser-sidebar";
 
-mock.module("electron", () => ({
+vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
   Notification: class Notification {
     static isSupported() {
@@ -126,7 +126,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       initiator: "address_bar",
     });
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(contents.loadUrls.length).toBe(0);
     expect(readTab(service).url).toBe("https://www.google.com");
 
@@ -182,7 +182,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(snapshot.mountGeneration).toBe(4);
     expect(snapshot.url).toBe("https://example.com/live");
     expect(snapshot.zoomPercent).toBe(150);
-    expect(snapshot.hasBrowserPage).toBeTrue();
+    expect(snapshot.hasBrowserPage).toBe(true);
   });
 
   test("navigates an attached host once and contains Electron aborts", async () => {
@@ -212,10 +212,10 @@ describe("BrowserSidebarService webview lifecycle", () => {
     }) as BrowserSidebarCommandResult;
     await flushLoadPromise();
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(contents.loadUrls.length).toBe(1);
     expect(contents.loadUrls[0]).toBe("https://www.google.com");
-    expect(readTab(service).errorMessage === undefined).toBeTrue();
+    expect(readTab(service).errorMessage === undefined).toBe(true);
   });
 
   test("records real load failures without throwing the command handler", async () => {
@@ -236,7 +236,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const result = await service.handleCommand({ type: "navigate", tabId: "tab-browser", url: "https://example.test" });
     await flushLoadPromise();
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(readTab(service).errorMessage).toBe("DNS failure");
   });
 
@@ -362,11 +362,11 @@ describe("BrowserSidebarService webview lifecycle", () => {
 
     expect(contents.findCalls.length).toBe(3);
     expect(contents.findCalls[0]?.text).toBe("hello");
-    expect(contents.findCalls[1]?.options?.forward).toBeTrue();
-    expect(contents.findCalls[2]?.options?.forward).toBeFalse();
+    expect(contents.findCalls[1]?.options?.forward).toBe(true);
+    expect(contents.findCalls[2]?.options?.forward).toBe(false);
     expect(contents.stopFindActions[0]).toBe("clearSelection");
     expect(readTab(service).interactionMode).toBe("comment");
-    expect(readTab(service).findState.open).toBeFalse();
+    expect(readTab(service).findState.open).toBe(false);
   });
 
   test("browser-use commands emit split viewport, cursor, and release events", async () => {

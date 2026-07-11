@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   applyCommandKeybindingUpdate,
   CODEX_COMMAND_REGISTRY,
@@ -36,9 +36,9 @@ describe("command keybindings", () => {
     const macState = createCommandKeymapState({}, "macOS");
     const windowsState = createCommandKeymapState({}, "windows");
 
-    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { metaKey: true }), macState, "toggleSidebar")).toBeTrue();
-    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), windowsState, "toggleSidebar")).toBeTrue();
-    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), macState, "toggleSidebar")).toBeFalse();
+    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { metaKey: true }), macState, "toggleSidebar")).toBe(true);
+    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), windowsState, "toggleSidebar")).toBe(true);
+    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), macState, "toggleSidebar")).toBe(false);
   });
 
   test("keeps close-tab and close-window defaults distinct", () => {
@@ -48,16 +48,16 @@ describe("command keybindings", () => {
     expect(getPrimaryCommandAccelerator(macState, "closeWindow")).toBe("CmdOrCtrl+Shift+W");
     expect(toElectronAccelerator(getPrimaryCommandAccelerator(macState, "closeWindow"))).toBe("CommandOrControl+Shift+W");
     expect(formatAcceleratorLabel("CmdOrCtrl+Shift+W", "macOS")).toBe("⌘⇧W");
-    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true }), macState, "closeWindow")).toBeFalse();
-    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true, shiftKey: true }), macState, "closeWindow")).toBeTrue();
+    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true }), macState, "closeWindow")).toBe(false);
+    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true, shiftKey: true }), macState, "closeWindow")).toBe(true);
   });
 
   test("captures keyboard events and mouse navigation bindings", () => {
     expect(keyboardEventToAccelerator(keyboardEvent("A", { metaKey: true, shiftKey: true }), "macOS")).toBe("CmdOrCtrl+Shift+A");
 
     const state = createCommandKeymapState({}, "macOS");
-    expect(matchesMouseEventToCommand({ button: 3 }, state, "navigateBack")).toBeTrue();
-    expect(matchesMouseEventToCommand({ button: 4 }, state, "navigateForward")).toBeTrue();
+    expect(matchesMouseEventToCommand({ button: 3 }, state, "navigateBack")).toBe(true);
+    expect(matchesMouseEventToCommand({ button: 4 }, state, "navigateForward")).toBe(true);
   });
 
   test("applies set append remove and reset update shapes", () => {
@@ -80,7 +80,7 @@ describe("command keybindings", () => {
     expect(JSON.stringify(removeOverrides.newThread)).toBe(JSON.stringify(["CmdOrCtrl+Shift+O", "CmdOrCtrl+Alt+Shift+N"]));
 
     const resetOverrides = applyCommandKeybindingUpdate(removeOverrides, "newThread", { type: "reset" }, "macOS");
-    expect(Object.prototype.hasOwnProperty.call(resetOverrides, "newThread")).toBeFalse();
+    expect(Object.prototype.hasOwnProperty.call(resetOverrides, "newThread")).toBe(false);
   });
 
   test("detects conflicts and rejects invalid accelerators", () => {
@@ -97,7 +97,7 @@ describe("command keybindings", () => {
     } catch {
       threw = true;
     }
-    expect(threw).toBeTrue();
+    expect(threw).toBe(true);
   });
 
   test("uses current command palette labels and hides unavailable shell commands", () => {
@@ -107,8 +107,8 @@ describe("command keybindings", () => {
     expect(byId.get("searchFiles")?.title).toBe("Search files");
     expect(byId.get("openCommandMenu")?.title).toBe("Open command palette");
     expect(byId.get("toggleTerminal")?.title).toBe("Open terminal tab");
-    expect(byId.get("searchChats")?.available).toBeTrue();
-    expect(byId.get("searchFiles")?.available).toBeFalse();
-    expect(byId.get("toggleBrowserPanel")?.available).toBeFalse();
+    expect(byId.get("searchChats")?.available).toBe(true);
+    expect(byId.get("searchFiles")?.available).toBe(false);
+    expect(byId.get("toggleBrowserPanel")?.available).toBe(false);
   });
 });

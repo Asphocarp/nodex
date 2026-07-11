@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexPlanImplementationRequest, CodexUserInputRequest } from "@/lib/types";
@@ -73,7 +73,7 @@ describe("local-conversation request cards", () => {
     };
 
     expect(JSON.stringify(buildUserInputAnswers(optionRequest, state))).toBe(JSON.stringify({ q_1: ["2 (Recommended)"] }));
-    expect(isUserInputComposerSubmittable(optionRequest, state)).toBeTrue();
+    expect(isUserInputComposerSubmittable(optionRequest, state)).toBe(true);
   });
 
   test("prefers the freeform answer when the other path is active", async () => {
@@ -110,7 +110,7 @@ describe("local-conversation request cards", () => {
       </NodexTooltipProvider>,
     );
 
-    expect(textContent(container).includes("Tell Codex what to do differently")).toBeFalse();
+    expect(textContent(container).includes("Tell Codex what to do differently")).toBe(false);
   });
 
   test("requires text for freeform-only questions before submit is enabled", async () => {
@@ -135,14 +135,14 @@ describe("local-conversation request cards", () => {
         modes: { q_freeform: "other" },
         selectedOptions: { q_freeform: "" },
       }),
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       isUserInputComposerSubmittable(request, {
         drafts: { q_freeform: "Focus on the failing type errors only." },
         modes: { q_freeform: "other" },
         selectedOptions: { q_freeform: "" },
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("shows a validation error when a freeform question is submitted blank", async () => {
@@ -178,7 +178,7 @@ describe("local-conversation request cards", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(textContent(container).includes("Enter a response before submitting."))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Enter a response before submitting."))).toBe(true);
     expect(respondCount).toBe(0);
   });
 
@@ -194,10 +194,10 @@ describe("local-conversation request cards", () => {
   test("only allows arrow-up escape from the freeform row when the caret is at the start", async () => {
     const { canMoveUserInputFocusToOptionsFromOtherField } = await import("./local-conversation-request-cards");
 
-    expect(canMoveUserInputFocusToOptionsFromOtherField(0, 0)).toBeTrue();
-    expect(canMoveUserInputFocusToOptionsFromOtherField(1, 1)).toBeFalse();
-    expect(canMoveUserInputFocusToOptionsFromOtherField(0, 2)).toBeFalse();
-    expect(canMoveUserInputFocusToOptionsFromOtherField(null, null)).toBeFalse();
+    expect(canMoveUserInputFocusToOptionsFromOtherField(0, 0)).toBe(true);
+    expect(canMoveUserInputFocusToOptionsFromOtherField(1, 1)).toBe(false);
+    expect(canMoveUserInputFocusToOptionsFromOtherField(0, 2)).toBe(false);
+    expect(canMoveUserInputFocusToOptionsFromOtherField(null, null)).toBe(false);
   });
 
   test("renders the composer-style request surface with hover metadata affordance", async () => {
@@ -214,7 +214,7 @@ describe("local-conversation request cards", () => {
     expect(getByText("What is 1 + 1?").textContent).toBe("What is 1 + 1?");
     expect(getByText("2 (Recommended)").textContent).toBe("2 (Recommended)");
     expect(getByLabelText("About 2 (Recommended)").getAttribute("aria-label")).toBe("About 2 (Recommended)");
-    expect(textContent(container).includes("Tell Codex what to do differently")).toBeTrue();
+    expect(textContent(container).includes("Tell Codex what to do differently")).toBe(true);
     expect(container.querySelector('[data-user-input-focus-target="options"]')).not.toBeNull();
     expect(container.querySelector('[data-user-input-focus-target="other"]')).not.toBeNull();
     expect(getByText("Dismiss").textContent).toBe("Dismiss");
@@ -273,8 +273,8 @@ describe("local-conversation request cards", () => {
       />,
     );
 
-    const toggle = getByRole("button", { name: /Asked 1 question/i });
-    expect(Boolean(textContent(container).includes("Asked 1 question"))).toBeTrue();
+    const toggle = getByRole("button", { name: /Asked\s*1 question/i });
+    expect(Boolean(textContent(container).includes("Asked 1 question"))).toBe(true);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => {
@@ -282,8 +282,8 @@ describe("local-conversation request cards", () => {
       await settleAsyncRender();
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(Boolean(textContent(container).includes("What is 1 + 1?"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("2 (Recommended)"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("What is 1 + 1?"))).toBe(true);
+    expect(Boolean(textContent(container).includes("2 (Recommended)"))).toBe(true);
   });
 
   test("keeps the completed summary visible even when no answers were recorded", async () => {
@@ -298,8 +298,8 @@ describe("local-conversation request cards", () => {
       />,
     );
 
-    const toggle = getByRole("button", { name: /Asked 1 question/i });
-    expect(Boolean(textContent(container).includes("Asked 1 question"))).toBeTrue();
+    const toggle = getByRole("button", { name: /Asked\s*1 question/i });
+    expect(Boolean(textContent(container).includes("Asked 1 question"))).toBe(true);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => {
@@ -307,7 +307,7 @@ describe("local-conversation request cards", () => {
       await settleAsyncRender();
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(Boolean(textContent(container).includes("No answer provided"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("No answer provided"))).toBe(true);
   });
 
   test("renders the in-progress shimmer summary while waiting for answers", async () => {
@@ -322,7 +322,7 @@ describe("local-conversation request cards", () => {
       />,
     );
 
-    expect(Boolean(textContent(container).includes("Asking 1 question"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Asking 1 question"))).toBe(true);
     expect(container.querySelector(".loading-shimmer-pure-text")).not.toBeNull();
   });
 });

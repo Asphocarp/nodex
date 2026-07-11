@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   collectNfmHeadingNavigationItems,
   isNfmHeadingNavigationEligible,
@@ -40,34 +40,34 @@ describe("NFM heading navigation rail model", () => {
       isActivePanelTab: true,
       isRawContent: false,
       isCoarsePointer: false,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(isNfmHeadingNavigationEligible({
       itemCount: 4,
       isActivePanelTab: true,
       isRawContent: false,
       isCoarsePointer: false,
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(isNfmHeadingNavigationEligible({
       itemCount: 8,
       isActivePanelTab: false,
       isRawContent: false,
       isCoarsePointer: false,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(isNfmHeadingNavigationEligible({
       itemCount: 8,
       isActivePanelTab: true,
       isRawContent: true,
       isCoarsePointer: false,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(isNfmHeadingNavigationEligible({
       itemCount: 8,
       isActivePanelTab: true,
       isRawContent: false,
       isCoarsePointer: true,
-    })).toBeFalse();
+    })).toBe(false);
   });
 });

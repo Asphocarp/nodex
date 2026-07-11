@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
@@ -60,8 +60,8 @@ describe("DynamicToolCall", () => {
     const { container } = render(<DynamicToolCall item={buildDynamicEntry()} />);
 
     expect(textContent(container)).toBe("Read thread");
-    expect(textContent(container).includes("schemaVersion")).toBeFalse();
-    expect(textContent(container).includes("Arguments")).toBeFalse();
+    expect(textContent(container).includes("schemaVersion")).toBe(false);
+    expect(textContent(container).includes("Arguments")).toBe(false);
   });
 
   test("renders navigable Codex app thread rows through the registry renderer", () => {
@@ -98,8 +98,8 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(textContent(container).includes("Chat created")).toBeTrue();
-    expect(textContent(container).includes("Open chat")).toBeTrue();
+    expect(textContent(container).includes("Chat created")).toBe(true);
+    expect(textContent(container).includes("Open chat")).toBe(true);
     expect(getByRole("button").getAttribute("aria-label")).toBe("Open chat");
 
     fireEvent.click(getByRole("button"));
@@ -129,8 +129,8 @@ describe("DynamicToolCall", () => {
         />,
       );
 
-      expect(textContent(container).includes("Worktree chat queued")).toBeTrue();
-      expect(textContent(container).includes("Open setup")).toBeTrue();
+      expect(textContent(container).includes("Worktree chat queued")).toBe(true);
+      expect(textContent(container).includes("Open setup")).toBe(true);
 
       fireEvent.click(getByRole("button"));
 
@@ -166,9 +166,9 @@ describe("DynamicToolCall", () => {
     );
 
     expect(getByRole("button", { name: /Handing off thread/i }).getAttribute("aria-expanded")).toBe("true");
-    expect(textContent(container).includes("Resolve thread")).toBeTrue();
-    expect(textContent(container).includes("Move thread")).toBeTrue();
-    expect(textContent(container).includes("Arguments")).toBeFalse();
+    expect(textContent(container).includes("Resolve thread")).toBe(true);
+    expect(textContent(container).includes("Move thread")).toBe(true);
+    expect(textContent(container).includes("Arguments")).toBe(false);
   });
 
   test("renders settings and Chrome tab-context calls with registered labels", () => {
@@ -199,7 +199,7 @@ describe("DynamicToolCall", () => {
 
     expect(textContent(settings)).toBe("Reading settings");
     expect(textContent(chrome)).toBe("Read tab");
-    expect(textContent(chrome).includes("Get Tab Context")).toBeFalse();
+    expect(textContent(chrome).includes("Get Tab Context")).toBe(false);
   });
 
   test("falls back when a known registry renderer rejects invalid arguments", () => {
@@ -231,10 +231,10 @@ describe("DynamicToolCall", () => {
     );
 
     expect(textContent(container)).toBe("Loaded workspace dependencies");
-    expect(textContent(container).includes("includeLibraries")).toBeFalse();
-    expect(textContent(container).includes("/tmp/node")).toBeFalse();
-    expect(textContent(container).includes("Arguments")).toBeFalse();
-    expect(Boolean(queryByRole("button"))).toBeFalse();
+    expect(textContent(container).includes("includeLibraries")).toBe(false);
+    expect(textContent(container).includes("/tmp/node")).toBe(false);
+    expect(textContent(container).includes("Arguments")).toBe(false);
+    expect(Boolean(queryByRole("button"))).toBe(false);
   });
 
   test("uses active fallback labels for in-progress generic dynamic tools", () => {
@@ -284,9 +284,9 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(textContent(container).includes("Release notes")).toBeTrue();
-    expect(textContent(container).includes("Created")).toBeTrue();
-    expect(textContent(container).includes("Daily")).toBeTrue();
+    expect(textContent(container).includes("Release notes")).toBe(true);
+    expect(textContent(container).includes("Created")).toBe(true);
+    expect(textContent(container).includes("Daily")).toBe(true);
 
     fireEvent.click(getByRole("button", { name: /Release notes/i }));
 
@@ -329,10 +329,10 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(textContent(container).includes("Proposed")).toBeTrue();
-    expect(textContent(container).includes("Open")).toBeTrue();
-    expect(textContent(container).includes("Create scheduled task")).toBeFalse();
-    expect(textContent(container).includes("Cancel")).toBeFalse();
+    expect(textContent(container).includes("Proposed")).toBe(true);
+    expect(textContent(container).includes("Open")).toBe(true);
+    expect(textContent(container).includes("Create scheduled task")).toBe(false);
+    expect(textContent(container).includes("Cancel")).toBe(false);
 
     fireEvent.click(getByRole("button", { name: /Review release notes/i }));
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,10 +67,10 @@ describe("project service order and pinning", () => {
       } catch {
         rejected = true;
       }
-      expect(rejected).toBeTrue();
+      expect(rejected).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("pins, unpins, and reorders pinned projects independently of project order", async () => {
@@ -87,7 +87,7 @@ describe("project service order and pinning", () => {
 
       const pinnedAlpha = setProjectPinned(alpha.id, { pinned: true });
       const pinnedGamma = setProjectPinned(gamma.id, { pinned: true });
-      expect(pinnedAlpha?.pinned).toBeTrue();
+      expect(pinnedAlpha?.pinned).toBe(true);
       expect(pinnedAlpha?.pinnedOrder).toBe(0);
       expect(pinnedGamma?.pinnedOrder).toBe(1);
 
@@ -107,10 +107,10 @@ describe("project service order and pinning", () => {
       } catch {
         rejected = true;
       }
-      expect(rejected).toBeTrue();
+      expect(rejected).toBe(true);
 
       const unpinned = setProjectPinned(alpha.id, { pinned: false });
-      expect(unpinned?.pinned).toBeFalse();
+      expect(unpinned?.pinned).toBe(false);
       expect(unpinned?.pinnedOrder).toBe(null);
 
       deleteProject(gamma.id);
@@ -118,6 +118,6 @@ describe("project service order and pinning", () => {
       expect(pinnedRows.count).toBe(0);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

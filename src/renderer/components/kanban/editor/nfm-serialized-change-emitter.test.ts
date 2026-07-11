@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
 
 describe("nfm serialized change emitter", () => {
@@ -28,7 +28,7 @@ describe("nfm serialized change emitter", () => {
 
     emitter.schedule();
 
-    expect(emitter.hasPendingChange()).toBeTrue();
+    expect(emitter.hasPendingChange()).toBe(true);
     expect(serializeCount).toBe(0);
     expect(emitted.length).toBe(0);
   });
@@ -71,7 +71,7 @@ describe("nfm serialized change emitter", () => {
 
     expect(emitted.length).toBe(1);
     expect(emitted[0]).toBe("second");
-    expect(emitter.hasPendingChange()).toBeFalse();
+    expect(emitter.hasPendingChange()).toBe(false);
   });
 
   test("explicit flush serializes immediately and clears the pending timer", () => {
@@ -99,7 +99,7 @@ describe("nfm serialized change emitter", () => {
     expect(flushed).toBe("flushed");
     expect(clearedTimer).toBe(7);
     expect(emitted[0]).toBe("flushed");
-    expect(emitter.hasPendingChange()).toBeFalse();
+    expect(emitter.hasPendingChange()).toBe(false);
   });
 
   test("does not emit when serialized output is unchanged", () => {

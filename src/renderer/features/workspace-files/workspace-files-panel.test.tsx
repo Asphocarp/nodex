@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
@@ -30,7 +30,7 @@ const fileContents: Record<string, string> = {
   [`${WORKSPACE_ROOT}/src/index.ts`]: "export const value = 1;\n",
 };
 
-mock.module("@/lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     if (channel === "workspace-directory-entries") {
@@ -101,13 +101,13 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(view.getByPlaceholderText("Filter files...") !== null).toBeTrue();
-    expect(view.getByText("README.md") !== null).toBeTrue();
-    expect(view.getByText("archive.zip") !== null).toBeTrue();
+    expect(view.getByPlaceholderText("Filter files...") !== null).toBe(true);
+    expect(view.getByText("README.md") !== null).toBe(true);
+    expect(view.getByText("archive.zip") !== null).toBe(true);
 
     fireEvent.input(view.getByPlaceholderText("Filter files..."), { target: { value: "read" } });
     await settleAsyncRender();
-    expect(view.getByText("README.md") !== null).toBeTrue();
+    expect(view.getByText("README.md") !== null).toBe(true);
     expect(view.queryByText("archive.zip")).toBe(null);
 
     fireEvent.click(view.getByText("README.md"));
@@ -125,11 +125,11 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(view.getByText("Project") !== null).toBeTrue();
+    expect(view.getByText("Project") !== null).toBe(true);
     expect(invokeCalls.some((call) =>
       call[0] === "read-file"
       && JSON.stringify(call[1]).includes(`"workspaceRoot":"${WORKSPACE_ROOT}"`)
-    )).toBeTrue();
+    )).toBe(true);
   });
 
   test("renders unsupported binaries with external-open action", async () => {
@@ -137,7 +137,7 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(view.getByText("Preview is not available for archive.zip.") !== null).toBeTrue();
+    expect(view.getByText("Preview is not available for archive.zip.") !== null).toBe(true);
     fireEvent.click(view.getByRole("button", { name: "Open" }));
     await settleAsyncRender();
 

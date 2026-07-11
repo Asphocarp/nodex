@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fileLinkOpenerTestHelpers } from "./use-file-link-opener";
 
 const EXAMPLE_FILE_LINK = "/workspace/nodex/src/renderer/lib/nfm/parser.ts#L71";
@@ -9,19 +9,19 @@ describe("use-file-link-opener helpers", () => {
       { at: 100, href: EXAMPLE_FILE_LINK },
       EXAMPLE_FILE_LINK,
       200,
-    )).toBeTrue();
+    )).toBe(true);
 
     expect(fileLinkOpenerTestHelpers.shouldSkipDuplicateClickOpen(
       { at: 100, href: EXAMPLE_FILE_LINK },
       "/workspace/nodex/src/renderer/lib/nfm/parser.ts#L72",
       200,
-    )).toBeFalse();
+    )).toBe(false);
 
     expect(fileLinkOpenerTestHelpers.shouldSkipDuplicateClickOpen(
       { at: 100, href: EXAMPLE_FILE_LINK },
       EXAMPLE_FILE_LINK,
       400,
-    )).toBeFalse();
+    )).toBe(false);
   });
 
   test("resolves text-node click targets to their parent element", () => {

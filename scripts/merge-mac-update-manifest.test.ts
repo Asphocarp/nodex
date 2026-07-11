@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -66,8 +66,8 @@ test("mergeMacUpdateManifestFiles writes a canonical latest-mac.yml", () => {
     const written = readFileSync(outputPath, "utf8");
 
     expect(merged.version).toBe("0.1.6");
-    expect(written.includes("Nodex-0.1.6-arm64.zip")).toBeTrue();
-    expect(written.includes("Nodex-0.1.6-x64.zip")).toBeTrue();
+    expect(written.includes("Nodex-0.1.6-arm64.zip")).toBe(true);
+    expect(written.includes("Nodex-0.1.6-x64.zip")).toBe(true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -91,5 +91,5 @@ test("mergeMacUpdateManifests rejects mismatched versions", () => {
     threw = true;
   }
 
-  expect(threw).toBeTrue();
+  expect(threw).toBe(true);
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   createNfmEditorExtensions,
   NFM_DISABLED_EXTENSIONS,
@@ -11,10 +11,10 @@ describe("nfm editor extensions", () => {
   test("replaces the built-in divider shortcut with the thread-section shortcut", () => {
     const extensions = createNfmEditorExtensions();
 
-    expect(NFM_DISABLED_EXTENSIONS.includes("divider-block-shortcuts")).toBeTrue();
-    expect(extensions.includes(threadSectionInputRule)).toBeTrue();
-    expect(THREAD_SECTION_SHORTCUT_PATTERN.test("---")).toBeTrue();
-    expect(THREAD_SECTION_SHORTCUT_PATTERN.test("--")).toBeFalse();
+    expect(NFM_DISABLED_EXTENSIONS.includes("divider-block-shortcuts")).toBe(true);
+    expect(extensions.includes(threadSectionInputRule)).toBe(true);
+    expect(THREAD_SECTION_SHORTCUT_PATTERN.test("---")).toBe(true);
+    expect(THREAD_SECTION_SHORTCUT_PATTERN.test("--")).toBe(false);
   });
 
   test("reuses the shared empty thread-section block shape", () => {

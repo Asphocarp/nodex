@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   getThreadScrollDistanceFromBottomPx,
   isThreadScrollNearBottom,
@@ -65,7 +65,7 @@ describe("isThreadScrollNearBottom", () => {
       isThreadScrollNearBottom({
         scrollDistanceFromBottomPx: 12,
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("treats positions beyond the Codex near-bottom threshold as scrolled away", () => {
@@ -73,7 +73,7 @@ describe("isThreadScrollNearBottom", () => {
       isThreadScrollNearBottom({
         scrollDistanceFromBottomPx: 25,
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 });
 

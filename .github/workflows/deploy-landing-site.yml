@@ -9,7 +9,7 @@ on:
       - ".github/workflows/deploy-landing-site.yml"
       - "CHANGELOG.md"
       - "package.json"
-      - "bun.lock"
+      - "pnpm-lock.yaml"
   workflow_dispatch:
     inputs:
       target_repo:
@@ -33,13 +33,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.11.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build landing site
-        run: bun run build:landing
+        run: pnpm run build:landing
 
       - name: Publish built site
         env:

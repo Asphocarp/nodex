@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import {
   __resetNodexToastStoreForTests,
@@ -85,14 +85,14 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("Edited 12 files"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("+12"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("-12"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("src/file-1.ts"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("src/file-3.ts"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("src/file-4.ts"))).toBeFalse();
-    expect(Boolean(container.textContent?.includes("Show 9 more files"))).toBeTrue();
-    expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Edited 12 files"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("+12"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("-12"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("src/file-1.ts"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("src/file-3.ts"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("src/file-4.ts"))).toBe(false);
+    expect(Boolean(container.textContent?.includes("Show 9 more files"))).toBe(true);
+    expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBe(true);
   });
 
   test("expands and collapses the file list disclosure without per-file accordions", async () => {
@@ -108,17 +108,17 @@ describe("TurnDiffSurface", () => {
     );
 
     const disclosure = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
-    expect(Boolean(disclosure)).toBeTrue();
+    expect(Boolean(disclosure)).toBe(true);
     fireEvent.click(disclosure as HTMLButtonElement);
     await settleAsyncRender();
 
-    expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("Collapse files"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("Collapse files"))).toBe(true);
     expect(container.querySelectorAll('button[aria-expanded="true"]').length).toBe(1);
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]') as HTMLButtonElement);
     await settleAsyncRender();
-    expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBe(false);
   });
 
   test("opens Review from header and focuses a file from row click", () => {
@@ -139,7 +139,7 @@ describe("TurnDiffSurface", () => {
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
     expect(openedTargets[0]?.source ?? null).toBe("selected-turn");
-    expect(openedTargets[0]?.path === null).toBeTrue();
+    expect(openedTargets[0]?.path === null).toBe(true);
 
     fireEvent.click(findButtonByText(container, "src/file-2.ts") as HTMLButtonElement);
     expect(openedTargets[1]?.path ?? null).toBe("src/file-2.ts");
@@ -190,8 +190,8 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("src/absolute-1.ts"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("/tmp/project/src/absolute-1.ts"))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("src/absolute-1.ts"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("/tmp/project/src/absolute-1.ts"))).toBe(false);
 
     fireEvent.click(findButtonByText(container, "src/absolute-1.ts") as HTMLButtonElement, { metaKey: true });
     expect(sidePanelPath).toBe("/tmp/project/src/absolute-1.ts");
@@ -245,9 +245,9 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("Edited one.ts"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Edited one.ts"))).toBe(true);
     expect(container.querySelectorAll('button[aria-expanded]').length).toBe(0);
-    expect(Boolean(container.textContent?.includes("src/one.ts"))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("src/one.ts"))).toBe(false);
   });
 
   test("shows a large-file fallback row in the multi-file list", () => {
@@ -272,7 +272,7 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("Too large to render inline"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Too large to render inline"))).toBe(true);
   });
 
   test("shows the streaming summary with the in-progress state attribute", () => {
@@ -290,11 +290,11 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("2 files changed"))).toBeTrue();
-    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("2 files changed"))).toBe(true);
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
 
     fireEvent.click(container.querySelector("button") as HTMLButtonElement);
-    expect(reviewTargetPatch.includes("src/file-1.ts")).toBeTrue();
+    expect(reviewTargetPatch.includes("src/file-1.ts")).toBe(true);
   });
 
   test("renders the compact in-progress summary with optional leading separator", () => {
@@ -312,9 +312,9 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("·"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("1 file changed"))).toBeTrue();
-    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("·"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("1 file changed"))).toBe(true);
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
     expect(openedPath).toBe("src/one.ts");
@@ -378,7 +378,7 @@ describe("TurnDiffSurface", () => {
     const batches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches(payload, "/tmp/project");
     expect(batches.length).toBe(1);
     expect(batches[0]?.cwd ?? null).toBe("/tmp/one");
-    expect(Boolean(batches[0]?.diff.includes("src/one.ts"))).toBeTrue();
+    expect(Boolean(batches[0]?.diff.includes("src/one.ts"))).toBe(true);
 
     const fallbackBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches({
       unifiedDiff: diffForPath("src/fallback.ts"),
@@ -435,18 +435,18 @@ describe("TurnDiffSurface", () => {
 
     fireEvent.click(findButtonByText(container, "Undo") as HTMLButtonElement);
     await waitFor(() => {
-      expect(Boolean(baseElement.textContent?.includes("Changes reverted"))).toBeTrue();
+      expect(Boolean(baseElement.textContent?.includes("Changes reverted"))).toBe(true);
     });
-    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"cwd\":\"/tmp/two\"")).toBeTrue();
-    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"revert\":true")).toBeTrue();
-    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"operationSource\":\"thread_diff\"")).toBeTrue();
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"cwd\":\"/tmp/two\"")).toBe(true);
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"revert\":true")).toBe(true);
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"operationSource\":\"thread_diff\"")).toBe(true);
 
     fireEvent.click(findButtonByText(container, "Reapply") as HTMLButtonElement);
     await waitFor(() => {
-      expect(Boolean(baseElement.textContent?.includes("Changes reapplied"))).toBeTrue();
+      expect(Boolean(baseElement.textContent?.includes("Changes reapplied"))).toBe(true);
     });
-    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"cwd\":\"/tmp/one\"")).toBeTrue();
-    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"revert\":false")).toBeTrue();
+    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"cwd\":\"/tmp/one\"")).toBe(true);
+    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"revert\":false")).toBe(true);
   });
 
   test("opens a patch failure dialog with applied skipped and conflicted paths", async () => {
@@ -483,10 +483,10 @@ describe("TurnDiffSurface", () => {
 
     fireEvent.click(findButtonByText(container, "Undo") as HTMLButtonElement);
     await waitFor(() => {
-      expect(Boolean(baseElement.textContent?.includes("Failed to revert changes"))).toBeTrue();
+      expect(Boolean(baseElement.textContent?.includes("Failed to revert changes"))).toBe(true);
     });
-    expect(Boolean(baseElement.textContent?.includes("Applied cleanly (1)"))).toBeTrue();
-    expect(Boolean(baseElement.textContent?.includes("Skipped (1)"))).toBeTrue();
-    expect(Boolean(baseElement.textContent?.includes("Conflicts (1)"))).toBeTrue();
+    expect(Boolean(baseElement.textContent?.includes("Applied cleanly (1)"))).toBe(true);
+    expect(Boolean(baseElement.textContent?.includes("Skipped (1)"))).toBe(true);
+    expect(Boolean(baseElement.textContent?.includes("Conflicts (1)"))).toBe(true);
   });
 });

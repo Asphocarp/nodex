@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -157,7 +157,7 @@ describe("authoritative Card search", () => {
         expect(currentResults[0]?.status).toBe("done");
         expect(
           currentResults[0]?.excerpt.includes("current-needle"),
-        ).toBeTrue();
+        ).toBe(true);
         expect(wrongScope.length).toBe(0);
       } finally {
         closeDatabase();

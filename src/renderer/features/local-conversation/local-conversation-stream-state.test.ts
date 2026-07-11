@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { LocalConversationStreamState } from "./local-conversation-stream-state";
 
 function createManualTimers() {
@@ -174,7 +174,7 @@ describe("LocalConversationStreamState", () => {
     });
 
     await waiter;
-    expect(resolved).toBeTrue();
+    expect(resolved).toBe(true);
     expect(timers.size).toBe(0);
   });
 
@@ -204,7 +204,7 @@ describe("LocalConversationStreamState", () => {
     });
 
     const message = await readRejectionMessage(waiter);
-    expect(message.includes("Stream owner changed")).toBeTrue();
+    expect(message.includes("Stream owner changed")).toBe(true);
     expect(timers.size).toBe(0);
   });
 
@@ -227,7 +227,7 @@ describe("LocalConversationStreamState", () => {
     const message = await readRejectionMessage(waiter);
 
     expect(affectedConversationIds.join(",")).toBe("thread-1");
-    expect(message.includes("unavailable")).toBeTrue();
+    expect(message.includes("unavailable")).toBe(true);
     expect(streamState.getRole("thread-1")).toBe(null);
   });
 
@@ -250,9 +250,9 @@ describe("LocalConversationStreamState", () => {
       timeoutMs: 25,
     });
 
-    expect(timers.fireNext()).toBeTrue();
+    expect(timers.fireNext()).toBe(true);
 
     const message = await readRejectionMessage(waiter);
-    expect(message.includes("Timed out waiting")).toBeTrue();
+    expect(message.includes("Timed out waiting")).toBe(true);
   });
 });

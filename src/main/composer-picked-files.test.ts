@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 
 import {
   COMPOSER_PICKED_IMAGE_MAX_BYTES,
@@ -45,9 +45,9 @@ describe("composer picked files", () => {
 
     expect(pickedFile.label).toBe("notes.md");
     expect(pickedFile.path).toBe(textPath);
-    expect("bytes" in pickedFile).toBeFalse();
-    expect("mimeType" in pickedFile).toBeFalse();
-    expect("imageDataUrl" in pickedFile).toBeFalse();
+    expect("bytes" in pickedFile).toBe(false);
+    expect("mimeType" in pickedFile).toBe(false);
+    expect("imageDataUrl" in pickedFile).toBe(false);
   });
 
   test("does not embed bytes for oversized images", async () => {
@@ -58,8 +58,8 @@ describe("composer picked files", () => {
     const pickedFile = await prepareComposerPickedFile(imagePath);
 
     expect(pickedFile.label).toBe("huge.png");
-    expect("bytes" in pickedFile).toBeFalse();
-    expect("imageDataUrl" in pickedFile).toBeFalse();
+    expect("bytes" in pickedFile).toBe(false);
+    expect("imageDataUrl" in pickedFile).toBe(false);
   });
 
   test("does not embed bytes for directories with image-like names", async () => {
@@ -70,7 +70,7 @@ describe("composer picked files", () => {
     const pickedFile = await prepareComposerPickedFile(directoryPath);
 
     expect(pickedFile.label).toBe("folder.png");
-    expect("bytes" in pickedFile).toBeFalse();
-    expect("imageDataUrl" in pickedFile).toBeFalse();
+    expect("bytes" in pickedFile).toBe(false);
+    expect("imageDataUrl" in pickedFile).toBe(false);
   });
 });

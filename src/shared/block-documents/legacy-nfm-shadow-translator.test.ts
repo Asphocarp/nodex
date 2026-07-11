@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   createCardDocumentGenesis,
@@ -60,8 +60,8 @@ describe("LegacyNfmShadowTranslator", () => {
       allocateBlockId: () => `new-${++nextId}`,
     });
 
-    expect(result.changed).toBeTrue();
-    expect(result.update.byteLength > 0).toBeTrue();
+    expect(result.changed).toBe(true);
+    expect(result.update.byteLength > 0).toBe(true);
     expect(result.materialization.title).toBe("After");
     expect(
       flatten(result.materialization.blockTree)
@@ -100,7 +100,7 @@ describe("LegacyNfmShadowTranslator", () => {
       flatten(result.materialization.blockTree).some(
         (block) => block.id === beta?.id,
       ),
-    ).toBeFalse();
+    ).toBe(false);
     expect(allocationCount).toBe(1);
   });
 
@@ -178,7 +178,7 @@ describe("LegacyNfmShadowTranslator", () => {
       nfm: "Parent updated\n\tChild\nSibling",
       allocateBlockId: () => "must-not-be-allocated",
     });
-    expect(repeated.changed).toBeFalse();
+    expect(repeated.changed).toBe(false);
     expect(repeated.update.byteLength).toBe(0);
   });
 
@@ -203,7 +203,7 @@ describe("LegacyNfmShadowTranslator", () => {
       },
     });
 
-    expect(result.changed).toBeFalse();
+    expect(result.changed).toBe(false);
     expect(result.update.byteLength).toBe(0);
     expect(allocations).toBe(0);
   });
@@ -242,8 +242,8 @@ describe("LegacyNfmShadowTranslator", () => {
       readinessError = error instanceof LegacyNfmShadowTranslationError;
     }
 
-    expect(authorityError).toBeTrue();
-    expect(readinessError).toBeTrue();
+    expect(authorityError).toBe(true);
+    expect(readinessError).toBe(true);
     expect(encodedState(genesis.document)).toBe(before);
   });
 
@@ -270,7 +270,7 @@ describe("LegacyNfmShadowTranslator", () => {
       error = caught;
     }
 
-    expect(error instanceof LegacyNfmShadowTranslationError).toBeTrue();
+    expect(error instanceof LegacyNfmShadowTranslationError).toBe(true);
     expect(encodedState(genesis.document)).toBe(before);
     expect(materializeCardDocument(genesis.document).nfm).toBe("Existing");
   });

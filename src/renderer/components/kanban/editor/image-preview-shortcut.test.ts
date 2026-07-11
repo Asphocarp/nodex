@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   isSpaceShortcut,
   resolveImagePreviewByBlockId,
@@ -80,8 +80,8 @@ describe("image preview shortcut helpers", () => {
   });
 
   test("isSpaceShortcut matches keyboard event variants for space", () => {
-    expect(isSpaceShortcut({ key: " ", code: "Space" })).toBeTrue();
-    expect(isSpaceShortcut({ key: "Spacebar", code: "" })).toBeTrue();
-    expect(isSpaceShortcut({ key: "Enter", code: "Enter" })).toBeFalse();
+    expect(isSpaceShortcut({ key: " ", code: "Space" })).toBe(true);
+    expect(isSpaceShortcut({ key: "Spacebar", code: "" })).toBe(true);
+    expect(isSpaceShortcut({ key: "Enter", code: "Enter" })).toBe(false);
   });
 });

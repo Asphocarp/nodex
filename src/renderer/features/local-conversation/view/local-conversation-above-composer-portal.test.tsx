@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { CodexConversationItem } from "../../../lib/types";
@@ -103,16 +103,16 @@ describe("LocalConversationAboveComposerPortal", () => {
     await settleAsyncRender();
 
     const host = container.querySelector("[data-above-composer-portal]");
-    expect(host?.textContent?.includes("1 file changed") ?? false).toBeTrue();
-    expect(host?.querySelector('[codex\\.turn_diff\\.state="in_progress"]') !== null).toBeTrue();
-    expect(host?.querySelector("[data-above-composer-fixed-spacer]") !== null).toBeTrue();
-    expect(host?.querySelector("[data-above-composer-fixed-content]") !== null).toBeTrue();
-    expect(host?.querySelector("[data-above-composer-fixed-fade]") !== null).toBeTrue();
-    expect(host?.querySelector("[data-above-composer-fixed-pill]") !== null).toBeTrue();
-    expect(textContent(container).includes("1 file changed")).toBeTrue();
+    expect(host?.textContent?.includes("1 file changed") ?? false).toBe(true);
+    expect(host?.querySelector('[codex\\.turn_diff\\.state="in_progress"]') !== null).toBe(true);
+    expect(host?.querySelector("[data-above-composer-fixed-spacer]") !== null).toBe(true);
+    expect(host?.querySelector("[data-above-composer-fixed-content]") !== null).toBe(true);
+    expect(host?.querySelector("[data-above-composer-fixed-fade]") !== null).toBe(true);
+    expect(host?.querySelector("[data-above-composer-fixed-pill]") !== null).toBe(true);
+    expect(textContent(container).includes("1 file changed")).toBe(true);
 
     const reviewButton = host?.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]');
-    expect(reviewButton !== null).toBeTrue();
+    expect(reviewButton !== null).toBe(true);
     fireEvent.click(reviewButton as HTMLButtonElement);
     expect(openedTurnId).toBe("turn-1");
   });
@@ -132,7 +132,7 @@ describe("LocalConversationAboveComposerPortal", () => {
 
     await settleAsyncRender();
 
-    expect(container.querySelector("[data-above-composer-fixed-content]") === null).toBeTrue();
+    expect(container.querySelector("[data-above-composer-fixed-content]") === null).toBe(true);
   });
 
   test("renders todo progress and turn diff in one fixed-content pill", async () => {
@@ -156,9 +156,9 @@ describe("LocalConversationAboveComposerPortal", () => {
     const diffIndex = content.indexOf("1 file changed");
 
     expect(host?.querySelectorAll("[data-above-composer-fixed-pill]").length ?? 0).toBe(1);
-    expect(todoIndex >= 0).toBeTrue();
-    expect(diffIndex >= 0).toBeTrue();
-    expect(todoIndex < diffIndex).toBeTrue();
-    expect(content.includes("·")).toBeTrue();
+    expect(todoIndex >= 0).toBe(true);
+    expect(diffIndex >= 0).toBe(true);
+    expect(todoIndex < diffIndex).toBe(true);
+    expect(content.includes("·")).toBe(true);
   });
 });

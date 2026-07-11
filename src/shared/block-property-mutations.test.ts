@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   canonicalizeBlockPropertyMutationRequest,
   makeBlockPropertyFieldPath,
@@ -99,7 +99,7 @@ describe("Block property mutation contract", () => {
           fields: [intrinsic],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     const withoutActor = Object.fromEntries(
       Object.entries(baseRequest).filter(([key]) => key !== "actor"),
     );
@@ -110,7 +110,7 @@ describe("Block property mutation contract", () => {
           fields: [intrinsic],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       operationFails(() =>
         parseBlockPropertyMutationRequest({
@@ -118,7 +118,7 @@ describe("Block property mutation contract", () => {
           fields: [intrinsic, intrinsic],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       operationFails(() =>
         parseBlockPropertyMutationRequest({
@@ -126,7 +126,7 @@ describe("Block property mutation contract", () => {
           fields: [{ ...intrinsic, value: Number.NaN }],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       operationFails(() =>
         parseBlockPropertyMutationRequest({
@@ -144,7 +144,7 @@ describe("Block property mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("strictly validates committed receipts", () => {
@@ -173,12 +173,12 @@ describe("Block property mutation contract", () => {
     expect(result.blockMetadataRevisions["card-1"]).toBe(3);
     expect(
       parseBlockPropertyMutationCommandResult({ ok: true, value: result }).ok,
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       operationFails(() =>
         parseBlockPropertyMutationResult({ ...result, extra: true }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("preserves JSON keys that would otherwise mutate object prototypes", () => {
@@ -197,9 +197,9 @@ describe("Block property mutation contract", () => {
         },
       ],
     });
-    expect(Object.hasOwn(parsed.actor, "__proto__")).toBeTrue();
+    expect(Object.hasOwn(parsed.actor, "__proto__")).toBe(true);
     expect(
       canonicalizeBlockPropertyMutationRequest(parsed).includes("__proto__"),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

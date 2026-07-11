@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
@@ -28,7 +28,7 @@ const PROJECTS = [
 
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
-mock.module("./workbench-settings-overlay-deps", () => ({
+vi.mock("./workbench-settings-overlay-deps", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     if (!mockInvokeImpl) return null;
     return mockInvokeImpl(channel, ...args);
@@ -176,29 +176,29 @@ describe("SettingsRouteShell backups", () => {
     expect(toggle).not.toBeNull();
     expect(replayToggle).not.toBeNull();
     expect(toggle?.getAttribute("aria-checked")).toBe("false");
-    expect((replayToggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+    expect((replayToggle as HTMLButtonElement | null)?.disabled ?? false).toBe(true);
     view.getByText("Session replays require crash reports.");
 
     fireEvent.click(toggle as Element);
     await settleAsyncRender();
 
     expect(diagnosticsUpdates.length).toBe(1);
-    expect(diagnosticsUpdates[0]?.enabled).toBeTrue();
-    expect(diagnosticsUpdates[0]?.replayEnabled).toBeFalse();
+    expect(diagnosticsUpdates[0]?.enabled).toBe(true);
+    expect(diagnosticsUpdates[0]?.replayEnabled).toBe(false);
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     view.getByText("Crash reports are enabled after restart.");
     view.getByText("Session replays are off.");
 
     const enabledReplayToggle = view.getByText("Share session replays").parentElement?.querySelector("[role='switch']");
     expect(enabledReplayToggle).not.toBeNull();
-    expect((enabledReplayToggle as HTMLButtonElement | null)?.disabled ?? false).toBeFalse();
+    expect((enabledReplayToggle as HTMLButtonElement | null)?.disabled ?? false).toBe(false);
 
     fireEvent.click(enabledReplayToggle as Element);
     await settleAsyncRender();
 
     expect(diagnosticsUpdates.length).toBe(2);
-    expect(diagnosticsUpdates[1]?.enabled).toBeTrue();
-    expect(diagnosticsUpdates[1]?.replayEnabled).toBeTrue();
+    expect(diagnosticsUpdates[1]?.enabled).toBe(true);
+    expect(diagnosticsUpdates[1]?.replayEnabled).toBe(true);
     view.getByText("Session replays are enabled after restart.");
   });
 
@@ -267,7 +267,7 @@ describe("SettingsRouteShell backups", () => {
     view.getByText("Managed by NODEX_SENTRY_ENABLED. Environment overrides are active.");
     const toggle = view.getByText("Share crash reports").parentElement?.querySelector("[role='switch']");
     expect(toggle).not.toBeNull();
-    expect((toggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+    expect((toggle as HTMLButtonElement | null)?.disabled ?? false).toBe(true);
 
     fireEvent.click(toggle as Element);
     await settleAsyncRender();
@@ -340,29 +340,29 @@ describe("SettingsRouteShell backups", () => {
     expect(toggle).not.toBeNull();
     expect(autoCaptureToggle).not.toBeNull();
     expect(toggle?.getAttribute("aria-checked")).toBe("false");
-    expect((autoCaptureToggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+    expect((autoCaptureToggle as HTMLButtonElement | null)?.disabled ?? false).toBe(true);
     view.getByText("Web analytics require product telemetry.");
 
     fireEvent.click(toggle as Element);
     await settleAsyncRender();
 
     expect(telemetryUpdates.length).toBe(1);
-    expect(telemetryUpdates[0]?.enabled).toBeTrue();
-    expect(telemetryUpdates[0]?.autoCaptureEnabled).toBeFalse();
+    expect(telemetryUpdates[0]?.enabled).toBe(true);
+    expect(telemetryUpdates[0]?.autoCaptureEnabled).toBe(false);
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     view.getByText("Product telemetry is enabled after restart.");
     view.getByText("Web analytics are off.");
 
     const enabledAutoCaptureToggle = view.getByText("Share web analytics").parentElement?.querySelector("[role='switch']");
     expect(enabledAutoCaptureToggle).not.toBeNull();
-    expect((enabledAutoCaptureToggle as HTMLButtonElement | null)?.disabled ?? false).toBeFalse();
+    expect((enabledAutoCaptureToggle as HTMLButtonElement | null)?.disabled ?? false).toBe(false);
 
     fireEvent.click(enabledAutoCaptureToggle as Element);
     await settleAsyncRender();
 
     expect(telemetryUpdates.length).toBe(2);
-    expect(telemetryUpdates[1]?.enabled).toBeTrue();
-    expect(telemetryUpdates[1]?.autoCaptureEnabled).toBeTrue();
+    expect(telemetryUpdates[1]?.enabled).toBe(true);
+    expect(telemetryUpdates[1]?.autoCaptureEnabled).toBe(true);
     view.getByText("Web analytics are enabled after restart.");
   });
 
@@ -427,7 +427,7 @@ describe("SettingsRouteShell backups", () => {
     view.getByText("Managed by NODEX_TELEMETRY_ENABLED. Environment overrides are active.");
     const toggle = view.getByText("Share product telemetry").parentElement?.querySelector("[role='switch']");
     expect(toggle).not.toBeNull();
-    expect((toggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+    expect((toggle as HTMLButtonElement | null)?.disabled ?? false).toBe(true);
 
     fireEvent.click(toggle as Element);
     await settleAsyncRender();

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "@/test/dom";
@@ -63,10 +63,10 @@ describe("codex sidebar thread hover card", () => {
     expect(tooltip).not.toBeNull();
 
     const tooltipText = textContent(tooltip as HTMLElement);
-    expect(tooltipText.includes("X Plan Codex terminal reverse engineer")).toBeTrue();
-    expect(tooltipText.includes("2d")).toBeTrue();
-    expect(tooltipText.includes("nodex")).toBeTrue();
-    expect(tooltipText.includes("feat/thread-tools")).toBeTrue();
+    expect(tooltipText.includes("X Plan Codex terminal reverse engineer")).toBe(true);
+    expect(tooltipText.includes("2d")).toBe(true);
+    expect(tooltipText.includes("nodex")).toBe(true);
+    expect(tooltipText.includes("feat/thread-tools")).toBe(true);
   });
 
   test("uses Chat as the projectless fallback label", async () => {
@@ -86,8 +86,8 @@ describe("codex sidebar thread hover card", () => {
     expect(tooltip).not.toBeNull();
 
     const tooltipText = textContent(tooltip as HTMLElement);
-    expect(tooltipText.includes("Projectless chat")).toBeTrue();
-    expect(tooltipText.includes("Chat")).toBeTrue();
+    expect(tooltipText.includes("Projectless chat")).toBe(true);
+    expect(tooltipText.includes("Chat")).toBe(true);
   });
 });
 
@@ -137,10 +137,10 @@ describe("codex sidebar thread row", () => {
     expect(main).not.toBeNull();
     expect(actionRail).not.toBeNull();
 
-    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
-    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBeTrue();
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") !== null).toBeTrue();
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBeTrue();
+    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBe(true);
+    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBe(true);
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") !== null).toBe(true);
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
   });
 
   test("does not reveal hover actions from row focus alone", async () => {
@@ -164,9 +164,9 @@ describe("codex sidebar thread row", () => {
     expect(actionRail).not.toBeNull();
 
     const className = (actionRail as HTMLElement).className;
-    expect(className.includes("group-hover:opacity-100")).toBeTrue();
-    expect(className.includes(":has(:focus-visible)")).toBeTrue();
-    expect(className.includes("group-focus-within")).toBeFalse();
+    expect(className.includes("group-hover:opacity-100")).toBe(true);
+    expect(className.includes(":has(:focus-visible)")).toBe(true);
+    expect(className.includes("group-focus-within")).toBe(false);
   });
 
   test("keeps the pinned state visible while archive stays in the action rail", async () => {
@@ -197,9 +197,9 @@ describe("codex sidebar thread row", () => {
     const restingPin = (main as HTMLElement).querySelector("[data-app-action-sidebar-thread-resting-pin]") as HTMLButtonElement | null;
     expect(restingPin).not.toBeNull();
     expect(restingPin?.getAttribute("aria-label")).toBe("Unpin chat");
-    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBeTrue();
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBeTrue();
+    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBe(true);
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBe(true);
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
   });
 
   test("omits elapsed metadata when the timestamp is unavailable", async () => {
@@ -217,6 +217,6 @@ describe("codex sidebar thread row", () => {
       ));
     });
 
-    expect(container.querySelector("[data-app-action-sidebar-thread-elapsed]") === null).toBeTrue();
+    expect(container.querySelector("[data-app-action-sidebar-thread-elapsed]") === null).toBe(true);
   });
 });

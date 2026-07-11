@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildUserInputAnswers,
   createUserInputComposerStateSchema,
@@ -39,7 +39,7 @@ describe("request card form schemas", () => {
       selectedOptions: { q_1: "2 (Recommended)", q_2: "" },
     });
 
-    expect(parsed.success).toBeTrue();
+    expect(parsed.success).toBe(true);
   });
 
   test("rejects unanswered questions", () => {
@@ -50,7 +50,7 @@ describe("request card form schemas", () => {
       selectedOptions: { q_1: "", q_2: "" },
     });
 
-    expect(parsed.success).toBeFalse();
+    expect(parsed.success).toBe(false);
     if (parsed.success) return;
     expect(parsed.error.issues[0]?.message ?? "").toBe("Enter a response before submitting.");
   });

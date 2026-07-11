@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { appCloseFlushTestHelpers } from "./app-close-flush";
 import type { TelemetrySettings } from "./types";
 import {
@@ -112,7 +112,7 @@ describe("Statsig renderer telemetry", () => {
       adapter,
     });
 
-    expect(initialized).toBeFalse();
+    expect(initialized).toBe(false);
     expect(state.initializeCount).toBe(0);
     expect(state.createClientCalls.length).toBe(0);
     expect(state.autoCaptureOptions.length).toBe(0);
@@ -132,30 +132,30 @@ describe("Statsig renderer telemetry", () => {
       adapter,
     });
 
-    expect(initialized).toBeTrue();
+    expect(initialized).toBe(true);
     expect(state.initializeCount).toBe(1);
     expect(state.createClientCalls.length).toBe(1);
     expect(state.createClientCalls[0]?.sdkKey).toBe("client-custom");
 
     const user = state.createClientCalls[0]?.user ?? {};
-    expect("userID" in user).toBeFalse();
-    expect("email" in user).toBeFalse();
-    expect("customIDs" in user).toBeFalse();
+    expect("userID" in user).toBe(false);
+    expect("email" in user).toBe(false);
+    expect("customIDs" in user).toBe(false);
     expect((user.custom as Record<string, unknown> | undefined)?.app).toBe("nodex");
 
     const options = state.createClientCalls[0]?.options ?? {};
     expect((options.environment as Record<string, unknown> | undefined)?.tier).toBe("staging");
-    expect(options.includeCurrentPageUrlWithEvents).toBeFalse();
+    expect(options.includeCurrentPageUrlWithEvents).toBe(false);
     const plugins = options.plugins as unknown[] | undefined;
-    expect(Array.isArray(plugins)).toBeTrue();
+    expect(Array.isArray(plugins)).toBe(true);
     expect(plugins?.length).toBe(1);
 
     const autoCaptureOptions = state.autoCaptureOptions[0] ?? {};
-    expect(autoCaptureOptions.captureCopyText).toBeFalse();
+    expect(autoCaptureOptions.captureCopyText).toBe(false);
     expect(
       (autoCaptureOptions.consoleLogAutoCaptureSettings as Record<string, unknown> | undefined)
         ?.enabled,
-    ).toBeFalse();
+    ).toBe(false);
     expect(typeof autoCaptureOptions.eventFilterFunc).toBe("function");
 
     const boundClient = state.boundAutoCaptureClient as {
@@ -167,9 +167,9 @@ describe("Statsig renderer telemetry", () => {
     const eventFilter = autoCaptureOptions.eventFilterFunc as (
       event: { eventName: string; metadata?: Record<string, unknown> },
     ) => boolean;
-    expect(eventFilter({ eventName: "auto_capture::session_start", metadata: {} })).toBeTrue();
+    expect(eventFilter({ eventName: "auto_capture::session_start", metadata: {} })).toBe(true);
     expect(Object.keys(boundClient._possibleFirstTouchMetadata ?? {}).length).toBe(0);
-    expect("analyticsOnlyMetadata" in (boundClient._user ?? {})).toBeFalse();
+    expect("analyticsOnlyMetadata" in (boundClient._user ?? {})).toBe(false);
   });
 
   test("filters AutoCapture to technical events and removes page metadata", () => {
@@ -186,23 +186,23 @@ describe("Statsig renderer telemetry", () => {
       },
     };
 
-    expect(filterStatsigAutoCaptureEvent(allowedEvent)).toBeTrue();
+    expect(filterStatsigAutoCaptureEvent(allowedEvent)).toBe(true);
     expect(allowedEvent.value).toBe("renderer");
-    expect("current_url" in allowedEvent.metadata).toBeFalse();
-    expect("hostname" in allowedEvent.metadata).toBeFalse();
-    expect("pathname" in allowedEvent.metadata).toBeFalse();
-    expect("selector" in allowedEvent.metadata).toBeFalse();
-    expect("title" in allowedEvent.metadata).toBeFalse();
+    expect("current_url" in allowedEvent.metadata).toBe(false);
+    expect("hostname" in allowedEvent.metadata).toBe(false);
+    expect("pathname" in allowedEvent.metadata).toBe(false);
+    expect("selector" in allowedEvent.metadata).toBe(false);
+    expect("title" in allowedEvent.metadata).toBe(false);
     expect(allowedEvent.metadata.user_agent).toBe("Browser");
 
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::click" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::copy" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::form_submit" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::dead_click" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::rage_click" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::error" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::page_view" })).toBeFalse();
-    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::page_view_end" })).toBeFalse();
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::click" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::copy" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::form_submit" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::dead_click" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::rage_click" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::error" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::page_view" })).toBe(false);
+    expect(filterStatsigAutoCaptureEvent({ eventName: "auto_capture::page_view_end" })).toBe(false);
   });
 
   test("normalizes manual telemetry metadata before logging", async () => {
@@ -222,7 +222,7 @@ describe("Statsig renderer telemetry", () => {
       durationMs: 42,
     });
 
-    expect(logged).toBeTrue();
+    expect(logged).toBe(true);
     expect(state.loggedEvents.length).toBe(1);
     expect(state.loggedEvents[0]?.eventName).toBe("nodex:test_event");
     expect(state.loggedEvents[0]?.value).toBe(12);
@@ -230,10 +230,10 @@ describe("Statsig renderer telemetry", () => {
     expect(metadata.kind).toBe("card");
     expect(metadata.durationMs).toBe("42");
     expect(metadata.notes).toBe("Open [url] from /home/[user]/repo");
-    expect("prompt" in metadata).toBeFalse();
-    expect("cwd" in metadata).toBeFalse();
+    expect("prompt" in metadata).toBe(false);
+    expect("cwd" in metadata).toBe(false);
 
-    expect(logTelemetryEvent("  ")).toBeFalse();
+    expect(logTelemetryEvent("  ")).toBe(false);
   });
 
   test("exposes metadata normalization as a pure helper", () => {
@@ -245,10 +245,10 @@ describe("Statsig renderer telemetry", () => {
     }) ?? {};
 
     expect(normalized.action).toBe("create");
-    expect("attachmentPath" in normalized).toBeFalse();
-    expect("url" in normalized).toBeFalse();
+    expect("attachmentPath" in normalized).toBe(false);
+    expect("url" in normalized).toBe(false);
     expect(normalized.message.length).toBe(200);
-    expect(normalized.message.endsWith("...")).toBeTrue();
+    expect(normalized.message.endsWith("...")).toBe(true);
   });
 
   test("flushes Statsig on app close and disables later logging", async () => {
@@ -260,12 +260,12 @@ describe("Statsig renderer telemetry", () => {
       adapter,
     });
 
-    expect(initialized).toBeTrue();
-    expect(logTelemetryEvent("nodex:before_close")).toBeTrue();
+    expect(initialized).toBe(true);
+    expect(logTelemetryEvent("nodex:before_close")).toBe(true);
 
     await appCloseFlushTestHelpers.flushHandlers();
 
     expect(state.shutdownCount).toBe(1);
-    expect(logTelemetryEvent("nodex:after_close")).toBeFalse();
+    expect(logTelemetryEvent("nodex:after_close")).toBe(false);
   });
 });

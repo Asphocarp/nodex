@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -62,7 +62,7 @@ describe("git review service", () => {
       source: "unstaged",
     });
 
-    expect(snapshot.isGitRepository).toBeFalse();
+    expect(snapshot.isGitRepository).toBe(false);
     expect(snapshot.files.length).toBe(0);
     expect(snapshot.patch).toBe("");
   });
@@ -85,12 +85,12 @@ describe("git review service", () => {
       source: "unstaged",
     });
 
-    expect(snapshot.isGitRepository).toBeTrue();
+    expect(snapshot.isGitRepository).toBe(true);
     expect(snapshot.files.length).toBe(2);
-    expect(snapshot.files.some((file) => file.path === "README.md")).toBeTrue();
+    expect(snapshot.files.some((file) => file.path === "README.md")).toBe(true);
     expect(
       snapshot.files.some((file) => file.path === "new-file.ts"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(snapshot.patch).toBe("");
   });
 
@@ -140,11 +140,11 @@ describe("git review service", () => {
       query: "image.png",
     });
 
-    expect(file !== null).toBeTrue();
-    expect(file?.safety.binary ?? false).toBeTrue();
+    expect(file !== null).toBe(true);
+    expect(file?.safety.binary ?? false).toBe(true);
     expect(file ? file.additions : "missing").toBe(null);
     expect(file ? file.deletions : "missing").toBe(null);
-    expect(snapshot.patch.includes("secret-binary-body")).toBeFalse();
+    expect(snapshot.patch.includes("secret-binary-body")).toBe(false);
     expect(diff.files[0]?.loadStatus ?? "").toBe("binary");
     expect(diff.files[0]?.diff ?? "not-empty").toBe("");
     expect(contents.newStatus).toBe("binary");
@@ -167,16 +167,16 @@ describe("git review service", () => {
       source: "staged",
     });
 
-    expect(snapshot.isGitRepository).toBeTrue();
+    expect(snapshot.isGitRepository).toBe(true);
     expect(snapshot.files.length).toBe(1);
     expect(snapshot.files[0]?.path).toBe("README.md");
-    expect(snapshot.files[0]?.revision !== null).toBeTrue();
+    expect(snapshot.files[0]?.revision !== null).toBe(true);
     const diff = await readGitReviewDiff({
       cwd,
       source: "staged",
       files: ["README.md"],
     });
-    expect(diff.patch.includes("@@ -1 +1,2 @@")).toBeTrue();
+    expect(diff.patch.includes("@@ -1 +1,2 @@")).toBe(true);
   });
 
   test("reports staged binary files from numstat metadata", async () => {
@@ -205,7 +205,7 @@ describe("git review service", () => {
 
     expect(snapshot.files.length).toBe(1);
     expect(snapshot.files[0]?.path ?? "").toBe("logo.png");
-    expect(snapshot.files[0]?.safety.binary ?? false).toBeTrue();
+    expect(snapshot.files[0]?.safety.binary ?? false).toBe(true);
     expect(snapshot.files[0] ? snapshot.files[0].additions : "missing").toBe(
       null,
     );
@@ -232,7 +232,7 @@ describe("git review service", () => {
       source: "branch",
     });
 
-    expect(snapshot.isGitRepository).toBeTrue();
+    expect(snapshot.isGitRepository).toBe(true);
     expect(snapshot.baseRef).toBe("main");
     expect(snapshot.files.length).toBe(1);
     expect(snapshot.files[0]?.path).toBe("feature.ts");
@@ -290,7 +290,7 @@ describe("git review service", () => {
       commitSha,
     });
 
-    expect(snapshot.isGitRepository).toBeTrue();
+    expect(snapshot.isGitRepository).toBe(true);
     expect(snapshot.source).toBe("commit");
     expect(snapshot.files.length).toBe(1);
     expect(snapshot.files[0]?.path).toBe("feature.ts");
@@ -301,7 +301,7 @@ describe("git review service", () => {
       commitSha,
       files: ["feature.ts"],
     });
-    expect(diff.patch.includes("+++ b/feature.ts")).toBeTrue();
+    expect(diff.patch.includes("+++ b/feature.ts")).toBe(true);
   });
 
   test("returns codex-shaped per-file review diffs", async () => {
@@ -323,11 +323,11 @@ describe("git review service", () => {
       files: ["feature.ts"],
     });
 
-    expect(result.isGitRepository).toBeTrue();
+    expect(result.isGitRepository).toBe(true);
     expect(result.files.length).toBe(1);
     expect(result.files[0]?.path).toBe("feature.ts");
     expect(result.files[0]?.loadStatus).toBe("loaded");
-    expect(result.patch.includes("README.md")).toBeFalse();
+    expect(result.patch.includes("README.md")).toBe(false);
   });
 
   test("returns branch diff stats and merge base", async () => {
@@ -370,7 +370,7 @@ describe("git review service", () => {
       source: "unstaged",
     });
 
-    expect(summary.isGitRepository).toBeTrue();
+    expect(summary.isGitRepository).toBe(true);
     expect(summary.source).toBe("unstaged");
     expect(summary.files.length).toBe(1);
     expect(summary.additions).toBe(1);
@@ -399,8 +399,8 @@ describe("git review service", () => {
       patch.diff.type === "success" ? patch.diff.unifiedDiff : "";
     expect(
       Boolean(unifiedDiff.includes("diff --git a/README.md b/README.md")),
-    ).toBeTrue();
-    expect(Boolean(unifiedDiff.includes("+beta"))).toBeTrue();
+    ).toBe(true);
+    expect(Boolean(unifiedDiff.includes("+beta"))).toBe(true);
   });
 
   test("initializes a git repository when requested", async () => {
@@ -408,7 +408,7 @@ describe("git review service", () => {
 
     const snapshot = await initializeGitRepositoryAndReadReviewSnapshot(cwd);
 
-    expect(snapshot.isGitRepository).toBeTrue();
+    expect(snapshot.isGitRepository).toBe(true);
     expect(snapshot.currentBranch).toBe("main");
   });
 
@@ -521,10 +521,10 @@ describe("git review service", () => {
       path: "README.md",
     });
 
-    expect(result.oldExists).toBeTrue();
-    expect(result.newExists).toBeTrue();
-    expect(result.oldText?.includes("alpha")).toBeTrue();
-    expect(result.newText?.includes("beta")).toBeTrue();
+    expect(result.oldExists).toBe(true);
+    expect(result.newExists).toBe(true);
+    expect(result.oldText?.includes("alpha")).toBe(true);
+    expect(result.newText?.includes("beta")).toBe(true);
   });
 
   test("reads review file contents for staged new files", async () => {
@@ -546,9 +546,9 @@ describe("git review service", () => {
       path: "feature.ts",
     });
 
-    expect(result.oldExists).toBeFalse();
-    expect(result.newExists).toBeTrue();
-    expect(result.newText?.includes("feature")).toBeTrue();
+    expect(result.oldExists).toBe(false);
+    expect(result.newExists).toBe(true);
+    expect(result.newText?.includes("feature")).toBe(true);
   });
 
   test("reads review file contents for commit sources", async () => {
@@ -567,10 +567,10 @@ describe("git review service", () => {
       commitSha,
     });
 
-    expect(result.oldExists).toBeTrue();
-    expect(result.newExists).toBeTrue();
-    expect(result.oldText?.includes("beta")).toBeFalse();
-    expect(result.newText?.includes("beta")).toBeTrue();
+    expect(result.oldExists).toBe(true);
+    expect(result.newExists).toBe(true);
+    expect(result.oldText?.includes("beta")).toBe(false);
+    expect(result.newText?.includes("beta")).toBe(true);
   });
 
   test("reads git blame for file source tabs", async () => {

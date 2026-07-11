@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CardReferenceReadModel } from "../../../shared/block-references";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import type { CardSummary } from "@/lib/types";
@@ -70,7 +70,7 @@ describe("CardReferenceSurface", () => {
       />,
     );
 
-    expect(view.queryByTestId("referenced-document") === null).toBeTrue();
+    expect(view.queryByTestId("referenced-document") === null).toBe(true);
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Expand Target Card" }));
       await Promise.resolve();
@@ -87,7 +87,7 @@ describe("CardReferenceSurface", () => {
       );
       await Promise.resolve();
     });
-    expect(view.queryByTestId("referenced-document") === null).toBeTrue();
+    expect(view.queryByTestId("referenced-document") === null).toBe(true);
   });
 
   test("never offers an inline editor for archived Card targets", () => {
@@ -110,7 +110,7 @@ describe("CardReferenceSurface", () => {
           name: "Expand Archived Card",
         }) as HTMLButtonElement
       ).disabled,
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("lets the owned boundary prepare active non-primary Cards", async () => {
@@ -165,7 +165,7 @@ describe("CardReferenceSurface", () => {
     expect(
       (view.getByRole("button", { name: "Expand Card A" }) as HTMLButtonElement)
         .disabled,
-    ).toBeTrue();
+    ).toBe(true);
     expect(view.getByText("Cycle").textContent).toBe("Cycle");
     fireEvent.click(view.getByRole("button", { name: "Open Card A" }));
     expect(openCalls.join(",")).toBe("card-a");
@@ -257,7 +257,7 @@ describe("DatabaseViewReferenceSurface", () => {
     expect(
       (view.getByRole("button", { name: "Expand Card A" }) as HTMLButtonElement)
         .disabled,
-    ).toBeTrue();
+    ).toBe(true);
     expect(view.getByText("Cycle").textContent).toBe("Cycle");
   });
 
@@ -319,9 +319,9 @@ describe("DatabaseViewReferenceSurface", () => {
       .getAllByTestId("database-row-document")
       .map((element) => element.textContent)
       .join(",");
-    expect(activeText.includes("database-project:card-3")).toBeTrue();
-    expect(activeText.includes("database-project:card-4")).toBeTrue();
-    expect(activeText.includes("card-1")).toBeFalse();
+    expect(activeText.includes("database-project:card-3")).toBe(true);
+    expect(activeText.includes("database-project:card-4")).toBe(true);
+    expect(activeText.includes("card-1")).toBe(false);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Collapse Card Four" }));
@@ -332,8 +332,8 @@ describe("DatabaseViewReferenceSurface", () => {
         .getAllByTestId("database-row-document")
         .map((element) => element.textContent)
         .join(",");
-      expect(resumedText.includes("database-project:card-2")).toBeTrue();
-      expect(resumedText.includes("database-project:card-3")).toBeTrue();
+      expect(resumedText.includes("database-project:card-2")).toBe(true);
+      expect(resumedText.includes("database-project:card-3")).toBe(true);
     });
   });
 
@@ -389,9 +389,9 @@ describe("DatabaseViewReferenceSurface", () => {
     });
 
     await waitFor(() => {
-      expect(view.queryByTestId("focus-focus-1") === null).toBeFalse();
-      expect(view.queryByTestId("focus-focus-2") === null).toBeTrue();
-      expect(view.queryByTestId("focus-focus-3") === null).toBeFalse();
+      expect(view.queryByTestId("focus-focus-1") === null).toBe(false);
+      expect(view.queryByTestId("focus-focus-2") === null).toBe(true);
+      expect(view.queryByTestId("focus-focus-3") === null).toBe(false);
     });
   });
 });

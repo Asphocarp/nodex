@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -95,7 +95,7 @@ describe("block-first schema foundation", () => {
           FROM block_store_metadata
           WHERE id = 1
         `).get() as { store_epoch: string } | undefined;
-        expect(Boolean(epoch?.store_epoch)).toBeTrue();
+        expect(Boolean(epoch?.store_epoch)).toBe(true);
 
         const primaryDatabase = database.prepare(`
           SELECT block.id, capability.is_primary, view.kind
@@ -170,7 +170,7 @@ describe("block-first schema foundation", () => {
       }
 
       await initializeDatabase();
-      expect(await deleteCard(project.id, "done", card.id)).toBeTrue();
+      expect(await deleteCard(project.id, "done", card.id)).toBe(true);
       closeDatabase();
 
       const deletedDatabase = new Database(getDatabasePath(), { readonly: true });
@@ -190,7 +190,7 @@ describe("block-first schema foundation", () => {
           positions: number;
         };
         expect(deleted.lifecycle).toBe("deleted");
-        expect(deleted.removed_at === null).toBeFalse();
+        expect(deleted.removed_at === null).toBe(false);
         expect(deleted.placements).toBe(0);
         expect(deleted.positions).toBe(0);
       } finally {
@@ -278,7 +278,7 @@ describe("block-first schema foundation", () => {
             SET block_id = ?
             WHERE block_id = ?
           `).run("contained-block", first.id);
-        })).toBeTrue();
+        })).toBe(true);
 
         database.prepare(`
           INSERT INTO document_block_index (
@@ -291,18 +291,18 @@ describe("block-first schema foundation", () => {
             SET document_id = ?
             WHERE block_id = 'contained-block'
           `).run(`document:${second.id}`);
-        })).toBeTrue();
+        })).toBe(true);
 
         expect(operationFails(() => {
           database.prepare("DELETE FROM documents WHERE id = ?").run(`document:${first.id}`);
-        })).toBeTrue();
+        })).toBe(true);
         database.prepare("DELETE FROM blocks WHERE id = 'contained-block'").run();
         expect(operationFails(() => {
           database.prepare("DELETE FROM blocks WHERE id = ?").run(first.id);
-        })).toBeTrue();
+        })).toBe(true);
         expect(operationFails(() => {
           database.prepare("DELETE FROM documents WHERE id = ?").run(`document:${first.id}`);
-        })).toBeTrue();
+        })).toBe(true);
 
         const epochRow = database.prepare(`
           SELECT store_epoch FROM block_store_metadata WHERE id = 1
@@ -322,7 +322,7 @@ describe("block-first schema foundation", () => {
               base_head_seq, touched_block_ids_json, update_blob, update_hash, committed_at
             ) VALUES (?, 1, 2, 'update-1', 'client-2', 0, '[]', ?, 'hash-2', ?)
           `).run(`document:${first.id}`, Buffer.from([2]), new Date().toISOString());
-        })).toBeTrue();
+        })).toBe(true);
 
         expect(operationFails(() => {
           database.prepare(`
@@ -330,7 +330,7 @@ describe("block-first schema foundation", () => {
             SET document_id = ?
             WHERE block_id = ?
           `).run(`document:${second.id}`, first.id);
-        })).toBeTrue();
+        })).toBe(true);
 
         const secondDatabaseBlockId = `database:${project.id}:secondary`;
         database.prepare(`
@@ -350,24 +350,24 @@ describe("block-first schema foundation", () => {
             SET block_id = ?
             WHERE block_id = ?
           `).run(first.id, secondDatabaseBlockId);
-        })).toBeTrue();
+        })).toBe(true);
         expect(operationFails(() => {
           database.prepare(`
             INSERT INTO database_memberships (
               id, database_block_id, card_block_id, project_id, created_at, removed_at
             ) VALUES ('duplicate-membership', ?, ?, ?, ?, NULL)
           `).run(secondDatabaseBlockId, first.id, project.id, new Date().toISOString());
-        })).toBeTrue();
+        })).toBe(true);
         expect(operationFails(() => {
           database
             .prepare("UPDATE blocks SET type = 'paragraph' WHERE id = ?")
             .run(secondDatabaseBlockId);
-        })).toBeTrue();
+        })).toBe(true);
         expect(operationFails(() => {
           database
             .prepare("UPDATE blocks SET type = 'paragraph' WHERE id = ?")
             .run(first.id);
-        })).toBeTrue();
+        })).toBe(true);
 
         const foreignKeyProblems = database.prepare("PRAGMA foreign_key_check").all();
         expect(foreignKeyProblems.length).toBe(0);
@@ -439,7 +439,7 @@ describe("block-first schema foundation", () => {
       legacy.close();
       await initializeDatabase();
 
-      expect(deleteProject(project.id)).toBeTrue();
+      expect(deleteProject(project.id)).toBe(true);
       closeDatabase();
 
       const database = new Database(getDatabasePath(), { readonly: true });
@@ -517,7 +517,7 @@ describe("block-first schema foundation", () => {
       } catch (error) {
         failed = (error as Error).message.includes("injected v59 migration failure");
       }
-      expect(failed).toBeTrue();
+      expect(failed).toBe(true);
       closeDatabase();
 
       const rolledBack = new Database(getDatabasePath(), { readonly: true });

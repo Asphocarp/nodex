@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   endProjectionBlockDrag,
   startProjectionBlockDrag,
@@ -23,8 +23,8 @@ describe("projection drag handle helpers", () => {
       },
     );
 
-    expect(started).toBeFalse();
-    expect(prevented).toBeTrue();
+    expect(started).toBe(false);
+    expect(prevented).toBe(true);
   });
 
   test("starts drag with freshest block from editor when available", () => {
@@ -50,7 +50,7 @@ describe("projection drag handle helpers", () => {
       },
     );
 
-    expect(started).toBeTrue();
+    expect(started).toBe(true);
     expect(draggedBlock).toBe(storedBlock);
   });
 
@@ -76,7 +76,7 @@ describe("projection drag handle helpers", () => {
       },
     );
 
-    expect(started).toBeTrue();
+    expect(started).toBe(true);
     expect(draggedBlock).toBe(fallbackBlock);
   });
 
@@ -92,6 +92,6 @@ describe("projection drag handle helpers", () => {
     };
 
     endProjectionBlockDrag(editor);
-    expect(ended).toBeTrue();
+    expect(ended).toBe(true);
   });
 });

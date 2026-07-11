@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   finalizeToggleDropDragSession,
   findToggleOuterFromPoint,
@@ -144,17 +144,17 @@ describe("findToggleOuterFromPoint", () => {
 describe("isSyntheticDnDEvent", () => {
   test("returns true when event carries synthetic flag", () => {
     const event = { synthetic: true, isTrusted: true } as unknown as DragEvent;
-    expect(isSyntheticDnDEvent(event)).toBeTrue();
+    expect(isSyntheticDnDEvent(event)).toBe(true);
   });
 
   test("returns true for untrusted events", () => {
     const event = { isTrusted: false } as unknown as DragEvent;
-    expect(isSyntheticDnDEvent(event)).toBeTrue();
+    expect(isSyntheticDnDEvent(event)).toBe(true);
   });
 
   test("returns false for trusted native-like events", () => {
     const event = { isTrusted: true } as unknown as DragEvent;
-    expect(isSyntheticDnDEvent(event)).toBeFalse();
+    expect(isSyntheticDnDEvent(event)).toBe(false);
   });
 });
 
@@ -165,7 +165,7 @@ describe("isToggleDropTargetBlock", () => {
         type: "cardToggle",
         props: {},
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("accepts projected cardToggle blocks used by inline embeds", () => {
@@ -179,7 +179,7 @@ describe("isToggleDropTargetBlock", () => {
           projectionCardId: "card-1",
         },
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("accepts toggle headings and rejects non-toggle headings", () => {
@@ -188,14 +188,14 @@ describe("isToggleDropTargetBlock", () => {
         type: "heading",
         props: { isToggleable: true },
       }),
-    ).toBeTrue();
+    ).toBe(true);
 
     expect(
       isToggleDropTargetBlock({
         type: "heading",
         props: { isToggleable: false },
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("rejects non-toggle block types", () => {
@@ -204,7 +204,7 @@ describe("isToggleDropTargetBlock", () => {
         type: "paragraph",
         props: {},
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 });
 
@@ -232,7 +232,7 @@ describe("finalizeToggleDropDragSession", () => {
     );
 
     expect(editor.prosemirrorView.dragging).toBe(null);
-    expect(ended).toBeTrue();
+    expect(ended).toBe(true);
   });
 
   test("remains a no-op when SideMenu extension is unavailable", () => {

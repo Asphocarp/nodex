@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -27,8 +27,8 @@ const ORIGINAL_BACKUP_ENV = {
 };
 
 async function importConfigModule() {
-  const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return import(`./config.ts?test=${token}`);
+  vi.resetModules();
+  return import("./config");
 }
 
 function clearBackupEnv(): void {
@@ -173,22 +173,22 @@ describe("backup settings config", () => {
         retentionCount: 12,
       });
 
-      expect(updated.autoEnabled).toBeTrue();
+      expect(updated.autoEnabled).toBe(true);
       expect(updated.intervalHours).toBe(4);
       expect(updated.retentionCount).toBe(12);
-      expect(updated.envOverrides.autoEnabled).toBeFalse();
-      expect(updated.envOverrides.intervalHours).toBeFalse();
-      expect(updated.envOverrides.retentionCount).toBeFalse();
+      expect(updated.envOverrides.autoEnabled).toBe(false);
+      expect(updated.envOverrides.intervalHours).toBe(false);
+      expect(updated.envOverrides.retentionCount).toBe(false);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("backup_auto_enabled = true")).toBeTrue();
-      expect(written.includes("backup_interval_hours = 4")).toBeTrue();
-      expect(written.includes("backup_retention = 12")).toBeTrue();
+      expect(written.includes("backup_auto_enabled = true")).toBe(true);
+      expect(written.includes("backup_interval_hours = 4")).toBe(true);
+      expect(written.includes("backup_retention = 12")).toBe(true);
 
       const reloaded = await importConfigModule();
       const persisted = reloaded.getBackupSettings();
-      expect(persisted.autoEnabled).toBeTrue();
+      expect(persisted.autoEnabled).toBe(true);
       expect(persisted.intervalHours).toBe(4);
       expect(persisted.retentionCount).toBe(12);
     });
@@ -207,18 +207,18 @@ describe("backup settings config", () => {
         retentionCount: 10,
       });
 
-      expect(updated.autoEnabled).toBeFalse();
+      expect(updated.autoEnabled).toBe(false);
       expect(updated.intervalHours).toBe(24);
       expect(updated.retentionCount).toBe(2);
-      expect(updated.envOverrides.autoEnabled).toBeTrue();
-      expect(updated.envOverrides.intervalHours).toBeTrue();
-      expect(updated.envOverrides.retentionCount).toBeTrue();
+      expect(updated.envOverrides.autoEnabled).toBe(true);
+      expect(updated.envOverrides.intervalHours).toBe(true);
+      expect(updated.envOverrides.retentionCount).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("backup_auto_enabled = true")).toBeTrue();
-      expect(written.includes("backup_interval_hours = 6")).toBeTrue();
-      expect(written.includes("backup_retention = 10")).toBeTrue();
+      expect(written.includes("backup_auto_enabled = true")).toBe(true);
+      expect(written.includes("backup_interval_hours = 6")).toBe(true);
+      expect(written.includes("backup_retention = 10")).toBe(true);
     });
   });
 });
@@ -229,8 +229,8 @@ describe("thread notification settings config", () => {
       const config = await importConfigModule();
 
       expect(config.getThreadNotificationSettings().turnMode).toBe("unfocused");
-      expect(config.getThreadNotificationSettings().permissionsEnabled).toBeTrue();
-      expect(config.getThreadNotificationSettings().questionsEnabled).toBeTrue();
+      expect(config.getThreadNotificationSettings().permissionsEnabled).toBe(true);
+      expect(config.getThreadNotificationSettings().questionsEnabled).toBe(true);
 
       const updated = config.updateThreadNotificationSettings({
         turnMode: "always",
@@ -239,19 +239,19 @@ describe("thread notification settings config", () => {
       });
 
       expect(updated.turnMode).toBe("always");
-      expect(updated.permissionsEnabled).toBeFalse();
-      expect(updated.questionsEnabled).toBeFalse();
+      expect(updated.permissionsEnabled).toBe(false);
+      expect(updated.questionsEnabled).toBe(false);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("thread_notifications_turn_mode = \"always\"")).toBeTrue();
-      expect(written.includes("thread_notifications_permissions_enabled = false")).toBeTrue();
-      expect(written.includes("thread_notifications_questions_enabled = false")).toBeTrue();
+      expect(written.includes("thread_notifications_turn_mode = \"always\"")).toBe(true);
+      expect(written.includes("thread_notifications_permissions_enabled = false")).toBe(true);
+      expect(written.includes("thread_notifications_questions_enabled = false")).toBe(true);
 
       const reloaded = await importConfigModule();
       expect(reloaded.getThreadNotificationSettings().turnMode).toBe("always");
-      expect(reloaded.getThreadNotificationSettings().permissionsEnabled).toBeFalse();
-      expect(reloaded.getThreadNotificationSettings().questionsEnabled).toBeFalse();
+      expect(reloaded.getThreadNotificationSettings().permissionsEnabled).toBe(false);
+      expect(reloaded.getThreadNotificationSettings().questionsEnabled).toBe(false);
     });
   });
 
@@ -279,13 +279,13 @@ describe("thread notification settings config", () => {
       });
 
       expect(updated.turnMode).toBe("always");
-      expect(updated.permissionsEnabled).toBeTrue();
-      expect(updated.questionsEnabled).toBeTrue();
+      expect(updated.permissionsEnabled).toBe(true);
+      expect(updated.questionsEnabled).toBe(true);
 
       const reloaded = await importConfigModule();
       expect(reloaded.getThreadNotificationSettings().turnMode).toBe("always");
-      expect(reloaded.getThreadNotificationSettings().permissionsEnabled).toBeTrue();
-      expect(reloaded.getThreadNotificationSettings().questionsEnabled).toBeTrue();
+      expect(reloaded.getThreadNotificationSettings().permissionsEnabled).toBe(true);
+      expect(reloaded.getThreadNotificationSettings().questionsEnabled).toBe(true);
     });
   });
 });
@@ -295,20 +295,20 @@ describe("app update settings config", () => {
     await withTempConfigFixture(async ({ tempHome }) => {
       const config = await importConfigModule();
 
-      expect(config.getAppUpdateSettings().automaticChecksEnabled).toBeTrue();
+      expect(config.getAppUpdateSettings().automaticChecksEnabled).toBe(true);
 
       const updated = config.updateAppUpdateSettings({
         automaticChecksEnabled: false,
       });
 
-      expect(updated.automaticChecksEnabled).toBeFalse();
+      expect(updated.automaticChecksEnabled).toBe(false);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("app_updates_auto_check_enabled = false")).toBeTrue();
+      expect(written.includes("app_updates_auto_check_enabled = false")).toBe(true);
 
       const reloaded = await importConfigModule();
-      expect(reloaded.getAppUpdateSettings().automaticChecksEnabled).toBeFalse();
+      expect(reloaded.getAppUpdateSettings().automaticChecksEnabled).toBe(false);
     });
   });
 
@@ -327,10 +327,10 @@ describe("app update settings config", () => {
         automaticChecksEnabled: false,
       });
 
-      expect(updated.automaticChecksEnabled).toBeFalse();
+      expect(updated.automaticChecksEnabled).toBe(false);
 
       const reloaded = await importConfigModule();
-      expect(reloaded.getAppUpdateSettings().automaticChecksEnabled).toBeFalse();
+      expect(reloaded.getAppUpdateSettings().automaticChecksEnabled).toBe(false);
     });
   });
 });
@@ -350,7 +350,7 @@ describe("window restore settings config", () => {
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes('window_restore_policy = "last-window"')).toBeTrue();
+      expect(written.includes('window_restore_policy = "last-window"')).toBe(true);
 
       const reloaded = await importConfigModule();
       expect(reloaded.getWindowRestoreSettings().policy).toBe("last-window");
@@ -362,11 +362,11 @@ describe("window restore settings config", () => {
       const config = await importConfigModule();
       let threw = false;
       try {
-        config.updateWindowRestoreSettings({ policy: "invalid" });
+        config.updateWindowRestoreSettings({ policy: "invalid" as never });
       } catch {
         threw = true;
       }
-      expect(threw).toBeTrue();
+      expect(threw).toBe(true);
     });
   });
 });
@@ -377,22 +377,22 @@ describe("diagnostics settings config", () => {
       const config = await importConfigModule();
       const settings = config.getDiagnosticsSettings();
 
-      expect(settings.enabled).toBeFalse();
+      expect(settings.enabled).toBe(false);
       expect(settings.dsn).toBe("");
       expect(settings.environment).toBe("production");
       expect(settings.release).toBe(null);
       expect(settings.tracesSampleRate).toBe(0);
-      expect(settings.replayEnabled).toBeFalse();
+      expect(settings.replayEnabled).toBe(false);
       expect(settings.replaysSessionSampleRate).toBe(0.1);
       expect(settings.replaysOnErrorSampleRate).toBe(1);
-      expect(settings.envOverrides.enabled).toBeFalse();
-      expect(settings.envOverrides.dsn).toBeFalse();
-      expect(settings.envOverrides.environment).toBeFalse();
-      expect(settings.envOverrides.release).toBeFalse();
-      expect(settings.envOverrides.tracesSampleRate).toBeFalse();
-      expect(settings.envOverrides.replayEnabled).toBeFalse();
-      expect(settings.envOverrides.replaysSessionSampleRate).toBeFalse();
-      expect(settings.envOverrides.replaysOnErrorSampleRate).toBeFalse();
+      expect(settings.envOverrides.enabled).toBe(false);
+      expect(settings.envOverrides.dsn).toBe(false);
+      expect(settings.envOverrides.environment).toBe(false);
+      expect(settings.envOverrides.release).toBe(false);
+      expect(settings.envOverrides.tracesSampleRate).toBe(false);
+      expect(settings.envOverrides.replayEnabled).toBe(false);
+      expect(settings.envOverrides.replaysSessionSampleRate).toBe(false);
+      expect(settings.envOverrides.replaysOnErrorSampleRate).toBe(false);
     });
   });
 
@@ -410,24 +410,24 @@ describe("diagnostics settings config", () => {
         replaysOnErrorSampleRate: 1,
       });
 
-      expect(updated.enabled).toBeTrue();
+      expect(updated.enabled).toBe(true);
       expect(updated.dsn).toBe(config.DEFAULT_SENTRY_DSN);
       expect(updated.environment).toBe("staging");
       expect(updated.release).toBe("nodex@test");
       expect(updated.tracesSampleRate).toBe(0.2);
-      expect(updated.replayEnabled).toBeTrue();
+      expect(updated.replayEnabled).toBe(true);
       expect(updated.replaysSessionSampleRate).toBe(0.4);
       expect(updated.replaysOnErrorSampleRate).toBe(1);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("diagnostics_enabled = true")).toBeTrue();
-      expect(written.includes('diagnostics_environment = "staging"')).toBeTrue();
-      expect(written.includes('diagnostics_release = "nodex@test"')).toBeTrue();
-      expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBeTrue();
-      expect(written.includes("diagnostics_replay_enabled = true")).toBeTrue();
-      expect(written.includes("diagnostics_replays_session_sample_rate = 0.4")).toBeTrue();
-      expect(written.includes("diagnostics_replays_on_error_sample_rate = 1")).toBeTrue();
+      expect(written.includes("diagnostics_enabled = true")).toBe(true);
+      expect(written.includes('diagnostics_environment = "staging"')).toBe(true);
+      expect(written.includes('diagnostics_release = "nodex@test"')).toBe(true);
+      expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBe(true);
+      expect(written.includes("diagnostics_replay_enabled = true")).toBe(true);
+      expect(written.includes("diagnostics_replays_session_sample_rate = 0.4")).toBe(true);
+      expect(written.includes("diagnostics_replays_on_error_sample_rate = 1")).toBe(true);
     });
   });
 
@@ -454,33 +454,33 @@ describe("diagnostics settings config", () => {
         replaysOnErrorSampleRate: 0.4,
       });
 
-      expect(updated.enabled).toBeTrue();
+      expect(updated.enabled).toBe(true);
       expect(updated.dsn).toBe("https://env.example/1");
       expect(updated.environment).toBe("qa");
       expect(updated.release).toBe("nodex@env");
       expect(updated.tracesSampleRate).toBe(0.7);
-      expect(updated.replayEnabled).toBeTrue();
+      expect(updated.replayEnabled).toBe(true);
       expect(updated.replaysSessionSampleRate).toBe(0.8);
       expect(updated.replaysOnErrorSampleRate).toBe(0.9);
-      expect(updated.envOverrides.enabled).toBeTrue();
-      expect(updated.envOverrides.dsn).toBeTrue();
-      expect(updated.envOverrides.environment).toBeTrue();
-      expect(updated.envOverrides.release).toBeTrue();
-      expect(updated.envOverrides.tracesSampleRate).toBeTrue();
-      expect(updated.envOverrides.replayEnabled).toBeTrue();
-      expect(updated.envOverrides.replaysSessionSampleRate).toBeTrue();
-      expect(updated.envOverrides.replaysOnErrorSampleRate).toBeTrue();
+      expect(updated.envOverrides.enabled).toBe(true);
+      expect(updated.envOverrides.dsn).toBe(true);
+      expect(updated.envOverrides.environment).toBe(true);
+      expect(updated.envOverrides.release).toBe(true);
+      expect(updated.envOverrides.tracesSampleRate).toBe(true);
+      expect(updated.envOverrides.replayEnabled).toBe(true);
+      expect(updated.envOverrides.replaysSessionSampleRate).toBe(true);
+      expect(updated.envOverrides.replaysOnErrorSampleRate).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("diagnostics_enabled = false")).toBeTrue();
-      expect(written.includes('diagnostics_dsn = "https://config.example/1"')).toBeTrue();
-      expect(written.includes('diagnostics_environment = "staging"')).toBeTrue();
-      expect(written.includes('diagnostics_release = "nodex@config"')).toBeTrue();
-      expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBeTrue();
-      expect(written.includes("diagnostics_replay_enabled = false")).toBeTrue();
-      expect(written.includes("diagnostics_replays_session_sample_rate = 0.3")).toBeTrue();
-      expect(written.includes("diagnostics_replays_on_error_sample_rate = 0.4")).toBeTrue();
+      expect(written.includes("diagnostics_enabled = false")).toBe(true);
+      expect(written.includes('diagnostics_dsn = "https://config.example/1"')).toBe(true);
+      expect(written.includes('diagnostics_environment = "staging"')).toBe(true);
+      expect(written.includes('diagnostics_release = "nodex@config"')).toBe(true);
+      expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBe(true);
+      expect(written.includes("diagnostics_replay_enabled = false")).toBe(true);
+      expect(written.includes("diagnostics_replays_session_sample_rate = 0.3")).toBe(true);
+      expect(written.includes("diagnostics_replays_on_error_sample_rate = 0.4")).toBe(true);
     });
   });
 
@@ -502,7 +502,7 @@ describe("diagnostics settings config", () => {
       } catch {
         sessionRateThrew = true;
       }
-      expect(sessionRateThrew).toBeTrue();
+      expect(sessionRateThrew).toBe(true);
 
       let errorRateThrew = false;
       try {
@@ -519,7 +519,7 @@ describe("diagnostics settings config", () => {
       } catch {
         errorRateThrew = true;
       }
-      expect(errorRateThrew).toBeTrue();
+      expect(errorRateThrew).toBe(true);
     });
   });
 });
@@ -530,14 +530,14 @@ describe("telemetry settings config", () => {
       const config = await importConfigModule();
       const settings = config.getTelemetrySettings();
 
-      expect(settings.enabled).toBeFalse();
+      expect(settings.enabled).toBe(false);
       expect(settings.clientKey).toBe("");
       expect(settings.environment).toBe("production");
-      expect(settings.autoCaptureEnabled).toBeFalse();
-      expect(settings.envOverrides.enabled).toBeFalse();
-      expect(settings.envOverrides.clientKey).toBeFalse();
-      expect(settings.envOverrides.environment).toBeFalse();
-      expect(settings.envOverrides.autoCaptureEnabled).toBeFalse();
+      expect(settings.autoCaptureEnabled).toBe(false);
+      expect(settings.envOverrides.enabled).toBe(false);
+      expect(settings.envOverrides.clientKey).toBe(false);
+      expect(settings.envOverrides.environment).toBe(false);
+      expect(settings.envOverrides.autoCaptureEnabled).toBe(false);
     });
   });
 
@@ -551,16 +551,16 @@ describe("telemetry settings config", () => {
         autoCaptureEnabled: true,
       });
 
-      expect(updated.enabled).toBeTrue();
+      expect(updated.enabled).toBe(true);
       expect(updated.clientKey).toBe(config.DEFAULT_STATSIG_CLIENT_KEY);
       expect(updated.environment).toBe("staging");
-      expect(updated.autoCaptureEnabled).toBeTrue();
+      expect(updated.autoCaptureEnabled).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("telemetry_enabled = true")).toBeTrue();
-      expect(written.includes('telemetry_environment = "staging"')).toBeTrue();
-      expect(written.includes("telemetry_auto_capture_enabled = true")).toBeTrue();
+      expect(written.includes("telemetry_enabled = true")).toBe(true);
+      expect(written.includes('telemetry_environment = "staging"')).toBe(true);
+      expect(written.includes("telemetry_auto_capture_enabled = true")).toBe(true);
     });
   });
 
@@ -579,21 +579,21 @@ describe("telemetry settings config", () => {
         autoCaptureEnabled: false,
       });
 
-      expect(updated.enabled).toBeTrue();
+      expect(updated.enabled).toBe(true);
       expect(updated.clientKey).toBe("client-env");
       expect(updated.environment).toBe("qa");
-      expect(updated.autoCaptureEnabled).toBeTrue();
-      expect(updated.envOverrides.enabled).toBeTrue();
-      expect(updated.envOverrides.clientKey).toBeTrue();
-      expect(updated.envOverrides.environment).toBeTrue();
-      expect(updated.envOverrides.autoCaptureEnabled).toBeTrue();
+      expect(updated.autoCaptureEnabled).toBe(true);
+      expect(updated.envOverrides.enabled).toBe(true);
+      expect(updated.envOverrides.clientKey).toBe(true);
+      expect(updated.envOverrides.environment).toBe(true);
+      expect(updated.envOverrides.autoCaptureEnabled).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("telemetry_enabled = false")).toBeTrue();
-      expect(written.includes('telemetry_client_key = "client-config"')).toBeTrue();
-      expect(written.includes('telemetry_environment = "staging"')).toBeTrue();
-      expect(written.includes("telemetry_auto_capture_enabled = false")).toBeTrue();
+      expect(written.includes("telemetry_enabled = false")).toBe(true);
+      expect(written.includes('telemetry_client_key = "client-config"')).toBe(true);
+      expect(written.includes('telemetry_environment = "staging"')).toBe(true);
+      expect(written.includes("telemetry_auto_capture_enabled = false")).toBe(true);
     });
   });
 
@@ -603,7 +603,7 @@ describe("telemetry settings config", () => {
       let enabledThrew = false;
       try {
         config.updateTelemetrySettings({
-          enabled: "true",
+          enabled: "true" as never,
           clientKey: "",
           environment: "production",
           autoCaptureEnabled: false,
@@ -611,7 +611,7 @@ describe("telemetry settings config", () => {
       } catch {
         enabledThrew = true;
       }
-      expect(enabledThrew).toBeTrue();
+      expect(enabledThrew).toBe(true);
 
       let autoCaptureThrew = false;
       try {
@@ -619,12 +619,12 @@ describe("telemetry settings config", () => {
           enabled: true,
           clientKey: "",
           environment: "production",
-          autoCaptureEnabled: "false",
+          autoCaptureEnabled: "false" as never,
         });
       } catch {
         autoCaptureThrew = true;
       }
-      expect(autoCaptureThrew).toBeTrue();
+      expect(autoCaptureThrew).toBe(true);
     });
   });
 });
@@ -638,11 +638,11 @@ describe("history settings config", () => {
       });
 
       expect(updated.retentionCount).toBe(250);
-      expect(updated.envOverrides.retentionCount).toBeFalse();
+      expect(updated.envOverrides.retentionCount).toBe(false);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("history_retention = 250")).toBeTrue();
+      expect(written.includes("history_retention = 250")).toBe(true);
 
       const reloaded = await importConfigModule();
       expect(reloaded.getHistorySettings().retentionCount).toBe(250);
@@ -660,11 +660,11 @@ describe("history settings config", () => {
       });
 
       expect(updated.retentionCount).toBe(5);
-      expect(updated.envOverrides.retentionCount).toBeTrue();
+      expect(updated.envOverrides.retentionCount).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("history_retention = 250")).toBeTrue();
+      expect(written.includes("history_retention = 250")).toBe(true);
     });
   });
 });
@@ -685,7 +685,7 @@ describe("command keybinding config", () => {
       });
       const customEntry = (customState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
       expect(customEntry?.keybindings[0]?.key).toBe("CmdOrCtrl+Alt+W");
-      expect(customEntry?.isCustom).toBeTrue();
+      expect(customEntry?.isCustom).toBe(true);
 
       const unassignedState = config.updateCommandKeybinding("openThreadInNewWindow", {
         type: "remove",
@@ -693,25 +693,25 @@ describe("command keybinding config", () => {
       });
       const unassignedEntry = (unassignedState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
       expect(unassignedEntry?.keybindings.length).toBe(0);
-      expect(unassignedEntry?.isCustom).toBeTrue();
+      expect(unassignedEntry?.isCustom).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("[server.command_keybindings]")).toBeTrue();
-      expect(written.includes("openThreadInNewWindow = []")).toBeTrue();
+      expect(written.includes("[server.command_keybindings]")).toBe(true);
+      expect(written.includes("openThreadInNewWindow = []")).toBe(true);
 
       const resetEntryState = config.updateCommandKeybinding("openThreadInNewWindow", { type: "reset" });
       const resetEntry = (resetEntryState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
-      expect(resetEntry?.isCustom).toBeFalse();
+      expect(resetEntry?.isCustom).toBe(false);
 
       config.updateCommandKeybinding("renameThread", {
         type: "set",
         keybinding: { key: "CmdOrCtrl+Alt+Shift+R" },
       });
       const resetAllState = config.resetCommandKeybindings();
-      expect(resetAllState.hasCustomBindings).toBeFalse();
+      expect(resetAllState.hasCustomBindings).toBe(false);
       const resetAllWritten = fs.readFileSync(configPath, "utf8");
-      expect(resetAllWritten.includes("[server.command_keybindings]")).toBeFalse();
+      expect(resetAllWritten.includes("[server.command_keybindings]")).toBe(false);
     });
   });
 
@@ -728,7 +728,7 @@ describe("command keybinding config", () => {
       } catch {
         invalidThrew = true;
       }
-      expect(invalidThrew).toBeTrue();
+      expect(invalidThrew).toBe(true);
 
       let conflictThrew = false;
       try {
@@ -739,7 +739,7 @@ describe("command keybinding config", () => {
       } catch {
         conflictThrew = true;
       }
-      expect(conflictThrew).toBeTrue();
+      expect(conflictThrew).toBe(true);
     });
   });
 });

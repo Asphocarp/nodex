@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { resetCardDraftStoreForTest, setCardDraftOverlay } from "../../lib/card-draft-store";
 import type { CardPropertyPosition } from "@/lib/card-property-position";
@@ -6,23 +6,23 @@ import { render, textContent } from "../../test/dom";
 
 let mockCardPropertyPosition: CardPropertyPosition = "inline";
 
-mock.module("./card-deps", () => ({
+vi.mock("./card-deps", () => ({
   useCardPropertyPosition: () => ({ position: mockCardPropertyPosition }),
 }));
 
-mock.module("@/lib/use-theme", () => ({
+vi.mock("@/lib/use-theme", () => ({
   useTheme: () => ({ resolved: "light" as const }),
 }));
 
-mock.module("@/lib/nfm/extract-text", () => ({
+vi.mock("@/lib/nfm/extract-text", () => ({
   extractPlainText: (value: string) => value,
 }));
 
-mock.module("./editor/chip-property-editor", () => ({
+vi.mock("./editor/chip-property-editor", () => ({
   ChipPropertyEditor: () => null,
 }));
 
-mock.module("./card-context-menu", () => ({
+vi.mock("./card-context-menu", () => ({
   CardContextMenu: ({ children }: { children: unknown }) => children,
 }));
 
@@ -54,8 +54,8 @@ describe("kanban card", () => {
       onClick: () => undefined,
     });
 
-    expect(textContent(card.container).includes("Draft title")).toBeTrue();
-    expect(textContent(card.container).includes("Task")).toBeFalse();
+    expect(textContent(card.container).includes("Draft title")).toBe(true);
+    expect(textContent(card.container).includes("Task")).toBe(false);
   });
 
   test("suppresses browser text selection on the card surface", async () => {
@@ -102,7 +102,7 @@ describe("kanban card", () => {
 
     const surface = card.container.querySelector<HTMLElement>('[data-kanban-card-panel-active="true"]');
     expect(surface).not.toBeNull();
-    expect(surface?.getAttribute("style")?.includes("var(--accent-blue) 58%") ?? false).toBeTrue();
+    expect(surface?.getAttribute("style")?.includes("var(--accent-blue) 58%") ?? false).toBe(true);
   });
 
   test("renders property chips as buttons when inline editing is enabled", async () => {
@@ -161,8 +161,8 @@ describe("kanban card", () => {
     expect(heading).not.toBeNull();
     expect(assignee).not.toBeNull();
     expect(title).not.toBeNull();
-    expect(Boolean(priorityChip.compareDocumentPosition(title as Node) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(estimateChip.compareDocumentPosition(title as Node) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(priorityChip.compareDocumentPosition(title as Node) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(estimateChip.compareDocumentPosition(title as Node) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   test("respects kanban display prefs for property order and visibility", async () => {
@@ -200,8 +200,8 @@ describe("kanban card", () => {
     expect(assignee).not.toBeNull();
     expect(tag).not.toBeNull();
     expect(card.getByLabelText("Edit estimate").getAttribute("aria-label")).toBe("Edit estimate");
-    expect(card.queryByLabelText("Edit priority") === null).toBeTrue();
-    expect(Boolean((assignee as Node).compareDocumentPosition(tag as Node) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(card.queryByLabelText("Edit priority") === null).toBe(true);
+    expect(Boolean((assignee as Node).compareDocumentPosition(tag as Node) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   test("shows editable empty kanban priority and estimate placeholders when display prefs enable them", async () => {
@@ -287,6 +287,6 @@ describe("kanban card", () => {
       onUpdateProperty: () => undefined,
     });
 
-    expect(card.queryByLabelText("Edit priority") === null).toBeTrue();
+    expect(card.queryByLabelText("Edit priority") === null).toBe(true);
   });
 });

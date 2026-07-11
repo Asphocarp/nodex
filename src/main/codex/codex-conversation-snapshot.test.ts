@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildCodexConversationSnapshot } from "./codex-conversation-snapshot";
 import type { CodexApprovalRequest, CodexThreadDetail } from "../../shared/types";
 
@@ -86,8 +86,8 @@ describe("buildCodexConversationSnapshot", () => {
     expect(snapshot.turns[0]?.items[0]?.itemId).toBe("assistant_1");
     expect(snapshot.turns[0]?.items[1]?.itemId).toBe("user_1");
     expect(snapshot.requests[0]?.requestId).toBe("approval_1");
-    expect(snapshot.capabilityFlags.canSearch).toBeTrue();
-    expect(snapshot.turnPagination?.hasLoadedOldest ?? false).toBeTrue();
+    expect(snapshot.capabilityFlags.canSearch).toBe(true);
+    expect(snapshot.turnPagination?.hasLoadedOldest ?? false).toBe(true);
     expect(snapshot.turnPagination?.loadedTurnCount ?? 0).toBe(1);
   });
 
@@ -116,7 +116,7 @@ describe("buildCodexConversationSnapshot", () => {
     expect(snapshot.turnPagination?.olderCursor ?? null).toBe("cursor-older");
     expect(snapshot.turnPagination?.backwardsCursor ?? null).toBe("cursor-newer");
     expect(snapshot.turnPagination?.oldestLoadedTurnId ?? null).toBe("turn_older");
-    expect(snapshot.turnPagination?.hasLoadedOldest ?? true).toBeFalse();
+    expect(snapshot.turnPagination?.hasLoadedOldest ?? true).toBe(false);
     expect(snapshot.turnPagination?.itemsView ?? "summary").toBe("full");
   });
 

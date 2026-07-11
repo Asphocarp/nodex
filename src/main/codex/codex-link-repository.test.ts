@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -122,7 +122,7 @@ describe("codex-link-repository", () => {
       expect(childThreads[0]?.agentRole).toBe("worker");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("archives, pins, renames, and status updates links", async () => {
@@ -160,7 +160,7 @@ describe("codex-link-repository", () => {
       expect(withArchived[0]?.threadId).toBe("thr_test_2");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("stores project-only and projectless threads without card ownership", async () => {
@@ -212,7 +212,7 @@ describe("codex-link-repository", () => {
       expect(allThreads).toBe(JSON.stringify(["thr_project_only", "thr_projectless"]));
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("project update keeps linked thread rows", async () => {
@@ -233,7 +233,7 @@ describe("codex-link-repository", () => {
       expect(link?.projectId).toBe(projectId);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("orders global pinned threads and excludes archived rows", async () => {
@@ -253,7 +253,7 @@ describe("codex-link-repository", () => {
       expect(JSON.stringify(setCodexThreadPinned("thr_pin_a", false))).toBe(JSON.stringify(["thr_pin_c"]));
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { createElement, useEffect } from "react";
 import {
@@ -225,8 +225,8 @@ describe("use-workbench-state helpers", () => {
 
     const state = workbenchTestHelpers.loadInitialState();
 
-    expect(state.sidebarSectionExpandedByProject.default?.["cards:status:6-in-progress"]).toBeTrue();
-    expect(state.sidebarSectionShowAllByProject.default?.["recents:list"]).toBeTrue();
+    expect(state.sidebarSectionExpandedByProject.default?.["cards:status:6-in-progress"]).toBe(true);
+    expect(state.sidebarSectionShowAllByProject.default?.["recents:list"]).toBe(true);
   });
 
   test("loads persisted db-view prefs per project and view", () => {
@@ -255,7 +255,7 @@ describe("use-workbench-state helpers", () => {
     );
 
     const state = workbenchTestHelpers.loadInitialState();
-    expect(state.dbViewPrefsByProject.default?.list?.summaryExpanded).toBeFalse();
+    expect(state.dbViewPrefsByProject.default?.list?.summaryExpanded).toBe(false);
     expect(state.dbViewPrefsByProject.default?.list?.rules.sort[0]?.field).toBe("assignee");
   });
 
@@ -287,7 +287,7 @@ describe("use-workbench-state helpers", () => {
     );
 
     const state = workbenchTestHelpers.loadInitialState();
-    expect(state.dbViewPrefsByProject.default?.kanban?.summaryExpanded).toBeFalse();
+    expect(state.dbViewPrefsByProject.default?.kanban?.summaryExpanded).toBe(false);
     expect(state.dbViewPrefsByProject.default?.kanban?.rules.sort[0]?.field).toBe("created");
   });
 
@@ -895,9 +895,9 @@ describe("use-workbench-state helpers", () => {
     expect(nextState.activeSearchQuery).toBe("release");
     expect(nextState.focusedStage).toBe("threads");
     expect(nextState.sidebar.pinnedOrganizationMode).toBe("manualOrder");
-    expect(nextState.sidebar.collapsibleSections.projects).toBeTrue();
-    expect(nextState.sidebar.collapsibleSections.chats).toBeTrue();
-    expect(nextState.sidebar.collapsibleSections.pinned).toBeFalse();
+    expect(nextState.sidebar.collapsibleSections.projects).toBe(true);
+    expect(nextState.sidebar.collapsibleSections.chats).toBe(true);
+    expect(nextState.sidebar.collapsibleSections.pinned).toBe(false);
   });
 
   test("persists sidebar pinned organization mode in sidebar prefs", async () => {
@@ -939,8 +939,8 @@ describe("use-workbench-state helpers", () => {
     await settleAsyncRender();
 
     if (!capturedRef.current) throw new Error("missing workbench state");
-    expect(capturedRef.current.sidebar.collapsibleSections.projects).toBeFalse();
-    expect(capturedRef.current.sidebar.collapsibleSections.chats).toBeFalse();
+    expect(capturedRef.current.sidebar.collapsibleSections.projects).toBe(false);
+    expect(capturedRef.current.sidebar.collapsibleSections.chats).toBe(false);
 
     await act(async () => {
       capturedRef.current?.setSidebarCollapsibleSectionCollapsed("projects", true);
@@ -953,9 +953,9 @@ describe("use-workbench-state helpers", () => {
     const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as {
       collapsibleSections?: { projects?: boolean; chats?: boolean; pinned?: boolean };
     };
-    expect(sidebarPrefs.collapsibleSections?.projects).toBeTrue();
-    expect(sidebarPrefs.collapsibleSections?.chats).toBeTrue();
-    expect(sidebarPrefs.collapsibleSections?.pinned).toBeFalse();
+    expect(sidebarPrefs.collapsibleSections?.projects).toBe(true);
+    expect(sidebarPrefs.collapsibleSections?.chats).toBe(true);
+    expect(sidebarPrefs.collapsibleSections?.pinned).toBe(false);
   });
 
   resetStorage();

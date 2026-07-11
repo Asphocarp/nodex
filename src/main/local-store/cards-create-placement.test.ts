@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -57,12 +57,12 @@ describe("createCard placement", () => {
 
       const board = await getBoard(projectId);
       const column = board.columns.find((entry) => entry.id === "in_progress");
-      expect(column !== undefined).toBeTrue();
+      expect(column !== undefined).toBe(true);
       expect(column?.cards.map((card) => card.title).join(",")).toBe("Top,First,Second");
       expect(column?.cards.map((card) => card.order).join(",")).toBe("0,1,2");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("redo preserves top insertion position", async () => {
@@ -77,7 +77,7 @@ describe("createCard placement", () => {
       expect(column?.cards.map((card) => card.title).join(",")).toBe("Top,First,Second");
 
       const undoResult = undoLatest(projectId, sessionId);
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
 
       board = await getBoard(projectId);
       column = board.columns.find((entry) => entry.id === "in_progress");
@@ -85,7 +85,7 @@ describe("createCard placement", () => {
       expect(column?.cards.map((card) => card.order).join(",")).toBe("0,1");
 
       const redoResult = redoLatest(projectId, sessionId);
-      expect(redoResult.success).toBeTrue();
+      expect(redoResult.success).toBe(true);
 
       board = await getBoard(projectId);
       column = board.columns.find((entry) => entry.id === "in_progress");
@@ -93,16 +93,16 @@ describe("createCard placement", () => {
       expect(column?.cards.map((card) => card.order).join(",")).toBe("0,1,2");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("generates canonical UUID-v7 ids by default", async () => {
     const ran = await withTempDatabase(async (projectId) => {
       const card = await createCard(projectId, "in_progress", { title: "Generated id" });
-      expect(isUuidV7(card.id)).toBeTrue();
+      expect(isUuidV7(card.id)).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("preserves a caller-provided UUID-v7 id", async () => {
@@ -116,7 +116,7 @@ describe("createCard placement", () => {
       expect(card.id).toBe(requestedId);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects non-UUID-v7 create ids", async () => {
@@ -135,7 +135,7 @@ describe("createCard placement", () => {
       expect(message).toBe("Invalid card id: expected canonical lowercase UUID-v7");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not reuse a tombstoned Block identity through ordinary create", async () => {
@@ -145,7 +145,7 @@ describe("createCard placement", () => {
         id: requestedId,
         title: "Original identity",
       });
-      expect(await deleteCard(projectId, "draft", requestedId)).toBeTrue();
+      expect(await deleteCard(projectId, "draft", requestedId)).toBe(true);
 
       let message = "";
       try {
@@ -160,6 +160,6 @@ describe("createCard placement", () => {
       expect(message).toBe(`Card or Block id already exists: ${requestedId}`);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

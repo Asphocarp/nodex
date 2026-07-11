@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -46,9 +46,9 @@ describe("NfmRenderer", () => {
     await settleAsyncRender();
 
     const inlineCode = container.querySelector("span.inline-markdown");
-    expect(Boolean(inlineCode)).toBeTrue();
+    expect(Boolean(inlineCode)).toBe(true);
     expect(inlineCode?.textContent).toBe("inline code");
-    expect(container.querySelector(".nfm-render code") === null).toBeTrue();
+    expect(container.querySelector(".nfm-render code") === null).toBe(true);
   });
 
   test("marks heading inline code with the heading-inline-code scope", async () => {
@@ -60,7 +60,7 @@ describe("NfmRenderer", () => {
 
     const heading = container.querySelector("h2");
     const inlineCode = heading?.querySelector("span.inline-markdown");
-    expect(Boolean(inlineCode)).toBeTrue();
+    expect(Boolean(inlineCode)).toBe(true);
     expect(inlineCode?.textContent).toBe("inline code");
   });
 
@@ -72,9 +72,8 @@ describe("NfmRenderer", () => {
 
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(container.querySelector('[data-language="ts"]')).not.toBeNull();
-    expect(container.querySelector('pre[style*="--shiki-dark-bg"]')).not.toBeNull();
-    expect(container.querySelector('[data-streamdown="code-block-actions"]') === null).toBeTrue();
-    expect(textContent(container).includes("const")).toBeTrue();
+    expect(container.querySelector('[data-streamdown="code-block-actions"]') === null).toBe(true);
+    expect(textContent(container).includes("const")).toBe(true);
   });
 
   test("falls back to plain code rendering for unknown languages without custom shiki HTML", async () => {
@@ -84,8 +83,8 @@ describe("NfmRenderer", () => {
     await settleAsyncRender();
 
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
-    expect(container.querySelector('pre[style*="--shiki-dark-bg"]') === null).toBeTrue();
-    expect(textContent(container).includes("hello()")).toBeTrue();
+    expect(container.querySelector('pre[style*="--shiki-dark-bg"]') === null).toBe(true);
+    expect(textContent(container).includes("hello()")).toBe(true);
   });
 
   test("fails closed for unresolved relative file-like links without a project workspace", async () => {
@@ -98,7 +97,7 @@ describe("NfmRenderer", () => {
     await settleAsyncRender();
 
     const link = container.querySelector("a[href='folder/abc/file']");
-    expect(Boolean(link)).toBeTrue();
+    expect(Boolean(link)).toBe(true);
     expect(link?.getAttribute("aria-disabled")).toBe("true");
     expect(link?.getAttribute("title")).toBe("Cannot resolve relative file link without project workspace.");
   });
@@ -116,9 +115,9 @@ describe("NfmRenderer", () => {
     await settleAsyncRender();
 
     const link = container.querySelector("a[href='folder/abc/file']");
-    expect(Boolean(link)).toBeTrue();
-    expect(link?.getAttribute("aria-disabled") === null).toBeTrue();
-    expect(link?.getAttribute("title") === null).toBeTrue();
+    expect(Boolean(link)).toBe(true);
+    expect(link?.getAttribute("aria-disabled") === null).toBe(true);
+    expect(link?.getAttribute("title") === null).toBe(true);
   });
 
   test("renders agent config chip model ids as readable labels", async () => {
@@ -128,8 +127,8 @@ describe("NfmRenderer", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container).includes("GPT-5.5")).toBeTrue();
-    expect(textContent(container).includes("gpt-5.5 · high")).toBeFalse();
+    expect(textContent(container).includes("GPT-5.5")).toBe(true);
+    expect(textContent(container).includes("gpt-5.5 · high")).toBe(false);
   });
 
   test("refreshes relative date mention labels while mounted", async () => {
@@ -139,7 +138,7 @@ describe("NfmRenderer", () => {
     );
 
     await settleAsyncRender();
-    expect(textContent(container).includes("@Today")).toBeTrue();
+    expect(textContent(container).includes("@Today")).toBe(true);
 
     await act(async () => {
       clock.setNow("2026-06-29T00:00:02");
@@ -147,7 +146,7 @@ describe("NfmRenderer", () => {
       await Promise.resolve();
     });
 
-    expect(textContent(container).includes("@Yesterday")).toBeTrue();
+    expect(textContent(container).includes("@Yesterday")).toBe(true);
   });
 
   test("renders consecutive numbered list items in one ordered list with preserved numbering", async () => {

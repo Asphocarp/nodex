@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -73,7 +73,7 @@ describe("history description revisions", () => {
       previousBlockCount: 600,
       nextBlockCount: 600,
       revisionsSinceSnapshot: 0,
-    })).toBeTrue();
+    })).toBe(true);
 
     expect(descriptionRevisionService.shouldStoreDescriptionSnapshotRevision({
       previousBlockCount: 20,
@@ -81,7 +81,7 @@ describe("history description revisions", () => {
       revisionsSinceSnapshot: 0,
       deltaPayloadLength: 10,
       snapshotPayloadLength: 100,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(descriptionRevisionService.shouldStoreDescriptionSnapshotRevision({
       previousBlockCount: 20,
@@ -89,7 +89,7 @@ describe("history description revisions", () => {
       revisionsSinceSnapshot: 0,
       deltaPayloadLength: 100,
       snapshotPayloadLength: 100,
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("replays selected history entries as post-change versions", () => {
@@ -155,7 +155,7 @@ describe("history description revisions", () => {
     const updatePreview = reconstructCardStateFromEntries(entries, 2);
     expect(updatePreview?.state.title).toBe("Updated title");
     expect(updatePreview?.state.description).toBe("Updated description");
-    expect(updatePreview?.state.title === "Initial title").toBeFalse();
+    expect(updatePreview?.state.title === "Initial title").toBe(false);
     expect(updatePreview?.columnId).toBe("draft");
 
     const movePreview = reconstructCardStateFromEntries(entries, 3);
@@ -217,9 +217,9 @@ describe("history description revisions", () => {
       const updatePreviousValues = JSON.parse(updateRow?.previous_values ?? "{}") as Record<string, unknown>;
       const updateNewValues = JSON.parse(updateRow?.new_values ?? "{}") as Record<string, unknown>;
       const createSnapshot = JSON.parse(createRow?.card_snapshot ?? "{}") as Record<string, unknown>;
-      expect(Object.prototype.hasOwnProperty.call(updatePreviousValues, "description")).toBeFalse();
-      expect(Object.prototype.hasOwnProperty.call(updateNewValues, "description")).toBeFalse();
-      expect(Object.prototype.hasOwnProperty.call(createSnapshot, "description")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(updatePreviousValues, "description")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(updateNewValues, "description")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(createSnapshot, "description")).toBe(false);
       expect(updateRow?.previous_description_revision_id).not.toBeNull();
       expect(updateRow?.new_description_revision_id).not.toBeNull();
       expect(createRow?.snapshot_description_revision_id).not.toBeNull();
@@ -233,7 +233,7 @@ describe("history description revisions", () => {
       database.close();
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("builds panel entries with block-level description deltas instead of hydrated full texts", async () => {
@@ -268,7 +268,7 @@ describe("history description revisions", () => {
       expect(entries[1]?.snapshot?.description?.blocks[1]?.preview).toBe("Alpha");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("undo redo and restore operate on description revisions", async () => {
@@ -287,18 +287,18 @@ describe("history description revisions", () => {
 
       const historyBeforeRestore = getRecentHistory(projectId, 10, 0);
       const createEntry = historyBeforeRestore.find((entry) => entry.operation === "create");
-      expect(createEntry?.id !== undefined).toBeTrue();
+      expect(createEntry?.id !== undefined).toBe(true);
 
       const undone = undoLatest(projectId);
-      expect(undone.success).toBeTrue();
+      expect(undone.success).toBe(true);
       expect(await findCardDescription(projectId, created.id)).toBe("Original description");
 
       const redone = redoLatest(projectId);
-      expect(redone.success).toBeTrue();
+      expect(redone.success).toBe(true);
       expect(await findCardDescription(projectId, created.id)).toBe("Updated description");
 
       const restored = restoreToEntry(projectId, created.id, createEntry?.id ?? -1);
-      expect(restored.success).toBeTrue();
+      expect(restored.success).toBe(true);
       expect(await findCardDescription(projectId, created.id)).toBe("Original description");
 
       const database = new Database(getDatabasePath(), { readonly: true });
@@ -311,7 +311,7 @@ describe("history description revisions", () => {
       database.close();
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("reconstructs full card previews for selected history versions", async () => {
@@ -338,17 +338,17 @@ describe("history description revisions", () => {
       });
       expect(moved).toBe("moved");
       const deleted = await deleteCard(projectId, "in_progress", created.id);
-      expect(deleted).toBeTrue();
+      expect(deleted).toBe(true);
 
       const history = getRecentHistory(projectId, 10, 0);
       const createEntry = history.find((entry) => entry.operation === "create");
       const updateEntry = history.find((entry) => entry.operation === "update");
       const moveEntry = history.find((entry) => entry.operation === "move");
       const deleteEntry = history.find((entry) => entry.operation === "delete");
-      expect(createEntry?.id !== undefined).toBeTrue();
-      expect(updateEntry?.id !== undefined).toBeTrue();
-      expect(moveEntry?.id !== undefined).toBeTrue();
-      expect(deleteEntry?.id !== undefined).toBeTrue();
+      expect(createEntry?.id !== undefined).toBe(true);
+      expect(updateEntry?.id !== undefined).toBe(true);
+      expect(moveEntry?.id !== undefined).toBe(true);
+      expect(deleteEntry?.id !== undefined).toBe(true);
 
       const createPreview = getCardHistoryVersionPreview(projectId, created.id, createEntry?.id ?? -1);
       expect(createPreview.preview?.card.title).toBe("Initial title");
@@ -361,8 +361,8 @@ describe("history description revisions", () => {
       expect(updatePreview.preview?.card.description).toBe("Updated description");
       expect(updatePreview.preview?.card.status).toBe("draft");
       expect(updatePreview.preview?.card.tags.join(",")).toBe("beta");
-      expect(updatePreview.preview?.card.title === "Initial title").toBeFalse();
-      expect(updatePreview.preview?.card.description === "Initial description").toBeFalse();
+      expect(updatePreview.preview?.card.title === "Initial title").toBe(false);
+      expect(updatePreview.preview?.card.description === "Initial description").toBe(false);
 
       const movePreview = getCardHistoryVersionPreview(projectId, created.id, moveEntry?.id ?? -1);
       expect(movePreview.preview?.card.status).toBe("in_progress");
@@ -374,7 +374,7 @@ describe("history description revisions", () => {
       expect(deletePreview.preview?.card.status).toBe("in_progress");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("previews and restores retained updates from a checkpoint after create history is pruned", async () => {
@@ -395,8 +395,8 @@ describe("history description revisions", () => {
       const beforePrune = getRecentHistory(projectId, 10, 0);
       const createEntry = beforePrune.find((entry) => entry.operation === "create");
       const updateEntry = beforePrune.find((entry) => entry.operation === "update");
-      expect(createEntry?.id !== undefined).toBeTrue();
-      expect(updateEntry?.id !== undefined).toBeTrue();
+      expect(createEntry?.id !== undefined).toBe(true);
+      expect(updateEntry?.id !== undefined).toBe(true);
 
       const pruned = pruneHistory(projectId, 1);
       expect(pruned).toBe(1);
@@ -405,7 +405,7 @@ describe("history description revisions", () => {
       try {
         const createRow = database.prepare("SELECT 1 FROM history WHERE id = ?")
           .get(createEntry?.id ?? -1);
-        expect(createRow === undefined).toBeTrue();
+        expect(createRow === undefined).toBe(true);
 
         const snapshotRow = database.prepare(`
           SELECT card_snapshot, description_revision_id
@@ -414,11 +414,11 @@ describe("history description revisions", () => {
         `).get(updateEntry?.id ?? -1) as
           | { card_snapshot: string; description_revision_id: number | null }
           | undefined;
-        expect(snapshotRow !== undefined).toBeTrue();
+        expect(snapshotRow !== undefined).toBe(true);
         expect(snapshotRow?.description_revision_id).not.toBeNull();
         const snapshot = JSON.parse(snapshotRow?.card_snapshot ?? "{}") as Record<string, unknown>;
         expect(snapshot.title).toBe("Checkpoint title");
-        expect(Object.prototype.hasOwnProperty.call(snapshot, "description")).toBeFalse();
+        expect(Object.prototype.hasOwnProperty.call(snapshot, "description")).toBe(false);
       } finally {
         database.close();
       }
@@ -435,14 +435,14 @@ describe("history description revisions", () => {
       expect(later.status).toBe("updated");
 
       const restored = restoreToEntry(projectId, created.id, updateEntry?.id ?? -1);
-      expect(restored.success).toBeTrue();
+      expect(restored.success).toBe(true);
       const restoredCard = await findCardOnBoard(projectId, created.id);
       expect(restoredCard?.title).toBe("Checkpoint title");
       expect(restoredCard?.description).toBe("Checkpoint description");
       expect(restoredCard?.tags.join(",")).toBe("beta");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("pruning creates a boundary checkpoint before deleting older visible history", async () => {
@@ -469,8 +469,8 @@ describe("history description revisions", () => {
       const secondUpdateEntry = history
         .filter((entry) => entry.operation === "update")
         .find((entry) => entry.newValues?.title === "Boundary second update");
-      expect(firstUpdateEntry?.id !== undefined).toBeTrue();
-      expect(secondUpdateEntry?.id !== undefined).toBeTrue();
+      expect(firstUpdateEntry?.id !== undefined).toBe(true);
+      expect(secondUpdateEntry?.id !== undefined).toBe(true);
 
       const pruned = pruneHistory(projectId, 2);
       expect(pruned).toBe(1);
@@ -482,7 +482,7 @@ describe("history description revisions", () => {
           FROM card_history_snapshots
           WHERE history_id = ?
         `).get(firstUpdateEntry?.id ?? -1);
-        expect(snapshotRow !== undefined).toBeTrue();
+        expect(snapshotRow !== undefined).toBe(true);
       } finally {
         database.close();
       }
@@ -495,7 +495,7 @@ describe("history description revisions", () => {
       expect(secondPreview.preview?.card.description).toBe("Boundary first description");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("description revision GC preserves revisions referenced only by card history checkpoints", async () => {
@@ -512,7 +512,7 @@ describe("history description revisions", () => {
 
       const history = getRecentHistory(projectId, 10, 0);
       const updateEntry = history.find((entry) => entry.operation === "update");
-      expect(updateEntry?.id !== undefined).toBeTrue();
+      expect(updateEntry?.id !== undefined).toBe(true);
       pruneHistory(projectId, 1);
 
       const database = new Database(getDatabasePath());
@@ -547,13 +547,13 @@ describe("history description revisions", () => {
           FROM description_revisions
           WHERE id = ?
         `).get(snapshotRevisionId ?? -1);
-        expect(retainedRevision !== undefined).toBeTrue();
+        expect(retainedRevision !== undefined).toBe(true);
       } finally {
         database.close();
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("returns a null preview when creation history is unavailable", async () => {
@@ -570,7 +570,7 @@ describe("history description revisions", () => {
 
       const history = getRecentHistory(projectId, 10, 0);
       const updateEntry = history.find((entry) => entry.operation === "update");
-      expect(updateEntry?.id !== undefined).toBeTrue();
+      expect(updateEntry?.id !== undefined).toBe(true);
 
       const database = new Database(getDatabasePath());
       database.prepare("DELETE FROM history WHERE project_id = ? AND card_id = ? AND operation = 'create'")
@@ -579,15 +579,15 @@ describe("history description revisions", () => {
 
       const panelEntries = getCardHistoryPanelEntries(projectId, created.id);
       const updatePanelEntry = panelEntries.find((entry) => entry.id === updateEntry?.id);
-      expect(updatePanelEntry?.reconstructable).toBeFalse();
-      expect(Boolean(updatePanelEntry?.reconstructionUnavailableReason)).toBeTrue();
+      expect(updatePanelEntry?.reconstructable).toBe(false);
+      expect(Boolean(updatePanelEntry?.reconstructionUnavailableReason)).toBe(true);
 
       const preview = getCardHistoryVersionPreview(projectId, created.id, updateEntry?.id ?? -1);
       expect(preview.preview).toBe(null);
-      expect(Boolean(preview.error)).toBeTrue();
-      expect((preview.error ?? "").includes("Cannot reconstruct state")).toBeFalse();
+      expect(Boolean(preview.error)).toBe(true);
+      expect((preview.error ?? "").includes("Cannot reconstruct state")).toBe(false);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

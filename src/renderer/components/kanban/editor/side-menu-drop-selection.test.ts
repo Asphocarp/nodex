@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   createSideMenuDroppedBlockSelection,
   getSideMenuDroppedBlockIdsFromSelection,
@@ -78,14 +78,14 @@ describe("side-menu drop selection helpers", () => {
   test("creates a block-range selection for one dropped block id", () => {
     const selection = createSideMenuDroppedBlockSelection(makeDoc(), ["b"]);
 
-    expect(selection instanceof MultipleNodeSelection).toBeTrue();
+    expect(selection instanceof MultipleNodeSelection).toBe(true);
     expect(selectionIds(selection)).toBe("b");
   });
 
   test("creates a MultipleNodeSelection for adjacent dropped block ids", () => {
     const selection = createSideMenuDroppedBlockSelection(makeDoc(), ["c", "b"]);
 
-    expect(selection instanceof MultipleNodeSelection).toBeTrue();
+    expect(selection instanceof MultipleNodeSelection).toBe(true);
     expect(selectionIds(selection)).toBe("b,c");
   });
 
@@ -110,7 +110,7 @@ describe("side-menu drop selection helpers", () => {
   });
 
   test("returns undefined when dropped ids are not in the new document", () => {
-    expect(createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined).toBeTrue();
+    expect(createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined).toBe(true);
   });
 
   test("sets pending dropped ids before dispatching a synthetic gutter drop", () => {
@@ -226,10 +226,10 @@ describe("side-menu drop selection helpers", () => {
       extension.blockDragEnd();
       extension.blockDragEnd();
 
-      expect(appended === undefined).toBeFalse();
-      expect(nextState.selection instanceof MultipleNodeSelection).toBeTrue();
+      expect(appended === undefined).toBe(false);
+      expect(nextState.selection instanceof MultipleNodeSelection).toBe(true);
       expect(selectionIds(nextState.selection)).toBe("b");
-      expect(blurred).toBeFalse();
+      expect(blurred).toBe(false);
     } finally {
       pluginView?.destroy?.();
       editorElement.remove();

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { Project } from "@/lib/types";
 import {
   buildWorkbenchAutomationProjectOptions,
@@ -53,7 +53,7 @@ describe("workbench automation project options", () => {
     expect(options.length).toBe(2);
     expect(options[1]?.value).toBe("/tmp/legacy");
     expect(options[1]?.label).toBe("/tmp/legacy");
-    expect(options[1]?.isFallback).toBeTrue();
+    expect(options[1]?.isFallback).toBe(true);
   });
 
   test("formats trigger labels for empty, single, and multi-root selections", () => {

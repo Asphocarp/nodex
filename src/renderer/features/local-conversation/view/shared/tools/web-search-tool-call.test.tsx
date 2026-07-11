@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
@@ -104,9 +104,9 @@ describe("WebSearchToolCall", () => {
     );
 
     const renderedText = textContent(container);
-    expect(Boolean(renderedText.includes("Searched the web"))).toBeTrue();
-    expect(Boolean(renderedText.includes("'decorators' in https://storybook.js.org/docs/writing-stories/decorators"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Searched the web"))).toBe(true);
+    expect(Boolean(renderedText.includes("'decorators' in https://storybook.js.org/docs/writing-stories/decorators"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
   });
 
   test("shimmers the Codex active summary verb while the search is running", () => {
@@ -118,8 +118,8 @@ describe("WebSearchToolCall", () => {
       />,
     );
 
-    expect(Boolean(textContent(container).includes("Searching the web"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Searching the web"))).toBe(true);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
   });
 
   test("renders favicon-only detail rows inside collapsed activity bodies", () => {
@@ -137,9 +137,9 @@ describe("WebSearchToolCall", () => {
       />,
     );
 
-    expect(Boolean(textContent(container).includes("renderer | github.com"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("renderer | github.com"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("omits the semantic globe in detail rows when no favicon URL exists", () => {
@@ -168,8 +168,8 @@ describe("WebSearchToolCall", () => {
       />,
     );
 
-    expect(Boolean(textContent(container).includes("no domain here"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("no domain here"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBe(false);
   });
 });
 
@@ -216,16 +216,16 @@ describe("WebSearchToolCallGroup", () => {
     );
 
     const renderedText = textContent(container);
-    expect(Boolean(renderedText.includes("Searching the web"))).toBeTrue();
-    expect(Boolean(renderedText.includes("for renderer docs | github.com \u00b7 example.com"))).toBeTrue();
-    expect(Boolean(renderedText.includes("old query"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeFalse();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Searching the web"))).toBe(true);
+    expect(Boolean(renderedText.includes("for renderer docs | github.com \u00b7 example.com"))).toBe(true);
+    expect(Boolean(renderedText.includes("old query"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(false);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
 
     const collapsedList = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
     expect(collapsedList?.style.maxHeight ?? "").toBe("0px");
-    expect(Boolean(textContent(collapsedList ?? container).includes("old query"))).toBeFalse();
+    expect(Boolean(textContent(collapsedList ?? container).includes("old query"))).toBe(false);
 
     await act(async () => {
       fireEvent.click(container.querySelector("button") as HTMLButtonElement);
@@ -234,10 +234,10 @@ describe("WebSearchToolCallGroup", () => {
 
     const expandedList = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
     expect(expandedList?.style.maxHeight ?? "").toBe("20rem");
-    expect(Boolean(expandedList?.classList.contains("vertical-scroll-fade-mask"))).toBeTrue();
-    expect(Boolean(expandedList?.classList.contains("flex-col-reverse"))).toBeFalse();
-    expect(Boolean(textContent(expandedList ?? container).includes("old query"))).toBeTrue();
-    expect(Boolean(textContent(expandedList ?? container).includes("renderer docs | github.com \u00b7 example.com"))).toBeTrue();
+    expect(Boolean(expandedList?.classList.contains("vertical-scroll-fade-mask"))).toBe(true);
+    expect(Boolean(expandedList?.classList.contains("flex-col-reverse"))).toBe(false);
+    expect(Boolean(textContent(expandedList ?? container).includes("old query"))).toBe(true);
+    expect(Boolean(textContent(expandedList ?? container).includes("renderer docs | github.com \u00b7 example.com"))).toBe(true);
   });
 
   test("renders the completed header without detail text", () => {
@@ -262,9 +262,9 @@ describe("WebSearchToolCallGroup", () => {
 
     const renderedText = textContent(container);
     expect(renderedText).toBe("Searched the web");
-    expect(Boolean(renderedText.includes("completed query"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(renderedText.includes("completed query"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("settles the header when isActive is true but every line completed", () => {
@@ -290,8 +290,8 @@ describe("WebSearchToolCallGroup", () => {
 
     const renderedText = textContent(container);
     expect(renderedText).toBe("Searched the web");
-    expect(Boolean(renderedText.includes("completed query"))).toBeFalse();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(renderedText.includes("completed query"))).toBe(false);
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("renders nested body-only groups through the shared bounded list", () => {
@@ -319,11 +319,11 @@ describe("WebSearchToolCallGroup", () => {
 
     const list = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
     expect(list?.style.maxHeight ?? "").toBe("20rem");
-    expect(Boolean(list?.classList.contains("vertical-scroll-fade-mask"))).toBeTrue();
-    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBeFalse();
-    expect(Boolean(textContent(list ?? container).includes("body detail | github.com"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBeFalse();
-    expect(Boolean(container.querySelector("button"))).toBeFalse();
+    expect(Boolean(list?.classList.contains("vertical-scroll-fade-mask"))).toBe(true);
+    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBe(false);
+    expect(Boolean(textContent(list ?? container).includes("body detail | github.com"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(false);
+    expect(Boolean(container.querySelector("button"))).toBe(false);
   });
 });

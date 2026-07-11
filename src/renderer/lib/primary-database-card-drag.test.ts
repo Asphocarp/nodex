@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { GeneralDatabaseViewConfig } from "../../shared/database-kernel";
 import type {
   DatabaseReadSnapshot,
@@ -188,7 +188,7 @@ describe("primary Database Card drag compiler", () => {
     }
     expect(compiled.operations[0].expectedPositionRevision).toBe(11);
     expect(compiled.operations[0].beforeCardBlockId).toBe("card-sibling");
-    expect(Object.hasOwn(compiled.operations[0], "rankKey")).toBeFalse();
+    expect(Object.hasOwn(compiled.operations[0], "rankKey")).toBe(false);
   });
 
   test("commits cross-column status, sort-field patch, and manual position in order", () => {

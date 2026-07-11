@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import type { DiagnosticsSettings } from "../../shared/types";
 import {
   captureMainException,
@@ -56,7 +56,7 @@ describe("main Sentry diagnostics", () => {
       },
     });
 
-    expect(initialized).toBeFalse();
+    expect(initialized).toBe(false);
     expect(initCount).toBe(0);
   });
 
@@ -82,7 +82,7 @@ describe("main Sentry diagnostics", () => {
     });
 
     expect(initCount).toBe(1);
-    expect(await initialized).toBeTrue();
+    expect(await initialized).toBe(true);
   });
 
   test("captures errors with scrubbed context when enabled", async () => {
@@ -107,7 +107,7 @@ describe("main Sentry diagnostics", () => {
       },
     });
 
-    expect(initialized).toBeTrue();
+    expect(initialized).toBe(true);
     captureMainException(new Error("boom"), {
       tags: { channel: "settings:diagnostics:update" },
       extra: {

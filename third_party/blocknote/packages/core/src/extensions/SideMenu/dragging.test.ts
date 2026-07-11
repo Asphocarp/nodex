@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Schema, type Node } from "prosemirror-model";
 
 import { getBlockInfoWithManualOffset } from "../../api/getBlockInfoFromPos.js";
@@ -259,6 +259,6 @@ describe("side-menu drag selection bounds", () => {
       draggedBlockId: "block-1",
     });
 
-    expect(range === undefined).toBeTrue();
+    expect(range === undefined).toBe(true);
   });
 });

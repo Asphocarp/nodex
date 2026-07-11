@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type {
   DatabaseMutationCommandResult,
   DatabaseMutationRequest,
@@ -234,10 +234,10 @@ describe("primary Database multi-Card drag runtime", () => {
       dependencies,
     });
 
-    expect(committed).toBeTrue();
+    expect(committed).toBe(true);
     expect(snapshotReads).toBe(1);
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
     expect(requests[0]?.operationId).toBe("multi-drag-1");
     expect(requests[0]?.clientSessionId).toBe("window-1");
     expect(

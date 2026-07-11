@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
 import { Column } from "./column";
@@ -40,7 +40,7 @@ describe("Column", () => {
       dropBlockedMessage: "Sorted by title; switch to Board Order to manually rank.",
     }));
 
-    expect(container.textContent?.includes("Sorted by title; switch to Board Order to manually rank.")).toBeTrue();
+    expect(container.textContent?.includes("Sorted by title; switch to Board Order to manually rank.")).toBe(true);
   });
 
   test("keeps an empty column collapsed while it is the active drop target", () => {
@@ -66,7 +66,7 @@ describe("Column", () => {
 
     const columnRoot = container.querySelector("[data-kanban-column-id='backlog']");
     expect(columnRoot?.getAttribute("data-kanban-column-collapsed")).toBe("true");
-    expect(container.textContent?.includes("New task")).toBeFalse();
+    expect(container.textContent?.includes("New task")).toBe(false);
   });
 
   test("opens a double-clicked card with durable mode", () => {

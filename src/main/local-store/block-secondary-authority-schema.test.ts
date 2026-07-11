@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -120,7 +120,7 @@ describe("Block secondary authority schema", () => {
         ).toBe(CURRENT_SCHEMA_VERSION);
         expect(
           V65_TABLES.every((tableName) => hasTable(migrated, tableName)),
-        ).toBeTrue();
+        ).toBe(true);
         expect(JSON.stringify(migrated.pragma("foreign_key_check"))).toBe("[]");
 
         migrated
@@ -408,7 +408,7 @@ describe("Block secondary authority schema", () => {
                   )
                   .run();
               }),
-            ).toBeTrue();
+            ).toBe(true);
             expect(
               operationFails(() => {
                 database
@@ -417,7 +417,7 @@ describe("Block secondary authority schema", () => {
                   )
                   .run();
               }),
-            ).toBeTrue();
+            ).toBe(true);
             expect(
               operationFails(() => {
                 database
@@ -430,7 +430,7 @@ describe("Block secondary authority schema", () => {
                     ...mutationValues.slice(4),
                   );
               }),
-            ).toBeTrue();
+            ).toBe(true);
             expect(
               operationFails(() => {
                 database
@@ -453,7 +453,7 @@ describe("Block secondary authority schema", () => {
                     now,
                   );
               }),
-            ).toBeTrue();
+            ).toBe(true);
             expect(
               operationFails(() => {
                 database
@@ -462,7 +462,7 @@ describe("Block secondary authority schema", () => {
                   )
                   .run(card.id);
               }),
-            ).toBeTrue();
+            ).toBe(true);
             expect(
               operationFails(() => {
                 database
@@ -477,7 +477,7 @@ describe("Block secondary authority schema", () => {
                   )
                   .run(documentId, bodyBlockId, card.id, project.id, now);
               }),
-            ).toBeTrue();
+            ).toBe(true);
             expect(JSON.stringify(database.pragma("foreign_key_check"))).toBe(
               "[]",
             );
@@ -506,18 +506,18 @@ describe("Block secondary authority schema", () => {
         } finally {
           closeDatabase();
         }
-        expect(rejected).toBeTrue();
+        expect(rejected).toBe(true);
 
         const unchanged = new Database(databasePath, { readonly: true });
         try {
           expect(
             unchanged.pragma("user_version", { simple: true }) as number,
           ).toBe(64);
-          expect(hasTable(unchanged, "block_mutations")).toBeTrue();
-          expect(hasTable(unchanged, "document_versions")).toBeFalse();
-          expect(hasTable(unchanged, "block_search_units")).toBeFalse();
-          expect(hasTable(unchanged, "block_asset_refs")).toBeFalse();
-          expect(hasTable(unchanged, "card_read_model")).toBeFalse();
+          expect(hasTable(unchanged, "block_mutations")).toBe(true);
+          expect(hasTable(unchanged, "document_versions")).toBe(false);
+          expect(hasTable(unchanged, "block_search_units")).toBe(false);
+          expect(hasTable(unchanged, "block_asset_refs")).toBe(false);
+          expect(hasTable(unchanged, "card_read_model")).toBe(false);
           const columns = unchanged
             .prepare("PRAGMA table_info(block_mutations)")
             .all() as Array<{ name: string }>;

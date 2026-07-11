@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   applyTextActionBlockType,
   applyTextActionClearFormat,
@@ -58,7 +58,7 @@ describe("nfm text action menu actions", () => {
       { type: "heading", props: { level: 1, isToggleable: false } },
     );
 
-    expect(didApply).toBeTrue();
+    expect(didApply).toBe(true);
     expect(calls.join("|")).toBe(
       "focus|transact:start|updateBlock:a:heading:{\"level\":1,\"isToggleable\":false}|updateBlock:b:heading:{\"level\":1,\"isToggleable\":false}|transact:end",
     );
@@ -67,8 +67,8 @@ describe("nfm text action menu actions", () => {
   test("toggles only schema-supported boolean styles", () => {
     const { calls, editor } = createFakeEditor();
 
-    expect(applyTextActionToggleStyle(editor, "bold")).toBeTrue();
-    expect(applyTextActionToggleStyle(editor, "code")).toBeFalse();
+    expect(applyTextActionToggleStyle(editor, "bold")).toBe(true);
+    expect(applyTextActionToggleStyle(editor, "code")).toBe(false);
     expect(calls.join("|")).toBe("focus|toggleStyles:bold");
   });
 
@@ -77,13 +77,13 @@ describe("nfm text action menu actions", () => {
 
     expect(applyTextActionStringStyle(editor, "textColor", "blue", true, () => {
       calls.push("refocus");
-    })).toBeTrue();
+    })).toBe(true);
     expect(applyTextActionStringStyle(editor, "backgroundColor", "default", true, () => {
       calls.push("refocus");
-    })).toBeTrue();
+    })).toBe(true);
     expect(applyTextActionStringStyle(editor, "textColor", "red", false, () => {
       calls.push("blocked-refocus");
-    })).toBeFalse();
+    })).toBe(false);
     expect(calls.join("|")).toBe("addStyles:textColor=blue|refocus|removeStyles:backgroundColor|refocus");
   });
 
@@ -103,7 +103,7 @@ describe("nfm text action menu actions", () => {
     expect(applyTextActionClearFormat(editor, TEXT_ACTION_BASIC_STYLES, {
       canUseTextColor: true,
       canUseBackgroundColor: true,
-    })).toBeTrue();
+    })).toBe(true);
     expect(calls.join("|")).toBe("focus|removeStyles:backgroundColor,bold,italic,textColor");
   });
 
@@ -114,7 +114,7 @@ describe("nfm text action menu actions", () => {
     expect(applyTextActionClearFormat(editor, TEXT_ACTION_BASIC_STYLES, {
       canUseTextColor: false,
       canUseBackgroundColor: false,
-    })).toBeFalse();
+    })).toBe(false);
     expect(calls.length).toBe(0);
   });
 });

@@ -112,8 +112,8 @@
 - Backend log serialization is bounded (string/object/array limits) so debugging stays available even when services encounter unexpectedly large payloads.
 
 ## Operational Checks
-- Before release: run `bun run typecheck`, `bun run lint`, `bun test`.
-- Before release packaging on macOS: run `bun run codex:schemas:verify` so checked-in app-server schemas still match the pinned Codex version.
+- Before release: run `pnpm run typecheck`, `pnpm run lint`, `pnpm test`.
+- Before release packaging on macOS: run `pnpm run codex:schemas:verify` so checked-in app-server schemas still match the pinned Codex version.
 - Release macOS packaging uploads hidden source maps to Sentry only when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are present; `.map` files remain excluded from packaged artifacts.
 - Before enabling CI signing secrets: do one local notarization dry run and verify `codesign --verify --deep --strict`, `spctl --assess --type open`, and `xcrun stapler validate` against the generated macOS artifacts.
 - During macOS packaging validation, inspect `Contents/Resources/bin/codex` with `codesign -dvvv` and verify it still reports `TeamIdentifier=2DC432GLL2`.

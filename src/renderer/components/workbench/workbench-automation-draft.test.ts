@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexModelOption, CodexScheduledAutomation } from "@/lib/types";
 import {
   buildCodexScheduledAutomationCreateInput,
@@ -91,7 +91,7 @@ describe("workbench automation draft", () => {
 
     expect(draft.model).toBe("");
     expect(draft.reasoningEffort).toBe("medium");
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBeFalse();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBe(false);
   });
 
   test("resolves cron draft model settings from visible runtime models", () => {
@@ -116,7 +116,7 @@ describe("workbench automation draft", () => {
       models: MODELS,
     });
 
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft, baseline)).toBeFalse();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft, baseline)).toBe(false);
   });
 
   test("falls back from unavailable cron draft models to the visible default", () => {
@@ -142,10 +142,10 @@ describe("workbench automation draft", () => {
   test("builds update payloads and detects dirty edits", () => {
     const automation = makeAutomation();
     const draft = createWorkbenchAutomationDraft({ automation });
-    expect(isWorkbenchAutomationDraftDirty({ draft, existing: automation })).toBeFalse();
+    expect(isWorkbenchAutomationDraftDirty({ draft, existing: automation })).toBe(false);
 
     draft.status = "PAUSED";
-    expect(isWorkbenchAutomationDraftDirty({ draft, existing: automation })).toBeTrue();
+    expect(isWorkbenchAutomationDraftDirty({ draft, existing: automation })).toBe(true);
 
     const payload = buildCodexScheduledAutomationUpdateInput({
       draft,
@@ -176,7 +176,7 @@ describe("workbench automation draft", () => {
       id: automation.id,
     });
 
-    expect(validation.canSave).toBeTrue();
+    expect(validation.canSave).toBe(true);
     expect(payload?.rrule).toBe(calendarRrule);
     expect(payload?.model).toBe("gpt-5.4");
     expect(payload?.reasoningEffort).toBe("high");
@@ -185,33 +185,33 @@ describe("workbench automation draft", () => {
   test("validates required name, prompt, schedule, project, chat, and model", () => {
     const draft = createWorkbenchAutomationDraft({ id: "automation-new" });
     draft.name = " ";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeFalse();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(false);
 
     draft.name = "Valid name";
     draft.prompt = " ";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeFalse();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(false);
 
     draft.prompt = "Run the report.";
     draft.rrule = "INTERVAL=2";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeFalse();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(false);
 
     draft.rrule = "FREQ=DAILY";
     draft.cwds = [];
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeFalse();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(false);
 
     draft.cwds = ["/tmp/project"];
     draft.model = "";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeFalse();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(false);
 
     draft.model = "gpt-5.5";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeTrue();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(true);
 
     draft.kind = "heartbeat";
     draft.targetThreadId = "";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeFalse();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(false);
 
     draft.targetThreadId = "thread-1";
-    expect(validateWorkbenchAutomationDraft(draft).canSave).toBeTrue();
+    expect(validateWorkbenchAutomationDraft(draft).canSave).toBe(true);
   });
 
   test("formats reference-style disabled save tooltips from missing requirements", () => {
@@ -253,23 +253,23 @@ describe("workbench automation draft", () => {
 
   test("parses project inputs and prefixes generated ids", () => {
     expect(JSON.stringify(parseWorkbenchAutomationCwds(" /a, /b\n/c "))).toBe(JSON.stringify(["/a", "/b", "/c"]));
-    expect(createCodexScheduledAutomationId(() => "abc").startsWith("automation-")).toBeTrue();
+    expect(createCodexScheduledAutomationId(() => "abc").startsWith("automation-")).toBe(true);
   });
 
   test("detects meaningful create draft changes without counting generated ids", () => {
     const draft = createWorkbenchAutomationDraft({ id: "automation-new" });
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBeFalse();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBe(false);
 
     draft.name = "Draft only";
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBeTrue();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBe(true);
 
     draft.name = "";
     draft.cwds = ["/tmp/project"];
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBeTrue();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBe(true);
 
     draft.cwds = [];
     draft.kind = "heartbeat";
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBeTrue();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft)).toBe(true);
   });
 
   test("compares create drafts against their initial seed", () => {
@@ -283,9 +283,9 @@ describe("workbench automation draft", () => {
       id: "next-generated-id",
       cwds: [...initialDraft.cwds],
     };
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft, initialDraft)).toBeFalse();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft, initialDraft)).toBe(false);
 
     draft.prompt = "Scan recent commits and CI failures.";
-    expect(hasWorkbenchAutomationCreateDraftChanges(draft, initialDraft)).toBeTrue();
+    expect(hasWorkbenchAutomationCreateDraftChanges(draft, initialDraft)).toBe(true);
   });
 });

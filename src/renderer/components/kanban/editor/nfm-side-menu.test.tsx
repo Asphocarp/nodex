@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { render } from "@/test/dom";
@@ -307,22 +307,22 @@ describe("nfm side menu surface", () => {
         target: popupChild,
         popupElement,
         outsidePressIgnoreElement: triggerElement,
-      })).toBeFalse();
+      })).toBe(false);
       expect(shouldCloseNfmSideMenuForPointerTarget({
         target: triggerChild,
         popupElement,
         outsidePressIgnoreElement: triggerElement,
-      })).toBeFalse();
+      })).toBe(false);
       expect(shouldCloseNfmSideMenuForPointerTarget({
         target: submenuChild,
         popupElement,
         outsidePressIgnoreElement: triggerElement,
-      })).toBeFalse();
+      })).toBe(false);
       expect(shouldCloseNfmSideMenuForPointerTarget({
         target: editorBlank,
         popupElement,
         outsidePressIgnoreElement: triggerElement,
-      })).toBeTrue();
+      })).toBe(true);
     } finally {
       submenuElement.remove();
     }
@@ -338,19 +338,19 @@ describe("nfm side menu surface", () => {
     expect(shouldReturnFocusAfterNfmSideMenuClose({
       reason: "outside-pointer",
       returnFocusElement,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldReturnFocusAfterNfmSideMenuClose({
       reason: "editor-outside-pointer",
       returnFocusElement,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldReturnFocusAfterNfmSideMenuClose({
       reason: "escape",
       returnFocusElement,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldReturnFocusAfterNfmSideMenuClose({
       reason: "action",
       returnFocusElement,
-    })).toBeTrue();
+    })).toBe(true);
     expect(resolveNfmSideMenuReturnFocusElement({
       reason: "editor-outside-pointer",
       returnFocusElement,
@@ -364,15 +364,15 @@ describe("nfm side menu surface", () => {
     expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
       target: editorBlank,
       editorRoot,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
       target: outsideElement,
       editorRoot,
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
       target: editorBlank,
       editorRoot: null,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("preserves dismissed toolbar suppression only for non-mutating close reasons", () => {
@@ -400,22 +400,22 @@ describe("nfm side menu surface", () => {
     expect(outsideSuppressionRange?.to).toBe(10);
     expect(escapeSuppressionRange?.from).toBe(4);
     expect(escapeSuppressionRange?.to).toBe(10);
-    expect(actionSuppressionRange === null).toBeTrue();
+    expect(actionSuppressionRange === null).toBe(true);
   });
 
   test("keeps dismissed toolbar suppression only while the current selection range matches", () => {
     expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
       selectionRange: { from: 4, to: 10 },
       suppressionRange: { from: 4, to: 10 },
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
       selectionRange: { from: 4, to: 11 },
       suppressionRange: { from: 4, to: 10 },
-    })).toBeFalse();
+    })).toBe(false);
     expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
       selectionRange: { from: 4, to: 10 },
       suppressionRange: null,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("renders dialog, combobox, listbox, and disabled reference mocks in dev contexts", () => {
@@ -429,7 +429,7 @@ describe("nfm side menu surface", () => {
 
     const askAi = view.getByRole("option", { name: /Ask AI/ });
     expect(askAi.getAttribute("aria-disabled")).toBe("true");
-    expect(askAi.textContent?.includes("Mock")).toBeTrue();
+    expect(askAi.textContent?.includes("Mock")).toBe(true);
 
     fireEvent.click(askAi);
     expect(calls.rows.length).toBe(0);
@@ -442,7 +442,7 @@ describe("nfm side menu surface", () => {
     });
 
     expect(view.getByText("Code")).not.toBeNull();
-    expect(view.queryByRole("option", { name: /Copy link to block/ }) === null).toBeTrue();
+    expect(view.queryByRole("option", { name: /Copy link to block/ }) === null).toBe(true);
   });
 
   test("renders the multi-block title while hiding copy-link rows in production", () => {
@@ -453,7 +453,7 @@ describe("nfm side menu surface", () => {
     });
 
     expect(view.getByText("3 blocks")).not.toBeNull();
-    expect(view.queryByRole("option", { name: /Copy links to all/ }) === null).toBeTrue();
+    expect(view.queryByRole("option", { name: /Copy links to all/ }) === null).toBe(true);
   });
 
   test("hides the footer when no real metadata is available", () => {
@@ -468,9 +468,9 @@ describe("nfm side menu surface", () => {
   test("hides reference mock rows in production contexts", () => {
     const { view } = renderSideMenuSurface({ showMockActions: false });
 
-    expect(view.queryByRole("option", { name: /Copy link to block/ }) === null).toBeTrue();
-    expect(view.queryByRole("option", { name: /Ask AI/ }) === null).toBeTrue();
-    expect(view.queryByText("Mock") === null).toBeTrue();
+    expect(view.queryByRole("option", { name: /Copy link to block/ }) === null).toBe(true);
+    expect(view.queryByRole("option", { name: /Ask AI/ }) === null).toBe(true);
+    expect(view.queryByText("Mock") === null).toBe(true);
     expect(view.getByRole("option", { name: /Duplicate/ })).not.toBeNull();
   });
 
@@ -497,7 +497,7 @@ describe("nfm side menu surface", () => {
 
     const submenuDialog = await view.findByRole("dialog", { name: "Turn into" });
     expect(submenuDialog.getAttribute("data-nfm-side-menu-submenu")).toBe("true");
-    expect(mainDialog.contains(submenuDialog)).toBeFalse();
+    expect(mainDialog.contains(submenuDialog)).toBe(false);
   });
 
   test("opens a DB-only Card in picker from Turn into", async () => {
@@ -573,7 +573,7 @@ describe("nfm side menu surface", () => {
 
     const submenuDialog = await view.findByRole("dialog", { name: "Move to" });
     expect(submenuDialog.getAttribute("data-nfm-side-menu-submenu")).toBe("true");
-    expect(mainDialog.contains(submenuDialog)).toBeFalse();
+    expect(mainDialog.contains(submenuDialog)).toBe(false);
     expect(view.getByRole("combobox", { name: "Move blocks to" })).not.toBeNull();
     expect(view.getByText("DB")).not.toBeNull();
     expect(view.getByText("Card")).not.toBeNull();

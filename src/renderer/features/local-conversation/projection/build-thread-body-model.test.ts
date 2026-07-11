@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { CodexConversationItem, CodexConversationSnapshot } from "../../../lib/types";
 import {
@@ -133,7 +133,7 @@ describe("buildThreadBodyModel", () => {
       threadStartProgress: null,
     });
 
-    expect(model.hasAboveComposerBlocks).toBeTrue();
+    expect(model.hasAboveComposerBlocks).toBe(true);
   });
 
   test("keeps above-composer portal presence when live fileChange rows coexist with turn diff", () => {
@@ -190,7 +190,7 @@ describe("buildThreadBodyModel", () => {
       threadStartProgress: null,
     });
 
-    expect(model.hasAboveComposerBlocks).toBeTrue();
+    expect(model.hasAboveComposerBlocks).toBe(true);
   });
 
   test("renders archived threads as restorable instead of resuming", () => {
@@ -235,7 +235,7 @@ describe("buildThreadBodyModel", () => {
       },
     });
 
-    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.showThreadStartProgressPanel).toBe(false);
     expect(model.emptyState.type).toBe("none");
   });
 
@@ -257,7 +257,7 @@ describe("buildThreadBodyModel", () => {
       },
     });
 
-    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.showThreadStartProgressPanel).toBe(false);
     expect(model.emptyState.type).toBe("none");
   });
 
@@ -282,7 +282,7 @@ describe("buildThreadBodyModel", () => {
       },
     });
 
-    expect(model.showThreadStartProgressPanel).toBeTrue();
+    expect(model.showThreadStartProgressPanel).toBe(true);
     expect(model.emptyState.type).toBe("none");
   });
 
@@ -307,7 +307,7 @@ describe("buildThreadBodyModel", () => {
       },
     });
 
-    expect(model.showThreadStartProgressPanel).toBeTrue();
+    expect(model.showThreadStartProgressPanel).toBe(true);
     expect(model.emptyState.type).toBe("none");
   });
 
@@ -331,7 +331,7 @@ describe("buildThreadBodyModel", () => {
       },
     });
 
-    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.showThreadStartProgressPanel).toBe(false);
     expect(model.turnCount).toBe(1);
     expect(model.activeTurnId).toBe("turn_1");
     expect(model.emptyState.type).toBe("none");
@@ -370,7 +370,7 @@ describe("buildThreadBodyModel", () => {
       threadStartProgress: null,
     });
 
-    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.showThreadStartProgressPanel).toBe(false);
     expect(model.emptyState.type).toBe("emptyThread");
   });
 });

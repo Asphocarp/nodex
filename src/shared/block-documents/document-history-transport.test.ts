@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   bindTrustedDocumentVersionCheckpoint,
   DocumentHistoryContractError,
@@ -90,7 +90,7 @@ describe("Document history transport contracts", () => {
     } catch (error) {
       scopeError = error;
     }
-    expect(cursorError instanceof DocumentHistoryContractError).toBeTrue();
-    expect(scopeError instanceof DocumentHistoryContractError).toBeTrue();
+    expect(cursorError instanceof DocumentHistoryContractError).toBe(true);
+    expect(scopeError instanceof DocumentHistoryContractError).toBe(true);
   });
 });

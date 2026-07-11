@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   bindTrustedCardLifecycleMutation,
   cardLifecycleMutationHttpStatus,
@@ -24,14 +24,14 @@ describe("Card lifecycle transport binding", () => {
       actor: { kind: "electron", webContentsId: 7 },
       clientSessionId: "renderer-7",
     });
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.operationId).toBe("card-lifecycle-1");
     expect(result.value.projectId).toBe("project-1");
     expect(result.value.clientSessionId).toBe("renderer-7");
     expect(result.value.actor.kind).toBe("electron");
     expect(result.value.actor.webContentsId).toBe(7);
-    expect(result.value.actor.userId === undefined).toBeTrue();
+    expect(result.value.actor.userId === undefined).toBe(true);
   });
 
   test("rejects malformed and cross-Project envelopes with stable hints", () => {
@@ -40,7 +40,7 @@ describe("Card lifecycle transport binding", () => {
       "project-2",
       { actor: { kind: "http_loopback" } },
     );
-    expect(wrongProject.ok).toBeFalse();
+    expect(wrongProject.ok).toBe(false);
     if (wrongProject.ok) return;
     expect(wrongProject.error.code).toBe("invalid_card_lifecycle_request");
     expect(wrongProject.error.operationId).toBe("card-lifecycle-1");
@@ -51,7 +51,7 @@ describe("Card lifecycle transport binding", () => {
       "project-1",
       { actor: { kind: "http_loopback" } },
     );
-    expect(malformed.ok).toBeFalse();
+    expect(malformed.ok).toBe(false);
     if (malformed.ok) return;
     expect(malformed.error.operationId).toBe("card-lifecycle-1");
     expect(malformed.error.cardId).toBe("card-1");

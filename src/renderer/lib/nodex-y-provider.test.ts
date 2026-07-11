@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type {
   DocumentAwarenessPublishRequest,
@@ -386,8 +386,8 @@ describe("NodexYProvider", () => {
     });
     try {
       await Promise.all([first.connect(), second.connect()]);
-      expect(firstDocument.clientID !== secondDocument.clientID).toBeTrue();
-      expect(first.clientSessionId !== second.clientSessionId).toBeTrue();
+      expect(firstDocument.clientID !== secondDocument.clientID).toBe(true);
+      expect(first.clientSessionId !== second.clientSessionId).toBe(true);
 
       firstDocument.getText("title").insert(0, "A");
       secondDocument.getText("title").insert(0, "B");
@@ -463,7 +463,7 @@ describe("NodexYProvider", () => {
     let restartedSecond: NodexYProvider | null = null;
     try {
       await Promise.all([first.connect(), second.connect()]);
-      expect(firstDocument.clientID !== secondDocument.clientID).toBeTrue();
+      expect(firstDocument.clientID !== secondDocument.clientID).toBe(true);
 
       firstDocument.transact(() => {
         const title = openCardDocument(firstDocument).title;
@@ -487,14 +487,14 @@ describe("NodexYProvider", () => {
           first.getStatus().headSeq === 3 && second.getStatus().headSeq === 3,
       );
       const concurrentMaterialization = materializeCardDocument(firstDocument);
-      expect(concurrentMaterialization.title.includes(" / Alpha")).toBeTrue();
-      expect(concurrentMaterialization.title.includes(" / Beta")).toBeTrue();
+      expect(concurrentMaterialization.title.includes(" / Alpha")).toBe(true);
+      expect(concurrentMaterialization.title.includes(" / Beta")).toBe(true);
       expect(
         concurrentMaterialization.plainText.includes("Root edited by Alpha"),
-      ).toBeTrue();
+      ).toBe(true);
       expect(
         concurrentMaterialization.nfm.includes("*Root* edited by Alpha"),
-      ).toBeTrue();
+      ).toBe(true);
       expect(JSON.stringify(materializeCardDocument(secondDocument))).toBe(
         JSON.stringify(concurrentMaterialization),
       );
@@ -555,11 +555,11 @@ describe("NodexYProvider", () => {
         autoConnect: false,
       });
       await Promise.all([restartedFirst.connect(), restartedSecond.connect()]);
-      expect(restartedFirstDocument.clientID !== firstClientId).toBeTrue();
-      expect(restartedSecondDocument.clientID !== secondClientId).toBeTrue();
+      expect(restartedFirstDocument.clientID !== firstClientId).toBe(true);
+      expect(restartedSecondDocument.clientID !== secondClientId).toBe(true);
       expect(
         restartedFirstDocument.clientID !== restartedSecondDocument.clientID,
-      ).toBeTrue();
+      ).toBe(true);
 
       const restartedMaterialization = materializeCardDocument(
         restartedFirstDocument,
@@ -744,9 +744,9 @@ describe("NodexYProvider", () => {
 
       const firstRequest = adapter.applyCalls[0];
       const secondRequest = adapter.applyCalls[1];
-      expect(firstRequest === secondRequest).toBeTrue();
+      expect(firstRequest === secondRequest).toBe(true);
       expect(firstRequest?.updateId).toBe(secondRequest?.updateId);
-      expect(firstRequest?.update === secondRequest?.update).toBeTrue();
+      expect(firstRequest?.update === secondRequest?.update).toBe(true);
       expect(adapter.syncCalls.length).toBe(2);
       expect(adapter.headSeq).toBe(1);
       expect(adapter.serverDocument.getText("title").toString()).toBe(
@@ -836,7 +836,7 @@ describe("NodexYProvider", () => {
       );
       expect(
         second.awareness.getStates().has(firstDocument.clientID),
-      ).toBeFalse();
+      ).toBe(false);
     } finally {
       first.destroy();
       second.destroy();
@@ -972,8 +972,8 @@ describe("NodexYProvider", () => {
       expect(status.error?.code).toBe("block_relocated");
       expect(status.error?.relocationId).toBe("relocation-1");
       expect(status.error?.recoveryArtifactId).toBe("artifact-1");
-      expect(status.error?.retryable).toBeFalse();
-      expect(status.error?.resetRequired).toBeTrue();
+      expect(status.error?.retryable).toBe(false);
+      expect(status.error?.resetRequired).toBe(true);
       expect(retryCallbacks.length).toBe(0);
       expect(adapter.applyCalls.length).toBe(1);
     } finally {
@@ -1091,7 +1091,7 @@ describe("NodexYProvider", () => {
       });
       provider.destroy();
       await flushing;
-      expect(flushRejected).toBeTrue();
+      expect(flushRejected).toBe(true);
       expect(provider.getStatus().phase).toBe("destroyed");
 
       document.getText("title").insert(7, " surface");
@@ -1143,7 +1143,7 @@ describe("NodexYProvider", () => {
         deadlineAt: Date.now() + 10_000,
       });
       await waitUntil(() => provider.getStatus().phase === "relocating");
-      expect(surfacePrepared).toBeTrue();
+      expect(surfacePrepared).toBe(true);
       expect(adapter.relocationLeaseCalls.length).toBe(0);
 
       const pendingRequest = adapter.applyCalls[0];
@@ -1198,7 +1198,7 @@ describe("NodexYProvider", () => {
       }
       expect(adapter.applyCalls.length).toBe(0);
       expect(adapter.serverDocument.getText("title").toString()).toBe("");
-      expect(provider.getStatus().error?.resetRequired).toBeTrue();
+      expect(provider.getStatus().error?.resetRequired).toBe(true);
     } finally {
       provider.destroy();
       document.destroy();
@@ -1348,7 +1348,7 @@ describe("NodexYProvider", () => {
       expect(document.getText("title").toString()).toBe(
         "committed while frozen",
       );
-      expect(committedUpdate.length > 0).toBeTrue();
+      expect(committedUpdate.length > 0).toBe(true);
     } finally {
       provider.destroy();
       document.destroy();
@@ -1451,7 +1451,7 @@ describe("NodexYProvider", () => {
       if (!watchdog) throw new Error("Missing terminal watchdog");
       watchdog();
       await waitUntil(() => provider.getStatus().phase === "reset-required");
-      expect(provider.getStatus().error?.resetRequired).toBeTrue();
+      expect(provider.getStatus().error?.resetRequired).toBe(true);
     } finally {
       provider.destroy();
       document.destroy();

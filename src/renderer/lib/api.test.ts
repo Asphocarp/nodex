@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 
 function restoreWindow(originalWindowDescriptor: PropertyDescriptor | undefined): void {
   delete (globalThis as { window?: unknown }).window;
@@ -13,7 +13,8 @@ describe("renderer api transport", () => {
     delete (globalThis as { window?: unknown }).window;
 
     try {
-      const { invoke } = await import(`./api?transport-test=${Date.now()}`);
+      vi.resetModules();
+      const { invoke } = await import("./api");
       const invokeCalls: unknown[][] = [];
 
       Object.defineProperty(globalThis, "window", {
@@ -71,7 +72,8 @@ describe("renderer api transport", () => {
     });
 
     try {
-      const { updateCardDescription } = await import(`./api?description-chunks-test=${Date.now()}`);
+      vi.resetModules();
+      const { updateCardDescription } = await import("./api");
       const description = `${"a".repeat((16 * 1024) - 1)}🙂tail`;
 
       const result = await updateCardDescription({
@@ -90,9 +92,9 @@ describe("renderer api transport", () => {
 
       expect(result.status).toBe("updated");
       expect(chunks.length).toBe(2);
-      expect(firstChunkLastCodeUnit >= 0xd800 && firstChunkLastCodeUnit <= 0xdbff).toBeFalse();
+      expect(firstChunkLastCodeUnit >= 0xd800 && firstChunkLastCodeUnit <= 0xdbff).toBe(false);
       expect(chunks.join("")).toBe(description);
-      expect(JSON.stringify(calls[0]?.[1]).includes("description")).toBeFalse();
+      expect(JSON.stringify(calls[0]?.[1]).includes("description")).toBe(false);
     } finally {
       restoreWindow(originalWindowDescriptor);
     }
@@ -119,7 +121,8 @@ describe("renderer api transport", () => {
     });
 
     try {
-      const { updateCardDescription } = await import(`./api?description-abort-test=${Date.now()}`);
+      vi.resetModules();
+      const { updateCardDescription } = await import("./api");
       let errorMessage = "";
 
       try {
@@ -134,7 +137,7 @@ describe("renderer api transport", () => {
       }
 
       expect(errorMessage).toBe("chunk failed");
-      expect(calls.some((call) => call[0] === "card:description:update:abort")).toBeTrue();
+      expect(calls.some((call) => call[0] === "card:description:update:abort")).toBe(true);
     } finally {
       restoreWindow(originalWindowDescriptor);
     }

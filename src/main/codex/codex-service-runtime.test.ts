@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -51,10 +51,10 @@ describe("codex-service runtime bootstrap", () => {
 
       try {
         const expectedRuntimeRootSuffix = path.join(".generated", "codex-runtime", "bin");
-        expect(service.client.binaryPath.endsWith(path.join(expectedRuntimeRootSuffix, "codex"))).toBeTrue();
-        expect((service.client.additionalSearchPaths[0] ?? "").endsWith(expectedRuntimeRootSuffix)).toBeTrue();
+        expect(service.client.binaryPath.endsWith(path.join(expectedRuntimeRootSuffix, "codex"))).toBe(true);
+        expect((service.client.additionalSearchPaths[0] ?? "").endsWith(expectedRuntimeRootSuffix)).toBe(true);
         expect(service.client.missingBinaryMessage).toBe(
-          "Pinned Codex runtime is missing or incomplete. Run `bun run stage:codex-runtime:mac`.",
+          "Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
         );
       } finally {
         await service.shutdown();

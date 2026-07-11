@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ReviewFileTreeEntry } from "./review-file-tree-model";
 import {
   buildReviewFileTreeDefaultExpandedPaths,
@@ -47,7 +47,7 @@ describe("review file tree model", () => {
 
     expect(state.rows.length).toBe(2);
     expect(state.rows[0]?.type).toBe("folder");
-    expect(state.rows[0]?.isFlattenedDirectory).toBeTrue();
+    expect(state.rows[0]?.isFlattenedDirectory).toBe(true);
     expect(state.rows[0]?.flattenedParts.length).toBe(3);
     expect(state.rows[0]?.path).toBe("src/features/review");
     expect(state.rows[1]?.path).toBe("src/features/review/panel.tsx");
@@ -69,7 +69,7 @@ describe("review file tree model", () => {
     expect(state.rows.length).toBe(2);
     expect(state.rows[0]?.type).toBe("folder");
     expect(state.rows[0]?.path).toBe("src");
-    expect(state.rows[0]?.isExpanded).toBeTrue();
+    expect(state.rows[0]?.isExpanded).toBe(true);
     expect(state.rows[1]?.path).toBe("src/example.ts");
   });
 
@@ -79,8 +79,8 @@ describe("review file tree model", () => {
       buildEntry("src/nested/feature.ts"),
     ]);
 
-    expect(expanded.includes("src")).toBeTrue();
-    expect(expanded.includes("src/nested")).toBeTrue();
+    expect(expanded.includes("src")).toBe(true);
+    expect(expanded.includes("src/nested")).toBe(true);
   });
 
   test("derives folder ancestors that must expand for the selected file", () => {
@@ -129,8 +129,8 @@ describe("review file tree model", () => {
       },
     );
 
-    expect(state.rows[2]?.isSelected).toBeTrue();
-    expect(state.rows[2]?.isFocused).toBeTrue();
+    expect(state.rows[2]?.isSelected).toBe(true);
+    expect(state.rows[2]?.isFocused).toBe(true);
   });
 
   test("derives folder git change indicators and file git status slots", () => {
@@ -148,7 +148,7 @@ describe("review file tree model", () => {
       },
     );
 
-    expect(state.rows[0]?.containsGitChange).toBeTrue();
+    expect(state.rows[0]?.containsGitChange).toBe(true);
     expect(state.rows[0]?.gitStatus ?? null).toBe(null);
     expect(state.rows[2]?.gitStatus).toBe("modified");
   });
@@ -163,6 +163,6 @@ describe("review file tree model", () => {
       },
     );
 
-    expect(state.rows[1]?.isLocked).toBeTrue();
+    expect(state.rows[1]?.isLocked).toBe(true);
   });
 });

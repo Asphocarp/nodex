@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexConversationSnapshot, CodexConversationTurn } from "../../../lib/types";
 import {
   buildThreadSummaryPanelSideChatRow,
@@ -28,7 +28,7 @@ describe("buildThreadSummaryPanelSideChatRow", () => {
 
     expect(row.id).toBe("sidechat:thread-side");
     expect(row.title).toBe("Investigate layout");
-    expect(row.isResponseInProgress).toBeTrue();
+    expect(row.isResponseInProgress).toBe(true);
     expect(row.panelId).toBe("right");
     expect(row.leafId).toBe("leaf-a");
   });
@@ -41,7 +41,7 @@ describe("buildThreadSummaryPanelSideChatRow", () => {
       panelId: "bottom",
     }, null);
 
-    expect(row.isResponseInProgress).toBeFalse();
+    expect(row.isResponseInProgress).toBe(false);
     expect(row.leafId).toBe(null);
   });
 });
@@ -54,10 +54,10 @@ describe("isThreadSummarySideChatResponseInProgress", () => {
       items: [],
     }] as unknown as CodexConversationTurn[];
 
-    expect(isThreadSummarySideChatResponseInProgress(null)).toBeFalse();
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation())).toBeFalse();
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ statusType: "active" }))).toBeTrue();
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ statusActiveFlags: ["waitingOnUserInput"] }))).toBeTrue();
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ turns: inProgressTurn }))).toBeTrue();
+    expect(isThreadSummarySideChatResponseInProgress(null)).toBe(false);
+    expect(isThreadSummarySideChatResponseInProgress(makeConversation())).toBe(false);
+    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ statusType: "active" }))).toBe(true);
+    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ statusActiveFlags: ["waitingOnUserInput"] }))).toBe(true);
+    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ turns: inProgressTurn }))).toBe(true);
   });
 });

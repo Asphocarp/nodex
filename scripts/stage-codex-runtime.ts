@@ -189,7 +189,7 @@ function parseCliOptions(argv: string[]): CliOptions {
   }
 
   if (!targetPlatform || !targetArch || !outputPath) {
-    throw new Error("Usage: bun run scripts/stage-codex-runtime.ts --target-platform darwin --target-arch <arm64|x64> --out <dir>");
+    throw new Error("Usage: pnpm run scripts/stage-codex-runtime.ts --target-platform darwin --target-arch <arm64|x64> --out <dir>");
   }
 
   return {

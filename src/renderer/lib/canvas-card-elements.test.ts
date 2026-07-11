@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardSummary } from "./types";
 import {
   collectPlacedCardIds,
@@ -69,8 +69,8 @@ describe("canvas-card-elements placed card helpers", () => {
     const right = new Set(["card-2", "card-1"]);
     const different = new Set(["card-1", "card-3"]);
 
-    expect(haveSameCardIds(left, right)).toBeTrue();
-    expect(haveSameCardIds(left, different)).toBeFalse();
+    expect(haveSameCardIds(left, right)).toBe(true);
+    expect(haveSameCardIds(left, different)).toBe(false);
   });
 
   test("syncPlacedCardIds returns previous state when card IDs are unchanged", () => {
@@ -83,8 +83,8 @@ describe("canvas-card-elements placed card helpers", () => {
     ]);
     const changed = syncPlacedCardIds(previous, [cardElement("card-1")]);
 
-    expect(same === previous).toBeTrue();
-    expect(changed === previous).toBeFalse();
+    expect(same === previous).toBe(true);
+    expect(changed === previous).toBe(false);
     expect(sortedJson(changed)).toBe(JSON.stringify(["card-1"]));
   });
 

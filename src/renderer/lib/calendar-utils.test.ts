@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   getVisibleDays,
   snapToSlot,
@@ -104,7 +104,7 @@ describe("resolveNowY", () => {
     const now = new Date(2026, 1, 14, 9, 30, 30, 500);
     const expected = 570.5083333333333;
     const actual = resolveNowY(now);
-    expect(Math.abs(actual - expected) < 1e-9).toBeTrue();
+    expect(Math.abs(actual - expected) < 1e-9).toBe(true);
   });
 
   test("falls back to default hour height for invalid inputs", () => {

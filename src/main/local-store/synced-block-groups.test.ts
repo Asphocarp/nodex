@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -232,7 +232,7 @@ describe("Synced Block document-bearing ownership", () => {
           actor: ACTOR,
           blockTree: [paragraph("synced-paragraph", "base")],
         });
-        expect(created.duplicate).toBeFalse();
+        expect(created.duplicate).toBe(false);
         const retry = createSyncedBlockSource(database, {
           operationId: "synced:create:convergence",
           projectId,
@@ -243,7 +243,7 @@ describe("Synced Block document-bearing ownership", () => {
           actor: { test: "retry" },
           blockTree: [paragraph("synced-paragraph", "base")],
         });
-        expect(retry.duplicate).toBeTrue();
+        expect(retry.duplicate).toBe(true);
 
         const loaded = loadPrimaryBlockDocument(database, created.documentId);
         const base = Y.encodeStateAsUpdate(loaded.document);
@@ -333,7 +333,7 @@ describe("Synced Block document-bearing ownership", () => {
             },
           },
         );
-        expect(restored.ok).toBeTrue();
+        expect(restored.ok).toBe(true);
         expect(
           readMaterialization(database, created.documentId).plainText,
         ).toBe("LbaseR");
@@ -374,7 +374,7 @@ describe("Synced Block document-bearing ownership", () => {
             headSeq: 1,
           }),
         });
-        expect(promoted.duplicate).toBeFalse();
+        expect(promoted.duplicate).toBe(false);
         const source = readMaterialization(database, "document:synced-source");
         expect(JSON.stringify(source.blockTree.map((block) => block.id))).toBe(
           '["promoted-root"]',
@@ -417,7 +417,7 @@ describe("Synced Block document-bearing ownership", () => {
             headSeq: 1,
           }),
         });
-        expect(retry.duplicate).toBeTrue();
+        expect(retry.duplicate).toBe(true);
 
         const copied = copySyncedBlockSource(database, {
           operationId: "synced:copy",
@@ -433,10 +433,10 @@ describe("Synced Block document-bearing ownership", () => {
           actor: ACTOR,
         });
         const copy = readMaterialization(database, copied.documentId);
-        expect(copy.blockTree[0]?.id === "promoted-root").toBeFalse();
+        expect(copy.blockTree[0]?.id === "promoted-root").toBe(false);
         expect(
           copy.blockTree[0]?.children[0]?.id === "promoted-child",
-        ).toBeFalse();
+        ).toBe(false);
 
         const demoted = demoteSyncedBlockSource(database, {
           operationId: "synced:demote",
@@ -466,7 +466,7 @@ describe("Synced Block document-bearing ownership", () => {
             },
           ),
         });
-        expect(demoted.duplicate).toBeFalse();
+        expect(demoted.duplicate).toBe(false);
         const inlined = readMaterialization(database, "document:host-card");
         expect(inlined.blockTree[0]?.id).toBe("promoted-root");
         expect(inlined.blockTree[0]?.children[0]?.id).toBe("promoted-child");
@@ -519,7 +519,7 @@ describe("Synced Block document-bearing ownership", () => {
         } catch {
           failed = true;
         }
-        expect(failed).toBeTrue();
+        expect(failed).toBe(true);
         const residual = database
           .prepare("SELECT COUNT(*) AS count FROM blocks WHERE id IN (?, ?)")
           .get("fault-source", "fault-reference") as { readonly count: number };
@@ -576,7 +576,7 @@ describe("Synced Block document-bearing ownership", () => {
         } catch (error) {
           staleError = error;
         }
-        expect(staleError instanceof SyncedBlockGroupError).toBeTrue();
+        expect(staleError instanceof SyncedBlockGroupError).toBe(true);
         expect((staleError as SyncedBlockGroupError).code).toBe(
           "document_state_corrupt",
         );
@@ -605,7 +605,7 @@ describe("Synced Block document-bearing ownership", () => {
       } catch (caught) {
         error = caught;
       }
-      expect(error instanceof Error).toBeTrue();
+      expect(error instanceof Error).toBe(true);
       expect(String(error)).toBe(
         `BlockDocumentStoreError: Document ${created.documentId} uses unsupported owner/schema ${SYNCED_BLOCK_SOURCE_TYPE}/nodex.card@1`,
       );

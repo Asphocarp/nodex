@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { NfmEditorContextMenuPreview, runNfmEditorContextCommand } from "./nfm-editor-context-menu";
 
@@ -16,12 +16,12 @@ describe("nfm editor context menu", () => {
       />,
     );
 
-    expect(Boolean(view.baseElement.textContent?.includes("Cut"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("⌘X"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Copy"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("⌘C"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Paste"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("⌘V"))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Cut"))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("⌘X"))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("Copy"))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("⌘C"))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("Paste"))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("⌘V"))).toBe(true);
   });
 
   test("emits the selected editing command", () => {
@@ -58,7 +58,7 @@ describe("nfm editor context menu", () => {
       },
     );
 
-    expect(handled).toBeTrue();
+    expect(handled).toBe(true);
     expect(calls.join(",")).toBe("focus,cut");
   });
 
@@ -97,7 +97,7 @@ describe("nfm editor context menu", () => {
         },
       );
 
-      expect(handled).toBeTrue();
+      expect(handled).toBe(true);
       expect(calls.join(",")).toBe("focus,paste:from clipboard");
     } finally {
       Object.defineProperty(window, "api", {
@@ -148,7 +148,7 @@ describe("nfm editor context menu", () => {
         () => true,
       );
 
-      expect(handled).toBeTrue();
+      expect(handled).toBe(true);
       expect(calls.join(",")).toBe("focus,paste:native clipboard");
     } finally {
       Object.defineProperty(window, "api", {

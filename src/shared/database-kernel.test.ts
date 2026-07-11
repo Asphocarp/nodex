@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   canonicalizeDatabaseMutationIntent,
   evaluateDatabaseViewFilter,
@@ -68,7 +68,7 @@ describe("general Database mutation contract", () => {
       ...request(),
       operations: [{ ...request().operations[0], rankKey: "client-owned" }],
     };
-    expect(fails(() => parseDatabaseMutationRequest(untrustedRank))).toBeTrue();
+    expect(fails(() => parseDatabaseMutationRequest(untrustedRank))).toBe(true);
   });
 
   test("accepts one connected Board intent and rejects duplicate, reversed, or unrelated writes", () => {
@@ -100,7 +100,7 @@ describe("general Database mutation contract", () => {
           operations: [value, { ...value, value: "backlog" }],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -108,7 +108,7 @@ describe("general Database mutation contract", () => {
           operations: [position, value],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -128,7 +128,7 @@ describe("general Database mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -139,7 +139,7 @@ describe("general Database mutation contract", () => {
           })),
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("compresses a bounded ordered multi-Card drag without weakening field conflicts", () => {
@@ -193,7 +193,7 @@ describe("general Database mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -209,7 +209,7 @@ describe("general Database mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -229,7 +229,7 @@ describe("general Database mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("requires strict versioned View configs and stable option identities", () => {
@@ -247,7 +247,7 @@ describe("general Database mutation contract", () => {
         },
       ],
     };
-    expect(fails(() => parseDatabaseMutationRequest(looseConfig))).toBeTrue();
+    expect(fails(() => parseDatabaseMutationRequest(looseConfig))).toBe(true);
 
     const duplicateOptions = {
       ...request(),
@@ -272,7 +272,7 @@ describe("general Database mutation contract", () => {
     };
     expect(
       fails(() => parseDatabaseMutationRequest(duplicateOptions)),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -286,7 +286,7 @@ describe("general Database mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -299,7 +299,7 @@ describe("general Database mutation contract", () => {
           ],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("evaluates bounded recursive DNF filters with explicit empty-group semantics", () => {
@@ -355,19 +355,19 @@ describe("general Database mutation contract", () => {
     ]);
     expect(
       evaluateDatabaseViewFilter(filter, (id) => values.get(id)),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       evaluateDatabaseViewFilter(
         { kind: "group", operator: "and", children: [] },
         () => undefined,
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       evaluateDatabaseViewFilter(
         { kind: "group", operator: "or", children: [] },
         () => undefined,
       ),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("rejects recursive filters with unknown fields or excessive bounds", () => {
@@ -383,7 +383,7 @@ describe("general Database mutation contract", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
 
     let tooDeep: unknown = {
       kind: "clause",
@@ -400,7 +400,7 @@ describe("general Database mutation contract", () => {
           filter: tooDeep,
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseGeneralDatabaseViewConfig({
@@ -416,7 +416,7 @@ describe("general Database mutation contract", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("canonicalizes set intent and rejects overlapping set deltas", () => {
@@ -447,7 +447,7 @@ describe("general Database mutation contract", () => {
           operations: [{ ...delta.operations[0], remove: ["a"] }],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("normalizes values against the authoritative stable option registry", () => {
@@ -459,7 +459,7 @@ describe("general Database mutation contract", () => {
           "invented",
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     const multi = parseDatabasePropertyConfig("multi_select", {
       options: [
         { id: "a", name: "A" },

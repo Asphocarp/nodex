@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { createElement, StrictMode, type ReactNode } from "react";
 import type { BoardSummary, CardSummary } from "@/lib/types";
@@ -229,9 +229,9 @@ const runtime = {
   },
 };
 
-mock.module("@excalidraw/excalidraw/index.css", () => ({}));
+vi.mock("@excalidraw/excalidraw/index.css", () => ({}));
 
-mock.module("./canvas-view-deps", () => ({
+vi.mock("./canvas-view-deps", () => ({
   loadExcalidraw: async () => ({
     Excalidraw: MockExcalidraw,
     convertToExcalidrawElements: (skeletons: readonly MockCanvasElement[]) =>
@@ -426,8 +426,8 @@ describe("CanvasView", () => {
       ).toBe(2);
     });
 
-    expect(sidebarRenderCount > initialSidebarRenderCount).toBeTrue();
-    expect(textContent(view.container).includes("placed:card-1,card-2")).toBeTrue();
+    expect(sidebarRenderCount > initialSidebarRenderCount).toBe(true);
+    expect(textContent(view.container).includes("placed:card-1,card-2")).toBe(true);
   });
 
   test("remote Y.Doc transactions reconcile through Excalidraw without entering local undo", async () => {
@@ -453,11 +453,11 @@ describe("CanvasView", () => {
     });
 
     await waitFor(() => {
-      expect(updateSceneCalls.length > callsBeforeRemote).toBeTrue();
+      expect(updateSceneCalls.length > callsBeforeRemote).toBe(true);
     });
     const latest = updateSceneCalls[updateSceneCalls.length - 1];
     expect(latest?.captureUpdate).toBe("never");
     expect(mockSceneElements[0]?.x).toBe(240);
-    expect(mockAppState.gridModeEnabled).toBeTrue();
+    expect(mockAppState.gridModeEnabled).toBe(true);
   });
 });

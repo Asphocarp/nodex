@@ -89,7 +89,7 @@ export function resolveCodexRuntime(options: ResolveCodexRuntimeOptions): Resolv
     return resolveRuntimeFromRoot({
       source: "staged",
       runtimeRoot: path.join(projectRootPath, ".generated", "codex-runtime", "bin"),
-      missingBinaryMessage: "Pinned Codex runtime is missing or incomplete. Run `bun run stage:codex-runtime:mac`.",
+      missingBinaryMessage: "Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
     });
   }
 

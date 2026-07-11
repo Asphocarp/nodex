@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -89,7 +89,7 @@ describe("codex scheduled automations store", () => {
       expect(automations[0]?.id).toBe("automation-newer");
       expect(automations[1]?.id).toBe("automation-older");
       expect(automations[0]?.targetThreadId).toBe("thread-1");
-      expect(automations[0]?.nextRunAt !== null).toBeTrue();
+      expect(automations[0]?.nextRunAt !== null).toBe(true);
       expect(automations[1]?.cwds[0]).toBe("/tmp/project-alpha");
       expect(automations[1]?.model).toBe("gpt-5");
       expect(automations[1]?.reasoningEffort).toBe("medium");
@@ -98,26 +98,26 @@ describe("codex scheduled automations store", () => {
         path.join(tempDir, "automations", "automation-older", "automation.toml"),
         "utf8",
       );
-      expect(cronToml.includes("version = 1")).toBeTrue();
-      expect(cronToml.includes("id = \"automation-older\"")).toBeTrue();
-      expect(cronToml.includes("cwds = [\"/tmp/project-alpha\"]")).toBeTrue();
-      expect(cronToml.includes("created_at = 10")).toBeTrue();
-      expect(cronToml.includes("updated_at = 10")).toBeTrue();
-      expect(cronToml.includes("created_at = \"")).toBeFalse();
-      expect(cronToml.includes("updated_at = \"")).toBeFalse();
-      expect(cronToml.includes("next_run_at")).toBeFalse();
-      expect(cronToml.includes("last_run_at")).toBeFalse();
+      expect(cronToml.includes("version = 1")).toBe(true);
+      expect(cronToml.includes("id = \"automation-older\"")).toBe(true);
+      expect(cronToml.includes("cwds = [\"/tmp/project-alpha\"]")).toBe(true);
+      expect(cronToml.includes("created_at = 10")).toBe(true);
+      expect(cronToml.includes("updated_at = 10")).toBe(true);
+      expect(cronToml.includes("created_at = \"")).toBe(false);
+      expect(cronToml.includes("updated_at = \"")).toBe(false);
+      expect(cronToml.includes("next_run_at")).toBe(false);
+      expect(cronToml.includes("last_run_at")).toBe(false);
 
       const heartbeatToml = fs.readFileSync(
         path.join(tempDir, "automations", "automation-newer", "automation.toml"),
         "utf8",
       );
-      expect(heartbeatToml.includes("target_thread_id = \"thread-1\"")).toBeTrue();
-      expect(heartbeatToml.includes("created_at = 20")).toBeTrue();
-      expect(heartbeatToml.includes("updated_at = 20")).toBeTrue();
-      expect(heartbeatToml.includes("next_run_at")).toBeFalse();
-      expect(heartbeatToml.includes("last_run_at")).toBeFalse();
-      expect(heartbeatToml.includes("cwds =")).toBeFalse();
+      expect(heartbeatToml.includes("target_thread_id = \"thread-1\"")).toBe(true);
+      expect(heartbeatToml.includes("created_at = 20")).toBe(true);
+      expect(heartbeatToml.includes("updated_at = 20")).toBe(true);
+      expect(heartbeatToml.includes("next_run_at")).toBe(false);
+      expect(heartbeatToml.includes("last_run_at")).toBe(false);
+      expect(heartbeatToml.includes("cwds =")).toBe(false);
 
       closeDatabase();
       await initializeDatabase();
@@ -127,7 +127,7 @@ describe("codex scheduled automations store", () => {
       expect(restarted[1]?.prompt).toBe("Run the report.");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("reads reference-shaped TOML fixtures with numeric timestamps", async () => {
@@ -182,7 +182,7 @@ updated_at = 1783476123001
       expect(cron?.createdAt).toBe(1783472523000);
       expect(cron?.updatedAt).toBe(1783476123000);
       expect(cron?.lastRunAt).toBe(null);
-      expect(cron?.nextRunAt !== null).toBeTrue();
+      expect(cron?.nextRunAt !== null).toBe(true);
 
       const heartbeat = automations.find((automation) => automation.id === "reference-heartbeat");
       expect(heartbeat?.id).toBe("reference-heartbeat");
@@ -198,7 +198,7 @@ updated_at = 1783476123001
       expect(heartbeat?.nextRunAt).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("upserts and deletes scheduled automations by id", async () => {
@@ -245,14 +245,14 @@ updated_at = 1783476123001
       expect(preservedTarget.targetThreadId).toBe("thread-2");
       expect(preservedTarget.prompt).toBe("Check on blockers, but weekly.");
       expect(preservedTarget.rrule).toBe("FREQ=WEEKLY");
-      expect(preservedTarget.nextRunAt !== null).toBeTrue();
+      expect(preservedTarget.nextRunAt !== null).toBe(true);
       expect(getCodexScheduledAutomation("automation-1")?.name).toBe("Resumed standup");
       expect(deleteCodexScheduledAutomationWithStatus("automation-1").status).toBe("deleted");
       expect(getCodexScheduledAutomation("automation-1")).toBe(null);
       expect(deleteCodexScheduledAutomationWithStatus("automation-1").status).toBe("not_found");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("updates cron model and reasoning in TOML, SQLite mirror, and restarted reads", async () => {
@@ -296,9 +296,9 @@ updated_at = 1783476123001
         path.join(tempDir, "automations", "automation-model", "automation.toml"),
         "utf8",
       );
-      expect(toml.includes("model = \"gpt-5.1\"")).toBeTrue();
-      expect(toml.includes("reasoning_effort = \"high\"")).toBeTrue();
-      expect(toml.includes("execution_environment = \"local\"")).toBeTrue();
+      expect(toml.includes("model = \"gpt-5.1\"")).toBe(true);
+      expect(toml.includes("reasoning_effort = \"high\"")).toBe(true);
+      expect(toml.includes("execution_environment = \"local\"")).toBe(true);
 
       const mirror = getDb().prepare(`
         SELECT model, reasoning_effort, execution_environment
@@ -324,7 +324,7 @@ updated_at = 1783476123001
       expect(restarted?.reasoningEffort).toBe("high");
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("rejects unsafe ids, invalid cron payloads, and duplicate active heartbeats", async () => {
@@ -341,7 +341,7 @@ updated_at = 1783476123001
       } catch {
         invalidIdRejected = true;
       }
-      expect(invalidIdRejected).toBeTrue();
+      expect(invalidIdRejected).toBe(true);
 
       let invalidCronRejected = false;
       try {
@@ -355,7 +355,7 @@ updated_at = 1783476123001
       } catch {
         invalidCronRejected = true;
       }
-      expect(invalidCronRejected).toBeTrue();
+      expect(invalidCronRejected).toBe(true);
 
       upsertCodexScheduledAutomation({
         id: "heartbeat-one",
@@ -377,13 +377,13 @@ updated_at = 1783476123001
       } catch {
         duplicateRejected = true;
       }
-      expect(duplicateRejected).toBeTrue();
+      expect(duplicateRejected).toBe(true);
 
-      expect(deleteCodexScheduledAutomation("../automation")).toBeFalse();
-      expect(deleteCodexScheduledAutomation("heartbeat-one")).toBeTrue();
+      expect(deleteCodexScheduledAutomation("../automation")).toBe(false);
+      expect(deleteCodexScheduledAutomation("heartbeat-one")).toBe(true);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("deletes the active heartbeat automation for an archived target thread", async () => {
@@ -417,7 +417,7 @@ updated_at = 1783476123001
       expect(deleteActiveHeartbeatAutomationForTargetThread("thread-target")).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("selects due runs and records scheduler dispatch state in the mirror", async () => {
@@ -459,15 +459,15 @@ updated_at = 1783476123001
 
       const dispatched = recordCodexScheduledAutomationRunDispatched("due-cron", now);
       expect(dispatched?.lastRunAt).toBe(now);
-      expect((dispatched?.nextRunAt ?? 0) > now).toBeTrue();
+      expect((dispatched?.nextRunAt ?? 0) > now).toBe(true);
       expect(getCodexScheduledAutomation("due-cron")?.lastRunAt).toBe(now);
 
       const skipped = recordCodexScheduledAutomationNextScheduledRun("future-cron", now);
-      expect((skipped?.nextRunAt ?? 0) > now).toBeTrue();
+      expect((skipped?.nextRunAt ?? 0) > now).toBe(true);
       expect(skipped?.lastRunAt).toBe(null);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 
   test("reconciles missing next-run values for active automations", async () => {
@@ -489,10 +489,10 @@ updated_at = 1783476123001
       expect(recordCodexScheduledAutomationNextRun("missing-next-run", null, now)?.nextRunAt).toBe(null);
 
       expect(reconcileCodexScheduledAutomations(now)).toBe(1);
-      expect((getCodexScheduledAutomation("missing-next-run")?.nextRunAt ?? 0) > now).toBeTrue();
+      expect((getCodexScheduledAutomation("missing-next-run")?.nextRunAt ?? 0) > now).toBe(true);
       expect(reconcileCodexScheduledAutomations(now)).toBe(0);
     });
 
-    if (!ran) expect(true).toBeTrue();
+    if (!ran) expect(true).toBe(true);
   });
 });

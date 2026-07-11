@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { Fragment, createElement, type ReactNode } from "react";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
@@ -6,7 +6,7 @@ import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage
 
 let connectionBadgeRenderCount = 0;
 
-mock.module("./local-conversation-stage-header-deps", () => ({
+vi.mock("./local-conversation-stage-header-deps", () => ({
   CardInfoHoverCard: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
   invoke: async () => null,
   AuthPopover: ({ account }: { account: ThreadStageHeaderModel["account"] }) => (
@@ -97,7 +97,7 @@ describe("ThreadStageHeader auth chrome", () => {
     const title = container.querySelector('[data-testid="thread-stage-title"]');
     const header = container.firstElementChild;
     expect(title?.textContent).toBe("Review shell header parity");
-    expect(header?.className.includes("draggable")).toBeTrue();
+    expect(header?.className.includes("draggable")).toBe(true);
   });
 
   test("uses the single-lane Codex titlebar grid", async () => {
@@ -112,9 +112,9 @@ describe("ThreadStageHeader auth chrome", () => {
 
     const header = container.firstElementChild;
     const title = container.querySelector('[data-testid="thread-stage-title"]');
-    expect(header?.className.includes("grid-cols-[minmax(0,1fr)]")).toBeTrue();
-    expect(header?.className.includes("grid-cols-[minmax(0,1fr)_auto]")).toBeFalse();
-    expect(title?.firstElementChild?.className.includes("min-w-0 truncate")).toBeTrue();
+    expect(header?.className.includes("grid-cols-[minmax(0,1fr)]")).toBe(true);
+    expect(header?.className.includes("grid-cols-[minmax(0,1fr)_auto]")).toBe(false);
+    expect(title?.firstElementChild?.className.includes("min-w-0 truncate")).toBe(true);
   });
 
   test("keeps thread actions left-aligned immediately after the title", async () => {
@@ -134,9 +134,9 @@ describe("ThreadStageHeader auth chrome", () => {
     const title = container.querySelector('[data-testid="thread-stage-title"]');
     const threadActions = container.querySelector('button[aria-label="Thread actions"]');
     const actionGroup = threadActions?.closest(".no-drag");
-    expect(Boolean(title)).toBeTrue();
-    expect(Boolean(actionGroup)).toBeTrue();
-    expect(actionGroup?.previousElementSibling === title).toBeTrue();
+    expect(Boolean(title)).toBe(true);
+    expect(Boolean(actionGroup)).toBe(true);
+    expect(actionGroup?.previousElementSibling === title).toBe(true);
   });
 
   test("renders Rename chat before Open side chat in thread actions", async () => {
@@ -164,8 +164,8 @@ describe("ThreadStageHeader auth chrome", () => {
     await settleAsyncRender();
 
     const bodyText = textContent(document.body);
-    expect(bodyText.indexOf("Rename chat") >= 0).toBeTrue();
-    expect(bodyText.indexOf("Rename chat") < bodyText.indexOf("Open side chat")).toBeTrue();
+    expect(bodyText.indexOf("Rename chat") >= 0).toBe(true);
+    expect(bodyText.indexOf("Rename chat") < bodyText.indexOf("Open side chat")).toBe(true);
 
     fireEvent.click(screen.getByText("Rename chat"));
     expect(renameCalls).toBe(1);
@@ -180,9 +180,9 @@ describe("ThreadStageHeader auth chrome", () => {
     const header = container.firstElementChild;
     const leftHitbox = container.querySelector('[data-testid="thread-stage-header-left-chrome-hitbox"]');
     const hitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
-    expect(header?.className.includes("draggable")).toBeTrue();
-    expect(Boolean(leftHitbox)).toBeFalse();
-    expect(Boolean(hitbox)).toBeFalse();
+    expect(header?.className.includes("draggable")).toBe(true);
+    expect(Boolean(leftHitbox)).toBe(false);
+    expect(Boolean(hitbox)).toBe(false);
   });
 
   test("does not render the authenticated connection badge", async () => {
@@ -228,8 +228,8 @@ describe("ThreadStageHeader auth chrome", () => {
     );
 
     const content = textContent(container);
-    expect(content.includes("Sign in")).toBeFalse();
-    expect(content.includes("Connected")).toBeFalse();
+    expect(content.includes("Sign in")).toBe(false);
+    expect(content.includes("Connected")).toBe(false);
   });
 
   test("shows sign-in without the connected badge when the account snapshot is logged out", async () => {
@@ -250,8 +250,8 @@ describe("ThreadStageHeader auth chrome", () => {
     );
 
     const content = textContent(container);
-    expect(content.includes("Sign in")).toBeTrue();
-    expect(content.includes("Connected")).toBeFalse();
+    expect(content.includes("Sign in")).toBe(true);
+    expect(content.includes("Connected")).toBe(false);
   });
 
   test("moves quota remaining out of the header when the account snapshot is authenticated", async () => {
@@ -281,8 +281,8 @@ describe("ThreadStageHeader auth chrome", () => {
     );
 
     const content = textContent(container);
-    expect(content.includes("Sign in")).toBeFalse();
-    expect(content.includes("Connected")).toBeFalse();
-    expect(content.includes("82% · 61%")).toBeFalse();
+    expect(content.includes("Sign in")).toBe(false);
+    expect(content.includes("Connected")).toBe(false);
+    expect(content.includes("82% · 61%")).toBe(false);
   });
 });

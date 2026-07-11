@@ -3,9 +3,9 @@ version = 1
 name = "nodex"
 
 [setup]
-script = "bun install"
+script = "pnpm install"
 
 [[actions]]
 name = "dev"
 icon = "run"
-command = "bun dev"
+command = "pnpm dev"

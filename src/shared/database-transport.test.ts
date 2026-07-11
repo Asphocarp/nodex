@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   bindDatabaseMutationToProject,
   parseDatabaseMutationCommandResult,
@@ -78,7 +78,7 @@ describe("Database transport codecs", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       fails(() =>
         parseDatabaseReadCommandResult({
@@ -92,7 +92,7 @@ describe("Database transport codecs", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("parses exact multi-operation receipts", () => {
@@ -142,6 +142,6 @@ describe("Database transport codecs", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

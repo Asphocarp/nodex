@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { StreamdownMermaidError } from "./streamdown";
 import { render, textContent } from "../test/dom";
 
@@ -12,7 +12,7 @@ describe("StreamdownMermaidError", () => {
       />,
     );
 
-    expect(textContent(container).includes("Mermaid Error")).toBeTrue();
-    expect(textContent(container).includes("Invalid Mermaid diagram.")).toBeTrue();
+    expect(textContent(container).includes("Mermaid Error")).toBe(true);
+    expect(textContent(container).includes("Invalid Mermaid diagram.")).toBe(true);
   });
 });

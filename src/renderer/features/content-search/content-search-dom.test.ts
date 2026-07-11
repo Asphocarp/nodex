@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CONTENT_SEARCH_ACTIVE_MARK_CLASS,
   CONTENT_SEARCH_MATCH_ID_ATTRIBUTE,
@@ -20,7 +20,7 @@ describe("content search DOM marks", () => {
 
     expect(result.totalMatches).toBe(2);
     expect(root.querySelectorAll("mark.codex-thread-find-match").length).toBe(2);
-    expect(Boolean(root.querySelector(`mark.${CONTENT_SEARCH_ACTIVE_MARK_CLASS}`))).toBeTrue();
+    expect(Boolean(root.querySelector(`mark.${CONTENT_SEARCH_ACTIVE_MARK_CLASS}`))).toBe(true);
     expect(root.querySelectorAll("mark")[1]?.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE)).toBe("test:1");
 
     clearContentSearchMarks(root);
@@ -60,7 +60,7 @@ describe("content search DOM marks", () => {
     });
 
     expect(result.totalMatches).toBe(2);
-    expect(result.capped).toBeTrue();
+    expect(result.capped).toBe(true);
     expect(root.querySelectorAll("mark.codex-thread-find-match").length).toBe(2);
   });
 });

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   TERMINAL_RENDERER_BUFFER_LIMIT,
   TerminalSessionStore,
@@ -128,7 +128,7 @@ describe("TerminalSessionStore", () => {
 
     const snapshot = store.getSnapshot("session:one:terminal:3");
     expect(snapshot.buffer.length).toBe(TERMINAL_RENDERER_BUFFER_LIMIT);
-    expect(snapshot.truncated).toBeTrue();
+    expect(snapshot.truncated).toBe(true);
   });
 
   test("runs terminal actions and fetches buffered snapshots", async () => {
@@ -157,7 +157,7 @@ describe("TerminalSessionStore", () => {
       ],
       ["terminal-session:snapshot", "process:thread:item:action"],
     ]));
-    expect(snapshot === null).toBeTrue();
+    expect(snapshot === null).toBe(true);
   });
 
   test("does not invalidate global tab-title subscribers for terminal output chunks", () => {

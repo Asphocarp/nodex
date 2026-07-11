@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import {
   createDateMentionClockStore,
@@ -57,9 +57,9 @@ describe("readonly NFM BlockNote preview", () => {
       }
     });
 
-    expect(textContent(view.container).includes("Snapshot body")).toBeTrue();
+    expect(textContent(view.container).includes("Snapshot body")).toBe(true);
     expect(view.container.querySelector('[data-testid="readonly-nfm-blocknote-preview"]')).not.toBeNull();
-    expect(view.container.querySelector('[contenteditable="true"]') === null).toBeTrue();
+    expect(view.container.querySelector('[contenteditable="true"]') === null).toBe(true);
   });
 
   test("renders live embeds as inert placeholders", async () => {
@@ -84,10 +84,10 @@ describe("readonly NFM BlockNote preview", () => {
     });
 
     const body = textContent(view.container);
-    expect(body.includes("Thread section")).toBeTrue();
-    expect(body.includes("Toggle list view")).toBeTrue();
-    expect(body.includes("Search cards")).toBeFalse();
-    expect(body.includes("Rules")).toBeFalse();
+    expect(body.includes("Thread section")).toBe(true);
+    expect(body.includes("Toggle list view")).toBe(true);
+    expect(body.includes("Search cards")).toBe(false);
+    expect(body.includes("Rules")).toBe(false);
   });
 
   test("renders attachment, agent config, and thread mention as inert inline content", async () => {
@@ -116,10 +116,10 @@ describe("readonly NFM BlockNote preview", () => {
     fireEvent.click(view.getByText("Plan mode"));
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Plan mode")).toBeTrue();
-    expect(textContent(view.container).includes("019-thread")).toBeTrue();
-    expect(document.body.querySelector('[role="dialog"]') === null).toBeTrue();
-    expect(document.body.querySelector('[data-radix-popper-content-wrapper]') === null).toBeTrue();
+    expect(textContent(view.container).includes("Plan mode")).toBe(true);
+    expect(textContent(view.container).includes("019-thread")).toBe(true);
+    expect(document.body.querySelector('[role="dialog"]') === null).toBe(true);
+    expect(document.body.querySelector('[data-radix-popper-content-wrapper]') === null).toBe(true);
   });
 
   test("refreshes readonly date mention labels while mounted", async () => {
@@ -177,8 +177,8 @@ describe("readonly NFM BlockNote preview", () => {
     }
 
     expect(toggleKeys.length).toBe(2);
-    expect(toggleKeys.some((key) => localStorage.getItem(key) === "true")).toBeTrue();
-    expect(toggleKeys.some((key) => localStorage.getItem(key) === "false")).toBeTrue();
+    expect(toggleKeys.some((key) => localStorage.getItem(key) === "true")).toBe(true);
+    expect(toggleKeys.some((key) => localStorage.getItem(key) === "false")).toBe(true);
 
     view.unmount();
     await settleAsyncRender();

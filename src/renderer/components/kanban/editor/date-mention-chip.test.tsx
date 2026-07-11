@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -118,12 +118,12 @@ describe("DateMentionInlineContentView", () => {
     fireEvent.click(view.getByRole("switch", { name: "Include time" }));
 
     const capturedUpdate = update as DateMentionInlineContentUpdate | null;
-    expect(capturedUpdate !== null).toBeTrue();
+    expect(capturedUpdate !== null).toBe(true);
     if (!capturedUpdate) return;
     expect(capturedUpdate.type).toBe("dateMention");
-    expect(capturedUpdate.props.start.startsWith("2050-06-28T")).toBeTrue();
-    expect(capturedUpdate.props.start.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(capturedUpdate.props.start)).toBeTrue();
-    expect(capturedUpdate.props.tz.length > 0).toBeTrue();
+    expect(capturedUpdate.props.start.startsWith("2050-06-28T")).toBe(true);
+    expect(capturedUpdate.props.start.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(capturedUpdate.props.start)).toBe(true);
+    expect(capturedUpdate.props.tz.length > 0).toBe(true);
   });
 
   test("resolves pending and overdue reminder tones without mutating payload", () => {

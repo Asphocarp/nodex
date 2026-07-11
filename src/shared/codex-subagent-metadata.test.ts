@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   extractCodexThreadSpawnMetadata,
   extractCodexThreadSubagentMetadata,
@@ -70,8 +70,8 @@ describe("codex-subagent-metadata", () => {
     expect(metadata.parentThreadId).toBe("parent-top");
     expect(metadata.agentNickname).toBe("Top");
     expect(metadata.agentRole).toBe("lead");
-    expect(metadata.hasAgentNickname).toBeTrue();
-    expect(metadata.hasAgentRole).toBeTrue();
+    expect(metadata.hasAgentNickname).toBe(true);
+    expect(metadata.hasAgentRole).toBe(true);
   });
 
   test("distinguishes missing metadata fields from explicit null source fields", () => {
@@ -97,11 +97,11 @@ describe("codex-subagent-metadata", () => {
       },
     });
 
-    expect(missing.hasAgentNickname).toBeFalse();
+    expect(missing.hasAgentNickname).toBe(false);
     expect(missing.agentNickname).toBe(null);
-    expect(explicitNulls.hasAgentNickname).toBeTrue();
+    expect(explicitNulls.hasAgentNickname).toBe(true);
     expect(explicitNulls.agentNickname).toBe(null);
-    expect(explicitNulls.hasAgentRole).toBeTrue();
+    expect(explicitNulls.hasAgentRole).toBe(true);
     expect(directSpawn.parentThreadId).toBe("parent-direct");
     expect(directSpawn.agentNickname).toBe("@Direct");
   });
@@ -117,10 +117,10 @@ describe("codex-subagent-metadata", () => {
     };
     const cliSource = "cli";
 
-    expect(hasCodexSubagentSource(guardianSource)).toBeTrue();
+    expect(hasCodexSubagentSource(guardianSource)).toBe(true);
     expect(getCodexSubagentOtherSource(guardianSource)).toBe("guardian");
-    expect(hasCodexSubagentSource(reviewSource)).toBeTrue();
+    expect(hasCodexSubagentSource(reviewSource)).toBe(true);
     expect(getCodexSubagentOtherSource(reviewSource)).toBe(null);
-    expect(hasCodexSubagentSource(cliSource)).toBeFalse();
+    expect(hasCodexSubagentSource(cliSource)).toBe(false);
   });
 });

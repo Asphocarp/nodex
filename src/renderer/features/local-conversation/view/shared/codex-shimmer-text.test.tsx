@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { render, textContent } from "../../../../test/dom";
 import {
   CODEX_SHIMMER_CADENCE_MS,
@@ -11,14 +11,14 @@ describe("CodexShimmerText", () => {
     const { container } = render(<CodexShimmerText active={false}>Static</CodexShimmerText>);
 
     expect(textContent(container)).toBe("Static");
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
   test("uses the Codex classic shimmer class when active", () => {
     const { container } = render(<CodexShimmerText>Loading</CodexShimmerText>);
 
     expect(textContent(container)).toBe("Loading");
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
   });
 
   test("keeps classic shimmer as the default variant", () => {
@@ -34,8 +34,8 @@ describe("CodexShimmerText", () => {
   test("renders the optional cadenced shimmer overlay", () => {
     const { container } = render(<CodexShimmerText variant="cadenced">Loading</CodexShimmerText>);
 
-    expect(Boolean(container.querySelector(".codex-cadenced-shimmer"))).toBeTrue();
-    expect(Boolean(container.querySelector(".codex-cadenced-shimmer-sweep"))).toBeTrue();
-    expect(Boolean(container.querySelector(".codex-cadenced-shimmer-highlight"))).toBeTrue();
+    expect(Boolean(container.querySelector(".codex-cadenced-shimmer"))).toBe(true);
+    expect(Boolean(container.querySelector(".codex-cadenced-shimmer-sweep"))).toBe(true);
+    expect(Boolean(container.querySelector(".codex-cadenced-shimmer-highlight"))).toBe(true);
   });
 });

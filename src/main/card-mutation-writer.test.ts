@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { CardMutationWriter, type CardMutationWorkerLike } from "./card-mutation-writer";
 import type { BoardChangeEvent } from "../shared/ipc-api";
 import type { CardMutationMetrics, CardMutationWorkerMessage, CardMutationWorkerRequest } from "./card-mutation-worker-protocol";
@@ -134,7 +134,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(request.mutationId),
     });
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.length).toBe(0);
   });
 
@@ -202,7 +202,7 @@ describe("CardMutationWriter", () => {
     });
 
     const envelope = await pending;
-    expect(envelope.result.ok).toBeTrue();
+    expect(envelope.result.ok).toBe(true);
     if (!envelope.result.ok) return;
     expect(envelope.result.value.mutationId).toBe("property-mutation-1");
     expect(envelope.result.value.changeLogSeq).toBe(7);
@@ -271,7 +271,7 @@ describe("CardMutationWriter", () => {
     });
 
     const envelope = await pending;
-    expect(envelope.result.ok).toBeTrue();
+    expect(envelope.result.ok).toBe(true);
     if (!envelope.result.ok) return;
     expect(envelope.result.value.operationKinds.join(",")).toBe(
       "set_value,position_card",
@@ -301,7 +301,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(duplicateRequest.mutationId),
     });
     const duplicate = await duplicatePending;
-    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBeTrue();
+    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBe(true);
     expect(databaseEvents.length).toBe(1);
 
   });
@@ -400,7 +400,7 @@ describe("CardMutationWriter", () => {
       metrics: { ...makeMetrics(request.mutationId), eventCount: 0 },
     });
     const envelope = await pending;
-    expect(envelope.result.ok).toBeTrue();
+    expect(envelope.result.ok).toBe(true);
     expect(envelope.events.length).toBe(0);
   });
 
@@ -468,7 +468,7 @@ describe("CardMutationWriter", () => {
     });
 
     const envelope = await pending;
-    expect(envelope.result.ok).toBeTrue();
+    expect(envelope.result.ok).toBe(true);
     if (!envelope.result.ok) return;
     expect(envelope.result.value.operationId).toBe(input.operationId);
     expect(envelope.result.value.lifecycle).toBe("archived");
@@ -498,7 +498,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(duplicateRequest.mutationId),
     });
     const duplicate = await duplicatePending;
-    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBeTrue();
+    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBe(true);
     expect(databaseEvents.length).toBe(1);
 
     const rejectedPending = writer.applyCardLifecycleMutation({
@@ -531,7 +531,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(rejectedRequest.mutationId),
     });
     const rejected = await rejectedPending;
-    expect(rejected.result.ok).toBeFalse();
+    expect(rejected.result.ok).toBe(false);
     expect(databaseEvents.length).toBe(1);
   });
 
@@ -655,7 +655,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(request.mutationId),
     });
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.headSeq).toBe(5);
   });
 
@@ -687,7 +687,7 @@ describe("CardMutationWriter", () => {
 
     const envelope = await pending;
     expect(envelope.result.processed).toBe(12);
-    expect(envelope.result.exhausted).toBeTrue();
+    expect(envelope.result.exhausted).toBe(true);
   });
 
   test("preserves resumable foreign-reference migration evidence through the FIFO", async () => {
@@ -724,7 +724,7 @@ describe("CardMutationWriter", () => {
     expect(envelope.result.changedDocumentIds.join(",")).toBe(
       "document:one,document:two",
     );
-    expect(envelope.result.exhausted).toBeFalse();
+    expect(envelope.result.exhausted).toBe(false);
   });
 
   test("resolves worker ack and republishes board events", async () => {
@@ -771,7 +771,7 @@ describe("CardMutationWriter", () => {
     expect(envelope.result.status).toBe("updated");
     expect(published.length).toBe(1);
     expect(published[0]?.summary?.id).toBe("card-1");
-    expect(envelope.metrics.mainEventLoopLagMaxMs !== undefined).toBeTrue();
+    expect(envelope.metrics.mainEventLoopLagMaxMs !== undefined).toBe(true);
   });
 
   test("publishes a committed Document summary once and never before the worker ACK", async () => {
@@ -833,7 +833,7 @@ describe("CardMutationWriter", () => {
     });
 
     const firstAck = await firstPending;
-    expect(firstAck.ok).toBeTrue();
+    expect(firstAck.ok).toBe(true);
     expect(published.length).toBe(1);
     expect(published[0]?.summary?.title).toBe("Collaborative title");
 
@@ -862,9 +862,9 @@ describe("CardMutationWriter", () => {
     });
 
     const duplicateAck = await duplicatePending;
-    expect(duplicateAck.ok).toBeTrue();
+    expect(duplicateAck.ok).toBe(true);
     if (!duplicateAck.ok) return;
-    expect(duplicateAck.value.duplicate).toBeTrue();
+    expect(duplicateAck.value.duplicate).toBe(true);
     expect(published.length).toBe(1);
   });
 
@@ -919,10 +919,10 @@ describe("CardMutationWriter", () => {
     });
 
     const ack = await pending;
-    expect(ack.ok).toBeTrue();
+    expect(ack.ok).toBe(true);
     if (!ack.ok) return;
     expect(ack.value.committedSeq).toBe(4);
-    expect(ack.value.duplicate).toBeFalse();
+    expect(ack.value.duplicate).toBe(false);
   });
 
   test("rejects pending requests on worker failure and rebuilds for the next request", async () => {
@@ -998,7 +998,7 @@ describe("CardMutationWriter", () => {
     });
 
     const syncResult = await syncPending;
-    expect(syncResult.ok).toBeTrue();
+    expect(syncResult.ok).toBe(true);
     if (!syncResult.ok) return;
     expect(syncResult.value.headSeq).toBe(3);
     expect(syncResult.value.update[1]).toBe(4);
@@ -1023,7 +1023,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(projectRequest.mutationId),
     });
     const projectResult = await projectPending;
-    expect(projectResult.ok).toBeFalse();
+    expect(projectResult.ok).toBe(false);
     if (!projectResult.ok) {
       expect(projectResult.error.code).toBe("document_not_found");
     }
@@ -1060,10 +1060,10 @@ describe("CardMutationWriter", () => {
     });
 
     const applyResult = await applyPending;
-    expect(applyResult.ok).toBeFalse();
+    expect(applyResult.ok).toBe(false);
     if (applyResult.ok) return;
     expect(applyResult.error.code).toBe("document_update_missing_dependencies");
-    expect(applyResult.error.retryable).toBeTrue();
+    expect(applyResult.error.retryable).toBe(true);
 
     const descriptorPending = writer.getOwnedBlockDocumentDescriptor(
       "project-1",
@@ -1190,7 +1190,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(request.mutationId),
     });
     const result = await pending;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.sourceCommit.update?.[1]).toBe(2);
     expect(result.value.targetCommit?.stateVector[1]).toBe(8);
@@ -1216,11 +1216,11 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(duplicateRequest.mutationId),
     });
     const duplicate = await duplicatePending;
-    expect(duplicate.ok).toBeTrue();
+    expect(duplicate.ok).toBe(true);
     if (!duplicate.ok) return;
-    expect(duplicate.value.duplicate).toBeTrue();
-    expect(duplicate.value.sourceCommit.update === null).toBeTrue();
-    expect(duplicate.value.targetCommit?.update === null).toBeTrue();
+    expect(duplicate.value.duplicate).toBe(true);
+    expect(duplicate.value.sourceCommit.update === null).toBe(true);
+    expect(duplicate.value.targetCommit?.update === null).toBe(true);
   });
 
   test("places barriers after accepted work and gracefully drains before shutdown", async () => {
@@ -1243,7 +1243,7 @@ describe("CardMutationWriter", () => {
     expect(worker.messages[1]?.type).toBe("getBlockDocumentProjectId");
     expect(worker.messages[2]?.type).toBe("writerBarrier");
     expect(worker.messages[3]?.type).toBe("shutdown");
-    expect(worker.terminated).toBeFalse();
+    expect(worker.terminated).toBe(false);
 
     let rejectedMessage = "";
     try {
@@ -1267,7 +1267,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(mutationRequest.mutationId),
     });
     await mutationPending;
-    expect(barrierResolved).toBeFalse();
+    expect(barrierResolved).toBe(false);
 
     worker.emitMessage({
       id: projectRequest.id,
@@ -1277,11 +1277,11 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(projectRequest.mutationId),
     });
     const projectResult = await projectPending;
-    expect(projectResult.ok).toBeTrue();
+    expect(projectResult.ok).toBe(true);
     if (projectResult.ok) {
       expect(projectResult.value).toBe("project-1");
     }
-    expect(barrierResolved).toBeFalse();
+    expect(barrierResolved).toBe(false);
 
     worker.emitMessage({
       id: barrierRequest.id,
@@ -1291,8 +1291,8 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(barrierRequest.mutationId),
     });
     await barrierPending;
-    expect(barrierResolved).toBeTrue();
-    expect(worker.terminated).toBeFalse();
+    expect(barrierResolved).toBe(true);
+    expect(worker.terminated).toBe(false);
 
     worker.emitMessage({
       id: shutdownRequest.id,
@@ -1302,7 +1302,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(shutdownRequest.mutationId),
     });
     await shutdownPending;
-    expect(worker.terminated).toBeFalse();
+    expect(worker.terminated).toBe(false);
     worker.emitExit(0);
   });
 
@@ -1338,7 +1338,7 @@ describe("CardMutationWriter", () => {
       events: [],
       metrics: makeMetrics(acceptedRequest.mutationId),
     });
-    expect((await accepted).ok).toBeTrue();
+    expect((await accepted).ok).toBe(true);
     firstWorker.emitMessage({
       id: suspendRequest.id,
       ok: true,
@@ -1347,7 +1347,7 @@ describe("CardMutationWriter", () => {
       metrics: makeMetrics(suspendRequest.mutationId),
     });
     await suspended;
-    expect(firstWorker.terminated).toBeTrue();
+    expect(firstWorker.terminated).toBe(true);
 
     writer.resumeAfterMaintenance();
     const resumed = writer.getBlockDocumentProjectId("document:card-3");
@@ -1361,7 +1361,7 @@ describe("CardMutationWriter", () => {
       events: [],
       metrics: makeMetrics(resumedRequest.mutationId),
     });
-    expect((await resumed).ok).toBeTrue();
+    expect((await resumed).ok).toBe(true);
 
     const finalShutdown = writer.shutdown();
     const shutdownRequest = secondWorker.messages[1];
@@ -1394,7 +1394,7 @@ describe("CardMutationWriter", () => {
     firstWorker.emitError(new Error("injected worker failure"));
     expect(await suspended).toBe("injected worker failure");
     await firstSettled;
-    expect(firstWorker.terminated).toBeTrue();
+    expect(firstWorker.terminated).toBe(true);
 
     const resumed = writer.getBlockDocumentProjectId("document:card-2");
     const request = secondWorker.messages[0];
@@ -1407,7 +1407,7 @@ describe("CardMutationWriter", () => {
       events: [],
       metrics: makeMetrics(request.mutationId),
     });
-    expect((await resumed).ok).toBeTrue();
+    expect((await resumed).ok).toBe(true);
   });
 
   test("uses forced termination only after the graceful shutdown deadline", async () => {
@@ -1435,9 +1435,9 @@ describe("CardMutationWriter", () => {
       .then(() => "resolved", (error: unknown) =>
         error instanceof Error ? error.message : String(error));
 
-    expect(worker.terminated).toBeFalse();
+    expect(worker.terminated).toBe(false);
     expect(scheduledTimeoutMs).toBe(123);
-    expect(scheduled.deadline !== undefined).toBeTrue();
+    expect(scheduled.deadline !== undefined).toBe(true);
     scheduled.deadline?.();
 
     expect(await mutationPending).toBe(
@@ -1446,7 +1446,7 @@ describe("CardMutationWriter", () => {
     expect(await shutdownPending).toBe(
       "Card mutation writer did not drain within 123ms",
     );
-    expect(worker.terminated).toBeTrue();
-    expect(deadlineCancelled).toBeTrue();
+    expect(worker.terminated).toBe(true);
+    expect(deadlineCancelled).toBe(true);
   });
 });

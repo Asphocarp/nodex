@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -9,7 +9,7 @@ const markCalls: Array<{ from: number; to: number; href: string }> = [];
 const clipboardWrites: string[] = [];
 let focusCalls = 0;
 
-mock.module("./nfm-link-toolbar-deps", () => ({
+vi.mock("./nfm-link-toolbar-deps", () => ({
   useFileLinkOpener: () => ({
     opener: () => undefined,
   }),
@@ -176,7 +176,7 @@ describe("NfmLinkToolbar live editing", () => {
     });
 
     expect(clipboardWrites[0]).toBe("https://community.openai.com/t/example");
-    expect(Boolean(view.getByRole("button", { name: "Copied" }))).toBeTrue();
+    expect(Boolean(view.getByRole("button", { name: "Copied" }))).toBe(true);
   });
 
   test("updates the editor on every change without stealing focus from the dialog", async () => {
@@ -218,8 +218,8 @@ describe("NfmLinkToolbar live editing", () => {
     expect(markCalls[0]?.href).toBe("https://community.openai.com/t/example");
     expect(markCalls[0]?.to).toBe(17);
     expect(focusCalls).toBe(0);
-    expect(document.activeElement === focusProbe).toBeTrue();
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBeTrue();
+    expect(document.activeElement === focusProbe).toBe(true);
+    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
 
     await act(async () => {
       fireEvent.mouseDown(view.getByRole("button", { name: "Change URL" }));
@@ -232,7 +232,7 @@ describe("NfmLinkToolbar live editing", () => {
     expect(markCalls[1]?.href).toBe("https://example.com/next");
     expect(markCalls[1]?.to).toBe(17);
     expect(focusCalls).toBe(0);
-    expect(document.activeElement === focusProbe).toBeTrue();
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBeTrue();
+    expect(document.activeElement === focusProbe).toBe(true);
+    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
   });
 });

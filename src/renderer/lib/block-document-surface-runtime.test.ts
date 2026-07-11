@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness.js";
 import {
@@ -234,15 +234,15 @@ describe("BlockDocumentSurfaceRuntime", () => {
         : "wrong-kind",
     ).toBe("Server title");
     expect(runtime.getStatus().phase).toBe("ready");
-    expect(runtime.getStatus().ready).toBeTrue();
+    expect(runtime.getStatus().ready).toBe(true);
     expect(events.join(",")).toBe(
       "subscribe,connect,status:connecting,status:synced,open",
     );
-    expect(statusNotifications > 0).toBeTrue();
+    expect(statusNotifications > 0).toBe(true);
     await runtime.flush();
     await runtime.checkpoint();
-    expect(events.includes("flush")).toBeTrue();
-    expect(events.includes("checkpoint")).toBeTrue();
+    expect(events.includes("flush")).toBe(true);
+    expect(events.includes("checkpoint")).toBe(true);
     await runtime.close();
   });
 
@@ -261,11 +261,11 @@ describe("BlockDocumentSurfaceRuntime", () => {
       localCheckpointStore: null,
     });
 
-    expect(first.document === second.document).toBeFalse();
-    expect(first.document.clientID === second.document.clientID).toBeFalse();
-    expect(first.clientSessionId === second.clientSessionId).toBeFalse();
-    expect(providers[0]?.options.autoConnect).toBeFalse();
-    expect(providers[1]?.options.autoConnect).toBeFalse();
+    expect(first.document === second.document).toBe(false);
+    expect(first.document.clientID === second.document.clientID).toBe(false);
+    expect(first.clientSessionId === second.clientSessionId).toBe(false);
+    expect(providers[0]?.options.autoConnect).toBe(false);
+    expect(providers[1]?.options.autoConnect).toBe(false);
     await Promise.all([first.close(), second.close()]);
   });
 
@@ -309,8 +309,8 @@ describe("BlockDocumentSurfaceRuntime", () => {
 
     firstProvider.emit({ phase: "relocating" });
     expect(first.getStatus().phase).toBe("relocating");
-    expect(first.getStatus().writeFrozen).toBeTrue();
-    expect(first.getWriteFrozen()).toBeTrue();
+    expect(first.getStatus().writeFrozen).toBe(true);
+    expect(first.getWriteFrozen()).toBe(true);
     await firstProvider.options.prepareSurfaceForRelocation?.(event);
     expect(preparations.join(",")).toBe(
       `lease-1:${first.clientSessionId},first-ready`,
@@ -323,9 +323,9 @@ describe("BlockDocumentSurfaceRuntime", () => {
       ...event,
       leaseId: "lease-2",
     });
-    expect(preparations.includes("wrong-surface")).toBeFalse();
+    expect(preparations.includes("wrong-surface")).toBe(false);
     firstProvider.emit({ phase: "synced" });
-    expect(first.getWriteFrozen()).toBeFalse();
+    expect(first.getWriteFrozen()).toBe(false);
     await Promise.all([first.close(), second.close()]);
   });
 
@@ -379,7 +379,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
 
     expect(runtime.awareness.getLocalState()).toBe(null);
     expect(runtime.getStatus().phase).toBe("ready");
-    expect(events.includes("disconnect")).toBeFalse();
+    expect(events.includes("disconnect")).toBe(false);
     await runtime.close();
   });
 
@@ -415,7 +415,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(await waiting).toBe("reset");
     expect(runtime.getReadyDocument()).toBe(null);
     expect(runtime.getStatus().phase).toBe("reset-required");
-    expect(runtime.getStatus().reloadRequired).toBeTrue();
+    expect(runtime.getStatus().reloadRequired).toBe(true);
     expect(reloads.length).toBe(0);
     await runtime.reload();
     expect(reloads.join(",")).toBe("reset-required");
@@ -448,12 +448,12 @@ describe("BlockDocumentSurfaceRuntime", () => {
     provider.emit({ phase: "offline", connected: false });
 
     const result = await runtime.close();
-    expect(result.timedOut).toBeTrue();
+    expect(result.timedOut).toBe(true);
     expect(result.flush).toBe("timed-out");
     expect(result.checkpoint).toBe("timed-out");
     expect(
       events.indexOf("provider-destroy") < events.indexOf("document-destroy"),
-    ).toBeTrue();
+    ).toBe(true);
     expect(runtime.getStatus().phase).toBe("closed");
   });
 
@@ -474,16 +474,16 @@ describe("BlockDocumentSurfaceRuntime", () => {
 
     const first = runtime.persist();
     const second = runtime.persist();
-    expect(first === second).toBeTrue();
+    expect(first === second).toBe(true);
     const result = await first;
 
-    expect(result.timedOut).toBeTrue();
+    expect(result.timedOut).toBe(true);
     expect(result.flush).toBe("timed-out");
     expect(result.checkpoint).toBe("timed-out");
     expect(events.filter((event) => event === "flush").length).toBe(1);
     expect(events.filter((event) => event === "checkpoint").length).toBe(1);
-    expect(events.includes("disconnect")).toBeFalse();
-    expect(events.includes("provider-destroy")).toBeFalse();
+    expect(events.includes("disconnect")).toBe(false);
+    expect(events.includes("provider-destroy")).toBe(false);
     await runtime.close();
   });
 

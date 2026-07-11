@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   decodeOwnedBlockDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
@@ -241,6 +241,6 @@ describe("Document HTTP contract", () => {
     } catch {
       rejected = true;
     }
-    expect(rejected).toBeTrue();
+    expect(rejected).toBe(true);
   });
 });

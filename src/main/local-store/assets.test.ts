@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -9,7 +9,7 @@ import {
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-assets-"));
 
-mock.module("./assets-deps", () => ({
+vi.mock("./assets-deps", () => ({
   getLocalStoreDir: () => fixtureRoot,
 }));
 
@@ -44,8 +44,8 @@ describe("asset service", () => {
         } catch (error) {
           rejected = error instanceof StoreMaintenanceInProgressError;
         }
-        expect(rejected).toBeTrue();
-        expect(fs.existsSync(path.join(fixtureRoot, "assets"))).toBeFalse();
+        expect(rejected).toBe(true);
+        expect(fs.existsSync(path.join(fixtureRoot, "assets"))).toBe(false);
       } finally {
         maintenance.release();
       }
@@ -62,7 +62,7 @@ describe("asset service", () => {
       const absolutePath = path.join(fixtureRoot, "assets", result.fileName);
 
       expect(result.source).toBe(`nodex://assets/${result.fileName}`);
-      expect(fs.existsSync(absolutePath)).toBeTrue();
+      expect(fs.existsSync(absolutePath)).toBe(true);
     });
   });
 
@@ -125,12 +125,12 @@ describe("asset service", () => {
       expect(result.name).toBe("folder");
       expect(result.mimeType).toBe("application/json");
       expect(manifest.rootName).toBe("folder");
-      expect(manifest.truncated).toBeTrue();
+      expect(manifest.truncated).toBe(true);
       expect(manifest.maxDepth).toBe(3);
       expect(manifest.maxEntries).toBe(100);
-      expect(manifest.entries.some((entry) => entry.path === "a" && entry.kind === "folder")).toBeTrue();
-      expect(manifest.entries.some((entry) => entry.path === "root.txt" && entry.kind === "file")).toBeTrue();
-      expect(manifest.entries.some((entry) => entry.path === "a/b/c/d")).toBeFalse();
+      expect(manifest.entries.some((entry) => entry.path === "a" && entry.kind === "folder")).toBe(true);
+      expect(manifest.entries.some((entry) => entry.path === "root.txt" && entry.kind === "file")).toBe(true);
+      expect(manifest.entries.some((entry) => entry.path === "a/b/c/d")).toBe(false);
     });
   });
 });

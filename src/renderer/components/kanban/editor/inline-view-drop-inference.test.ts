@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "../../../lib/toggle-list/settings";
 import type { BoardSummary, CardSummary } from "../../../lib/types";
 import {
@@ -144,7 +144,7 @@ describe("inline view drop inference", () => {
       cards: [{ title: "Dropped block" }],
     });
 
-    expect("priority" in (inferred.cards[0] ?? {})).toBeTrue();
+    expect("priority" in (inferred.cards[0] ?? {})).toBe(true);
     expect(inferred.cards[0]?.priority ?? null).toBe(null);
   });
 });

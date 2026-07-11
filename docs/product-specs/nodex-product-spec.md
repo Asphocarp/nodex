@@ -1231,19 +1231,19 @@ Environment variables can be passed directly. CLI arguments take precedence.
 
 ### Development
 ```bash
-bun install
-bun run dev              # electron-vite dev (renderer on :51284, HTTP API on :51283)
+pnpm install
+pnpm run dev              # electron-vite dev (renderer on :51284, HTTP API on :51283)
 ```
 
 ### Production
 ```bash
-bun run build            # electron-vite build → out/
+pnpm run build            # electron-vite build → out/
 electron .               # runs package main: out/main/bootstrap.js
 ```
 
 ### Packaging & Release
 ```bash
-bun run package          # Build + create macOS DMG + ZIP in dist/
+pnpm run package          # Build + create macOS DMG + ZIP in dist/
 ```
 
 To release a new version, use the GitHub Actions `Prepare Release` workflow:

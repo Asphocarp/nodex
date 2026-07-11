@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_SMART_PREFIX_PARSING_ENABLED,
   DEFAULT_STRIP_SMART_PREFIX_FROM_TITLE_ENABLED,
@@ -46,8 +46,8 @@ describe("smart prefix parsing settings", () => {
     expect(normalizeSmartPrefixParsingEnabled(undefined)).toBe(
       DEFAULT_SMART_PREFIX_PARSING_ENABLED,
     );
-    expect(normalizeSmartPrefixParsingEnabled("true")).toBeTrue();
-    expect(normalizeSmartPrefixParsingEnabled("false")).toBeFalse();
+    expect(normalizeSmartPrefixParsingEnabled("true")).toBe(true);
+    expect(normalizeSmartPrefixParsingEnabled("false")).toBe(false);
     expect(normalizeSmartPrefixParsingEnabled("unexpected")).toBe(
       DEFAULT_SMART_PREFIX_PARSING_ENABLED,
     );
@@ -57,8 +57,8 @@ describe("smart prefix parsing settings", () => {
     expect(normalizeStripSmartPrefixFromTitleEnabled(undefined)).toBe(
       DEFAULT_STRIP_SMART_PREFIX_FROM_TITLE_ENABLED,
     );
-    expect(normalizeStripSmartPrefixFromTitleEnabled("true")).toBeTrue();
-    expect(normalizeStripSmartPrefixFromTitleEnabled("false")).toBeFalse();
+    expect(normalizeStripSmartPrefixFromTitleEnabled("true")).toBe(true);
+    expect(normalizeStripSmartPrefixFromTitleEnabled("false")).toBe(false);
     expect(normalizeStripSmartPrefixFromTitleEnabled("unexpected")).toBe(
       DEFAULT_STRIP_SMART_PREFIX_FROM_TITLE_ENABLED,
     );
@@ -72,7 +72,7 @@ describe("smart prefix parsing settings", () => {
       );
 
       mockStorage.setItem(SMART_PREFIX_PARSING_ENABLED_STORAGE_KEY, "false");
-      expect(readSmartPrefixParsingEnabled()).toBeFalse();
+      expect(readSmartPrefixParsingEnabled()).toBe(false);
     });
   });
 
@@ -84,7 +84,7 @@ describe("smart prefix parsing settings", () => {
       );
 
       mockStorage.setItem(STRIP_SMART_PREFIX_FROM_TITLE_STORAGE_KEY, "false");
-      expect(readStripSmartPrefixFromTitleEnabled()).toBeFalse();
+      expect(readStripSmartPrefixFromTitleEnabled()).toBe(false);
     });
   });
 
@@ -93,11 +93,11 @@ describe("smart prefix parsing settings", () => {
       mockStorage.clear();
 
       const parsingEnabled = writeSmartPrefixParsingEnabled(true);
-      expect(parsingEnabled).toBeTrue();
+      expect(parsingEnabled).toBe(true);
       expect(mockStorage.getItem(SMART_PREFIX_PARSING_ENABLED_STORAGE_KEY)).toBe("true");
 
       const stripEnabled = writeStripSmartPrefixFromTitleEnabled(false);
-      expect(stripEnabled).toBeFalse();
+      expect(stripEnabled).toBe(false);
       expect(mockStorage.getItem(STRIP_SMART_PREFIX_FROM_TITLE_STORAGE_KEY)).toBe("false");
     });
   });

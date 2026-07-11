@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { WholeStoreMaintenanceCoordinator } from "./whole-store-maintenance";
 
 describe("WholeStoreMaintenanceCoordinator", () => {
@@ -68,7 +68,7 @@ describe("WholeStoreMaintenanceCoordinator", () => {
     } catch {
       failed = true;
     }
-    expect(failed).toBeTrue();
+    expect(failed).toBe(true);
     expect(events.join(",")).toBe(
       "suspend,lease,close,rollback,release,resume",
     );
@@ -108,6 +108,6 @@ describe("WholeStoreMaintenanceCoordinator", () => {
       storeEpoch: "epoch-restored",
     }));
     expect(result).toBe("durable");
-    expect(reported).toBeTrue();
+    expect(reported).toBe(true);
   });
 });

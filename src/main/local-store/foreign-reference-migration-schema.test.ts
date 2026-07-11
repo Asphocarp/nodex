@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -412,7 +412,7 @@ describe("foreign reference migration ledger schema", () => {
                 attemptCount: 1,
               }),
             ),
-          ).toBeTrue();
+          ).toBe(true);
           expect(
             rejectsSql(() =>
               insertLedgerRow(database, fixture, {
@@ -421,7 +421,7 @@ describe("foreign reference migration ledger schema", () => {
                 targetBlockId: fixture.targetBlockId,
               }),
             ),
-          ).toBeTrue();
+          ).toBe(true);
           expect(
             rejectsSql(() =>
               insertLedgerRow(database, fixture, {
@@ -433,7 +433,7 @@ describe("foreign reference migration ledger schema", () => {
                 attemptCount: 1,
               }),
             ),
-          ).toBeTrue();
+          ).toBe(true);
           expect(
             rejectsSql(() =>
               insertLedgerRow(database, fixture, {
@@ -444,7 +444,7 @@ describe("foreign reference migration ledger schema", () => {
                 attemptCount: 1,
               }),
             ),
-          ).toBeTrue();
+          ).toBe(true);
 
           database
             .prepare(
@@ -462,7 +462,7 @@ describe("foreign reference migration ledger schema", () => {
                 legacyKind: "card_ref",
               }),
             ),
-          ).toBeTrue();
+          ).toBe(true);
           expect(
             (database.pragma("foreign_key_check") as unknown[]).length,
           ).toBe(0);
@@ -495,7 +495,7 @@ describe("foreign reference migration ledger schema", () => {
           rejected = (error as Error).message.includes("status");
         }
         closeDatabase();
-        expect(rejected).toBeTrue();
+        expect(rejected).toBe(true);
 
         const rolledBack = new Database(databasePath, { readonly: true });
         try {
@@ -518,7 +518,7 @@ describe("foreign reference migration ledger schema", () => {
           `,
             )
             .get();
-          expect(ownerIndex === undefined).toBeTrue();
+          expect(ownerIndex === undefined).toBe(true);
         } finally {
           rolledBack.close();
         }

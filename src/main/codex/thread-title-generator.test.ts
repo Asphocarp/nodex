@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildThreadTitleGenerationPrompt,
   CODEX_THREAD_TITLE_MODEL,

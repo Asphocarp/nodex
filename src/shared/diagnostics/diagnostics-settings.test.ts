@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { isDiagnosticsSettings } from "./diagnostics-settings";
 
 const VALID_SETTINGS = {
@@ -24,7 +24,7 @@ const VALID_SETTINGS = {
 
 describe("diagnostics settings guard", () => {
   test("accepts a complete diagnostics settings payload", () => {
-    expect(isDiagnosticsSettings(VALID_SETTINGS)).toBeTrue();
+    expect(isDiagnosticsSettings(VALID_SETTINGS)).toBe(true);
   });
 
   test("rejects incomplete environment override state", () => {
@@ -33,30 +33,30 @@ describe("diagnostics settings guard", () => {
       envOverrides: {
         enabled: false,
       },
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("rejects invalid trace sample rates", () => {
     expect(isDiagnosticsSettings({
       ...VALID_SETTINGS,
       tracesSampleRate: Number.POSITIVE_INFINITY,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(isDiagnosticsSettings({
       ...VALID_SETTINGS,
       tracesSampleRate: 1.1,
-    })).toBeFalse();
+    })).toBe(false);
   });
 
   test("rejects invalid replay sample rates", () => {
     expect(isDiagnosticsSettings({
       ...VALID_SETTINGS,
       replaysSessionSampleRate: Number.POSITIVE_INFINITY,
-    })).toBeFalse();
+    })).toBe(false);
 
     expect(isDiagnosticsSettings({
       ...VALID_SETTINGS,
       replaysOnErrorSampleRate: -0.1,
-    })).toBeFalse();
+    })).toBe(false);
   });
 });

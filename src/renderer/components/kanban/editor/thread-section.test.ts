@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildThreadSectionPromptInput,
   deriveThreadSectionPromptBlocks,
@@ -221,7 +221,7 @@ describe("thread-section helpers", () => {
 
     expect(serializeThreadSectionPrompt(promptBlocks)).toBe("see [Thread: 019-thread] before send");
     expect(promptInput.text).toBe("see [Thread: 019-thread] before send");
-    expect("mentions" in promptInput).toBeFalse();
+    expect("mentions" in promptInput).toBe(false);
   });
 
   test("builds prompt input from image blocks and agent config chips", () => {

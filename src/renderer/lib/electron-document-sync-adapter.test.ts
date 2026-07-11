@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { DocumentSyncRealtimeEvent } from "../../shared/block-documents/document-sync";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
@@ -113,7 +113,7 @@ describe("createElectronDocumentSyncAdapter", () => {
     expect(events.length).toBe(1);
     bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
     const result = await syncing;
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     expect(bridge.calls.map((call) => call.channel).join(",")).toBe(
       "document-sync:subscribe,document-sync:sync",
     );
@@ -196,10 +196,10 @@ describe("createElectronDocumentSyncAdapter", () => {
       clientSessionId: "session-1",
       stateVector: new Uint8Array([0]),
     });
-    expect(result.ok).toBeFalse();
+    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("store_not_initialized");
-      expect(result.error.retryable).toBeTrue();
+      expect(result.error.retryable).toBe(true);
     }
   });
 
@@ -245,7 +245,7 @@ describe("createElectronDocumentSyncAdapter", () => {
       generation: 1,
       headSeq: 0,
     });
-    expect(response.ok).toBeTrue();
+    expect(response.ok).toBe(true);
     expect(bridge.calls.at(-1)?.channel).toBe(
       "document-sync:relocation-lease:respond",
     );

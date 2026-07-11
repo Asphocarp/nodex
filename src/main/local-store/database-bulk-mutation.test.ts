@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
@@ -197,13 +197,13 @@ describe("Database bulk mutation authority", () => {
         expect(request.operations.length).toBe(2);
 
         const result = applyDatabaseMutation(fixture.database, request);
-        expect(result.ok).toBeTrue();
+        expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.value.operationKinds.join(",")).toBe(
           "set_values,position_cards",
         );
         expect(result.value.affectedDatabaseBlockIds.length).toBe(1);
-        expect(result.value.duplicate).toBeFalse();
+        expect(result.value.duplicate).toBe(false);
 
         const afterSnapshot = readSnapshot(fixture);
         const rows = afterSnapshot.query.value?.rows ?? [];
@@ -244,7 +244,7 @@ describe("Database bulk mutation authority", () => {
 
         const committedDigest = authorityDigest(fixture);
         const retry = applyDatabaseMutation(fixture.database, request);
-        expect(retry.ok ? retry.value.duplicate : false).toBeTrue();
+        expect(retry.ok ? retry.value.duplicate : false).toBe(true);
         expect(authorityDigest(fixture)).toBe(committedDigest);
         const ledger = fixture.database
           .prepare(
@@ -328,7 +328,7 @@ describe("Database bulk mutation authority", () => {
           } catch {
             threw = true;
           }
-          expect(threw).toBeTrue();
+          expect(threw).toBe(true);
           expect(authorityDigest(fixture)).toBe(baseline);
           const ledger = fixture.database
             .prepare(

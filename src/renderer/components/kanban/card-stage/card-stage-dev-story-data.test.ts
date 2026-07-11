@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildCardStageStoryCard,
   buildCardStageStoryCollapsedProperties,
@@ -13,7 +13,7 @@ describe("card stage dev story data", () => {
 
     expect(threads.length).toBe(5);
     expect(typeof threads[0]?.preview).toBe("string");
-    expect(threads[1]?.preview === undefined).toBeTrue();
+    expect(threads[1]?.preview === undefined).toBe(true);
     expect(threads[4]?.threadId).toBe("story-thread-5");
   });
 

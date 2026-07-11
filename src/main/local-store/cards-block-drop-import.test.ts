@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -86,22 +86,22 @@ describe("importBlockDropAsCards", () => {
       const targetAfter = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfter?.description).toBe("Source after");
       expect(targetAfter?.description).toBe("Target after");
-      expect((sourceAfter?.revision ?? 0) > (source.revision ?? 0)).toBeTrue();
-      expect((targetAfter?.revision ?? 0) > (target.revision ?? 0)).toBeTrue();
+      expect((sourceAfter?.revision ?? 0) > (source.revision ?? 0)).toBe(true);
+      expect((targetAfter?.revision ?? 0) > (target.revision ?? 0)).toBe(true);
 
       const groupedEntries = getRecentHistory(projectId, 20, 0)
         .filter((entry) => entry.groupId === "group-send-blocks");
       expect(groupedEntries.length).toBe(2);
 
       const undoResult = undoLatest(projectId, "session-1");
-      expect(undoResult.success).toBeTrue();
+      expect(undoResult.success).toBe(true);
       const sourceAfterUndo = await getCard(projectId, source.id, "in_progress");
       const targetAfterUndo = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfterUndo?.description).toBe("Source before");
       expect(targetAfterUndo?.description).toBe("Target before");
 
       const redoResult = redoLatest(projectId, "session-1");
-      expect(redoResult.success).toBeTrue();
+      expect(redoResult.success).toBe(true);
       const sourceAfterRedo = await getCard(projectId, source.id, "in_progress");
       const targetAfterRedo = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfterRedo?.description).toBe("Source after");
@@ -109,7 +109,7 @@ describe("importBlockDropAsCards", () => {
     });
 
     if (!ran) {
-      expect(true).toBeTrue();
+      expect(true).toBe(true);
     }
   });
 });

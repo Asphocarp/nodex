@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { act } from "react";
 import { useEffect, type ComponentProps, type ReactNode } from "react";
@@ -87,7 +87,7 @@ describe("AppShellTabs", () => {
   test("reveals default title tooltips on hover", async () => {
     const view = renderAppShellTabs({});
 
-    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBeTrue();
+    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBe(true);
 
     fireEvent.pointerMove(view.getByText("One"));
     fireEvent.mouseEnter(view.getByText("One"));
@@ -102,7 +102,7 @@ describe("AppShellTabs", () => {
   test("reveals tab title tooltips on hover", async () => {
     const view = renderAppShellTabs({});
 
-    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBeTrue();
+    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBe(true);
 
     fireEvent.pointerMove(view.getByText("Two"));
     fireEvent.mouseEnter(view.getByText("Two"));
@@ -111,8 +111,8 @@ describe("AppShellTabs", () => {
     });
 
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
-    expect(tooltip?.textContent?.includes("Project Alpha")).toBeTrue();
-    expect(tooltip?.textContent?.includes("card-two")).toBeTrue();
+    expect(tooltip?.textContent?.includes("Project Alpha")).toBe(true);
+    expect(tooltip?.textContent?.includes("card-two")).toBe(true);
   });
 
   test("renders context labels in tab chrome, accessible names, and default tooltip", async () => {
@@ -129,10 +129,10 @@ describe("AppShellTabs", () => {
       onCloseTab: () => undefined,
     });
 
-    expect(view.getByRole("tab", { name: "Beta project, Two" }) !== null).toBeTrue();
+    expect(view.getByRole("tab", { name: "Beta project, Two" }) !== null).toBe(true);
     expect(view.container.querySelector('[data-app-shell-tab-context-label="two"]')?.textContent).toBe("Beta");
     expect(view.getByRole("tabpanel").getAttribute("aria-label")).toBe("Beta project, Two");
-    expect(view.getByLabelText("Close Beta project, Two tab") !== null).toBeTrue();
+    expect(view.getByLabelText("Close Beta project, Two tab") !== null).toBe(true);
 
     fireEvent.pointerMove(view.getByText("Two"));
     fireEvent.mouseEnter(view.getByText("Two"));
@@ -161,7 +161,7 @@ describe("AppShellTabs", () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
     });
 
-    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBeTrue();
+    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBe(true);
   });
 
   test("renders one tablist, one selected tab, and one tabpanel", () => {
@@ -193,7 +193,7 @@ describe("AppShellTabs", () => {
       ],
     });
 
-    expect(view.container.querySelector('[data-panel-tab-id="review-durable-id"][data-tab-id="diff"]') !== null).toBeTrue();
+    expect(view.container.querySelector('[data-panel-tab-id="review-durable-id"][data-tab-id="diff"]') !== null).toBe(true);
     const panel = view.getByRole("tabpanel");
     expect(panel.getAttribute("data-app-shell-tab-panel-controller")).toBe("right");
     expect(panel.getAttribute("data-tab-id")).toBe("diff");
@@ -242,9 +242,9 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
     expect(textContent(view.getByRole("tabpanel"))).toBe("Retained one");
     const inactiveTwo = view.container.querySelector('[data-app-shell-tabpanel-retained="two"]');
-    expect(inactiveTwo?.hasAttribute("hidden")).toBeFalse();
+    expect(inactiveTwo?.hasAttribute("hidden")).toBe(false);
     expect(inactiveTwo?.getAttribute("aria-hidden")).toBe("true");
-    expect(inactiveTwo?.hasAttribute("inert")).toBeTrue();
+    expect(inactiveTwo?.hasAttribute("inert")).toBe(true);
 
     view.rerender(renderTabs("two"));
 
@@ -253,9 +253,9 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
     expect(textContent(view.getByRole("tabpanel"))).toBe("Retained two");
     const inactiveOne = view.container.querySelector('[data-app-shell-tabpanel-retained="one"]');
-    expect(inactiveOne?.hasAttribute("hidden")).toBeFalse();
+    expect(inactiveOne?.hasAttribute("hidden")).toBe(false);
     expect(inactiveOne?.getAttribute("aria-hidden")).toBe("true");
-    expect(inactiveOne?.hasAttribute("inert")).toBeTrue();
+    expect(inactiveOne?.hasAttribute("inert")).toBe(true);
   });
 
   test("preserves retained panel scroll while switching tabs", () => {
@@ -378,10 +378,10 @@ describe("AppShellTabs", () => {
 
     view.rerender(renderTabs("two"));
 
-    expect(document.activeElement === firstEditor).toBeFalse();
+    expect(document.activeElement === firstEditor).toBe(false);
     const inactiveOne = view.container.querySelector('[data-app-shell-tabpanel-retained="one"]');
-    expect(inactiveOne?.hasAttribute("hidden")).toBeFalse();
-    expect(inactiveOne?.hasAttribute("inert")).toBeTrue();
+    expect(inactiveOne?.hasAttribute("hidden")).toBe(false);
+    expect(inactiveOne?.hasAttribute("inert")).toBe(true);
   });
 
   test("renders body overlays inside the tabpanel instead of the tab header", () => {
@@ -394,11 +394,11 @@ describe("AppShellTabs", () => {
     const tabpanel = view.getByRole("tabpanel");
     const headerInsetSpacer = header?.lastElementChild;
 
-    expect(tabpanel.contains(view.getByTestId("body-overlay"))).toBeTrue();
-    expect(header?.contains(view.getByTestId("body-overlay"))).toBeFalse();
-    expect(header?.className.includes("draggable")).toBeFalse();
-    expect(headerInsetSpacer?.className.includes("no-drag")).toBeTrue();
-    expect(headerInsetSpacer?.getAttribute("style")?.includes("width: 48px")).toBeTrue();
+    expect(tabpanel.contains(view.getByTestId("body-overlay"))).toBe(true);
+    expect(header?.contains(view.getByTestId("body-overlay"))).toBe(false);
+    expect(header?.className.includes("draggable")).toBe(false);
+    expect(headerInsetSpacer?.className.includes("no-drag")).toBe(true);
+    expect(headerInsetSpacer?.getAttribute("style")?.includes("width: 48px")).toBe(true);
   });
 
   test("renders tab header slots in before, sticky, after order", () => {
@@ -415,28 +415,28 @@ describe("AppShellTabs", () => {
     if (!(tabRow instanceof HTMLElement)) throw new Error("Expected tab row");
 
     const text = textContent(header);
-    expect(header.className.includes("draggable")).toBeFalse();
-    expect(text.indexOf("Before") < text.indexOf("One")).toBeTrue();
-    expect(text.indexOf("Inline") > text.indexOf("History")).toBeTrue();
-    expect(text.indexOf("Inline") < text.indexOf("Sticky")).toBeTrue();
-    expect(text.indexOf("Sticky") > text.indexOf("History")).toBeTrue();
-    expect(text.indexOf("Sticky") < text.indexOf("After")).toBeTrue();
+    expect(header.className.includes("draggable")).toBe(false);
+    expect(text.indexOf("Before") < text.indexOf("One")).toBe(true);
+    expect(text.indexOf("Inline") > text.indexOf("History")).toBe(true);
+    expect(text.indexOf("Inline") < text.indexOf("Sticky")).toBe(true);
+    expect(text.indexOf("Sticky") > text.indexOf("History")).toBe(true);
+    expect(text.indexOf("Sticky") < text.indexOf("After")).toBe(true);
     expect(tabRow.style.scrollPaddingInlineEnd).toBe("28px");
     expect(view.getByTestId("before-list").parentElement?.getAttribute("role")).toBe("presentation");
-    expect(view.getByTestId("before-list").parentElement?.className.includes("no-drag")).toBeTrue();
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("sticky")).toBeTrue();
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("no-drag")).toBeTrue();
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("right-0")).toBeTrue();
+    expect(view.getByTestId("before-list").parentElement?.className.includes("no-drag")).toBe(true);
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("sticky")).toBe(true);
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("no-drag")).toBe(true);
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("right-0")).toBe(true);
     expect(view.getByTestId("after-list-sticky").parentElement?.getAttribute("role")).toBe("presentation");
-    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("no-drag")).toBe(true);
     expect(view.getByTestId("after-list").parentElement?.getAttribute("role")).toBe("presentation");
-    expect(view.getByTestId("after-list").parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(view.getByTestId("after-list").parentElement?.className.includes("no-drag")).toBe(true);
   });
 
   test("does not render the title fade when the tab title fits", () => {
     const view = renderAppShellTabs({ activeTabId: "two" });
 
-    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBeTrue();
+    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBe(true);
   });
 
   test("renders the title fade only when the tab title overflows", async () => {
@@ -457,7 +457,7 @@ describe("AppShellTabs", () => {
       window.dispatchEvent(new Event("resize"));
     });
 
-    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBeFalse();
+    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBe(false);
   });
 
   test("close button suppresses selection on mouse down", () => {
@@ -475,7 +475,7 @@ describe("AppShellTabs", () => {
     const closeIcon = closeButton.querySelector("svg");
     expect(closeButton.tagName).toBe("BUTTON");
     expect(closeIcon?.getAttribute("viewBox")).toBe("0 0 21 21");
-    expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M10.7997 2.48486")).toBeTrue();
+    expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M10.7997 2.48486")).toBe(true);
 
     fireEvent.mouseDown(closeButton, { button: 0 });
     fireEvent.click(closeButton);
@@ -683,20 +683,20 @@ describe("AppShellTabs", () => {
 
     const verticalWheel = dispatchWheel(tabRow, { deltaY: 120 });
     expect(tabRow.scrollLeft).toBe(120);
-    expect(verticalWheel.defaultPrevented).toBeTrue();
+    expect(verticalWheel.defaultPrevented).toBe(true);
 
     const horizontalWheel = dispatchWheel(tabRow, { deltaX: -40 });
     expect(tabRow.scrollLeft).toBe(80);
-    expect(horizontalWheel.defaultPrevented).toBeTrue();
+    expect(horizontalWheel.defaultPrevented).toBe(true);
 
     const lineWheel = dispatchWheel(tabRow, { deltaY: 2, deltaMode: 1 });
     expect(tabRow.scrollLeft).toBe(112);
-    expect(lineWheel.defaultPrevented).toBeTrue();
+    expect(lineWheel.defaultPrevented).toBe(true);
 
     tabRow.scrollLeft = 0;
     const edgeWheel = dispatchWheel(tabRow, { deltaY: -20 });
     expect(tabRow.scrollLeft).toBe(0);
-    expect(edgeWheel.defaultPrevented).toBeFalse();
+    expect(edgeWheel.defaultPrevented).toBe(false);
   });
 
   test("context menu close is available only for closable tabs", async () => {
@@ -755,13 +755,13 @@ describe("AppShellTabs", () => {
 
     const menu = view.getByRole("menu");
     const menuText = textContent(menu);
-    expect(menuText.indexOf("New tab to the right") < menuText.indexOf("Close")).toBeTrue();
-    expect(menuText.indexOf("Reload") < menuText.indexOf("Close")).toBeTrue();
-    expect(menuText.indexOf("Duplicate") < menuText.indexOf("Close")).toBeTrue();
-    expect(within(menu).getByText("Close other tabs") !== null).toBeTrue();
-    expect(within(menu).getByText("Close tabs to the right") !== null).toBeTrue();
-    expect(within(menu).getByText("Move to bottom panel") !== null).toBeTrue();
-    expect(within(menu).getByText("Split tab right") !== null).toBeTrue();
+    expect(menuText.indexOf("New tab to the right") < menuText.indexOf("Close")).toBe(true);
+    expect(menuText.indexOf("Reload") < menuText.indexOf("Close")).toBe(true);
+    expect(menuText.indexOf("Duplicate") < menuText.indexOf("Close")).toBe(true);
+    expect(within(menu).getByText("Close other tabs") !== null).toBe(true);
+    expect(within(menu).getByText("Close tabs to the right") !== null).toBe(true);
+    expect(within(menu).getByText("Move to bottom panel") !== null).toBe(true);
+    expect(within(menu).getByText("Split tab right") !== null).toBe(true);
 
     const closeTabsToRightItem = within(menu).getByText("Close tabs to the right").closest('[role="menuitem"]');
     expect(closeTabsToRightItem?.getAttribute("data-disabled")).toBe("");
@@ -815,7 +815,7 @@ describe("AppShellTabs", () => {
     const view = renderAppShellTabs({ activeTabId: "one" });
 
     const wrapper = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
-    expect(wrapper?.className.includes("no-drag")).toBeTrue();
+    expect(wrapper?.className.includes("no-drag")).toBe(true);
     expect(wrapper?.getAttribute("data-panel-tab-id")).toBe("two");
     expect(wrapper?.getAttribute("aria-roledescription")).toBe(null);
   });
@@ -838,7 +838,7 @@ describe("AppShellTabs", () => {
     });
 
     const marker = view.container.querySelector('[data-panel-tab-insertion-marker="right:leaf-a:2"]');
-    expect(marker instanceof HTMLElement).toBeTrue();
+    expect(marker instanceof HTMLElement).toBe(true);
     expect((marker as HTMLElement).style.left).toBe("48px");
   });
 
@@ -872,7 +872,7 @@ describe("AppShellTabs", () => {
     await clickCloseButton(view, "Close One tab");
 
     const marker = view.container.querySelector('[data-panel-tab-insertion-marker="right:leaf-a:1"]');
-    expect(marker instanceof HTMLElement).toBeTrue();
+    expect(marker instanceof HTMLElement).toBe(true);
     expect((marker as HTMLElement).style.left).toBe("48px");
     expect(getTabController(view, "two").style.flexBasis).toBe("96px");
   });
@@ -894,7 +894,7 @@ describe("AppShellTabs", () => {
       },
     });
 
-    expect(view.container.querySelector("[data-panel-tab-insertion-marker]") === null).toBeTrue();
+    expect(view.container.querySelector("[data-panel-tab-insertion-marker]") === null).toBe(true);
   });
 
   test("shows separators for projected drag positions", () => {
@@ -905,7 +905,7 @@ describe("AppShellTabs", () => {
       draggingIndex: 2,
       isActive: false,
       isDragging: false,
-    })).toBeTrue();
+    })).toBe(true);
     expect(shouldShowAppShellTabSeparator({
       index: 1,
       tabCount: 3,
@@ -913,7 +913,7 @@ describe("AppShellTabs", () => {
       draggingIndex: 2,
       isActive: false,
       isDragging: false,
-    })).toBeFalse();
+    })).toBe(false);
   });
 });
 

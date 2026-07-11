@@ -7,25 +7,28 @@ This document keeps contributor setup and local validation details out of the pu
 Install dependencies from the repository root:
 
 ```bash
-bun install
+pnpm install
 ```
+
+Nodex pins Node `24.15.0` in `.node-version` and pnpm `11.11.0` in
+`package.json`. Use those versions before running a frozen install.
 
 Start the desktop app in development mode:
 
 ```bash
-bun run dev
+pnpm run dev
 ```
 
 Build the app:
 
 ```bash
-bun run build
+pnpm run build
 ```
 
 Package local macOS installers:
 
 ```bash
-bun run package
+pnpm run package
 ```
 
 ## Validation
@@ -33,10 +36,20 @@ bun run package
 Run the standard checks before handing off code changes:
 
 ```bash
-bun run typecheck
-bun run lint
-bun test
+pnpm run typecheck
+pnpm run lint
+pnpm test:all
 ```
+
+The test commands follow production boundaries:
+
+- `pnpm test:unit` runs pure shared, script, and configuration logic in Node.
+- `pnpm test:main` runs main/store tests in Electron's embedded Node runtime.
+- `pnpm test:renderer` runs ordinary React and DOM behavior in jsdom.
+- `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
+- `pnpm test:integration` runs integration tests in Electron's Node runtime.
+- `pnpm test:electron-runtime` runs native persistence probes.
+- `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/SQLite chain.
 
 ## Related Technical Docs
 

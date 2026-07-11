@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildSubagentAvatarIdenticon } from "./subagent-avatar";
 
 describe("subagent avatar identicon", () => {
@@ -8,10 +8,10 @@ describe("subagent avatar identicon", () => {
     const other = buildSubagentAvatarIdenticon("thread-nash");
 
     expect(JSON.stringify(identicon)).toBe(JSON.stringify(repeated));
-    expect(JSON.stringify(identicon) === JSON.stringify(other)).toBeFalse();
-    expect(identicon.cells.length > 0).toBeTrue();
+    expect(JSON.stringify(identicon) === JSON.stringify(other)).toBe(false);
+    expect(identicon.cells.length > 0).toBe(true);
     expect(identicon.scanCells.length).toBe(25);
-    expect(identicon.color.startsWith("var(--color-token-charts-")).toBeTrue();
+    expect(identicon.color.startsWith("var(--color-token-charts-")).toBe(true);
 
     const filledKeys = new Set(identicon.cells.map((cell) => `${cell.row}:${cell.column}`));
     let missingMirrors = "";

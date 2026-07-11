@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import {
@@ -43,7 +43,7 @@ describe("nfm editor popover content", () => {
 
       const input = view.getByRole("textbox", { name: "Picker search" });
       expect(openAutoFocusCalls).toBe(1);
-      expect(document.activeElement === input).toBeFalse();
+      expect(document.activeElement === input).toBe(false);
 
       await act(async () => {
         fireEvent.click(view.getByRole("button", { name: "Open editor popover" }));
@@ -51,7 +51,7 @@ describe("nfm editor popover content", () => {
       });
 
       expect(closeAutoFocusCalls).toBe(1);
-      expect(view.queryByRole("textbox", { name: "Picker search" }) === null).toBeTrue();
+      expect(view.queryByRole("textbox", { name: "Picker search" }) === null).toBe(true);
     } finally {
       focusProbe.remove();
     }

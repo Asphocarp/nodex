@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { components as blockNoteShadcnComponents } from "@blocknote/shadcn";
 import { render } from "@/test/dom";
 

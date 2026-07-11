@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, vi, test } from "vitest";
 import type { ProjectSessionTab } from "@/lib/types";
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
@@ -6,7 +6,7 @@ import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-
 let BrowserSidebarHiddenWebviewHosts: typeof import("./browser-sidebar-hidden-webview-hosts")["BrowserSidebarHiddenWebviewHosts"];
 let invokeCalls: unknown[][] = [];
 
-mock.module("@/lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     return { ok: true };
@@ -50,7 +50,7 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     );
     await settleAsyncRender();
 
-    expect(document.body.querySelector("webview") === null).toBeTrue();
+    expect(document.body.querySelector("webview") === null).toBe(true);
     expect(invokeCalls.length).toBe(0);
   });
 
@@ -74,14 +74,14 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
       && (call[1] as { type?: string } | undefined)?.type === "register-tab"
     );
 
-    expect(host === null).toBeFalse();
-    expect(reactHost === null).toBeTrue();
-    expect(host?.hasAttribute("hidden")).toBeFalse();
+    expect(host === null).toBe(false);
+    expect(reactHost === null).toBe(true);
+    expect(host?.hasAttribute("hidden")).toBe(false);
     expect(host?.style.position).toBe("fixed");
     expect(host?.style.left).toBe("-10000px");
-    expect(webview === null).toBeFalse();
+    expect(webview === null).toBe(false);
     expect(webview?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe("background");
-    expect(registerCommand !== undefined).toBeTrue();
+    expect(registerCommand !== undefined).toBe(true);
   });
 });
 

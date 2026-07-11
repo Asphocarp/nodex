@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { spawn } from "child_process";
 import * as http from "http";
 import * as os from "os";
@@ -150,7 +150,7 @@ describe("backups CLI command", () => {
       );
       expect(createResult.exitCode).toBe(0);
       const created = JSON.parse(createResult.stdout) as BackupRecord;
-      expect(created.id.length > 0).toBeTrue();
+      expect(created.id.length > 0).toBe(true);
 
       const listResult = await runCli(["backups", "--url", baseUrl, "--json"], homeDir);
       expect(listResult.exitCode).toBe(0);
@@ -163,7 +163,7 @@ describe("backups CLI command", () => {
         homeDir
       );
       expect(restoreWithoutYes.exitCode).toBe(1);
-      expect(restoreWithoutYes.stderr.includes("--yes")).toBeTrue();
+      expect(restoreWithoutYes.stderr.includes("--yes")).toBe(true);
 
       const restoreWithYes = await runCli(
         ["backups", "restore", created.id, "--yes", "--url", baseUrl, "--json"],
@@ -175,9 +175,9 @@ describe("backups CLI command", () => {
         restoredBackupId: string;
         safetyBackupId?: string;
       };
-      expect(restored.success).toBeTrue();
+      expect(restored.success).toBe(true);
       expect(restored.restoredBackupId).toBe(created.id);
-      expect(Boolean(restored.safetyBackupId)).toBeTrue();
+      expect(Boolean(restored.safetyBackupId)).toBe(true);
     } finally {
       server.close();
       fs.rmSync(homeDir, { recursive: true, force: true });

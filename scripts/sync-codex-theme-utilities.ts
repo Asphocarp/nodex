@@ -405,7 +405,7 @@ const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   return `/*
  * Synced from the Codex Electron reference CSS.
  * Do not edit by hand. Update the reference file, then rerun:
- *   bun run scripts/sync-codex-theme-utilities.ts
+ *   pnpm run scripts/sync-codex-theme-utilities.ts
  */
 
 ${generatedCss}

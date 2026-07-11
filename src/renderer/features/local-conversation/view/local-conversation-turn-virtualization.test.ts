@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildPendingLatestTurnSubmitPlacement,
   buildVirtualizedTurnLayout,
@@ -219,7 +219,7 @@ describe("resolveAdjustedScrollDistanceFromBottomForMeasuredTurnHeightDelta", ()
         scrollMode: "user",
       });
 
-    expect(adjustedScrollDistanceFromBottomPx === null).toBeTrue();
+    expect(adjustedScrollDistanceFromBottomPx === null).toBe(true);
   });
 
   test("adjusts when the measured turn is fully below the viewport", () => {
@@ -258,7 +258,7 @@ describe("resolveAdjustedScrollDistanceFromBottomForMeasuredTurnHeightDelta", ()
         scrollMode: "programmaticFind",
       });
 
-    expect(adjustedScrollDistanceFromBottomPx === null).toBeTrue();
+    expect(adjustedScrollDistanceFromBottomPx === null).toBe(true);
   });
 });
 
@@ -325,7 +325,7 @@ describe("latest turn follow helpers", () => {
       responseSpacerHeightPx: 20,
       scrollHeightPx: 8_000,
     });
-    expect(placement.shouldPlaceLatestTurn).toBeTrue();
+    expect(placement.shouldPlaceLatestTurn).toBe(true);
 
     expect(
       resolveResponseSpacerBottomViewportOverflowPx({
@@ -359,7 +359,7 @@ describe("latest turn follow helpers", () => {
         responseSpacerHeightPx: 100,
         scrollDistanceFromBottomPx: 130,
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });
 
@@ -374,7 +374,7 @@ describe("older turn loading helper", () => {
         totalHeightPx: 5_000,
         viewportHeightPx: 320,
       }),
-    ).toBeTrue();
+    ).toBe(true);
 
     expect(
       shouldLoadOlderThreadTurns({
@@ -385,7 +385,7 @@ describe("older turn loading helper", () => {
         totalHeightPx: 5_000,
         viewportHeightPx: 320,
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("accounts for list bottom inset and suppresses complete or in-flight loads", () => {
@@ -398,7 +398,7 @@ describe("older turn loading helper", () => {
         totalHeightPx: 5_000,
         viewportHeightPx: 320,
       }),
-    ).toBeTrue();
+    ).toBe(true);
 
     expect(
       shouldLoadOlderThreadTurns({
@@ -409,7 +409,7 @@ describe("older turn loading helper", () => {
         totalHeightPx: 5_000,
         viewportHeightPx: 320,
       }),
-    ).toBeFalse();
+    ).toBe(false);
 
     expect(
       shouldLoadOlderThreadTurns({
@@ -420,6 +420,6 @@ describe("older turn loading helper", () => {
         totalHeightPx: 5_000,
         viewportHeightPx: 320,
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 });

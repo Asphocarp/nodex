@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import {
   getSideMenuSelectionGuardFloatingOptions,
   shouldArmSideMenuSelectionGuard,
@@ -33,7 +33,7 @@ test("arms the side menu selection guard for primary-button presses in ProseMirr
   const textNode = new FakeElement();
   proseMirror.appendChild(textNode);
 
-  expect(shouldArmSideMenuSelectionGuard(textNode as unknown as EventTarget, 0)).toBeTrue();
+  expect(shouldArmSideMenuSelectionGuard(textNode as unknown as EventTarget, 0)).toBe(true);
 });
 
 test("does not arm the side menu selection guard for non-primary mouse buttons", () => {
@@ -41,13 +41,13 @@ test("does not arm the side menu selection guard for non-primary mouse buttons",
   const textNode = new FakeElement();
   proseMirror.appendChild(textNode);
 
-  expect(shouldArmSideMenuSelectionGuard(textNode as unknown as EventTarget, 2)).toBeFalse();
+  expect(shouldArmSideMenuSelectionGuard(textNode as unknown as EventTarget, 2)).toBe(false);
 });
 
 test("does not arm the side menu selection guard for targets outside ProseMirror content", () => {
   const outsideTarget = new FakeElement();
 
-  expect(shouldArmSideMenuSelectionGuard(outsideTarget as unknown as EventTarget, 0)).toBeFalse();
+  expect(shouldArmSideMenuSelectionGuard(outsideTarget as unknown as EventTarget, 0)).toBe(false);
 });
 
 test("does not arm the side menu selection guard when the press starts on the side menu", () => {
@@ -58,14 +58,14 @@ test("does not arm the side menu selection guard when the press starts on the si
   proseMirror.appendChild(sideMenu);
   sideMenu.appendChild(button);
 
-  expect(shouldArmSideMenuSelectionGuard(button as unknown as EventTarget, 0)).toBeFalse();
+  expect(shouldArmSideMenuSelectionGuard(button as unknown as EventTarget, 0)).toBe(false);
 });
 
 test("arms the side menu selection guard for text-node-like targets inside ProseMirror", () => {
   const proseMirror = new FakeElement(".ProseMirror");
   const textNode = new FakeTextTarget(proseMirror);
 
-  expect(shouldArmSideMenuSelectionGuard(textNode as unknown as EventTarget, 0)).toBeTrue();
+  expect(shouldArmSideMenuSelectionGuard(textNode as unknown as EventTarget, 0)).toBe(true);
 });
 
 test("returns non-hit-testable floating options while the guard is active", () => {
@@ -80,5 +80,5 @@ test("returns non-hit-testable floating options while the guard is active", () =
 });
 
 test("does not override floating options while the guard is inactive", () => {
-  expect(getSideMenuSelectionGuardFloatingOptions(false) === undefined).toBeTrue();
+  expect(getSideMenuSelectionGuardFloatingOptions(false) === undefined).toBe(true);
 });

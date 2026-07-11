@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { TextSelection } from "@tiptap/pm/state";
 import { Schema } from "@tiptap/pm/model";
 import {
@@ -1060,11 +1060,11 @@ describe("special block copy", () => {
     });
 
     expect(calls.length).toBe(2);
-    expect(calls.includes(a)).toBeTrue();
-    expect(calls.includes(b)).toBeTrue();
+    expect(calls.includes(a)).toBe(true);
+    expect(calls.includes(b)).toBe(true);
     expect(rewritten.clipboardHTML).toBe(payload.clipboardHTML);
     expect(rewritten.externalHTML).toBe(payload.externalHTML);
-    expect(rewritten.structuredText.includes("nodex://assets/")).toBeFalse();
+    expect(rewritten.structuredText.includes("nodex://assets/")).toBe(false);
   });
 
   test("rewriteCopiedSelectionAssetSourcesSync preserves rich clipboard payloads and rewrites plain text only", () => {

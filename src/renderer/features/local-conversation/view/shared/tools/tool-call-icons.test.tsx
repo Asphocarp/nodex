@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render } from "../../../../../test/dom";
 import type { CodexConversationItem, CodexMcpServerElicitationRequest, CodexTranscriptEntry } from "../../../../../lib/types";
@@ -37,7 +37,7 @@ describe("tool-call icon helpers", () => {
     const wrapper = container.querySelector("[data-tool-activity-icon='run-command']");
     const svg = wrapper?.querySelector("svg");
 
-    expect(Boolean(wrapper)).toBeTrue();
+    expect(Boolean(wrapper)).toBe(true);
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
   });
 
@@ -80,10 +80,10 @@ describe("tool-call icon helpers", () => {
     expect(image?.getAttribute("decoding")).toBe("async");
     expect(image?.getAttribute("draggable")).toBe("false");
     expect(image?.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(Boolean(container.querySelector("svg"))).toBeTrue();
+    expect(Boolean(container.querySelector("svg"))).toBe(true);
 
     fireEvent.load(image as HTMLImageElement);
-    expect(Boolean(container.querySelector("img"))).toBeTrue();
+    expect(Boolean(container.querySelector("img"))).toBe(true);
   });
 
   test("can suppress the favicon fallback while the image is loading", () => {
@@ -100,12 +100,12 @@ describe("tool-call icon helpers", () => {
     );
 
     const image = container.querySelector("img");
-    expect(Boolean(image)).toBeTrue();
-    expect(Boolean(container.querySelector("svg"))).toBeFalse();
+    expect(Boolean(image)).toBe(true);
+    expect(Boolean(container.querySelector("svg"))).toBe(false);
 
     fireEvent.error(image as HTMLImageElement);
-    expect(Boolean(container.querySelector("img"))).toBeFalse();
-    expect(Boolean(container.querySelector("svg"))).toBeTrue();
+    expect(Boolean(container.querySelector("img"))).toBe(false);
+    expect(Boolean(container.querySelector("svg"))).toBe(true);
   });
 
   test("uses theme-specific connector logo URLs and falls back on image failure", () => {
@@ -128,8 +128,8 @@ describe("tool-call icon helpers", () => {
     const image = container.querySelector("img");
     expect(image?.getAttribute("alt")).toBe("Example logo");
     fireEvent.error(image as HTMLImageElement);
-    expect(Boolean(container.querySelector("img"))).toBeFalse();
-    expect(Boolean(container.querySelector("svg"))).toBeTrue();
+    expect(Boolean(container.querySelector("img"))).toBe(false);
+    expect(Boolean(container.querySelector("svg"))).toBe(true);
   });
 
   test("resolves MCP source and elicitation metadata logos", () => {

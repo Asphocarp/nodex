@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { RelocateBlocks, RelocationIntent } from "./contracts";
 import {
   canonicalizeRelocationIntent,
@@ -75,7 +75,7 @@ describe("atomic Block relocation contracts", () => {
           expectedSourceHeadSeq: 4,
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("parses every source and target concurrency boundary", () => {
@@ -110,8 +110,8 @@ describe("atomic Block relocation contracts", () => {
 
   test("derives deterministic source and target update identities from a request hash", () => {
     const hash = "a".repeat(64);
-    expect(isRelocationRequestHash(hash)).toBeTrue();
-    expect(isRelocationRequestHash("A".repeat(64))).toBeFalse();
+    expect(isRelocationRequestHash(hash)).toBe(true);
+    expect(isRelocationRequestHash("A".repeat(64))).toBe(false);
     expect(makeRelocationDocumentUpdateId(hash, "source")).toBe(
       `relocation:${hash}:source`,
     );
@@ -120,7 +120,7 @@ describe("atomic Block relocation contracts", () => {
     );
     expect(
       rejects(() => makeRelocationDocumentUpdateId("not-a-hash", "source")),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("rejects ambiguous roots, preconditions, target cycles, and unknown fields", () => {
@@ -132,7 +132,7 @@ describe("atomic Block relocation contracts", () => {
           rootBlockIds: ["block-a", "block-a"],
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejects(() =>
         parseRelocateBlocks({
@@ -140,7 +140,7 @@ describe("atomic Block relocation contracts", () => {
           expectedLocationRevisions: { "block-a": 9 },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejects(() =>
         parseRelocateBlocks({
@@ -153,7 +153,7 @@ describe("atomic Block relocation contracts", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejects(() =>
         parseRelocateBlocks({
@@ -167,10 +167,10 @@ describe("atomic Block relocation contracts", () => {
           },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       rejects(() => parseRelocateBlocks({ ...base, unexpected: true })),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("validates a relocation result against both Document commits", () => {
@@ -221,8 +221,8 @@ describe("atomic Block relocation contracts", () => {
       },
       request,
     );
-    expect(result.sourceCommit.update === sourceUpdate).toBeTrue();
-    expect(result.targetCommit?.update === targetUpdate).toBeTrue();
+    expect(result.sourceCommit.update === sourceUpdate).toBe(true);
+    expect(result.targetCommit?.update === targetUpdate).toBe(true);
     expect(result.finalLocationRevisions["block-child"]).toBe(2);
   });
 
@@ -255,7 +255,7 @@ describe("atomic Block relocation contracts", () => {
       changeLogSeq: 3,
       committedAt: "2026-07-11T12:00:00.000Z",
     };
-    expect(parseRelocationResult(baseResult, request).duplicate).toBeTrue();
+    expect(parseRelocationResult(baseResult, request).duplicate).toBe(true);
     expect(
       rejects(() =>
         parseRelocationResult(
@@ -274,6 +274,6 @@ describe("atomic Block relocation contracts", () => {
           request,
         ),
       ),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

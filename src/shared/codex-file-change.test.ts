@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
   buildCodexFileChangeFromProtocol,
@@ -46,9 +46,9 @@ describe("codex file change turn diff synthesis", () => {
     const diff = buildCodexTurnDiffFromPatchBatches(batches);
 
     expect(countDiffGitSections(diff, "src/app.ts")).toBe(1);
-    expect(diff.includes("+intermediate")).toBeTrue();
-    expect(diff.includes("+final")).toBeTrue();
-    expect(diff.endsWith("\n")).toBeTrue();
+    expect(diff.includes("+intermediate")).toBe(true);
+    expect(diff.includes("+final")).toBe(true);
+    expect(diff.endsWith("\n")).toBe(true);
   });
 
   test("keeps identical paths in different cwd scopes separate", () => {
@@ -105,7 +105,7 @@ describe("codex file change turn diff synthesis", () => {
     const diff = buildCodexTurnDiffFromPatchBatches(batches);
 
     expect(countDiffGitSections(diff, "src/app.ts")).toBe(2);
-    expect(diff.includes("diff --git a/src/app.ts b/src/old-app.ts")).toBeTrue();
+    expect(diff.includes("diff --git a/src/app.ts b/src/old-app.ts")).toBe(true);
   });
 
   test("ignores empty invalid changes and returns an empty diff for no material patches", () => {
@@ -178,7 +178,7 @@ describe("codex file change turn diff synthesis", () => {
     expect(summary?.additions ?? -1).toBe(2);
     expect(summary?.deletions ?? -1).toBe(1);
     expect(summary?.firstPath ?? "").toBe("src/app.ts");
-    expect(summary?.hasChanges ?? false).toBeTrue();
+    expect(summary?.hasChanges ?? false).toBe(true);
   });
 
   test("keeps empty update diffs as renderable patch rows", () => {
@@ -190,8 +190,8 @@ describe("codex file change turn diff synthesis", () => {
     const diff = change ? buildCodexFileChangeUnifiedDiff(change) : null;
 
     expect(change?.type ?? null).toBe("update");
-    expect(diff?.startsWith("diff --git a/src/app.ts b/src/app.ts") ?? false).toBeTrue();
-    expect(diff?.includes("--- a/src/app.ts\n+++ b/src/app.ts") ?? false).toBeTrue();
+    expect(diff?.startsWith("diff --git a/src/app.ts b/src/app.ts") ?? false).toBe(true);
+    expect(diff?.includes("--- a/src/app.ts\n+++ b/src/app.ts") ?? false).toBe(true);
   });
 
   test("keeps binary-looking add payloads out of textual unified diffs", () => {
@@ -223,7 +223,7 @@ describe("codex file change turn diff synthesis", () => {
     expect(change?.type ?? "").toBe("nonRenderable");
     expect(change?.type === "nonRenderable" ? change.safety.skipReason : "").toBe("tooLarge");
     expect(summary?.fileCount ?? 0).toBe(1);
-    expect(summary?.hasChanges ?? false).toBeTrue();
+    expect(summary?.hasChanges ?? false).toBe(true);
   });
 
   test("filters non-canonical patch map entries before rendering", () => {
@@ -240,9 +240,9 @@ describe("codex file change turn diff synthesis", () => {
 
     expect(entries.length).toBe(1);
     expect(entries[0]?.[0] ?? "").toBe("src/good.ts");
-    expect(hasCodexFileChangeEntries(malformedMap)).toBeTrue();
+    expect(hasCodexFileChangeEntries(malformedMap)).toBe(true);
     expect(getCodexFileChangeEntries(rawProtocolArray).length).toBe(0);
-    expect(hasCodexFileChangeEntries(rawProtocolArray)).toBeFalse();
+    expect(hasCodexFileChangeEntries(rawProtocolArray)).toBe(false);
   });
 
   test("builds Codex-style unified diffs from patch map entries", () => {
@@ -256,10 +256,10 @@ describe("codex file change turn diff synthesis", () => {
       content: "",
     });
 
-    expect(Boolean(movedDiff?.startsWith("diff --git a/src/app.ts b/src/app-renamed.ts"))).toBeTrue();
-    expect(Boolean(movedDiff?.includes("--- a/src/app.ts\n+++ b/src/app-renamed.ts"))).toBeTrue();
-    expect(Boolean(emptyCreateDiff?.includes("new file mode 100644"))).toBeTrue();
-    expect(Boolean(emptyCreateDiff?.includes("@@"))).toBeFalse();
+    expect(Boolean(movedDiff?.startsWith("diff --git a/src/app.ts b/src/app-renamed.ts"))).toBe(true);
+    expect(Boolean(movedDiff?.includes("--- a/src/app.ts\n+++ b/src/app-renamed.ts"))).toBe(true);
+    expect(Boolean(emptyCreateDiff?.includes("new file mode 100644"))).toBe(true);
+    expect(Boolean(emptyCreateDiff?.includes("@@"))).toBe(false);
   });
 
   test("summarizes unified diffs from the same Codex helper used for row body and copy text", () => {

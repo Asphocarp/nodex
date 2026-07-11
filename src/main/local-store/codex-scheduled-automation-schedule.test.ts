@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { CodexScheduledAutomation } from "../../shared/types";
 import {
   CODEX_SCHEDULED_AUTOMATION_JITTER_MAX_SECONDS,
@@ -74,8 +74,8 @@ describe("codex scheduled automation schedule helpers", () => {
       jitterSalt: "salt",
     });
 
-    expect(jitter >= 0).toBeTrue();
-    expect(jitter < CODEX_SCHEDULED_AUTOMATION_JITTER_MAX_SECONDS * 1_000).toBeTrue();
+    expect(jitter >= 0).toBe(true);
+    expect(jitter < CODEX_SCHEDULED_AUTOMATION_JITTER_MAX_SECONDS * 1_000).toBe(true);
     expect(next).toBe(base + jitter);
     expect(shouldJitterCodexScheduledAutomation({
       automation: {
@@ -83,7 +83,7 @@ describe("codex scheduled automation schedule helpers", () => {
         kind: "cron",
         rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=30",
       },
-    })).toBeTrue();
+    })).toBe(true);
   });
 
   test("reconciles active, paused, and changed schedules against mirror state", () => {
@@ -109,7 +109,7 @@ describe("codex scheduled automation schedule helpers", () => {
       now,
       jitterSalt: "salt",
     });
-    expect(changed.nextRunAt === 123).toBeFalse();
+    expect(changed.nextRunAt === 123).toBe(false);
     expect(changed.lastRunAt).toBe(456);
 
     const paused = reconcileCodexScheduledAutomationRuntimeState({

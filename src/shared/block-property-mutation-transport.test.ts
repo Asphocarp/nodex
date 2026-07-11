@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   bindTrustedBlockPropertyMutation,
   blockPropertyMutationHttpStatus,
@@ -30,7 +30,7 @@ describe("Block property mutation transport binding", () => {
       clientSessionId: "renderer-7",
     });
 
-    expect(result.ok).toBeTrue();
+    expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.version).toBe(1);
     expect(result.value.mutationId).toBe("mutation-1");
@@ -39,7 +39,7 @@ describe("Block property mutation transport binding", () => {
     expect(result.value.clientSessionId).toBe("renderer-7");
     expect(result.value.actor.kind).toBe("electron");
     expect(result.value.actor.clientId).toBe("renderer-7");
-    expect(result.value.actor.userId === undefined).toBeTrue();
+    expect(result.value.actor.userId === undefined).toBe(true);
   });
 
   test("rejects route scope mismatches and malformed envelopes as typed errors", () => {
@@ -48,7 +48,7 @@ describe("Block property mutation transport binding", () => {
       "project-2",
       { actor: { kind: "http_loopback" } },
     );
-    expect(wrongProject.ok).toBeFalse();
+    expect(wrongProject.ok).toBe(false);
     if (wrongProject.ok) return;
     expect(wrongProject.error.code).toBe("invalid_property_mutation_request");
     expect(wrongProject.error.mutationId).toBe("mutation-1");
@@ -58,7 +58,7 @@ describe("Block property mutation transport binding", () => {
       "project-1",
       { actor: { kind: "http_loopback" } },
     );
-    expect(malformed.ok).toBeFalse();
+    expect(malformed.ok).toBe(false);
     if (malformed.ok) return;
     expect(malformed.error.code).toBe("invalid_property_mutation_request");
   });

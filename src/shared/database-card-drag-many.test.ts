@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { GeneralDatabaseViewConfig } from "./database-kernel";
 import type {
   DatabaseReadSnapshot,
@@ -245,7 +245,7 @@ describe("Database multi-Card drag compiler", () => {
     );
     expect(positions.cards[0]?.expectedPositionRevision).toBe(246);
     expect(positions.beforeCardBlockId).toBe("target-after");
-    expect(Object.hasOwn(positions, "rankKey")).toBeFalse();
+    expect(Object.hasOwn(positions, "rankKey")).toBe(false);
   });
 
   test("emits one position run for same-column reorder and no value write", () => {
@@ -265,7 +265,7 @@ describe("Database multi-Card drag compiler", () => {
     expect(
       compiled.operations[0].cards.map((entry) => entry.cardBlockId).join(","),
     ).toBe("target-after,target-before");
-    expect(compiled.operations[0].beforeCardBlockId === undefined).toBeTrue();
+    expect(compiled.operations[0].beforeCardBlockId === undefined).toBe(true);
   });
 
   test("does not claim manual authority for a property-sorted View", () => {
@@ -353,10 +353,10 @@ describe("Database multi-Card drag runtime", () => {
       },
     });
 
-    expect(committed).toBeTrue();
+    expect(committed).toBe(true);
     expect(snapshotReads).toBe(1);
     expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBeTrue();
+    expect(requests[0] === requests[1]).toBe(true);
   });
 
   test("retries one typed transient result but refreshes a conflict without replay", async () => {
@@ -387,9 +387,9 @@ describe("Database multi-Card drag runtime", () => {
         },
       },
     });
-    expect(retried).toBeTrue();
+    expect(retried).toBe(true);
     expect(retryRequests.length).toBe(2);
-    expect(retryRequests[0] === retryRequests[1]).toBeTrue();
+    expect(retryRequests[0] === retryRequests[1]).toBe(true);
 
     let snapshotReads = 0;
     let mutationCalls = 0;

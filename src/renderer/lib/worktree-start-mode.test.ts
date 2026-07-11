@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { readWorktreeStartMode, writeWorktreeStartMode } from "./worktree-start-mode";
 
 const mockStorage = {

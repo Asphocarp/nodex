@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CODEX_ELECTRON_OPAQUE_DARK_BACKGROUND_COLOR,
   CODEX_ELECTRON_OPAQUE_LIGHT_BACKGROUND_COLOR,
@@ -16,7 +16,7 @@ describe("electron window backdrop", () => {
         platform: "darwin",
         scaleFactor: 2,
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("uses opaque surfaces for large physical macOS windows", () => {
@@ -27,7 +27,7 @@ describe("electron window backdrop", () => {
         platform: "darwin",
         scaleFactor: 2,
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("uses opaque surfaces for unfocused supported windows", () => {
@@ -38,7 +38,7 @@ describe("electron window backdrop", () => {
         platform: "darwin",
         scaleFactor: 2,
       }),
-    ).toBeTrue();
+    ).toBe(true);
     expect(
       shouldUseOpaqueElectronWindowSurface({
         bounds: { width: 1200, height: 800 },
@@ -46,7 +46,7 @@ describe("electron window backdrop", () => {
         platform: "win32",
         scaleFactor: 1,
       }),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   test("keeps focused small Windows windows transparent", () => {
@@ -57,7 +57,7 @@ describe("electron window backdrop", () => {
         platform: "win32",
         scaleFactor: 1,
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("resolves transparent and opaque native backdrop settings", () => {

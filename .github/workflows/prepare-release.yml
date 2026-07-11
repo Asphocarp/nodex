@@ -38,22 +38,38 @@ jobs:
       with:
         fetch-depth: 0
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
+
+    - name: Install Playwright Chromium dependencies
+      run: pnpm exec playwright install --with-deps chromium
 
     - name: Typecheck
-      run: bun run typecheck
+      run: pnpm run typecheck
 
     - name: Lint
-      run: bun run lint
+      run: pnpm run lint
 
-    - name: Test
-      run: bun test
+    - name: Test Node, main, renderer, and integration suites
+      run: pnpm test
 
-    - name: Test Block-first native persistence
-      run: bun run test:block-first:runtime
+    - name: Test Browser Mode
+      run: xvfb-run --auto-servernum pnpm test:browser
+
+    - name: Test native Electron runtime probes
+      run: pnpm test:electron-runtime
+
+    - name: Test Electron end-to-end smoke flow
+      run: xvfb-run --auto-servernum pnpm test:e2e
 
     - name: Resolve version bump
       if: ${{ !github.event.act }}
@@ -83,7 +99,7 @@ jobs:
 
     - name: Bump package version with Bun
       if: ${{ !github.event.act }}
-      run: bun pm version "${{ steps.bump.outputs.value }}" --no-git-tag-version
+      run: pnpm version "${{ steps.bump.outputs.value }}" --no-git-tag-version
 
     - name: Resolve release version
       if: ${{ !github.event.act }}
@@ -99,7 +115,7 @@ jobs:
     - name: Update CHANGELOG and generate release notes
       if: ${{ !github.event.act }}
       run: |
-        bun run release:prepare -- \
+        pnpm run release:prepare -- \
           --release-notes-output "${RUNNER_TEMP}/release-notes.md" \
           --commit-message-output "${RUNNER_TEMP}/release-commit-message.txt"
 
@@ -152,11 +168,18 @@ jobs:
         mkdir -p "${RELEASE_WORKDIR}"
         tar -xzf "${RUNNER_TEMP}/release-source/release-candidate-source.tgz" -C "${RELEASE_WORKDIR}"
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
       working-directory: ${{ env.RELEASE_WORKDIR }}
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Materialize App Store Connect API key
       env:
@@ -180,7 +203,7 @@ jobs:
         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         SENTRY_RELEASE: nodex@${{ needs.prepare.outputs.version }}
-      run: bun run package:mac:arm64
+      run: pnpm run package:mac:arm64
 
     - name: Resolve artifact paths
       id: artifact_paths
@@ -262,11 +285,18 @@ jobs:
         mkdir -p "${RELEASE_WORKDIR}"
         tar -xzf "${RUNNER_TEMP}/release-source/release-candidate-source.tgz" -C "${RELEASE_WORKDIR}"
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
       working-directory: ${{ env.RELEASE_WORKDIR }}
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Materialize App Store Connect API key
       env:
@@ -290,7 +320,7 @@ jobs:
         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         SENTRY_RELEASE: nodex@${{ needs.prepare.outputs.version }}
-      run: bun run package:mac:x64
+      run: pnpm run package:mac:x64
 
     - name: Resolve artifact paths
       id: artifact_paths
@@ -449,11 +479,18 @@ jobs:
         mkdir -p "${RUNNER_TEMP}/release-candidate"
         tar -xzf "${RUNNER_TEMP}/release-source/release-candidate-source.tgz" -C "${RUNNER_TEMP}/release-candidate"
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Install dependencies
       working-directory: ${{ runner.temp }}/release-candidate
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
 
     - name: Download release candidate metadata
       uses: actions/download-artifact@v8
@@ -477,14 +514,14 @@ jobs:
       shell: bash
       run: |
         mkdir -p "${RUNNER_TEMP}/release-artifacts/merged"
-        bun run --cwd "${RUNNER_TEMP}/release-candidate" release:merge-mac-update-manifest -- \
+        pnpm --dir "${RUNNER_TEMP}/release-candidate" release:merge-mac-update-manifest -- \
           --input "${RUNNER_TEMP}/release-artifacts/arm64/latest-mac.yml" \
           --input "${RUNNER_TEMP}/release-artifacts/x64/latest-mac.yml" \
           --output "${RUNNER_TEMP}/release-artifacts/merged/latest-mac.yml"
 
     - name: Create stable macOS download aliases
       run: |
-        bun run --cwd "${RUNNER_TEMP}/release-candidate" release:download-aliases -- \
+        pnpm --dir "${RUNNER_TEMP}/release-candidate" release:download-aliases -- \
           --version "${{ needs.prepare.outputs.version }}" \
           --arm64-dir "${RUNNER_TEMP}/release-artifacts/arm64" \
           --x64-dir "${RUNNER_TEMP}/release-artifacts/x64"
@@ -528,7 +565,14 @@ jobs:
         mkdir -p "${RUNNER_TEMP}/release-candidate"
         tar -xzf "${RUNNER_TEMP}/release-source/release-candidate-source.tgz" -C "${RUNNER_TEMP}/release-candidate"
 
-    - uses: oven-sh/setup-bun@v2
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        cache: pnpm
 
     - name: Download arm64 artifacts
       uses: actions/download-artifact@v8
@@ -558,7 +602,7 @@ jobs:
         tap_workdir="${RUNNER_TEMP}/homebrew-tap"
 
         git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}@github.com/${HOMEBREW_TAP_REPO}.git" "${tap_workdir}"
-        bun run "${RUNNER_TEMP}/release-candidate/scripts/generate-homebrew-cask.ts" -- \
+        pnpm run "${RUNNER_TEMP}/release-candidate/scripts/generate-homebrew-cask.ts" -- \
           --version "${{ needs.prepare.outputs.version }}" \
           --arm64-sha256 "${arm64_sha}" \
           --x64-sha256 "${x64_sha}" \

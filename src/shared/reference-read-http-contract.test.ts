@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   decodeCardReferenceReadModelHttp,
   decodeCardSummaryHttp,
@@ -69,10 +69,10 @@ describe("reference read HTTP contract", () => {
   test("revives every Card summary timestamp as a Date", () => {
     const summary = decodeCardSummaryHttp(makeCardSummaryWire());
 
-    expect(summary.created instanceof Date).toBeTrue();
-    expect(summary.dueDate instanceof Date).toBeTrue();
-    expect(summary.scheduledStart instanceof Date).toBeTrue();
-    expect(summary.scheduledEnd instanceof Date).toBeTrue();
+    expect(summary.created instanceof Date).toBe(true);
+    expect(summary.dueDate instanceof Date).toBe(true);
+    expect(summary.scheduledStart instanceof Date).toBe(true);
+    expect(summary.scheduledEnd instanceof Date).toBe(true);
     expect(summary.created.toISOString()).toBe(CREATED);
     expect(summary.dueDate?.toISOString()).toBe(DUE_DATE);
     expect(summary.scheduledStart?.toISOString()).toBe(SCHEDULED_START);
@@ -89,8 +89,8 @@ describe("reference read HTTP contract", () => {
 
     expect(cardReference.status).toBe("available");
     if (cardReference.status !== "available") return;
-    expect(cardReference.summary.created instanceof Date).toBeTrue();
-    expect(databaseView.rows[0]?.card.created instanceof Date).toBeTrue();
+    expect(cardReference.summary.created instanceof Date).toBe(true);
+    expect(databaseView.rows[0]?.card.created instanceof Date).toBe(true);
     expect(databaseView.rows[0]?.card.scheduledEnd?.toISOString()).toBe(
       SCHEDULED_END,
     );
@@ -113,10 +113,10 @@ describe("reference read HTTP contract", () => {
         caught = error;
       }
 
-      expect(caught instanceof ReferenceReadHttpBoundaryError).toBeTrue();
+      expect(caught instanceof ReferenceReadHttpBoundaryError).toBe(true);
       if (!(caught instanceof ReferenceReadHttpBoundaryError)) return;
       expect(caught.code).toBe("invalid_reference_http_payload");
-      expect(caught.message.includes(`$.${field}`)).toBeTrue();
+      expect(caught.message.includes(`$.${field}`)).toBe(true);
     });
   }
 
@@ -131,8 +131,8 @@ describe("reference read HTTP contract", () => {
       caught = error;
     }
 
-    expect(caught instanceof ReferenceReadHttpBoundaryError).toBeTrue();
+    expect(caught instanceof ReferenceReadHttpBoundaryError).toBe(true);
     if (!(caught instanceof ReferenceReadHttpBoundaryError)) return;
-    expect(caught.message.includes("$.rows[0].card.created")).toBeTrue();
+    expect(caught.message.includes("$.rows[0].card.created")).toBe(true);
   });
 });

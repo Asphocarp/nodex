@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, vi, test } from "vitest";
 import { act } from "@testing-library/react";
 import { render, textContent } from "../../test/dom";
 import type { Card, CardUpdateMutationResult } from "@/lib/types";
@@ -11,7 +11,7 @@ import { NodexTooltipProvider } from "@/components/ui/tooltip";
 let lastNfmEditorProps: Record<string, unknown> | null = null;
 let nfmEditorRenderCount = 0;
 
-mock.module("./editor/nfm-editor", () => ({
+vi.mock("./editor/nfm-editor", () => ({
   NfmEditor: (props: Record<string, unknown>) => {
     nfmEditorRenderCount += 1;
     lastNfmEditorProps = props;
@@ -19,11 +19,11 @@ mock.module("./editor/nfm-editor", () => ({
   },
 }));
 
-mock.module("./card-stage/inline-property-strip", () => ({
+vi.mock("./card-stage/inline-property-strip", () => ({
   CardStageInlinePropertyStrip: () => <div>Inline property strip</div>,
 }));
 
-mock.module("./card-stage/properties-section", () => ({
+vi.mock("./card-stage/properties-section", () => ({
   CardStagePropertiesSection: () => <div>Properties section</div>,
 }));
 
@@ -102,7 +102,7 @@ describe("card stage", () => {
     const body = container.querySelector('[data-card-stage-body="true"]');
     expect(body).not.toBeNull();
     expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
-    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBeTrue();
+    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBe(true);
     const editorProps = lastNfmEditorProps as {
       source?: { flushHandleRef?: unknown };
       projectName?: unknown;
@@ -151,7 +151,7 @@ describe("card stage", () => {
     const fullWidthButton = getByRole("button", { name: "Full width" });
 
     expect(surface).not.toBeNull();
-    expect(surface?.className.includes("w-full")).toBeTrue();
+    expect(surface?.className.includes("w-full")).toBe(true);
     expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
     expect(fullWidthButton.getAttribute("aria-pressed")).toBe("false");
 
@@ -160,9 +160,9 @@ describe("card stage", () => {
       await Promise.resolve();
     });
 
-    expect(surface?.className.includes("w-full")).toBeTrue();
+    expect(surface?.className.includes("w-full")).toBe(true);
     expect(body?.getAttribute("data-card-stage-body-width")).toBe("full");
-    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBeFalse();
+    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBe(false);
     expect(fullWidthButton.getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -190,7 +190,7 @@ describe("card stage", () => {
     expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(getByText("Read-only").textContent).toBe("Read-only");
     expect(queryByText("Mock editor")).toBe(null);
-    expect(textContent(container).includes("# Raw card")).toBeTrue();
+    expect(textContent(container).includes("# Raw card")).toBe(true);
   });
 
   test("does not rerender the rich editor when only saving state changes", async () => {
@@ -226,7 +226,7 @@ describe("card stage", () => {
     expect(typeof onChange).toBe("function");
     expect(typeof onBlur).toBe("function");
     const renderCountAfterMount = nfmEditorRenderCount;
-    expect(renderCountAfterMount > 0).toBeTrue();
+    expect(renderCountAfterMount > 0).toBe(true);
 
     await act(async () => {
       onChange?.("Updated body");

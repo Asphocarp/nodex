@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   filterBranchSelectorBranches,
@@ -59,7 +59,7 @@ describe("branch selector state helpers", () => {
         activeCwd: "/tmp/repo",
         requestedCwd: "/tmp/repo",
       }),
-    ).toBeTrue();
+    ).toBe(true);
 
     expect(
       isBranchSelectorMutationCurrent({
@@ -68,7 +68,7 @@ describe("branch selector state helpers", () => {
         activeCwd: "/tmp/repo",
         requestedCwd: "/tmp/repo",
       }),
-    ).toBeFalse();
+    ).toBe(false);
 
     expect(
       isBranchSelectorMutationCurrent({
@@ -77,6 +77,6 @@ describe("branch selector state helpers", () => {
         activeCwd: "/tmp/other",
         requestedCwd: "/tmp/repo",
       }),
-    ).toBeFalse();
+    ).toBe(false);
   });
 });

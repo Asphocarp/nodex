@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   DEFAULT_CARD_STAGE_COLLAPSED_PROPERTIES,
   CARD_STAGE_COLLAPSED_PROPERTIES_STORAGE_KEY,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
@@ -68,6 +68,6 @@ describe("thread stage story fixtures", () => {
     }, scenario.runtime);
 
     expect(footerModel.composerShell.backgroundRequest?.request.type).toBe("approval");
-    expect(footerModel.composerShell.showComposer).toBeFalse();
+    expect(footerModel.composerShell.showComposer).toBe(false);
   });
 });

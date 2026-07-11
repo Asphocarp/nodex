@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
 import type {
@@ -22,15 +22,15 @@ import {
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
 
-mock.module("./card-icon", () => ({
+vi.mock("./card-icon", () => ({
   CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
 }));
 
-mock.module("./threads-icon", () => ({
+vi.mock("./threads-icon", () => ({
   ThreadsIcon: ({ className }: { className?: string }) => createElement("span", { className }, "T"),
 }));
 
-mock.module("./toggle-list-icon", () => ({
+vi.mock("./toggle-list-icon", () => ({
   ToggleListIcon: ({ className }: { className?: string }) => createElement("span", { className }, "L"),
 }));
 
@@ -38,7 +38,7 @@ let mockInvokeImplementation: (...args: unknown[]) => Promise<unknown> = async (
 const mockInvoke = (...args: unknown[]) => mockInvokeImplementation(...args);
 let threadIndexUpdateCallbacks: Array<() => void> = [];
 
-mock.module("../../lib/api", () => ({
+vi.mock("../../lib/api", () => ({
   invoke: mockInvoke,
   subscribeCommandPaletteThreadIndexUpdates: (callback: () => void) => {
     threadIndexUpdateCallbacks.push(callback);
@@ -79,8 +79,8 @@ describe("buildCommandPaletteCommands", () => {
     const findCommand = commands.find((command) => command.id === "findInThread");
 
     expect(findCommand?.title).toBe("Find");
-    expect(Boolean(findCommand?.disabled)).toBeFalse();
-    expect(Boolean(findCommand?.mockReason)).toBeFalse();
+    expect(Boolean(findCommand?.disabled)).toBe(false);
+    expect(Boolean(findCommand?.mockReason)).toBe(false);
   });
 
   test("includes Manage automations as a real shell command", () => {
@@ -88,8 +88,8 @@ describe("buildCommandPaletteCommands", () => {
     const manageTasksCommand = commands.find((command) => command.id === "manageTasks");
 
     expect(manageTasksCommand?.title).toBe("Manage automations");
-    expect(Boolean(manageTasksCommand?.disabled)).toBeFalse();
-    expect(Boolean(manageTasksCommand?.mockReason)).toBeFalse();
+    expect(Boolean(manageTasksCommand?.disabled)).toBe(false);
+    expect(Boolean(manageTasksCommand?.mockReason)).toBe(false);
   });
 
   test("includes Process Manager as a real shell command", () => {
@@ -98,25 +98,25 @@ describe("buildCommandPaletteCommands", () => {
 
     expect(processManagerCommand?.title).toBe("Process Manager");
     expect(processManagerCommand?.shortcut).toBe("⌃⌥M");
-    expect(Boolean(processManagerCommand?.disabled)).toBeFalse();
-    expect(Boolean(processManagerCommand?.mockReason)).toBeFalse();
+    expect(Boolean(processManagerCommand?.disabled)).toBe(false);
+    expect(Boolean(processManagerCommand?.mockReason)).toBe(false);
   });
 
   test("omits legacy stage and DB view-switch commands", () => {
     const commands = buildCommandPaletteCommands(makeCommandContext());
     const ids = commands.map((command) => command.id).join(",");
 
-    expect(ids.includes("focus-views-stage")).toBeFalse();
-    expect(ids.includes("focus-cards-stage")).toBeFalse();
-    expect(ids.includes("focus-threads-stage")).toBeFalse();
-    expect(ids.includes("focus-diff-stage")).toBeFalse();
-    expect(ids.includes("view-kanban")).toBeFalse();
-    expect(ids.includes("view-list")).toBeFalse();
-    expect(ids.includes("view-toggle-list")).toBeFalse();
-    expect(ids.includes("view-canvas")).toBeFalse();
-    expect(ids.includes("view-calendar")).toBeFalse();
-    expect(ids.includes("open-project-picker")).toBeFalse();
-    expect(ids.includes("search-current-project")).toBeFalse();
+    expect(ids.includes("focus-views-stage")).toBe(false);
+    expect(ids.includes("focus-cards-stage")).toBe(false);
+    expect(ids.includes("focus-threads-stage")).toBe(false);
+    expect(ids.includes("focus-diff-stage")).toBe(false);
+    expect(ids.includes("view-kanban")).toBe(false);
+    expect(ids.includes("view-list")).toBe(false);
+    expect(ids.includes("view-toggle-list")).toBe(false);
+    expect(ids.includes("view-canvas")).toBe(false);
+    expect(ids.includes("view-calendar")).toBe(false);
+    expect(ids.includes("open-project-picker")).toBe(false);
+    expect(ids.includes("search-current-project")).toBe(false);
   });
 
   test("omits dev-only mock commands and removed redundant commands in production contexts", () => {
@@ -125,11 +125,11 @@ describe("buildCommandPaletteCommands", () => {
     }));
     const ids = commands.map((command) => command.id).join(",");
 
-    expect(commands.some((command) => command.mockReason !== undefined)).toBeFalse();
-    expect(ids.includes("searchFiles")).toBeFalse();
-    expect(ids.includes("git.commit")).toBeFalse();
-    expect(ids.includes("toggleBrowserPanel")).toBeFalse();
-    expect(ids.includes("openCardStage")).toBeFalse();
+    expect(commands.some((command) => command.mockReason !== undefined)).toBe(false);
+    expect(ids.includes("searchFiles")).toBe(false);
+    expect(ids.includes("git.commit")).toBe(false);
+    expect(ids.includes("toggleBrowserPanel")).toBe(false);
+    expect(ids.includes("openCardStage")).toBe(false);
   });
 
   test("keeps unsupported parity commands as disabled mock rows in dev contexts", () => {
@@ -140,12 +140,12 @@ describe("buildCommandPaletteCommands", () => {
     const gitCommit = commands.find((command) => command.id === "git.commit");
     const ids = commands.map((command) => command.id).join(",");
 
-    expect(searchFiles?.disabled).toBeTrue();
-    expect(Boolean(searchFiles?.mockReason)).toBeTrue();
-    expect(gitCommit?.disabled).toBeTrue();
-    expect(Boolean(gitCommit?.mockReason)).toBeTrue();
-    expect(ids.includes("toggleBrowserPanel")).toBeFalse();
-    expect(ids.includes("openCardStage")).toBeFalse();
+    expect(searchFiles?.disabled).toBe(true);
+    expect(Boolean(searchFiles?.mockReason)).toBe(true);
+    expect(gitCommit?.disabled).toBe(true);
+    expect(Boolean(gitCommit?.mockReason)).toBe(true);
+    expect(ids.includes("toggleBrowserPanel")).toBe(false);
+    expect(ids.includes("openCardStage")).toBe(false);
   });
 
   test("uses custom command-keymap labels for shell commands", () => {
@@ -169,10 +169,10 @@ describe("buildCommandPaletteCommands", () => {
     const sideChatCommand = commands.find((command) => command.id === "openSideChat");
     const dbViewCommand = commands.find((command) => command.id === OPEN_DB_VIEW_TAB_COMMAND_ID);
 
-    expect(renameCommand?.disabled).toBeTrue();
-    expect(archiveCommand?.disabled).toBeTrue();
-    expect(sideChatCommand?.disabled).toBeTrue();
-    expect(dbViewCommand?.disabled).toBeTrue();
+    expect(renameCommand?.disabled).toBe(true);
+    expect(archiveCommand?.disabled).toBe(true);
+    expect(sideChatCommand?.disabled).toBe(true);
+    expect(dbViewCommand?.disabled).toBe(true);
   });
 });
 
@@ -309,7 +309,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
     const topResult = container.querySelector('button[cmdk-item][data-selected="true"]');
 
-    expect(textContent(container).includes("fuzzy search indxer")).toBeTrue();
+    expect(textContent(container).includes("fuzzy search indxer")).toBe(true);
     expect(topResult).not.toBeNull();
     fireEvent.click(topResult as HTMLElement);
 
@@ -359,8 +359,8 @@ describe("CommandPaletteSurface", () => {
     const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
     expect(input.value).toBe("settings");
     expect(resultButtons.length).toBe(1);
-    expect(textContent(container).includes("Misc task")).toBeFalse();
-    expect(textContent(container).includes("Settings")).toBeTrue();
+    expect(textContent(container).includes("Misc task")).toBe(false);
+    expect(textContent(container).includes("Settings")).toBe(true);
   });
 
   test("renders and executes chat results from chats mode", async () => {
@@ -406,8 +406,8 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
 
     const topResult = container.querySelector('button[cmdk-item][data-selected="true"]');
-    expect(textContent(container).includes("Chats")).toBeTrue();
-    expect(textContent(container).includes("Thread transcript search")).toBeTrue();
+    expect(textContent(container).includes("Chats")).toBe(true);
+    expect(textContent(container).includes("Thread transcript search")).toBe(true);
     expect(topResult).not.toBeNull();
     fireEvent.click(topResult as HTMLElement);
 
@@ -459,8 +459,8 @@ describe("CommandPaletteSurface", () => {
 
     const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
     expect(resultButtons.length).toBe(1);
-    expect(textContent(container).includes("Thread transcript session")).toBeFalse();
-    expect(textContent(container).includes("Thread transcript card")).toBeTrue();
+    expect(textContent(container).includes("Thread transcript session")).toBe(false);
+    expect(textContent(container).includes("Thread transcript card")).toBe(true);
   });
 
   test("renders backend-provided chat content snippet segments", async () => {
@@ -511,7 +511,7 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container).includes("backend snippet")).toBeTrue();
+    expect(textContent(container).includes("backend snippet")).toBe(true);
     mockInvokeImplementation = async () => [];
   });
 
@@ -627,8 +627,8 @@ describe("CommandPaletteSurface", () => {
     const firstActiveId = input.getAttribute("aria-activedescendant");
     const firstActive = firstActiveId ? container.querySelector(`[id="${firstActiveId}"]`) : null;
 
-    expect(firstActiveId !== null).toBeTrue();
-    expect(firstActive?.textContent?.includes("Forward command")).toBeTrue();
+    expect(firstActiveId !== null).toBe(true);
+    expect(firstActive?.textContent?.includes("Forward command")).toBe(true);
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     await settleAsyncRender();
@@ -636,9 +636,9 @@ describe("CommandPaletteSurface", () => {
     const nextActiveId = input.getAttribute("aria-activedescendant");
     const nextActive = nextActiveId ? container.querySelector(`[id="${nextActiveId}"]`) : null;
 
-    expect(nextActiveId !== firstActiveId).toBeTrue();
-    expect(nextActive?.textContent?.includes("Settings")).toBeTrue();
-    expect(textContent(container).includes("Mock")).toBeFalse();
+    expect(nextActiveId !== firstActiveId).toBe(true);
+    expect(nextActive?.textContent?.includes("Settings")).toBe(true);
+    expect(textContent(container).includes("Mock")).toBe(false);
 
     fireEvent.keyDown(input, { key: "Enter" });
     expect(executedItems.length).toBe(1);
@@ -694,8 +694,8 @@ describe("CommandPaletteSurface", () => {
     const mockButton = Array.from(container.querySelectorAll('button[cmdk-item]'))
       .find((button) => button.textContent?.includes("Search files"));
 
-    expect(textContent(container).includes("Mock")).toBeTrue();
-    expect(mockButton !== undefined).toBeTrue();
+    expect(textContent(container).includes("Mock")).toBe(true);
+    expect(mockButton !== undefined).toBe(true);
     expect(mockButton?.getAttribute("aria-disabled")).toBe("true");
     if (mockButton) {
       fireEvent.click(mockButton);
@@ -751,7 +751,7 @@ describe("CommandPaletteSurface", () => {
 
     const filterButton = getByLabelText("Filter cards");
     expect(filterButton.getAttribute("aria-label")).toBe("Filter cards");
-    expect(textContent(container).includes("Queue cleanup")).toBeTrue();
+    expect(textContent(container).includes("Queue cleanup")).toBe(true);
   });
 
   test("renders summary chips for active palette filters", async () => {
@@ -770,10 +770,10 @@ describe("CommandPaletteSurface", () => {
       />,
     );
 
-    expect(textContent(container).includes("Project:")).toBeTrue();
-    expect(textContent(container).includes("Ops")).toBeTrue();
-    expect(textContent(container).includes("Assignee:")).toBeTrue();
-    expect(textContent(container).includes("Alex")).toBeTrue();
+    expect(textContent(container).includes("Project:")).toBe(true);
+    expect(textContent(container).includes("Ops")).toBe(true);
+    expect(textContent(container).includes("Assignee:")).toBe(true);
+    expect(textContent(container).includes("Alex")).toBe(true);
   });
 });
 
@@ -791,11 +791,11 @@ describe("buildCommandPaletteCommands navigation", () => {
     expect(backCommand?.id).toBe("navigateBack");
     expect(backCommand?.title).toBe("Back");
     expect(backCommand?.shortcut).toBe("⌘[");
-    expect(backCommand?.disabled).toBeTrue();
+    expect(backCommand?.disabled).toBe(true);
     expect(forwardCommand?.id).toBe("navigateForward");
     expect(forwardCommand?.title).toBe("Forward");
     expect(forwardCommand?.shortcut).toBe("⌘]");
-    expect(forwardCommand?.disabled).toBeFalse();
+    expect(forwardCommand?.disabled).toBe(false);
   });
 
   test("builds non-mac navigation shortcut labels", async () => {
@@ -826,8 +826,8 @@ describe("buildCommandPaletteCommands navigation", () => {
 
     expect(enabled?.title).toBe("Rename chat");
     expect(enabled?.shortcut).toBe("⌘⌥R");
-    expect(enabled?.disabled).toBeFalse();
+    expect(enabled?.disabled).toBe(false);
     expect(disabled?.shortcut).toBe("Ctrl+Alt+R");
-    expect(disabled?.disabled).toBeTrue();
+    expect(disabled?.disabled).toBe(true);
   });
 });

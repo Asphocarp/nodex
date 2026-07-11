@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import type { MotionValue } from "motion/react";
 import type { ProjectSession, ProjectSessionTab } from "@/lib/types";
@@ -8,7 +8,7 @@ import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-
 let BrowserSidebarPanel: typeof import("./browser-sidebar-panel")["BrowserSidebarPanel"];
 let invokeCalls: unknown[][] = [];
 
-mock.module("@/lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     return { ok: true };
@@ -54,16 +54,16 @@ describe("BrowserSidebarPanel chrome", () => {
     );
 
     const input = view.container.querySelector<HTMLInputElement>("[data-browser-sidebar-address-input='true']");
-    expect(input === null).toBeFalse();
+    expect(input === null).toBe(false);
 
     const toolbarRow = input?.closest(".draggable");
-    expect(toolbarRow === null).toBeFalse();
+    expect(toolbarRow === null).toBe(false);
 
     const noDragIsland = input?.closest(".no-drag");
-    expect(noDragIsland === null).toBeFalse();
+    expect(noDragIsland === null).toBe(false);
 
     const addressShell = input?.closest(".group\\/address-bar");
-    expect(addressShell === null).toBeFalse();
+    expect(addressShell === null).toBe(false);
   });
 
   test("does not close the browser guest when the React panel unmounts", async () => {
@@ -83,8 +83,8 @@ describe("BrowserSidebarPanel chrome", () => {
       .filter((call) => call[0] === "browser-sidebar-command")
       .map((call) => (call[1] as { type?: string } | undefined)?.type)
       .join(",");
-    expect(commandTypes.includes("unregister-tab")).toBeFalse();
-    expect(commandTypes.includes("close-tab")).toBeFalse();
+    expect(commandTypes.includes("unregister-tab")).toBe(false);
+    expect(commandTypes.includes("close-tab")).toBe(false);
   });
 
   test("remounts the visible panel without recreating or reparenting the webview", async () => {
@@ -114,9 +114,9 @@ describe("BrowserSidebarPanel chrome", () => {
     const secondRoot = document.body.querySelector("[data-browser-sidebar-webview-manager-root]");
     const secondWebview = secondRoot?.querySelector("webview");
 
-    expect(secondRoot === firstRoot).toBeTrue();
-    expect(secondWebview === firstWebview).toBeTrue();
-    expect(secondWebview?.parentElement === firstParent).toBeTrue();
+    expect(secondRoot === firstRoot).toBe(true);
+    expect(secondWebview === firstWebview).toBe(true);
+    expect(secondWebview?.parentElement === firstParent).toBe(true);
     expect(secondWebview?.getAttribute("src")).toBe("https://www.google.com/");
     second.unmount();
   });
@@ -134,12 +134,12 @@ describe("BrowserSidebarPanel chrome", () => {
     await settleAsyncRender();
 
     const host = view.container.querySelector<HTMLElement>("[data-browser-sidebar-webview-host-root]");
-    expect(host === null).toBeFalse();
+    expect(host === null).toBe(false);
     setElementRect(host as HTMLElement, { left: 24, top: 48, width: 320, height: 240 });
     await emitBoundsSync(boundsSyncTrigger);
 
     const managerRoot = document.body.querySelector<HTMLElement>("[data-browser-sidebar-webview-manager-root]");
-    expect(managerRoot === null).toBeFalse();
+    expect(managerRoot === null).toBe(false);
     expect(managerRoot?.style.left).toBe("24px");
     expect(managerRoot?.style.top).toBe("48px");
     expect(managerRoot?.style.width).toBe("320px");
@@ -171,7 +171,7 @@ describe("BrowserSidebarPanel chrome", () => {
     await settleAsyncRender();
 
     const menu = document.body.querySelector<HTMLElement>("[role='menu']");
-    expect(menu === null).toBeFalse();
+    expect(menu === null).toBe(false);
     expect(menu?.style.zIndex).toBe("2147483647");
   });
 });
@@ -197,7 +197,7 @@ async function emitBoundsSync(boundsSyncTrigger: TestBoundsSyncTrigger) {
   await act(async () => {
     boundsSyncTrigger.emit();
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   });
 }
 
