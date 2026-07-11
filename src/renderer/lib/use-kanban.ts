@@ -46,6 +46,7 @@ import { commitCardLifecycleIntent } from "./card-lifecycle-runtime";
 
 interface UseKanbanOptions {
   projectId: string;
+  databaseViewId?: string;
   sessionId?: string;
   onMutation?: () => void;
 }
@@ -110,10 +111,10 @@ function buildCommittedCardDetailFromUpdate(
 }
 
 export function useKanban(options: UseKanbanOptions) {
-  const { projectId, sessionId, onMutation } = options;
+  const { projectId, databaseViewId, sessionId, onMutation } = options;
   const store = useMemo(
-    () => getKanbanProjectStore(projectId),
-    [projectId],
+    () => getKanbanProjectStore(projectId, databaseViewId ?? null),
+    [databaseViewId, projectId],
   );
 
   const snapshot = useSyncExternalStore(
@@ -125,12 +126,24 @@ export function useKanban(options: UseKanbanOptions) {
     await store.fetchBoard();
   }, [store]);
 
+  const requireWritableSelectedView = useCallback((): boolean => {
+    if (!databaseViewId) return true;
+    const databaseView = store.getSnapshot().databaseView;
+    if (databaseView?.primaryWriteCompatible) return true;
+    store.setError(
+      databaseView?.readOnlyReason ??
+        "The selected Database View is not ready for writes",
+    );
+    return false;
+  }, [databaseViewId, store]);
+
   const createCard = useCallback(
     async (
       columnId: string,
       input: CardCreateInput,
       placement: CardCreatePlacement = "bottom",
     ): Promise<Card | null> => {
+      if (!requireWritableSelectedView()) return null;
       if (!isCardStatus(columnId)) {
         throw new Error("Card creation requires a canonical Card status");
       }
@@ -167,7 +180,7 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return outcome.result ?? null;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const updateCard = useCallback(
@@ -176,6 +189,9 @@ export function useKanban(options: UseKanbanOptions) {
       cardId: string,
       updates: Partial<CardInput>,
     ): Promise<CardUpdateMutationResult> => {
+      if (!requireWritableSelectedView()) {
+        return { status: "error", error: "The selected Database View is read-only" };
+      }
       const conflictKeys = conflictKeysForPatch(cardId, updates);
       const expectedRevision = store.getSnapshot().cardIndex.get(cardId)?.revision;
       const descriptionOnlyUpdate = hasOwnField(updates, "description")
@@ -256,7 +272,7 @@ export function useKanban(options: UseKanbanOptions) {
       await store.refreshBoard();
       return result;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const getCard = useCallback(
@@ -275,6 +291,7 @@ export function useKanban(options: UseKanbanOptions) {
 
   const deleteCard = useCallback(
     async (columnId: string, cardId: string): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
       const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "card:delete",
@@ -299,11 +316,12 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const moveCard = useCallback(
     async (input: MoveCardInput): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
       const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "card:move",
@@ -324,11 +342,12 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const moveCards = useCallback(
     async (input: MoveCardsInput): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
       const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "card:move-many",
@@ -349,13 +368,14 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const moveCardToProject = useCallback(
     async (
       input: Omit<MoveCardToProjectInput, "sourceProjectId">,
     ): Promise<MoveCardToProjectResult | null> => {
+      if (!requireWritableSelectedView()) return null;
       const outcome = await store.runOptimisticMutation<MoveCardToProjectResult>({
         kind: "card:move-to-project",
         conflictKeys: conflictKeysForDelete(input.cardId),
@@ -371,11 +391,12 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return outcome.result ?? null;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const importBlockDrop = useCallback(
     async (input: BlockDropImportInput): Promise<BlockDropImportResult | null> => {
+      if (!requireWritableSelectedView()) return null;
       const cardsWithId = input.cards.map((card) => ensureCreateInputId(card));
       const optimisticCards = cardsWithId.map((card) => createOptimisticCard(card));
       const optimisticInput: BlockDropImportInput = {
@@ -403,13 +424,14 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return outcome.result ?? null;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const applyCardEditorDrop = useCallback(
     async (
       input: CardEditorDropInput,
     ): Promise<CardEditorDropResult | null> => {
+      if (!requireWritableSelectedView()) return null;
       const outcome = await store.runOptimisticMutation<CardEditorDropResult>({
         kind: "card:apply-editor-drop",
         conflictKeys: [
@@ -429,7 +451,7 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return outcome.result ?? null;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const listCalendarOccurrences = useCallback(
@@ -465,6 +487,7 @@ export function useKanban(options: UseKanbanOptions) {
 
   const completeOccurrence = useCallback(
     async (input: NewCardOccurrenceAction): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
       const command: CardOccurrenceActionInput = {
         ...input,
         operationId: createUuidV7(),
@@ -489,11 +512,12 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const skipOccurrence = useCallback(
     async (input: NewCardOccurrenceAction): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
       const command: CardOccurrenceActionInput = {
         ...input,
         operationId: createUuidV7(),
@@ -518,11 +542,12 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const updateOccurrence = useCallback(
     async (input: NewCardOccurrenceUpdate): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
       const command: CardOccurrenceUpdateInput = {
         ...input,
         operationId: createUuidV7(),
@@ -548,18 +573,19 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const patchCard = useCallback(
     (columnId: string, cardId: string, updates: Partial<CardInput>) => {
+      if (!requireWritableSelectedView()) return;
       store.enqueueLocalOverlay({
         kind: "card:patch-local",
         conflictKeys: conflictKeysForPatch(cardId, updates),
         apply: buildPatchCardTransform(columnId, cardId, updates),
       });
     },
-    [store],
+    [requireWritableSelectedView, store],
   );
 
   const clearLastMutationError = useCallback(() => {
@@ -568,6 +594,7 @@ export function useKanban(options: UseKanbanOptions) {
 
   return {
     board: snapshot.board,
+    databaseView: snapshot.databaseView,
     cardIndex: snapshot.cardIndex,
     loading: snapshot.loading,
     error: snapshot.error,

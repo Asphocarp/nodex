@@ -42,6 +42,7 @@ import type {
 } from "./database-kernel";
 import type {
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -52,6 +53,8 @@ import type {
   CardLifecycleMutationRequest,
 } from "./card-lifecycle";
 import type { CardLifecyclePreflightResult } from "./card-lifecycle-runtime";
+import type { ListCardHistoryRequest } from "./card-history";
+import type { CardHistoryCommandResult } from "./card-history-transport";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -552,6 +555,10 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "cards:history:list": {
+    args: [request: ListCardHistoryRequest];
+    result: CardHistoryCommandResult;
+  };
   "block-documents:mutate": {
     args: [
       projectId: string,
@@ -611,6 +618,10 @@ export interface IpcApi {
   "database-views:primary:snapshot": {
     args: [projectId: string];
     result: PrimaryDatabaseViewSnapshotCommandResult;
+  };
+  "database-views:snapshot": {
+    args: [projectId: string, viewId: string];
+    result: DatabaseViewSnapshotCommandResult;
   };
   "database-views:query": {
     args: [projectId: string, viewId: string];

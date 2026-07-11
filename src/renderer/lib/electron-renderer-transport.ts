@@ -46,6 +46,8 @@ import type {
   CardLifecycleMutationRequest,
 } from "../../shared/card-lifecycle";
 import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
+import type { ListCardHistoryRequest } from "../../shared/card-history";
+import type { CardHistoryCommandResult } from "../../shared/card-history-transport";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -70,6 +72,12 @@ export function createElectronRendererTransport(
         projectId,
         request,
       ) as Promise<CardLifecycleMutationCommandResult>;
+    },
+    listCardHistory(request: ListCardHistoryRequest) {
+      return bridge.invoke(
+        "cards:history:list",
+        request,
+      ) as Promise<CardHistoryCommandResult>;
     },
     getOwnedBlockDocumentDescriptor(projectId: string, ownerBlockId: string) {
       return bridge.invoke(

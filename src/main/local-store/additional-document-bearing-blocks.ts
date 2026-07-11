@@ -52,6 +52,7 @@ export type AdditionalDocumentBearingBlockErrorCode =
   | "project_not_found"
   | "store_epoch_mismatch"
   | "identity_conflict"
+  | "block_revision_conflict"
   | "source_not_found"
   | "source_referenced"
   | "document_head_conflict"
@@ -105,6 +106,7 @@ const ADDITIONAL_DOCUMENT_BEARING_ERROR_CODES: ReadonlySet<string> = new Set([
   "project_not_found",
   "store_epoch_mismatch",
   "identity_conflict",
+  "block_revision_conflict",
   "source_not_found",
   "source_referenced",
   "document_head_conflict",
@@ -317,12 +319,17 @@ export const assertReusableTemplateSourceIsUnreferenced = (
     .prepare(
       `
       SELECT document.id, document.generation, document.head_seq,
+        document.schema_key, document.schema_version,
+        owner.type AS owner_type,
         materialization.generation AS materialized_generation,
         materialization.projected_seq, materialization.references_json
       FROM documents document
       INNER JOIN block_documents ownership
         ON ownership.document_id = document.id
         AND ownership.project_id = document.project_id
+      INNER JOIN blocks owner
+        ON owner.id = ownership.block_id
+        AND owner.project_id = ownership.project_id
       LEFT JOIN document_materializations materialization
         ON materialization.document_id = document.id
       WHERE document.project_id = ?
@@ -332,6 +339,9 @@ export const assertReusableTemplateSourceIsUnreferenced = (
     )
     .all(projectId) as readonly {
     readonly id: string;
+    readonly schema_key: string;
+    readonly schema_version: number;
+    readonly owner_type: string;
     readonly generation: number;
     readonly head_seq: number;
     readonly materialized_generation: number | null;
@@ -340,6 +350,21 @@ export const assertReusableTemplateSourceIsUnreferenced = (
   }[];
   let references = 0;
   for (const row of rows) {
+    let contentModel: "block_tree" | "scene_graph";
+    try {
+      contentModel = getRegisteredBlockDocumentSchemaAdapter({
+        ownerType: row.owner_type,
+        schemaKey: row.schema_key,
+        schemaVersion: row.schema_version,
+      }).contentModel;
+    } catch (error) {
+      throw new AdditionalDocumentBearingBlockError(
+        "document_state_corrupt",
+        `Cannot prove Template references while Document ${row.id} uses an unregistered schema`,
+        { cause: error },
+      );
+    }
+    if (contentModel !== "block_tree") continue;
     if (
       row.materialized_generation !== row.generation ||
       row.projected_seq !== row.head_seq ||
@@ -460,6 +485,53 @@ const allocateTopLevelRank = (
   return plan.rankKey;
 };
 
+const assertTopLevelAnchorRevision = (
+  database: Database.Database,
+  projectId: string,
+  beforeBlockId: string | undefined,
+  expectedLocationRevision: number | undefined,
+): void => {
+  if (beforeBlockId === undefined && expectedLocationRevision === undefined) {
+    return;
+  }
+  if (beforeBlockId === undefined || expectedLocationRevision === undefined) {
+    throw new AdditionalDocumentBearingBlockError(
+      "invalid_request",
+      "Top-level placement anchor identity and revision must be supplied together",
+    );
+  }
+  if (
+    !Number.isSafeInteger(expectedLocationRevision) ||
+    expectedLocationRevision < 1
+  ) {
+    throw new AdditionalDocumentBearingBlockError(
+      "invalid_request",
+      "Top-level placement anchor revision must be a safe integer >= 1",
+    );
+  }
+  const row = database
+    .prepare(
+      `
+      SELECT block.location_revision
+      FROM blocks block
+      INNER JOIN top_level_block_placements placement
+        ON placement.block_id = block.id
+        AND placement.project_id = block.project_id
+      WHERE block.id = ? AND block.project_id = ?
+        AND block.lifecycle <> 'deleted'
+        AND block.location_kind = 'space'
+    `,
+    )
+    .get(beforeBlockId, projectId) as
+    | { readonly location_revision: number }
+    | undefined;
+  if (row?.location_revision === expectedLocationRevision) return;
+  throw new AdditionalDocumentBearingBlockError(
+    "block_revision_conflict",
+    `Top-level placement anchor ${beforeBlockId} changed or is unavailable`,
+  );
+};
+
 interface StageOwnedDocumentInput {
   readonly projectId: string;
   readonly blockId: string;
@@ -469,7 +541,11 @@ interface StageOwnedDocumentInput {
   readonly schemaVersion: number;
   readonly displayName: string;
   readonly location:
-    | { readonly kind: "space"; readonly beforeBlockId?: string }
+    | {
+        readonly kind: "space";
+        readonly beforeBlockId?: string;
+        readonly expectedBeforeLocationRevision?: number;
+      }
     | { readonly kind: "document"; readonly hostDocumentId: string };
 }
 
@@ -479,6 +555,14 @@ const stageOwnedDocument = (
 ): void => {
   assertIdentityAvailable(database, "blocks", input.blockId);
   assertIdentityAvailable(database, "documents", input.documentId);
+  if (input.location.kind === "space") {
+    assertTopLevelAnchorRevision(
+      database,
+      input.projectId,
+      input.location.beforeBlockId,
+      input.location.expectedBeforeLocationRevision,
+    );
+  }
   const now = new Date().toISOString();
   database
     .prepare(
@@ -1017,8 +1101,19 @@ export const createReusableTemplateSource = (
         location: {
           kind: "space",
           ...(input.beforeBlockId
-            ? { beforeBlockId: requireIdentity(input.beforeBlockId, "beforeBlockId") }
+            ? {
+                beforeBlockId: requireIdentity(
+                  input.beforeBlockId,
+                  "beforeBlockId",
+                ),
+              }
             : {}),
+          ...(input.expectedBeforeLocationRevision === undefined
+            ? {}
+            : {
+                expectedBeforeLocationRevision:
+                  input.expectedBeforeLocationRevision,
+              }),
         },
       });
       options.faultInjector?.("after_owner_staged");
@@ -1254,6 +1349,12 @@ export const createExplicitDocumentBearingBlock = (
                 ),
               }
             : {}),
+          ...(input.location.expectedBeforeLocationRevision === undefined
+            ? {}
+            : {
+                expectedBeforeLocationRevision:
+                  input.location.expectedBeforeLocationRevision,
+              }),
         }
       : {
           kind: "document" as const,

@@ -19,6 +19,126 @@ import { createKanbanStoreRegistry } from "./kanban-store";
 import { toCardSummary } from "../../shared/card-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type {
+  DatabaseViewSnapshotCommandResult,
+  GeneralDatabaseViewDefinition,
+} from "../../shared/database-query";
+
+function createDatabaseViewSnapshot(
+  viewId: string,
+  title: string,
+  isPrimary: boolean,
+): DatabaseViewSnapshotCommandResult {
+  const projectId = "project-1";
+  const databaseBlockId = "database-1";
+  const statusPropertyId = "property-status";
+  const view: GeneralDatabaseViewDefinition = {
+    id: viewId,
+    databaseBlockId,
+    projectId,
+    name: isPrimary ? "Primary" : "Focused",
+    kind: "kanban",
+    config: {
+      schemaKey: "nodex.database-view",
+      schemaVersion: 1,
+      filter: { kind: "group", operator: "and", children: [] },
+      sort: [{
+        field: { kind: "manual" },
+        direction: "asc",
+        nulls: "last",
+      }],
+      group: { propertyId: statusPropertyId },
+      display: { propertyIds: [statusPropertyId], showTitle: true },
+    },
+    isPrimary,
+    revision: 1,
+    rankKey: "a",
+    lifecycle: "active",
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  };
+  const database = {
+    blockId: databaseBlockId,
+    projectId,
+    name: "Tasks",
+    isPrimary: true,
+    schemaKey: "nodex.database",
+    schemaRevision: 1,
+    metadataRevision: 1,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  };
+  const statusProperty = {
+    id: statusPropertyId,
+    databaseBlockId,
+    key: "status",
+    name: "Status",
+    valueType: "select" as const,
+    config: {},
+    rankKey: "a",
+    lifecycle: "active" as const,
+    revision: 1,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  };
+  const descriptor = {
+    database,
+    properties: [statusProperty],
+    views: [view],
+  };
+  const query = {
+    database,
+    properties: [statusProperty],
+    view,
+    rows: [{
+      membership: {
+        id: "membership-1",
+        databaseBlockId,
+        cardBlockId: "card-1",
+        revision: 1,
+        createdAt: "2026-07-12T00:00:00.000Z",
+      },
+      card: {
+        blockId: "card-1",
+        projectId,
+        lifecycle: "active" as const,
+        location: { kind: "space" as const, rankKey: "a" },
+        locationRevision: 1,
+        metadataRevision: 1,
+        documentId: "document-1",
+        documentGeneration: 1,
+        documentHeadSeq: 1,
+        documentAuthority: "ydoc_primary" as const,
+        content: {
+          projectedSeq: 1,
+          title,
+          preview: "",
+          plainText: "",
+        },
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+      values: {
+        [statusPropertyId]: {
+          propertyId: statusPropertyId,
+          valueType: "select" as const,
+          value: "draft",
+          revision: 1,
+        },
+      },
+      position: { groupKey: "draft", rankKey: "a", revision: 1 },
+      effectiveGroupKey: "draft",
+    }],
+  };
+  const wrap = <T>(value: T) => ({
+    version: 1 as const,
+    projectId,
+    storeEpoch: "epoch-1",
+    changeLogSeq: 1,
+    value,
+  });
+  return { ok: true, value: { descriptor: wrap(descriptor), query: wrap(query) } };
+}
 
 function createCardSummary(title = "Initial title"): CardSummary {
   return {
@@ -87,6 +207,52 @@ function createDeferred<T>() {
 }
 
 describe("kanban store", () => {
+  test("isolates durable View stores and never reads primary Board data for a secondary View", async () => {
+    const calls: string[] = [];
+    const registry = createKanbanStoreRegistry({
+      invoke: async (channel, projectId, viewId) => {
+        calls.push(`${channel}:${String(projectId)}:${String(viewId ?? "")}`);
+        if (channel === "database-views:snapshot") {
+          return createDatabaseViewSnapshot(
+            String(viewId),
+            viewId === "view-focused" ? "Focused query row" : "Primary query row",
+            viewId === "view-primary",
+          );
+        }
+        if (channel === "board:summary:get") {
+          return createBoard("Full primary Card summary");
+        }
+        throw new Error(`Unexpected channel ${channel}`);
+      },
+      subscribeBoardChanges: () => () => {},
+      subscribeDatabaseChanges: () => () => {},
+    });
+    const primary = registry.getStore("project-1", "view-primary");
+    const focused = registry.getStore("project-1", "view-focused");
+
+    await Promise.all([primary.fetchBoard(), focused.fetchBoard()]);
+
+    expect(primary === focused).toBeFalse();
+    expect(primary.getSnapshot().databaseView?.databaseViewId).toBe(
+      "view-primary",
+    );
+    expect(primary.getSnapshot().cardIndex.get("card-1")?.title).toBe(
+      "Full primary Card summary",
+    );
+    expect(focused.getSnapshot().databaseView?.databaseViewId).toBe(
+      "view-focused",
+    );
+    expect(focused.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
+      "Focused query row",
+    );
+    expect(focused.getSnapshot().board).toBe(null);
+    expect(calls.filter((call) => call.startsWith("board:summary:get")).length).toBe(1);
+    const callsBeforeFreshEnsure = calls.length;
+    await focused.ensureFreshBoard();
+    expect(calls.length).toBe(callsBeforeFreshEnsure);
+    expect(focused.getSnapshot().loading).toBeFalse();
+  });
+
   test("invalidates two window stores from one project-scoped Database receipt", async () => {
     const callbacks: Array<(event: DatabaseChangeEvent) => void> = [];
     let fetchCount = 0;

@@ -50,6 +50,7 @@ const META_CHIP =
 
 interface ToggleListViewProps {
   projectId: string;
+  databaseViewId: string;
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
   openCardStage?: (
@@ -234,6 +235,7 @@ export function ToggleListReferenceRows({
 
 export function ToggleListView({
   projectId,
+  databaseViewId,
   searchQuery,
   dbViewPrefs,
   openCardStage,
@@ -242,6 +244,7 @@ export function ToggleListView({
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const { board, loading, error } = useKanban({
     projectId,
+    databaseViewId,
   });
   const viewPrefs = dbViewPrefs ?? getDefaultDbViewPrefs("toggle-list");
   const displayProperties = useMemo(

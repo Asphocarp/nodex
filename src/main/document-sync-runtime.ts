@@ -12,4 +12,6 @@ export const documentSyncHub = new DocumentSyncHub({
   prepareRelocationCommand: (intent) =>
     cardMutationWriter.prepareRelocationCommand(intent),
   relocateBlocks: (command) => cardMutationWriter.relocateBlocks(command),
+  applyAdditionalDocumentCommand: (request) =>
+    cardMutationWriter.applyAdditionalDocumentCommand(request),
 });

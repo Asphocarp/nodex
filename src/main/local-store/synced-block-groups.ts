@@ -12,7 +12,10 @@ import {
   type BlockTreeValue,
 } from "../../shared/block-documents/block-document-codec";
 import { compileBlockTreeReplacementOperations } from "../../shared/block-documents/document-operation-engine";
-import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
+import {
+  getRegisteredBlockDocumentSchemaAdapter,
+  inspectOwnedBlockDocument,
+} from "../../shared/block-documents/document-schema-adapters";
 import {
   DOCUMENT_OPERATION_CONTRACT_VERSION,
   type DocumentOperationResult,
@@ -43,6 +46,7 @@ export type SyncedBlockGroupErrorCode =
   | "project_not_found"
   | "store_epoch_mismatch"
   | "identity_conflict"
+  | "block_revision_conflict"
   | "source_not_found"
   | "source_shared"
   | "host_block_not_found"
@@ -75,6 +79,7 @@ interface SyncedBlockSourceBaseInput {
   readonly clientSessionId: string;
   readonly actor: SyncedBlockMutationActor;
   readonly beforeBlockId?: string;
+  readonly expectedBeforeLocationRevision?: number;
 }
 
 export type CreateSyncedBlockSourceInput = SyncedBlockSourceBaseInput &
@@ -286,6 +291,7 @@ const parseStoredSyncedRejection = (
       "project_not_found",
       "store_epoch_mismatch",
       "identity_conflict",
+      "block_revision_conflict",
       "source_not_found",
       "source_shared",
       "host_block_not_found",
@@ -692,6 +698,53 @@ const allocateTopLevelRank = (
   return plan.rankKey;
 };
 
+const assertTopLevelAnchorRevision = (
+  database: Database.Database,
+  projectId: string,
+  beforeBlockId: string | undefined,
+  expectedLocationRevision: number | undefined,
+): void => {
+  if (beforeBlockId === undefined && expectedLocationRevision === undefined) {
+    return;
+  }
+  if (beforeBlockId === undefined || expectedLocationRevision === undefined) {
+    throw new SyncedBlockGroupError(
+      "invalid_request",
+      "Top-level placement anchor identity and revision must be supplied together",
+    );
+  }
+  if (
+    !Number.isSafeInteger(expectedLocationRevision) ||
+    expectedLocationRevision < 1
+  ) {
+    throw new SyncedBlockGroupError(
+      "invalid_request",
+      "Top-level placement anchor revision must be a safe integer >= 1",
+    );
+  }
+  const row = database
+    .prepare(
+      `
+      SELECT block.location_revision
+      FROM blocks block
+      INNER JOIN top_level_block_placements placement
+        ON placement.block_id = block.id
+        AND placement.project_id = block.project_id
+      WHERE block.id = ? AND block.project_id = ?
+        AND block.lifecycle <> 'deleted'
+        AND block.location_kind = 'space'
+    `,
+    )
+    .get(beforeBlockId, projectId) as
+    | { readonly location_revision: number }
+    | undefined;
+  if (row?.location_revision === expectedLocationRevision) return;
+  throw new SyncedBlockGroupError(
+    "block_revision_conflict",
+    `Top-level placement anchor ${beforeBlockId} changed or is unavailable`,
+  );
+};
+
 const buildSyncedDocument = (input: CreateSyncedBlockSourceInput): Y.Doc => {
   const envelope = createSyncedBlockDocument({
     documentId: input.documentId,
@@ -732,6 +785,12 @@ const stageSyncedBlockSourceIdentity = (
   requireIdentity(input.operationId, "operationId");
   requireIdentity(input.clientSessionId, "clientSessionId");
   requireProject(database, projectId);
+  assertTopLevelAnchorRevision(
+    database,
+    projectId,
+    input.beforeBlockId,
+    input.expectedBeforeLocationRevision,
+  );
   assertIdentityAvailable(database, "blocks", sourceBlockId);
   assertIdentityAvailable(database, "documents", documentId);
   const now = new Date().toISOString();
@@ -854,6 +913,8 @@ export const createSyncedBlockSource = (
         sourceBlockId: input.sourceBlockId,
         documentId: input.documentId,
         beforeBlockId: input.beforeBlockId ?? null,
+        expectedBeforeLocationRevision:
+          input.expectedBeforeLocationRevision ?? null,
         ...(input.blockTree
           ? { blockTree: input.blockTree }
           : { nfm: input.nfm }),
@@ -1390,12 +1451,21 @@ const countSyncedBlockSourceInstances = (
       `
       SELECT
         document.id,
+        document.schema_key,
+        document.schema_version,
+        owner.type AS owner_type,
         document.generation,
         document.head_seq,
         materialization.generation AS projected_generation,
         materialization.projected_seq,
         materialization.block_tree_json
       FROM documents document
+      INNER JOIN block_documents ownership
+        ON ownership.document_id = document.id
+        AND ownership.project_id = document.project_id
+      INNER JOIN blocks owner
+        ON owner.id = ownership.block_id
+        AND owner.project_id = ownership.project_id
       LEFT JOIN document_materializations materialization
         ON document.id = materialization.document_id
       WHERE document.project_id = ?
@@ -1405,6 +1475,9 @@ const countSyncedBlockSourceInstances = (
     )
     .all(projectId) as readonly {
     readonly id: string;
+    readonly schema_key: string;
+    readonly schema_version: number;
+    readonly owner_type: string;
     readonly generation: number;
     readonly head_seq: number;
     readonly projected_generation: number | null;
@@ -1413,6 +1486,21 @@ const countSyncedBlockSourceInstances = (
   }[];
   let count = 0;
   for (const row of rows) {
+    let contentModel: "block_tree" | "scene_graph";
+    try {
+      contentModel = getRegisteredBlockDocumentSchemaAdapter({
+        ownerType: row.owner_type,
+        schemaKey: row.schema_key,
+        schemaVersion: row.schema_version,
+      }).contentModel;
+    } catch (error) {
+      throw new SyncedBlockGroupError(
+        "document_state_corrupt",
+        `Cannot prove Synced Block reference count while Document ${row.id} uses an unregistered schema`,
+        { cause: error },
+      );
+    }
+    if (contentModel !== "block_tree") continue;
     if (
       row.projected_generation !== row.generation ||
       row.projected_seq !== row.head_seq ||

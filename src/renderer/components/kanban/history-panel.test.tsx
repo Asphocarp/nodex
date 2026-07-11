@@ -1,307 +1,564 @@
-import { afterEach, describe, expect, vi, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { createElement } from "react";
-import type { HistoryCardVersionPreview, HistoryPanelEntry } from "../../../shared/ipc-api";
-import type { Card } from "../../../shared/types";
-import { render, settleAsyncRender, textContent } from "../../test/dom";
+import { act } from "react";
 
-vi.mock("./history-panel-deps", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./history-panel-deps")>(),
-  TAB_BAR_HEIGHT: 48,
-  ARCHIVED_CARD_OPTION_ID: "archived",
-  ARCHIVED_CARD_OPTION_NAME: "Archived",
-  EMPTY_PRIORITY_OPTION_VALUE: "none",
-  KANBAN_STATUS_OPTIONS: [
-    { id: "draft", name: "Draft" },
-    { id: "in_progress", name: "In progress" },
-  ],
-  KANBAN_STATUS_LABELS: {
-    draft: "Draft",
-    in_progress: "In progress",
-  },
-  invoke: async (...args: unknown[]) => {
-    const handler = (globalThis as {
-      __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown;
-    }).__historyPanelInvoke;
-    return handler ? await handler(...args) : { entries: [] };
-  },
-  subscribeGitBranchChanges: () => () => undefined,
-  useTheme: () => ({ resolved: "light" as const }),
-  FileDiff: ({ className }: { className?: string }) => createElement("div", { className, "data-file-diff": "true" }),
-  MultiFileDiff: ({
-    oldFile,
-    newFile,
-    className,
-  }: {
-    oldFile: { contents: string };
-    newFile: { contents: string };
-    className?: string;
-  }) => createElement("div", { className, "data-diff": "true" }, `${oldFile.contents} => ${newFile.contents}`),
-  PatchDiff: ({ className }: { className?: string }) => createElement("div", { className, "data-patch-diff": "true" }),
+import type { OwnedBlockDocumentDescriptor } from "../../../shared/block-documents/contracts";
+import type { DocumentVersionDetail } from "../../../shared/block-documents/document-history";
+import type { CardHistoryEntry, CardHistoryPage } from "../../../shared/card-history";
+import { render, textContent } from "../../test/dom";
+import { mergeCardHistoryEntries } from "./card-history-view-model";
+import { HistoryPanel } from "./history-panel";
+
+type HistoryPanelApiOperation =
+  | "listCardHistory"
+  | "getDocumentVersion"
+  | "getOwnedBlockDocumentDescriptor"
+  | "restoreDocumentVersion";
+
+const callHistoryPanelApi = async (
+  operation: HistoryPanelApiOperation,
+  ...args: unknown[]
+): Promise<unknown> => {
+  const handler = (globalThis as {
+    __historyPanelApi?: (
+      operation: HistoryPanelApiOperation,
+      ...args: unknown[]
+    ) => Promise<unknown> | unknown;
+  }).__historyPanelApi;
+  if (!handler) throw new Error(`Unhandled HistoryPanel API: ${operation}`);
+  return await handler(operation, ...args);
+};
+
+vi.mock("./history-panel-deps", () => ({
+  listCardHistory: (...args: unknown[]) => callHistoryPanelApi("listCardHistory", ...args),
+  getDocumentVersion: (...args: unknown[]) => callHistoryPanelApi("getDocumentVersion", ...args),
+  getOwnedBlockDocumentDescriptor: (...args: unknown[]) =>
+    callHistoryPanelApi("getOwnedBlockDocumentDescriptor", ...args),
+  restoreDocumentVersion: (...args: unknown[]) =>
+    callHistoryPanelApi("restoreDocumentVersion", ...args),
 }));
 
 afterEach(() => {
-  delete (globalThis as { __historyPanelInvoke?: unknown }).__historyPanelInvoke;
+  delete (globalThis as { __historyPanelApi?: unknown }).__historyPanelApi;
 });
 
-describe("history panel", () => {
-  test("renders block-level description deltas in the details view", async () => {
-    const { HistoryEntryDetails } = await import("./history-panel");
-    const entry: HistoryPanelEntry = {
-      id: 11,
-      projectId: "default",
-      operation: "update",
-      cardId: "card-1",
-      status: "draft",
-      archived: false,
-      timestamp: "2026-03-12T12:00:00.000Z",
-      sessionId: null,
-      groupId: null,
-      isUndone: false,
-      undoOf: null,
-      reconstructable: true,
-      reconstructionUnavailableReason: null,
-      summary: "Description + 1 field",
-      fieldChanges: [
-        {
-          field: "tags",
-          before: [],
-          after: ["delta"],
-        },
-      ],
-      move: null,
-      descriptionChange: {
-        beforeBlockCount: 2,
-        afterBlockCount: 3,
-        beforeFullText: "# Heading\n\nAlpha paragraph",
-        afterFullText: "# Heading\n\nBeta paragraph\n\nGamma paragraph",
-        blocks: [
-          {
-            changeType: "replaced",
-            blockType: "paragraph",
-            beforeOrdinal: 1,
-            afterOrdinal: 1,
-            beforePreview: "Alpha paragraph",
-            afterPreview: "Beta paragraph",
-            beforeNfm: "Alpha paragraph",
-            afterNfm: "Beta paragraph",
-          },
-          {
-            changeType: "added",
-            blockType: "paragraph",
-            beforeOrdinal: null,
-            afterOrdinal: 2,
-            beforePreview: null,
-            afterPreview: "Gamma paragraph",
-            beforeNfm: null,
-            afterNfm: "Gamma paragraph",
-          },
-        ],
-      },
-      snapshot: null,
-    };
+describe("canonical Card history panel", () => {
+  test("previews and forward-restores a Document checkpoint", async () => {
+    const checkpoint = makeCheckpointEntry();
+    const calls: HistoryPanelApiOperation[] = [];
+    const restoreRequests: Record<string, unknown>[] = [];
+    let mutationCount = 0;
 
-    const { container, getByText } = render(
-      <HistoryEntryDetails
-        entry={entry}
-        selectedIndex={0}
-        totalCount={1}
-        onNavigate={() => undefined}
-        onRevert={() => undefined}
-        onRestore={() => undefined}
-        actionInFlight={null}
-        confirmingAction={null}
-        onRequestConfirm={() => undefined}
-        onCancelConfirm={() => undefined}
-        actionError={null}
-      />,
-    );
-
-    expect(getByText("Description").textContent).toBe("Description");
-    expect(textContent(container).includes("Alpha paragraph")).toBe(true);
-    expect(textContent(container).includes("Gamma paragraph")).toBe(true);
-    expect(container.querySelectorAll("summary").length > 0).toBe(true);
-    expect(getByText("Full description diff").textContent).toBe("Full description diff");
-    expect(getByText("Tags").textContent).toBe("Tags");
-  });
-
-  test("renders the shared diff viewer when the full description diff is expanded", async () => {
-    const { DescriptionFullDiffDisclosure } = await import("./history-panel");
-
-    const { container } = render(
-      <DescriptionFullDiffDisclosure
-        beforeText="Alpha paragraph"
-        afterText="Beta paragraph"
-        defaultOpen
-      />,
-    );
-
-    expect(container.querySelector('[data-diff="true"]')).not.toBeNull();
-    expect(textContent(container).includes("Alpha paragraph => Beta paragraph")).toBe(true);
-  });
-
-  test("renders the version-history modal with a reconstructed preview and actions", async () => {
-    const { HistoryPanel } = await import("./history-panel");
-    const entries = [makeHistoryPanelEntry(2, "update"), makeHistoryPanelEntry(1, "create")];
-    const preview = makeHistoryPreview(2, {
-      title: "Snapshot title",
-      description: "Snapshot body",
-      tags: ["ui", "history"],
+    setHistoryPanelApi((operation, ...args) => {
+      calls.push(operation);
+      if (operation === "listCardHistory") {
+        return { ok: true, value: makePage([checkpoint]) };
+      }
+      if (operation === "getDocumentVersion") {
+        return { ok: true, value: makeVersionDetail() };
+      }
+      if (operation === "getOwnedBlockDocumentDescriptor") {
+        return makeDescriptor();
+      }
+      restoreRequests.push(args[2] as Record<string, unknown>);
+      if (restoreRequests.length === 1) {
+        throw new Error("ACK lost after commit");
+      }
+      return { ok: true, value: { mutationId: "restore-committed" } };
     });
-    let restoredHistoryId: number | null = null;
-    let revertedHistoryId: number | null = null;
 
-    (globalThis as { __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown }).__historyPanelInvoke = (
-      channel,
-      _projectId,
-      _cardIdOrHistoryId,
-      maybeHistoryId,
-    ) => {
-      if (channel === "history:card") return { entries };
-      if (channel === "history:card-version-preview") return { preview };
-      if (channel === "history:restore") {
-        restoredHistoryId = Number(maybeHistoryId);
-        return { success: true };
-      }
-      if (channel === "history:revert") {
-        revertedHistoryId = Number(_cardIdOrHistoryId);
-        return { success: true };
-      }
-      return {};
-    };
-
-    const { getByRole } = render(
+    const view = render(
       <HistoryPanel
-        projectId="alpha"
+        projectId="project-1"
         cardId="card-1"
         cardTitle="Current title"
-        projectWorkspacePath="/workspace/alpha"
+        projectWorkspacePath="/workspace/project-1"
         open
         onClose={() => undefined}
+        onCardMutated={() => {
+          mutationCount += 1;
+        }}
       />,
     );
-    await settleAsyncRender();
+
     await waitFor(() => {
-      if (!textContent(document.body).includes("Snapshot title")) {
-        throw new Error("Preview not loaded");
+      if (!textContent(document.body).includes("Checkpoint body")) {
+        throw new Error("Checkpoint preview did not load");
       }
     });
+    expect(calls.includes("listCardHistory")).toBe(true);
+    expect(calls.includes("getDocumentVersion")).toBe(true);
+    expect(textContent(document.body).includes("forward change")).toBe(true);
 
-    expect(document.body.querySelector('[role="dialog"]') !== null).toBe(true);
-    expect(textContent(document.body).includes("Version history")).toBe(true);
-    expect(textContent(document.body).includes("Snapshot body")).toBe(true);
-    expect(textContent(document.body).includes("ui, history")).toBe(true);
-    const previewNode = document.body.querySelector('[data-testid="readonly-nfm-blocknote-preview"]');
-    expect(previewNode).not.toBeNull();
-    if (!(previewNode instanceof HTMLElement)) return;
-    expect(previewNode.dataset.projectId).toBe("alpha");
-    expect(previewNode.dataset.cardId).toBe("card-1");
-    expect(previewNode.dataset.historyId).toBe("2");
-    expect(previewNode.dataset.projectWorkspacePath).toBe("/workspace/alpha");
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      await Promise.resolve();
+    });
+    expect(textContent(document.body).includes("new forward change")).toBe(true);
 
-    fireEvent.click(getByRole("button", { name: "Restore" }));
-    expect(textContent(document.body).includes("Confirm restore")).toBe(true);
-    fireEvent.click(getByRole("button", { name: "Confirm restore" }));
-    await settleAsyncRender();
-    expect(restoredHistoryId).toBe(2);
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm restore" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (mutationCount !== 1) throw new Error("Restore did not commit");
+    });
 
-    fireEvent.click(getByRole("button", { name: "Revert update" }));
-    fireEvent.click(getByRole("button", { name: "Confirm" }));
-    await settleAsyncRender();
-    expect(revertedHistoryId).toBe(2);
+    expect(restoreRequests.length).toBe(2);
+    expect(restoreRequests[0]?.mutationId).toBe(restoreRequests[1]?.mutationId);
+    expect(restoreRequests[0]?.versionId).toBe("version-1");
+    expect(restoreRequests[0]?.expectedHeadSeq).toBe(14);
+    expect(
+      (restoreRequests[0]?.actor as Record<string, unknown> | undefined)?.kind,
+    ).toBe("renderer_history_restore");
   });
 
-  test("lists unavailable entries without requesting a preview or allowing restore", async () => {
-    const { HistoryPanel } = await import("./history-panel");
-    const unavailableReason = "This version is unavailable because older card history was pruned before checkpoints were created.";
-    const entries = [
-      {
-        ...makeHistoryPanelEntry(3, "update"),
-        reconstructable: false,
-        reconstructionUnavailableReason: unavailableReason,
-      },
-    ];
-    let previewRequested = false;
-    (globalThis as { __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown }).__historyPanelInvoke = (
-      channel,
-    ) => {
-      if (channel === "history:card") return { entries };
-      if (channel === "history:card-version-preview") {
-        previewRequested = true;
-        return { preview: null, error: "should not be called" };
-      }
-      return {};
-    };
+  test("submits a successful restore exactly once", async () => {
+    const checkpoint = makeCheckpointEntry();
+    let restoreCount = 0;
 
-    const { getByRole } = render(
+    setHistoryPanelApi((operation) => {
+      if (operation === "listCardHistory") {
+        return { ok: true, value: makePage([checkpoint]) };
+      }
+      if (operation === "getDocumentVersion") {
+        return { ok: true, value: makeVersionDetail() };
+      }
+      if (operation === "getOwnedBlockDocumentDescriptor") {
+        return makeDescriptor();
+      }
+      restoreCount += 1;
+      return { ok: true, value: { mutationId: "restore-committed" } };
+    });
+
+    const view = render(
       <HistoryPanel
-        projectId="alpha"
+        projectId="project-1"
         cardId="card-1"
         open
         onClose={() => undefined}
       />,
     );
-    await settleAsyncRender();
     await waitFor(() => {
-      if (!textContent(document.body).includes(unavailableReason)) {
-        throw new Error("Unavailable state not rendered");
+      if (!textContent(document.body).includes("Checkpoint body")) {
+        throw new Error("Checkpoint preview did not load");
       }
     });
 
-    expect(previewRequested).toBe(false);
-    expect(textContent(document.body).includes("unavailable")).toBe(true);
-    expect((getByRole("button", { name: "Restore" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(textContent(document.body).includes("Revert update")).toBe(false);
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (!view.queryByRole("button", { name: "Confirm restore" })) {
+        throw new Error("Restore confirmation did not open");
+      }
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm restore" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (restoreCount !== 1) throw new Error("Restore did not settle");
+    });
+
+    expect(restoreCount).toBe(1);
+  });
+
+  test("retains an ambiguously delivered or still-retryable restore request", async () => {
+    const checkpoint = makeCheckpointEntry();
+    const restoreMutationIds: string[] = [];
+    let descriptorCount = 0;
+
+    setHistoryPanelApi((operation, ...args) => {
+      if (operation === "listCardHistory") {
+        return { ok: true, value: makePage([checkpoint]) };
+      }
+      if (operation === "getDocumentVersion") {
+        return { ok: true, value: makeVersionDetail() };
+      }
+      if (operation === "getOwnedBlockDocumentDescriptor") {
+        descriptorCount += 1;
+        return makeDescriptor();
+      }
+      const request = args[2] as Record<string, unknown>;
+      restoreMutationIds.push(String(request.mutationId));
+      if (restoreMutationIds.length === 1) {
+        throw new Error("delivery outcome unknown");
+      }
+      if (restoreMutationIds.length === 2) {
+        return {
+          ok: false,
+          error: {
+            code: "document_busy",
+            message: "exact restore retry is still pending",
+            retryable: true,
+          },
+        };
+      }
+      return { ok: true, value: { mutationId: request.mutationId } };
+    });
+
+    const view = render(
+      <HistoryPanel
+        projectId="project-1"
+        cardId="card-1"
+        open
+        onClose={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      if (!textContent(document.body).includes("Checkpoint body")) {
+        throw new Error("Checkpoint preview did not load");
+      }
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (!view.queryByRole("button", { name: "Confirm restore" })) {
+        throw new Error("Restore confirmation did not open");
+      }
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm restore" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (
+        !textContent(document.body).includes(
+          "exact restore retry is still pending",
+        )
+      ) {
+        throw new Error("Retryable delivery was not surfaced");
+      }
+    });
+    expect(restoreMutationIds.length).toBe(2);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm restore" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (restoreMutationIds.length !== 3) {
+        throw new Error("Pending restore was not retried");
+      }
+    });
+
+    expect(descriptorCount).toBe(1);
+    expect(restoreMutationIds[0]).toBe(restoreMutationIds[1]);
+    expect(restoreMutationIds[1]).toBe(restoreMutationIds[2]);
+  });
+
+  test("clears a terminally rejected restore request", async () => {
+    const checkpoint = makeCheckpointEntry();
+    const restoreMutationIds: string[] = [];
+    let descriptorCount = 0;
+
+    setHistoryPanelApi((operation, ...args) => {
+      if (operation === "listCardHistory") {
+        return { ok: true, value: makePage([checkpoint]) };
+      }
+      if (operation === "getDocumentVersion") {
+        return { ok: true, value: makeVersionDetail() };
+      }
+      if (operation === "getOwnedBlockDocumentDescriptor") {
+        descriptorCount += 1;
+        return makeDescriptor();
+      }
+      const request = args[2] as Record<string, unknown>;
+      restoreMutationIds.push(String(request.mutationId));
+      if (restoreMutationIds.length === 1) {
+        return {
+          ok: false,
+          error: {
+            code: "document_conflict",
+            message: "checkpoint head is stale",
+            retryable: false,
+          },
+        };
+      }
+      return { ok: true, value: { mutationId: request.mutationId } };
+    });
+
+    const view = render(
+      <HistoryPanel
+        projectId="project-1"
+        cardId="card-1"
+        open
+        onClose={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      if (!textContent(document.body).includes("Checkpoint body")) {
+        throw new Error("Checkpoint preview did not load");
+      }
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (!view.queryByRole("button", { name: "Confirm restore" })) {
+        throw new Error("Restore confirmation did not open");
+      }
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm restore" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (!textContent(document.body).includes("checkpoint head is stale")) {
+        throw new Error("Terminal rejection was not surfaced");
+      }
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Confirm restore" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (restoreMutationIds.length !== 2) {
+        throw new Error("Fresh restore was not submitted");
+      }
+    });
+
+    expect(descriptorCount).toBe(2);
+    expect(restoreMutationIds[0] === restoreMutationIds[1]).toBe(false);
+  });
+
+  test("paginates merged evidence and never offers an inverse for mutations", async () => {
+    const mutation = makeMutationEntry();
+    const relocation = makeRelocationEntry();
+    let listCount = 0;
+    let previewCount = 0;
+
+    setHistoryPanelApi((operation, ...args) => {
+      if (operation === "getDocumentVersion") {
+        previewCount += 1;
+        throw new Error("Mutation evidence must not request a checkpoint preview");
+      }
+      if (operation !== "listCardHistory") {
+        throw new Error(`Unexpected operation: ${operation}`);
+      }
+      listCount += 1;
+      const request = args[0] as { before?: unknown };
+      if (!request.before) {
+        return {
+          ok: true,
+          value: makePage([mutation], {
+            occurredAt: mutation.occurredAt,
+            source: "change_log",
+            changeSeq: mutation.changeSeq,
+          }),
+        };
+      }
+      return { ok: true, value: makePage([relocation]) };
+    });
+
+    const view = render(
+      <HistoryPanel
+        projectId="project-1"
+        cardId="card-1"
+        open
+        onClose={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      if (!textContent(document.body).includes("Changed Card properties")) {
+        throw new Error("Mutation evidence did not render");
+      }
+    });
+
+    expect(textContent(document.body).includes("no inverse operation")).toBe(true);
+    expect(view.queryByRole("button", { name: "Restore checkpoint" }) === null).toBe(true);
+    expect(previewCount).toBe(0);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Load earlier" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (!textContent(document.body).includes("Moved blocks")) {
+        throw new Error("Earlier relocation evidence did not render");
+      }
+    });
+    expect(listCount).toBe(2);
+  });
+
+  test("deduplicates an inclusive pagination boundary", () => {
+    const mutation = makeMutationEntry();
+    const relocation = makeRelocationEntry();
+
+    const merged = mergeCardHistoryEntries(
+      [mutation],
+      [mutation, relocation],
+    );
+
+    expect(merged.length).toBe(2);
+    expect(merged[0]?.id).toBe(mutation.id);
+    expect(merged[1]?.id).toBe(relocation.id);
   });
 });
 
-function makeHistoryPanelEntry(
-  id: number,
-  operation: HistoryPanelEntry["operation"],
-): HistoryPanelEntry {
+function setHistoryPanelApi(
+  handler: (
+    operation: HistoryPanelApiOperation,
+    ...args: unknown[]
+  ) => Promise<unknown> | unknown,
+): void {
+  (globalThis as { __historyPanelApi?: typeof handler }).__historyPanelApi = handler;
+}
+
+const HASH = "a".repeat(64);
+
+function makeCheckpointEntry(): Extract<CardHistoryEntry, { kind: "document_version" }> {
   return {
-    id,
-    projectId: "alpha",
-    operation,
-    cardId: "card-1",
-    status: "draft",
-    archived: false,
-    timestamp: `2026-06-18T0${id}:00:00.000Z`,
-    sessionId: null,
-    groupId: null,
-    isUndone: false,
-    undoOf: null,
-    reconstructable: true,
-    reconstructionUnavailableReason: null,
-    summary: operation === "update" ? "Updated title" : "Created card",
-    fieldChanges: operation === "update"
-      ? [{ field: "title", before: "Old", after: "New" }]
-      : [],
-    move: null,
-    descriptionChange: null,
-    snapshot: null,
+    id: "document-version:version-1",
+    kind: "document_version",
+    projectId: "project-1",
+    cardBlockId: "card-1",
+    documentId: "document-1",
+    occurredAt: "2026-07-12T08:00:00.000Z",
+    display: {
+      category: "checkpoint",
+      title: "Manual checkpoint",
+      detail: "Saved before restructuring the Card",
+      actorLabel: "Local window",
+    },
+    evidence: { status: "verified" },
+    recovery: {
+      kind: "restore_document_version",
+      documentId: "document-1",
+      versionId: "version-1",
+    },
+    versionMetadata: {
+      versionId: "version-1",
+      generation: 1,
+      baseHeadSeq: 8,
+      schemaKey: "nodex.card",
+      schemaVersion: 1,
+      cause: "manual",
+      label: "Before restructure",
+      checkpointHash: HASH,
+      byteLength: 1_024,
+    },
   };
 }
 
-function makeHistoryPreview(
-  historyId: number,
-  cardOverrides: Partial<Card>,
-): HistoryCardVersionPreview {
+function makeMutationEntry(): Extract<CardHistoryEntry, { kind: "block_mutation" }> {
   return {
-    historyId,
-    projectId: "alpha",
-    cardId: "card-1",
-    card: {
-      id: "card-1",
-      status: "draft",
-      archived: false,
-      title: "Snapshot title",
-      description: "Snapshot body",
-      tags: [],
-      agentBlocked: false,
-      created: new Date("2026-06-18T00:00:00.000Z"),
-      order: 0,
-      ...cardOverrides,
+    id: "change-log:21",
+    kind: "block_mutation",
+    projectId: "project-1",
+    cardBlockId: "card-1",
+    documentId: "document-1",
+    occurredAt: "2026-07-12T07:00:00.000Z",
+    display: {
+      category: "property",
+      title: "Changed Card properties",
+      detail: "Updated two property values",
+      actorLabel: "Local window",
     },
+    evidence: { status: "verified" },
+    recovery: { kind: "unavailable", reason: "no_inverse_contract" },
+    changeSeq: 21,
+    mutationId: "mutation-21",
+    mutationKind: "database_mutation",
+    affectedBlockCount: 1,
+    fieldIntentCount: 2,
+  };
+}
+
+function makeRelocationEntry(): Extract<CardHistoryEntry, { kind: "block_relocation" }> {
+  return {
+    id: "change-log:20",
+    kind: "block_relocation",
+    projectId: "project-1",
+    cardBlockId: "card-1",
+    documentId: "document-1",
+    occurredAt: "2026-07-12T06:00:00.000Z",
+    display: {
+      category: "location",
+      title: "Moved blocks",
+      detail: "Moved two blocks into this Card",
+      actorLabel: null,
+    },
+    evidence: { status: "verified" },
+    recovery: { kind: "unavailable", reason: "no_inverse_contract" },
+    changeSeq: 20,
+    relocationId: "relocation-20",
+    direction: "into_card",
+    movedBlockCount: 2,
+  };
+}
+
+function makePage(
+  entries: readonly CardHistoryEntry[],
+  nextCursor: CardHistoryPage["nextCursor"] = null,
+): CardHistoryPage {
+  return {
+    version: 1,
+    projectId: "project-1",
+    cardBlockId: "card-1",
+    documentId: "document-1",
+    entries,
+    nextCursor,
+  };
+}
+
+function makeVersionDetail(): DocumentVersionDetail {
+  return {
+    summary: {
+      versionId: "version-1",
+      documentId: "document-1",
+      projectId: "project-1",
+      generation: 1,
+      baseHeadSeq: 8,
+      schemaKey: "nodex.card",
+      schemaVersion: 1,
+      cause: "manual",
+      label: "Before restructure",
+      actor: { kind: "renderer" },
+      checkpointHash: HASH,
+      stateVectorHash: HASH,
+      materializationHash: HASH,
+      byteLength: 1_024,
+      materializationKind: "card",
+      title: "Checkpoint title",
+      preview: "Checkpoint body",
+      blockCount: 1,
+      createdAt: "2026-07-12T08:00:00.000Z",
+    },
+    materialization: {
+      kind: "card",
+      schemaVersion: 1,
+      title: "Checkpoint title",
+      blockTree: [],
+      nfm: "Checkpoint body",
+      plainText: "Checkpoint body",
+      preview: "Checkpoint body",
+      references: [],
+      assetRefs: [],
+    },
+  };
+}
+
+function makeDescriptor(): OwnedBlockDocumentDescriptor {
+  return {
+    projectId: "project-1",
+    ownerBlockId: "card-1",
+    ownerType: "card",
+    ownerLifecycle: "active",
+    documentId: "document-1",
+    storeEpoch: "epoch-1",
+    generation: 1,
+    headSeq: 14,
+    schemaKey: "nodex.card",
+    schemaVersion: 1,
+    readiness: "ready",
+    authority: "ydoc_primary",
+    stateVector: new Uint8Array(),
   };
 }

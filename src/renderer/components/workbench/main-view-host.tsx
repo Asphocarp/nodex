@@ -8,9 +8,13 @@ import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
+import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import { ReadOnlyDatabaseView } from "./read-only-database-view";
 
 interface MainViewHostProps {
   projectId: string;
+  databaseViewId: string;
+  databaseView: DatabaseViewRenderModel | null;
   projects: Project[];
   view: WorkbenchView;
   searchQuery: string;
@@ -44,6 +48,8 @@ interface MainViewHostProps {
 
 export function MainViewHost({
   projectId,
+  databaseViewId,
+  databaseView,
   projects,
   view,
   searchQuery,
@@ -61,10 +67,21 @@ export function MainViewHost({
   openCardStage,
   scrollStateKey,
 }: MainViewHostProps) {
+  if (databaseView && !databaseView.primaryWriteCompatible) {
+    return (
+      <ReadOnlyDatabaseView
+        model={databaseView}
+        searchQuery={searchQuery}
+        openCardStage={openCardStage}
+      />
+    );
+  }
+
   if (view === "kanban") {
     return (
       <KanbanBoard
         projectId={projectId}
+        databaseViewId={databaseViewId}
         projects={projects}
         searchQuery={searchQuery}
         dbViewPrefs={dbViewPrefs}
@@ -81,6 +98,7 @@ export function MainViewHost({
     return (
       <ListView
         projectId={projectId}
+        databaseViewId={databaseViewId}
         searchQuery={searchQuery}
         dbViewPrefs={dbViewPrefs}
         onUpdateDbViewPrefs={onUpdateDbViewPrefs}
@@ -96,6 +114,7 @@ export function MainViewHost({
     return (
       <CanvasView
         projectId={projectId}
+        databaseViewId={databaseViewId}
         openCardStage={openCardStage}
         cardStageCardId={cardStageCardId}
         cardStageCloseRef={cardStageCloseRef}
@@ -107,6 +126,7 @@ export function MainViewHost({
     return (
       <CalendarView
         projectId={projectId}
+        databaseViewId={databaseViewId}
         searchQuery={searchQuery}
         openCardStage={openCardStage}
         cardStageCardId={cardStageCardId}
@@ -125,6 +145,7 @@ export function MainViewHost({
   return (
     <ToggleListView
       projectId={projectId}
+      databaseViewId={databaseViewId}
       searchQuery={searchQuery}
       dbViewPrefs={dbViewPrefs}
       openCardStage={openCardStage}

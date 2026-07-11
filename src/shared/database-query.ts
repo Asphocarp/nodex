@@ -144,11 +144,17 @@ export type DatabaseReadCommandResult<T> =
  * the two ordinary read snapshots makes existing compilers reusable while the
  * shared epoch/cursor proves that no writer ran between them.
  */
-export interface PrimaryDatabaseViewSnapshot {
+export interface DatabaseViewSnapshot {
   readonly descriptor: DatabaseReadSnapshot<GeneralDatabaseDescriptor>;
   readonly query: DatabaseReadSnapshot<GeneralDatabaseViewQuery>;
 }
 
-export type PrimaryDatabaseViewSnapshotCommandResult =
-  | { readonly ok: true; readonly value: PrimaryDatabaseViewSnapshot }
+export type DatabaseViewSnapshotCommandResult =
+  | { readonly ok: true; readonly value: DatabaseViewSnapshot }
   | { readonly ok: false; readonly error: DatabaseReadCommandError };
+
+/** @deprecated Use DatabaseViewSnapshot. Kept for the primary drag compiler. */
+export type PrimaryDatabaseViewSnapshot = DatabaseViewSnapshot;
+
+export type PrimaryDatabaseViewSnapshotCommandResult =
+  DatabaseViewSnapshotCommandResult;

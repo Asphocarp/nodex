@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
 import type { PanelDestination } from "./panel-destination-picker-model";
 import { PanelDestinationPickerSurface } from "./panel-destination-picker";
 
@@ -82,6 +83,53 @@ const BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
+const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>(
+  PROJECTS.map((project) => {
+    const databaseBlockId = `database:${project.id}`;
+    const makeView = (suffix: string, name: string, isPrimary: boolean) => ({
+      id: `view:${project.id}:${suffix}`,
+      databaseBlockId,
+      projectId: project.id,
+      name,
+      kind: "kanban" as const,
+      config: {
+        schemaKey: "nodex.database-view" as const,
+        schemaVersion: 1 as const,
+        filter: { kind: "group" as const, operator: "and" as const, children: [] },
+        sort: [],
+        group: null,
+        display: { propertyIds: [], showTitle: true },
+      },
+      isPrimary,
+      revision: 1,
+      rankKey: suffix,
+      lifecycle: "active" as const,
+      createdAt: STORY_DATE.toISOString(),
+      updatedAt: STORY_DATE.toISOString(),
+    });
+    return [project.id, {
+      database: {
+        blockId: databaseBlockId,
+        projectId: project.id,
+        name: "Tasks",
+        isPrimary: true,
+        schemaKey: "nodex.database",
+        schemaRevision: 1,
+        metadataRevision: 1,
+        createdAt: STORY_DATE.toISOString(),
+        updatedAt: STORY_DATE.toISOString(),
+      },
+      properties: [],
+      views: project.id === "nodex"
+        ? [
+            makeView("primary", "Primary board", true),
+            makeView("focused", "Focused work", false),
+          ]
+        : [makeView("primary", "Primary board", true)],
+    }] as const;
+  }),
+);
+
 function PanelDestinationPickerStory({
   loading = false,
   loadError = null,
@@ -103,6 +151,7 @@ function PanelDestinationPickerStory({
         <PanelDestinationPickerSurface
           projects={PROJECTS}
           boardMap={loadError ? new Map() : BOARD_MAP}
+          databaseDescriptorMap={loadError ? new Map() : DATABASE_DESCRIPTOR_MAP}
           loading={loading}
           loadError={loadError}
           initialQuery={initialQuery}
@@ -116,7 +165,7 @@ function PanelDestinationPickerStory({
         {accepted ? (
           <div className="border-t border-token-border px-3 py-2 text-xs text-token-description-foreground">
             {accepted.kind === "db"
-              ? `DB: ${accepted.projectId}`
+              ? `DB: ${accepted.projectId}/${accepted.databaseViewId}`
               : `Card: ${accepted.projectId}/${accepted.cardId}`}
           </div>
         ) : null}

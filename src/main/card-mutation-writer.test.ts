@@ -12,6 +12,7 @@ import type { BlockPropertyMutationRequest } from "../shared/block-property-muta
 import type { DatabaseMutationRequest } from "../shared/database-kernel";
 import type { DatabaseChangeEvent } from "../shared/database-events";
 import type { CardLifecycleMutationRequest } from "../shared/card-lifecycle";
+import type { AdditionalDocumentCommandRequest } from "../shared/additional-document-commands";
 
 class FakeWorker implements CardMutationWorkerLike {
   readonly messages: CardMutationWorkerRequest[] = [];
@@ -111,6 +112,70 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
 }
 
 describe("CardMutationWriter", () => {
+  test("preserves an additional Document command and strict receipt through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const input: AdditionalDocumentCommandRequest = {
+      version: 1,
+      operationId: "additional:create-synced",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      clientSessionId: "surface-1",
+      actor: { kind: "test" },
+      coordination: { kind: "fifo_only" },
+      operation: {
+        kind: "create_synced_source",
+        sourceBlockId: "synced-source",
+        documentId: "synced-document",
+        initialBlocks: [],
+        placement: { kind: "space" },
+      },
+    };
+    const pending = writer.applyAdditionalDocumentCommand(input);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("applyAdditionalDocumentCommand");
+    if (!request || request.type !== "applyAdditionalDocumentCommand") return;
+    expect(request.payload.operationId).toBe(input.operationId);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: input.operationId,
+          projectId: input.projectId,
+          storeEpoch: input.storeEpoch,
+          operationKind: input.operation.kind,
+          semanticHash: "a".repeat(64),
+          duplicate: false,
+          effect: {
+            createdBlockIds: ["synced-source"],
+            preservedBlockIds: [],
+            deletedBlockIds: [],
+            documentHeads: [
+              {
+                documentId: "synced-document",
+                generation: 1,
+                headSeq: 1,
+              },
+            ],
+          },
+          changeLogSeq: 9,
+          committedAt: "2026-07-12T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    const result = await pending;
+    expect(result.ok).toBeTrue();
+    if (result.ok) expect(result.value.changeLogSeq).toBe(9);
+  });
+
   test("serializes Document history reads through the same FIFO worker", async () => {
     const worker = new FakeWorker();
     const writer = new CardMutationWriter({

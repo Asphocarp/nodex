@@ -34,15 +34,9 @@ import type {
   ReviewDiffRequest,
   ReviewDiffResult,
 } from "./types";
-import type {
-  GitBranchState,
-  HistoryEntry,
-  UndoRedoState,
-} from "../../shared/ipc-api";
+import type { GitBranchState } from "../../shared/ipc-api";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
-
-export type HistoryRecentResult = UndoRedoState & { entries: HistoryEntry[] };
 
 export function projectsListQueryOptions() {
   return queryOptions({
@@ -71,13 +65,6 @@ export function projectSessionDetailQueryOptions(sessionId: string) {
     queryKey: queryKeys.projectSessions.detail(sessionId),
     queryFn: () => invoke("project-sessions:get", sessionId) as Promise<ProjectSession | null>,
     staleTime: 30_000,
-  });
-}
-
-export function historyRecentQueryOptions(projectId: string, sessionId?: string) {
-  return queryOptions({
-    queryKey: queryKeys.history.recent(projectId, sessionId),
-    queryFn: () => invoke("history:recent", projectId, sessionId) as Promise<HistoryRecentResult>,
   });
 }
 

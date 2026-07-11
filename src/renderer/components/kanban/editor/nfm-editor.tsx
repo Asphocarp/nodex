@@ -51,7 +51,7 @@ import {
 } from "./nfm-external-content-sync";
 import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
-import { useHistory } from "@/lib/use-history";
+import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { NfmTableHandlesController } from "./nfm-table-handles";
 import { NfmHeadingNavigationRail } from "./nfm-heading-navigation-rail";
@@ -702,12 +702,10 @@ function NfmEditorInstance({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suppressExternalDropRef = useRef(false);
   const suppressExternalContentSyncRef = useRef(false);
-  const { sessionId: historySessionId, refreshState: refreshHistoryState } =
-    useHistory(projectId);
+  const mutationAuditSessionId = useMutationAuditSessionId();
   const { applyCardEditorDrop } = useKanban({
     projectId,
-    sessionId: historySessionId,
-    onMutation: refreshHistoryState,
+    sessionId: mutationAuditSessionId,
   });
 
   const sourceRef = useRef(source);

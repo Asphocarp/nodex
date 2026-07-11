@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
   Awareness,
@@ -23,6 +24,12 @@ import type {
   RelocationIntent,
   RelocationResult,
 } from "../shared/block-documents";
+import {
+  ADDITIONAL_DOCUMENT_COMMAND_VERSION,
+  encodeAdditionalDocumentCommandSemanticHashInput,
+  type AdditionalDocumentCommandRequest,
+  type AdditionalDocumentCommandResult,
+} from "../shared/additional-document-commands";
 import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
@@ -152,6 +159,60 @@ const documentMutationCommitted = (
     changeLogSeq: 9,
     committedAt: "2026-07-11T00:00:00.000Z",
     duplicate: options.duplicate ?? false,
+  },
+});
+
+const additionalDocumentRequest = (
+  operationId = "additional:promote",
+): AdditionalDocumentCommandRequest => ({
+  version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
+  operationId,
+  projectId: "project-1",
+  storeEpoch: "epoch-1",
+  clientSessionId: "agent-session",
+  actor: { kind: "test" },
+  coordination: {
+    kind: "hub_lease",
+    leaseId: "caller-supplied-lease",
+    documents: [
+      { documentId: "doc-source", generation: 1, headSeq: 1 },
+    ],
+  },
+  operation: {
+    kind: "promote_synced_source",
+    host: { documentId: "doc-source", generation: 1, headSeq: 1 },
+    rootBlockId: "block-root",
+    referenceBlockId: "synced-reference",
+    sourceBlockId: "synced-source",
+    sourceDocumentId: "doc-synced-source",
+  },
+});
+
+const additionalDocumentCommitted = (
+  request: AdditionalDocumentCommandRequest,
+): AdditionalDocumentCommandResult => ({
+  ok: true,
+  value: {
+    version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
+    operationId: request.operationId,
+    projectId: request.projectId,
+    storeEpoch: request.storeEpoch,
+    operationKind: request.operation.kind,
+    semanticHash: createHash("sha256")
+      .update(encodeAdditionalDocumentCommandSemanticHashInput(request))
+      .digest("hex"),
+    duplicate: false,
+    effect: {
+      createdBlockIds: ["synced-reference", "synced-source"],
+      preservedBlockIds: ["block-root"],
+      deletedBlockIds: [],
+      documentHeads: [
+        { documentId: "doc-source", generation: 1, headSeq: 2 },
+        { documentId: "doc-synced-source", generation: 1, headSeq: 1 },
+      ],
+    },
+    changeLogSeq: 12,
+    committedAt: "2026-07-12T00:00:00.000Z",
   },
 });
 
@@ -1082,6 +1143,110 @@ describe("DocumentSyncHub", () => {
           "relocation-lease-cancel",
       ),
     ).toBe(true);
+  });
+
+  test("signs, flushes, and releases an additional Document command lease before durable fanout", async () => {
+    const received: AdditionalDocumentCommandRequest[] = [];
+    const backend: DocumentSyncDurableBackend = {
+      ...createBackend(),
+      applyAdditionalDocumentCommand: async (request) => {
+        received.push(request);
+        return additionalDocumentCommitted(request);
+      },
+    };
+    const hub = new DocumentSyncHub(backend);
+    const surface = new FakeTarget(70);
+    subscribe(hub, surface, "doc-source", "surface-additional");
+    await syncSubscription(
+      hub,
+      surface,
+      "doc-source",
+      "surface-additional",
+    );
+    clearSent(surface);
+
+    const request = additionalDocumentRequest();
+    const pending = hub.applyAdditionalDocumentCommand(request);
+    await waitUntil(() =>
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "relocation-lease-prepare",
+      ),
+    );
+    expect(received.length).toBe(0);
+    const prepare = surface.sent
+      .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+      .find(
+        (
+          event,
+        ): event is Extract<
+          DocumentSyncRealtimeEvent,
+          { kind: "relocation-lease-prepare" }
+        > => event.kind === "relocation-lease-prepare",
+      );
+    if (!prepare) throw new Error("Missing additional Document lease prepare");
+    expect(prepare.leaseId === "caller-supplied-lease").toBeFalse();
+    expect(
+      hub.respondToRelocationLease(surface, {
+        response: "ack",
+        leaseId: prepare.leaseId,
+        documentId: prepare.documentId,
+        clientSessionId: prepare.clientSessionId,
+        storeEpoch: prepare.storeEpoch,
+        generation: prepare.generation,
+        headSeq: prepare.expectedHeadSeq,
+      }).ok,
+    ).toBeTrue();
+
+    const result = await pending;
+    expect(result.ok).toBeTrue();
+    expect(received.length).toBe(1);
+    const coordination = received[0]?.coordination;
+    expect(coordination?.kind).toBe("hub_lease");
+    if (coordination?.kind === "hub_lease") {
+      expect(coordination.leaseId).toBe(prepare.leaseId);
+    }
+    const kinds = surface.sent.map(
+      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
+    );
+    expect(kinds.includes("resync-required")).toBeTrue();
+    expect(kinds.includes("relocation-lease-release")).toBeTrue();
+
+    clearSent(surface);
+    const staleRequest = additionalDocumentRequest("additional:stale");
+    const stalePending = hub.applyAdditionalDocumentCommand(staleRequest);
+    await waitUntil(() =>
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "relocation-lease-prepare",
+      ),
+    );
+    const stalePrepare = surface.sent
+      .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+      .find(
+        (
+          event,
+        ): event is Extract<
+          DocumentSyncRealtimeEvent,
+          { kind: "relocation-lease-prepare" }
+        > => event.kind === "relocation-lease-prepare",
+      );
+    if (!stalePrepare) throw new Error("Missing stale lease prepare");
+    hub.respondToRelocationLease(surface, {
+      response: "ack",
+      leaseId: stalePrepare.leaseId,
+      documentId: stalePrepare.documentId,
+      clientSessionId: stalePrepare.clientSessionId,
+      storeEpoch: stalePrepare.storeEpoch,
+      generation: stalePrepare.generation,
+      headSeq: stalePrepare.expectedHeadSeq + 1,
+    });
+    const stale = await stalePending;
+    expect(stale.ok).toBeFalse();
+    if (!stale.ok) expect(stale.error.code).toBe("document_head_conflict");
+    expect(received.length).toBe(1);
   });
 
   test("store replacement resets every surface and invalidates old Hub authorization", async () => {

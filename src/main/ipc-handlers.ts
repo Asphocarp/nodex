@@ -203,6 +203,7 @@ import {
   registerCardLifecycleIpcHandler,
   registerCardLifecyclePreflightIpcHandler,
 } from "./card-lifecycle-ipc";
+import { registerCardHistoryIpcHandler } from "./card-history-ipc";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -919,6 +920,9 @@ export function registerIpcHandlers(
     readPrimaryViewSnapshot: async (projectId) =>
       (await cardMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
         .result,
+    readViewSnapshot: async (projectId, viewId) =>
+      (await cardMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
+        .result,
     queryView: async (projectId, viewId) =>
       (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
   });
@@ -1032,6 +1036,15 @@ export function registerIpcHandlers(
     getVersion: (request) => cardMutationWriter.getDocumentVersion(request),
     restoreVersion: (request) =>
       documentSyncHub.applyDocumentMutation(request),
+  });
+
+  registerCardHistoryIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, request) => listener(event, request));
+    },
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    listHistory: (request) => cardMutationWriter.listCardHistory(request),
   });
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());

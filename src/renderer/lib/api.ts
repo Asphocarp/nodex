@@ -29,6 +29,7 @@ import type {
 } from "../../shared/database-kernel";
 import type {
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -52,6 +53,8 @@ import type {
   CardLifecycleMutationRequest,
 } from "../../shared/card-lifecycle";
 import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
+import type { ListCardHistoryRequest } from "../../shared/card-history";
+import type { CardHistoryCommandResult } from "../../shared/card-history-transport";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -204,6 +207,12 @@ export function mutateCardLifecycle(
   return resolveRendererTransport().mutateCardLifecycle(projectId, request);
 }
 
+export function listCardHistory(
+  request: ListCardHistoryRequest,
+): Promise<CardHistoryCommandResult> {
+  return resolveRendererTransport().listCardHistory(request);
+}
+
 export function mutateDatabase(
   projectId: string,
   request: DatabaseMutationRequest,
@@ -228,6 +237,13 @@ export function readPrimaryDatabaseViewSnapshot(
   projectId: string,
 ): Promise<PrimaryDatabaseViewSnapshotCommandResult> {
   return invoke("database-views:primary:snapshot", projectId);
+}
+
+export function readDatabaseViewSnapshot(
+  projectId: string,
+  viewId: string,
+): Promise<DatabaseViewSnapshotCommandResult> {
+  return invoke("database-views:snapshot", projectId, viewId);
 }
 
 export function queryDatabaseView(

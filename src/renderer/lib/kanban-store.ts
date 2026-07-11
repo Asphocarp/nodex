@@ -14,6 +14,11 @@ import { toCardSummary } from "../../shared/card-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type { DatabaseViewSnapshotCommandResult } from "../../shared/database-query";
+import {
+  buildDatabaseViewRenderModel,
+  type DatabaseViewRenderModel,
+} from "./database-view-render-model";
 
 const MUTATION_COOLDOWN_MS = 500;
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
@@ -26,6 +31,7 @@ export interface IndexedCard extends CardSummary {
 
 export interface KanbanStoreSnapshot {
   board: BoardSummary | null;
+  databaseView: DatabaseViewRenderModel | null;
   cardIndex: ReadonlyMap<string, IndexedCard>;
   loading: boolean;
   error: string | null;
@@ -135,6 +141,7 @@ class KanbanProjectStore {
 
   private snapshot: KanbanStoreSnapshot = {
     board: null,
+    databaseView: null,
     cardIndex: new Map(),
     loading: true,
     error: null,
@@ -143,6 +150,8 @@ class KanbanProjectStore {
   };
 
   private baseBoard: BoardSummary | null = null;
+
+  private baseDatabaseView: DatabaseViewRenderModel | null = null;
 
   private optimisticEntries: OptimisticEntry[] = [];
 
@@ -162,6 +171,7 @@ class KanbanProjectStore {
 
   constructor(
     private readonly projectId: string,
+    private readonly databaseViewId: string | null,
     private readonly dependencies: KanbanStoreDependencies,
   ) {}
 
@@ -185,7 +195,10 @@ class KanbanProjectStore {
   fetchBoard = async (): Promise<void> => {
     if (this.inFlightFetch) return this.inFlightFetch;
 
-    const shouldShowLoading = this.baseBoard === null && !this.snapshot.loading;
+    const hasReadableBase = this.databaseViewId
+      ? this.baseDatabaseView !== null
+      : this.baseBoard !== null;
+    const shouldShowLoading = !hasReadableBase && !this.snapshot.loading;
     if (shouldShowLoading) {
       this.setSnapshot({
         ...this.snapshot,
@@ -195,7 +208,26 @@ class KanbanProjectStore {
 
     this.inFlightFetch = (async () => {
       try {
-        const board = (await this.dependencies.invoke("board:summary:get", this.projectId)) as BoardSummary;
+        const result = this.databaseViewId
+          ? (await this.dependencies.invoke(
+              "database-views:snapshot",
+              this.projectId,
+              this.databaseViewId,
+            )) as DatabaseViewSnapshotCommandResult
+          : null;
+        if (result && !result.ok) {
+          throw new Error(result.error.message);
+        }
+        const databaseView = result
+          ? buildDatabaseViewRenderModel(result.value)
+          : null;
+        const board = databaseView && !databaseView.primaryWriteCompatible
+          ? null
+          : (await this.dependencies.invoke(
+              "board:summary:get",
+              this.projectId,
+            )) as BoardSummary;
+        this.baseDatabaseView = databaseView;
         this.baseBoard = board;
         this.lastFetchedAt = this.dependencies.now();
         this.stale = false;
@@ -205,6 +237,10 @@ class KanbanProjectStore {
         });
       } catch (error) {
         this.stale = true;
+        if (this.databaseViewId) {
+          this.baseDatabaseView = null;
+          this.baseBoard = null;
+        }
         this.recomputeSnapshot({
           loading: false,
           error: toError(error).message,
@@ -219,7 +255,10 @@ class KanbanProjectStore {
 
   ensureFreshBoard = async (options: EnsureFreshBoardOptions = {}): Promise<void> => {
     const maxAgeMs = options.maxAgeMs ?? DEFAULT_BOARD_FRESHNESS_MS;
-    const boardIsFresh = this.baseBoard !== null
+    const hasReadableBase = this.databaseViewId
+      ? this.baseDatabaseView !== null
+      : this.baseBoard !== null;
+    const boardIsFresh = hasReadableBase
       && !this.stale
       && this.dependencies.now() - this.lastFetchedAt <= maxAgeMs;
     if (!options.force && boardIsFresh) return;
@@ -396,6 +435,7 @@ class KanbanProjectStore {
     const next: KanbanStoreSnapshot = {
       ...this.snapshot,
       board,
+      databaseView: this.baseDatabaseView,
       cardIndex: buildCardIndex(board),
       pendingMutationCount: this.activePendingCount(),
       loading: hasLoading ? (overrides.loading as boolean) : this.snapshot.loading,
@@ -504,6 +544,7 @@ class KanbanProjectStore {
     const previous = this.snapshot;
     if (
       previous.board === next.board
+      && previous.databaseView === next.databaseView
       && previous.cardIndex === next.cardIndex
       && previous.loading === next.loading
       && previous.error === next.error
@@ -528,6 +569,12 @@ class KanbanProjectStore {
       this.unsubscribeBoardChanges = this.dependencies.subscribeBoardChanges(
         this.projectId,
         (event) => {
+          if (this.databaseViewId) {
+            this.stale = true;
+            if (this.shouldSkipRealtimeRefresh()) return;
+            void this.fetchBoard();
+            return;
+          }
           const nextBoard = applyBoardChangeEventToBoard(
             this.baseBoard ?? undefined,
             event,
@@ -568,15 +615,20 @@ class KanbanStoreRegistry {
 
   constructor(private readonly dependencies: KanbanStoreDependencies) {}
 
-  getStore(projectId: string): KanbanProjectStore {
-    const existing = this.stores.get(projectId);
+  getStore(
+    projectId: string,
+    databaseViewId: string | null = null,
+  ): KanbanProjectStore {
+    const key = JSON.stringify([projectId, databaseViewId]);
+    const existing = this.stores.get(key);
     if (existing) return existing;
 
     const store = new KanbanProjectStore(
       projectId,
+      databaseViewId,
       this.dependencies,
     );
-    this.stores.set(projectId, store);
+    this.stores.set(key, store);
     return store;
   }
 }
@@ -592,8 +644,11 @@ export function createKanbanStoreRegistry(
 
 const sharedKanbanStoreRegistry = createKanbanStoreRegistry();
 
-export function getKanbanProjectStore(projectId: string): KanbanProjectStore {
-  return sharedKanbanStoreRegistry.getStore(projectId);
+export function getKanbanProjectStore(
+  projectId: string,
+  databaseViewId: string | null = null,
+): KanbanProjectStore {
+  return sharedKanbanStoreRegistry.getStore(projectId, databaseViewId);
 }
 
 export function ensureFreshKanbanProjectBoard(
@@ -601,4 +656,14 @@ export function ensureFreshKanbanProjectBoard(
   options?: EnsureFreshBoardOptions,
 ): Promise<void> {
   return getKanbanProjectStore(projectId).ensureFreshBoard(options);
+}
+
+export function ensureFreshDatabaseViewBoard(
+  projectId: string,
+  databaseViewId: string,
+  options?: EnsureFreshBoardOptions,
+): Promise<void> {
+  return getKanbanProjectStore(projectId, databaseViewId).ensureFreshBoard(
+    options,
+  );
 }

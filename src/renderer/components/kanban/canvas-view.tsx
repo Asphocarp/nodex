@@ -65,6 +65,7 @@ const collaborationPromise = loadExcalidraw().then((mod) => ({
 
 interface CanvasViewProps {
   projectId: string;
+  databaseViewId: string;
   openCardStage: (
     projectId: string,
     cardId: string,
@@ -74,7 +75,7 @@ interface CanvasViewProps {
   cardStageCloseRef: RefObject<(() => Promise<void>) | null>;
 }
 
-export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStageCloseRef }: CanvasViewProps) {
+export function CanvasView({ projectId, databaseViewId, openCardStage, cardStageCardId, cardStageCloseRef }: CanvasViewProps) {
   return (
     <RegisteredOwnedBlockDocumentBoundary
       projectId={projectId}
@@ -109,6 +110,7 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
                 <CanvasEditor
                   key={surface.documentId}
                   projectId={projectId}
+                  databaseViewId={databaseViewId}
                   envelope={surface}
                   runtime={surface.runtime}
                   openCardStage={openCardStage}
@@ -131,6 +133,7 @@ interface CanvasEditorProps extends CanvasViewProps {
 
 function CanvasEditor({
   projectId,
+  databaseViewId,
   envelope,
   runtime,
   openCardStage,
@@ -140,7 +143,7 @@ function CanvasEditor({
   const {
     board,
     createCard,
-  } = useKanban({ projectId });
+  } = useKanban({ projectId, databaseViewId });
   const { resolved: themeResolved } = useTheme();
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const bindingRef = useRef<CanvasSceneBinding | null>(null);

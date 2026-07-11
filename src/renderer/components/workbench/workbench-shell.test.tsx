@@ -362,6 +362,56 @@ vi.mock("@/lib/api", () => ({
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
+  readPrimaryDatabaseDescriptor: async (projectId: string) => {
+    invokeCalls.push(["databases:primary:get", projectId]);
+    const projectName = projectId === "beta" ? "Beta" : "Alpha";
+    const databaseBlockId = `database:${projectId}:primary`;
+    const databaseViewId = `database-view:${projectId}:primary-kanban`;
+    return {
+      ok: true,
+      value: {
+        version: 1,
+        projectId,
+        storeEpoch: "workbench-test-store",
+        changeLogSeq: 1,
+        value: {
+          database: {
+            blockId: databaseBlockId,
+            projectId,
+            name: "Tasks",
+            isPrimary: true,
+            schemaKey: "nodex.database",
+            schemaRevision: 1,
+            metadataRevision: 1,
+            createdAt: "2026-06-07T00:00:00.000Z",
+            updatedAt: "2026-06-07T00:00:00.000Z",
+          },
+          properties: [],
+          views: [{
+            id: databaseViewId,
+            databaseBlockId,
+            projectId,
+            name: projectName,
+            kind: "kanban",
+            config: {
+              schemaKey: "nodex.database-view",
+              schemaVersion: 1,
+              filter: { kind: "group", operator: "and", children: [] },
+              sort: [],
+              group: null,
+              display: { propertyIds: [], showTitle: true },
+            },
+            isPrimary: true,
+            revision: 1,
+            rankKey: "a",
+            lifecycle: "active",
+            createdAt: "2026-06-07T00:00:00.000Z",
+            updatedAt: "2026-06-07T00:00:00.000Z",
+          }],
+        },
+      },
+    };
+  },
 }));
 
 vi.mock("./main-view-host", () => ({
@@ -374,7 +424,10 @@ vi.mock("./main-view-host", () => ({
     );
     return createElement(
       "div",
-      { "data-main-view-host": "true" },
+      {
+        "data-main-view-host": "true",
+        "data-database-view-id": String(props.databaseViewId ?? ""),
+      },
       `DB:${projectId}:${String(props.view)}`,
       createElement("input", {
         "aria-label": `Mock DB search ${projectId}`,
@@ -1154,7 +1207,7 @@ type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
 };
 
 function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
-  return {
+  const tab: ProjectSessionTab = {
     sessionId: "session:alpha:database-view",
     projectId: "alpha",
     panelId: "right",
@@ -1164,6 +1217,20 @@ function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
     ...overrides,
+  };
+  if (
+    tab.kind !== "db_view"
+    || !("projectId" in tab.config)
+    || ("databaseViewId" in tab.config && tab.config.databaseViewId)
+  ) {
+    return tab;
+  }
+  return {
+    ...tab,
+    config: {
+      ...tab.config,
+      databaseViewId: `database-view:${tab.config.projectId}:primary-kanban`,
+    },
   };
 }
 
@@ -4663,10 +4730,70 @@ describe("workbench session shell", () => {
       call[0] === "project-session-tabs:update"
       && call[1] === "session:alpha:database-view:db"
       && JSON.stringify(call[2]) === JSON.stringify({
-        config: { projectId: "alpha", view: "list" },
+        config: {
+          projectId: "alpha",
+          databaseViewId: "database-view:alpha:primary-kanban",
+          view: "list",
+        },
         title: "Table",
       })
     )).toBe(true);
+  });
+
+  test("keeps two same-Project Database tabs bound to their own durable View identity", async () => {
+    const primaryTab = makeSessionTab({
+      id: "session:alpha:database-view:primary",
+      kind: "db_view",
+      title: "Primary",
+      config: {
+        projectId: "alpha",
+        databaseViewId: "view-alpha-primary",
+        view: "kanban",
+      },
+    });
+    const focusedTab = makeSessionTab({
+      id: "session:alpha:database-view:focused",
+      kind: "db_view",
+      title: "Focused",
+      config: {
+        projectId: "alpha",
+        databaseViewId: "view-alpha-focused",
+        view: "list",
+      },
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession({
+          tabs: [primaryTab, focusedTab],
+          rightLayout: makePanelLayout(
+            [primaryTab.id, focusedTab.id],
+            focusedTab.id,
+          ),
+        })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(
+      screen.container.querySelector(
+        '[data-main-view-host="true"][data-database-view-id="view-alpha-focused"]',
+      ) !== null,
+    ).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, primaryTab.id), {
+        button: 0,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(
+      screen.container.querySelector(
+        '[data-main-view-host="true"][data-database-view-id="view-alpha-primary"]',
+      ) !== null,
+    ).toBeTrue();
   });
 
   test("renders an attached session thread as the main session page", async () => {

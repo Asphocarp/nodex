@@ -25,6 +25,11 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/card-lifecycle").CardLifecycleMutationCommandResult
   >;
+  listCardHistory: (
+    request: import("../../shared/card-history").ListCardHistoryRequest,
+  ) => Promise<
+    import("../../shared/card-history-transport").CardHistoryCommandResult
+  >;
   getOwnedBlockDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,

@@ -40,6 +40,7 @@ import { parseBlockPropertyMutationCommandResult } from "../../shared/block-prop
 import {
   parseDatabaseMutationCommandResult,
   parseDatabaseReadCommandResult,
+  parseDatabaseViewSnapshotCommandResult,
   parsePrimaryDatabaseViewSnapshotCommandResult,
 } from "../../shared/database-transport";
 import type {
@@ -67,6 +68,11 @@ import {
   type CardLifecycleMutationRequest,
 } from "../../shared/card-lifecycle";
 import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
+import type { ListCardHistoryRequest } from "../../shared/card-history";
+import {
+  parseCardHistoryCommandResult,
+  type CardHistoryCommandResult,
+} from "../../shared/card-history-transport";
 
 const decodeDocumentHistoryResponse = <T>(
   value: unknown,
@@ -857,6 +863,16 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         await response.json(),
       );
     }
+    case "database-views:snapshot": {
+      const [projectId, viewId] = args as [string, string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-views/${encodeURIComponent(viewId)}/snapshot`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseViewSnapshotCommandResult(await response.json());
+    }
     case "database-views:query": {
       const [projectId, viewId] = args as [string, string];
       const response = await fetch(
@@ -1197,85 +1213,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...input, sessionId }),
-        },
-      );
-      return res.json();
-    }
-    case "history:recent": {
-      const [projectId, sessionId] = args as [string, string?];
-      const params = sessionId ? `?sessionId=${sessionId}` : "";
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/history${params}`),
-      );
-      return res.json();
-    }
-    case "history:card": {
-      const [projectId, cardId] = args as [string, string];
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/history/card?cardId=${cardId}`),
-      );
-      return res.json();
-    }
-    case "history:card-version-preview": {
-      const [projectId, cardId, historyId] = args as [string, string, number];
-      const params = new URLSearchParams({
-        cardId,
-        historyId: String(historyId),
-      });
-      const res = await fetch(
-        toApiUrl(
-          `/api/projects/${projectId}/history/card-version-preview?${params.toString()}`,
-        ),
-      );
-      return res.json();
-    }
-    case "history:undo": {
-      const [projectId, sessionId] = args as [string, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/undo`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-      return res.json();
-    }
-    case "history:redo": {
-      const [projectId, sessionId] = args as [string, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/redo`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-      return res.json();
-    }
-    case "history:revert": {
-      const [projectId, historyId, sessionId] = args as [
-        string,
-        number,
-        string?,
-      ];
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/history/revert`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ historyId, sessionId }),
-        },
-      );
-      return res.json();
-    }
-    case "history:restore": {
-      const [projectId, cardId, historyId, sessionId] = args as [
-        string,
-        string,
-        number,
-        string?,
-      ];
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/history/restore`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cardId, historyId, sessionId }),
         },
       );
       return res.json();
@@ -2583,6 +2520,31 @@ export const browserRendererTransport = {
       projectId,
       request,
     ) as Promise<CardLifecycleMutationCommandResult>;
+  },
+  async listCardHistory(
+    request: ListCardHistoryRequest,
+  ): Promise<CardHistoryCommandResult> {
+    const query = new URLSearchParams();
+    if (request.pageSize !== undefined) {
+      query.set("pageSize", String(request.pageSize));
+    }
+    if (request.before) {
+      query.set("beforeSource", request.before.source);
+      query.set("beforeOccurredAt", request.before.occurredAt);
+      if (request.before.source === "document_version") {
+        query.set("beforeVersionId", request.before.versionId);
+      } else {
+        query.set("beforeChangeSeq", String(request.before.changeSeq));
+      }
+    }
+    const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(request.projectId)}/cards/${encodeURIComponent(request.cardBlockId)}/history${suffix}`,
+      ),
+      { headers: { Accept: "application/json" } },
+    );
+    return parseCardHistoryCommandResult(await response.json());
   },
   async getOwnedBlockDocumentDescriptor(
     projectId: string,

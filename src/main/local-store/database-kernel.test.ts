@@ -12,6 +12,7 @@ import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   applyDatabaseMutation,
+  readDatabaseViewSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
   readPrimaryDatabaseViewSnapshot,
   type DatabaseMutationFaultPoint,
@@ -265,6 +266,100 @@ describe("general Database kernel", () => {
         snapshot.value.descriptor.value?.views.find((view) => view.isPrimary)
           ?.id,
       );
+    });
+  });
+
+  sqliteTest("captures an arbitrary durable View with its owning Database under one cursor", async () => {
+    await withFixture((fixture) => {
+      const created = applyDatabaseMutation(
+        fixture.database,
+        request(
+          fixture,
+          "create-secondary-snapshot",
+          createDatabaseOperation("database-secondary", "view-secondary"),
+        ),
+      );
+      expect(resultCode(created)).toBe("ok");
+
+      const snapshot = readDatabaseViewSnapshot(
+        fixture.database,
+        fixture.projectId,
+        "view-secondary",
+      );
+      expect(snapshot.ok).toBeTrue();
+      if (!snapshot.ok) return;
+      expect(snapshot.value.descriptor.changeLogSeq).toBe(
+        snapshot.value.query.changeLogSeq,
+      );
+      expect(snapshot.value.query.value?.view.id).toBe("view-secondary");
+      expect(snapshot.value.descriptor.value?.database.blockId).toBe(
+        "database-secondary",
+      );
+      expect(snapshot.value.query.value?.database.blockId).toBe(
+        "database-secondary",
+      );
+    });
+  });
+
+  sqliteTest("keeps the Database cursor and View value on one cross-connection read snapshot", async () => {
+    await withFixture((fixture) => {
+      const created = applyDatabaseMutation(
+        fixture.database,
+        request(
+          fixture,
+          "create-isolated-snapshot",
+          createDatabaseOperation("database-isolated", "view-isolated"),
+        ),
+      );
+      expect(resultCode(created)).toBe("ok");
+      const concurrent = new Database(fixture.database.name);
+      try {
+        concurrent.pragma("busy_timeout = 2000");
+        const snapshot = readDatabaseViewSnapshot(
+          fixture.database,
+          fixture.projectId,
+          "view-isolated",
+          {
+            afterCursorRead: () => {
+              concurrent.transaction(() => {
+                concurrent.prepare(`
+                  UPDATE database_views
+                  SET name = 'Concurrent name', updated_at = ?
+                  WHERE id = 'view-isolated' AND project_id = ?
+                `).run("2026-07-12T01:00:00.000Z", fixture.projectId);
+                concurrent.prepare(`
+                  INSERT INTO change_log (
+                    project_id, store_epoch, kind, operation_id,
+                    block_ids_json, document_ids_json,
+                    database_block_ids_json, payload_json, committed_at
+                  ) VALUES (?, ?, 'database_snapshot_test', ?, '[]', '[]', ?, '{}', ?)
+                `).run(
+                  fixture.projectId,
+                  fixture.storeEpoch,
+                  "concurrent-snapshot-write",
+                  JSON.stringify(["database-isolated"]),
+                  "2026-07-12T01:00:00.000Z",
+                );
+              }).immediate();
+            },
+          },
+        );
+        expect(snapshot.ok).toBeTrue();
+        if (!snapshot.ok) return;
+        expect(snapshot.value.query.value?.view.name).toBe("All");
+
+        const current = fixture.database.prepare(`
+          SELECT name FROM database_views
+          WHERE id = 'view-isolated' AND project_id = ?
+        `).get(fixture.projectId) as { readonly name: string };
+        const currentCursor = fixture.database.prepare(`
+          SELECT MAX(seq) AS seq FROM change_log WHERE project_id = ?
+        `).get(fixture.projectId) as { readonly seq: number };
+        expect(current.name).toBe("Concurrent name");
+        expect(currentCursor.seq > snapshot.value.query.changeLogSeq).toBeTrue();
+      } finally {
+        concurrent.close();
+      }
     });
   });
 

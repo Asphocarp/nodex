@@ -25,7 +25,9 @@ import {
 import { normalizeSearchText } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useBoardsForProjects } from "@/lib/use-all-boards";
+import { readPrimaryDatabaseDescriptor } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
 import {
   buildPanelDestinationSections,
   flattenPanelDestinationRows,
@@ -49,6 +51,7 @@ interface PanelDestinationPickerProps {
 
 export interface PanelDestinationPickerSurfaceProps extends PanelDestinationPickerProps {
   boardMap: ReadonlyMap<string, BoardSummary>;
+  databaseDescriptorMap: ReadonlyMap<string, GeneralDatabaseDescriptor>;
   loading: boolean;
   loadError?: string | null;
   initialQuery?: string;
@@ -106,12 +109,63 @@ function PanelDestinationRowIcon({ row }: { row: PanelDestinationRow }) {
 
 function getPanelDestinationRowLabel(row: PanelDestinationRow) {
   if (row.kind === "card") return row.cardTitle;
-  return row.projectName;
+  return row.viewName;
 }
 
 function getPanelDestinationRowMeta(row: PanelDestinationRow) {
   if (row.kind === "card") return `${row.projectName} / ${row.columnName}`;
-  return "DB View";
+  return `${row.projectName} / ${row.databaseName}`;
+}
+
+function useProjectDatabaseDescriptors(
+  projects: readonly Project[],
+  enabled: boolean,
+): {
+  readonly descriptors: ReadonlyMap<string, GeneralDatabaseDescriptor>;
+  readonly loading: boolean;
+  readonly error: string | null;
+} {
+  const projectKey = projects.map((project) => project.id).join("\u0000");
+  const [state, setState] = useState<{
+    descriptors: ReadonlyMap<string, GeneralDatabaseDescriptor>;
+    loading: boolean;
+    error: string | null;
+  }>(() => ({ descriptors: new Map(), loading: enabled, error: null }));
+
+  useEffect(() => {
+    if (!enabled) {
+      setState({ descriptors: new Map(), loading: false, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState((current) => ({ ...current, loading: true, error: null }));
+    const projectIds = projectKey ? projectKey.split("\u0000") : [];
+    void Promise.all(projectIds.map(async (projectId) => {
+      const result = await readPrimaryDatabaseDescriptor(projectId);
+      if (!result.ok) throw new Error("Database Views could not be loaded");
+      return [projectId, result.value.value] as const;
+    })).then((entries) => {
+      if (cancelled) return;
+      setState({
+        descriptors: new Map(entries.flatMap(([projectId, descriptor]) =>
+          descriptor ? [[projectId, descriptor] as const] : [])),
+        loading: false,
+        error: null,
+      });
+    }).catch(() => {
+      if (cancelled) return;
+      setState({
+        descriptors: new Map(),
+        loading: false,
+        error: "Something went wrong",
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, projectKey]);
+
+  return state;
 }
 
 function PanelDestinationResultRow({
@@ -237,13 +291,18 @@ export function PanelDestinationPicker({
     loading,
     error,
   } = useBoardsForProjects(projects);
+  const databaseDescriptors = useProjectDatabaseDescriptors(
+    projects,
+    scope !== "card-only",
+  );
 
   return (
     <PanelDestinationPickerSurface
       projects={projects}
       boardMap={boards}
-      loading={loading}
-      loadError={error}
+      databaseDescriptorMap={databaseDescriptors.descriptors}
+      loading={loading || databaseDescriptors.loading}
+      loadError={error ?? databaseDescriptors.error}
       onAccept={onAccept}
       onClose={onClose}
       scope={scope}
@@ -257,6 +316,7 @@ export function PanelDestinationPicker({
 export function PanelDestinationPickerSurface({
   projects,
   boardMap,
+  databaseDescriptorMap,
   loading,
   loadError = null,
   initialQuery = "",
@@ -313,12 +373,13 @@ export function PanelDestinationPickerSurface({
     () => buildPanelDestinationSections({
       projects,
       boardMap,
+      databaseDescriptorMap,
       query: deferredQuery,
       searchResult,
       scope,
       currentProjectId,
     }),
-    [boardMap, currentProjectId, deferredQuery, projects, scope, searchResult],
+    [boardMap, currentProjectId, databaseDescriptorMap, deferredQuery, projects, scope, searchResult],
   );
   const rows = useMemo(() => flattenPanelDestinationRows(sections), [sections]);
   const buildRowsForQuery = useCallback((nextQuery: string): readonly PanelDestinationRow[] => {
@@ -326,6 +387,7 @@ export function PanelDestinationPickerSurface({
     const nextSections = buildPanelDestinationSections({
       projects,
       boardMap,
+      databaseDescriptorMap,
       query: nextQuery,
       searchResult: nextSearchResult,
       scope,
@@ -335,6 +397,7 @@ export function PanelDestinationPickerSurface({
   }, [
     boardMap,
     currentProjectId,
+    databaseDescriptorMap,
     projects,
     scope,
     searchIndex,

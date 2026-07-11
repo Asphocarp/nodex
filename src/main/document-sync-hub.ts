@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { createHash } from "node:crypto";
 import {
   Awareness,
   applyAwarenessUpdate,
@@ -36,6 +37,16 @@ import {
   type RelocationIntent,
   type RelocationResult,
 } from "../shared/block-documents";
+import {
+  encodeAdditionalDocumentCommandSemanticHashInput,
+  parseAdditionalDocumentCommandRequest,
+  parseAdditionalDocumentCommandResult,
+  type AdditionalDocumentCommandErrorCode,
+  type AdditionalDocumentCommandRequest,
+  type AdditionalDocumentCommandReceipt,
+  type AdditionalDocumentCommandResult,
+  type AdditionalDocumentHeadRevision,
+} from "../shared/additional-document-commands";
 import { safeSendToWebContents } from "./ipc-safe-send";
 import {
   DocumentRelocationLeaseCoordinator,
@@ -76,6 +87,9 @@ export interface DocumentSyncDurableBackend {
     intent: RelocationIntent,
   ): Promise<RelocationCommandResult<RelocateBlocks>>;
   relocateBlocks(command: RelocateBlocks): Promise<RelocationCommandResult>;
+  applyAdditionalDocumentCommand?(
+    request: AdditionalDocumentCommandRequest,
+  ): Promise<AdditionalDocumentCommandResult>;
 }
 
 export interface DocumentSyncHubOptions {
@@ -146,6 +160,55 @@ const unknownDocumentMutationBackendFailure = (
     { mutationId, retryable: true },
   ),
 });
+
+const additionalDocumentFailure = (
+  request: AdditionalDocumentCommandRequest,
+  code: AdditionalDocumentCommandErrorCode,
+  message: string,
+  retryable: boolean,
+): AdditionalDocumentCommandResult =>
+  parseAdditionalDocumentCommandResult({
+    ok: false,
+    error: {
+      code,
+      message: message.length <= 4_096 ? message : `${message.slice(0, 4_095)}…`,
+      retryable,
+      operationId: request.operationId,
+      operationKind: request.operation.kind,
+    },
+  });
+
+const unknownAdditionalDocumentBackendFailure = (
+  request: AdditionalDocumentCommandRequest,
+): AdditionalDocumentCommandResult =>
+  additionalDocumentFailure(
+    request,
+    "unknown",
+    "The durable additional Document writer is unavailable",
+    true,
+  );
+
+const additionalDocumentResultMatchesRequest = (
+  request: AdditionalDocumentCommandRequest,
+  result: AdditionalDocumentCommandResult,
+): boolean => {
+  if (!result.ok) {
+    return (
+      result.error.operationId === request.operationId &&
+      result.error.operationKind === request.operation.kind
+    );
+  }
+  const expectedSemanticHash = createHash("sha256")
+    .update(encodeAdditionalDocumentCommandSemanticHashInput(request))
+    .digest("hex");
+  return (
+    result.value.operationId === request.operationId &&
+    result.value.projectId === request.projectId &&
+    result.value.storeEpoch === request.storeEpoch &&
+    result.value.operationKind === request.operation.kind &&
+    result.value.semanticHash === expectedSemanticHash
+  );
+};
 
 const documentMutationResultMatchesRequest = (
   request: DocumentMutationRequest,
@@ -332,6 +395,7 @@ export class DocumentSyncHub {
   >();
   private relocationLeaseSequence = 0;
   private documentMutationLeaseSequence = 0;
+  private additionalDocumentLeaseSequence = 0;
 
   constructor(
     backend: DocumentSyncDurableBackend,
@@ -675,6 +739,158 @@ export class DocumentSyncHub {
     }
     this.relocationLeaseBoundaries.delete(leaseId);
     return committed;
+  };
+
+  applyAdditionalDocumentCommand = async (
+    rawRequest: AdditionalDocumentCommandRequest,
+  ): Promise<AdditionalDocumentCommandResult> => {
+    let request: AdditionalDocumentCommandRequest;
+    try {
+      request = parseAdditionalDocumentCommandRequest(rawRequest);
+    } catch (error) {
+      const fallback: AdditionalDocumentCommandRequest = {
+        version: 1,
+        operationId: "invalid",
+        projectId: "invalid",
+        storeEpoch: "invalid",
+        clientSessionId: "invalid",
+        actor: {},
+        coordination: { kind: "fifo_only" },
+        operation: {
+          kind: "create_synced_source",
+          sourceBlockId: "invalid",
+          documentId: "invalid",
+          initialBlocks: [],
+          placement: { kind: "space" },
+        },
+      };
+      return additionalDocumentFailure(
+        fallback,
+        "invalid_request",
+        error instanceof Error ? error.message : String(error),
+        false,
+      );
+    }
+    const apply = this.backend.applyAdditionalDocumentCommand;
+    if (!apply) return unknownAdditionalDocumentBackendFailure(request);
+
+    if (request.coordination.kind !== "hub_lease") {
+      let result: AdditionalDocumentCommandResult;
+      try {
+        result = await apply(request);
+      } catch {
+        return unknownAdditionalDocumentBackendFailure(request);
+      }
+      if (!additionalDocumentResultMatchesRequest(request, result)) {
+        return unknownAdditionalDocumentBackendFailure(request);
+      }
+      if (result.ok) this.fanoutAdditionalDocumentResync(result.value);
+      return result;
+    }
+
+    const leaseId = this.createAdditionalDocumentLeaseId();
+    const coordinatedRequest: AdditionalDocumentCommandRequest = {
+      ...request,
+      coordination: {
+        kind: "hub_lease",
+        leaseId,
+        documents: request.coordination.documents.map((head) => ({ ...head })),
+      },
+    };
+    this.setAdditionalDocumentLeaseBoundary(
+      leaseId,
+      request.storeEpoch,
+      request.coordination.documents,
+    );
+
+    let prepared;
+    try {
+      prepared = await this.relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: request.coordination.documents.map((head) => ({
+          documentId: head.documentId,
+          generation: head.generation,
+          expectedHeadSeq: head.headSeq,
+        })),
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return additionalDocumentFailure(
+        request,
+        "coordination_failed",
+        "Additional Document write lease preparation failed",
+        true,
+      );
+    }
+    if (!prepared.ok) {
+      this.relocationLeaseBoundaries.delete(leaseId);
+      return additionalDocumentFailure(
+        request,
+        "coordination_failed",
+        prepared.error.message,
+        prepared.error.code !== "invalid_request" &&
+          prepared.error.code !== "lease_id_collision",
+      );
+    }
+
+    const headsMatch = request.coordination.documents.every((expected) => {
+      const resolved = prepared.value.resolvedHeads.find(
+        (head) => head.documentId === expected.documentId,
+      );
+      return (
+        resolved?.generation === expected.generation &&
+        resolved.headSeq === expected.headSeq
+      );
+    });
+    if (!headsMatch) {
+      this.cancelRelocationLease(leaseId);
+      return additionalDocumentFailure(
+        request,
+        "document_head_conflict",
+        "A Document advanced while editors flushed for the write lease",
+        false,
+      );
+    }
+
+    let result: AdditionalDocumentCommandResult;
+    try {
+      result = await apply(coordinatedRequest);
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return unknownAdditionalDocumentBackendFailure(request);
+    }
+    if (!additionalDocumentResultMatchesRequest(request, result)) {
+      this.cancelRelocationLease(leaseId);
+      return unknownAdditionalDocumentBackendFailure(request);
+    }
+    if (!result.ok) {
+      this.cancelRelocationLease(leaseId);
+      return result;
+    }
+
+    this.setAdditionalDocumentResultBoundary(
+      leaseId,
+      request.storeEpoch,
+      request.coordination.documents,
+      result.value.effect.documentHeads,
+    );
+    try {
+      this.fanoutAdditionalDocumentResync(result.value);
+    } catch {
+      // The receipt is durable; release and state-vector resync repair fanout.
+    }
+    const released = this.relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      this.publishAdditionalDocumentReleaseFallback(
+        leaseId,
+        request.storeEpoch,
+        request.coordination.documents,
+        result.value.effect.documentHeads,
+      );
+      this.fanoutAdditionalDocumentResync(result.value);
+    }
+    this.relocationLeaseBoundaries.delete(leaseId);
+    return result;
   };
 
   publishAwareness = (
@@ -1114,6 +1330,11 @@ export class DocumentSyncHub {
     return `document-mutation-lease:${this.documentMutationLeaseSequence.toString(36)}`;
   }
 
+  private createAdditionalDocumentLeaseId(): string {
+    this.additionalDocumentLeaseSequence += 1;
+    return `additional-document-lease:${this.additionalDocumentLeaseSequence.toString(36)}`;
+  }
+
   private setSingleDocumentLeaseBoundary(
     leaseId: string,
     boundary: HubRelocationDocumentBoundary,
@@ -1122,6 +1343,43 @@ export class DocumentSyncHub {
       leaseId,
       documents: new Map([[boundary.documentId, boundary]]),
     });
+  }
+
+  private setAdditionalDocumentLeaseBoundary(
+    leaseId: string,
+    storeEpoch: string,
+    heads: readonly AdditionalDocumentHeadRevision[],
+  ): void {
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents: new Map(
+        heads.map((head) => [
+          head.documentId,
+          {
+            documentId: head.documentId,
+            storeEpoch,
+            generation: head.generation,
+            headSeq: head.headSeq,
+          },
+        ]),
+      ),
+    });
+  }
+
+  private setAdditionalDocumentResultBoundary(
+    leaseId: string,
+    storeEpoch: string,
+    leasedHeads: readonly AdditionalDocumentHeadRevision[],
+    committedHeads: readonly AdditionalDocumentHeadRevision[],
+  ): void {
+    const committedById = new Map(
+      committedHeads.map((head) => [head.documentId, head]),
+    );
+    this.setAdditionalDocumentLeaseBoundary(
+      leaseId,
+      storeEpoch,
+      leasedHeads.map((leased) => committedById.get(leased.documentId) ?? leased),
+    );
   }
 
   private setRelocationLeaseBoundary(
@@ -1309,6 +1567,56 @@ export class DocumentSyncHub {
       headSeq: result.headSeq,
       reason: "event-gap",
     });
+  }
+
+  private fanoutAdditionalDocumentResync(
+    receipt: AdditionalDocumentCommandReceipt,
+  ): void {
+    for (const head of receipt.effect.documentHeads) {
+      this.fanout(head.documentId, {
+        kind: "resync-required",
+        documentId: head.documentId,
+        storeEpoch: receipt.storeEpoch,
+        generation: head.generation,
+        headSeq: head.headSeq,
+        reason: "event-gap",
+      });
+    }
+  }
+
+  private publishAdditionalDocumentReleaseFallback(
+    leaseId: string,
+    storeEpoch: string,
+    leasedHeads: readonly AdditionalDocumentHeadRevision[],
+    committedHeads: readonly AdditionalDocumentHeadRevision[],
+  ): void {
+    const committedById = new Map(
+      committedHeads.map((head) => [head.documentId, head]),
+    );
+    for (const leased of leasedHeads) {
+      const head = committedById.get(leased.documentId) ?? leased;
+      const keys = this.subscriptionKeysByDocument.get(head.documentId);
+      if (!keys) continue;
+      for (const key of keys) {
+        const subscription = this.subscriptions.get(key);
+        if (!subscription) continue;
+        safeSendToWebContents(
+          subscription.target,
+          DOCUMENT_SYNC_EVENT_CHANNEL,
+          [
+            {
+              kind: "relocation-lease-release",
+              leaseId,
+              documentId: head.documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch,
+              generation: head.generation,
+              headSeq: head.headSeq,
+            } satisfies DocumentSyncRealtimeEvent,
+          ],
+        );
+      }
+    }
   }
 
   private publishDocumentMutationReleaseFallback(

@@ -21,6 +21,7 @@ import { createUuidV7 } from "../../../shared/card-id";
 
 interface CalendarViewProps {
   projectId: string;
+  databaseViewId: string;
   searchQuery: string;
   openCardStage: (
     projectId: string,
@@ -119,6 +120,7 @@ function toScheduledOccurrence(occurrence: CalendarOccurrence): ScheduledOccurre
 
 export function CalendarView({
   projectId,
+  databaseViewId,
   searchQuery,
   openCardStage,
   cardStageCardId,
@@ -142,6 +144,7 @@ export function CalendarView({
     updateOccurrence,
   } = useKanban({
     projectId,
+    databaseViewId,
   });
 
   const { range } = calendarState;

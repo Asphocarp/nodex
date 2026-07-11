@@ -24,6 +24,7 @@ export interface CreateReusableTemplateSource
   readonly displayName: string;
   readonly blockTree: readonly BlockTreeNode[];
   readonly beforeBlockId?: string;
+  readonly expectedBeforeLocationRevision?: number;
 }
 
 export interface CreateReusableTemplateReference
@@ -63,6 +64,7 @@ export type ExplicitDocumentBearingBlockLocation =
   | {
       readonly kind: "space";
       readonly beforeBlockId?: string;
+      readonly expectedBeforeLocationRevision?: number;
     }
   | {
       readonly kind: "document";

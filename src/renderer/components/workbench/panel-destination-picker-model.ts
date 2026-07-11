@@ -1,4 +1,5 @@
 import type { BoardSummary, Project } from "@/lib/types";
+import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
@@ -12,6 +13,7 @@ export type PanelDestination =
   | {
       kind: "db";
       projectId: string;
+      databaseViewId: string;
     }
   | {
       kind: "card";
@@ -27,6 +29,8 @@ export interface PanelDestinationDbRow {
   projectId: string;
   projectName: string;
   projectIcon?: string;
+  databaseName: string;
+  viewName: string;
   destination: PanelDestination;
 }
 
@@ -54,6 +58,7 @@ export interface PanelDestinationSection {
 export interface BuildPanelDestinationSectionsInput {
   projects: readonly Project[];
   boardMap: ReadonlyMap<string, BoardSummary>;
+  databaseDescriptorMap: ReadonlyMap<string, GeneralDatabaseDescriptor>;
   query: string;
   searchResult?: NfmMoveToSearchResult | null;
   scope?: PanelDestinationPickerScope;
@@ -63,16 +68,23 @@ export interface BuildPanelDestinationSectionsInput {
 
 const DEFAULT_CARD_LIMIT = 60;
 
-function createDbRow(project: Project): PanelDestinationDbRow {
+function createDbRow(
+  project: Project,
+  descriptor: GeneralDatabaseDescriptor,
+  view: GeneralDatabaseDescriptor["views"][number],
+): PanelDestinationDbRow {
   return {
     kind: "db",
-    id: `panel-db:${project.id}`,
+    id: `panel-db:${project.id}:${view.id}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
     projectIcon: project.icon,
+    databaseName: descriptor.database.name,
+    viewName: view.name,
     destination: {
       kind: "db",
       projectId: project.id,
+      databaseViewId: view.id,
     },
   };
 }
@@ -194,6 +206,7 @@ function resolveSearchResult({
 export function buildPanelDestinationSections({
   projects,
   boardMap,
+  databaseDescriptorMap,
   query,
   searchResult,
   scope = "all",
@@ -215,10 +228,16 @@ export function buildPanelDestinationSections({
 
   if (includeDb) {
     for (const project of projects) {
-      if (normalizedQuery && !resolvedSearchResult?.matchedProjectIds.has(project.id)) {
-        continue;
+      const descriptor = databaseDescriptorMap.get(project.id);
+      if (!descriptor) continue;
+      for (const view of descriptor.views) {
+        if (view.lifecycle !== "active") continue;
+        const searchable = normalizeSearchText(
+          `${project.name} ${descriptor.database.name} ${view.name}`,
+        );
+        if (normalizedQuery && !searchable.includes(normalizedQuery)) continue;
+        dbRows.push(createDbRow(project, descriptor, view));
       }
-      dbRows.push(createDbRow(project));
     }
   }
 

@@ -39,6 +39,7 @@ import {
   DATABASE_QUERY_CONTRACT_VERSION,
   type DatabaseReadCommandResult,
   type DatabaseReadSnapshot,
+  type DatabaseViewSnapshotCommandResult,
   type GeneralDatabaseDescriptor,
   type GeneralDatabaseViewQuery,
   type PrimaryDatabaseViewSnapshotCommandResult,
@@ -3285,49 +3286,58 @@ export const readDatabaseKernelCardSummary = (
   cardBlockId: string,
 ) => readCardContentSummary(projectId, cardBlockId, database);
 
+export interface DatabaseReadSnapshotOptions {
+  /** Diagnostic seam for proving cross-connection snapshot isolation. */
+  readonly afterCursorRead?: () => void;
+}
+
 const readDatabaseSnapshot = <T>(
   database: Database.Database,
   projectId: string,
   read: () => T | null,
+  options: DatabaseReadSnapshotOptions = {},
 ): DatabaseReadCommandResult<T> => {
-  const storeEpoch = readStoreEpoch(database);
-  if (!storeEpoch) {
-    return {
-      ok: false,
-      error: {
-        code: "store_not_initialized",
-        message: "The Block store has no active epoch",
-        retryable: false,
-      },
-    };
-  }
-  const project = database
-    .prepare("SELECT 1 AS present FROM projects WHERE id = ?")
-    .get(projectId);
-  if (!project) {
-    return {
-      ok: false,
-      error: {
-        code: "project_not_found",
-        message: `Project does not exist: ${projectId}`,
-        retryable: false,
-      },
-    };
-  }
   try {
-    const change = database
-      .prepare(
-        "SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log WHERE project_id = ?",
-      )
-      .get(projectId) as { readonly seq: number };
-    const snapshot: DatabaseReadSnapshot<T> = {
-      version: DATABASE_QUERY_CONTRACT_VERSION,
-      projectId,
-      storeEpoch,
-      changeLogSeq: change.seq,
-      value: read(),
-    };
-    return { ok: true, value: snapshot };
+    return database.transaction((): DatabaseReadCommandResult<T> => {
+      const storeEpoch = readStoreEpoch(database);
+      if (!storeEpoch) {
+        return {
+          ok: false,
+          error: {
+            code: "store_not_initialized",
+            message: "The Block store has no active epoch",
+            retryable: false,
+          },
+        };
+      }
+      const project = database
+        .prepare("SELECT 1 AS present FROM projects WHERE id = ?")
+        .get(projectId);
+      if (!project) {
+        return {
+          ok: false,
+          error: {
+            code: "project_not_found",
+            message: `Project does not exist: ${projectId}`,
+            retryable: false,
+          },
+        };
+      }
+      const change = database
+        .prepare(
+          "SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log WHERE project_id = ?",
+        )
+        .get(projectId) as { readonly seq: number };
+      options.afterCursorRead?.();
+      const snapshot: DatabaseReadSnapshot<T> = {
+        version: DATABASE_QUERY_CONTRACT_VERSION,
+        projectId,
+        storeEpoch,
+        changeLogSeq: change.seq,
+        value: read(),
+      };
+      return { ok: true, value: snapshot };
+    })();
   } catch (error) {
     if (error instanceof GeneralDatabaseQueryError) {
       return {
@@ -3376,6 +3386,45 @@ export const readPrimaryDatabaseViewSnapshot = (
         : null,
     };
   });
+  if (!captured.ok) return captured;
+
+  const { version, storeEpoch, changeLogSeq } = captured.value;
+  const value = captured.value.value;
+  const wrap = <T>(snapshotValue: T | null): DatabaseReadSnapshot<T> => ({
+    version,
+    projectId,
+    storeEpoch,
+    changeLogSeq,
+    value: snapshotValue,
+  });
+  return {
+    ok: true,
+    value: {
+      descriptor: wrap(value?.descriptor ?? null),
+      query: wrap(value?.query ?? null),
+    },
+  };
+};
+
+export const readDatabaseViewSnapshot = (
+  database: Database.Database,
+  projectId: string,
+  viewId: string,
+  options: DatabaseReadSnapshotOptions = {},
+): DatabaseViewSnapshotCommandResult => {
+  const captured = readDatabaseSnapshot(database, projectId, () => {
+    const query = queryGeneralDatabaseView(projectId, viewId, database);
+    return {
+      descriptor: query
+        ? readGeneralDatabaseDescriptor(
+            projectId,
+            query.database.blockId,
+            database,
+          )
+        : null,
+      query,
+    };
+  }, options);
   if (!captured.ok) return captured;
 
   const { version, storeEpoch, changeLogSeq } = captured.value;

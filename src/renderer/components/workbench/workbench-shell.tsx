@@ -131,7 +131,7 @@ import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke } from "@/lib/api";
 import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
 import { useKanban } from "@/lib/use-kanban";
-import { ensureFreshKanbanProjectBoard } from "@/lib/kanban-store";
+import { ensureFreshDatabaseViewBoard } from "@/lib/kanban-store";
 import { useCardDetail } from "@/lib/card-detail-store";
 import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
 import { cn } from "@/lib/utils";
@@ -1237,14 +1237,34 @@ function findDbViewTabForProject(session: ProjectSession, projectId: string): Pr
   ) ?? null;
 }
 
-function listSessionDbViewTargetProjectIds(session: ProjectSession): string[] {
-  const projectIds = new Set<string>();
+function findDbViewTabForDatabaseView(
+  session: ProjectSession,
+  databaseViewId: string,
+): ProjectSessionTab | null {
+  return session.tabs.find((tab) =>
+    tab.kind === "db_view"
+    && "databaseViewId" in tab.config
+    && tab.config.databaseViewId === databaseViewId
+  ) ?? null;
+}
+
+function listSessionDbViewTargets(
+  session: ProjectSession,
+): Array<{ projectId: string; databaseViewId: string }> {
+  const targets = new Map<string, { projectId: string; databaseViewId: string }>();
   for (const tab of session.tabs) {
     if (tab.kind !== "db_view") continue;
     if (!("projectId" in tab.config)) continue;
-    projectIds.add(tab.config.projectId);
+    if (!("databaseViewId" in tab.config)) continue;
+    if (typeof tab.config.databaseViewId !== "string") continue;
+    const databaseViewId = tab.config.databaseViewId.trim();
+    if (!databaseViewId) continue;
+    targets.set(databaseViewId, {
+      projectId: tab.config.projectId,
+      databaseViewId,
+    });
   }
-  return [...projectIds];
+  return [...targets.values()];
 }
 
 function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
@@ -2971,8 +2991,11 @@ export function WorkbenchShell({
   }, [queryClient]);
 
   const warmProjectSessionDbViewBoards = useCallback((session: ProjectSession) => {
-    for (const projectId of listSessionDbViewTargetProjectIds(session)) {
-      void ensureFreshKanbanProjectBoard(projectId).catch(() => undefined);
+    for (const target of listSessionDbViewTargets(session)) {
+      void ensureFreshDatabaseViewBoard(
+        target.projectId,
+        target.databaseViewId,
+      ).catch(() => undefined);
     }
   }, []);
 
@@ -6595,12 +6618,13 @@ export function WorkbenchShell({
 
   const openDbViewFromPanelPicker = useCallback(async (
     projectId: string,
+    databaseViewId: string,
     panelId: PanelId,
     leafId: string,
   ) => {
     if (!activeSession || activeSession.projectId === null) return;
     const sessionProjectId = activeSession.projectId;
-    const existing = findDbViewTabForProject(activeSession, projectId);
+    const existing = findDbViewTabForDatabaseView(activeSession, databaseViewId);
     if (existing) {
       const existingLeafId = resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id);
       await setActivePanelTab(existing.panelId, existing.id, {
@@ -6617,7 +6641,7 @@ export function WorkbenchShell({
       targetLeafId: leafId,
       kind: "db_view",
       title: "DB View",
-      config: { projectId, view: "kanban" },
+      config: { projectId, databaseViewId, view: "kanban" },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(sessionProjectId);
@@ -6692,7 +6716,12 @@ export function WorkbenchShell({
   ) => {
     await activatePanelGroup(panelId, leafId);
     if (destination.kind === "db") {
-      await openDbViewFromPanelPicker(destination.projectId, panelId, leafId);
+      await openDbViewFromPanelPicker(
+        destination.projectId,
+        destination.databaseViewId,
+        panelId,
+        leafId,
+      );
       return;
     }
 
@@ -11561,35 +11590,56 @@ function DbViewSessionTab({
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
 }) {
   const config = "view" in tab.config ? tab.config : { projectId: tab.projectId, view: activeView };
+  const databaseViewId = "databaseViewId" in config && typeof config.databaseViewId === "string"
+    ? config.databaseViewId.trim()
+    : "";
+  const selectedDatabaseViewId = databaseViewId || `missing-database-view:${tab.id}`;
   const view = isProjectSessionDbView(config.view) ? config.view : activeView;
-  const rulesView = viewSupportsDbViewPrefs(view) ? view : null;
-  const dbViewPrefs = rulesView
-    ? dbViewPrefsByProject[config.projectId]?.[rulesView]
+  const legacyRulesView = viewSupportsDbViewPrefs(view) ? view : null;
+  const legacyDbViewPrefs = legacyRulesView
+    ? dbViewPrefsByProject[config.projectId]?.[legacyRulesView]
       ?? (config.projectId === tab.projectId && view === activeView ? activeDbViewPrefs : null)
-      ?? getDefaultDbViewPrefs(rulesView)
+      ?? getDefaultDbViewPrefs(legacyRulesView)
     : null;
-  const activeProjectBoard = useKanban({
+  const selectedDatabaseView = useKanban({
     projectId: config.projectId,
+    databaseViewId: selectedDatabaseViewId,
     sessionId: `${tab.id}:toolbar`,
-  }).board;
+  });
+  const activeProjectBoard = selectedDatabaseView.board;
+  const databaseView = selectedDatabaseView.databaseView;
+  const readOnlySelectedView = Boolean(
+    databaseView && !databaseView.primaryWriteCompatible,
+  );
+  const renderedView: ProjectSessionDbView = readOnlySelectedView && databaseView
+    ? databaseView.query.view.kind
+    : view;
+  const rulesView = readOnlySelectedView ? null : legacyRulesView;
+  const dbViewPrefs = readOnlySelectedView ? null : legacyDbViewPrefs;
   const [calendarState, setCalendarState] = useState<CalendarViewState>(() => loadCalendarViewState());
   const [calendarCreateRequestId, setCalendarCreateRequestId] = useState(0);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const calendarVisibleDays = useMemo(() => resolveCalendarVisibleDays(calendarState), [calendarState]);
   const calendarDayCount = resolveCalendarVisibleDayCount(calendarState.range);
-  const scrollStateKey = view === "calendar"
-    ? `db-view:${sessionId}:${tab.id}:${config.projectId}:${view}:${calendarState.range}`
-    : `db-view:${sessionId}:${tab.id}:${config.projectId}:${view}`;
+  const scrollStateKey = renderedView === "calendar"
+    ? `db-view:${sessionId}:${tab.id}:${config.projectId}:${selectedDatabaseViewId}:${renderedView}:${calendarState.range}`
+    : `db-view:${sessionId}:${tab.id}:${config.projectId}:${selectedDatabaseViewId}:${renderedView}`;
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[config.projectId] ?? (config.projectId === tab.projectId ? activeSearchQuery : "");
   const activePanelCardStageCardIds = activePanelCardStageCardIdsByProject.get(config.projectId);
   const availableTags = useMemo(() => {
+    if (databaseView) {
+      return Array.from(
+        new Set(databaseView.columns.flatMap((column) =>
+          column.rows.flatMap((row) => row.tags))),
+      ).sort((left, right) => left.localeCompare(right));
+    }
     if (!activeProjectBoard) return [];
     return Array.from(
       new Set(activeProjectBoard.columns.flatMap((column) => column.cards.flatMap((card) => card.tags))),
     ).sort((left, right) => left.localeCompare(right));
-  }, [activeProjectBoard]);
+  }, [activeProjectBoard, databaseView]);
 
   useEffect(() => {
     saveCalendarViewState(calendarState);
@@ -11652,9 +11702,11 @@ function DbViewSessionTab({
   }, []);
 
   const selectView = async (nextView: ProjectSessionDbView) => {
+    if (readOnlySelectedView) return;
     await invoke("project-session-tabs:update", tab.id, {
       config: {
         projectId: config.projectId,
+        databaseViewId: selectedDatabaseViewId,
         view: nextView,
       },
       title: DB_VIEW_TABS.find((item) => item.id === nextView)?.label ?? "DB View",
@@ -11662,16 +11714,19 @@ function DbViewSessionTab({
     await onRefreshSessions(tab.projectId);
   };
 
-  const toolbarItems = DB_VIEW_TABS.map((item) => ({
+  const availableToolbarItems = readOnlySelectedView
+    ? DB_VIEW_TABS.filter((item) => item.id === renderedView)
+    : DB_VIEW_TABS;
+  const toolbarItems = availableToolbarItems.map((item) => ({
     id: item.id,
     label: item.label,
     icon: item.icon,
-    active: item.id === view,
+    active: item.id === renderedView,
     onSelect: () => {
       void selectView(item.id);
     },
   }));
-  const calendarToolbarControls = view === "calendar" ? (
+  const calendarToolbarControls = !readOnlySelectedView && renderedView === "calendar" ? (
     <CalendarToolbarControls
       range={calendarState.range}
       onRangeChange={handleCalendarRangeChange}
@@ -11681,7 +11736,7 @@ function DbViewSessionTab({
       onNext={handleCalendarNext}
     />
   ) : null;
-  const calendarToolbarContextLabel = view === "calendar" ? (
+  const calendarToolbarContextLabel = !readOnlySelectedView && renderedView === "calendar" ? (
     <CalendarToolbarMonthLabel visibleDays={calendarVisibleDays} />
   ) : null;
   const updateDbViewPrefs = rulesView
@@ -11690,13 +11745,21 @@ function DbViewSessionTab({
   const searchShortcutLabel =
     typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "⌘F" : "Ctrl+F";
 
+  if (!databaseViewId) {
+    return (
+      <div className="flex h-full items-center justify-center bg-token-main-surface-primary px-6 text-sm text-token-text-secondary">
+        This Database tab has no durable View identity. Reopen it from the View picker.
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <DbViewToolbar
         items={toolbarItems}
         activeSearchQuery={searchQuery}
         taskSearchOpen={taskSearchOpen}
-        showSearchControls={view !== "calendar"}
+        showSearchControls={readOnlySelectedView || renderedView !== "calendar"}
         searchShortcutLabel={searchShortcutLabel}
         taskSearchInputRef={taskSearchInputRef}
         rulesView={rulesView}
@@ -11712,8 +11775,10 @@ function DbViewSessionTab({
       <div className="min-h-0 flex-1 overflow-hidden">
         <MainViewHost
           projectId={config.projectId}
+          databaseViewId={databaseViewId}
+          databaseView={databaseView}
           projects={projects}
-          view={view}
+          view={renderedView}
           searchQuery={searchQuery}
           dbViewPrefs={dbViewPrefs}
           onUpdateDbViewPrefs={updateDbViewPrefs}

@@ -308,6 +308,7 @@ async function renderCanvas(strict = false) {
   const { CanvasView } = await import("./canvas-view");
   const canvas = createElement(CanvasView, {
     projectId: "project-1",
+    databaseViewId: "view-project-1-primary",
     openCardStage: (projectId: string, cardId: string, title?: string) => {
       openedCards.push({ projectId, cardId, title });
     },

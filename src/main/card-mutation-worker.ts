@@ -43,6 +43,7 @@ import { applyBlockPropertyMutation } from "./local-store/block-property-mutatio
 import {
   applyDatabaseMutation,
   queryDatabaseViewSnapshot,
+  readDatabaseViewSnapshot,
   readDatabaseDescriptorSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
   readPrimaryDatabaseViewSnapshot,
@@ -52,6 +53,7 @@ import {
   readCardLifecyclePreflightSnapshot,
 } from "./local-store/card-block-lifecycle";
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
+import { applyAdditionalDocumentCommand } from "./local-store/additional-document-command-kernel";
 import {
   applyDocumentOperationBatch,
   replaceDocumentFromNfm,
@@ -63,6 +65,10 @@ import {
   getDocumentVersionDetail,
   listDocumentVersions,
 } from "./local-store/document-versions";
+import {
+  CardHistoryStoreError,
+  listCardHistory,
+} from "./local-store/card-history";
 import { readAuthoritativeCardSummaryById } from "./local-store/card-read-store";
 import {
   BlockDocumentRuntime,
@@ -80,6 +86,10 @@ import type {
   DocumentHistoryCommandError,
   DocumentHistoryCommandResult,
 } from "../shared/block-documents/document-history-transport";
+import type {
+  CardHistoryCommandError,
+  CardHistoryCommandResult,
+} from "../shared/card-history-transport";
 import type { Card, CardSummary } from "../shared/types";
 import type {
   BlockDocumentShadowInitializationResult,
@@ -202,11 +212,14 @@ const isLegacyAuthorityMutation = (
     case "readDatabaseDescriptor":
     case "readPrimaryDatabaseDescriptor":
     case "readPrimaryDatabaseViewSnapshot":
+    case "readDatabaseViewSnapshot":
     case "queryDatabaseView":
     case "applyDocumentMutation":
+    case "applyAdditionalDocumentCommand":
     case "createDocumentVersionCheckpoint":
     case "listDocumentVersions":
     case "getDocumentVersion":
+    case "listCardHistory":
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
@@ -840,6 +853,33 @@ const runDocumentHistoryCommand = <T>(
   }
 };
 
+const toCardHistoryCommandError = (
+  error: unknown,
+): CardHistoryCommandError => {
+  if (error instanceof CardHistoryStoreError) {
+    return {
+      code: error.code,
+      message: error.message,
+      retryable: false,
+    };
+  }
+  return {
+    code: "unknown",
+    message: "Canonical Card history is unavailable",
+    retryable: true,
+  };
+};
+
+const runCardHistoryCommand = (
+  operation: () => import("../shared/card-history").CardHistoryPage,
+): CardHistoryCommandResult => {
+  try {
+    return { ok: true, value: operation() };
+  } catch (error) {
+    return { ok: false, error: toCardHistoryCommandError(error) };
+  }
+};
+
 const relocationErrorRetryable = (
   error: RelocationCommandError["code"],
 ): boolean =>
@@ -1416,6 +1456,12 @@ async function runRequest(
         getDb(),
         request.payload.projectId,
       );
+    case "readDatabaseViewSnapshot":
+      return readDatabaseViewSnapshot(
+        getDb(),
+        request.payload.projectId,
+        request.payload.viewId,
+      );
     case "queryDatabaseView":
       return queryDatabaseViewSnapshot(
         getDb(),
@@ -1560,6 +1606,39 @@ async function runRequest(
       }
       return result;
     }
+    case "applyAdditionalDocumentCommand": {
+      const result = applyAdditionalDocumentCommand(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+
+      for (const head of result.value.effect.documentHeads) {
+        blockDocumentRuntime.invalidate(head.documentId);
+        try {
+          const projection = cardsStore.readCardDocumentBoardProjection(
+            getDb(),
+            head.documentId,
+          );
+          if (!projection) continue;
+          dbNotifier.notifyChange(
+            projection.projectId,
+            "update",
+            projection.status,
+            projection.cardId,
+            {
+              summary: projection.summary,
+              mutationId: request.payload.operationId,
+            },
+          );
+        } catch (error) {
+          postLog("error", "Committed additional Document fanout failed", {
+            projectId: request.payload.projectId,
+            documentId: head.documentId,
+            operationId: request.payload.operationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return result;
+    }
     case "createDocumentVersionCheckpoint":
       return runDocumentHistoryCommand(() =>
         createDocumentVersionSummaryCheckpoint(getDb(), request.payload),
@@ -1571,6 +1650,10 @@ async function runRequest(
     case "getDocumentVersion":
       return runDocumentHistoryCommand(() =>
         getDocumentVersionDetail(getDb(), request.payload),
+      );
+    case "listCardHistory":
+      return runCardHistoryCommand(() =>
+        listCardHistory(getDb(), request.payload),
       );
     case "relocateBlocks": {
       const result = runRelocationCommand(() =>

@@ -89,6 +89,7 @@ function formatRelativeDate(date: Date): string {
 
 interface ListViewProps {
   projectId: string;
+  databaseViewId: string;
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
@@ -104,6 +105,7 @@ interface ListViewProps {
 
 export function ListView({
   projectId,
+  databaseViewId,
   searchQuery,
   dbViewPrefs,
   onUpdateDbViewPrefs,
@@ -116,7 +118,7 @@ export function ListView({
     board,
     loading,
     error,
-  } = useKanban({ projectId });
+  } = useKanban({ projectId, databaseViewId });
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(scrollStateKey ?? null, {
     axis: "both",

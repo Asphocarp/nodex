@@ -2,7 +2,7 @@
 
 ## Overview
 
-Nodex is a local SQLite-based kanban board designed for managing coding agents (e.g., Claude Code). It runs as an Electron desktop app with a Notion-like UI, and also serves a web interface accessible from any browser. All data is stored in a SQLite database that agents can interact with via REST API. Supports multiple independent projects, each with its own kanban board, history, and undo/redo stacks.
+Nodex is a local SQLite-based kanban board designed for managing coding agents (e.g., Claude Code). It runs as an Electron desktop app with a Notion-like UI, and also serves a web interface accessible from any browser. All data is stored in a SQLite database that agents can interact with via REST API. Each Project is an isolated Space with its own Blocks, Documents, Databases, and durable history.
 
 Desktop runtime requirement: macOS 12 Monterey or later. Nodex ships separate notarized Apple silicon (`arm64`) and Intel (`x64`) macOS builds.
 
@@ -37,9 +37,10 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 ### Core Features
 
 #### 1. Multi-Project Support
-- Each project has an independent kanban board, history, and undo/redo
+- Each Project has independent Database Views and durable history. Typing undo/redo is local to each mounted collaborative Document surface rather than a Project-wide stack.
 - Single-page app with a project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with shell-owned right and bottom panels for content tabs
 - Every new project starts with an ordinary pinned `Database View` session containing one open full-width right-panel `db_view` tab for that project's durable primary View ID; newly created chat sessions start with the right panel collapsed. Session storage identifies DB tabs by `databaseViewId`, permits distinct Views from the same Project, focuses an already-open identical View, and rejects missing/deleted/cross-Project View identities.
+- Each DB tab reads one atomic descriptor/query snapshot for its durable View ID. The exact unfiltered, manually ordered, status-grouped primary Kanban View keeps the full mutation UI; filtered or secondary Views render their own rows and grouping as an explicitly read-only surface until writes are modeled against that selected View, never by silently mutating the Project's primary board.
 - Session panel tabs support `db_view`, `card_stage`, `terminal`, `browser`, `review`, and `files` kinds; Browser renders the Electron browser-sidebar feature with isolated main-owned webview content, a compact navigation toolbar, address commit/skip behavior, local-server discovery cards, full-bleed responsive page hosting, retained page lifetime across tab switches and panel hide/show, panel-motion-aware fixed webview bounds, device toolbar presets, zoom/data clearing, screenshot/comment affordances, and browser-use overlay state. Files renders the primary source tree, search/filter input, file preview area, thread file tab ids, external-open actions, and markdown/text/image/PDF/unsupported preview routing. Review renders the active thread's connected review diff panel, and Side chat actions create renderer-local temporary thread tabs instead of durable `project_session_tabs` rows. Older saved durable Side chat launcher rows are pruned during schema migration, and older `files_placeholder` rows are normalized to `files`.
 - Empty panels and each panel-group tab strip use the same target-aware new-tab action registry. Each group's plus button sits immediately after that group's tabs and creates or previews content in that leaf. The standard thread-panel chooser order is Review, Terminal, Browser, Files, and Side chat, filtered by target panel and singleton availability. Right-panel choosers then append a separated Nodex-only section for DB View and Card Stage when eligible. DB View creates or focuses the active session project's DB tab directly until that project already has one, then opens the move-to-style DB destination picker so another project DB can be selected; Card Stage opens the card destination picker with the active session project's cards grouped before other projects. Timeline remains hidden until Nodex has a first-class tab kind and eligibility model for it. Review is a singleton tab per session across both right and bottom panels. DB View is one tab per target project, while Browser is multi-tab and supports New tab to the right, Reload, and Duplicate before generic close actions from the tab context menu.
 - Files and Browser can open as preview tabs in either right or bottom panel, and single-clicking a Kanban DB-view card opens Card Stage as a right-panel preview in the nearest right leaf, creating a right-side group first when the right panel is full-width with only the DB group. A project session panel leaf owns at most one italic preview at a time; opening a second preview in the same leaf replaces the first, and the preview is ephemeral until the user interacts with the preview body, pins it, or double-clicks its tab label. Card Stage preview promotion reuses the preview tab id so the editor body does not remount. Card Stage close/delete controls do not pin an unpinned preview before closing/deleting. Side chat uses a separate renderer-local leaf-scoped tab lifecycle: the empty-panel action, panel menu, thread overflow action, `/side`, and the thread selected-text `Ask in side chat` overlay create `sidechat-loading:<parentThreadId>:<index>` tabs, replace them with closable `sidechat:<threadId>` tabs after the temporary fork starts, and never pin or persist those tabs.
@@ -350,34 +351,17 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Delete card action
 - View history button opens an app-shell version-history modal for the currently open Card Stage card
 - Primary Card Document history is exposed through Project/Document-scoped list, get, checkpoint, and restore commands over both Electron IPC and loopback HTTP. A checkpoint stores title, body, stable Block IDs, schema and audit metadata as immutable evidence. Restore requires the selected version identity plus current generation/head, briefly flushes and freezes every mounted surface, creates a `before_restore` checkpoint, and appends one new forward Yjs update; it never rewinds the update log. Retrying the same restore mutation ID returns the original durable result.
-- History modal supports operation filters, keyboard/list navigation, a full reconstructed snapshot preview for the selected version rendered through a read-only BlockNote/NFM surface, and entry-level detailed views (update before/after field diffs, move from/to columns, create/delete snapshots)
+- History modal presents one cursor-paginated timeline merged from immutable Document checkpoints and canonical Block mutation/relocation evidence. A selected checkpoint has a full read-only preview; non-checkpoint entries show bounded durable evidence and do not pretend to be reversible snapshots.
 
 #### 8. Edit History & Undo/Redo
-- Full edit history tracked in SQLite `history` table
-- Session-scoped undo stacks (each renderer/browser tab has independent history)
-- Keyboard shortcuts: `Cmd+Z` (undo), `Cmd+Shift+Z` (redo) — see `docs/KEYBOARD_SHORTCUTS.md` for full reference
-- Operations tracked: create, update, delete, move
-- Grouped undo/redo is supported via globally unique `history.group_id` values so one undo can revert a multi-step atomic action across every affected project (for example: a cross-project card-to-editor move or block-drop import creates + source updates)
-- Non-description fields use delta storage (only changed fields stored, not full snapshots)
-- Card descriptions are stored outside `history` in a revision chain keyed by `cards.description_revision_id`; history rows only store description revision pointers
-- Description revisions use top-level NFM block hashing plus ordered splice deltas, with periodic snapshot revisions to cap reconstruction work
-- Full-card history checkpoints are stored internally in `card_history_snapshots` so retained visible history rows remain previewable and restorable after older rows are pruned
-- Current builds do not support opening older pre-revision SQLite schemas in-app; recreate the local database if you need a fresh store on a newer build
-- History modal is card-scoped (opened from Card Stage) and renders above the whole app shell with a per-card edit timeline, timestamps, a selected-version snapshot preview, and selectable detail panes for field diffs and snapshots
-- The card history modal reads its timeline from `history:card` and lazily loads selected full-card snapshots from `history:card-version-preview`; update/move entries preview the card state immediately after the selected history entry, while delete entries preview the final state immediately before deletion
-- Selected snapshot descriptions render with BlockNote in read-only mode to match the Card Stage NFM editor; live embeds such as card refs, thread sections, inline toggle-list views, and thread mentions appear as inert placeholders so historical previews do not fetch current board/thread state
-- Description changes in the history panel render as top-level NFM block operations (`added`, `removed`, `replaced`) with per-block previews and optional raw block source, not hydrated whole-document before/after blobs
-- Each description-delta entry also includes a default-collapsed full diff viewer so users can inspect the entire description state when the block summary is not enough
-- Create/delete entries show description snapshots as ordered top-level block cards with previews and expandable block source
-- History retention is configurable from Settings -> Backups; the value is a per-project count of visible `history` rows, `0` disables pruning, and internal checkpoint rows do not count against this limit
-- If a retained legacy row predates checkpoint backfill and can no longer be reconstructed, the history modal keeps the row visible but marks restore/revert-to-snapshot actions unavailable
-- History modal uses a fixed responsive two-pane layout instead of a persisted resizable side panel
-- Detailed storage and migration rules for revision-based description history: [Description History Revisions](./description-history-revisions.md)
-- **Revert single change**: Undo a specific history entry (update, move, create, or delete) — creates a new forward history entry so the revert is itself visible and reversible
-- **Restore to point**: Time-travel a card to any retained reconstructable historical state by replaying from the nearest create/delete/checkpoint anchor plus forward deltas; applies field updates and column moves as needed
-- Action buttons shown in entry detail view with inline confirmation flow; disabled for undo meta-entries
-- Card stage auto-refreshes card state after history mutations via `onCardMutated` callback
-- Global in-app toast notifications after undo/redo actions and other transient editor/review feedback
+- Typing undo/redo is owned by the mounted Yjs surface. `Cmd/Ctrl+Z` and redo operate only on transactions created by that surface's local origins; remote edits and another window's changes never enter its undo stack.
+- Durable content history is a retained `document_versions` checkpoint stream. A checkpoint stores the exact Y.Doc state, schema, stable Block IDs, content hash, and bounded audit metadata independently from operational update compaction.
+- Property, lifecycle, Database membership/value/View, and location changes are immutable `block_mutations` / `block_relocations` joined through the Project change log. Their before/after evidence is field- or operation-scoped, not a reconstructed whole Card snapshot.
+- The Card history modal is Card-scoped and merges these sources into one stable cursor timeline. Pagination never depends on array offsets or renderer-local clocks.
+- Selecting a Document checkpoint loads a read-only preview. Reference and embed Blocks remain inert in previews and do not fetch or mutate current target state.
+- Restore is available only for a retained compatible Document checkpoint. It validates the current generation/head, briefly fences mounted editors, writes a mandatory `before_restore` checkpoint, and appends a new forward Yjs update with an exact-retry mutation receipt. Restore never rewinds the update log or reconstructs a new Y.Doc from NFM.
+- Mutation and relocation entries expose durable evidence but no generic inverse button. A future domain-specific inverse must be a new validated forward command, never Project-wide snapshot undo.
+- Fast local undo has no global toast. Durable restore reports pending/success/failure in the history surface and refreshes through the committed Document event.
 
 #### 9. Whole-Store Backups
 - Manual backup creation via CLI/API (`nodex.db` + `assets/`)
@@ -579,14 +563,15 @@ nodex/
 │   │       ├── database.ts     # SQLite connection, init, and legacy filename migration
 │   │       ├── projects.ts     # Project CRUD and run context
 │   │       ├── project-sessions.ts # Session tree, tabs, and thread links
-│   │       ├── cards.ts        # Card writes and move/drop transactions
+│   │       ├── cards.ts        # Temporary legacy Card compatibility writes during Block-first cutover
 │   │       ├── board-read-model.ts # Board summary/detail/search reads
 │   │       ├── card-occurrences.ts # Calendar occurrence actions
 │   │       ├── backups.ts      # Backup create/list/restore + auto scheduler
 │   │       ├── assets.ts       # Image/resource upload, storage, and read helpers
 │   │       ├── notifier.ts     # EventEmitter for local-store changes
 │   │       ├── schema.ts       # Latest database schema bootstrap + version guard
-│   │       └── history.ts      # History tracking and undo/redo logic
+│   │       ├── card-history.ts # Canonical merged Card history read model
+│   │       └── history.ts      # Temporary legacy history compatibility paths
 │   ├── preload/
 │   │   └── index.ts            # contextBridge: exposes window.api (invoke, on, serverUrl, assetPathPrefix)
 │   └── renderer/               # React SPA (Vite dev server on port 51284)
@@ -597,7 +582,7 @@ nodex/
 │       ├── env.d.ts            # Window.api type declaration
 │       ├── components/
 │       │   ├── kanban/
-│       │   │   ├── board.tsx              # DnD context, layout, undo/redo
+│       │   │   ├── board.tsx              # DnD context and Database View layout
 │       │   │   ├── column.tsx             # Column with droppable
 │       │   │   ├── card.tsx               # Draggable card
 │       │   │   ├── card-dialog.tsx        # Card creation dialog
@@ -659,9 +644,7 @@ nodex/
 │           │   ├── block-mapping.ts
 │           │   └── sync.ts
 │           ├── use-kanban.ts     # React hook for board state
-│           ├── use-history.ts    # React hook for undo/redo
 │           ├── use-projects.ts   # React hook for project CRUD
-│           ├── use-keyboard-shortcuts.ts # Undo/redo shortcut handler
 │           └── use-workbench-shortcuts.ts # Workbench navigation shortcut handler
 ├── out/                        # Build output (electron-vite build)
 │   ├── main/bootstrap.js
@@ -750,13 +733,14 @@ nodex/
 | PUT | `/api/projects/[projectId]/move` | Move card between statuses (`fromStatus` optional — server resolves; when provided, returns 409 if card not in expected status; supports optional `newOrder`; omit to append to end) |
 | POST | `/api/projects/[projectId]/card-import-block-drop` | Atomic block-drop import: source updates + target card creates in one grouped transaction |
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
+| GET | `/api/projects/[projectId]/cards/[cardBlockId]/history` | Cursor-paginated canonical Card timeline merged from Document checkpoints and Block mutation/relocation evidence |
 | GET | `/api/projects/[projectId]/history` | List recent history (query: `?limit=N&offset=N&sessionId=Z`) |
-| GET | `/api/projects/[projectId]/history/card` | Card-specific history (query: `?cardId=X`) |
-| GET | `/api/projects/[projectId]/history/card-version-preview` | Reconstructed card snapshot for a history entry (query: `?cardId=X&historyId=N`) |
-| POST | `/api/projects/[projectId]/history/revert` | Revert a single history entry (body: `{historyId, sessionId?}`) |
-| POST | `/api/projects/[projectId]/history/restore` | Restore card to historical state (body: `{cardId, historyId, sessionId?}`) |
-| POST | `/api/projects/[projectId]/undo` | Undo last operation |
-| POST | `/api/projects/[projectId]/redo` | Redo last undone |
+| GET | `/api/projects/[projectId]/history/card` | Deprecated legacy Card-history compatibility read |
+| GET | `/api/projects/[projectId]/history/card-version-preview` | Deprecated legacy snapshot compatibility read |
+| POST | `/api/projects/[projectId]/history/revert` | Deprecated legacy revert command; renderer does not expose it |
+| POST | `/api/projects/[projectId]/history/restore` | Deprecated legacy snapshot restore; primary Documents use forward Document-version restore |
+| POST | `/api/projects/[projectId]/undo` | Deprecated legacy Project undo; renderer does not expose a Project-wide undo stack |
+| POST | `/api/projects/[projectId]/redo` | Deprecated legacy Project redo; renderer does not expose a Project-wide redo stack |
 | POST | `/api/projects/[projectId]/query` | Execute read-only SQL query |
 | GET | `/api/projects/[projectId]/schema` | Get database schema |
 
@@ -1096,8 +1080,8 @@ nodex block export <card-id>      # Export title + materialized NFM
 nodex rm <card-id>               # Delete card (auto-resolves column)
 nodex mv <card-id> <from> <to> [order] [opts] # Move card (atomic claim)
 nodex history [--card <id>]      # View edit history
-nodex undo                       # Undo last operation
-nodex redo                       # Redo last undone
+nodex undo                       # Deprecated legacy Project undo compatibility command
+nodex redo                       # Deprecated legacy Project redo compatibility command
 nodex query "<sql>" [params...]  # Run read-only SQL query
 nodex schema                     # Show database schema
 nodex backups [subcommand]       # List/create/restore backups
@@ -1107,7 +1091,7 @@ nodex backups [subcommand]       # List/create/restore backups
 Agent command options:
 - `-p, --project <id>` - Project to operate on (default: "default")
 - `--url <url>` - Server URL override
-- `--session-id <id>` - Session ID for undo/redo tracking
+- `--session-id <id>` - Deprecated legacy history-session compatibility option
 - `--jsonl` - Output JSON Lines (default)
 - `--json` - Output JSON array/object
 - `--csv` - Output CSV
@@ -1315,8 +1299,9 @@ nodex backups restore <backup-id> --yes
 | Import/export collaborative body | `nodex block replace/export ...` | Document mutation API / authoritative Card read projection |
 | Delete card | `nodex rm <id>` | DELETE `/api/projects/[projectId]/card?cardId=Y` |
 | Move card | `nodex mv <id> <from> <to> [opts]` | PUT `/api/projects/[projectId]/move` (atomic: 409 if card not in `fromStatus`) + optional PUT `/api/projects/[projectId]/card` (property updates) |
-| History | `nodex history` | GET `/api/projects/[projectId]/history` |
-| Undo/Redo | `nodex undo` / `nodex redo` | POST `/api/projects/[projectId]/undo` / `redo` |
+| Card history | renderer canonical timeline; CLI cutover pending | GET `/api/projects/[projectId]/cards/[cardBlockId]/history` |
+| Legacy Project history | `nodex history` | Deprecated GET `/api/projects/[projectId]/history` compatibility path |
+| Legacy Undo/Redo | `nodex undo` / `nodex redo` | Deprecated POST `/api/projects/[projectId]/undo` / `redo`; not exposed by renderer |
 | SQL query | `nodex query "<sql>"` | POST `/api/projects/[projectId]/query` |
 | Schema | `nodex schema` | GET `/api/projects/[projectId]/schema` |
 | List backups | `nodex backups` | GET `/api/backups` |
@@ -1460,16 +1445,10 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 - **Direct launch support**: Electron app reads `~/.nodex/config.toml` without needing env vars
 - **CLI bridge**: `cmdServe()` resolves TOML (with CWD walk-up) and passes final values as env vars to the Electron child process, since the child's CWD is `packageRoot`
 
-### Why Session-Scoped Undo?
-- **Independent tabs**: Each browser tab has its own undo stack
-- **No conflicts**: Users can't accidentally undo each other's changes
-- **Simple mental model**: "My undo undoes my actions"
-- **Persisted in DB**: History survives page refresh (sessionStorage holds session ID)
-
-### Why Delta Storage for History?
-- **Space efficient**: Only store changed fields, not full card snapshots
-- **Fast queries**: Smaller records = faster reads
-- **Exception for delete**: Full snapshot stored to enable recreation
+### Why Surface-Local Undo and Forward History?
+- **Collaborative safety**: each mounted Yjs surface tracks only its own local transaction origins, so a user cannot undo another window's edits.
+- **Clear persistence boundary**: fast typing undo is ephemeral editor state; durable checkpoints and Block mutation evidence survive restart in SQLite.
+- **Forward recovery**: restoring a checkpoint appends a new validated Yjs update and audit receipt instead of rewinding CRDT causality or rebuilding a Card snapshot.
 - **Card ID preserved**: Deleted cards restore with same ID
 
 ### Why BlockNote for the Editor?

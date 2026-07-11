@@ -43,6 +43,7 @@ import {
 } from "../shared/database-events";
 import type {
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -52,6 +53,12 @@ import type {
   CardLifecycleMutationRequest,
 } from "../shared/card-lifecycle";
 import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
+import type { ListCardHistoryRequest } from "../shared/card-history";
+import type { CardHistoryCommandResult } from "../shared/card-history-transport";
+import type {
+  AdditionalDocumentCommandRequest,
+  AdditionalDocumentCommandResult,
+} from "../shared/additional-document-commands";
 import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
@@ -529,6 +536,16 @@ export class CardMutationWriter {
     });
   }
 
+  async readDatabaseViewSnapshot(
+    projectId: string,
+    viewId: string,
+  ): Promise<CardMutationEnvelope<DatabaseViewSnapshotCommandResult>> {
+    return await this.executeTyped<DatabaseViewSnapshotCommandResult>({
+      type: "readDatabaseViewSnapshot",
+      payload: { projectId, viewId },
+    });
+  }
+
   async queryDatabaseView(
     projectId: string,
     viewId: string,
@@ -634,6 +651,16 @@ export class CardMutationWriter {
     return envelope.result;
   }
 
+  async applyAdditionalDocumentCommand(
+    request: AdditionalDocumentCommandRequest,
+  ): Promise<AdditionalDocumentCommandResult> {
+    const envelope = await this.executeTyped<AdditionalDocumentCommandResult>({
+      type: "applyAdditionalDocumentCommand",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
   async createDocumentVersionCheckpoint(
     request: CreateDocumentVersionCheckpoint,
   ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>> {
@@ -665,6 +692,16 @@ export class CardMutationWriter {
       DocumentHistoryCommandResult<DocumentVersionDetail>
     >({
       type: "getDocumentVersion",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
+  async listCardHistory(
+    request: ListCardHistoryRequest,
+  ): Promise<CardHistoryCommandResult> {
+    const envelope = await this.executeTyped<CardHistoryCommandResult>({
+      type: "listCardHistory",
       payload: request,
     });
     return envelope.result;

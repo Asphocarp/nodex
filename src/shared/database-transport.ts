@@ -12,6 +12,7 @@ import {
 import type {
   DatabaseReadCommandError,
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -361,9 +362,9 @@ export const parseDatabaseReadCommandResult = <T>(
   };
 };
 
-export const parsePrimaryDatabaseViewSnapshotCommandResult = (
+export const parseDatabaseViewSnapshotCommandResult = (
   value: unknown,
-): PrimaryDatabaseViewSnapshotCommandResult => {
+): DatabaseViewSnapshotCommandResult => {
   if (!isRecord(value)) {
     throw new TypeError(
       "Primary Database View snapshot result must be an object",
@@ -412,3 +413,8 @@ export const parsePrimaryDatabaseViewSnapshotCommandResult = (
     },
   };
 };
+
+export const parsePrimaryDatabaseViewSnapshotCommandResult = (
+  value: unknown,
+): PrimaryDatabaseViewSnapshotCommandResult =>
+  parseDatabaseViewSnapshotCommandResult(value);

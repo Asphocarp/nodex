@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES,
   ADDITIONAL_DOCUMENT_COMMAND_VERSION,
@@ -85,7 +85,7 @@ const captureError = (operation: () => unknown): unknown => {
 const expectContractError = (operation: () => unknown): void => {
   expect(
     captureError(operation) instanceof AdditionalDocumentCommandContractError,
-  ).toBeTrue();
+  ).toBe(true);
 };
 
 describe("additional document command contract", () => {
@@ -316,13 +316,13 @@ describe("additional document command contract", () => {
     expect(
       canonicalizeAdditionalDocumentCommandIntent(changedHead) ===
         firstCanonical,
-    ).toBeFalse();
+    ).toBe(false);
     expect(
       canonicalizeAdditionalDocumentCommandIntent({
         ...first,
         operationId: "operation:other",
       }) === firstCanonical,
-    ).toBeFalse();
+    ).toBe(false);
   });
 
   test("enforces exact keys, bounded identities, and stable application Block IDs", () => {
@@ -503,7 +503,7 @@ describe("additional document command contract", () => {
     expect(
       ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.create_canvas_owner.gap
         ?.length === 0,
-    ).toBeFalse();
+    ).toBe(false);
   });
 });
 
@@ -535,9 +535,9 @@ describe("additional document command result contract", () => {
       ok: true,
       value: receipt,
     });
-    expect(result.ok).toBeTrue();
-    expect(isAdditionalDocumentSemanticHash(receipt.semanticHash)).toBeTrue();
-    expect(isAdditionalDocumentSemanticHash("A".repeat(64))).toBeFalse();
+    expect(result.ok).toBe(true);
+    expect(isAdditionalDocumentSemanticHash(receipt.semanticHash)).toBe(true);
+    expect(isAdditionalDocumentSemanticHash("A".repeat(64))).toBe(false);
   });
 
   test("does not permit capability gaps to masquerade as committed effects", () => {
@@ -557,7 +557,7 @@ describe("additional document command result contract", () => {
         operationKind: "create_canvas_owner",
       },
     });
-    expect(gap.ok).toBeFalse();
+    expect(gap.ok).toBe(false);
     expectContractError(() =>
       parseAdditionalDocumentCommandResult({
         ok: false,

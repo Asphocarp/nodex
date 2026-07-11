@@ -4,6 +4,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -24,6 +25,8 @@ export const PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL =
   "databases:primary:get" as const;
 export const PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL =
   "database-views:primary:snapshot" as const;
+export const DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL =
+  "database-views:snapshot" as const;
 export const DATABASE_VIEW_QUERY_IPC_CHANNEL = "database-views:query" as const;
 
 export interface DatabaseKernelIpcDependencies {
@@ -33,6 +36,7 @@ export interface DatabaseKernelIpcDependencies {
       | typeof DATABASE_DESCRIPTOR_IPC_CHANNEL
       | typeof PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL
       | typeof PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
+      | typeof DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
       | typeof DATABASE_VIEW_QUERY_IPC_CHANNEL,
     listener: (
       event: unknown,
@@ -56,6 +60,10 @@ export interface DatabaseKernelIpcDependencies {
   readonly readPrimaryViewSnapshot: (
     projectId: string,
   ) => Promise<PrimaryDatabaseViewSnapshotCommandResult>;
+  readonly readViewSnapshot?: (
+    projectId: string,
+    viewId: string,
+  ) => Promise<DatabaseViewSnapshotCommandResult>;
   readonly queryView: (
     projectId: string,
     viewId: string,
@@ -148,6 +156,42 @@ export const registerDatabaseKernelIpcHandlers = (
             true,
           ),
         } satisfies PrimaryDatabaseViewSnapshotCommandResult;
+      }
+    },
+  );
+
+  dependencies.registerHandle(
+    DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
+    async (event, projectId, viewId) => {
+      if (!dependencies.resolveTrustedIdentity(event)) {
+        return untrustedRead<never>();
+      }
+      const bound = bindDatabaseReadIdentity(projectId, viewId);
+      if (!bound.ok) return bound;
+      if (!dependencies.readViewSnapshot) {
+        return {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            "The Database View snapshot reader is unavailable",
+            true,
+          ),
+        } satisfies DatabaseViewSnapshotCommandResult;
+      }
+      try {
+        return await dependencies.readViewSnapshot(
+          bound.value.projectId,
+          bound.value.resourceId,
+        );
+      } catch {
+        return {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            "The Database View snapshot is unavailable",
+            true,
+          ),
+        } satisfies DatabaseViewSnapshotCommandResult;
       }
     },
   );

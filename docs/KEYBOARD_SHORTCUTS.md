@@ -59,9 +59,9 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 | Shortcut | Action | Scope |
 |----------|--------|-------|
 | `←` / `→` | Resize focused panel separator | Legacy stage border handlers; project-session outer panes and split-group sashes are pointer-driven |
-| `⌘/Ctrl+Z` | Undo | Board-level undo (card ops) outside editor surfaces; inside BlockNote editor this stays editor-local undo |
-| `⌘/Ctrl+Shift+Z` | Redo | Board-level redo outside editor surfaces |
-| `⌘/Ctrl+Y` | Redo | Windows convention |
+| `⌘/Ctrl+Z` | Undo local edit | Only the focused collaborative title/body surface; remote edits and another window's transactions are excluded |
+| `⌘/Ctrl+Shift+Z` | Redo local edit | Only the focused collaborative title/body surface |
+| `Ctrl+Y` | Redo local edit | Windows convention inside a focused collaborative editor |
 
 ## Threads Composer
 
@@ -138,6 +138,5 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
 Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell-owned Back/Forward executor in `src/renderer/components/workbench/workbench-shell.tsx`. Project-session panel shortcuts, including focused right/bottom panel tab cycling and close-tab, are owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Desktop menu accelerators for focused panel tab commands enter that same shell-owned path through command requests, so the shortcut still works when Chromium does not deliver a useful panel-leaf key target. Legacy stage-focused shortcuts remain compatibility-only and should stay outside the command palette root mode while the shortcut model is rebuilt around sessions, panels, and tabs.
-Undo/redo shortcuts are in `src/renderer/lib/use-keyboard-shortcuts.ts`.
-Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`.
+Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

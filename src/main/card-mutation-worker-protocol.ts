@@ -37,6 +37,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -46,6 +47,12 @@ import type {
   CardLifecycleMutationRequest,
 } from "../shared/card-lifecycle";
 import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
+import type { ListCardHistoryRequest } from "../shared/card-history";
+import type { CardHistoryCommandResult } from "../shared/card-history-transport";
+import type {
+  AdditionalDocumentCommandRequest,
+  AdditionalDocumentCommandResult,
+} from "../shared/additional-document-commands";
 import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
@@ -304,6 +311,10 @@ export type CardMutationWorkerRequest =
       payload: { readonly projectId: string };
     })
   | (CardMutationWorkerRequestBase & {
+      type: "readDatabaseViewSnapshot";
+      payload: { readonly projectId: string; readonly viewId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "queryDatabaseView";
       payload: { readonly projectId: string; readonly viewId: string };
     })
@@ -349,6 +360,10 @@ export type CardMutationWorkerRequest =
       };
     })
   | (CardMutationWorkerRequestBase & {
+      type: "applyAdditionalDocumentCommand";
+      payload: AdditionalDocumentCommandRequest;
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "createDocumentVersionCheckpoint";
       payload: CreateDocumentVersionCheckpoint;
     })
@@ -359,6 +374,10 @@ export type CardMutationWorkerRequest =
   | (CardMutationWorkerRequestBase & {
       type: "getDocumentVersion";
       payload: GetDocumentVersion;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "listCardHistory";
+      payload: ListCardHistoryRequest;
     })
   | (CardMutationWorkerRequestBase & {
     type: "relocateBlocks";
@@ -388,6 +407,7 @@ export type BlockDocumentWorkerResult =
   | DocumentHistoryCommandResult<CreatedDocumentVersionSummary>
   | DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
   | DocumentHistoryCommandResult<DocumentVersionDetail>
+  | CardHistoryCommandResult
   | RelocationCommandResult
   | RelocationCommandResult<RelocateBlocks>
   | RelocationCommandResult<RelocationResult | null>;
@@ -422,7 +442,9 @@ export type CardMutationWorkerResult =
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
   | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
   | PrimaryDatabaseViewSnapshotCommandResult
+  | DatabaseViewSnapshotCommandResult
   | DocumentOperationCommandResult
+  | AdditionalDocumentCommandResult
   | undefined;
 
 export type CardMutationWorkerResponse =

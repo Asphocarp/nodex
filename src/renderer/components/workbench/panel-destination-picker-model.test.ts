@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
 import {
   buildPanelDestinationSections,
   flattenPanelDestinationRows,
@@ -81,18 +82,71 @@ const BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
+function makeDescriptor(
+  projectId: string,
+  views: ReadonlyArray<{ id: string; name: string; primary: boolean }>,
+): GeneralDatabaseDescriptor {
+  const databaseBlockId = `database:${projectId}`;
+  return {
+    database: {
+      blockId: databaseBlockId,
+      projectId,
+      name: `${projectId} tasks`,
+      isPrimary: true,
+      schemaKey: "nodex.database",
+      schemaRevision: 1,
+      metadataRevision: 1,
+      createdAt: TEST_DATE.toISOString(),
+      updatedAt: TEST_DATE.toISOString(),
+    },
+    properties: [],
+    views: views.map((view, index) => ({
+      id: view.id,
+      databaseBlockId,
+      projectId,
+      name: view.name,
+      kind: "kanban",
+      config: {
+        schemaKey: "nodex.database-view",
+        schemaVersion: 1,
+        filter: { kind: "group", operator: "and", children: [] },
+        sort: [],
+        group: null,
+        display: { propertyIds: [], showTitle: true },
+      },
+      isPrimary: view.primary,
+      revision: 1,
+      rankKey: String(index),
+      lifecycle: "active",
+      createdAt: TEST_DATE.toISOString(),
+      updatedAt: TEST_DATE.toISOString(),
+    })),
+  };
+}
+
+const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>([
+  ["alpha", makeDescriptor("alpha", [
+    { id: "view-alpha-primary", name: "Alpha DB", primary: true },
+    { id: "view-alpha-focused", name: "Focused", primary: false },
+  ])],
+  ["beta", makeDescriptor("beta", [
+    { id: "view-beta-primary", name: "Beta DB", primary: true },
+  ])],
+]);
+
 describe("panel destination picker model", () => {
   test("keeps DB before Card for the combined panel picker", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "",
     });
     const rows = flattenPanelDestinationRows(sections);
 
     expect(sections.map((section) => section.label).join(",")).toBe("DB,Card");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "panel-db:alpha,panel-db:beta,panel-card:alpha:command-palette,panel-card:alpha:notes,panel-card:beta:runtime",
+      "panel-db:alpha:view-alpha-primary,panel-db:alpha:view-alpha-focused,panel-db:beta:view-beta-primary,panel-card:alpha:command-palette,panel-card:alpha:notes,panel-card:beta:runtime",
     );
   });
 
@@ -100,18 +154,20 @@ describe("panel destination picker model", () => {
     const dbOnly = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "",
       scope: "db-only",
     });
     const cardOnly = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "",
       scope: "card-only",
     });
 
     expect(dbOnly.map((section) => section.label).join(",")).toBe("DB");
-    expect(flattenPanelDestinationRows(dbOnly).map((row) => row.kind).join(",")).toBe("db,db");
+    expect(flattenPanelDestinationRows(dbOnly).map((row) => row.kind).join(",")).toBe("db,db,db");
     expect(cardOnly.map((section) => section.label).join(",")).toBe("Card");
     expect(flattenPanelDestinationRows(cardOnly).map((row) => row.kind).join(",")).toBe("card,card,card");
   });
@@ -120,6 +176,7 @@ describe("panel destination picker model", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "",
       scope: "card-only",
       currentProjectId: "beta",
@@ -136,6 +193,7 @@ describe("panel destination picker model", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "polish",
       scope: "card-only",
       currentProjectId: "beta",
@@ -152,6 +210,7 @@ describe("panel destination picker model", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "runtime",
       scope: "card-only",
       currentProjectId: "alpha",
@@ -166,6 +225,7 @@ describe("panel destination picker model", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "commnd pal",
       scope: "card-only",
     });
@@ -178,12 +238,13 @@ describe("panel destination picker model", () => {
     const rows = flattenPanelDestinationRows(buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
+      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "beta",
     }));
     const initial = resolvePanelDestinationFocusedRowId(null, "beta", rows);
 
-    expect(initial).toBe("panel-db:beta");
+    expect(initial).toBe("panel-db:beta:view-beta-primary");
     expect(movePanelDestinationFocusedRowId(initial, 1, rows)).toBe("panel-card:beta:runtime");
-    expect(movePanelDestinationFocusedRowId("panel-card:beta:runtime", 1, rows)).toBe("panel-db:beta");
+    expect(movePanelDestinationFocusedRowId("panel-card:beta:runtime", 1, rows)).toBe("panel-db:beta:view-beta-primary");
   });
 });

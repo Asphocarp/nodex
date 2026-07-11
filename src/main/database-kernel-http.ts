@@ -6,6 +6,7 @@ import type {
 } from "../shared/database-kernel";
 import type {
   DatabaseReadCommandResult,
+  DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
@@ -37,6 +38,10 @@ export interface DatabaseKernelHttpDependencies {
   readonly readPrimaryViewSnapshot: (
     projectId: string,
   ) => Promise<PrimaryDatabaseViewSnapshotCommandResult>;
+  readonly readViewSnapshot?: (
+    projectId: string,
+    viewId: string,
+  ) => Promise<DatabaseViewSnapshotCommandResult>;
   readonly queryView: (
     projectId: string,
     viewId: string,
@@ -161,6 +166,49 @@ export const registerDatabaseKernelHttpRoutes = (
             error instanceof Error
               ? error.message
               : "The primary Database View snapshot is unavailable",
+            true,
+          ),
+        };
+      }
+      return context.json(result, databaseReadHttpStatus(result));
+    },
+  );
+
+  app.get(
+    "/api/projects/:projectId/database-views/:viewId/snapshot",
+    async (context) => {
+      context.header("Cache-Control", "no-store");
+      const bound = bindDatabaseReadIdentity(
+        context.req.param("projectId"),
+        context.req.param("viewId"),
+      );
+      if (!bound.ok) {
+        const result: DatabaseViewSnapshotCommandResult = bound;
+        return context.json(result, databaseReadHttpStatus(result));
+      }
+      if (!dependencies.readViewSnapshot) {
+        const result: DatabaseViewSnapshotCommandResult = {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            "The Database View snapshot reader is unavailable",
+            true,
+          ),
+        };
+        return context.json(result, databaseReadHttpStatus(result));
+      }
+      let result: DatabaseViewSnapshotCommandResult;
+      try {
+        result = await dependencies.readViewSnapshot(
+          bound.value.projectId,
+          bound.value.resourceId,
+        );
+      } catch {
+        result = {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            "The Database View snapshot is unavailable",
             true,
           ),
         };

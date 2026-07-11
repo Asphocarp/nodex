@@ -43,8 +43,7 @@ import {
   type KanbanColumnLayoutPrefs,
 } from "@/lib/kanban-column-layout";
 import { useKanban } from "@/lib/use-kanban";
-import { useHistory } from "@/lib/use-history";
-import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
+import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import {
   filterDbViewCards,
@@ -104,6 +103,7 @@ function hasSameCardSelection(
 
 interface KanbanBoardProps {
   projectId: string;
+  databaseViewId: string;
   projects: Project[];
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
@@ -121,6 +121,7 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({
   projectId,
+  databaseViewId,
   projects,
   searchQuery,
   dbViewPrefs,
@@ -130,13 +131,7 @@ export function KanbanBoard({
   cardStageCloseRef,
   scrollStateKey,
 }: KanbanBoardProps) {
-  // History hooks
-  const {
-    sessionId,
-    undo,
-    redo,
-    refreshState: refreshHistoryState,
-  } = useHistory(projectId);
+  const mutationAuditSessionId = useMutationAuditSessionId();
   const pendingCardPreviewOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const crossWindowDragPreview = useCrossWindowDragPreview();
 
@@ -148,7 +143,6 @@ export function KanbanBoard({
 
   useEffect(() => clearPendingCardPreviewOpen, [clearPendingCardPreviewOpen]);
 
-  // Pass sessionId to kanban hook so all mutations are tracked
   const {
     board,
     loading,
@@ -164,30 +158,9 @@ export function KanbanBoard({
   } =
     useKanban({
       projectId,
-      sessionId,
-      onMutation: refreshHistoryState,
+      databaseViewId,
+      sessionId: mutationAuditSessionId,
     });
-
-  // Keyboard shortcuts for undo/redo
-  const handleUndo = useCallback(async () => {
-    const success = await undo();
-    if (success) {
-      refresh(); // Refresh board after undo
-    }
-  }, [undo, refresh]);
-
-  const handleRedo = useCallback(async () => {
-    const success = await redo();
-    if (success) {
-      refresh(); // Refresh board after redo
-    }
-  }, [redo, refresh]);
-
-  useKeyboardShortcuts({
-    onUndo: handleUndo,
-    onRedo: handleRedo,
-    enabled: !loading,
-  });
 
   const [cardSelection, setCardSelection] = useState<CardSelectionState>(() => emptyCardSelection());
   const externalCardDragSessionIdRef = useRef<string | undefined>(undefined);

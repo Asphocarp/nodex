@@ -82,6 +82,7 @@ import {
   registerCardLifecycleHttpRoute,
   registerCardLifecyclePreflightHttpRoute,
 } from "./card-lifecycle-http";
+import { registerCardHistoryHttpRoute } from "./card-history-http";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardReference,
@@ -268,6 +269,9 @@ registerDatabaseKernelHttpRoutes(app, {
   readPrimaryViewSnapshot: async (projectId) =>
     (await cardMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
       .result,
+  readViewSnapshot: async (projectId, viewId) =>
+    (await cardMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
+      .result,
   queryView: async (projectId, viewId) =>
     (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
 });
@@ -293,6 +297,10 @@ registerDocumentHistoryHttpRoutes(app, {
   listVersions: (request) => cardMutationWriter.listDocumentVersions(request),
   getVersion: (request) => cardMutationWriter.getDocumentVersion(request),
   restoreVersion: (request) => documentSyncHub.applyDocumentMutation(request),
+});
+
+registerCardHistoryHttpRoute(app, {
+  listHistory: (request) => cardMutationWriter.listCardHistory(request),
 });
 
 app.post(
