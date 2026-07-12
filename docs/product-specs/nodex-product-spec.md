@@ -209,7 +209,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
-- Schema v72 stores Block identity with one Space/Document/Database parent, engine-neutral Owned Documents, matching Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
+- Schema v73 stores Block identity with one Space/Document/Database parent, engine-neutral Owned Documents, stable dormant Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
 - One asynchronous `BlockMutationWriter` serializes Block/Card-domain `better-sqlite3` transactions outside the Electron main event loop.
 - New user/content Block identities use canonical lowercase UUID-v7 and are validated only at creation. Existing IDs remain opaque. View, property, membership, operation, mutation, and other non-Block identities default to UUID-v4 when they do not have a stronger domain-derived identity; explicit timestamps, ranks, and sequences remain the only ordering authority.
 
@@ -769,7 +769,7 @@ The former board-create, Card-delete, and description-write snapshot endpoints r
 
 ### Database Schema
 
-Schema v72 is Block-first. `blocks` is the live content identity registry and gives every active Card one Space, Document, or Database parent; a Database parent has one matching active membership. `retired_block_identities` permanently reserves collected application IDs; `documents` plus `block_documents` own independently synchronized content and select its sync engine. Yjs tables own `block_tree` causal state; `canvas_scenes`, `canvas_scene_elements`, `canvas_scene_files`, and immutable Canvas receipts own normalized `scene_graph` state. Database records model membership/properties/Views without copying Cards, while mutation/history evidence is immutable and materialization/search/asset/Card/schedule records remain rebuildable exact-head projections. A supported v69 store finalizes to v70, migrates Canvas authority in v71, then applies exclusive parents in v72. Failure leaves the prior schema edge intact and blocks readiness.
+Schema v73 is Block-first. `blocks` gives every active Card one Space, Document, or Database parent; a Database parent has one matching active membership, and each Card/Database pair retains at most one stable historical membership for dormant-value restoration. `retired_block_identities` permanently reserves collected IDs; `documents` plus `block_documents` own independently synchronized content and select its sync engine. Yjs tables own `block_tree` causal state; Canvas scene tables and immutable receipts own normalized `scene_graph` state. Database records model membership/properties/Views without copying Cards, mutation/history evidence is immutable, and read projections remain rebuildable at exact authority coordinates. A supported v69 store finalizes through v70, scene-native Canvas v71, exclusive-parent v72, and stable-membership v73 in order. Failure leaves the prior schema edge intact and blocks readiness.
 
 ```sql
 -- Current schema (simplified excerpt)

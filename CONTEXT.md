@@ -1,6 +1,6 @@
 # Nodex Domain Context
 
-This document defines the canonical Block-first domain language for Nodex. Schema v72 implements engine-neutral Owned Documents, scene-native Canvas authority, and exclusive Card parents directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store through v70 before normal runtime begins; they are migration code, not an alternate authority.
+This document defines the canonical Block-first domain language for Nodex. Schema v73 implements engine-neutral Owned Documents, scene-native Canvas authority, exclusive Card parents, and stable dormant Database memberships directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store through v70 before normal runtime begins; they are migration code, not an alternate authority.
 
 ## Product boundary
 

@@ -34,11 +34,11 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 72;
+export const CURRENT_SCHEMA_VERSION = 73;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
-  70, 71, 72,
+  70, 71, 72, 73,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -7924,6 +7924,9 @@ interface NamedSchemaSql {
 
 function createExclusiveCardParentTriggers(db: Database.Database): void {
   db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_database_memberships_card_database_history
+      ON database_memberships(card_block_id, database_block_id);
+
     DROP TRIGGER IF EXISTS database_memberships_require_card_block;
     DROP TRIGGER IF EXISTS database_memberships_updates_require_card_block;
     DROP TRIGGER IF EXISTS blocks_active_membership_requires_database_location;
@@ -8265,6 +8268,33 @@ function migrateSchema71To72(db: Database.Database): void {
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
     throw new Error("Database schema v72 migration failed integrity_check");
   }
+}
+
+function migrateSchema72To73(db: Database.Database): void {
+  const duplicate = db
+    .prepare(
+      `
+      SELECT card_block_id AS cardId, database_block_id AS databaseBlockId
+      FROM database_memberships
+      GROUP BY card_block_id, database_block_id
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `,
+    )
+    .get() as
+    | { readonly cardId: string; readonly databaseBlockId: string }
+    | undefined;
+  if (duplicate) {
+    throw new Error(
+      `Cannot migrate Card ${duplicate.cardId}: Database ${duplicate.databaseBlockId} has multiple historical memberships`,
+    );
+  }
+  const migrate = db.transaction(() => {
+    createExclusiveCardParentTriggers(db);
+    assertExclusiveCardParentParity(db);
+    setUserVersion(db, 73);
+  });
+  migrate.immediate();
 }
 
 function runMigrations(
@@ -8699,6 +8729,17 @@ function runMigrations(
       createSchemaMigrationSafetyBackup(db, 71, 72);
       migrateSchema71To72(db);
       fromVersion = 72;
+      continue;
+    }
+    if (target === 73) {
+      if (fromVersion !== 72) {
+        throw new Error(
+          `Unsupported Nodex database migration target 73 from ${fromVersion}`,
+        );
+      }
+      createSchemaMigrationSafetyBackup(db, 72, 73);
+      migrateSchema72To73(db);
+      fromVersion = 73;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

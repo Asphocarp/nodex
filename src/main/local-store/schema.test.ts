@@ -250,7 +250,7 @@ describe("schema v70 Block-first finalization", () => {
 
 });
 
-describe("schema v72 exclusive Card parents", () => {
+describe("schema v73 exclusive Card parents and stable membership history", () => {
   test("exposes the final migration edge", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe(
       "[]",
@@ -435,7 +435,25 @@ describe("schema v72 exclusive Card parents", () => {
         )
         .get(cardId),
     ).toBeUndefined();
-    expect(migrated.pragma("user_version", { simple: true })).toBe(72);
+    expect(migrated.pragma("user_version", { simple: true })).toBe(73);
+    expect(() =>
+      migrated
+        .prepare(
+          `
+          INSERT INTO database_memberships (
+            id, database_block_id, card_block_id, project_id,
+            revision, created_at, removed_at
+          ) VALUES ('duplicate-history', ?, ?, ?, 1, ?, ?)
+        `,
+        )
+        .run(
+          primary.block_id,
+          cardId,
+          project.id,
+          now,
+          now,
+        ),
+    ).toThrow();
     assertHealthy(migrated);
   });
 

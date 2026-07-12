@@ -49,6 +49,7 @@ import {
   type GeneralDatabaseViewQuery,
   type PrimaryDatabaseViewSnapshotCommandResult,
 } from "../../shared/database-query";
+import { mapCompatibleDatabasePropertyValue } from "../../shared/database-property-mapping";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
 
 const MUTATION_KIND = "database_operation";
@@ -1452,6 +1453,281 @@ const validatePositionGroup = (
   );
 };
 
+interface TransferPropertyRow {
+  readonly property_id: string;
+  readonly property_key: string;
+  readonly value_type: DatabasePropertyValueType;
+  readonly config_json: string;
+  readonly value_json: string | null;
+}
+
+interface DormantMembershipRow {
+  readonly id: string;
+  readonly revision: number;
+}
+
+const readDormantMembership = (
+  database: Database.Database,
+  request: DatabaseMutationRequest,
+  cardBlockId: string,
+  databaseBlockId: string,
+): DormantMembershipRow | null => {
+  const rows = database
+    .prepare(
+      `
+      SELECT id, revision
+      FROM database_memberships
+      WHERE card_block_id = ? AND database_block_id = ? AND project_id = ?
+        AND removed_at IS NOT NULL
+      ORDER BY created_at DESC, revision DESC, id
+      LIMIT 2
+    `,
+    )
+    .all(cardBlockId, databaseBlockId, request.projectId) as DormantMembershipRow[];
+  if (rows.length <= 1) return rows[0] ?? null;
+  return reject(
+    "database_schema_conflict",
+    `Card ${cardBlockId} has multiple dormant memberships in Database ${databaseBlockId}`,
+    request,
+  );
+};
+
+const readTransferProperties = (
+  database: Database.Database,
+  input: {
+    readonly projectId: string;
+    readonly databaseBlockId: string;
+    readonly membershipId?: string;
+  },
+): readonly TransferPropertyRow[] =>
+  database
+    .prepare(
+      `
+      SELECT
+        property.id AS property_id,
+        property.key AS property_key,
+        property.value_type,
+        property.config_json,
+        value.value_json
+      FROM database_properties property
+      LEFT JOIN database_property_values value
+        ON value.property_id = property.id
+       AND value.database_block_id = property.database_block_id
+       AND value.project_id = property.project_id
+       AND value.membership_id = ?
+      WHERE property.database_block_id = ? AND property.project_id = ?
+        AND property.lifecycle = 'active'
+      ORDER BY property.rank_key, property.id
+    `,
+    )
+    .all(
+      input.membershipId ?? null,
+      input.databaseBlockId,
+      input.projectId,
+    ) as TransferPropertyRow[];
+
+const groupValueFromKey = (
+  valueType: DatabasePropertyValueType,
+  groupKey: string | null,
+): unknown => {
+  if (groupKey === null) return null;
+  if (
+    valueType === "number" ||
+    valueType === "checkbox" ||
+    valueType === "multi_select"
+  ) {
+    try {
+      return JSON.parse(groupKey) as unknown;
+    } catch {
+      return groupKey;
+    }
+  }
+  return groupKey;
+};
+
+const ensureTargetMembershipValues = (
+  database: Database.Database,
+  request: DatabaseMutationRequest,
+  input: {
+    readonly source: MembershipRow | null;
+    readonly targetMembershipId: string;
+    readonly targetDatabaseBlockId: string;
+    readonly targetView: ViewRow;
+    readonly requestedGroupKey: string | null;
+    readonly explicitlyWrittenPropertyIds: ReadonlySet<string>;
+    readonly now: string;
+  },
+): boolean => {
+  const sourceProperties = input.source
+    ? readTransferProperties(database, {
+        projectId: request.projectId,
+        databaseBlockId: input.source.database_block_id,
+        membershipId: input.source.id,
+      })
+    : [];
+  const sourceByKey = new Map(
+    sourceProperties.map((property) => [property.property_key, property]),
+  );
+  const targetProperties = readTransferProperties(database, {
+    projectId: request.projectId,
+    databaseBlockId: input.targetDatabaseBlockId,
+    membershipId: input.targetMembershipId,
+  });
+  const insertValue = database.prepare(
+    `
+    INSERT INTO database_property_values (
+      membership_id, property_id, database_block_id, project_id,
+      value_type, value_json, revision, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(membership_id, property_id) DO NOTHING
+  `,
+  );
+
+  for (const target of targetProperties) {
+    if (
+      target.value_json !== null ||
+      input.explicitlyWrittenPropertyIds.has(target.property_id)
+    ) {
+      continue;
+    }
+    const source = sourceByKey.get(target.property_key);
+    const mapped = source?.value_json
+      ? mapCompatibleDatabasePropertyValue({
+          source: {
+            valueType: source.value_type,
+            config: parseDatabasePropertyConfig(
+              source.value_type,
+              JSON.parse(source.config_json) as unknown,
+            ),
+          },
+          target: {
+            valueType: target.value_type,
+            config: parseDatabasePropertyConfig(
+              target.value_type,
+              JSON.parse(target.config_json) as unknown,
+            ),
+          },
+          value: JSON.parse(source.value_json) as unknown,
+        })
+      : { compatible: false as const };
+    const value = mapped.compatible
+      ? mapped.value
+      : target.value_type === "multi_select"
+        ? []
+        : null;
+    insertValue.run(
+      input.targetMembershipId,
+      target.property_id,
+      input.targetDatabaseBlockId,
+      request.projectId,
+      target.value_type,
+      stableStringifyDatabaseJson(value),
+      input.now,
+    );
+  }
+
+  let viewConfig: GeneralDatabaseViewConfig;
+  try {
+    viewConfig = parseGeneralDatabaseViewConfig(
+      JSON.parse(input.targetView.config_json) as unknown,
+    );
+  } catch {
+    return true;
+  }
+  if (!viewConfig.group) return true;
+  const groupProperty = targetProperties.find(
+    (property) => property.property_id === viewConfig.group?.propertyId,
+  );
+  if (!groupProperty) {
+    return reject(
+      "database_schema_conflict",
+      `View ${input.targetView.id} groups by an unavailable property`,
+      request,
+    );
+  }
+  if (input.explicitlyWrittenPropertyIds.has(groupProperty.property_id)) {
+    return false;
+  }
+  let groupValue: DatabaseJsonValue;
+  try {
+    groupValue = normalizeDatabasePropertyValue(
+      {
+        valueType: groupProperty.value_type,
+        config: parseDatabasePropertyConfig(
+          groupProperty.value_type,
+          JSON.parse(groupProperty.config_json) as unknown,
+        ),
+      },
+      groupValueFromKey(
+        groupProperty.value_type,
+        input.requestedGroupKey,
+      ),
+    );
+  } catch (error) {
+    return reject(
+      "position_group_mismatch",
+      `View ${input.targetView.id} cannot represent group ${String(input.requestedGroupKey)}: ${error instanceof Error ? error.message : String(error)}`,
+      request,
+    );
+  }
+  database
+    .prepare(
+      `
+      INSERT INTO database_property_values (
+        membership_id, property_id, database_block_id, project_id,
+        value_type, value_json, revision, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT(membership_id, property_id) DO UPDATE SET
+        value_type = excluded.value_type,
+        value_json = excluded.value_json,
+        revision = database_property_values.revision +
+          CASE WHEN database_property_values.value_json IS excluded.value_json THEN 0 ELSE 1 END,
+        updated_at = CASE
+          WHEN database_property_values.value_json IS excluded.value_json
+            THEN database_property_values.updated_at
+          ELSE excluded.updated_at
+        END
+    `,
+    )
+    .run(
+      input.targetMembershipId,
+      groupProperty.property_id,
+      input.targetDatabaseBlockId,
+      request.projectId,
+      groupProperty.value_type,
+      stableStringifyDatabaseJson(groupValue),
+      input.now,
+    );
+  return true;
+};
+
+const explicitlyWrittenTargetPropertyIds = (
+  request: DatabaseMutationRequest,
+  cardBlockId: string,
+  databaseBlockId: string,
+): ReadonlySet<string> =>
+  new Set(
+    request.operations.flatMap((operation) => {
+      if (
+        (operation.kind === "set_value" ||
+          operation.kind === "add_remove_value") &&
+        operation.cardBlockId === cardBlockId &&
+        operation.databaseBlockId === databaseBlockId
+      ) {
+        return [operation.propertyId];
+      }
+      if (
+        operation.kind === "set_values" &&
+        operation.databaseBlockId === databaseBlockId
+      ) {
+        return operation.entries.flatMap((entry) =>
+          entry.cardBlockId === cardBlockId ? [entry.propertyId] : [],
+        );
+      }
+      return [];
+    }),
+  );
+
 const transferMembership = (
   database: Database.Database,
   request: DatabaseMutationRequest & {
@@ -1503,17 +1779,26 @@ const transferMembership = (
   }
 
   let targetView: ViewRow | null = null;
+  let dormantTargetMembership: DormantMembershipRow | null = null;
   if (operation.target) {
     readActiveDatabase(database, request, operation.target.databaseBlockId);
-    const identityCollision = database
-      .prepare("SELECT 1 AS present FROM database_memberships WHERE id = ?")
-      .get(operation.target.membershipId);
-    if (identityCollision) {
-      reject(
-        "membership_identity_collision",
-        `Membership identity is already reserved: ${operation.target.membershipId}`,
-        request,
-      );
+    dormantTargetMembership = readDormantMembership(
+      database,
+      request,
+      operation.cardBlockId,
+      operation.target.databaseBlockId,
+    );
+    if (!dormantTargetMembership) {
+      const identityCollision = database
+        .prepare("SELECT 1 AS present FROM database_memberships WHERE id = ?")
+        .get(operation.target.membershipId);
+      if (identityCollision) {
+        reject(
+          "membership_identity_collision",
+          `Membership identity is already reserved: ${operation.target.membershipId}`,
+          request,
+        );
+      }
     }
     targetView = readView(database, operation.target.viewId);
     if (
@@ -1528,13 +1813,6 @@ const transferMembership = (
         request,
       );
     }
-    validatePositionGroup(
-      database,
-      request,
-      targetView,
-      null,
-      operation.target.groupKey,
-    );
   }
 
   let targetRank: {
@@ -1640,24 +1918,74 @@ const transferMembership = (
   if (movedParent.changes !== 1) {
     throw new Error("Card parent changed during atomic membership transfer");
   }
+  let committedTargetMembershipId: string | null = null;
+  let committedTargetMembershipRevision: number | null = null;
   if (operation.target && targetRank && targetView) {
     affectedDatabases.push(operation.target.databaseBlockId);
-    database
-      .prepare(
-        `
+    if (dormantTargetMembership) {
+      const reactivated = database
+        .prepare(
+          `
+          UPDATE database_memberships
+          SET removed_at = NULL, revision = revision + 1
+          WHERE id = ? AND card_block_id = ? AND database_block_id = ?
+            AND project_id = ? AND removed_at IS NOT NULL AND revision = ?
+        `,
+        )
+        .run(
+          dormantTargetMembership.id,
+          operation.cardBlockId,
+          operation.target.databaseBlockId,
+          request.projectId,
+          dormantTargetMembership.revision,
+        );
+      if (reactivated.changes !== 1) {
+        throw new Error("Dormant membership changed during reactivation");
+      }
+      committedTargetMembershipId = dormantTargetMembership.id;
+      committedTargetMembershipRevision = dormantTargetMembership.revision + 1;
+    } else {
+      database
+        .prepare(
+          `
         INSERT INTO database_memberships (
           id, database_block_id, card_block_id, project_id,
           revision, created_at, removed_at
         ) VALUES (?, ?, ?, ?, 1, ?, NULL)
       `,
-      )
-      .run(
-        operation.target.membershipId,
-        operation.target.databaseBlockId,
+        )
+        .run(
+          operation.target.membershipId,
+          operation.target.databaseBlockId,
+          operation.cardBlockId,
+          request.projectId,
+          now,
+        );
+      committedTargetMembershipId = operation.target.membershipId;
+      committedTargetMembershipRevision = 1;
+    }
+    const groupIsReady = ensureTargetMembershipValues(database, request, {
+      source: current,
+      targetMembershipId: committedTargetMembershipId,
+      targetDatabaseBlockId: operation.target.databaseBlockId,
+      targetView,
+      requestedGroupKey: operation.target.groupKey,
+      explicitlyWrittenPropertyIds: explicitlyWrittenTargetPropertyIds(
+        request,
         operation.cardBlockId,
-        request.projectId,
-        now,
+        operation.target.databaseBlockId,
+      ),
+      now,
+    });
+    if (groupIsReady) {
+      validatePositionGroup(
+        database,
+        request,
+        targetView,
+        committedTargetMembershipId,
+        operation.target.groupKey,
       );
+    }
     database
       .prepare(
         `
@@ -1704,8 +2032,8 @@ const transferMembership = (
       cardBlockId: operation.cardBlockId,
       previousMembershipId: current?.id ?? null,
       previousMembershipRevision: current ? current.revision + 1 : null,
-      membershipId: operation.target?.membershipId ?? null,
-      membershipRevision: operation.target ? 1 : null,
+      membershipId: committedTargetMembershipId,
+      membershipRevision: committedTargetMembershipRevision,
       databaseBlockId: operation.target?.databaseBlockId ?? null,
       viewId: operation.target?.viewId ?? null,
       positionRankKey: targetRank?.rankKey ?? null,

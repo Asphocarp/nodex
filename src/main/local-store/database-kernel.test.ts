@@ -648,7 +648,7 @@ describe("general Database kernel", () => {
                 cardBlockId: card.id,
                 databaseBlockId: "database-empty-options",
                 propertyId: "property-empty-select",
-                expectedValueRevision: 0,
+                expectedValueRevision: 1,
                 value: "unregistered-option",
               }),
             ),
@@ -751,6 +751,175 @@ describe("general Database kernel", () => {
             ),
           ),
         ).toBe(true);
+      });
+    },
+  );
+
+  sqliteTest(
+    "reactivates dormant membership and restores its Database values",
+    async () => {
+      await withFixture(async (fixture) => {
+        const card = await createCard(fixture.projectId, "draft", {
+          title: "Return to Database",
+        });
+        const original = readActiveMembership(fixture, card.id);
+        const primary = fixture.database
+          .prepare(
+            `
+            SELECT capability.block_id AS database_block_id,
+              view.id AS view_id,
+              property.id AS priority_property_id
+            FROM database_capabilities capability
+            INNER JOIN database_views view
+              ON view.database_block_id = capability.block_id
+             AND view.project_id = capability.project_id
+             AND view.is_primary = 1
+            INNER JOIN database_properties property
+              ON property.database_block_id = capability.block_id
+             AND property.project_id = capability.project_id
+             AND property.key = 'priority'
+             AND property.lifecycle = 'active'
+            WHERE capability.project_id = ? AND capability.is_primary = 1
+          `,
+          )
+          .get(fixture.projectId) as {
+          readonly database_block_id: string;
+          readonly view_id: string;
+          readonly priority_property_id: string;
+        };
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(fixture, "set-priority-before-leaving", {
+                kind: "set_value",
+                cardBlockId: card.id,
+                databaseBlockId: primary.database_block_id,
+                propertyId: primary.priority_property_id,
+                expectedValueRevision: 1,
+                value: "p1-high",
+              }),
+            ),
+          ),
+        ).toBe("ok");
+
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(
+                fixture,
+                "create-dormant-target",
+                createDatabaseOperation(
+                  "database-dormant-target",
+                  "view-dormant-target",
+                ),
+              ),
+            ),
+          ),
+        ).toBe("ok");
+        addProperty(fixture, {
+          operationId: "add-mapped-priority",
+          databaseBlockId: "database-dormant-target",
+          propertyId: "property-dormant-priority",
+          databaseRevision: 1,
+          key: "priority",
+          valueType: "select",
+          config: {
+            options: [{ id: "custom-high", name: "P1 - High" }],
+          },
+        });
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(fixture, "leave-primary", {
+                kind: "transfer_membership",
+                cardBlockId: card.id,
+                expectedMembership: {
+                  membershipId: original.id,
+                  revision: original.revision,
+                },
+                target: {
+                  databaseBlockId: "database-dormant-target",
+                  membershipId: "membership-dormant-target",
+                  viewId: "view-dormant-target",
+                  groupKey: null,
+                },
+              }),
+            ),
+          ),
+        ).toBe("ok");
+        const temporary = readActiveMembership(fixture, card.id);
+        expect(
+          fixture.database
+            .prepare(
+              `
+              SELECT value_json
+              FROM database_property_values
+              WHERE membership_id = ? AND property_id = 'property-dormant-priority'
+            `,
+            )
+            .get(temporary.id),
+        ).toEqual({ value_json: '"custom-high"' });
+
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(fixture, "return-primary", {
+                kind: "transfer_membership",
+                cardBlockId: card.id,
+                expectedMembership: {
+                  membershipId: temporary.id,
+                  revision: temporary.revision,
+                },
+                target: {
+                  databaseBlockId: primary.database_block_id,
+                  membershipId: "membership-must-not-be-created",
+                  viewId: primary.view_id,
+                  groupKey: "draft",
+                },
+              }),
+            ),
+          ),
+        ).toBe("ok");
+
+        const restored = readActiveMembership(fixture, card.id);
+        expect(restored.id).toBe(original.id);
+        expect(restored.revision).toBe(original.revision + 2);
+        expect(
+          fixture.database
+            .prepare(
+              `
+              SELECT value_json, revision
+              FROM database_property_values
+              WHERE membership_id = ? AND property_id = ?
+            `,
+            )
+            .get(restored.id, primary.priority_property_id),
+        ).toEqual({ value_json: '"p1-high"', revision: 2 });
+        expect(
+          fixture.database
+            .prepare(
+              "SELECT 1 FROM database_memberships WHERE id = 'membership-must-not-be-created'",
+            )
+            .get(),
+        ).toBeUndefined();
+        expect(
+          fixture.database
+            .prepare(
+              "SELECT removed_at FROM database_memberships WHERE id = ?",
+            )
+            .get(temporary.id),
+        ).toEqual({ removed_at: expect.any(String) });
+        expect(
+          queryGeneralDatabaseView(
+            fixture.projectId,
+            "view-dormant-target",
+            fixture.database,
+          )?.rows.some((row) => row.card.blockId === card.id),
+        ).toBe(false);
       });
     },
   );
@@ -888,7 +1057,7 @@ describe("general Database kernel", () => {
                   cardBlockId: first.id,
                   databaseBlockId: "database-custom",
                   propertyId: value.propertyId,
-                  expectedValueRevision: 0,
+                  expectedValueRevision: 1,
                   value: value.value,
                 }),
               ),
@@ -904,7 +1073,7 @@ describe("general Database kernel", () => {
                 cardBlockId: first.id,
                 databaseBlockId: "database-custom",
                 propertyId: "property-multi",
-                expectedValueRevision: 0,
+                expectedValueRevision: 1,
                 value: ["multi-a"],
               }),
             ),
@@ -1099,7 +1268,7 @@ describe("general Database kernel", () => {
             cardBlockId: first.id,
             databaseBlockId: "database-custom",
             propertyId: "property-select",
-            expectedValueRevision: 1,
+            expectedValueRevision: 2,
             value: "select-b",
           }),
         );
@@ -1122,7 +1291,7 @@ describe("general Database kernel", () => {
                 cardBlockId: second.id,
                 databaseBlockId: "database-custom",
                 propertyId: "property-select",
-                expectedValueRevision: 0,
+                expectedValueRevision: 1,
                 value: "select-a",
               }),
             ),
@@ -1150,7 +1319,7 @@ describe("general Database kernel", () => {
               cardBlockId: first.id,
               databaseBlockId: "database-custom",
               propertyId: "property-select",
-              expectedValueRevision: 2,
+              expectedValueRevision: 3,
               value: "select-a",
             },
             {
