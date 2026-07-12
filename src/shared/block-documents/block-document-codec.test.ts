@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   BlockDocumentCodecError,
+  canonicalizeNfmForBlockDocument,
   createCardDocumentGenesis,
   materializeCardDocument,
   migrateCardDocument,
@@ -51,6 +52,33 @@ const flattenIds = (
   ]);
 
 describe("CardDocumentCodec", () => {
+  test("excludes imported toggle disclosure state from durable content", () => {
+    const nfm = [
+      "▼ Expanded toggle",
+      "\tExpanded child",
+      "▼# Expanded heading",
+      "\tHeading child",
+    ].join("\n");
+
+    const genesis = createCardDocumentGenesis({
+      documentId: "document-codec-local-toggle-state",
+      title: "Local disclosure",
+      nfm,
+    });
+
+    expect(canonicalizeNfmForBlockDocument(nfm)).toBe(
+      [
+        "▶ Expanded toggle",
+        "\tExpanded child",
+        "▶# Expanded heading",
+        "\tHeading child",
+      ].join("\n"),
+    );
+    expect(genesis.materialization.nfm).toBe(
+      canonicalizeNfmForBlockDocument(nfm),
+    );
+  });
+
   test("headlessly imports and materializes every supported custom shape", () => {
     let nextId = 0;
     const genesis = createCardDocumentGenesis({

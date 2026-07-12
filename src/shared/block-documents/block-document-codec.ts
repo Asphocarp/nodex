@@ -28,6 +28,7 @@ import {
 import { headlessBlockDocumentSchema } from "./headless-blocknote-schema";
 import {
   blockNoteToNfm,
+  nfmToBlockNote,
   nfmToBlockNoteWithIds,
   type BlockNoteBlockValue,
 } from "./nfm-blocknote-adapter";
@@ -112,6 +113,14 @@ export class BlockDocumentCodecError extends Error {
     this.name = "BlockDocumentCodecError";
   }
 }
+
+/**
+ * Canonicalize imported NFM to the durable semantics representable by a
+ * BlockNote-backed Document. Disclosure state is intentionally omitted: an
+ * expanded toggle is window-local UI state, not collaborative Card content.
+ */
+export const canonicalizeNfmForBlockDocument = (nfm: string): string =>
+  serializeNfm(blockNoteToNfm(nfmToBlockNote(parseNfm(nfm))));
 
 const headlessEditor = BlockNoteEditor.create({
   schema: headlessBlockDocumentSchema,

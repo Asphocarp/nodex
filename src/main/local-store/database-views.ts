@@ -8,7 +8,7 @@ import type {
   LegacyInlineDatabaseViewProps,
 } from "../../shared/database-views";
 import {
-  createLegacyInlineDatabaseViewConfig,
+  createGeneralInlineDatabaseViewConfig,
   inlineDatabaseViewId,
 } from "../../shared/database-views";
 import { readCardSummariesByIds } from "./cards";
@@ -489,7 +489,8 @@ export const upsertLegacyInlineDatabaseView = (
     });
     const databaseBlockId = resolvePrimaryDatabaseBlockId(database, sourceProjectId);
     const viewId = inlineDatabaseViewId(sourceBlockId);
-    const config = createLegacyInlineDatabaseViewConfig({
+    const config = createGeneralInlineDatabaseViewConfig({
+      databaseBlockId,
       sourceBlockId,
       props: {
         ...input.props,

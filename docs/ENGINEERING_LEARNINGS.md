@@ -974,6 +974,12 @@ Web-search group headers and detail rows split icon/detail ownership. The group 
 
 Web-search grouped bodies should use the same bounded activity list primitive as the rest of thread activity. Keep the 7rem preview, 20rem expanded, and 0px collapsed max-height map even when the top-level group is currently only using collapsed/expanded states, because collapsed-activity body-only rendering relies on forcing the same list into expanded state. A custom web-search-only `max-h-* overflow-y-auto` div bypasses that lifecycle and will drift again when preview or shared list behavior changes.
 
+### Block Document parity must exclude disclosure state
+NFM can carry `▼` as an import-time expanded-toggle hint, but Card Documents deliberately keep toggle disclosure state window-local. A migration parity gate must therefore compare the legacy snapshot with the canonical semantics representable by the Block Document codec, not raw parser/serializer output. Otherwise a harmless expanded marker becomes a false content divergence and can permanently strand an otherwise valid v69 store. When repairing a released migration gate, requeue only its known obsolete failure signature; deterministic current failures must continue to fail closed.
+
+### Yjs must resolve through one module condition per JavaScript realm
+Yjs uses constructor identity internally, so loading its ESM and CommonJS builds in the same Electron main realm is correctness-threatening even when both resolve to the same package version. Import conditional-export packages such as `y-protocols/awareness` through their declared export key. Appending the physical `.js` subpath can select the ESM file while the bundled main process loads `yjs` through CommonJS, causing the duplicate-import warning and invalidating `instanceof` checks.
+
 Collapsed activity disclosure lifecycle should stay shared. The row header, keyed summary transition, first-open frame split, collapse unmount, and live-stream initial collapsed mount all belong to `ThreadActivityDisclosure`; tool-specific leaves should only provide the summary node and the nested activity body. For live streaming rows, the body may be mounted while collapsed so first expansion can animate from a measured tree; tests should assert the collapsed `data-thread-find-skip`/pointer state instead of assuming the body is absent.
 
 ### Time-sensitive inline editor chrome needs a shared external clock

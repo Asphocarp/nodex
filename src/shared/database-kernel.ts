@@ -35,7 +35,12 @@ export interface DatabasePropertyOption {
 }
 
 export type DatabaseViewFilterOperator =
-  "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "is_empty"
+  | "is_not_empty";
 
 export interface DatabaseViewFilterClause {
   readonly kind: "clause";
@@ -56,6 +61,7 @@ export type DatabaseViewFilterNode =
 export type DatabaseViewSortField =
   | { readonly kind: "manual" }
   | { readonly kind: "title" }
+  | { readonly kind: "created" }
   | { readonly kind: "property"; readonly propertyId: string };
 
 export interface DatabaseViewSort {
@@ -73,6 +79,10 @@ export interface GeneralDatabaseViewConfig {
   readonly display: {
     readonly propertyIds: readonly string[];
     readonly showTitle: boolean;
+  };
+  readonly options?: {
+    /** Inline references exclude their host Card unless explicitly included. */
+    readonly includeHostCard: boolean;
   };
 }
 
@@ -732,6 +742,7 @@ const parseViewFilterNode = (
     node.operator !== "equals" &&
     node.operator !== "not_equals" &&
     node.operator !== "contains" &&
+    node.operator !== "not_contains" &&
     node.operator !== "is_empty" &&
     node.operator !== "is_not_empty"
   ) {
@@ -772,14 +783,12 @@ const parseViewConfig = (
     );
   }
   const config = readRecord(JSON.parse(canonical) as unknown, label);
-  assertExactKeys(config, label, [
-    "schemaKey",
-    "schemaVersion",
-    "filter",
-    "sort",
-    "group",
-    "display",
-  ]);
+  assertExactKeys(
+    config,
+    label,
+    ["schemaKey", "schemaVersion", "filter", "sort", "group", "display"],
+    ["options"],
+  );
   if (
     config.schemaKey !== "nodex.database-view" ||
     config.schemaVersion !== 1
@@ -812,7 +821,11 @@ const parseViewConfig = (
       );
     }
     const field = readRecord(item.field, `${label}.sort[${index}].field`);
-    if (field.kind === "manual" || field.kind === "title") {
+    if (
+      field.kind === "manual" ||
+      field.kind === "title" ||
+      field.kind === "created"
+    ) {
       assertExactKeys(field, `${label}.sort[${index}].field`, ["kind"]);
       return {
         field: { kind: field.kind },
@@ -873,6 +886,18 @@ const parseViewConfig = (
       `${label}.display.propertyIds contains duplicates`,
     );
   }
+  let options: GeneralDatabaseViewConfig["options"];
+  if (config.options !== undefined) {
+    const candidate = readRecord(config.options, `${label}.options`);
+    assertExactKeys(candidate, `${label}.options`, ["includeHostCard"]);
+    options = {
+      includeHostCard: readBoolean(
+        candidate,
+        "includeHostCard",
+        `${label}.options`,
+      ),
+    };
+  }
   return {
     schemaKey: "nodex.database-view",
     schemaVersion: 1,
@@ -883,6 +908,7 @@ const parseViewConfig = (
       propertyIds,
       showTitle: readBoolean(display, "showTitle", `${label}.display`),
     },
+    ...(options ? { options } : {}),
   };
 };
 
@@ -1687,13 +1713,15 @@ const evaluateDatabaseViewFilterClause = (
   if (clause.operator === "equals") return equals;
   if (clause.operator === "not_equals") return !equals;
   if (typeof current === "string" && typeof expected === "string") {
-    return current.includes(expected);
+    const contains = current.includes(expected);
+    return clause.operator === "not_contains" ? !contains : contains;
   }
-  if (!Array.isArray(current)) return false;
+  if (!Array.isArray(current)) return clause.operator === "not_contains";
   const expectedKey = stableStringifyDatabaseJson(expected ?? null);
-  return current.some(
+  const contains = current.some(
     (candidate) => stableStringifyDatabaseJson(candidate) === expectedKey,
   );
+  return clause.operator === "not_contains" ? !contains : contains;
 };
 
 /** Empty AND groups match; empty OR groups do not match. */

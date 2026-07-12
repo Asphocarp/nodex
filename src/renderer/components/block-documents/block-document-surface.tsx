@@ -6,7 +6,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import type { Awareness } from "y-protocols/awareness.js";
+import type { Awareness } from "y-protocols/awareness";
 import type {
   CardDocumentEnvelope,
   OwnedBlockDocumentDescriptor,

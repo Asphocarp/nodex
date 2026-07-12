@@ -930,6 +930,47 @@ describe("general Database kernel", () => {
             .join(","),
         ).toBe(`${first.id},${second.id}`);
 
+        fixture.database
+          .prepare("UPDATE blocks SET created_at = ? WHERE id = ?")
+          .run("2026-07-12T02:00:00.000Z", first.id);
+        fixture.database
+          .prepare("UPDATE blocks SET created_at = ? WHERE id = ?")
+          .run("2026-07-12T01:00:00.000Z", second.id);
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(fixture, "create-created-view", {
+                kind: "put_view",
+                databaseBlockId: "database-custom",
+                viewId: "view-custom-created",
+                expectedRevision: 0,
+                name: "Newest first",
+                viewKind: "list",
+                config: viewConfig({
+                  sort: [
+                    {
+                      field: { kind: "created" },
+                      direction: "desc",
+                      nulls: "last",
+                    },
+                  ],
+                }),
+                isPrimary: false,
+              }),
+            ),
+          ),
+        ).toBe("ok");
+        expect(
+          queryGeneralDatabaseView(
+            fixture.projectId,
+            "view-custom-created",
+            fixture.database,
+          )
+            ?.rows.map((row) => row.card.blockId)
+            .join(","),
+        ).toBe(`${first.id},${second.id}`);
+
         expect(
           resultCode(
             applyDatabaseMutation(

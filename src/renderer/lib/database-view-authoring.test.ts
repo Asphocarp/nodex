@@ -11,6 +11,7 @@ import {
   appendDatabaseViewFilterChild,
   createDatabaseViewFilterClause,
   databaseFilterClauseWithOperator,
+  filterOperatorsForProperty,
   databaseViewConfigsEqual,
   databaseViewMoveBeforeId,
   moveDatabaseViewSort,
@@ -89,6 +90,19 @@ describe("durable Database View authoring", () => {
     expect(JSON.stringify(updated).includes('"value"')).toBe(true);
     expect(JSON.stringify(withoutValue).includes('"value"')).toBe(false);
     expect(removed.kind === "group" ? removed.children.length : -1).toBe(1);
+  });
+
+  test("authors negative membership filters with scalar set members", () => {
+    const multiSelect = property("multi_select");
+    expect(filterOperatorsForProperty(multiSelect)).toContain("not_contains");
+    expect(
+      databaseFilterClauseWithOperator(multiSelect, "not_contains"),
+    ).toEqual({
+      kind: "clause",
+      propertyId: multiSelect.id,
+      operator: "not_contains",
+      value: "one",
+    });
   });
 
   test("compares canonical configs and reorders sort precedence", () => {

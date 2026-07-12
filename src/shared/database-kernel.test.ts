@@ -358,6 +358,17 @@ describe("general Database mutation contract", () => {
     ).toBe(true);
     expect(
       evaluateDatabaseViewFilter(
+        {
+          kind: "clause",
+          propertyId: "tags",
+          operator: "not_contains",
+          value: "blocked",
+        },
+        (id) => values.get(id),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateDatabaseViewFilter(
         { kind: "group", operator: "and", children: [] },
         () => undefined,
       ),

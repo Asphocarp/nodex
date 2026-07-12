@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness.js";
+import { Awareness } from "y-protocols/awareness";
 import {
   CANVAS_BLOCK_TYPE,
   CANVAS_DOCUMENT_SCHEMA_KEY,

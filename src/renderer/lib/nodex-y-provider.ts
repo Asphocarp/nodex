@@ -4,7 +4,7 @@ import {
   applyAwarenessUpdate,
   encodeAwarenessUpdate,
   removeAwarenessStates,
-} from "y-protocols/awareness.js";
+} from "y-protocols/awareness";
 import type {
   BlockId,
   DocumentId,

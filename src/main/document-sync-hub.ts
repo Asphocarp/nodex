@@ -5,7 +5,7 @@ import {
   applyAwarenessUpdate,
   encodeAwarenessUpdate,
   removeAwarenessStates,
-} from "y-protocols/awareness.js";
+} from "y-protocols/awareness";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   parseDocumentRelocationLeaseResponseRequest,

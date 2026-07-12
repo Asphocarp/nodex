@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createUuidV7 } from "../../shared/card-id";
+import { parseGeneralDatabaseViewConfig } from "../../shared/database-kernel";
 import { getCard } from "./cards";
 import { getDatabasePath } from "./config";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -268,6 +269,67 @@ describe("schema v70 Block-first finalization", () => {
     assertHealthy(database);
   });
 
+  test("migrates expanded legacy toggles as window-local disclosure state", async () => {
+    const { projectId, now } = seedPreFinalizationStore();
+    const cardId = seedLegacyCardSource(projectId, now);
+    const legacyNfm = [
+      '<card-toggle card="legacy-child" meta="[Draft]" project="default">',
+      "\tLegacy child",
+      "\t▼ Expanded nested toggle",
+      "\t\tNested body",
+      "</card-toggle>",
+      "▼# Expanded heading",
+      "\tHeading body",
+    ].join("\n");
+    getDb()
+      .prepare(
+        `
+        UPDATE cards
+        SET description = ?, description_preview = ?, description_length = ?,
+            has_description = 1, revision = revision + 1
+        WHERE id = ?
+      `,
+      )
+      .run(legacyNfm, "Legacy child Nested body", legacyNfm.length, cardId);
+    getDb()
+      .prepare(
+        `
+        UPDATE legacy_card_shadow_jobs
+        SET status = 'failed',
+            last_error = ?, completed_at = updated_at
+        WHERE card_id = ?
+          AND source_event_seq = (
+            SELECT MAX(source_event_seq)
+            FROM legacy_card_shadow_jobs
+            WHERE card_id = ?
+          )
+      `,
+      )
+      .run(
+        `LegacyCardShadowProcessorError: Document for Card ${cardId} failed normalized title/NFM parity`,
+        cardId,
+        cardId,
+      );
+    closeDatabase();
+
+    await initializeDatabase();
+
+    const card = await getCard(projectId, cardId);
+    expect(card?.description).toContain("▶# Expanded heading");
+    expect(card?.description).not.toContain("▼");
+    const recoveredCardId = card?.description.match(
+      /<card-ref target-block="([^"]+)"/,
+    )?.[1];
+    expect(recoveredCardId).toBeTypeOf("string");
+    const recoveredCard = await getCard(projectId, recoveredCardId ?? "");
+    expect(recoveredCard?.description).toContain("▶ Expanded nested toggle");
+    expect(recoveredCard?.description).not.toContain("▼");
+    expect(
+      getDb().pragma("user_version", { simple: true }) as number,
+    ).toBe(CURRENT_SCHEMA_VERSION);
+    assertHealthy(getDb());
+  });
+
   test("recovers orphan foreign bodies and inline Views before removing v69 storage", async () => {
     const { projectId, now } = seedPreFinalizationStore();
     const hostCardId = seedLegacyCardSource(projectId, now);
@@ -351,15 +413,20 @@ describe("schema v70 Block-first finalization", () => {
     const durableView = database
       .prepare(
         `
-        SELECT lifecycle
+        SELECT lifecycle, config_json
         FROM database_views
         WHERE id = ? AND project_id = ?
       `,
       )
       .get(databaseViewReference?.databaseViewId, projectId) as
-      | { readonly lifecycle: string }
+      | { readonly lifecycle: string; readonly config_json: string }
       | undefined;
     expect(durableView?.lifecycle).toBe("active");
+    expect(
+      parseGeneralDatabaseViewConfig(
+        JSON.parse(durableView?.config_json ?? "null") as unknown,
+      ).schemaKey,
+    ).toBe("nodex.database-view");
     const names = new Set(tableNames(database));
     for (const tableName of LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER) {
       expect(names.has(tableName)).toBe(false);

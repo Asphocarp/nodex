@@ -739,6 +739,13 @@ const compareRows = (
         sort.nulls,
         sort.direction,
       );
+    } else if (sort.field.kind === "created") {
+      comparison = compareViewValues(
+        left.card.createdAt,
+        right.card.createdAt,
+        sort.nulls,
+        sort.direction,
+      );
     } else {
       comparison = compareViewValues(
         left.values[sort.field.propertyId]?.value,

@@ -6,7 +6,7 @@ import {
   Awareness,
   applyAwarenessUpdate,
   encodeAwarenessUpdate,
-} from "y-protocols/awareness.js";
+} from "y-protocols/awareness";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,

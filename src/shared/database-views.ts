@@ -1,4 +1,9 @@
 import { CARD_STATUS_ORDER } from "./card-status";
+import type {
+  DatabaseViewFilterNode,
+  DatabaseViewSort,
+  GeneralDatabaseViewConfig,
+} from "./database-kernel";
 import type { CardSummary, Estimate, Priority } from "./types";
 
 export interface ReadDatabaseViewReferenceInput {
@@ -336,7 +341,14 @@ export const evaluateDatabaseViewRows = (
   context: { readonly hostBlockId?: string } = {},
 ): readonly DatabaseViewCardRow[] => {
   const query = parseLegacyViewQuery(model.view.config);
-  if (!query) return model.rows;
+  if (!query) {
+    const includeHostCard =
+      isRecord(model.view.config.options) &&
+      model.view.config.options.includeHostCard === true;
+    return context.hostBlockId && !includeHostCard
+      ? model.rows.filter((row) => row.card.id !== context.hostBlockId)
+      : model.rows;
+  }
   const filtered = model.rows.filter((row) => {
     if (!query.includeHostCard && row.card.id === context.hostBlockId)
       return false;
@@ -527,5 +539,112 @@ export const createLegacyInlineDatabaseViewConfig = (input: {
       showEmptyEstimate,
       showEmptyPriority,
     },
+  };
+};
+
+const inlinePropertyId = (databaseBlockId: string, key: string): string =>
+  `${databaseBlockId}:property:${key}`;
+
+const compileLegacyClause = (
+  databaseBlockId: string,
+  clause: LegacyFilterClause,
+): DatabaseViewFilterNode => {
+  const propertyId = inlinePropertyId(databaseBlockId, clause.field);
+  const valueClauses: DatabaseViewFilterNode[] = clause.values.map((value) => ({
+    kind: "clause",
+    propertyId,
+    operator: clause.field === "tags" ? "contains" : "equals",
+    value,
+  }));
+  if (clause.field === "priority" && clause.includeEmpty) {
+    valueClauses.push({ kind: "clause", propertyId, operator: "is_empty" });
+  }
+  if (clause.field !== "tags" || clause.op === "hasAny") {
+    return { kind: "group", operator: "or", children: valueClauses };
+  }
+  if (clause.op === "hasAll") {
+    return { kind: "group", operator: "and", children: valueClauses };
+  }
+  return {
+    kind: "group",
+    operator: "and",
+    children: clause.values.map((value) => ({
+      kind: "clause",
+      propertyId,
+      operator: "not_contains",
+      value,
+    })),
+  };
+};
+
+const compileLegacySort = (
+  databaseBlockId: string,
+  sort: LegacySortKey,
+): DatabaseViewSort => ({
+  field:
+    sort.field === "board-order"
+      ? { kind: "manual" }
+      : sort.field === "title" || sort.field === "created"
+        ? { kind: sort.field }
+        : {
+            kind: "property",
+            propertyId: inlinePropertyId(databaseBlockId, sort.field),
+          },
+  direction: sort.direction,
+  nulls: sort.emptyPlacement,
+});
+
+/** Convert one legacy inline query directly into the canonical durable View schema. */
+export const createGeneralInlineDatabaseViewConfig = (input: {
+  readonly databaseBlockId: string;
+  readonly sourceBlockId: string;
+  readonly props: LegacyInlineDatabaseViewProps;
+}): GeneralDatabaseViewConfig => {
+  const legacy = createLegacyInlineDatabaseViewConfig(input);
+  const query = parseLegacyViewQuery(
+    legacy as unknown as Readonly<Record<string, DatabaseViewJsonValue>>,
+  );
+  if (!query) {
+    throw new TypeError("Canonical legacy inline View config could not be parsed");
+  }
+  const groups = query.groups.map(
+    (clauses): DatabaseViewFilterNode => ({
+      kind: "group",
+      operator: "and",
+      children: clauses.map((clause) =>
+        compileLegacyClause(input.databaseBlockId, clause),
+      ),
+    }),
+  );
+  const propertyOrder =
+    legacy.display.propertyOrder.length > 0
+      ? legacy.display.propertyOrder
+      : ["priority", "estimate", "status", "tags"];
+  const hidden = new Set(legacy.display.hiddenProperties);
+  const supportedProperties = new Set([
+    "status",
+    "priority",
+    "estimate",
+    "tags",
+    "due_date",
+    "scheduled_start",
+    "scheduled_end",
+    "assignee",
+  ]);
+  return {
+    schemaKey: "nodex.database-view",
+    schemaVersion: 1,
+    filter: { kind: "group", operator: "or", children: groups },
+    sort: query.sort.map((sort) =>
+      compileLegacySort(input.databaseBlockId, sort),
+    ),
+    group: null,
+    display: {
+      propertyIds: propertyOrder
+        .filter((key) => supportedProperties.has(key) && !hidden.has(key))
+        .map((key) => inlinePropertyId(input.databaseBlockId, key)),
+      showTitle: true,
+    },
+    options: { includeHostCard: query.includeHostCard },
   };
 };

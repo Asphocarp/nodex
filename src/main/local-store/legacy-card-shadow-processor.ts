@@ -1,14 +1,13 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
+  canonicalizeNfmForBlockDocument,
   createCardDocumentGenesis,
   materializeCardDocument,
   type CardDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
 import { translateLegacyNfmIntoCardDocument } from "../../shared/block-documents/legacy-nfm-shadow-translator";
 import { createUuidV7FromTimestamp } from "../../shared/card-id";
-import { parseNfm } from "../../shared/nfm/parser";
-import { serializeNfm } from "../../shared/nfm/serializer";
 import {
   applyLegacyShadowDocumentUpdate,
   initializeCardDocumentGenesis,
@@ -299,13 +298,11 @@ const createDeterministicBlockIdAllocator = (
   };
 };
 
-const normalizeLegacyNfm = (nfm: string): string => serializeNfm(parseNfm(nfm));
-
 const assertContentParity = (
   source: LegacyCardSourceRow,
   materialization: CardDocumentMaterialization,
 ): void => {
-  const normalizedNfm = normalizeLegacyNfm(source.description);
+  const normalizedNfm = canonicalizeNfmForBlockDocument(source.description);
   if (
     materialization.title === source.title &&
     materialization.nfm === normalizedNfm

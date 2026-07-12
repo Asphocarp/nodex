@@ -32,6 +32,7 @@ interface RemainingLegacyCardDocumentRow {
 }
 
 export interface BlockFirstFinalizationResult {
+  readonly requeuedObsoleteParityFailures: number;
   readonly shadowJobsProcessed: number;
   readonly foreignDocumentsProcessed: number;
   readonly cutoverDocuments: number;
@@ -46,6 +47,25 @@ export class BlockFirstFinalizationError extends Error {
     this.name = "BlockFirstFinalizationError";
   }
 }
+
+const requeueObsoleteToggleDisclosureParityFailures = (
+  database: Database.Database,
+): number => {
+  const now = new Date().toISOString();
+  return database
+    .prepare(
+      `
+      UPDATE legacy_card_shadow_jobs
+      SET status = 'pending', claim_token = NULL, claimed_at = NULL,
+          claim_expires_at = NULL, applied_document_head_seq = NULL,
+          last_error = NULL, completed_at = NULL, updated_at = ?
+      WHERE status = 'failed'
+        AND last_error LIKE
+          'LegacyCardShadowProcessorError: Document for Card % failed normalized title/NFM parity'
+    `,
+    )
+    .run(now).changes;
+};
 
 const drainLegacyShadows = (
   database: Database.Database,
@@ -302,6 +322,13 @@ export const finalizeBlockFirstAuthority = async (
   database: Database.Database,
   targetSchemaVersion = 70,
 ): Promise<BlockFirstFinalizationResult> => {
+  // Older v69 builds compared persisted toggle disclosure markers even though
+  // Card Documents deliberately keep disclosure state window-local. Retrying
+  // only that obsolete failure is safe: the failed attempt rolled back, the
+  // job remains fenced to the same source revision, and any current failure
+  // still fails closed below.
+  const requeuedObsoleteParityFailures =
+    requeueObsoleteToggleDisclosureParityFailures(database);
   let shadowJobsProcessed = 0;
   let foreignDocumentsProcessed = 0;
   let cutoverDocuments = 0;
@@ -337,6 +364,7 @@ export const finalizeBlockFirstAuthority = async (
     targetSchemaVersion,
   );
   return {
+    requeuedObsoleteParityFailures,
     shadowJobsProcessed,
     foreignDocumentsProcessed,
     cutoverDocuments,

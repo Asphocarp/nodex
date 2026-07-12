@@ -141,7 +141,12 @@ export const filterOperatorsForProperty = (
     property.valueType === "person" ||
     property.valueType === "multi_select"
   ) {
-    return [...common.slice(0, 2), "contains", ...common.slice(2)];
+    return [
+      ...common.slice(0, 2),
+      "contains",
+      "not_contains",
+      ...common.slice(2),
+    ];
   }
   return common;
 };
@@ -159,7 +164,11 @@ export const defaultDatabaseFilterValue = (
   if (property.valueType === "select") return firstOptionId(property);
   if (property.valueType === "multi_select") {
     const optionId = firstOptionId(property);
-    return operator === "contains" ? optionId : optionId ? [optionId] : [];
+    return operator === "contains" || operator === "not_contains"
+      ? optionId
+      : optionId
+        ? [optionId]
+        : [];
   }
   return "";
 };

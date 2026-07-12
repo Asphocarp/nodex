@@ -52,6 +52,7 @@ const FILTER_OPERATOR_LABELS: Readonly<Record<DatabaseViewFilterOperator, string
   equals: "is",
   not_equals: "is not",
   contains: "contains",
+  not_contains: "does not contain",
   is_empty: "is empty",
   is_not_empty: "is not empty",
 };
@@ -108,7 +109,9 @@ function FilterValueField({
   }
   if (property.valueType === "select" || property.valueType === "multi_select") {
     const options = readDatabasePropertyOptions(property);
-    const rawValue = property.valueType === "multi_select" && clause.operator !== "contains"
+    const isMembershipOperator =
+      clause.operator === "contains" || clause.operator === "not_contains";
+    const rawValue = property.valueType === "multi_select" && !isMembershipOperator
       ? Array.isArray(clause.value) && typeof clause.value[0] === "string"
         ? clause.value[0]
         : ""
@@ -121,7 +124,7 @@ function FilterValueField({
         onChange={(event) => {
           const value = event.target.value;
           onChange(
-            property.valueType === "multi_select" && clause.operator !== "contains"
+            property.valueType === "multi_select" && !isMembershipOperator
               ? value ? [value] : []
               : value || null,
           );

@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 import type * as Y from "yjs";
-import type { Awareness } from "y-protocols/awareness.js";
+import type { Awareness } from "y-protocols/awareness";
 import { NfmEditor } from "./editor/nfm-editor";
 import { BlockDocumentSurface } from "@/components/block-documents/block-document-surface";
 import { BlockDocumentSyncStatus } from "@/components/block-documents/block-document-sync-status";

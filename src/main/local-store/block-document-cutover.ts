@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import {
+  canonicalizeNfmForBlockDocument,
   materializeCardDocument,
   type CardDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
@@ -8,8 +9,6 @@ import type {
   DocumentReadiness,
   OwnedBlockDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
-import { parseNfm } from "../../shared/nfm/parser";
-import { serializeNfm } from "../../shared/nfm/serializer";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import { loadLegacyShadowBlockDocument } from "./block-document-store";
 
@@ -265,8 +264,6 @@ const readMaterialization = (
   return row ?? null;
 };
 
-const normalizeNfm = (nfm: string): string => serializeNfm(parseNfm(nfm));
-
 const assertContentAndProjectionParity = (
   database: Database.Database,
   row: OwnedDocumentRow,
@@ -282,7 +279,7 @@ const assertContentAndProjectionParity = (
 
   let expectedNfm: string;
   try {
-    expectedNfm = normalizeNfm(card.description);
+    expectedNfm = canonicalizeNfmForBlockDocument(card.description);
   } catch (error) {
     throw new BlockDocumentCutoverError(
       "content_parity_failed",

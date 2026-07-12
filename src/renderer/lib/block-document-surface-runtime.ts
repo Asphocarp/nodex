@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import type { Awareness } from "y-protocols/awareness.js";
+import type { Awareness } from "y-protocols/awareness";
 import {
   type DocumentSyncRealtimeEvent,
   type OwnedBlockDocumentDescriptor,

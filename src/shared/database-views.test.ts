@@ -1,10 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
+  createGeneralInlineDatabaseViewConfig,
   createLegacyInlineDatabaseViewConfig,
   evaluateDatabaseViewRows,
   inlineDatabaseViewId,
   type DatabaseViewReadModel,
 } from "./database-views";
+import {
+  evaluateDatabaseViewFilter,
+  parseGeneralDatabaseViewConfig,
+} from "./database-kernel";
 import type { CardSummary } from "./types";
 
 const encodeBase64Url = (value: string): string =>
@@ -90,6 +95,59 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
 };
 
 describe("durable Database View contracts", () => {
+  test("compiles legacy inline rules into the canonical general View schema", () => {
+    const rules = {
+      includeHostCard: true,
+      filter: {
+        any: [
+          {
+            all: [
+              { field: "status", op: "in", values: ["backlog"] },
+              { field: "tags", op: "hasNone", values: ["blocked"] },
+            ],
+          },
+        ],
+      },
+      sort: [
+        { field: "priority", direction: "asc" },
+        { field: "created", direction: "desc" },
+      ],
+    };
+    const config = createGeneralInlineDatabaseViewConfig({
+      databaseBlockId: "database-primary",
+      sourceBlockId: "inline-general",
+      props: {
+        sourceProjectId: "source-project",
+        rulesV2B64: encodeBase64Url(JSON.stringify(rules)),
+        propertyOrderCsv: "priority,status,tags",
+        hiddenPropertiesCsv: "tags",
+      },
+    });
+
+    expect(parseGeneralDatabaseViewConfig(config)).toEqual(config);
+    expect(config.schemaKey).toBe("nodex.database-view");
+    expect(config.options?.includeHostCard).toBe(true);
+    expect(config.sort.map((sort) => sort.field.kind)).toEqual([
+      "property",
+      "created",
+    ]);
+    expect(config.display.propertyIds).toEqual([
+      "database-primary:property:priority",
+      "database-primary:property:status",
+    ]);
+    const values = new Map<string, string | readonly string[]>([
+      ["database-primary:property:status", "backlog"],
+      ["database-primary:property:tags", ["customer"]],
+    ]);
+    expect(
+      evaluateDatabaseViewFilter(config.filter, (id) => values.get(id)),
+    ).toBe(true);
+    values.set("database-primary:property:tags", ["blocked"]);
+    expect(
+      evaluateDatabaseViewFilter(config.filter, (id) => values.get(id)),
+    ).toBe(false);
+  });
+
   test("derives one durable inline view identity per source reference Block", () => {
     expect(inlineDatabaseViewId("inline-a")).toBe(
       "database-view:inline:inline-a",
