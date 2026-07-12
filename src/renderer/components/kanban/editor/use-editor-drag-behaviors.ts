@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import {
+  beginLocalNativeEditorDrag,
   encodeBlockCardCopyDragPayload,
   encodeCardReferenceDragPayload,
+  endLocalNativeEditorDrag,
   NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
   NODEX_CARD_REFERENCES_DRAG_MIME,
 } from "../cross-surface-drag";
@@ -12,6 +14,7 @@ import {
   resolveTopLevelDraggedBlocks,
 } from "./block-card-copy-mapper";
 import {
+  setupKanbanCardReferenceDrop,
   setupCardReferenceDrop,
   type CardReferenceDropBoundary,
 } from "./card-reference-drop";
@@ -53,6 +56,7 @@ export function useEditorDragBehaviors({
 
       const hadLocalDragState = el.hasAttribute("data-dragging");
       el.removeAttribute("data-dragging");
+      endLocalNativeEditorDrag(el);
       const currentEditor = latestOptionsRef.current.editor;
       if (hadLocalDragState && currentEditor) {
         finalizeSideMenuBlockDrag(currentEditor);
@@ -77,6 +81,7 @@ export function useEditorDragBehaviors({
           NODEX_CARD_REFERENCES_DRAG_MIME,
           encodeCardReferenceDragPayload(cardReferences),
         );
+        beginLocalNativeEditorDrag(el);
         event.dataTransfer.effectAllowed = "linkMove";
         return;
       }
@@ -90,6 +95,7 @@ export function useEditorDragBehaviors({
           cards,
         }),
       );
+      beginLocalNativeEditorDrag(el);
       event.dataTransfer.effectAllowed = "copy";
     };
 
@@ -134,6 +140,16 @@ export function useEditorDragBehaviors({
     return setupCardReferenceDrop(
       el,
       editor as unknown as Parameters<typeof setupCardReferenceDrop>[1],
+      crossSurface.cardReferenceDrop,
+    );
+  }, [containerRef, crossSurface, editor]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !editor || !crossSurface) return;
+    return setupKanbanCardReferenceDrop(
+      el,
+      editor as unknown as Parameters<typeof setupKanbanCardReferenceDrop>[1],
       crossSurface.cardReferenceDrop,
     );
   }, [containerRef, crossSurface, editor]);

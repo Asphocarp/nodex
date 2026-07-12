@@ -1,9 +1,15 @@
 import {
   hasDragType,
+  isLocalNativeEditorDragFromAnotherSurface,
   NODEX_CARD_REFERENCES_DRAG_MIME,
   parseCardReferenceDragPayload,
   type CrossSurfaceCardReference,
 } from "../cross-surface-drag";
+import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import {
+  buildKanbanCardReferenceEditorDropTargetData,
+  isKanbanCardDragData,
+} from "../pragmatic-drag-data";
 import { hasClosest, resolveBlockId } from "./drag-source-resolver";
 
 interface EditorBlock {
@@ -89,6 +95,17 @@ const allowedCards = (
   );
 };
 
+const referencesFromKanbanDrag = (
+  source: unknown,
+): readonly CrossSurfaceCardReference[] => {
+  if (!isKanbanCardDragData(source)) return [];
+  return source.dragItems.map((item) => ({
+    projectId: source.projectId,
+    cardId: item.card.id,
+    title: item.card.title,
+  }));
+};
+
 const toReferenceBlocks = (
   cards: readonly CrossSurfaceCardReference[],
   allocateBlockId: () => string,
@@ -127,7 +144,7 @@ const createIndicator = (container: HTMLElement): HTMLDivElement => {
   indicator.setAttribute("data-card-reference-drop-indicator", "");
   indicator.setAttribute("aria-hidden", "true");
   indicator.className =
-    "pointer-events-none absolute z-20 h-0.5 rounded-full bg-(--accent-blue)";
+    "prosemirror-dropcursor-block prosemirror-dropcursor-block-horizontal pointer-events-none absolute z-50";
   return indicator;
 };
 
@@ -144,8 +161,8 @@ const positionIndicator = (
     return;
   }
   const rect = anchor.element.getBoundingClientRect();
-  indicator.style.left = `${Math.max(rect.left - containerRect.left + 10, 8)}px`;
-  indicator.style.width = `${Math.max(rect.width - 20, 32)}px`;
+  indicator.style.left = `${Math.max(rect.left - containerRect.left, 0)}px`;
+  indicator.style.width = `${Math.max(rect.width, 32)}px`;
   indicator.style.top = `${(anchor.placement === "before" ? rect.top : rect.bottom) - containerRect.top}px`;
 };
 
@@ -163,6 +180,7 @@ export const setupCardReferenceDrop = (
   const onDragOver = (event: DragEvent) => {
     if (
       !event.dataTransfer ||
+      !isLocalNativeEditorDragFromAnotherSurface(container) ||
       !hasDragType(event.dataTransfer, NODEX_CARD_REFERENCES_DRAG_MIME)
     ) {
       return;
@@ -186,6 +204,7 @@ export const setupCardReferenceDrop = (
   };
   const onDrop = (event: DragEvent) => {
     if (!event.dataTransfer) return;
+    if (!isLocalNativeEditorDragFromAnotherSurface(container)) return;
     const payload = parseCardReferenceDragPayload(
       event.dataTransfer.getData(NODEX_CARD_REFERENCES_DRAG_MIME),
     );
@@ -211,4 +230,62 @@ export const setupCardReferenceDrop = (
     container.removeEventListener("drop", onDrop);
     clear();
   };
+};
+
+export const setupKanbanCardReferenceDrop = (
+  container: HTMLElement,
+  editor: CardReferenceDropEditor,
+  boundary: CardReferenceDropBoundary,
+): (() => void) => {
+  let indicator: HTMLDivElement | null = null;
+  const clear = () => {
+    indicator?.remove();
+    indicator = null;
+    container.removeAttribute("data-card-reference-drop-hover");
+  };
+  const updateIndicator = (clientX: number, clientY: number) => {
+    container.setAttribute("data-card-reference-drop-hover", "");
+    indicator ??= createIndicator(container);
+    if (!indicator.isConnected) container.append(indicator);
+    positionIndicator(
+      indicator,
+      container,
+      resolveAnchor(container, clientX, clientY),
+    );
+  };
+
+  return dropTargetForElements({
+    element: container,
+    getData: buildKanbanCardReferenceEditorDropTargetData,
+    canDrop: ({ source }) =>
+      allowedCards(referencesFromKanbanDrag(source.data), boundary).length > 0,
+    getDropEffect: () => "link",
+    onDragEnter: ({ location }) => updateIndicator(
+      location.current.input.clientX,
+      location.current.input.clientY,
+    ),
+    onDrag: ({ location }) => updateIndicator(
+      location.current.input.clientX,
+      location.current.input.clientY,
+    ),
+    onDragLeave: clear,
+    onDrop: ({ source, location }) => {
+      const cards = allowedCards(
+        referencesFromKanbanDrag(source.data),
+        boundary,
+      );
+      if (cards.length > 0) {
+        insertReferences(
+          editor,
+          resolveAnchor(
+            container,
+            location.current.input.clientX,
+            location.current.input.clientY,
+          ),
+          toReferenceBlocks(cards, boundary.allocateBlockId),
+        );
+      }
+      clear();
+    },
+  });
 };

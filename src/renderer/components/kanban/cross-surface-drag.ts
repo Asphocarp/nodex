@@ -148,3 +148,33 @@ export const hasDragType = (
   dataTransfer: Pick<DataTransfer, "types">,
   mime: string,
 ): boolean => Array.from(dataTransfer.types).includes(mime);
+
+let localNativeEditorDragSource: HTMLElement | null = null;
+
+export const beginLocalNativeEditorDrag = (source: HTMLElement): void => {
+  localNativeEditorDragSource = source;
+};
+
+export const endLocalNativeEditorDrag = (source: HTMLElement): void => {
+  if (localNativeEditorDragSource !== source) return;
+  localNativeEditorDragSource = null;
+};
+
+export const isLocalNativeEditorDragFromAnotherSurface = (
+  target: HTMLElement,
+): boolean =>
+  localNativeEditorDragSource !== null
+  && localNativeEditorDragSource !== target;
+
+/**
+ * The native bridge is deliberately window-local and editor-owned. Kanban
+ * Cards use the element adapter, and another renderer window has no access to
+ * this in-memory source identity even if its DataTransfer exposes our MIME.
+ */
+export const shouldHandleNativeCrossSurfaceDrag = (
+  dataTransfer: Pick<DataTransfer, "types">,
+): boolean => {
+  if (!localNativeEditorDragSource) return false;
+  return hasDragType(dataTransfer, NODEX_BLOCK_CARD_COPIES_DRAG_MIME)
+    || hasDragType(dataTransfer, NODEX_CARD_REFERENCES_DRAG_MIME);
+};

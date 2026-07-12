@@ -2,6 +2,7 @@ import type { BoardSummary, CardStatus } from "@/lib/types";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   canDropOnKanbanCard,
+  isKanbanCardReferenceEditorDropTargetData,
   isKanbanCardDropTargetData,
   isKanbanCardDragData,
   isKanbanColumnDropTargetData,
@@ -24,6 +25,10 @@ export function resolveKanbanDropLocation(args: {
   pointerY: number | null;
   resolveColumnSurface: (columnId: string) => HTMLElement | null;
 }): ResolvedKanbanDropLocation | null {
+  if (args.dropTargets.some((target) =>
+    isKanbanCardReferenceEditorDropTargetData(target.data))) {
+    return null;
+  }
   const ignoredCardIds = new Set(args.draggedCardIds);
   const sourceData = isKanbanCardDragData(args.sourceData) ? args.sourceData : null;
   const cardTarget = args.dropTargets.find((target) => {

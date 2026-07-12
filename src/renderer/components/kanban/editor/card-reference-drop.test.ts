@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
+  beginLocalNativeEditorDrag,
   encodeCardReferenceDragPayload,
+  endLocalNativeEditorDrag,
   NODEX_CARD_REFERENCES_DRAG_MIME,
 } from "../cross-surface-drag";
 import {
@@ -19,7 +21,8 @@ const makeDataTransfer = (serialized: string): DataTransfer =>
 describe("Card reference drop", () => {
   test("inserts canonical references and rejects self references", () => {
     const container = document.createElement("div");
-    document.body.append(container);
+    const source = document.createElement("div");
+    document.body.append(source, container);
     const replacements: unknown[][] = [];
     const editor: CardReferenceDropEditor = {
       document: [],
@@ -39,6 +42,7 @@ describe("Card reference drop", () => {
         { projectId: "project-a", cardId: "card-target", title: "Target" },
       ]),
     );
+    beginLocalNativeEditorDrag(source);
 
     const drop = new Event("drop", { bubbles: true });
     Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
@@ -56,6 +60,8 @@ describe("Card reference drop", () => {
       ],
     ]);
     cleanup();
+    endLocalNativeEditorDrag(source);
+    source.remove();
     container.remove();
   });
 });

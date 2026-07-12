@@ -3,6 +3,7 @@ import type { BoardSummary } from "@/lib/types";
 import {
   buildKanbanCardDragData,
   buildKanbanCardDropTargetData,
+  buildKanbanCardReferenceEditorDropTargetData,
   buildKanbanColumnDropTargetData,
 } from "./pragmatic-drag-data";
 import { emptyCardSelection } from "./card-selection";
@@ -190,5 +191,25 @@ describe("pragmatic drop location", () => {
     });
 
     expect(result?.index).toBe(1);
+  });
+
+  test("gives an editor reference target ownership over an ancestor column", () => {
+    const result = resolveKanbanDropLocation({
+      visibleBoard: board,
+      dropTargets: [
+        { data: buildKanbanCardReferenceEditorDropTargetData() },
+        {
+          data: buildKanbanColumnDropTargetData({
+            instanceId,
+            columnId: "in_progress",
+          }),
+        },
+      ],
+      draggedCardIds: ["a"],
+      pointerY: 145,
+      resolveColumnSurface: createSurface,
+    });
+
+    expect(result).toBe(null);
   });
 });

@@ -1,9 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
+  beginLocalNativeEditorDrag,
+  endLocalNativeEditorDrag,
   encodeBlockCardCopyDragPayload,
   encodeCardReferenceDragPayload,
   parseBlockCardCopyDragPayload,
   parseCardReferenceDragPayload,
+  shouldHandleNativeCrossSurfaceDrag,
+  NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
+  NODEX_CARD_REFERENCES_DRAG_MIME,
 } from "./cross-surface-drag";
 
 describe("cross-surface Block-first drag payloads", () => {
@@ -39,5 +44,22 @@ describe("cross-surface Block-first drag payloads", () => {
     ]);
     expect(parseCardReferenceDragPayload(duplicate)).toBeNull();
     expect(parseCardReferenceDragPayload("x".repeat(1_900_001))).toBeNull();
+  });
+
+  test("accepts native payloads only while a local editor owns the drag", () => {
+    const editor = document.createElement("div");
+    const cardReferenceTransfer = {
+      types: [NODEX_CARD_REFERENCES_DRAG_MIME],
+    };
+    const editorBlockTransfer = {
+      types: [NODEX_BLOCK_CARD_COPIES_DRAG_MIME],
+    };
+
+    expect(shouldHandleNativeCrossSurfaceDrag(cardReferenceTransfer)).toBe(false);
+    beginLocalNativeEditorDrag(editor);
+    expect(shouldHandleNativeCrossSurfaceDrag(cardReferenceTransfer)).toBe(true);
+    expect(shouldHandleNativeCrossSurfaceDrag(editorBlockTransfer)).toBe(true);
+    endLocalNativeEditorDrag(editor);
+    expect(shouldHandleNativeCrossSurfaceDrag(cardReferenceTransfer)).toBe(false);
   });
 });

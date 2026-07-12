@@ -6,6 +6,7 @@ import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
   NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
   parseBlockCardCopyDragPayload,
+  shouldHandleNativeCrossSurfaceDrag,
 } from "../cross-surface-drag";
 
 type DragBehaviorEditor = Parameters<typeof useEditorDragBehaviors>[0]["editor"];
@@ -119,10 +120,14 @@ describe("useEditorDragBehaviors", () => {
     const container = view.getByTestId("editor-container");
     container.classList.add("nfm-editor");
     const data = new Map<string, string>();
+    const types: string[] = [];
     const dataTransfer = {
-      types: [],
+      types,
       effectAllowed: "uninitialized",
-      setData: (type: string, value: string) => data.set(type, value),
+      setData: (type: string, value: string) => {
+        if (!types.includes(type)) types.push(type);
+        data.set(type, value);
+      },
     } as unknown as DataTransfer;
     const dragStart = new Event("dragstart", { bubbles: true });
     Object.defineProperty(dragStart, "dataTransfer", { value: dataTransfer });
@@ -139,5 +144,12 @@ describe("useEditorDragBehaviors", () => {
     expect(payload?.cards).toEqual([
       { title: "Block", description: "" },
     ]);
+    expect(shouldHandleNativeCrossSurfaceDrag(dataTransfer)).toBe(true);
+
+    await act(async () => {
+      fireEvent.dragEnd(container);
+      await Promise.resolve();
+    });
+    expect(shouldHandleNativeCrossSurfaceDrag(dataTransfer)).toBe(false);
   });
 });

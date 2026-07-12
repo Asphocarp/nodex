@@ -19,7 +19,7 @@ export const CopyAndReferenceCues: Story = {
         </p>
         <div className="relative rounded-lg border border-(--border) bg-(--card) px-4 py-5">
           <p className="text-sm">Existing document Block</p>
-          <div className="absolute inset-x-4 bottom-2 h-0.5 rounded-full bg-(--accent-blue)" />
+          <div className="prosemirror-dropcursor-block prosemirror-dropcursor-block-horizontal pointer-events-none absolute inset-x-4 bottom-2 z-50" />
         </div>
       </section>
       <section style={{ "--column-accent": "#4f7cac" } as CSSProperties}>

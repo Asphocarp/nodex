@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
-import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { Column } from "./column";
 import { type CardPropertyUpdateInput } from "./card";
 import type { OpenCardStageOptions } from "./open-card-stage";
@@ -56,8 +55,10 @@ import {
   NODEX_CARD_REFERENCES_DRAG_MIME,
   parseBlockCardCopyDragPayload,
   parseCardReferenceDragPayload,
+  shouldHandleNativeCrossSurfaceDrag,
 } from "./cross-surface-drag";
 import { toast } from "@/components/ui/toast";
+import { useKanbanElementDragMonitor } from "./use-kanban-element-drag-monitor";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenCardStageOptions["openMode"]>;
@@ -259,6 +260,7 @@ export function KanbanBoard({
 
   const handleExternalBlockDragOver = useCallback(
     (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+      if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
       const copiesBlocks = hasDragType(
         event.dataTransfer,
         NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
@@ -289,6 +291,7 @@ export function KanbanBoard({
 
   const handleExternalBlockDragLeave = useCallback(
     (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+      if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       setActiveDropColumnId((current) =>
@@ -303,6 +306,7 @@ export function KanbanBoard({
 
   const handleExternalBlockDrop = useCallback(
     async (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+      if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
       const referencePayload = parseCardReferenceDragPayload(
         event.dataTransfer.getData(NODEX_CARD_REFERENCES_DRAG_MIME),
       );
@@ -471,11 +475,11 @@ export function KanbanBoard({
     });
   }, [dragInstanceId]);
 
-  useEffect(() => {
-    return monitorForElements({
-      canMonitor: ({ source }) => isKanbanCardDragData(source.data)
-        && source.data.instanceId === dragInstanceId,
-      onDragStart: ({ source }) => {
+  useKanbanElementDragMonitor({
+    scopeKey: dragInstanceId,
+    canMonitor: ({ source }) => isKanbanCardDragData(source.data)
+      && source.data.instanceId === dragInstanceId,
+    onDragStart: ({ source }) => {
         if (!isKanbanCardDragData(source.data)) {
           return;
         }
@@ -484,11 +488,14 @@ export function KanbanBoard({
         setActiveDropColumnId(null);
         setBlockedDropMessage(null);
         setDropIndicator(null);
-        if (!selectedCardIds.has(source.data.sourceCardId)) {
+        if (
+          selectedCardIds.size > 0
+          && !selectedCardIds.has(source.data.sourceCardId)
+        ) {
           setCardSelection(emptyCardSelection());
         }
-      },
-      onDrag: ({ source, location }) => {
+    },
+    onDrag: ({ source, location }) => {
         if (!isKanbanCardDragData(source.data)) {
           return;
         }
@@ -573,8 +580,8 @@ export function KanbanBoard({
           }
           return nextDropIndicator;
         });
-      },
-      onDrop: async ({ source, location }) => {
+    },
+    onDrop: async ({ source, location }) => {
         if (!isKanbanCardDragData(source.data)) {
           clearBoardCardDragState();
           return;
@@ -595,18 +602,8 @@ export function KanbanBoard({
         } finally {
           clearBoardCardDragState();
         }
-      },
-    });
-  }, [
-    clearBoardCardDragState,
-    dragInstanceId,
-    filteredBoard,
-    performCardDrop,
-    resolveColumnSurface,
-    selectedCardIds,
-    board,
-    viewPrefs.rules,
-  ]);
+    },
+  });
 
   const handleAddCard = useCallback(async (
     columnId: string,

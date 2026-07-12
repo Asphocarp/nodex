@@ -1,14 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { setupCardReferenceDrop } from "./editor/card-reference-drop";
 import {
+  beginLocalNativeEditorDrag,
   encodeCardReferenceDragPayload,
+  endLocalNativeEditorDrag,
   NODEX_CARD_REFERENCES_DRAG_MIME,
 } from "./cross-surface-drag";
 
 describe("cross-surface drag in Chromium", () => {
   test("reads the custom MIME payload at drop and inserts a Card reference", () => {
     const container = document.createElement("div");
-    document.body.append(container);
+    const source = document.createElement("div");
+    document.body.append(source, container);
     const replacements: unknown[][] = [];
     const cleanup = setupCardReferenceDrop(
       container,
@@ -31,6 +34,7 @@ describe("cross-surface drag in Chromium", () => {
         { projectId: "project-a", cardId: "target-card", title: "Target" },
       ]),
     );
+    beginLocalNativeEditorDrag(source);
 
     container.dispatchEvent(
       new DragEvent("drop", {
@@ -51,6 +55,8 @@ describe("cross-surface drag in Chromium", () => {
       ],
     ]);
     cleanup();
+    endLocalNativeEditorDrag(source);
+    source.remove();
     container.remove();
   });
 });
