@@ -977,6 +977,9 @@ Web-search grouped bodies should use the same bounded activity list primitive as
 ### Block Document parity must exclude disclosure state
 NFM can carry `▼` as an import-time expanded-toggle hint, but Card Documents deliberately keep toggle disclosure state window-local. A migration parity gate must therefore compare the legacy snapshot with the canonical semantics representable by the Block Document codec, not raw parser/serializer output. Otherwise a harmless expanded marker becomes a false content divergence and can permanently strand an otherwise valid v69 store. When repairing a released migration gate, requeue only its known obsolete failure signature; deterministic current failures must continue to fail closed.
 
+### Dev Stories are visual fixtures, not Vitest subjects
+Storybook dev stories exist for manual visual and interaction review. Do not add Vitest files that merely mount a story shell, validate story presets/mock data, or test story-only controls such as preview font-size storage. Storybook build, TypeScript, and manual review cover that layer; keep automated tests on production helpers and observable product workflows, even when a production test happens to reuse a story fixture.
+
 ### Yjs must resolve through one module condition per JavaScript realm
 Yjs uses constructor identity internally, so loading its ESM and CommonJS builds in the same Electron main realm is correctness-threatening even when both resolve to the same package version. Import conditional-export packages such as `y-protocols/awareness` through their declared export key. Appending the physical `.js` subpath can select the ESM file while the bundled main process loads `yjs` through CommonJS, causing the duplicate-import warning and invalidating `instanceof` checks.
 
