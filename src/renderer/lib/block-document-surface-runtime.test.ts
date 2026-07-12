@@ -25,6 +25,7 @@ import {
   BlockDocumentSurfaceRuntime,
   type BlockDocumentSurfaceProvider,
 } from "./block-document-surface-runtime";
+import { BlockDocumentSurfaceError } from "./block-document-surface-failure";
 
 const descriptor = (
   overrides: Partial<OwnedDocumentDescriptor> = {},
@@ -561,6 +562,10 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(checkpoints.writes).toBe(1);
     expect(runtime.getReadyDocument()).toBe(null);
     expect(runtime.getStatus().phase).toBe("error");
+    expect(runtime.getStatus().error).toBeInstanceOf(BlockDocumentSurfaceError);
+    expect(
+      (runtime.getStatus().error as BlockDocumentSurfaceError).syncError?.code,
+    ).toBe("invalid_document_update");
     expect(reloads.length).toBe(0);
 
     await Promise.all([runtime.reload(), runtime.reload()]);

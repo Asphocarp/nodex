@@ -21,6 +21,7 @@ import {
   type NodexYProviderOptions,
   type NodexYProviderStatus,
 } from "./nodex-y-provider";
+import { BlockDocumentSurfaceError } from "./block-document-surface-failure";
 
 const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
 
@@ -209,8 +210,13 @@ const defaultCloseTimeoutScheduler: BlockDocumentSurfaceCloseTimeoutScheduler = 
   return () => globalThis.clearTimeout(timeout);
 };
 
-const providerError = (status: NodexYProviderStatus): Error =>
-  new Error(status.error?.message ?? `Document provider entered ${status.phase}`);
+const providerError = (status: NodexYProviderStatus): Error => {
+  const message =
+    status.error?.message ?? `Document provider entered ${status.phase}`;
+  return new BlockDocumentSurfaceError(message, {
+    syncError: status.error,
+  });
+};
 
 const observeCloseTask = (
   task: Promise<void>,

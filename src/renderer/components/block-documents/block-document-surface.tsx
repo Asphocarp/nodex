@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -7,6 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
+import { ChevronRight, CircleAlert } from "lucide-react";
 import type { Awareness } from "y-protocols/awareness";
 import type {
   CardDocumentEnvelope,
@@ -15,6 +17,11 @@ import type {
 import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/document-schema-adapters";
 import { NodexButton } from "@/components/ui/button";
 import { createDocumentSyncAdapter } from "@/lib/api";
+import {
+  resolveBlockDocumentSurfaceFailure,
+  type BlockDocumentSurfaceFailureReason,
+} from "@/lib/block-document-surface-failure";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import {
   BlockDocumentSurfaceRuntime,
   type BlockDocumentSurfaceReloadContext,
@@ -88,9 +95,10 @@ export interface OwnedBlockDocumentSurfaceProps extends Omit<
   readonly children: (surface: OwnedBlockDocumentSurfaceValue) => ReactNode;
 }
 
-interface SurfaceFailureProps {
+export interface BlockDocumentSurfaceFailureStateProps {
+  readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
   readonly error: Error;
-  readonly resetRequired: boolean;
+  readonly reason: BlockDocumentSurfaceFailureReason;
   readonly reloading: boolean;
   readonly reload: () => Promise<void>;
 }
@@ -126,35 +134,103 @@ function SurfacePending({
   );
 }
 
-function SurfaceFailure({
+export function BlockDocumentSurfaceFailureState({
+  descriptor,
   error,
-  resetRequired,
+  reason,
   reloading,
   reload,
-}: SurfaceFailureProps) {
+}: BlockDocumentSurfaceFailureStateProps) {
+  const detailsId = useId();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [copyState, setCopyState] = useState<
+    "idle" | "copied" | "failed"
+  >("idle");
+  const presentation = resolveBlockDocumentSurfaceFailure({
+    descriptor,
+    error,
+    reason,
+  });
+
+  const copyDiagnostics = async (): Promise<void> => {
+    const copied = await writeTextToClipboard(presentation.diagnostics);
+    setCopyState(copied ? "copied" : "failed");
+  };
+
   return (
     <div
       role="alert"
-      data-block-document-surface-state={
-        resetRequired ? "reset-required" : "error"
-      }
-      className="flex items-center gap-2 py-8 text-sm"
+      data-block-document-surface-state={reason}
+      className="py-8 text-sm"
     >
-      <span className="min-w-0 text-token-description-foreground">
-        {resetRequired
-          ? "This content needs to resync before editing can continue."
-          : "Couldn’t open this collaborative content."}
-      </span>
-      <NodexButton
-        type="button"
-        size="xs"
-        variant="secondary"
-        disabled={reloading}
-        title={error.message}
-        onClick={() => void reload()}
-      >
-        {reloading ? "Reloading…" : "Reload"}
-      </NodexButton>
+      <div className="max-w-xl">
+        <div className="flex items-start gap-2">
+          <CircleAlert
+            aria-hidden="true"
+            className="icon-2xs mt-0.5 shrink-0 text-token-error-foreground"
+          />
+          <div className="min-w-0">
+            <p className="text-token-text-primary">{presentation.title}</p>
+            <p className="mt-0.5 break-words text-token-description-foreground">
+              {presentation.description}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-2.5 flex items-center gap-1.5 pl-5">
+          <NodexButton
+            type="button"
+            size="xs"
+            variant="secondary"
+            disabled={reloading}
+            onClick={() => void reload()}
+          >
+            {reloading ? "Reloading…" : "Reload"}
+          </NodexButton>
+          <NodexButton
+            type="button"
+            size="xs"
+            variant="ghost"
+            aria-controls={detailsId}
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((current) => !current)}
+          >
+            <ChevronRight
+              className={
+                detailsOpen
+                  ? "rotate-90 transition-transform duration-150"
+                  : "transition-transform duration-150"
+              }
+            />
+            Details
+          </NodexButton>
+        </div>
+
+        {detailsOpen ? (
+          <div
+            id={detailsId}
+            className="mt-2.5 ml-5 rounded-md bg-token-foreground/5 p-2.5"
+          >
+            <div className="mb-1.5 flex justify-end">
+              <NodexButton
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={() => void copyDiagnostics()}
+              >
+                {copyState === "copied"
+                  ? "Copied"
+                  : copyState === "failed"
+                    ? "Copy failed"
+                    : "Copy diagnostics"}
+              </NodexButton>
+            </div>
+            <pre className="scrollbar-token overflow-x-auto whitespace-pre-wrap break-words text-xs leading-5 text-token-description-foreground">
+              {presentation.diagnostics}
+            </pre>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -308,9 +384,12 @@ function ReadySurface({
   const failure = startupError ?? status.error;
   if (failure) {
     return (
-      <SurfaceFailure
+      <BlockDocumentSurfaceFailureState
+        descriptor={descriptor}
         error={failure}
-        resetRequired={status.phase === "reset-required"}
+        reason={
+          status.phase === "reset-required" ? "reset-required" : "fatal"
+        }
         reloading={reloading}
         reload={reload}
       />
@@ -433,9 +512,10 @@ function RuntimeOwner({
   if (!runtime) {
     if (startupError) {
       return (
-        <SurfaceFailure
+        <BlockDocumentSurfaceFailureState
+          descriptor={descriptor}
           error={startupError}
-          resetRequired={false}
+          reason="startup"
           reloading={false}
           reload={reloadWithoutRuntime}
         />

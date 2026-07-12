@@ -1,4 +1,4 @@
-import { act, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { Activity, useEffect } from "react";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
@@ -407,8 +407,18 @@ describe("BlockDocumentSurface", () => {
     betaAdapter.destroy();
   });
 
-  test("rejects a descriptor from another Project before connecting", async () => {
+  test("surfaces and copies startup diagnostics when the descriptor belongs to another Project", async () => {
     const adapter = new SurfaceTestAdapter();
+    const originalClipboard = navigator.clipboard;
+    const clipboardWrites: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          clipboardWrites.push(value);
+        },
+      },
+    });
     const mismatched: PrimaryCardBlockDocumentDescriptor = {
       ...descriptor(),
       projectId: "other-project",
@@ -416,24 +426,41 @@ describe("BlockDocumentSurface", () => {
     const dependencies: BlockDocumentSurfaceDependencies = {
       createAdapter: () => adapter,
     };
-    const view = render(
-      <BlockDocumentSurface
-        projectId="project-1"
-        descriptor={mismatched}
-        isActive
-        dependencies={dependencies}
-      >
-        {() => <div>Should not render</div>}
-      </BlockDocumentSurface>,
-    );
+    try {
+      const view = render(
+        <BlockDocumentSurface
+          projectId="project-1"
+          descriptor={mismatched}
+          isActive
+          dependencies={dependencies}
+        >
+          {() => <div>Should not render</div>}
+        </BlockDocumentSurface>,
+      );
 
-    await waitFor(() => {
-      expect(
-        view.getByRole("alert").textContent?.includes("Reload"),
-      ).toBe(true);
-    });
-    expect(adapter.subscriptions).toBe(0);
-    adapter.destroy();
+      await waitFor(() => {
+        expect(
+          view.getByText(
+            "Block Document surface Project does not match its descriptor",
+          ),
+        ).toBeTruthy();
+      });
+      fireEvent.click(view.getByRole("button", { name: "Details" }));
+      expect(view.getByText(/Code: runtime_error/)).toBeTruthy();
+      fireEvent.click(
+        view.getByRole("button", { name: "Copy diagnostics" }),
+      );
+      await waitFor(() => expect(clipboardWrites).toHaveLength(1));
+      expect(clipboardWrites[0]).toContain("Project: other-project");
+      expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
+      expect(adapter.subscriptions).toBe(0);
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: originalClipboard,
+      });
+      adapter.destroy();
+    }
   });
 
   test("automatically recreates a mounted surface after a whole-store reset", async () => {
