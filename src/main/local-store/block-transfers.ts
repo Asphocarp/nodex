@@ -64,7 +64,6 @@ import { applyDocumentOperationBatch } from "./block-document-operations";
 import {
   initializeBlockDocumentGenesis,
   initializeCardDocumentGenesis,
-  loadBlockDocument,
 } from "./block-document-store";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 import { initializeCanvasSceneAuthority } from "./canvas-scene-store";

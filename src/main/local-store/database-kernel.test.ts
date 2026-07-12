@@ -17,6 +17,7 @@ import {
   readDatabaseViewSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
   readPrimaryDatabaseViewSnapshot,
+  transitionCardDatabaseParent,
   type DatabaseMutationFaultPoint,
 } from "./database-kernel";
 import {
@@ -32,10 +33,15 @@ interface Fixture {
   readonly storeEpoch: string;
 }
 
+type TransferMembershipOperation = Extract<
+  DatabaseMutationOperation,
+  { readonly kind: "transfer_membership" }
+>;
+
 const databaseIds = new Map<string, string>();
 
 const testDatabaseId = (value: string): string => {
-  if (isUuidV7(value)) return value;
+  if (isUuidV7(value) || value.startsWith("database:")) return value;
   const existing = databaseIds.get(value);
   if (existing) return existing;
   const created = createUuidV7();
@@ -829,11 +835,22 @@ describe("general Database kernel", () => {
             options: [{ id: "custom-high", name: "P1 - High" }],
           },
         });
-        expect(
-          resultCode(
-            applyDatabaseMutation(
-              fixture.database,
-              request(fixture, "leave-primary", {
+        const transitionMembership = (
+          operationId: string,
+          operation: TransferMembershipOperation,
+        ) => {
+          const mutation = request(fixture, operationId, operation);
+          return transitionCardDatabaseParent(
+            fixture.database,
+            {
+              ...mutation,
+              operation: mutation.operations[0] as TransferMembershipOperation,
+            },
+            new Date().toISOString(),
+          );
+        };
+        expect(() =>
+          transitionMembership("leave-primary", {
                 kind: "transfer_membership",
                 cardBlockId: card.id,
                 expectedMembership: {
@@ -847,9 +864,7 @@ describe("general Database kernel", () => {
                   groupKey: null,
                 },
               }),
-            ),
-          ),
-        ).toBe("ok");
+        ).not.toThrow();
         const temporary = readActiveMembership(fixture, card.id);
         expect(
           fixture.database
@@ -863,11 +878,8 @@ describe("general Database kernel", () => {
             .get(temporary.id),
         ).toEqual({ value_json: '"custom-high"' });
 
-        expect(
-          resultCode(
-            applyDatabaseMutation(
-              fixture.database,
-              request(fixture, "return-primary", {
+        expect(() =>
+          transitionMembership("return-primary", {
                 kind: "transfer_membership",
                 cardBlockId: card.id,
                 expectedMembership: {
@@ -881,9 +893,7 @@ describe("general Database kernel", () => {
                   groupKey: "draft",
                 },
               }),
-            ),
-          ),
-        ).toBe("ok");
+        ).not.toThrow();
 
         const restored = readActiveMembership(fixture, card.id);
         expect(restored.id).toBe(original.id);

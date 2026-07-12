@@ -83,7 +83,7 @@ The authority classifies the roots and applies these rules:
 2. Card between Space, Document, and Database preserves the Card ID and owned Document. The transaction changes only its parent shell/placement/membership and derived projections.
 3. A compatible text-like Block moved to Space or a Database is promoted to a Card using the same root Block ID. Its primary text becomes the Card title and its remaining content/children become the new owned Card body.
 4. Media, reference, void, or already document-bearing roots moved to Space or a Database are wrapped by a new Card. The original subtree keeps its IDs and becomes content of the new Card's owned Document.
-5. Copy leaves every source unchanged and allocates deterministic fresh IDs for the copied ownership closure. Coercion then runs on those fresh identities: a promotable source root maps directly to the fresh Card ID, while only wrapper-required roots receive an additional Card. Reference target IDs remain unchanged.
+5. Copy leaves every source unchanged and allocates canonical UUID-v7 Block IDs for the copied ownership closure inside the committing transaction. Coercion then runs on those fresh identities: a promotable source root maps directly to the fresh Card ID, while only wrapper-required roots receive an additional Card. Reference target IDs remain unchanged.
 
 Multi-root transfer is all-or-nothing. Promotion, wrapping, membership/property changes, source/target Y.Doc updates, Block locations, materialized indexes, view positions, history, operation receipt, and change log commit in one SQLite transaction.
 
@@ -91,7 +91,7 @@ Multi-root transfer is all-or-nothing. Promotion, wrapping, membership/property 
 
 Copying a subtree recursively follows `block_documents` ownership. A copied nested Card receives a fresh Card ID, owned Document ID, ordinary descendant IDs, membership identities, and operation-local Yjs structs. Nested document-bearing Blocks follow the same rule. Reference Blocks are copied as references to their original targets.
 
-The copy planner derives deterministic IDs from the logical operation and source identity so a retry before or after response loss cannot create a second clone. The planner validates the full ownership closure and rejects cycles, duplicate application IDs, unsupported owner schemas, or stale Document heads before writing.
+The copy planner allocates UUID-v7 content identities only inside the outer SQLite transaction. A pre-commit failure rolls them back and may allocate another unused set on retry; a committed operation persists the complete mapping in its immutable receipt, so response-loss retry returns the same clone without recompiling or allocating again. Non-content Document identities may remain operation-derived. The planner validates the full ownership closure and rejects cycles, duplicate application IDs, unsupported owner schemas, or stale Document heads before writing.
 
 ### Move/copy intent is sampled at drop time
 
