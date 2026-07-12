@@ -18,6 +18,7 @@ import type {
   CanvasSceneMutationRequest,
   CanvasSceneSyncRequest,
 } from "../shared/block-documents/canvas-scene-sync";
+import type { BlockTransferRequest } from "../shared/block-transfer";
 
 class FakeWorker implements BlockMutationWorkerLike {
   readonly messages: BlockMutationWorkerRequest[] = [];
@@ -653,6 +654,93 @@ describe("BlockMutationWriter", () => {
     expect(boardEvents.length).toBe(0);
     expect(databaseEvents.length).toBe(1);
     expect(databaseEvents[0]?.sourceKind).toBe("database_mutation");
+  });
+
+  test("preserves BlockTransfer binaries and publishes one Database invalidation", async () => {
+    const worker = new FakeWorker();
+    const databaseEvents: DatabaseChangeEvent[] = [];
+    const writer = new BlockMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+      publishDatabaseEvent: (event) => databaseEvents.push(event),
+    });
+    const input: BlockTransferRequest = {
+      version: 1,
+      operationId: "block-transfer-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: { kind: "test" },
+      mode: "move",
+      rootBlockIds: ["card-1"],
+      expectedLocationRevisions: { "card-1": 2 },
+      source: {
+        kind: "database",
+        databaseBlockId: "database-1",
+        memberships: {
+          "card-1": { membershipId: "membership-1", revision: 1 },
+        },
+      },
+      target: {
+        kind: "document",
+        documentId: "document-1",
+        generation: 1,
+        expectedHeadSeq: 3,
+      },
+    };
+    const pending = writer.applyBlockTransfer(input);
+    const request = worker.messages[0];
+    if (!request || request.type !== "applyBlockTransfer") {
+      throw new Error("Expected BlockTransfer request");
+    }
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: input.operationId,
+          projectId: input.projectId,
+          storeEpoch: input.storeEpoch,
+          mode: "move",
+          duplicate: false,
+          sourceRootBlockIds: ["card-1"],
+          resultRootBlockIds: ["card-1"],
+          copiedBlockIds: {},
+          finalLocations: {
+            "card-1": { kind: "document", documentId: "document-1" },
+          },
+          finalLocationRevisions: { "card-1": 3 },
+          documentCommits: [
+            {
+              documentId: "document-1",
+              generation: 1,
+              baseHeadSeq: 3,
+              headSeq: 4,
+              updateId: "update-1",
+              update: new Uint8Array([1, 2]),
+              stateVector: new Uint8Array([3, 4]),
+            },
+          ],
+          affectedDatabaseBlockIds: ["database-1"],
+          changeLogSeq: 11,
+          committedAt: "2026-07-13T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    const envelope = await pending;
+    expect(envelope.result.ok).toBe(true);
+    if (!envelope.result.ok) return;
+    expect(envelope.result.value.documentCommits[0]?.update?.[1]).toBe(2);
+    expect(databaseEvents).toEqual([
+      expect.objectContaining({
+        sourceKind: "block_transfer",
+        operationId: input.operationId,
+        affectedDatabaseBlockIds: ["database-1"],
+      }),
+    ]);
   });
 
   test("serializes the Card lifecycle preflight through the same FIFO worker", async () => {

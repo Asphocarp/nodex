@@ -179,6 +179,16 @@ interface AuthorityCommit {
   readonly projectionCardIds: readonly string[];
 }
 
+export interface CardDatabaseParentTransitionResult {
+  readonly affectedDatabaseBlockIds: readonly string[];
+  readonly payload: Readonly<Record<string, DatabaseJsonValue>>;
+  readonly committedRevisions: Readonly<Record<string, number>>;
+}
+
+export type CardOffDatabaseParent =
+  | { readonly kind: "space" }
+  | { readonly kind: "document"; readonly documentId: string };
+
 class DatabaseMutationRejection extends Error {
   constructor(readonly error: DatabaseMutationCommandError) {
     super(error.message);
@@ -1737,6 +1747,7 @@ const transferMembership = (
     >;
   },
   now: string,
+  offDatabaseParent: CardOffDatabaseParent = { kind: "space" },
 ): AuthorityCommit => {
   const operation = request.operation;
   readCard(database, request, operation.cardBlockId);
@@ -1829,7 +1840,7 @@ const transferMembership = (
         : { beforeCardBlockId: operation.target.beforeCardBlockId }),
     });
   }
-  const spaceRank = operation.target
+  const spaceRank = operation.target || offDatabaseParent.kind !== "space"
     ? null
     : applyFractionalRankPlan({
         request,
@@ -1898,18 +1909,24 @@ const transferMembership = (
       "DELETE FROM top_level_block_placements WHERE block_id = ? AND project_id = ?",
     )
     .run(operation.cardBlockId, request.projectId);
+  const targetLocationKind = operation.target
+    ? "database"
+    : offDatabaseParent.kind;
   const movedParent = database
     .prepare(
       `
       UPDATE blocks
-      SET location_kind = ?, containing_document_id = NULL,
+      SET location_kind = ?, containing_document_id = ?,
           containing_database_id = ?, location_revision = location_revision + 1,
           updated_at = ?
       WHERE id = ? AND project_id = ? AND type = 'card'
     `,
     )
     .run(
-      operation.target ? "database" : "space",
+      targetLocationKind,
+      offDatabaseParent.kind === "document"
+        ? offDatabaseParent.documentId
+        : null,
       operation.target?.databaseBlockId ?? null,
       now,
       operation.cardBlockId,
@@ -2049,6 +2066,34 @@ const transferMembership = (
       position: operation.target ? 1 : 0,
     },
     projectionCardIds: [operation.cardBlockId],
+  };
+};
+
+/**
+ * Compose the proven Database membership/property transition inside a broader
+ * trusted parent-transfer transaction without writing a second public receipt.
+ */
+export const transitionCardDatabaseParent = (
+  database: Database.Database,
+  request: DatabaseMutationRequest & {
+    readonly operation: Extract<
+      DatabaseMutationOperation,
+      { readonly kind: "transfer_membership" }
+    >;
+  },
+  now: string,
+  offDatabaseParent: CardOffDatabaseParent = { kind: "space" },
+): CardDatabaseParentTransitionResult => {
+  const commit = transferMembership(
+    database,
+    request,
+    now,
+    offDatabaseParent,
+  );
+  return {
+    affectedDatabaseBlockIds: commit.databaseBlockIds,
+    payload: commit.payload,
+    committedRevisions: commit.committedRevisions,
   };
 };
 

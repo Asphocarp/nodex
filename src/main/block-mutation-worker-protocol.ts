@@ -78,6 +78,10 @@ import type {
   CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
 } from "../shared/types";
+import type {
+  BlockTransferCommandResult,
+  BlockTransferRequest,
+} from "../shared/block-transfer";
 
 export interface BlockMutationMetrics {
   mutationId: string;
@@ -131,6 +135,10 @@ export type BlockMutationWorkerRequest =
   | (BlockMutationWorkerRequestBase & {
       type: "applyDatabaseMutation";
       payload: DatabaseMutationRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "applyBlockTransfer";
+      payload: BlockTransferRequest;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyCardLifecycleMutation";
@@ -293,6 +301,7 @@ export type BlockMutationWorkerResult =
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
   | DatabaseMutationCommandResult
+  | BlockTransferCommandResult
   | CardLifecycleMutationCommandResult
   | CardLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult

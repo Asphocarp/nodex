@@ -322,6 +322,8 @@ export interface StrictDocumentUpdateCommitPolicy {
   readonly allowPendingSyncedReferenceTargetIds?: readonly BlockId[];
   /** Trusted typed owner rows staged in the host by the same outer transaction. */
   readonly allowStagedDocumentBearingBlockIds?: readonly BlockId[];
+  /** Trusted reparenting transaction removes only the host shell, not its owner. */
+  readonly preserveRemovedBlockIds?: readonly BlockId[];
   /** Trusted outer transaction will refill or retire this Document before commit. */
   readonly allowTransientEmptyBlockTree?: boolean;
   /** Trusted server-generated genesis/restore seam; never bind from transport. */
@@ -896,6 +898,7 @@ const reconcileDocumentBlocks = (
   blocks: readonly ScannedDocumentBlock[],
   projectedSeq: number,
   now: string,
+  preserveRemovedBlockIds: ReadonlySet<BlockId> = new Set(),
 ): void => {
   const currentRows = database
     .prepare(
@@ -990,7 +993,10 @@ const reconcileDocumentBlocks = (
   }
 
   for (const registered of currentRows) {
-    if (!activeIds.has(registered.id)) {
+    if (
+      !activeIds.has(registered.id) &&
+      !preserveRemovedBlockIds.has(registered.id)
+    ) {
       tombstoneBlock.run(now, registered.id);
     }
   }
@@ -2675,7 +2681,14 @@ const applyBlockDocumentUpdateForAuthority = (
           strictCommitPolicy?.allowPendingSyncedReferenceTargetIds ?? [],
         ),
       );
-      reconcileDocumentBlocks(database, row, blocks, nextHeadSeq, now);
+      reconcileDocumentBlocks(
+        database,
+        row,
+        blocks,
+        nextHeadSeq,
+        now,
+        new Set(strictCommitPolicy?.preserveRemovedBlockIds ?? []),
+      );
       persistCardDocumentMaterialization(database, {
         documentId: input.documentId,
         generation: input.generation,

@@ -2,6 +2,7 @@ export const DATABASE_CHANGE_EVENT_VERSION = 1 as const;
 
 export type DatabaseChangeSourceKind =
   | "database_mutation"
+  | "block_transfer"
   | "card_lifecycle"
   | "card_project_transfer";
 

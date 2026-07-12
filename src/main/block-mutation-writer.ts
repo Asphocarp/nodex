@@ -74,6 +74,10 @@ import type {
   CardProjectTransferRequest,
 } from "../shared/card-project-transfer";
 import type {
+  BlockTransferCommandResult,
+  BlockTransferRequest,
+} from "../shared/block-transfer";
+import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
 } from "./local-store/block-document-compaction";
@@ -235,6 +239,35 @@ export class BlockMutationWriter {
           storeEpoch: envelope.result.value.storeEpoch,
           operationId: envelope.result.value.operationId,
           sourceKind: "database_mutation",
+          affectedDatabaseBlockIds:
+            envelope.result.value.affectedDatabaseBlockIds,
+          changeLogSeq: envelope.result.value.changeLogSeq,
+        },
+        envelope.metrics,
+      );
+    }
+    return envelope;
+  }
+
+  async applyBlockTransfer(
+    request: BlockTransferRequest,
+  ): Promise<BlockMutationEnvelope<BlockTransferCommandResult>> {
+    const envelope = await this.executeTyped<BlockTransferCommandResult>({
+      type: "applyBlockTransfer",
+      payload: request,
+    });
+    if (
+      envelope.result.ok &&
+      !envelope.result.value.duplicate &&
+      envelope.result.value.affectedDatabaseBlockIds.length > 0
+    ) {
+      this.publishDatabaseEvent(
+        {
+          version: DATABASE_CHANGE_EVENT_VERSION,
+          projectId: envelope.result.value.projectId,
+          storeEpoch: envelope.result.value.storeEpoch,
+          operationId: envelope.result.value.operationId,
+          sourceKind: "block_transfer",
           affectedDatabaseBlockIds:
             envelope.result.value.affectedDatabaseBlockIds,
           changeLogSeq: envelope.result.value.changeLogSeq,

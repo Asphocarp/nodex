@@ -29,6 +29,7 @@ import {
 } from "./local-store/card-project-transfer";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
+import { applyBlockTransfer } from "./local-store/block-transfers";
 import {
   applyDatabaseMutation,
   queryDatabaseViewSnapshot,
@@ -623,6 +624,14 @@ async function runRequest(
             error: error instanceof Error ? error.message : String(error),
           });
         }
+      }
+      return result;
+    }
+    case "applyBlockTransfer": {
+      const result = applyBlockTransfer(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+      for (const commit of result.value.documentCommits) {
+        blockDocumentRuntime.invalidate(commit.documentId);
       }
       return result;
     }

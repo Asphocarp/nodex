@@ -87,6 +87,8 @@ export interface ApplyDocumentOperationOptions {
    * SQLite transaction.
    */
   readonly allowStagedDocumentBearingBlockIds?: readonly string[];
+  /** Trusted reparenting seam: remove host shells without deleting their owners. */
+  readonly preserveRemovedBlockIds?: readonly string[];
   /** Trusted outer ownership transaction; never expose through transport input. */
   readonly allowTransientEmptyBlockTree?: boolean;
 }
@@ -1265,6 +1267,7 @@ const applyPreparedMutation = (
           options.allowPendingSyncedReferenceTargetIds,
         allowStagedDocumentBearingBlockIds:
           options.allowStagedDocumentBearingBlockIds,
+        preserveRemovedBlockIds: options.preserveRemovedBlockIds,
         allowTransientEmptyBlockTree: options.allowTransientEmptyBlockTree,
         ...(prepared.trustedMaxUpdateBytes === undefined
           ? {}
