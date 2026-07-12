@@ -1,4 +1,5 @@
 import { act, waitFor } from "@testing-library/react";
+import { Activity, useEffect } from "react";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
@@ -26,7 +27,9 @@ import {
   type PrimaryOwnedBlockDocumentDescriptor,
 } from "./block-document-surface";
 
-const descriptor = (): PrimaryCardBlockDocumentDescriptor => ({
+const descriptor = (
+  overrides: Partial<PrimaryCardBlockDocumentDescriptor> = {},
+): PrimaryCardBlockDocumentDescriptor => ({
   projectId: "project-1",
   ownerBlockId: "card-1",
   ownerType: "card",
@@ -40,6 +43,7 @@ const descriptor = (): PrimaryCardBlockDocumentDescriptor => ({
   readiness: "ready",
   authority: "ydoc_primary",
   stateVector: new Uint8Array([0]),
+  ...overrides,
 });
 
 class SurfaceTestAdapter implements DocumentSyncAdapter {
@@ -133,6 +137,20 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
   };
 
   destroy = (): void => this.server.document.destroy();
+}
+
+function RelocationRegistrationProbe({
+  runtime,
+  title,
+}: {
+  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly title: Y.Text;
+}) {
+  useEffect(
+    () => runtime.registerRelocationPreparer(() => undefined),
+    [runtime],
+  );
+  return <div>{title.toString()}</div>;
 }
 
 describe("BlockDocumentSurface", () => {
@@ -256,6 +274,114 @@ describe("BlockDocumentSurface", () => {
     expect(runtimeRef.current).toBe(null);
     await waitFor(() => expect(adapter.unsubscriptions).toBe(1));
     adapter.destroy();
+  });
+
+  test("recreates independent collaborative runtimes across retained Project Activity switches", async () => {
+    const alphaAdapter = new SurfaceTestAdapter(
+      createCardDocument({
+        documentId: "document:alpha-card",
+        initialTitle: "Alpha title",
+      }),
+    );
+    const betaAdapter = new SurfaceTestAdapter(
+      createCardDocument({
+        documentId: "document:beta-card",
+        initialTitle: "Beta title",
+      }),
+    );
+    const alphaRuntimes: BlockDocumentSurfaceRuntime[] = [];
+    const betaRuntimes: BlockDocumentSurfaceRuntime[] = [];
+    const makeDependencies = (
+      adapter: SurfaceTestAdapter,
+      runtimes: BlockDocumentSurfaceRuntime[],
+    ): BlockDocumentSurfaceDependencies => ({
+      createAdapter: () => adapter,
+      createRuntime: (options) => {
+        const runtime = new BlockDocumentSurfaceRuntime({
+          ...options,
+          localCheckpointStore: null,
+          closeTimeoutMs: 100,
+        });
+        runtimes.push(runtime);
+        return runtime;
+      },
+    });
+    const alphaDependencies = makeDependencies(alphaAdapter, alphaRuntimes);
+    const betaDependencies = makeDependencies(betaAdapter, betaRuntimes);
+    const renderProjects = (activeProjectId: "alpha" | "beta") => (
+      <>
+        <Activity mode={activeProjectId === "alpha" ? "visible" : "hidden"}>
+          <BlockDocumentSurface
+            projectId="alpha"
+            descriptor={descriptor({
+              projectId: "alpha",
+              ownerBlockId: "alpha-card",
+              documentId: "document:alpha-card",
+            })}
+            isActive={activeProjectId === "alpha"}
+            dependencies={alphaDependencies}
+          >
+            {(surface) => (
+              <RelocationRegistrationProbe
+                runtime={surface.runtime}
+                title={surface.title}
+              />
+            )}
+          </BlockDocumentSurface>
+        </Activity>
+        <Activity mode={activeProjectId === "beta" ? "visible" : "hidden"}>
+          <BlockDocumentSurface
+            projectId="beta"
+            descriptor={descriptor({
+              projectId: "beta",
+              ownerBlockId: "beta-card",
+              documentId: "document:beta-card",
+            })}
+            isActive={activeProjectId === "beta"}
+            dependencies={betaDependencies}
+          >
+            {(surface) => (
+              <RelocationRegistrationProbe
+                runtime={surface.runtime}
+                title={surface.title}
+              />
+            )}
+          </BlockDocumentSurface>
+        </Activity>
+      </>
+    );
+
+    const view = render(renderProjects("alpha"));
+    await waitFor(() => expect(view.getByText("Alpha title")).toBeTruthy());
+    const firstAlphaRuntime = alphaRuntimes[0];
+    expect(firstAlphaRuntime).toBeDefined();
+    expect(betaRuntimes).toHaveLength(0);
+
+    view.rerender(renderProjects("beta"));
+    await waitFor(() => expect(view.getByText("Beta title")).toBeTruthy());
+    await waitFor(() =>
+      expect(firstAlphaRuntime?.getStatus().phase).toBe("closed"),
+    );
+    const firstBetaRuntime = betaRuntimes[0];
+    expect(firstBetaRuntime).toBeDefined();
+
+    view.rerender(renderProjects("alpha"));
+    await waitFor(() => expect(view.getByText("Alpha title")).toBeTruthy());
+    await waitFor(() =>
+      expect(firstBetaRuntime?.getStatus().phase).toBe("closed"),
+    );
+    expect(alphaRuntimes).toHaveLength(2);
+    expect(alphaRuntimes[1]).not.toBe(firstAlphaRuntime);
+    expect(alphaRuntimes[1]?.clientSessionId).not.toBe(
+      firstAlphaRuntime?.clientSessionId,
+    );
+
+    view.unmount();
+    await waitFor(() =>
+      expect(alphaRuntimes[1]?.getStatus().phase).toBe("closed"),
+    );
+    alphaAdapter.destroy();
+    betaAdapter.destroy();
   });
 
   test("rejects a descriptor from another Project before connecting", async () => {

@@ -109,6 +109,7 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Card conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
+- Fixed switching between Project sessions with open Card Stages so retained editors close and recreate their collaborative runtime safely instead of reopening against a destroyed Y.Doc or crashing the window.
 - Whole-store backup and restore now freeze collaborative and managed-asset writes at one consistent boundary, recover interrupted database/assets swaps without mixing snapshots, and automatically reload open Cards without replaying pre-restore edits.
 - Card title and body edits now synchronize through the Card's collaborative document, so two windows can edit the same Card without delayed whole-Card overwrites; reconnect and restart preserve the merged result.
 - Fixed Scheduled edit navigation so valid pending detail edits save before switching tabs, opening another scheduled task, running toolbar actions, or opening a previous run chat.

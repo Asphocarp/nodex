@@ -377,6 +377,7 @@ export class BlockDocumentSurfaceRuntime {
   getReadyDocument = (): OwnedDocumentEnvelope | null => this.readyDocument;
 
   subscribe = (listener: () => void): (() => void) => {
+    if (this.closed || this.closing) return () => undefined;
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
@@ -384,9 +385,7 @@ export class BlockDocumentSurfaceRuntime {
   registerRelocationPreparer = (
     preparer: BlockDocumentSurfaceRelocationPreparer,
   ): (() => void) => {
-    if (this.closed || this.closing) {
-      throw new Error("Block Document surface is closed");
-    }
+    if (this.closed || this.closing) return () => undefined;
     this.relocationPreparers.add(preparer);
     return () => this.relocationPreparers.delete(preparer);
   };
@@ -394,9 +393,7 @@ export class BlockDocumentSurfaceRuntime {
   registerPersistPreparer = (
     preparer: BlockDocumentSurfacePersistPreparer,
   ): (() => void) => {
-    if (this.closed || this.closing) {
-      throw new Error("Block Document surface is closed");
-    }
+    if (this.closed || this.closing) return () => undefined;
     this.persistPreparers.add(preparer);
     return () => this.persistPreparers.delete(preparer);
   };
@@ -697,7 +694,11 @@ export class BlockDocumentSurfaceRuntime {
     }
     return {
       phase,
-      ready: this.readyDocument !== null && !this.terminal,
+      ready:
+        this.readyDocument !== null
+        && !this.terminal
+        && !this.closed
+        && !this.closing,
       reloadRequired: this.terminal !== null,
       writeFrozen,
       descriptor: this.descriptor,

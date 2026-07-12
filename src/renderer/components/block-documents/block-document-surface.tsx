@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -325,6 +326,16 @@ interface RuntimeOwnerProps extends OwnedBlockDocumentSurfaceProps {
   readonly restart: () => void;
 }
 
+interface RuntimeOwnerState {
+  readonly runtime: BlockDocumentSurfaceRuntime | null;
+  readonly startupError: Error | null;
+}
+
+const EMPTY_RUNTIME_OWNER_STATE: RuntimeOwnerState = {
+  runtime: null,
+  startupError: null,
+};
+
 function RuntimeOwner({
   projectId,
   descriptor: descriptorProp,
@@ -337,46 +348,68 @@ function RuntimeOwner({
   restart,
 }: RuntimeOwnerProps) {
   const [descriptor] = useState(descriptorProp);
-  const [runtime, setRuntime] = useState<BlockDocumentSurfaceRuntime | null>(
-    null,
+  const [ownerState, setOwnerState] = useState<RuntimeOwnerState>(
+    EMPTY_RUNTIME_OWNER_STATE,
   );
-  const [startupError, setStartupError] = useState<Error | null>(null);
+  const closeTailRef = useRef<Promise<void>>(Promise.resolve());
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
   const adapterFactory =
     dependencies.createAdapter ?? createDocumentSyncAdapter;
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let live = true;
     let ownedRuntime: BlockDocumentSurfaceRuntime | null = null;
-    try {
-      if (descriptor.projectId !== projectId) {
-        throw new TypeError(
-          "Block Document surface Project does not match its descriptor",
-        );
+    setOwnerState(EMPTY_RUNTIME_OWNER_STATE);
+
+    const openAfterPreviousClose = async (): Promise<void> => {
+      await closeTailRef.current;
+      if (!live) return;
+
+      try {
+        if (descriptor.projectId !== projectId) {
+          throw new TypeError(
+            "Block Document surface Project does not match its descriptor",
+          );
+        }
+        const adapter = adapterFactory(projectId);
+        ownedRuntime = runtimeFactory({
+          descriptor,
+          adapter,
+          reload: (context) => onReloadRef.current?.(context),
+        });
+        if (runtimeRef) runtimeRef.current = ownedRuntime;
+        setOwnerState({ runtime: ownedRuntime, startupError: null });
+        await ownedRuntime.connect();
+      } catch (error) {
+        if (!live) return;
+        setOwnerState((current) => ({
+          runtime: current.runtime,
+          startupError: toError(error),
+        }));
       }
-      const adapter = adapterFactory(projectId);
-      ownedRuntime = runtimeFactory({
-        descriptor,
-        adapter,
-        reload: (context) => onReloadRef.current?.(context),
-      });
-      if (runtimeRef) runtimeRef.current = ownedRuntime;
-      setRuntime(ownedRuntime);
-      void ownedRuntime.connect().catch((error: unknown) => {
-        if (live) setStartupError(toError(error));
-      });
-    } catch (error) {
-      setStartupError(toError(error));
-    }
+    };
+
+    void openAfterPreviousClose();
 
     return () => {
       live = false;
       if (runtimeRef?.current === ownedRuntime) runtimeRef.current = null;
-      if (ownedRuntime) void ownedRuntime.close();
+      setOwnerState((current) =>
+        current.runtime === ownedRuntime
+          ? EMPTY_RUNTIME_OWNER_STATE
+          : current,
+      );
+      if (!ownedRuntime) return;
+      closeTailRef.current = ownedRuntime.close().then(
+        () => undefined,
+        () => undefined,
+      );
     };
   }, [adapterFactory, descriptor, projectId, runtimeFactory, runtimeRef]);
+
+  const { runtime, startupError } = ownerState;
 
   const reloadWithoutRuntime = async (): Promise<void> => {
     try {
