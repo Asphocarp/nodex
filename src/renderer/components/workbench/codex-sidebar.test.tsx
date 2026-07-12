@@ -143,32 +143,6 @@ describe("codex sidebar thread row", () => {
     expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
   });
 
-  test("does not reveal hover actions from row focus alone", async () => {
-    let container!: HTMLElement;
-
-    await act(async () => {
-      ({ container } = render(
-        <NodexTooltipProvider>
-          <CodexSidebarThreadRow
-            item={makeThreadItem()}
-            active
-            onSelect={() => {}}
-            onArchive={() => {}}
-            onTogglePinned={() => {}}
-          />
-        </NodexTooltipProvider>,
-      ));
-    });
-
-    const actionRail = container.querySelector("[data-app-action-sidebar-thread-action-rail]") as HTMLElement | null;
-    expect(actionRail).not.toBeNull();
-
-    const className = (actionRail as HTMLElement).className;
-    expect(className.includes("group-hover:opacity-100")).toBe(true);
-    expect(className.includes(":has(:focus-visible)")).toBe(true);
-    expect(className.includes("group-focus-within")).toBe(false);
-  });
-
   test("keeps the pinned state visible while archive stays in the action rail", async () => {
     let container!: HTMLElement;
 

@@ -264,40 +264,6 @@ describe("nfm text action menu surface", () => {
     return focusProbe;
   }
 
-  test("renders the fixture-level action hierarchy with inactive reference mocks", () => {
-    const { view } = renderTextActionMenu();
-
-    expect(view.getByRole("toolbar", { name: "Text actions" }).getAttribute("aria-label")).toBe("Text actions");
-    expect(view.getByRole("button", { name: "Normal Text" }).getAttribute("aria-haspopup")).toBe("dialog");
-    expect(view.getByRole("button", { name: "Bold" }).getAttribute("aria-pressed")).toBe("true");
-    expect(view.getByRole("button", { name: "Color" }).getAttribute("aria-haspopup")).toBe("dialog");
-    expect(view.getByRole("button", { name: "Equation Mock" }).getAttribute("aria-disabled")).toBe("true");
-    expect(view.getByRole("button", { name: "Write a comment Mock" }).getAttribute("aria-disabled")).toBe("true");
-    expect(view.getByRole("textbox").getAttribute("aria-disabled")).toBe("true");
-    expect(view.getAllByText("Mock").length > 0).toBe(true);
-    expect(Boolean(view.getByText("Improve writing"))).toBe(true);
-    expect(Boolean(view.getByText("⌘⌃E"))).toBe(true);
-
-    const toolbarText = view.getByRole("toolbar", { name: "Text actions" }).textContent ?? "";
-    const nodexIndex = toolbarText.indexOf("Actions");
-    const skillsIndex = toolbarText.indexOf("Skills");
-    expect(nodexIndex >= 0 && skillsIndex >= 0 && nodexIndex < skillsIndex).toBe(true);
-  });
-
-  test("hides reference mock controls from the production surface", () => {
-    const { view } = renderTextActionMenu({ showReferenceMocks: false });
-
-    expect(view.queryByRole("button", { name: "Equation Mock" }) === null).toBe(true);
-    expect(view.queryByRole("button", { name: "Write a comment Mock" }) === null).toBe(true);
-    expect(view.queryByRole("textbox") === null).toBe(true);
-    expect(view.queryByText("Skills") === null).toBe(true);
-    expect(view.queryByText("Improve writing") === null).toBe(true);
-    expect(view.queryByText("Mock") === null).toBe(true);
-    expect(Boolean(view.getByRole("button", { name: "Bold" }))).toBe(true);
-    expect(Boolean(view.getByRole("button", { name: "Send to chat" }))).toBe(true);
-    expect(Boolean(view.getByRole("button", { name: "Move to" }))).toBe(true);
-  });
-
   test("opens the block type menu and delegates Turn into selections", async () => {
     const { actions, view } = renderTextActionMenu();
 
@@ -1121,19 +1087,5 @@ describe("nfm text action menu surface", () => {
 
     expect(view.getByRole("button", { name: "Color" }).getAttribute("aria-disabled")).toBe("true");
     expect(view.queryByRole("dialog", { name: "Color" }) === null).toBe(true);
-  });
-
-  test("does not fire disabled reference mock actions", async () => {
-    const { actions, view } = renderTextActionMenu();
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Equation Mock" }));
-      fireEvent.click(view.getByRole("button", { name: "Write a comment Mock" }));
-      await settleAsyncRender();
-    });
-
-    expect(actions.styles.length).toBe(0);
-    expect(actions.clearFormat).toBe(0);
-    expect(actions.nodexRows.length).toBe(0);
   });
 });

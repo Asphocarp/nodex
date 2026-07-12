@@ -385,39 +385,6 @@ describe("LocalConversationThreadBody", () => {
     restoreThreadRailLayoutGeometry();
   });
 
-  test("does not render the retired in-thread sticky search input", async () => {
-    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const { container, rerender } = render(
-      <TooltipProvider>
-        <LocalConversationThreadBody
-          model={buildModel()}
-          actions={buildActions()}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
-
-    expect(
-      Boolean(container.querySelector('input[aria-label="Find in thread"]')),
-    ).toBe(false);
-
-    rerender(
-      <TooltipProvider>
-        <LocalConversationThreadBody
-          model={buildModel({ searchOpenTick: 1 })}
-          actions={buildActions()}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
-    await settleAsyncRender();
-
-    await settleAsyncRender();
-    expect(
-      Boolean(container.querySelector('input[aria-label="Find in thread"]')),
-    ).toBe(false);
-  });
-
   test("opens a side chat draft from selected transcript text", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const sideChatInputs: unknown[] = [];

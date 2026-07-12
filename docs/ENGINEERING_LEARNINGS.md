@@ -892,6 +892,8 @@ Vitest parallelizes test files, while tests inside one file remain sequential. W
 
 Keep the production component import dynamic and later than mock registration. Vitest transforms `vi.mock` in the shared suite module, and each shard receives an isolated module instance under the renderer suite's `forks` plus default isolation boundary. Do not use `test.concurrent` for React DOM workflows that mutate shared mock state, storage, DOM prototypes, or external stores.
 
+Ordinary component specs should prefer a static component import unless the import boundary itself is under test or import-time state must change first. The first `await import(...)` inside a test pushes that module graph into the serial test phase instead of Vitest's collection/import phase; later imports of the same module are normally cached. Preserve expensive DOM coverage only for observable workflows and runtime contracts; exact SVG paths, Tailwind strings, retired-element absence, fixture catalogs, and duplicated presentation copy belong in Storybook/manual review or lower-cost pure helpers.
+
 ---
 ## Codex session replay compaction boundaries
 

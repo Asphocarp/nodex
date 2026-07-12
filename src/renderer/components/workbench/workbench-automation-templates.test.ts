@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT,
   WORKBENCH_AUTOMATION_TEMPLATES,
   buildWorkbenchAutomationTemplatePersonalizationPrompt,
   createWorkbenchAutomationDraftFromTemplate,
@@ -8,18 +7,6 @@ import {
 } from "./workbench-automation-templates";
 
 describe("workbench automation templates", () => {
-  test("exposes the system automation catalog in reference order", () => {
-    expect(WORKBENCH_AUTOMATION_TEMPLATES.length).toBe(18);
-    expect(WORKBENCH_AUTOMATION_TEMPLATES[0]?.id).toBe("daily-bug-scan");
-    expect(WORKBENCH_AUTOMATION_TEMPLATES[17]?.id).toBe("changelog-update");
-  });
-
-  test("exposes the create-with-chat prompt", () => {
-    expect(WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT).toBe(
-      "Let's set up a scheduled task together. First, explain how scheduled tasks work in Codex. Then interview me to figure out what I need scheduled and when it should run.",
-    );
-  });
-
   test("filters templates by name, prompt, and schedule label", () => {
     const ciMatches = filterWorkbenchAutomationTemplates(WORKBENCH_AUTOMATION_TEMPLATES, "ci failures");
     expect(ciMatches.length).toBe(2);

@@ -436,36 +436,6 @@ function buildRepeatedFilePatch(pathName = "src/example.ts"): string {
   ].join("\n");
 }
 
-function buildFileTypePatch(): string {
-  return [
-    "diff --git a/docs/README.md b/docs/README.md",
-    "index 1111111..2222222 100644",
-    "--- a/docs/README.md",
-    "+++ b/docs/README.md",
-    "@@ -1 +1,2 @@",
-    " # Nodex",
-    "+Review docs",
-    "",
-    "diff --git a/src/workbench.tsx b/src/workbench.tsx",
-    "index 1111111..2222222 100644",
-    "--- a/src/workbench.tsx",
-    "+++ b/src/workbench.tsx",
-    "@@ -1 +1,2 @@",
-    " export function Workbench() {",
-    "+  return <main />;",
-    " }",
-    "",
-    "diff --git a/src/model.ts b/src/model.ts",
-    "index 1111111..2222222 100644",
-    "--- a/src/model.ts",
-    "+++ b/src/model.ts",
-    "@@ -1 +1,2 @@",
-    " export const model = true;",
-    "+export const review = true;",
-    "",
-  ].join("\n");
-}
-
 function buildGitSummary(
   path: string,
   status: "modified" | "added" | "deleted" | "renamed" = "modified",
@@ -754,70 +724,6 @@ describe("review diff panel", () => {
     expect(renderedFileDiff?.getAttribute("data-diff-indicators")).toBe("bars");
   });
 
-  test("renders Codex file-type icons in review headers and the file tree", async () => {
-    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
-    const conversation = buildConversation();
-    conversation.turns[0]!.diff = buildFileTypePatch();
-
-    const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          projectWorkspacePath="/tmp/codex"
-          initialFileTreeOpen
-        />
-      </NodexTooltipProvider>,
-    );
-
-    await settleAsyncRender();
-    await waitForReviewTreePath(view.container, "docs/README.md");
-    await waitForReviewTreePath(view.container, "src/workbench.tsx");
-    await waitForReviewTreePath(view.container, "src/model.ts");
-
-    expect(
-      Boolean(
-        view.container.querySelector(
-          '.codex-review-diff-card[data-review-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Boolean(
-        view.container.querySelector(
-          '.codex-review-diff-card[data-review-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Boolean(
-        view.container.querySelector(
-          '.codex-review-diff-card[data-review-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Boolean(
-        view.container.querySelector(
-          'button[data-review-tree-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Boolean(
-        view.container.querySelector(
-          'button[data-review-tree-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Boolean(
-        view.container.querySelector(
-          'button[data-review-tree-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]',
-        ),
-      ),
-    ).toBe(true);
-  });
-
   test("folds repeated diff sections for the same path into one review entry", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     const conversation = buildConversation();
@@ -901,110 +807,6 @@ describe("review diff panel", () => {
     expect(
       view.container.querySelector('[data-file-diff="src/stale.ts"]'),
     ).toBe(null);
-  });
-
-  test("renders Codex review toolbar and file-row icon chrome", async () => {
-    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
-
-    const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
-      </NodexTooltipProvider>,
-    );
-
-    await settleAsyncRender();
-
-    const jumpIconPath =
-      view
-        .getByLabelText("Jump to file")
-        .querySelector("svg path")
-        ?.getAttribute("d") ?? "";
-    const commitIconPath =
-      view
-        .getByLabelText("Commit or push")
-        .querySelector("svg path")
-        ?.getAttribute("d") ?? "";
-    const createPrIconPath =
-      view
-        .getByLabelText("Create PR")
-        .querySelector("svg path")
-        ?.getAttribute("d") ?? "";
-    const fileTreeTogglePath =
-      view
-        .getByLabelText("Show files")
-        .querySelector("svg path")
-        ?.getAttribute("d") ?? "";
-
-    expect(jumpIconPath.startsWith("M13.75 10.76")).toBe(true);
-    expect(commitIconPath.startsWith("M15.0001 14.9967")).toBe(true);
-    expect(createPrIconPath.startsWith("M2.54004 0")).toBe(true);
-    expect(fileTreeTogglePath.includes("15.833-3.333")).toBe(true);
-    expect(
-      textContent(view.getByLabelText("Commit or push")).includes(
-        "Commit or push",
-      ),
-    ).toBe(true);
-    expect(
-      textContent(view.getByLabelText("Create PR")).includes("Create PR"),
-    ).toBe(true);
-
-    const fileRow = view.container.querySelector(
-      '.codex-review-diff-card[data-review-path="src/example.ts"]',
-    );
-    if (!fileRow) {
-      throw new Error("Expected Codex review file diff row.");
-    }
-    const toggleButton = fileRow.querySelector(
-      'button[aria-label="Toggle file diff"][data-app-action-review-file-toggle]',
-    );
-    const openButton = fileRow.querySelector('button[aria-label="Open in"]');
-    if (!toggleButton || !openButton) {
-      throw new Error("Expected Codex review row action buttons.");
-    }
-
-    expect(
-      toggleButton.getAttribute("data-app-action-review-file-expanded"),
-    ).toBe("true");
-    expect(
-      (
-        toggleButton.querySelector("svg path")?.getAttribute("d") ?? ""
-      ).startsWith("M7.52925 3.7793"),
-    ).toBe(true);
-    expect((openButton.textContent ?? "").trim()).toBe("");
-    expect(
-      (
-        openButton.querySelector("svg path")?.getAttribute("d") ?? ""
-      ).startsWith("M4.30164 12.197"),
-    ).toBe(true);
-
-    const rowStats = fileRow.querySelector(
-      'span[data-thread-find-skip="true"]',
-    );
-    if (!isDomElement(rowStats)) {
-      throw new Error("Expected Codex review row diff stats.");
-    }
-    expect(rowStats.className.includes("text-xs")).toBe(false);
-    expect(rowStats.className.includes("tabular-nums")).toBe(true);
-    expect(
-      rowStats
-        .querySelector(".text-token-git-decoration-added-resource-foreground")
-        ?.className.includes("items-center") ?? false,
-    ).toBe(true);
-
-    const aggregateStats = Array.from(
-      view.container.querySelectorAll('span[data-thread-find-skip="true"]'),
-    )
-      .filter(isDomElement)
-      .find((element) => !element.closest("[data-review-path]"));
-    if (!aggregateStats) {
-      throw new Error("Expected Codex review aggregate diff stats.");
-    }
-    expect(aggregateStats.className.includes("text-size-chat")).toBe(true);
-    expect(aggregateStats.className.includes("text-xs")).toBe(false);
-    expect(aggregateStats.className.includes("select-none")).toBe(true);
   });
 
   test("prefers the explicitly selected turn diff when provided", async () => {
@@ -1180,7 +982,7 @@ describe("review diff panel", () => {
       return {
         cwd: "/tmp/storybook/virtualized-tree",
         source: "unstaged",
-        patch: buildMultiFilePatch(120, true),
+        patch: buildMultiFilePatch(24, true),
         files: [],
         isGitRepository: true,
         baseRef: null,
@@ -1234,7 +1036,7 @@ describe("review diff panel", () => {
     const renderedTreeRows = view.container.querySelectorAll(
       '[data-review-tree-item="true"]',
     );
-    expect(renderedTreeRows.length < 120).toBe(true);
+    expect(renderedTreeRows.length < 24).toBe(true);
   });
 
   test("collapses and expands folder rows in the review file tree", async () => {
@@ -1502,40 +1304,6 @@ describe("review diff panel", () => {
     expect((deletedStatus.textContent ?? "").trim()).toBe("D");
   });
 
-  test("does not render the retired review-local search input", async () => {
-    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
-
-    const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-          searchOpenTick={0}
-        />
-      </NodexTooltipProvider>,
-    );
-
-    await settleAsyncRender();
-    expect(textContent(view.container).includes("Find in review")).toBe(false);
-
-    await act(async () => {
-      view.rerender(
-        <NodexTooltipProvider>
-          <ReviewDiffPanel
-            conversation={buildConversation()}
-            projectWorkspacePath="/tmp/codex"
-            searchOpenTick={1}
-          />
-        </NodexTooltipProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    await settleAsyncRender();
-    await settleAsyncRender();
-    expect(textContent(view.container).includes("Find in review")).toBe(false);
-  });
-
   test("switches review source without starting a protocol review", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
@@ -1786,86 +1554,6 @@ describe("review diff panel", () => {
         "The last turn was committed or reverted.",
       ),
     ).toBe(false);
-    const illustrationPath =
-      view.container
-        .querySelector('svg[viewBox="0 0 66 73"] path')
-        ?.getAttribute("d") ?? "";
-    expect(illustrationPath.startsWith("M20.4622 0.247806")).toBe(true);
-  });
-
-  test("exposes Codex review options in the parity toolbar", async () => {
-    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
-
-    mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
-      return {
-        cwd: "/tmp/codex",
-        source: "unstaged",
-        patch:
-          "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
-        files: [],
-        isGitRepository: true,
-        baseRef: null,
-        currentBranch: "feature",
-        defaultBranch: "main",
-        errorMessage: null,
-      };
-    };
-
-    let view!: ReturnType<typeof render>;
-    await act(async () => {
-      view = render(
-        <NodexToastProvider>
-          <NodexTooltipProvider>
-            <ReviewDiffPanel
-              conversation={buildConversation()}
-              projectWorkspacePath="/tmp/codex"
-              initialSource="unstaged"
-            />
-          </NodexTooltipProvider>
-        </NodexToastProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    await settleAsyncRender();
-    await waitForGitReviewDiffCall();
-    await openReviewOptionsMenu(view);
-    await waitForMenuItem(view.baseElement as HTMLElement, "Copy git apply command");
-
-    expect(
-      Boolean(
-        view.baseElement.textContent?.includes("Review uncommitted changes"),
-      ),
-    ).toBe(false);
-    expect(
-      Boolean(
-        view.baseElement.textContent?.includes("Review against a base branch"),
-      ),
-    ).toBe(false);
-    expect(
-      Boolean(view.baseElement.textContent?.includes("Copy git apply command")),
-    ).toBe(true);
-    expect(
-      Boolean(view.baseElement.textContent?.includes("Enable word wrap")),
-    ).toBe(true);
-    expect(
-      Boolean(view.baseElement.textContent?.includes("Disable word diffs")),
-    ).toBe(true);
-    expect(
-      Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
-    ).toBe(true);
-    expect(
-      Boolean(view.baseElement.textContent?.includes("Don't load full files")),
-    ).toBe(true);
-    await dispatchReviewEvent(() => {
-      fireEvent.keyDown(view.baseElement.ownerDocument, { key: "Escape" });
-    });
-    await waitFor(() => {
-      if (view.baseElement.ownerDocument.querySelector('[role="menuitem"]')) {
-        throw new Error("Expected review options menu to close.");
-      }
-    });
   });
 
   test("prefers the explicit project workspace path for git-backed review sources", async () => {

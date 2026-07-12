@@ -100,23 +100,6 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(header?.className.includes("draggable")).toBe(true);
   });
 
-  test("uses the single-lane Codex titlebar grid", async () => {
-    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
-    const { container } = render(
-      <ThreadStageHeader
-        model={buildModel({ title: "Review shell header parity" })}
-        actions={buildActions()}
-        onErrorMessage={() => {}}
-      />,
-    );
-
-    const header = container.firstElementChild;
-    const title = container.querySelector('[data-testid="thread-stage-title"]');
-    expect(header?.className.includes("grid-cols-[minmax(0,1fr)]")).toBe(true);
-    expect(header?.className.includes("grid-cols-[minmax(0,1fr)_auto]")).toBe(false);
-    expect(title?.firstElementChild?.className.includes("min-w-0 truncate")).toBe(true);
-  });
-
   test("keeps thread actions left-aligned immediately after the title", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const actions = {
@@ -169,20 +152,6 @@ describe("ThreadStageHeader auth chrome", () => {
 
     fireEvent.click(screen.getByText("Rename chat"));
     expect(renameCalls).toBe(1);
-  });
-
-  test("does not render in-flow titlebar hitboxes", async () => {
-    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
-    const { container } = render(
-      <ThreadStageHeader model={buildModel()} actions={buildActions()} onErrorMessage={() => {}} />,
-    );
-
-    const header = container.firstElementChild;
-    const leftHitbox = container.querySelector('[data-testid="thread-stage-header-left-chrome-hitbox"]');
-    const hitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
-    expect(header?.className.includes("draggable")).toBe(true);
-    expect(Boolean(leftHitbox)).toBe(false);
-    expect(Boolean(hitbox)).toBe(false);
   });
 
   test("does not render the authenticated connection badge", async () => {

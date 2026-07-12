@@ -141,6 +141,8 @@ describe("SidebarProjectsSection", () => {
     expect(rows.length).toBe(2);
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-id")).toBe("beta");
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-label")).toBe("Beta");
+    expect(rows[0]?.getAttribute("role")).toBe("button");
+    expect(rows[0]?.getAttribute("tabindex")).toBe("0");
   });
 
   test("opens the add-project submenu from the section action button", async () => {

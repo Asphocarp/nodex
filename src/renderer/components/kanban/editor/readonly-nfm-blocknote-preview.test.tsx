@@ -5,6 +5,7 @@ import {
   setDateMentionClockStoreForTest,
 } from "@/lib/nfm/date-mention-clock";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
+import { ReadonlyNfmBlockNotePreview } from "./readonly-nfm-blocknote-preview";
 
 let restoreDateMentionClockStore: (() => void) | null = null;
 
@@ -41,7 +42,6 @@ function installDateMentionClock(start: string) {
 
 describe("readonly NFM BlockNote preview", () => {
   test("renders NFM content through the read-only BlockNote surface", async () => {
-    const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
     const view = render(
       <ReadonlyNfmBlockNotePreview
         content={"# Historical heading\n\nSnapshot body with **bold** text"}
@@ -63,7 +63,6 @@ describe("readonly NFM BlockNote preview", () => {
   });
 
   test("renders live embeds as inert placeholders", async () => {
-    const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
     const view = render(
       <ReadonlyNfmBlockNotePreview
         content={[
@@ -91,7 +90,6 @@ describe("readonly NFM BlockNote preview", () => {
   });
 
   test("renders attachment, agent config, and thread mention as inert inline content", async () => {
-    const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
     const view = render(
       <ReadonlyNfmBlockNotePreview
         content={'Before <attachment kind="file" mode="link" source="/tmp/report.md" name="report.md" /> after\n\nUse <agent-config mode="plan" model="gpt-5.5" reasoning="high" />\n\nSee <mention-thread uuid="019-thread" />'}
@@ -124,7 +122,6 @@ describe("readonly NFM BlockNote preview", () => {
 
   test("refreshes readonly date mention labels while mounted", async () => {
     const clock = installDateMentionClock("2026-06-28T12:00:00");
-    const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
     const view = render(
       <ReadonlyNfmBlockNotePreview
         content={'Readonly note with <mention-date start="2026-06-28" format="relative" />.'}
@@ -154,7 +151,6 @@ describe("readonly NFM BlockNote preview", () => {
   });
 
   test("initializes and cleans preview toggle state", async () => {
-    const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
     const view = render(
       <ReadonlyNfmBlockNotePreview
         content={"▼ Open toggle\n\tOpen child\n\n▶ Closed toggle\n\tClosed child"}

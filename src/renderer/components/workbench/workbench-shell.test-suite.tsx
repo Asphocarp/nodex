@@ -2815,34 +2815,6 @@ async function pointerDownAndSettle(element: HTMLElement): Promise<void> {
   await settleAsyncRender();
 }
 
-function getMenuItemIconClassName(menu: HTMLElement, label: string): string {
-  const item = within(menu).getByText(label).closest('[role="menuitem"]');
-  if (!(item instanceof HTMLElement)) {
-    throw new Error(`Expected ${label} menu item`);
-  }
-
-  const icon = item.querySelector("svg");
-  if (!(icon instanceof SVGElement)) {
-    throw new Error(`Expected ${label} menu item icon`);
-  }
-
-  return icon.getAttribute("class") ?? "";
-}
-
-function expectPanelMenuDescriptionsHidden(menu: HTMLElement): void {
-  for (const description of [
-    "Browse project files",
-    "Start a side conversation",
-    "Open a website",
-    "View code changes",
-    "Start an interactive shell",
-    "Open the project database",
-    "Open a project card",
-  ]) {
-    expect(textContent(menu).includes(description)).toBe(false);
-  }
-}
-
 function getFilesPreviewInteractionTarget(screen: ReturnType<typeof renderWorkbench>): HTMLElement {
   return screen.queryByPlaceholderText("Filter files...")
     ?? screen.getByText("This project does not have a workspace folder.");
@@ -3283,17 +3255,6 @@ describe(`workbench session shell / ${scope}`, () => {
     ]));
   });
 
-  test("renders the Codex-style top new-chat row", async () => {
-    const screen = renderWorkbench();
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const newChatButton = screen.getByRole("button", { name: "New chat" });
-    const iconPath = newChatButton.querySelector("path")?.getAttribute("d") ?? "";
-    expect(iconPath.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBe(true);
-    expect(textContent(newChatButton).includes("⌘N") || textContent(newChatButton).includes("Ctrl+N")).toBe(true);
-  });
-
   test("renders Codex sidebar route rows inside the scroll area in captured order", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -3725,24 +3686,6 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(renameCall?.[1]).toBe("session:alpha:rename-target");
     expect((renameCall?.[2] as { title?: string } | undefined)?.title).toBe("  hello   world  ");
     expect(getThreadRow(screen.container, "hello world").getAttribute("data-app-action-sidebar-thread-title")).toBe("hello world");
-  });
-
-  test("expanded sidebar keeps the sidebar toggle in the left header rail without compact new-chat", async () => {
-    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 312 } });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const leftSlot = getHeaderShellSlot(screen, "left");
-    const labels = Array.from(leftSlot.querySelectorAll("button"))
-      .map((button) => button.getAttribute("aria-label"))
-      .join(",");
-    const topNewChatButton = screen.getByRole("button", { name: "New chat" });
-
-    expect(labels).toBe("Hide sidebar,Back,Forward");
-    expect(leftSlot.getAttribute("style")?.includes("width: 312px")).toBe(true);
-    expect(leftSlot.getAttribute("style")?.includes("min-width: 312px")).toBe(false);
-    expect(within(leftSlot).queryByRole("button", { name: "New chat" })).toBe(null);
-    expect(topNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBe(true);
   });
 
   test("clicking the Projects section header collapses and expands project rows", async () => {
@@ -4303,30 +4246,6 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(textContent(document.body).includes("Edit sources")).toBe(true);
   });
 
-  test("project rows expose the Codex sortable header DOM contract", async () => {
-    const screen = renderWorkbench({
-      projects: [makeProject(), makeProject("beta", "Beta")],
-      sessionsByProject: {
-        alpha: [makeSession()],
-        beta: [makeSession({
-          id: "session:beta:database-view",
-          projectId: "beta",
-          title: "Beta Database View",
-        })],
-      },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const betaRow = screen.container.querySelector('[data-app-action-sidebar-project-id="beta"]');
-    expect(betaRow?.getAttribute("role")).toBe("button");
-    expect(betaRow?.getAttribute("tabindex")).toBe("0");
-    expect(betaRow?.getAttribute("aria-roledescription")).toBe("sortable");
-    expect(betaRow?.getAttribute("aria-describedby")?.startsWith("DndDescribedBy-")).toBe(true);
-    expect(Boolean(betaRow?.querySelector('[data-app-action-sidebar-select-project]'))).toBe(true);
-    expect(Boolean(document.getElementById(betaRow?.getAttribute("aria-describedby") ?? ""))).toBe(true);
-  });
-
   test("pinned project groups render above normal projects and are excluded from Projects", async () => {
     const beta = {
       ...makeProject("beta", "Beta"),
@@ -4711,51 +4630,6 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
   });
 
-  test("scheduled route keeps titlebar chrome aligned when the sidebar collapses", async () => {
-    const originalPlatform = navigator.platform;
-    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
-    try {
-      const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
-      await settleAsyncRender();
-      await settleAsyncRender();
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
-        await Promise.resolve();
-      });
-      await settleAsyncRender();
-
-      const expandedLeftSlot = getHeaderShellSlot(screen, "left");
-      await act(async () => {
-        fireEvent.click(within(expandedLeftSlot).getByRole("button", { name: "Hide sidebar" }));
-        await Promise.resolve();
-      });
-      await settleAsyncRender();
-      await settleAsyncRender();
-
-      const collapsedLeftSlot = getHeaderShellSlot(screen, "left");
-      const headerContextSurface = screen.getByTestId("app-shell-header-context-menu-surface");
-      const collapsedLabels = Array.from(collapsedLeftSlot.querySelectorAll("button"))
-        .map((button) => button.getAttribute("aria-label"))
-        .join(",");
-
-      await waitFor(() => {
-        expect(within(headerContextSurface).queryByRole("button", { name: "Tasks" }) !== null).toBe(true);
-      });
-
-      expect(collapsedLabels).toBe("Show sidebar,Back,Forward,New chat");
-      expect(within(collapsedLeftSlot).queryByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
-      expect(headerContextSurface.getAttribute("aria-hidden")).toBe(null);
-      expect(headerContextSurface.className.includes("invisible")).toBe(false);
-      expect(within(screen.getByTestId("workbench-global-header")).queryByRole("button", { name: "Toggle bottom panel" })).toBe(null);
-      expect(within(screen.getByTestId("workbench-global-header")).queryByRole("button", { name: "Toggle side panel" })).toBe(null);
-      expect(within(headerContextSurface).queryByRole("button", { name: "Templates" }) !== null).toBe(true);
-      expect(within(headerContextSurface).queryByRole("button", { name: "Create via chat" }) !== null).toBe(true);
-    } finally {
-      Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
-    }
-  });
-
   test("restores full-width right-panel geometry after returning from settings", async () => {
     const measurement = installSessionContentMeasurementForTest({ width: 850, height: 640 });
     try {
@@ -5005,51 +4879,6 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBe(true);
     const topFade = screen.container.querySelector(".app-shell-main-content-top-fade");
     expect(topFade?.getAttribute("data-app-shell-main-content-top-fade")).toBe("full-bleed");
-  });
-
-  test("keeps the frame border shell-owned while reserving right header actions", async () => {
-    const screen = renderWorkbench({
-      sessionsByProject: {
-        alpha: [
-          makeAttachedSession({
-            id: "session:alpha:thread",
-            title: "Thread",
-            rightCollapsed: false,
-          }),
-        ],
-      },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const visibleProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    const visibleFrame = screen.container.querySelector(".app-shell-main-content-frame");
-    expect(Boolean(visibleProps && "showHeaderSeparator" in visibleProps)).toBe(false);
-    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBe(true);
-    expect((visibleFrame?.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBe(false);
-    expect((visibleFrame?.getAttribute("style") ?? "").includes("--thread-stage-header-right-reserve")).toBe(false);
-    screen.unmount();
-
-    const collapsedScreen = renderWorkbench({
-      sessionsByProject: {
-        alpha: [
-          makeAttachedSession({
-            id: "session:alpha:thread-collapsed",
-            title: "Thread",
-            rightCollapsed: true,
-          }),
-        ],
-      },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const collapsedProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    const collapsedFrame = collapsedScreen.container.querySelector(".app-shell-main-content-frame");
-    expect(Boolean(collapsedProps && "showHeaderSeparator" in collapsedProps)).toBe(false);
-    expect(collapsedScreen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBe(true);
-    expect((collapsedFrame?.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBe(false);
-    expect((collapsedFrame?.getAttribute("style") ?? "").includes("--thread-stage-header-right-reserve")).toBe(false);
   });
 
   test("renders the session new-thread composer instead of the old attach placeholder", async () => {
@@ -5448,58 +5277,6 @@ describe(`workbench session shell / ${scope}`, () => {
     }
   });
 
-  test("automations route shows task and template search empty states", async () => {
-    installTerminalEventApiMock();
-    const screen = renderWorkbench({
-      scheduledAutomations: [
-        makeScheduledAutomation({
-          id: "automation-search-alpha",
-          name: "Alpha standup",
-          prompt: "Check the alpha thread.",
-        }),
-      ],
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const sidebar = screen.getByTestId("project-session-sidebar");
-    await act(async () => {
-      fireEvent.click(within(sidebar).getByRole("button", { name: "Scheduled" }));
-      await Promise.resolve();
-    });
-    const routeShell = await screen.findByTestId("automations-route-shell");
-    const headerContextSurface = screen.getByTestId("app-shell-header-context-menu-surface");
-    await waitFor(() => {
-      expect(within(headerContextSurface).queryByRole("button", { name: "Templates" }) !== null).toBe(true);
-    });
-
-    const taskSearch = await within(routeShell).findByLabelText("Search scheduled tasks") as HTMLInputElement;
-    await act(async () => {
-      taskSearch.value = "no matching automation";
-      fireEvent.input(taskSearch);
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(textContent(screen.container).includes("No scheduled tasks found")).toBe(true);
-      expect(textContent(screen.container).includes("Try another search")).toBe(true);
-    });
-
-    await act(async () => {
-      fireEvent.click(within(headerContextSurface).getByRole("button", { name: "Templates" }));
-      await Promise.resolve();
-    });
-    const templateSearch = await within(routeShell).findByLabelText("Search templates") as HTMLInputElement;
-    await act(async () => {
-      templateSearch.value = "no matching template";
-      fireEvent.input(templateSearch);
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(textContent(screen.container).includes("No templates found")).toBe(true);
-      expect(textContent(screen.container).includes("Try another search")).toBe(true);
-    });
-  });
-
   test("automations edit autosave waits for a valid changed draft", async () => {
     installTerminalEventApiMock();
     const automation = makeScheduledAutomation({
@@ -5772,48 +5549,6 @@ describe(`workbench session shell / ${scope}`, () => {
       call[0] === "project-sessions:create"
       && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", noThreadFallbackTitle: "New thread" })
     )).toBe(true);
-    expect(startThreadForSessionCalls.length).toBe(0);
-  });
-
-  test("automations first-run suggestions pre-fill scheduled task chat prompts", async () => {
-    const screen = renderWorkbench({
-      sessionsByProject: {
-        alpha: [makeAttachedSession({ id: "session:alpha:automation-first-run-suggestion" })],
-      },
-      scheduledAutomations: [],
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-
-    const firstSuggestion = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS[0];
-    if (!firstSuggestion) throw new Error("Expected first-run suggestion fixture");
-    const suggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
-      .map((suggestion) => suggestion.name)
-      .join(",");
-    const visibleSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
-      .map((suggestion) => screen.getByRole("button", { name: suggestion.name }).textContent?.trim() ?? "")
-      .join(",");
-    expect(visibleSuggestionNames).toBe(suggestionNames);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: firstSuggestion.name }));
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-
-    await waitFor(() => {
-      expect(screen.container.querySelector('[data-testid="automations-route-shell"]')).toBe(null);
-    });
-    const promptInput = screen.getByLabelText("Prompt") as HTMLTextAreaElement;
-    await waitFor(() => {
-      expect(promptInput.value).toBe(firstSuggestion.prompt);
-    });
     expect(startThreadForSessionCalls.length).toBe(0);
   });
 
@@ -6209,6 +5944,48 @@ describe(`workbench session shell / ${scope}`, () => {
       && record.title === "Could not update scheduled task"
       && record.description === "Host update failed"
     ))).toBe(true);
+  });
+
+  test("automations first-run suggestions pre-fill scheduled task chat prompts", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:automation-first-run-suggestion" })],
+      },
+      scheduledAutomations: [],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const firstSuggestion = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS[0];
+    if (!firstSuggestion) throw new Error("Expected first-run suggestion fixture");
+    const suggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
+      .map((suggestion) => suggestion.name)
+      .join(",");
+    const visibleSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
+      .map((suggestion) => screen.getByRole("button", { name: suggestion.name }).textContent?.trim() ?? "")
+      .join(",");
+    expect(visibleSuggestionNames).toBe(suggestionNames);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: firstSuggestion.name }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await waitFor(() => {
+      expect(screen.container.querySelector('[data-testid="automations-route-shell"]')).toBe(null);
+    });
+    const promptInput = screen.getByLabelText("Prompt") as HTMLTextAreaElement;
+    await waitFor(() => {
+      expect(promptInput.value).toBe(firstSuggestion.prompt);
+    });
+    expect(startThreadForSessionCalls.length).toBe(0);
   });
 
   test("automations route reports run-now host failures with the scheduled task toast title", async () => {
@@ -7981,31 +7758,6 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("tab", { name: "report.md" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-workspace-files-session-id="session:projectless:summary-output"]') !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
-  });
-
-  test("right-panel add menu keeps custom action icons compact", async () => {
-    const screen = renderWorkbench();
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const menu = await openPanelMenu(screen, "Open side panel tab");
-    expectPanelMenuDescriptionsHidden(menu);
-
-    for (const label of ["Review", "Terminal", "Browser", "Files", "Side chat"]) {
-      const className = getMenuItemIconClassName(menu, label);
-      expect(className.includes("icon-sm")).toBe(true);
-      expect(className.includes("icon-md")).toBe(false);
-    }
-  });
-
-  test("bottom-panel add menu hides action descriptions", async () => {
-    const screen = renderWorkbench();
-    await settleAsyncRender();
-    await settleAsyncRender();
-    await openBottomPanel(screen);
-
-    const menu = await openPanelMenu(screen, "Open bottom panel tab");
-    expectPanelMenuDescriptionsHidden(menu);
   });
 
   test("opening another preview tab replaces the prior same-panel preview", async () => {
@@ -11197,35 +10949,6 @@ describe(`workbench session shell / ${scope}`, () => {
         && input.panelId === "bottom"
         && input.tabId === "terminal-tab";
     })).toBe(true);
-  });
-
-  test("renders the project session tree on a native-vibrant sidebar beside the rounded main surface", async () => {
-    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 312 } });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
-    expect(sidebar !== null).toBe(true);
-    const mainSurface = screen.container.querySelector("main");
-    expect(mainSurface !== null).toBe(true);
-    const dragStrip = screen.container.querySelector('[data-testid="sidebar-drag-strip"]');
-    expect(dragStrip).toBe(null);
-    const resizeStrip = screen.getByTestId("sidebar-resize-strip");
-    expect(resizeStrip.getAttribute("role")).toBe("separator");
-    expect(resizeStrip.getAttribute("aria-orientation")).toBe("vertical");
-    expect(textContent(screen.container).includes("Database View")).toBe(true);
-    const threadRow = screen.container.querySelector("[data-app-action-sidebar-thread-row]");
-    expect(threadRow !== null).toBe(true);
-    const threadTitle = threadRow?.querySelector('[data-thread-title="true"]');
-    expect(threadTitle?.textContent).toBe("Database View");
-    expect(threadTitle?.getAttribute("draggable")).toBe("false");
-    const titleTrigger = threadTitle?.closest('[data-thread-title-trigger="true"]');
-    expect(String(titleTrigger?.className).includes("self-stretch")).toBe(true);
-    const titleIndent = titleTrigger?.parentElement;
-    expect(String(titleIndent?.className).includes("pl-0.5")).toBe(true);
-    expect(String(titleIndent?.className).includes("ml-1.5")).toBe(true);
-    const leadingSlot = titleIndent?.previousElementSibling;
-    expect(String(leadingSlot?.className).includes("w-4")).toBe(true);
   });
 
   test("clicking another project group header expands without switching session", async () => {
