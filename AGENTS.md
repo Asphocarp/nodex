@@ -131,7 +131,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Run full checks before handoff for code changes, preferably in parallel because these commands are independent:
   - `pnpm run typecheck`
   - `pnpm run lint`
-  - `pnpm test:all`
+  - `pnpm test`
 - If one full check fails, fix the issue and rerun the failed check plus any related targeted checks. Rerun all three full checks only when the fix could affect more than the failed surface.
 
 ## Commit and PR Expectations

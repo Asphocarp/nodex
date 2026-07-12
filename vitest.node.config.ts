@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
+import { rendererViteResolve } from "./config/renderer-vite-shared";
 
 export default defineConfig({
+  resolve: rendererViteResolve,
   test: {
     env: { TZ: "UTC" },
     environment: "node",

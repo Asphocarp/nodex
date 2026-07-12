@@ -43,13 +43,19 @@ pnpm test:all
 
 The test commands follow production boundaries:
 
-- `pnpm test:unit` runs pure shared, script, and configuration logic in Node.
+- `pnpm test:unit` runs pure shared, script, configuration, and renderer helper
+  logic in Node. Renderer tests use the `.node.test.ts` suffix when they do not
+  require DOM behavior.
 - `pnpm test:main` runs main/store tests in Electron's embedded Node runtime.
 - `pnpm test:renderer` runs ordinary React and DOM behavior in jsdom.
 - `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
 - `pnpm test:integration` runs integration tests in Electron's Node runtime.
 - `pnpm test:electron-runtime` runs native persistence probes.
 - `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/SQLite chain.
+
+During implementation, run the narrow test file or runtime suite affected by the
+change. Run the complete validation set once after the final edit set is stable;
+`test:all` is the handoff and release gate, not the inner development loop.
 
 ## Related Technical Docs
 

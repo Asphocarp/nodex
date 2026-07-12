@@ -256,8 +256,10 @@ Workbench reopen flow:
 ## Test runtime boundaries
 
 Tests are assigned to the runtime that owns the behavior instead of sharing one
-synthetic global environment. Pure shared logic and operational scripts run in
-Node 24. Main-process and SQLite tests run through Electron with
+synthetic global environment. Pure shared logic, operational scripts, and
+renderer helpers marked with the `.node.test.ts` suffix run in Node 24; the Node
+configuration preserves renderer import aliases without loading React or jsdom
+setup. Main-process and SQLite tests run through Electron with
 `ELECTRON_RUN_AS_NODE=1`, so native addons use the same ABI as production.
 Ordinary renderer component tests use Vitest with jsdom; contracts that depend
 on computed CSS, selection, focus, pointer input, observers, or layout geometry
