@@ -450,9 +450,15 @@ const main = async (): Promise<void> => {
       },
     };
     const relocated = relocateBlocksAtomically(getDb(), relocate);
+    const emptiedLargeDocument = materialize("document:probe-large-document");
     invariant(
       relocated.targetCommit?.headSeq === 5 &&
-        materialize("document:probe-large-document").blockTree.length === 0 &&
+        emptiedLargeDocument.nfm === "" &&
+        emptiedLargeDocument.blockTree.length === 1 &&
+        emptiedLargeDocument.blockTree[0]?.type === "paragraph" &&
+        emptiedLargeDocument.blockTree[0]?.id.startsWith(
+          "block:relocation-empty:",
+        ) === true &&
         materialize("document:probe-host").blockTree.some(
           (block) => block.id === "probe:large-paragraph",
         ),

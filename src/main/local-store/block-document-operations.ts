@@ -79,6 +79,8 @@ export interface ApplyDocumentOperationOptions {
    * SQLite transaction.
    */
   readonly allowStagedDocumentBearingBlockIds?: readonly string[];
+  /** Trusted outer ownership transaction; never expose through transport input. */
+  readonly allowTransientEmptyBlockTree?: boolean;
 }
 
 interface StoredMutationRow {
@@ -964,6 +966,7 @@ const prepareOperationBatch = (
     readonly schemaVersion: number;
   },
   forceWriteFence = false,
+  allowTransientEmptyResult = false,
 ): PreparedMutation => {
   const before = toPersistedBlockDocumentMaterialization(
     inspectOwnedBlockDocument(document, schema).materialization,
@@ -973,6 +976,7 @@ const prepareOperationBatch = (
     operations: request.operations,
     schema,
     transactionOrigin: `document-mutation:${request.mutationId}`,
+    allowTransientEmptyResult,
   });
   return {
     update: prepared.update,
@@ -1303,6 +1307,7 @@ const applyPreparedMutation = (
           options.allowPendingSyncedReferenceTargetIds,
         allowStagedDocumentBearingBlockIds:
           options.allowStagedDocumentBearingBlockIds,
+        allowTransientEmptyBlockTree: options.allowTransientEmptyBlockTree,
         ...(prepared.trustedMaxUpdateBytes === undefined
           ? {}
           : { maxTrustedUpdateBytes: prepared.trustedMaxUpdateBytes }),
@@ -1476,6 +1481,8 @@ const applyMutationInTransaction = (
           loaded.document,
           loaded.head.ownerBlockId,
           schema,
+          false,
+          options.allowTransientEmptyBlockTree,
         );
         assertCreatedIdsAreNewOrStagedOwners(
           database,

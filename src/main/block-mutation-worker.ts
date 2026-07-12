@@ -8,6 +8,7 @@ import {
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import { getOwnedBlockDocumentDescriptor } from "./local-store/block-document-cutover";
+import { prepareEditableOwnedBlockDocument } from "./local-store/owned-block-document-preparation";
 import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
   BlockRelocationStoreError,
@@ -715,13 +716,17 @@ async function runRequest(
         request.payload.ownerBlockId,
       );
     case "prepareOwnedBlockDocument": {
-      return runDocumentCommand(() =>
-        getOwnedBlockDocumentDescriptor(
+      return runDocumentCommand(() => {
+        const prepared = prepareEditableOwnedBlockDocument(
           getDb(),
           request.payload.projectId,
           request.payload.ownerBlockId,
-        ),
-      );
+        );
+        if (prepared.repairedEmptyRoot) {
+          blockDocumentRuntime.invalidate(prepared.descriptor.documentId);
+        }
+        return prepared.descriptor;
+      });
     }
     case "applyBlockDocumentUpdate": {
       const result = runDocumentCommand(() =>

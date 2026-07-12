@@ -159,6 +159,29 @@ describe("Document operation engine", () => {
     }
   });
 
+  test("rejects deleting the final editable Block", () => {
+    const source = createGenesis(
+      "operation-final-root",
+      "Title only",
+      "",
+      ["empty-root"],
+    );
+
+    expect(
+      captureEngineError(() =>
+        prepareDocumentOperationUpdate({
+          document: source.document,
+          operations: [{ kind: "delete_block", blockId: "empty-root" }],
+        }),
+      ),
+    ).toBe("invalid_operation");
+    expect(materializeCardDocument(source.document).blockTree).toMatchObject([
+      { id: "empty-root", type: "paragraph" },
+    ]);
+
+    source.document.destroy();
+  });
+
   test("marks every descendant whose Yjs structs are invalidated by a move", () => {
     const source = createGenesis(
       "operation-fence-descendants",

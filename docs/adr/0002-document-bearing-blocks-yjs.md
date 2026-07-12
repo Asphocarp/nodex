@@ -17,7 +17,7 @@ Every Card owns exactly one explicitly registered Yjs Document. It has two named
 - `Y.Text("title")`
 - `Y.XmlFragment("body")`
 
-These are the complete named-root set; hidden extra shared roots are invalid. The body owns one canonical BlockNote root `blockGroup`, preventing a persisted Document that cannot be mounted by the editor schema.
+These are the complete named-root set; hidden extra shared roots are invalid. The body owns one canonical BlockNote root `blockGroup`. Every active BlockNote-backed Document contains at least one registered application Block because the editor schema requires `blockGroupChild+`; semantic blank is represented by one stable-ID empty paragraph and projects to blank NFM/plain text. Genesis allocates that identity before durability, prepare idempotently repairs historical zero-Block Documents through the sole SQLite writer, and mutation/relocation boundaries cannot leave an active Document empty. Renderer-created placeholder IDs are never authority.
 
 Title and body therefore participate in the same causal history and durable update stream. Ordinary paragraphs, headings, lists, and media are stable-ID Blocks inside the nearest Card's body fragment; they do not each own a Y.Doc.
 

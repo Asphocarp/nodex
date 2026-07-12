@@ -23,6 +23,7 @@ import {
 import { relocateBlocksAtomically } from "./block-relocations";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
+import { prepareEditableOwnedBlockDocument } from "./owned-block-document-preparation";
 
 const isUnsupportedSqliteError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
@@ -218,6 +219,117 @@ describe("BlockDocumentStore", () => {
     expect(infrastructure.retryable).toBe(false);
     expect(infrastructure.resetRequired).toBe(false);
   });
+
+  sqliteTest(
+    "atomically repairs a historical title-only Card before provider mount",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-empty-document-prepare-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+
+      try {
+        await initializeDatabase();
+        closeDatabase();
+
+        const database = new Database(getDatabasePath(), { readonly: false });
+        database.pragma("foreign_keys = ON");
+        const blockId = "card-with-historical-empty-body";
+        const { documentId, projectId, storeEpoch } = seedPendingCardDocument(
+          database,
+          blockId,
+        );
+        const legacyEmpty = createCardDocument({
+          documentId,
+          initialTitle: "Title only",
+        });
+        initializeCardDocumentGenesis(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "legacy-empty-genesis",
+          clientSessionId: "migration",
+          update: Y.encodeStateAsUpdate(legacyEmpty.document),
+        });
+        legacyEmpty.document.destroy();
+        database
+          .prepare("UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?")
+          .run(documentId);
+
+        const prepared = prepareEditableOwnedBlockDocument(
+          database,
+          projectId,
+          blockId,
+        );
+        expect(prepared.repairedEmptyRoot).toBe(true);
+        expect(prepared.descriptor.headSeq).toBe(2);
+
+        const loaded = loadBlockDocument(database, documentId);
+        const root = rootBlockGroup(loaded.document);
+        const repairedBlock = root.get(0);
+        expect(repairedBlock instanceof Y.XmlElement).toBe(true);
+        expect(
+          repairedBlock instanceof Y.XmlElement
+            ? repairedBlock.getAttribute("id")
+            : null,
+        ).toMatch(/^block:editable-root:/);
+        loaded.document.destroy();
+
+        const materialization = database
+          .prepare(
+            "SELECT nfm, block_tree_json FROM document_materializations WHERE document_id = ?",
+          )
+          .get(documentId) as { nfm: string; block_tree_json: string };
+        expect(materialization.nfm).toBe("");
+        expect(JSON.parse(materialization.block_tree_json)).toMatchObject([
+          { type: "paragraph", content: [], children: [] },
+        ]);
+
+        const repeated = prepareEditableOwnedBlockDocument(
+          database,
+          projectId,
+          blockId,
+        );
+        expect(repeated.repairedEmptyRoot).toBe(false);
+        expect(repeated.descriptor.headSeq).toBe(2);
+
+        const authoritative = loadBlockDocument(database, documentId);
+        const destructiveReplica = new Y.Doc({ guid: documentId });
+        Y.applyUpdate(
+          destructiveReplica,
+          Y.encodeStateAsUpdate(authoritative.document),
+        );
+        authoritative.document.destroy();
+        const beforeDelete = Y.encodeStateVector(destructiveReplica);
+        rootBlockGroup(destructiveReplica).delete(0, 1);
+        let destructiveUpdateRejected = false;
+        try {
+          applyBlockDocumentUpdate(database, {
+            documentId,
+            storeEpoch,
+            generation: 1,
+            updateId: "delete-final-editable-root",
+            clientSessionId: "window-destructive",
+            baseHeadSeq: 2,
+            touchedBlockIds: [blockTree[0]?.id ?? ""],
+            update: Y.encodeStateAsUpdate(destructiveReplica, beforeDelete),
+          });
+        } catch {
+          destructiveUpdateRejected = true;
+        }
+        expect(destructiveUpdateRejected).toBe(true);
+        destructiveReplica.destroy();
+        expect(
+          getBlockDocumentRuntimeIdentity(database, documentId).head.headSeq,
+        ).toBe(2);
+        database.close();
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
 
   sqliteTest(
     "durably converges concurrent updates and dependency retries across restart",

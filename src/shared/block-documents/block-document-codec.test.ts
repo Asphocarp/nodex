@@ -151,16 +151,25 @@ describe("CardDocumentCodec", () => {
     );
   });
 
-  test("creates one canonical empty body root for blank NFM", () => {
+  test("creates one authority-owned editable paragraph for blank NFM", () => {
     const genesis = createCardDocumentGenesis({
       documentId: "document-codec-empty",
       title: "Empty",
       nfm: "",
+      allocateBlockId: () => "block-empty-root",
     });
 
     expect(genesis.document.getXmlFragment("body").length).toBe(1);
-    expect(genesis.materialization.blockTree.length).toBe(0);
+    expect(genesis.materialization.blockTree).toMatchObject([
+      {
+        id: "block-empty-root",
+        type: "paragraph",
+        content: [],
+        children: [],
+      },
+    ]);
     expect(genesis.materialization.nfm).toBe("");
+    expect(genesis.materialization.plainText).toBe("");
   });
 
   test("validates no-op schema migration and rejects unknown versions", () => {

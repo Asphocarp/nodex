@@ -3,6 +3,10 @@ import { BlockNoteEditor } from "@blocknote/core";
 import * as Y from "yjs";
 
 import {
+  createCardDocumentGenesis,
+  materializeCardDocument,
+} from "../../../../shared/block-documents/block-document-codec";
+import {
   createNfmEditorModeOptions,
   getNfmEditorInstanceKey,
   resolveNfmEditorBlockActionCapabilities,
@@ -83,6 +87,14 @@ describe("NfmEditor source boundary", () => {
 
   test("does not replace blocks for a remote collaborative update", async () => {
     const document = new Y.Doc({ guid: "document-1" });
+    const genesis = createCardDocumentGenesis({
+      documentId: "document-1-genesis",
+      title: "Collaborative Card",
+      nfm: "",
+      allocateBlockId: () => "block-collaborative-root",
+    });
+    Y.applyUpdate(document, genesis.update);
+    genesis.document.destroy();
     const fragment = document.getXmlFragment("body");
     let hintCount = 0;
     let replaceBlocksCount = 0;
@@ -129,5 +141,36 @@ describe("NfmEditor source boundary", () => {
     localEditor.unmount();
     remoteEditor.unmount();
     document.destroy();
+  });
+
+  test("mounts a title-only Card without inventing a placeholder identity", () => {
+    const genesis = createCardDocumentGenesis({
+      documentId: "document-title-only",
+      title: "Title only",
+      nfm: "",
+      allocateBlockId: () => "block-title-only-root",
+    });
+    const source = createCollaborativeSource(
+      genesis.document.getXmlFragment("body"),
+    );
+    const editor = BlockNoteEditor.create(createNfmEditorModeOptions(source));
+    const element = globalThis.document.createElement("div");
+
+    editor.mount(element);
+
+    expect(editor.document).toMatchObject([
+      { id: "block-title-only-root", type: "paragraph" },
+    ]);
+    expect(materializeCardDocument(genesis.document).blockTree).toMatchObject([
+      { id: "block-title-only-root", type: "paragraph" },
+    ]);
+    expect(
+      materializeCardDocument(genesis.document).blockTree.some(
+        (block) => block.id === "initialBlockId",
+      ),
+    ).toBe(false);
+
+    editor.unmount();
+    genesis.document.destroy();
   });
 });

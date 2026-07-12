@@ -318,6 +318,8 @@ export interface StrictDocumentUpdateCommitPolicy {
   readonly allowPendingSyncedReferenceTargetIds?: readonly BlockId[];
   /** Trusted typed owner rows staged in the host by the same outer transaction. */
   readonly allowStagedDocumentBearingBlockIds?: readonly BlockId[];
+  /** Trusted outer transaction will refill or retire this Document before commit. */
+  readonly allowTransientEmptyBlockTree?: boolean;
   /** Trusted server-generated genesis/restore seam; never bind from transport. */
   readonly maxTrustedUpdateBytes?: number;
 }
@@ -2472,6 +2474,16 @@ const applyBlockDocumentUpdateForAuthority = (
             throw new BlockDocumentStoreError(
               "document_state_corrupt",
               "Block-tree Document lost its change-state baseline",
+            );
+          }
+          if (
+            !strictCommitPolicy?.allowTransientEmptyBlockTree &&
+            beforeChangeState.blocks.size > 0 &&
+            inspection.blocks.length === 0
+          ) {
+            throw new BlockDocumentStoreError(
+              "invalid_document_update",
+              "BlockNote-backed Documents must retain one editable root Block",
             );
           }
           derivedTouchedBlockIds = deriveBlockDocumentTouchedIds({

@@ -1201,6 +1201,7 @@ const applyHostReplacement = (
     readonly current: readonly BlockTreeNode[];
     readonly target: readonly BlockTreeNode[];
     readonly allowPendingSyncedReferenceTargetIds?: readonly string[];
+    readonly allowTransientEmptyBlockTree?: boolean;
   },
 ): DocumentOperationResult => {
   const operations = compileBlockTreeReplacementOperations(
@@ -1233,6 +1234,9 @@ const applyHostReplacement = (
             allowPendingSyncedReferenceTargetIds:
               input.allowPendingSyncedReferenceTargetIds,
           }
+        : {}),
+      ...(input.allowTransientEmptyBlockTree
+        ? { allowTransientEmptyBlockTree: true }
         : {}),
     },
   );
@@ -1727,6 +1731,7 @@ export const demoteSyncedBlockSource = (
           writeFenceLeaseId,
           current: inspection.materialization.blockTree,
           target,
+          allowTransientEmptyBlockTree: true,
         });
         input.faultInjector?.("after_host_replaced");
         const rootBlockIds = source.blockTree.map((block) => block.id);
@@ -1754,6 +1759,7 @@ export const demoteSyncedBlockSource = (
                       : {}),
                   },
                 }),
+                { allowRetiringSourceToBecomeEmpty: true },
               );
         const now = new Date().toISOString();
         database

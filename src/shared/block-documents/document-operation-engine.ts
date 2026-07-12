@@ -67,6 +67,8 @@ export interface PrepareDocumentOperationUpdateInput {
     readonly schemaVersion: number;
   };
   readonly transactionOrigin?: unknown;
+  /** Internal ownership transitions may refill or retire the Document before outer commit. */
+  readonly allowTransientEmptyResult?: boolean;
 }
 
 export interface PreparedDocumentOperationUpdate {
@@ -598,6 +600,7 @@ export const prepareDocumentOperationUpdate = ({
     schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   },
   transactionOrigin = "document-operation-batch",
+  allowTransientEmptyResult = false,
 }: PrepareDocumentOperationUpdateInput): PreparedDocumentOperationUpdate => {
   const adapter = getBlockDocumentSchemaAdapter(schema);
   const sourceMaterialization = toPersistedBlockDocumentMaterialization(
@@ -637,6 +640,12 @@ export const prepareDocumentOperationUpdate = ({
     const materialization = toPersistedBlockDocumentMaterialization(
       inspectOwnedBlockDocument(working, schema).materialization,
     );
+    if (!allowTransientEmptyResult && materialization.blockTree.length === 0) {
+      throw new DocumentOperationEngineError(
+        "invalid_operation",
+        "BlockNote-backed Documents must retain one editable root Block",
+      );
+    }
     if (
       stableStringify({
         title: sourceMaterialization.title,

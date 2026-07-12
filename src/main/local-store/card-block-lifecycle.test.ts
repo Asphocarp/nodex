@@ -215,6 +215,52 @@ const detachMembership = (fixture: Fixture, cardId: string): void => {
 
 describe("authoritative Card lifecycle kernel", () => {
   sqliteTest(
+    "creates a title-only Card with one registered editable paragraph",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const created = committed(fixture, "create-title-only", {
+          ...createOperation(cardId, "Title only"),
+          nfm: "",
+        });
+        const materialization = fixture.database
+          .prepare(
+            `
+            SELECT nfm, block_tree_json
+            FROM document_materializations
+            WHERE document_id = ?
+          `,
+          )
+          .get(created.documentId) as {
+          readonly nfm: string;
+          readonly block_tree_json: string;
+        };
+        const blockTree = JSON.parse(materialization.block_tree_json) as readonly {
+          readonly id: string;
+          readonly type: string;
+        }[];
+
+        expect(materialization.nfm).toBe("");
+        expect(blockTree).toMatchObject([{ type: "paragraph" }]);
+        expect(
+          fixture.database
+            .prepare(
+              `
+              SELECT type, lifecycle, containing_document_id
+              FROM blocks WHERE id = ?
+            `,
+            )
+            .get(blockTree[0]?.id),
+        ).toMatchObject({
+          type: "paragraph",
+          lifecycle: "active",
+          containing_document_id: created.documentId,
+        });
+      });
+    },
+  );
+
+  sqliteTest(
     "rejects legacy foreign-body projections before primary genesis",
     async () => {
       await withFixture((fixture) => {

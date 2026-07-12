@@ -21,7 +21,11 @@ import {
   type RelocationResult,
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
-import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
+import {
+  createCanonicalEmptyParagraphBlock,
+  populateBlockDocumentBodyFromBlockTree,
+  type CardDocumentMaterialization,
+} from "../../shared/block-documents/block-document-codec";
 import {
   BlockDocumentSchemaError,
   getBlockDocumentSchemaAdapter,
@@ -54,6 +58,8 @@ export type BlockRelocationFaultPoint =
 export interface RelocateBlocksAtomicallyOptions {
   readonly faultInjector?: (point: BlockRelocationFaultPoint) => void;
   readonly now?: () => string;
+  /** Trusted outer ownership transaction tombstones the source before commit. */
+  readonly allowRetiringSourceToBecomeEmpty?: boolean;
 }
 
 export class BlockRelocationStoreError extends Error {
@@ -496,6 +502,46 @@ const readMemberRows = (
       { relocationId },
     );
   });
+};
+
+const ensureRelocationSourceEditableRoot = (
+  sourceDocument: Y.Doc,
+  sourceRow: RelocationDocumentRow,
+  relocationId: string,
+): BlockId | null => {
+  const inspection = inspectOwnedBlockDocument(sourceDocument, {
+    ownerType: sourceRow.owner_type,
+    schemaKey: sourceRow.schema_key,
+    schemaVersion: sourceRow.schema_version,
+  });
+  if (inspection.blocks.length > 0) return null;
+
+  const blockId = `block:relocation-empty:${sha256(
+    `${relocationId}\0${sourceRow.document_id}`,
+  )}`;
+  populateBlockDocumentBodyFromBlockTree(inspection.envelope.body, [
+    createCanonicalEmptyParagraphBlock(blockId),
+  ]);
+  return blockId;
+};
+
+const insertRelocationPlaceholderBlock = (
+  database: Database.Database,
+  row: RelocationDocumentRow,
+  blockId: BlockId,
+  now: string,
+): void => {
+  database
+    .prepare(
+      `
+      INSERT INTO blocks (
+        id, project_id, type, lifecycle, location_kind,
+        containing_document_id, location_revision, metadata_revision,
+        created_at, updated_at
+      ) VALUES (?, ?, 'paragraph', 'active', 'document', ?, 1, 1, ?, ?)
+    `,
+    )
+    .run(blockId, row.project_id, row.document_id, now, now);
 };
 
 const assertMemberRowsMatchSource = (
@@ -1623,6 +1669,13 @@ export const relocateBlocksAtomically = (
         throw error;
       }
       inject("after_subtree_relocated");
+      const sourcePlaceholderBlockId = options.allowRetiringSourceToBecomeEmpty
+        ? null
+        : ensureRelocationSourceEditableRoot(
+            sourceDocument,
+            sourceRow,
+            input.relocationId,
+          );
 
       const memberRows = readMemberRows(
         database,
@@ -1663,6 +1716,14 @@ export const relocateBlocksAtomically = (
         .run(input.sourceDocumentId, target.documentId);
       inject("after_indexes_deleted");
       moveRegistryMembers(database, memberRows, input, target.documentId, now);
+      if (sourcePlaceholderBlockId) {
+        insertRelocationPlaceholderBlock(
+          database,
+          sourceRow,
+          sourcePlaceholderBlockId,
+          now,
+        );
+      }
       inject("after_registry_moved");
 
       insertDocumentIndex(
@@ -1677,11 +1738,18 @@ export const relocateBlocksAtomically = (
         targetCommit.blocks,
         targetCommit.headSeq,
       );
-      const touchedBlockIdsJson = JSON.stringify(operation.forest.blockIds);
+      const sourceTouchedBlockIds = [
+        ...operation.forest.blockIds,
+        ...(sourcePlaceholderBlockId ? [sourcePlaceholderBlockId] : []),
+      ];
+      const sourceTouchedBlockIdsJson = JSON.stringify(sourceTouchedBlockIds);
+      const targetTouchedBlockIdsJson = JSON.stringify(
+        operation.forest.blockIds,
+      );
       persistPreparedDocumentCommit(
         database,
         sourceCommit,
-        touchedBlockIdsJson,
+        sourceTouchedBlockIdsJson,
         now,
         input.relocationId,
       );
@@ -1689,7 +1757,7 @@ export const relocateBlocksAtomically = (
       persistPreparedDocumentCommit(
         database,
         targetCommit,
-        touchedBlockIdsJson,
+        targetTouchedBlockIdsJson,
         now,
         input.relocationId,
       );
@@ -1736,7 +1804,7 @@ export const relocateBlocksAtomically = (
         database,
         input,
         requestHash,
-        operation.forest.blockIds,
+        sourceTouchedBlockIds,
         sourceCommit,
         targetCommit,
         now,

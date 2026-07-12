@@ -131,12 +131,35 @@ const ensureCanonicalBodyRoot = (body: Y.XmlFragment): void => {
   body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
 };
 
+/**
+ * BlockNote's ProseMirror schema requires at least one Block. Keeping the
+ * application identity in authority data prevents the editor from inventing
+ * its process-wide `initialBlockId` placeholder when an empty Card mounts.
+ */
+export const createCanonicalEmptyParagraphBlock = (
+  blockId: BlockId,
+): BlockTreeNode => ({
+  id: blockId,
+  type: "paragraph",
+  props: {
+    backgroundColor: "default",
+    textColor: "default",
+    textAlignment: "left",
+  },
+  content: [],
+  children: [],
+});
+
 export const populateBlockDocumentBodyFromNfm = (
   body: Y.XmlFragment,
   nfm: string,
   allocateBlockId: () => BlockId = createUuidV7,
 ): void => {
-  const blockNoteBlocks = nfmToBlockNoteWithIds(parseNfm(nfm), allocateBlockId);
+  const imported = nfmToBlockNoteWithIds(parseNfm(nfm), allocateBlockId);
+  const blockNoteBlocks =
+    imported.length > 0
+      ? imported
+      : [createCanonicalEmptyParagraphBlock(allocateBlockId())];
   blocksToYXmlFragment(
     headlessEditor,
     blockNoteBlocks as (typeof headlessBlockDocumentSchema.Block)[],
@@ -337,6 +360,17 @@ const buildPreview = (plainText: string): string => {
   return `${plainText.slice(0, 240).trimEnd()}...`;
 };
 
+const isSemanticEmptyDocument = (
+  blockTree: readonly BlockTreeNode[],
+): boolean => {
+  if (blockTree.length !== 1) return false;
+  const root = blockTree[0];
+  if (!root || root.type !== "paragraph" || root.children.length > 0) {
+    return false;
+  }
+  return Array.isArray(root.content) && root.content.length === 0;
+};
+
 export interface MaterializeBlockDocumentBodyInput {
   readonly body: Y.XmlFragment;
   readonly schemaVersion: number;
@@ -371,7 +405,7 @@ export const materializeBlockDocumentBody = ({
   const blockTree = toBlockTree(blockNoteBlocks);
   assertMaterializationMatchesScan(blockTree, scannedBlocks);
   const nfmBlocks = blockNoteToNfm(blockNoteBlocks);
-  const nfm = serializeNfm(nfmBlocks);
+  const nfm = isSemanticEmptyDocument(blockTree) ? "" : serializeNfm(nfmBlocks);
   const { references, assetRefs } = deriveBlockDocumentRecords(
     blockTree,
     nfmBlocks,
