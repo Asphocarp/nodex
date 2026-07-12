@@ -8,7 +8,9 @@ import type {
   DocumentAuthority,
   DocumentReadiness,
   OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
+import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents/document-schema-adapters";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import { loadLegacyShadowBlockDocument } from "./block-document-store";
 
@@ -165,6 +167,68 @@ const toDescriptor = (
   ).slice(),
 });
 
+const toOwnedDocumentDescriptor = (
+  row: OwnedDocumentRow,
+  storeEpoch: string,
+): OwnedDocumentDescriptor => {
+  if (row.authority !== "ydoc_primary") {
+    throw new BlockDocumentCutoverError(
+      "document_not_ready",
+      `Document ${row.document_id} has not reached primary runtime authority`,
+    );
+  }
+  const registration = getOwnedDocumentSchemaRegistration({
+    ownerType: row.owner_type,
+    schemaKey: row.schema_key,
+    schemaVersion: row.schema_version,
+  });
+  const sync = registration.syncEngine === "yjs"
+    ? {
+        kind: "yjs" as const,
+        stateVector: new Uint8Array(
+          row.state_vector.buffer,
+          row.state_vector.byteOffset,
+          row.state_vector.byteLength,
+        ).slice(),
+      }
+    : { kind: "canvas_scene" as const };
+  return {
+    projectId: row.project_id,
+    ownerBlockId: row.owner_block_id,
+    ownerType: row.owner_type,
+    ownerLifecycle: row.owner_lifecycle,
+    documentId: row.document_id,
+    storeEpoch,
+    generation: row.generation,
+    headSeq: row.head_seq,
+    schemaKey: row.schema_key,
+    schemaVersion: row.schema_version,
+    readiness: row.readiness,
+    sync,
+  };
+};
+
+export const getOwnedDocumentDescriptor = (
+  database: Database.Database,
+  projectId: string,
+  ownerBlockId: string,
+): OwnedDocumentDescriptor => {
+  const normalizedProjectId = requireIdentity(projectId, "projectId");
+  const normalizedOwnerBlockId = requireIdentity(ownerBlockId, "ownerBlockId");
+  const read = database.transaction(() =>
+    toOwnedDocumentDescriptor(
+      readOwnedDocumentRow(
+        database,
+        normalizedProjectId,
+        normalizedOwnerBlockId,
+      ),
+      readStoreEpoch(database),
+    ),
+  );
+  return read();
+};
+
+/** @deprecated Use `getOwnedDocumentDescriptor` for engine dispatch. */
 export const getOwnedBlockDocumentDescriptor = (
   database: Database.Database,
   projectId: string,

@@ -143,6 +143,7 @@ export interface BlockDocumentSchemaLimits {
 export interface BlockDocumentSchemaAdapter {
   readonly kind: BlockTreeOwnedDocumentEnvelope["kind"];
   readonly contentModel: "block_tree";
+  readonly syncEngine: "yjs";
   readonly ownerType: string;
   readonly schemaKey: string;
   readonly schemaVersion: number;
@@ -155,6 +156,7 @@ export interface BlockDocumentSchemaAdapter {
 export interface SceneGraphDocumentSchemaAdapter {
   readonly kind: "scene_graph";
   readonly contentModel: "scene_graph";
+  readonly syncEngine: "canvas_scene";
   readonly ownerType: string;
   readonly schemaKey: string;
   readonly schemaVersion: number;
@@ -174,6 +176,15 @@ export interface SceneGraphDocumentSchemaAdapter {
 
 export type RegisteredBlockDocumentSchemaAdapter =
   BlockDocumentSchemaAdapter | SceneGraphDocumentSchemaAdapter;
+
+export interface OwnedDocumentSchemaRegistration {
+  readonly kind: RegisteredBlockDocumentSchemaAdapter["kind"];
+  readonly contentModel: RegisteredBlockDocumentSchemaAdapter["contentModel"];
+  readonly syncEngine: RegisteredBlockDocumentSchemaAdapter["syncEngine"];
+  readonly ownerType: string;
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+}
 
 export class BlockDocumentSchemaError extends TypeError {
   constructor(message: string, options?: ErrorOptions) {
@@ -263,6 +274,7 @@ const assertLargeCodeBody = (blockTree: readonly BlockTreeNode[]): void => {
 const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
   kind: "card",
   contentModel: "block_tree",
+  syncEngine: "yjs",
   ownerType: "card",
   schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
   schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
@@ -291,6 +303,7 @@ const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
 const syncedBlockDocumentAdapter: BlockDocumentSchemaAdapter = {
   kind: "synced_block",
   contentModel: "block_tree",
+  syncEngine: "yjs",
   ownerType: SYNCED_BLOCK_SOURCE_TYPE,
   schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
@@ -327,6 +340,7 @@ const createAdditionalBodyOnlyAdapter = (input: {
 }): BlockDocumentSchemaAdapter => ({
   kind: input.kind,
   contentModel: "block_tree",
+  syncEngine: "yjs",
   ownerType: input.ownerType,
   schemaKey: input.schemaKey,
   schemaVersion: input.schemaVersion,
@@ -389,6 +403,7 @@ const largeCodeDocumentAdapter = createAdditionalBodyOnlyAdapter({
 const canvasDocumentAdapter: SceneGraphDocumentSchemaAdapter = {
   kind: "scene_graph",
   contentModel: "scene_graph",
+  syncEngine: "canvas_scene",
   ownerType: CANVAS_BLOCK_TYPE,
   schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
   schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
@@ -441,16 +456,45 @@ export const getRegisteredBlockDocumentSchemaAdapter = (input: {
   );
 };
 
+export const getOwnedDocumentSchemaRegistration = (input: {
+  readonly ownerType: string;
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+}): OwnedDocumentSchemaRegistration => {
+  const adapter = getRegisteredBlockDocumentSchemaAdapter(input);
+  return {
+    kind: adapter.kind,
+    contentModel: adapter.contentModel,
+    syncEngine: adapter.syncEngine,
+    ownerType: adapter.ownerType,
+    schemaKey: adapter.schemaKey,
+    schemaVersion: adapter.schemaVersion,
+  };
+};
+
+/** Yjs content code must never receive a scene-native Canvas registration. */
+export const getYjsDocumentSchemaAdapter = (input: {
+  readonly ownerType: string;
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+}): BlockDocumentSchemaAdapter => {
+  const adapter = getRegisteredBlockDocumentSchemaAdapter(input);
+  if (adapter.syncEngine === "yjs") return adapter;
+  throw new BlockDocumentSchemaError(
+    `Owned Document ${input.ownerType}/${input.schemaKey}@${input.schemaVersion} uses ${adapter.syncEngine}, not the Yjs sync engine`,
+  );
+};
+
 /** BlockNote/NFM pipelines must opt into the block-tree content model. */
 export const getBlockDocumentSchemaAdapter = (input: {
   readonly ownerType: string;
   readonly schemaKey: string;
   readonly schemaVersion: number;
 }): BlockDocumentSchemaAdapter => {
-  const adapter = getRegisteredBlockDocumentSchemaAdapter(input);
+  const adapter = getYjsDocumentSchemaAdapter(input);
   if (adapter.contentModel === "block_tree") return adapter;
   throw new BlockDocumentSchemaError(
-    `Owned Document ${input.ownerType}/${input.schemaKey}@${input.schemaVersion} uses ${adapter.contentModel}, not the block-tree pipeline`,
+    `Owned Document ${input.ownerType}/${input.schemaKey}@${input.schemaVersion} does not use the block-tree content model`,
   );
 };
 

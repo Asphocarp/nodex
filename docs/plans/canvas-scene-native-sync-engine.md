@@ -12,7 +12,7 @@ The architectural outcome is equally important: an Owned Document means independ
 
 - [x] (2026-07-13 01:20Z) Confirmed the current Canvas/Yjs revision-register state grows with edit history rather than effective scene size and documented the replacement decision in ADR 0005.
 - [x] (2026-07-13 01:20Z) Mapped descriptor, adapter, renderer, provider, Hub, writer, store, history, projection, backup, retention, and migration coupling.
-- [ ] Introduce engine-neutral Owned Document descriptors, heads, schema registration, and checkpoint formats while keeping block-tree Yjs behavior green.
+- [ ] (2026-07-13 02:31Z) Introduce engine-neutral Owned Document descriptors, heads, schema registration, and checkpoint formats while keeping block-tree Yjs behavior green (completed: additive descriptor discriminant, strict v2 HTTP codec, engine metadata/Yjs-only lookup, pure Canvas scene contracts, and additive renderer provider/outbox; remaining: call-site migration, history format, removal of legacy public types).
 - [ ] Add schema v71 and atomically migrate Canvas current state and checkpoints from Yjs into normalized scene authority.
 - [ ] Implement the Canvas scene store kernel, exact receipts, projections, history, backup, retention, transfer, and additional-owner operations.
 - [ ] Add engine-discriminated IPC/HTTP/realtime contracts and route them through the single writer and common Hub lifecycle.
@@ -34,6 +34,9 @@ The architectural outcome is equally important: an Owned Document means independ
 
 - Observation: Canvas does not participate in the application close flush coordinator. It relies on React effect cleanup, which cannot provide the same bounded close handshake as Card Stage.
   Evidence: `src/renderer/app.tsx` registers Card persistence and window layout, while Canvas cleanup only calls `binding.flush()` from its effect destructor.
+
+- Observation: Main-process Vitest must run through `scripts/run-vitest-in-electron.mjs`; invoking `vitest.main.config.ts` directly loads `better-sqlite3` with the wrong Node module ABI.
+  Evidence: direct Vitest reported module versions 143 versus 137, while `pnpm run test:main` passed 130 files and 890 tests.
 
 ## Decision Log
 
@@ -144,4 +147,3 @@ The renderer provider must depend on a transport interface, an outbox interface,
 The main-process Hub may depend on engine backends selected by the descriptor, but common subscription and write-lease logic must not inspect engine payload internals. Yjs Awareness remains isolated to the Yjs backend.
 
 Revision note: created 2026-07-13 after codebase exploration, upstream source review, and direct Canvas Yjs growth measurement. It records the accepted scene-native direction and the complete implementation sequence so work can resume from this file alone.
-

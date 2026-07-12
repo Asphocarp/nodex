@@ -72,6 +72,10 @@ const RESETTABLE_TABLES = [
   "canvas_card_references",
   "canvas_scene_file_refs",
   "canvas_scene_materializations",
+  "canvas_scene_mutation_receipts",
+  "canvas_scene_files",
+  "canvas_scene_elements",
+  "canvas_scenes",
   "document_block_index",
   "document_materializations",
   "document_snapshots",
@@ -3648,6 +3652,115 @@ function createCanvasSceneMaterializationSchema(
 
     CREATE INDEX IF NOT EXISTS idx_canvas_card_references_target
       ON canvas_card_references(project_id, target_block_id, document_id);
+  `);
+  createCanvasSceneAuthoritySchema(db);
+}
+
+/**
+ * Scene-native authority for Canvas-owned Documents. These tables deliberately
+ * do not duplicate Project coordinates: ownership and scope remain canonical
+ * in documents/block_documents, so a Project transfer never rewrites content.
+ */
+function createCanvasSceneAuthoritySchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS canvas_scenes (
+      document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      head_seq INTEGER NOT NULL CHECK (head_seq >= 0),
+      schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+      app_state_json TEXT NOT NULL DEFAULT '{}',
+      scene_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (json_valid(app_state_json) AND json_type(app_state_json) = 'object'),
+      CHECK (
+        length(scene_hash) = 64
+        AND scene_hash NOT GLOB '*[^0-9a-f]*'
+      )
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS canvas_scene_elements (
+      document_id TEXT NOT NULL REFERENCES canvas_scenes(document_id) ON DELETE CASCADE,
+      element_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version >= 1),
+      version_nonce INTEGER NOT NULL CHECK (version_nonce >= 0),
+      order_key TEXT NOT NULL,
+      is_deleted INTEGER NOT NULL CHECK (is_deleted IN (0, 1)),
+      element_json TEXT NOT NULL,
+      element_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, element_id),
+      CHECK (length(element_id) BETWEEN 1 AND 512),
+      CHECK (length(order_key) BETWEEN 1 AND 256),
+      CHECK (json_valid(element_json) AND json_type(element_json) = 'object'),
+      CHECK (
+        length(element_hash) = 64
+        AND element_hash NOT GLOB '*[^0-9a-f]*'
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_canvas_scene_elements_order
+      ON canvas_scene_elements(document_id, order_key, element_id);
+
+    CREATE TABLE IF NOT EXISTS canvas_scene_files (
+      document_id TEXT NOT NULL REFERENCES canvas_scenes(document_id) ON DELETE CASCADE,
+      file_id TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      asset_uri TEXT NOT NULL,
+      created_ms INTEGER CHECK (created_ms IS NULL OR created_ms >= 0),
+      file_json TEXT NOT NULL,
+      file_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, file_id),
+      CHECK (length(file_id) BETWEEN 1 AND 512),
+      CHECK (length(mime_type) BETWEEN 1 AND 256),
+      CHECK (length(asset_uri) BETWEEN 1 AND 4096),
+      CHECK (json_valid(file_json) AND json_type(file_json) = 'object'),
+      CHECK (
+        length(file_hash) = 64
+        AND file_hash NOT GLOB '*[^0-9a-f]*'
+      )
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS canvas_scene_mutation_receipts (
+      document_id TEXT NOT NULL REFERENCES canvas_scenes(document_id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      mutation_id TEXT NOT NULL,
+      client_session_id TEXT NOT NULL,
+      base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+      committed_head_seq INTEGER NOT NULL CHECK (committed_head_seq >= 0),
+      request_hash TEXT NOT NULL,
+      request_byte_length INTEGER NOT NULL CHECK (request_byte_length > 0),
+      request_json TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('committed', 'no_change')),
+      committed_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, generation, mutation_id),
+      UNIQUE (document_id, mutation_id),
+      CHECK (length(mutation_id) BETWEEN 1 AND 512),
+      CHECK (length(client_session_id) BETWEEN 1 AND 512),
+      CHECK (
+        length(request_hash) = 64
+        AND request_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      CHECK (request_byte_length = length(CAST(request_json AS BLOB))),
+      CHECK (json_valid(request_json) AND json_type(request_json) = 'object'),
+      CHECK (json_valid(result_json) AND json_type(result_json) = 'object')
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_canvas_scene_mutation_receipts_head
+      ON canvas_scene_mutation_receipts(document_id, generation, committed_head_seq);
+
+    CREATE TRIGGER IF NOT EXISTS canvas_scene_mutation_receipts_immutable_update
+      BEFORE UPDATE ON canvas_scene_mutation_receipts
+      BEGIN
+        SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS canvas_scene_mutation_receipts_immutable_delete
+      BEFORE DELETE ON canvas_scene_mutation_receipts
+      BEGIN
+        SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
+      END;
   `);
 }
 

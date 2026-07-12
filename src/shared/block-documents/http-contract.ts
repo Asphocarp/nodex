@@ -6,6 +6,7 @@ import {
   type DocumentAuthority,
   type DocumentReadiness,
   type OwnedBlockDocumentDescriptor,
+  type OwnedDocumentDescriptor,
 } from "./contracts";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
@@ -123,12 +124,52 @@ interface EncodedOwnedBlockDocumentDescriptor extends VersionedMetadata {
   readonly stateVector: string;
 }
 
+type EncodedOwnedDocumentSyncEngine =
+  | {
+      readonly kind: "yjs";
+      readonly stateVector: string;
+    }
+  | {
+      readonly kind: "canvas_scene";
+    };
+
+interface EncodedOwnedDocumentDescriptor {
+  readonly version: 2;
+  readonly projectId: string;
+  readonly ownerBlockId: string;
+  readonly ownerType: string;
+  readonly ownerLifecycle: OwnedDocumentDescriptor["ownerLifecycle"];
+  readonly documentId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly headSeq: number;
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+  readonly readiness: DocumentReadiness;
+  readonly sync: EncodedOwnedDocumentSyncEngine;
+}
+
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readRecord = (value: unknown): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new DocumentHttpWireError("Document HTTP metadata must be an object");
+};
+
+const assertExactKeys = (
+  record: Readonly<Record<string, unknown>>,
+  expected: readonly string[],
+  label: string,
+): void => {
+  const expectedKeys = new Set(expected);
+  if (
+    Object.keys(record).length === expectedKeys.size &&
+    Object.keys(record).every((key) => expectedKeys.has(key))
+  ) {
+    return;
+  }
+  throw new DocumentHttpWireError(`${label} has unsupported fields`);
 };
 
 const readVersion = (record: Readonly<Record<string, unknown>>): 1 => {
@@ -318,6 +359,146 @@ const parseOwnedBlockDocumentDescriptor = (
   };
 };
 
+const parseOwnedDocumentSyncEngine = (
+  value: unknown,
+): EncodedOwnedDocumentSyncEngine => {
+  const record = readRecord(value);
+  const kind = readEnum(record, "kind", ["yjs", "canvas_scene"] as const);
+  if (kind === "canvas_scene") {
+    assertExactKeys(record, ["kind"], "Canvas scene sync descriptor");
+    return { kind };
+  }
+  assertExactKeys(
+    record,
+    ["kind", "stateVector"],
+    "Yjs sync descriptor",
+  );
+  const stateVector = record.stateVector;
+  if (typeof stateVector !== "string") {
+    throw new DocumentHttpWireError("stateVector must be base64 text");
+  }
+  return { kind, stateVector };
+};
+
+const parseOwnedDocumentDescriptor = (
+  value: unknown,
+): EncodedOwnedDocumentDescriptor => {
+  const record = readRecord(value);
+  assertExactKeys(
+    record,
+    [
+      "version",
+      "projectId",
+      "ownerBlockId",
+      "ownerType",
+      "ownerLifecycle",
+      "documentId",
+      "storeEpoch",
+      "generation",
+      "headSeq",
+      "schemaKey",
+      "schemaVersion",
+      "readiness",
+      "sync",
+    ],
+    "Owned Document descriptor",
+  );
+  if (record.version !== 2) {
+    throw new DocumentHttpWireError(
+      "Unsupported Owned Document descriptor version",
+    );
+  }
+  return {
+    version: 2,
+    projectId: readString(record, "projectId"),
+    ownerBlockId: readString(record, "ownerBlockId"),
+    ownerType: readString(record, "ownerType"),
+    ownerLifecycle: readEnum(record, "ownerLifecycle", [
+      "active",
+      "archived",
+      "deleted",
+    ] as const),
+    documentId: readString(record, "documentId"),
+    storeEpoch: readString(record, "storeEpoch"),
+    generation: readInteger(record, "generation", 1),
+    headSeq: readInteger(record, "headSeq", 0),
+    schemaKey: readString(record, "schemaKey"),
+    schemaVersion: readInteger(record, "schemaVersion", 1),
+    readiness: readEnum(record, "readiness", [
+      "pending_genesis",
+      "ready",
+      "failed",
+    ] as const),
+    sync: parseOwnedDocumentSyncEngine(record.sync),
+  };
+};
+
+export const encodeOwnedDocumentDescriptorHttp = (
+  descriptor: OwnedDocumentDescriptor,
+): string => {
+  const sync: EncodedOwnedDocumentSyncEngine =
+    descriptor.sync.kind === "yjs"
+      ? {
+          kind: "yjs",
+          stateVector: documentBytesToBase64(descriptor.sync.stateVector),
+        }
+      : { kind: "canvas_scene" };
+  return JSON.stringify({
+    version: 2,
+    projectId: descriptor.projectId,
+    ownerBlockId: descriptor.ownerBlockId,
+    ownerType: descriptor.ownerType,
+    ownerLifecycle: descriptor.ownerLifecycle,
+    documentId: descriptor.documentId,
+    storeEpoch: descriptor.storeEpoch,
+    generation: descriptor.generation,
+    headSeq: descriptor.headSeq,
+    schemaKey: descriptor.schemaKey,
+    schemaVersion: descriptor.schemaVersion,
+    readiness: descriptor.readiness,
+    sync,
+  } satisfies EncodedOwnedDocumentDescriptor);
+};
+
+export const decodeOwnedDocumentDescriptorHttp = (
+  serialized: string,
+): OwnedDocumentDescriptor => {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(serialized) as unknown;
+  } catch (error) {
+    throw new DocumentHttpWireError(
+      "Owned Document descriptor is not valid JSON",
+      { cause: error },
+    );
+  }
+  const descriptor = parseOwnedDocumentDescriptor(decoded);
+  const sync = descriptor.sync.kind === "yjs"
+    ? {
+        kind: "yjs" as const,
+        stateVector: documentBytesFromBase64(
+          descriptor.sync.stateVector,
+          MAX_CARD_DOCUMENT_STATE_BYTES,
+        ),
+      }
+    : { kind: "canvas_scene" as const };
+  return {
+    projectId: descriptor.projectId,
+    ownerBlockId: descriptor.ownerBlockId,
+    ownerType: descriptor.ownerType,
+    ownerLifecycle: descriptor.ownerLifecycle,
+    documentId: descriptor.documentId,
+    storeEpoch: descriptor.storeEpoch,
+    generation: descriptor.generation,
+    headSeq: descriptor.headSeq,
+    schemaKey: descriptor.schemaKey,
+    schemaVersion: descriptor.schemaVersion,
+    readiness: descriptor.readiness,
+    sync,
+  };
+};
+
+/** @deprecated Migration-only v1 Yjs descriptor codec. */
 export const encodeOwnedBlockDocumentDescriptorHttp = (
   descriptor: OwnedBlockDocumentDescriptor,
 ): string =>

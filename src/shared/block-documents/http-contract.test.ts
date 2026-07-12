@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   decodeOwnedBlockDocumentDescriptorHttp,
+  decodeOwnedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
   decodeDocumentAwarenessHttpRequest,
@@ -16,11 +17,71 @@ import {
   encodeDocumentSyncHttpRequest,
   encodeDocumentSyncHttpResponse,
   encodeOwnedBlockDocumentDescriptorHttp,
+  encodeOwnedDocumentDescriptorHttp,
 } from "./http-contract";
 
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
 
 describe("Document HTTP contract", () => {
+  test("round-trips engine-neutral Yjs and Canvas descriptors", () => {
+    const common = {
+      projectId: "project-1",
+      ownerLifecycle: "active",
+      storeEpoch: "store-1",
+      generation: 2,
+      headSeq: 7,
+      schemaVersion: 1,
+      readiness: "ready",
+    } as const;
+    const yjs = decodeOwnedDocumentDescriptorHttp(
+      encodeOwnedDocumentDescriptorHttp({
+        ...common,
+        ownerBlockId: "card-1",
+        ownerType: "card",
+        documentId: "document-1",
+        schemaKey: "nodex.card",
+        sync: { kind: "yjs", stateVector: bytes(0, 128, 255) },
+      }),
+    );
+    expect(yjs.sync.kind).toBe("yjs");
+    if (yjs.sync.kind !== "yjs") throw new Error("Expected Yjs sync engine");
+    expect(Array.from(yjs.sync.stateVector).join(",")).toBe("0,128,255");
+
+    const canvas = decodeOwnedDocumentDescriptorHttp(
+      encodeOwnedDocumentDescriptorHttp({
+        ...common,
+        ownerBlockId: "canvas-1",
+        ownerType: "canvas",
+        documentId: "canvas-document-1",
+        schemaKey: "nodex.canvas",
+        sync: { kind: "canvas_scene" },
+      }),
+    );
+    expect(canvas.sync).toEqual({ kind: "canvas_scene" });
+    expect("stateVector" in canvas.sync).toBe(false);
+  });
+
+  test("rejects Yjs fields on a Canvas engine descriptor", () => {
+    const serialized = JSON.stringify({
+      version: 2,
+      projectId: "project-1",
+      ownerBlockId: "canvas-1",
+      ownerType: "canvas",
+      ownerLifecycle: "active",
+      documentId: "canvas-document-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 1,
+      schemaKey: "nodex.canvas",
+      schemaVersion: 1,
+      readiness: "ready",
+      sync: { kind: "canvas_scene", stateVector: "AA==" },
+    });
+    expect(() => decodeOwnedDocumentDescriptorHttp(serialized)).toThrow(
+      "Canvas scene sync descriptor has unsupported fields",
+    );
+  });
+
   test("round-trips owned Document identity boundaries", () => {
     const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
       encodeOwnedBlockDocumentDescriptorHttp({

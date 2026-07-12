@@ -16,6 +16,8 @@ import {
   encodeXmlSubtree,
   insertPortableXmlSubtree,
   getRegisteredBlockDocumentSchemaAdapter,
+  getOwnedDocumentSchemaRegistration,
+  getYjsDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
   LARGE_CODE_BLOCK_TYPE,
   LARGE_CODE_DOCUMENT_SCHEMA_KEY,
@@ -173,19 +175,36 @@ describe("registered document-bearing Block envelopes", () => {
       adapters
         .map(
           (adapter) =>
-            `${adapter.ownerType}/${adapter.schemaKey}@${adapter.schemaVersion}:${adapter.contentModel}`,
+            `${adapter.ownerType}/${adapter.schemaKey}@${adapter.schemaVersion}:${adapter.contentModel}/${adapter.syncEngine}`,
         )
         .sort()
         .join(","),
     ).toBe(
       [
-        "canvas/nodex.canvas@1:scene_graph",
-        "card/nodex.card@1:block_tree",
-        "largeCode/nodex.large-code@1:block_tree",
-        "largeDocument/nodex.large-document@1:block_tree",
-        "reusable_template_source/nodex.reusable-template@1:block_tree",
-        "synced_block_source/nodex.synced-block@1:block_tree",
+        "canvas/nodex.canvas@1:scene_graph/canvas_scene",
+        "card/nodex.card@1:block_tree/yjs",
+        "largeCode/nodex.large-code@1:block_tree/yjs",
+        "largeDocument/nodex.large-document@1:block_tree/yjs",
+        "reusable_template_source/nodex.reusable-template@1:block_tree/yjs",
+        "synced_block_source/nodex.synced-block@1:block_tree/yjs",
       ].join(","),
+    );
+  });
+
+  test("separates Canvas registration metadata from Yjs inspection", () => {
+    const input = {
+      ownerType: "canvas",
+      schemaKey: "nodex.canvas",
+      schemaVersion: 1,
+    } as const;
+    expect(getOwnedDocumentSchemaRegistration(input)).toEqual({
+      kind: "scene_graph",
+      contentModel: "scene_graph",
+      syncEngine: "canvas_scene",
+      ...input,
+    });
+    expect(() => getYjsDocumentSchemaAdapter(input)).toThrow(
+      "uses canvas_scene, not the Yjs sync engine",
     );
   });
 
