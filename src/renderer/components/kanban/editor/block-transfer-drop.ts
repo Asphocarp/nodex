@@ -6,7 +6,7 @@ import {
   resolveCrossSurfaceTransferMode,
 } from "../cross-surface-drag";
 import {
-  buildKanbanCardReferenceEditorDropTargetData,
+  buildKanbanCardEditorTransferTargetData,
   isKanbanCardDragData,
 } from "../pragmatic-drag-data";
 import { hasClosest, resolveBlockId } from "./drag-source-resolver";
@@ -191,7 +191,7 @@ export const setupKanbanCardTransferDrop = (
 
   return dropTargetForElements({
     element: container,
-    getData: buildKanbanCardReferenceEditorDropTargetData,
+    getData: buildKanbanCardEditorTransferTargetData,
     canDrop: ({ source }) => canTransfer(source.data),
     getDropEffect: ({ input }) => resolveCrossSurfaceTransferMode(input),
     onDragEnter: ({ location }) =>

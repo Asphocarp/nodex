@@ -6,6 +6,7 @@ import {
   type OwnershipClosureBlock,
   type OwnershipClosureDocument,
 } from "./block-ownership-copy-plan";
+import { isUuidV7 } from "./card-id";
 
 const blocks = new Map<string, OwnershipClosureBlock>([
   ["card-a", { blockId: "card-a", blockType: "card", containingDocumentId: null }],
@@ -56,11 +57,14 @@ describe("Block ownership copy plan", () => {
     );
   });
 
-  test("allocates stable, role-separated fresh identities", () => {
+  test("allocates UUID-v7 Blocks and retry-stable Document identities", () => {
     const closure = planBlockOwnershipClosure(reader, ["card-a"]);
     const first = allocateBlockOwnershipCopyIdentities("copy-operation", closure);
     const retry = allocateBlockOwnershipCopyIdentities("copy-operation", closure);
-    expect(retry).toEqual(first);
+    expect(Object.values(first.blockIds).every(isUuidV7)).toBe(true);
+    expect(Object.values(retry.blockIds).every(isUuidV7)).toBe(true);
+    expect(retry.blockIds).not.toEqual(first.blockIds);
+    expect(retry.documentIds).toEqual(first.documentIds);
     expect(new Set(Object.values(first.blockIds)).size).toBe(
       closure.blocks.length,
     );

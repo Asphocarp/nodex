@@ -245,7 +245,6 @@ export function DatabaseManagementDialogController({
   };
 
   const setMembership = async (draft: SetDatabaseMembershipDraft) => {
-    const membershipId = draft.databaseBlockId ? crypto.randomUUID() : null;
     await mutate((authority) => {
       const targetDescriptor = draft.databaseBlockId
         ? authority.descriptor(draft.databaseBlockId).value
@@ -255,7 +254,7 @@ export function DatabaseManagementDialogController({
       ) ?? targetDescriptor?.views.find(
         (view) => view.lifecycle === "active" && view.isPrimary,
       ) ?? targetDescriptor?.views.find((view) => view.lifecycle === "active");
-      if (draft.databaseBlockId && (!targetView || !membershipId)) {
+      if (draft.databaseBlockId && !targetView) {
         throw new Error(
           `Target Database has no active durable View: ${draft.databaseBlockId}`,
         );
@@ -264,10 +263,9 @@ export function DatabaseManagementDialogController({
         kind: "set_membership",
         authority: authority.management,
         cardBlockId: draft.cardBlockId,
-        target: draft.databaseBlockId && targetView && membershipId
+        target: draft.databaseBlockId && targetView
           ? {
               databaseBlockId: draft.databaseBlockId,
-              membershipId,
               viewId: targetView.id,
               ...(draft.beforeCardBlockId
                 ? { beforeCardBlockId: draft.beforeCardBlockId }

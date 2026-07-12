@@ -20,10 +20,8 @@ import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adap
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
   OwnedDocumentDescriptor,
-  RelocationCommandResult,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
-import type { DocumentRelocationRequest } from "../../shared/block-documents/relocation-transport";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -102,12 +100,6 @@ export function createElectronRendererTransport(
     },
     createCanvasSceneSyncAdapter(projectId: string) {
       return createElectronCanvasSceneSyncAdapter(bridge, projectId);
-    },
-    relocateBlocks(request: DocumentRelocationRequest) {
-      return bridge.invoke(
-        "document-sync:relocate",
-        request,
-      ) as Promise<RelocationCommandResult>;
     },
     mutateDocument(
       projectId: string,

@@ -133,6 +133,20 @@ export const bindDatabaseMutationToProject = (
       ),
     };
   }
+  if (
+    request.operations.some(
+      (operation) => operation.kind === "transfer_membership",
+    )
+  ) {
+    return {
+      ok: false,
+      error: databaseMutationFailure(
+        "invalid_database_mutation_request",
+        "Card membership is exclusive parent placement; use BlockTransfer",
+        { operationId: request.operationId },
+      ),
+    };
+  }
   try {
     return {
       ok: true,

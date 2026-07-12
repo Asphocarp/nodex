@@ -79,11 +79,11 @@ The renderer never performs “create target, then delete source”, never guess
 
 The authority classifies the roots and applies these rules:
 
-1. Ordinary Block to Document or Space preserves its Block ID on move. Existing cross-Document Y.Xml relocation remains the low-level primitive.
+1. Ordinary Block to Document preserves its Block ID on move. Existing cross-Document Y.Xml relocation remains the low-level primitive. Space has no body container, so an ordinary content root leaving a Document for Space is compiled into a Card parent just like a Database target: text-like roots promote in place and other roots receive a wrapper Card.
 2. Card between Space, Document, and Database preserves the Card ID and owned Document. The transaction changes only its parent shell/placement/membership and derived projections.
-3. A compatible text-like Block moved to a Database is promoted to a Card using the same root Block ID. Its primary text becomes the Card title and its remaining content/children become the new owned Card body.
-4. Media, reference, void, or already document-bearing roots moved to a Database are wrapped by a new Card. The original subtree keeps its IDs and becomes content of the new Card's owned Document.
-5. Copy leaves every source unchanged and allocates deterministic fresh IDs for the copied ownership closure. Reference target IDs remain unchanged.
+3. A compatible text-like Block moved to Space or a Database is promoted to a Card using the same root Block ID. Its primary text becomes the Card title and its remaining content/children become the new owned Card body.
+4. Media, reference, void, or already document-bearing roots moved to Space or a Database are wrapped by a new Card. The original subtree keeps its IDs and becomes content of the new Card's owned Document.
+5. Copy leaves every source unchanged and allocates deterministic fresh IDs for the copied ownership closure. Coercion then runs on those fresh identities: a promotable source root maps directly to the fresh Card ID, while only wrapper-required roots receive an additional Card. Reference target IDs remain unchanged.
 
 Multi-root transfer is all-or-nothing. Promotion, wrapping, membership/property changes, source/target Y.Doc updates, Block locations, materialized indexes, view positions, history, operation receipt, and change log commit in one SQLite transaction.
 
@@ -135,6 +135,7 @@ Dormant values increase retained relational data. Retention GC may remove them o
 8. References preserve target identity and never imply target movement.
 9. A transfer is idempotent and commits all affected authority/projections or none.
 10. Default DnD is Move; Option/Alt at drop time is Copy.
+11. An ordinary content Block is never persisted directly in Space: it belongs to a Document or is represented by a document-bearing Card parent.
 
 ## Alternatives considered
 

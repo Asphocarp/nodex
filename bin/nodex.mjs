@@ -1629,6 +1629,21 @@ async function applyDatabaseOperations(config, snapshot, operationId, operations
   return result.value;
 }
 
+async function applyBlockTransfer(config, intent) {
+  const send = async () =>
+    apiPost(`${apiPrefix(config)}/block-transfers`, intent);
+  let result;
+  try {
+    result = await send();
+  } catch {
+    result = await send();
+  }
+  if (result?.ok !== true) {
+    throw new Error(result?.error?.message || "Block transfer failed");
+  }
+  return result.value;
+}
+
 async function cmdDatabase(positional, flags, config) {
   const action = positional[0];
   const stableId = positional[1];
@@ -1729,7 +1744,10 @@ async function cmdDatabase(positional, flags, config) {
     );
     if (!state) throw new Error(`Card not found: ${stableId}`);
     const operationId = requireCanonicalMutationId(flags.mutationId);
-    let target = null;
+    let target = { kind: "space" };
+    if (targetDatabaseId === "none" && !state.membership) {
+      throw new Error(`Card ${stableId} has no owning Database membership`);
+    }
     if (targetDatabaseId !== "none") {
       if (state.membership?.databaseBlockId === targetDatabaseId) {
         throw new Error(`Card already belongs to Database ${targetDatabaseId}`);
@@ -1750,25 +1768,30 @@ async function cmdDatabase(positional, flags, config) {
         throw new Error(`Target Database has no active View: ${targetDatabaseId}`);
       }
       target = {
+        kind: "database",
         databaseBlockId: targetDatabaseId,
-        membershipId: `database-membership:${operationId}`,
         viewId: selectedView.id,
         groupKey: null,
       };
     }
-    const receipt = await applyDatabaseOperations(config, snapshot, operationId, [
-      {
-        kind: "transfer_membership",
-        cardBlockId: stableId,
-        expectedMembership: state.membership
-          ? {
-              membershipId: state.membership.id,
-              revision: state.membership.revision,
-            }
-          : null,
-        target,
-      },
-    ]);
+    const source = state.card.location.kind === "document"
+      ? { kind: "document", documentId: state.card.location.documentId }
+      : state.card.location.kind === "database"
+        ? {
+            kind: "database",
+            databaseBlockId: state.card.location.databaseBlockId,
+          }
+        : { kind: "space" };
+    const receipt = await applyBlockTransfer(config, {
+      version: 1,
+      operationId,
+      projectId: config.project,
+      storeEpoch: snapshot.storeEpoch,
+      mode: "move",
+      rootBlockIds: [stableId],
+      source,
+      target,
+    });
     keyValueOut(receipt, flags);
     return;
   }

@@ -7,10 +7,8 @@ import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type {
   OwnedDocumentDescriptor,
-  RelocationCommandResult,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
-import type { DocumentRelocationRequest } from "../../shared/block-documents/relocation-transport";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -136,12 +134,6 @@ export function prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,
   );
-}
-
-export function relocateBlocks(
-  request: DocumentRelocationRequest,
-): Promise<RelocationCommandResult> {
-  return resolveRendererTransport().relocateBlocks(request);
 }
 
 export function mutateDocument(

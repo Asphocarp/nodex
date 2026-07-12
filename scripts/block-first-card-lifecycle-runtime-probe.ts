@@ -18,9 +18,8 @@ import {
   getDb,
   initializeDatabase,
 } from "../src/main/local-store/database";
-import { rebuildCardReadModelProjection } from "../src/main/local-store/card-read-store";
 import { createProject } from "../src/main/local-store/projects";
-import { refreshScheduledCardIndexProjection } from "../src/main/local-store/scheduled-card-store";
+import { applyBlockTransfer } from "../src/main/local-store/block-transfers";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -74,43 +73,64 @@ const commit = (
   return result.value;
 };
 
-const detachMembership = (scope: Scope, cardId: string): void => {
+const moveDatabaseCardToSpace = (
+  scope: Scope,
+  cardId: string,
+  operationId: string,
+): number => {
   const database = getDb();
-  const now = "2026-07-11T12:00:00.000Z";
-  database
-    .transaction(() => {
-      database
-        .prepare(
-          "DELETE FROM database_view_positions WHERE block_id = ? AND project_id = ?",
-        )
-        .run(cardId, scope.projectId);
-      database
-        .prepare(
-          `
-        UPDATE database_memberships
-        SET removed_at = ?, revision = revision + 1
-        WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
-      `,
-        )
-        .run(now, cardId, scope.projectId);
-      database
-        .prepare(
-          `
-        UPDATE blocks
-        SET metadata_revision = metadata_revision + 1, updated_at = ?
-        WHERE id = ? AND project_id = ?
-      `,
-        )
-        .run(now, cardId, scope.projectId);
-      refreshScheduledCardIndexProjection(
-        database,
-        scope.projectId,
-        [cardId],
-        now,
-      );
-      rebuildCardReadModelProjection(database, scope.projectId, [cardId]);
-    })
-    .immediate();
+  const placement = database
+    .prepare(
+      `SELECT block.location_revision, block.containing_database_id,
+              membership.id AS membership_id,
+              membership.revision AS membership_revision
+       FROM blocks block
+       JOIN database_memberships membership
+         ON membership.card_block_id = block.id
+        AND membership.project_id = block.project_id
+        AND membership.database_block_id = block.containing_database_id
+        AND membership.removed_at IS NULL
+       WHERE block.id = ? AND block.project_id = ?
+         AND block.location_kind = 'database'`,
+    )
+    .get(cardId, scope.projectId) as
+    | {
+        readonly location_revision: number;
+        readonly containing_database_id: string;
+        readonly membership_id: string;
+        readonly membership_revision: number;
+      }
+    | undefined;
+  invariant(placement, `Card ${cardId} is not Database-parented`);
+  const result = applyBlockTransfer(database, {
+    version: 1,
+    operationId,
+    projectId: scope.projectId,
+    storeEpoch: scope.storeEpoch,
+    clientSessionId: "card-lifecycle-runtime",
+    actor: { kind: "runtime_probe" },
+    mode: "move",
+    rootBlockIds: [cardId],
+    expectedLocationRevisions: { [cardId]: placement.location_revision },
+    source: {
+      kind: "database",
+      databaseBlockId: placement.containing_database_id,
+      memberships: {
+        [cardId]: {
+          membershipId: placement.membership_id,
+          revision: placement.membership_revision,
+        },
+      },
+    },
+    target: { kind: "space" },
+  });
+  invariant(result.ok, result.ok ? "unreachable" : result.error.message);
+  const locationRevision = result.value.finalLocationRevisions[cardId];
+  invariant(
+    locationRevision !== undefined,
+    `BlockTransfer omitted Card ${cardId} location revision`,
+  );
+  return locationRevision;
 };
 
 const main = async (): Promise<void> => {
@@ -186,12 +206,29 @@ const main = async (): Promise<void> => {
       "Committed create did not replay after restart",
     );
 
+    const spaceCardId = createUuidV7();
+    commit(
+      scope,
+      "runtime:create-space-card",
+      createOperation(spaceCardId, "Space Card"),
+    );
+    const cardSpaceRevision = moveDatabaseCardToSpace(
+      scope,
+      spaceCardId,
+      "runtime:card-to-space",
+    );
+    moveDatabaseCardToSpace(scope, anchorId, "runtime:anchor-to-space");
+
     const moved = commit(scope, "runtime:move-card", {
       kind: "move_card_in_space",
-      cardId,
-      expectedLocationRevision: 1,
+      cardId: spaceCardId,
+      expectedLocationRevision: cardSpaceRevision,
       beforeBlockId: anchorId,
     });
+    invariant(
+      moved.locationRevision === cardSpaceRevision + 1,
+      "Space Card reorder did not advance its location revision",
+    );
     const archived = commit(scope, "runtime:archive-card", {
       kind: "archive_card",
       cardId,
@@ -201,7 +238,7 @@ const main = async (): Promise<void> => {
       kind: "delete_card",
       cardId,
       expectedMetadataRevision: archived.metadataRevision,
-      expectedLocationRevision: moved.locationRevision,
+      expectedLocationRevision: created.locationRevision,
     });
     invariant(
       getDb()
@@ -274,7 +311,11 @@ const main = async (): Promise<void> => {
       "runtime:create-standalone",
       createOperation(standaloneId, "Standalone"),
     );
-    detachMembership(scope, standaloneId);
+    moveDatabaseCardToSpace(
+      scope,
+      standaloneId,
+      "runtime:standalone-to-space",
+    );
     const standaloneState = getDb()
       .prepare(
         `
@@ -434,6 +475,7 @@ const main = async (): Promise<void> => {
     process.stdout.write(
       `${JSON.stringify({
         noCardsRow: true,
+        exclusiveParent: true,
         exactRestartRetry: true,
         lifecycleContinuity: true,
         standalone: true,

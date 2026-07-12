@@ -14,6 +14,7 @@ import type {
 } from "../../shared/database-query";
 import {
   compileDatabaseManagementRequest,
+  compileDatabaseMembershipTransferIntent,
   DatabaseManagementIntentError,
   type DatabaseManagementIntentErrorCode,
   type DatabaseManagementRequestContext,
@@ -199,7 +200,17 @@ const membershipState = (input: {
   readonly groupKey?: string | null;
   readonly positioned?: boolean;
 }): GeneralDatabaseMembershipState => ({
-  card: card(input.cardBlockId, input.descriptor.database.projectId),
+  card: {
+    ...card(input.cardBlockId, input.descriptor.database.projectId),
+    ...(input.membershipId
+      ? {
+          location: {
+            kind: "database" as const,
+            databaseBlockId: input.descriptor.database.blockId,
+          },
+        }
+      : {}),
+  },
   membership: input.membershipId
     ? {
         id: input.membershipId,
@@ -506,59 +517,53 @@ describe("Database management intent compiler", () => {
       descriptors: [sourceDescriptor, targetDescriptor],
       cards: [newCard, targetAnchor],
     });
-    const added = operation(
-      compileDatabaseManagementRequest({
-        context: context(),
-        intent: {
-          kind: "set_membership",
-          authority,
-          cardBlockId: "card-new",
-          target: {
-            databaseBlockId: "database-b",
-            membershipId: "membership-new",
-            viewId: "database-b-list",
-            beforeCardBlockId: "card-b",
-          },
+    const added = compileDatabaseMembershipTransferIntent({
+      context: context(),
+      intent: {
+        kind: "set_membership",
+        authority,
+        cardBlockId: "card-new",
+        target: {
+          databaseBlockId: "database-b",
+          viewId: "database-b-list",
+          beforeCardBlockId: "card-b",
         },
-      }).operations,
-      "transfer_membership",
-    );
+      },
+    });
     const sourceState = membershipState({
       descriptor: sourceDescriptor,
       cardBlockId: "card-a",
       membershipId: "membership-a",
       membershipRevision: 7,
     });
-    const removed = operation(
-      compileDatabaseManagementRequest({
-        context: context(),
-        intent: {
-          kind: "set_membership",
-          authority: managementSnapshot({
-            descriptors: [sourceDescriptor, targetDescriptor],
-            cards: [sourceState, targetAnchor],
-          }),
-          cardBlockId: "card-a",
-          target: null,
-        },
-      }).operations,
-      "transfer_membership",
-    );
+    const removed = compileDatabaseMembershipTransferIntent({
+      context: context(),
+      intent: {
+        kind: "set_membership",
+        authority: managementSnapshot({
+          descriptors: [sourceDescriptor, targetDescriptor],
+          cards: [sourceState, targetAnchor],
+        }),
+        cardBlockId: "card-a",
+        target: null,
+      },
+    });
 
-    expect(JSON.stringify(added.expectedMembership)).toBe("null");
+    expect(added.source).toEqual({ kind: "space" });
     expect(JSON.stringify(added.target)).toBe(
       JSON.stringify({
+        kind: "database",
         databaseBlockId: "database-b",
-        membershipId: "membership-new",
         viewId: "database-b-list",
         groupKey: null,
         beforeCardBlockId: "card-b",
       }),
     );
-    expect(JSON.stringify(removed.expectedMembership)).toBe(
-      JSON.stringify({ membershipId: "membership-a", revision: 7 }),
-    );
-    expect(removed.target).toBe(null);
+    expect(removed.source).toEqual({
+      kind: "database",
+      databaseBlockId: "database-a",
+    });
+    expect(removed.target).toEqual({ kind: "space" });
     expect(JSON.stringify(added).includes("rankKey")).toBe(false);
   });
 
@@ -577,34 +582,31 @@ describe("Database management intent compiler", () => {
       membershipId: "membership-b",
       membershipRevision: 2,
     });
-    const transferred = operation(
-      compileDatabaseManagementRequest({
-        context: context(),
-        intent: {
-          kind: "set_membership",
-          authority: managementSnapshot({
-            descriptors: [sourceDescriptor, targetDescriptor],
-            cards: [sourceState, targetAnchor],
-          }),
-          cardBlockId: "card-a",
-          target: {
-            databaseBlockId: "database-b",
-            membershipId: "membership-a-in-b",
-            viewId: "database-b-list",
-            beforeCardBlockId: "card-b",
-          },
+    const transferred = compileDatabaseMembershipTransferIntent({
+      context: context(),
+      intent: {
+        kind: "set_membership",
+        authority: managementSnapshot({
+          descriptors: [sourceDescriptor, targetDescriptor],
+          cards: [sourceState, targetAnchor],
+        }),
+        cardBlockId: "card-a",
+        target: {
+          databaseBlockId: "database-b",
+          viewId: "database-b-list",
+          beforeCardBlockId: "card-b",
         },
-      }).operations,
-      "transfer_membership",
-    );
+      },
+    });
 
-    expect(JSON.stringify(transferred.expectedMembership)).toBe(
-      JSON.stringify({ membershipId: "membership-a", revision: 7 }),
-    );
+    expect(transferred.source).toEqual({
+      kind: "database",
+      databaseBlockId: "database-a",
+    });
     expect(JSON.stringify(transferred.target)).toBe(
       JSON.stringify({
+        kind: "database",
         databaseBlockId: "database-b",
-        membershipId: "membership-a-in-b",
         viewId: "database-b-list",
         groupKey: null,
         beforeCardBlockId: "card-b",
@@ -677,7 +679,7 @@ describe("Database management intent compiler", () => {
     ).toBe("property_type_invalid");
     expect(
       errorCode(() =>
-        compileDatabaseManagementRequest({
+        compileDatabaseMembershipTransferIntent({
           context: context(),
           intent: {
             kind: "set_membership",
@@ -694,7 +696,6 @@ describe("Database management intent compiler", () => {
             cardBlockId: "card-new",
             target: {
               databaseBlockId: "database-b",
-              membershipId: "membership-new",
               viewId: "database-b-list",
               beforeCardBlockId: "card-b",
             },
@@ -704,7 +705,7 @@ describe("Database management intent compiler", () => {
     ).toBe("membership_anchor_not_found");
     expect(
       errorCode(() =>
-        compileDatabaseManagementRequest({
+        compileDatabaseMembershipTransferIntent({
           context: context(),
           intent: {
             kind: "set_membership",
@@ -720,7 +721,6 @@ describe("Database management intent compiler", () => {
             cardBlockId: "card-new",
             target: {
               databaseBlockId: "database-b",
-              membershipId: "membership-new",
               viewId: "database-b-list",
               groupKey: "todo",
             },
@@ -742,7 +742,7 @@ describe("Database management intent compiler", () => {
 
     expect(
       errorCode(() =>
-        compileDatabaseManagementRequest({
+        compileDatabaseMembershipTransferIntent({
           context: { ...context(), storeEpoch: "epoch-new" },
           intent: {
             kind: "set_membership",
@@ -753,7 +753,6 @@ describe("Database management intent compiler", () => {
             cardBlockId: "card-a",
             target: {
               databaseBlockId: "database-b",
-              membershipId: "membership-a-in-b",
               viewId: "database-b-list",
             },
           },

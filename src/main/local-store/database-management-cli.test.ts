@@ -112,7 +112,13 @@ describe("Database management CLI", () => {
         cards: [
           { card: card("card-new"), membership: null, positions: [] },
           {
-            card: card("card-owned"),
+            card: {
+              ...card("card-owned"),
+              location: {
+                kind: "database",
+                databaseBlockId: "database-a",
+              },
+            },
             membership: {
               id: "membership-owned",
               databaseBlockId: "database-a",
@@ -196,16 +202,15 @@ describe("Database management CLI", () => {
         ...base,
       ], homeDir);
       expect(add.exitCode).toBe(0);
-      const addOperation = requests.find(
+      const addIntent = requests.find(
         (entry) => entry.body.operationId === "membership-add",
-      )?.body.operations as readonly Record<string, unknown>[] | undefined;
-      expect(addOperation?.[0]?.kind).toBe("transfer_membership");
-      expect(JSON.stringify(addOperation?.[0]?.expectedMembership)).toBe("null");
+      );
+      expect(addIntent?.pathname).toBe(
+        "/api/projects/default/block-transfers",
+      );
+      expect(addIntent?.body.source).toEqual({ kind: "space" });
       expect(
-        (addOperation?.[0]?.target as Readonly<Record<string, unknown>>)?.membershipId,
-      ).toBe("database-membership:membership-add");
-      expect(
-        (addOperation?.[0]?.target as Readonly<Record<string, unknown>>)?.viewId,
+        (addIntent?.body.target as Readonly<Record<string, unknown>>)?.viewId,
       ).toBe("view-b");
 
       const transfer = await runCli(
@@ -221,16 +226,17 @@ describe("Database management CLI", () => {
         homeDir,
       );
       expect(transfer.exitCode).toBe(0);
-      const transferOperation = requests.find(
+      const transferIntent = requests.find(
         (entry) => entry.body.operationId === "membership-transfer",
-      )?.body.operations as readonly Record<string, unknown>[] | undefined;
-      expect(JSON.stringify(transferOperation?.[0]?.expectedMembership)).toBe(
-        JSON.stringify({ membershipId: "membership-owned", revision: 4 }),
       );
-      expect(
-        (transferOperation?.[0]?.target as Readonly<Record<string, unknown>>)
-          ?.membershipId,
-      ).toBe("database-membership:membership-transfer");
+      expect(transferIntent?.body.source).toEqual({
+        kind: "database",
+        databaseBlockId: "database-a",
+      });
+      expect(transferIntent?.body.target).toMatchObject({
+        kind: "database",
+        databaseBlockId: "database-b",
+      });
 
       const remove = await runCli([
         "database",
@@ -242,13 +248,28 @@ describe("Database management CLI", () => {
         ...base,
       ], homeDir);
       expect(remove.exitCode).toBe(0);
-      const removeOperation = requests.find(
+      const removeIntent = requests.find(
         (entry) => entry.body.operationId === "membership-remove",
-      )?.body.operations as readonly Record<string, unknown>[] | undefined;
-      expect(JSON.stringify(removeOperation?.[0]?.expectedMembership)).toBe(
-        JSON.stringify({ membershipId: "membership-owned", revision: 4 }),
       );
-      expect(removeOperation?.[0]?.target).toBe(null);
+      expect(removeIntent?.body.source).toEqual({
+        kind: "database",
+        databaseBlockId: "database-a",
+      });
+      expect(removeIntent?.body.target).toEqual({ kind: "space" });
+
+      const removeMissing = await runCli([
+        "database",
+        "membership",
+        "card-new",
+        "none",
+        "--mutation-id",
+        "membership-remove-missing",
+        ...base,
+      ], homeDir);
+      expect(removeMissing.exitCode).toBe(1);
+      expect(removeMissing.stderr).toContain(
+        "Card card-new has no owning Database membership",
+      );
 
       const update = await runCli([
         "database",

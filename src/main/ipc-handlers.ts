@@ -185,7 +185,6 @@ import {
   documentSyncUnauthorized,
 } from "./document-sync-hub";
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
-import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
 import {
   DATABASE_CATALOG_IPC_CHANNEL,
@@ -858,45 +857,6 @@ export function registerIpcHandlers(
     }
     return documentSyncHub.respondToRelocationLease(target, request);
   });
-  registerHandle("document-sync:relocate", async (event, rawRequest) => {
-    const target = resolveDocumentSyncTarget(event);
-    let request;
-    try {
-      request = parseDocumentRelocationRequest(rawRequest);
-    } catch (error) {
-      return {
-        ok: false as const,
-        error: {
-          code: "invalid_relocation_request" as const,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Block relocation request is invalid",
-          retryable: false,
-          reloadRequired: false,
-        },
-      };
-    }
-    if (!target) {
-      return {
-        ok: false as const,
-        error: {
-          code: "invalid_relocation_request" as const,
-          message:
-            "Block relocation is restricted to the subscribed application window",
-          retryable: false,
-          reloadRequired: false,
-          relocationId: request.intent.relocationId,
-        },
-      };
-    }
-    return await documentSyncHub.relocate(
-      target,
-      request.intent,
-      request.clientSessionId,
-    );
-  });
-
   registerBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, projectId, request) =>

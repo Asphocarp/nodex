@@ -72,6 +72,11 @@ const success = (
   },
 });
 
+const unusedTransfer: DatabaseManagementRuntimeDependencies["transfer"] =
+  async () => {
+    throw new Error("Block transfer is not expected in this test");
+  };
+
 describe("Database management runtime", () => {
   test("derives schema revisions from one catalog and returns a fresh catalog", async () => {
     let reads = 0;
@@ -82,6 +87,7 @@ describe("Database management runtime", () => {
         requests.push(request);
         return success(request);
       },
+      transfer: unusedTransfer,
     };
     const result = await commitDatabaseManagementIntent({
       projectId: "project-1",
@@ -142,6 +148,7 @@ describe("Database management runtime", () => {
           if (requests.length === 1) throw new Error("response lost");
           return success(request, true);
         },
+        transfer: unusedTransfer,
       },
     });
 
@@ -185,6 +192,7 @@ describe("Database management runtime", () => {
               operationId: request.operationId,
             },
           }),
+          transfer: unusedTransfer,
         },
       });
     } catch (error) {
@@ -193,5 +201,125 @@ describe("Database management runtime", () => {
         : "unexpected";
     }
     expect(code).toBe("database_schema_conflict");
+  });
+
+  test("routes Card membership through BlockTransfer instead of Database mutation", async () => {
+    const management: GeneralDatabaseManagement = {
+      catalog: {
+        databases: [
+          {
+            ...catalogValue().databases[0]!,
+            views: [
+              {
+                id: "view-1",
+                databaseBlockId: "database-1",
+                projectId: "project-1",
+                name: "All",
+                kind: "list",
+                config: {
+                  schemaKey: "nodex.database-view",
+                  schemaVersion: 1,
+                  filter: { kind: "group", operator: "and", children: [] },
+                  sort: [],
+                  group: null,
+                  display: { propertyIds: [], showTitle: true },
+                },
+                isPrimary: true,
+                revision: 1,
+                rankKey: "a0",
+                lifecycle: "active",
+                createdAt: "2026-07-12T00:00:00.000Z",
+                updatedAt: "2026-07-12T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+      cards: [
+        {
+          card: {
+            blockId: "card-1",
+            projectId: "project-1",
+            lifecycle: "active",
+            location: { kind: "space", rankKey: "a0" },
+            locationRevision: 1,
+            metadataRevision: 1,
+            documentId: "document-card-1",
+            documentGeneration: 1,
+            documentHeadSeq: 1,
+            documentAuthority: "ydoc_primary",
+            content: null,
+            createdAt: "2026-07-12T00:00:00.000Z",
+            updatedAt: "2026-07-12T00:00:00.000Z",
+          },
+          membership: null,
+          positions: [],
+        },
+      ],
+    };
+    let reads = 0;
+    let capturedMode = "";
+    let capturedSource = "";
+    const result = await commitDatabaseManagementIntent({
+      projectId: "project-1",
+      operationId: "membership-operation",
+      buildIntent: (authority) => ({
+        kind: "set_membership",
+        authority: authority.management,
+        cardBlockId: "card-1",
+        target: {
+          databaseBlockId: "database-1",
+          viewId: "view-1",
+        },
+      }),
+      dependencies: {
+        readManagement: async () => ({
+          ok: true,
+          value: {
+            version: 1,
+            projectId: "project-1",
+            storeEpoch: "epoch-1",
+            changeLogSeq: reads++ === 0 ? 10 : 11,
+            value: management,
+          },
+        }),
+        mutate: async () => {
+          throw new Error("Membership must not use Database mutation");
+        },
+        transfer: async (_projectId, intent) => {
+          capturedMode = intent.mode;
+          capturedSource = intent.source.kind;
+          return {
+            ok: true,
+            value: {
+              version: 1,
+              operationId: intent.operationId,
+              projectId: intent.projectId,
+              storeEpoch: intent.storeEpoch,
+              mode: intent.mode,
+              duplicate: false,
+              sourceRootBlockIds: ["card-1"],
+              resultRootBlockIds: ["card-1"],
+              copiedBlockIds: {},
+              finalLocations: {
+                "card-1": {
+                  kind: "database",
+                  databaseBlockId: "database-1",
+                },
+              },
+              finalLocationRevisions: { "card-1": 2 },
+              documentCommits: [],
+              affectedDatabaseBlockIds: ["database-1"],
+              changeLogSeq: 11,
+              committedAt: "2026-07-12T00:00:01.000Z",
+            },
+          };
+        },
+      },
+    });
+
+    expect(result.changeLogSeq).toBe(11);
+    expect(capturedMode).toBe("move");
+    expect(capturedSource).toBe("space");
   });
 });

@@ -1,6 +1,6 @@
 # ADR 0004: Cross-Document Block relocation is one durable operation
 
-- Status: Accepted
+- Status: Accepted as the low-level Document primitive; public command superseded by ADR 0005
 - Date: 2026-07-11
 - Owners: Nodex maintainers
 
@@ -12,7 +12,7 @@ Cross-Document moves are relatively infrequent, so correctness and recoverabilit
 
 ## Decision
 
-Nodex implements relocation as an idempotent `RelocateBlocks` operation with a stable `relocationId`. It preserves application Block IDs while cloning XML content into new Yjs structs in the target and deleting the source subtree.
+Nodex implements relocation as an idempotent internal `RelocateBlocks` primitive with a stable `relocationId`. It preserves application Block IDs while cloning XML content into new Yjs structs in the target and deleting the source subtree. ADR 0005 makes `BlockTransfer` the sole public same-Project parent-change command; its writer delegates Document-to-Document Move to this primitive inside the broader transaction. No renderer, IPC, or HTTP route may call `RelocateBlocks` directly.
 
 The writer performs the operation as follows:
 

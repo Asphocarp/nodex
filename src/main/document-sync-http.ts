@@ -17,16 +17,6 @@ import {
   MAX_CARD_DOCUMENT_UPDATE_BYTES,
 } from "../shared/block-documents/contracts";
 import type { OwnedDocumentDescriptor } from "../shared/block-documents/contracts";
-import type {
-  RelocationCommandError,
-  RelocationCommandResult,
-} from "../shared/block-documents/contracts";
-import {
-  decodeRelocationHttpRequest,
-  encodeRelocationHttpError,
-  encodeRelocationHttpResult,
-  RELOCATION_HTTP_CONTENT_TYPE,
-} from "../shared/block-documents/relocation-transport";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   parseDocumentRelocationLeaseResponseRequest,
@@ -66,7 +56,6 @@ const MAX_APPLY_REQUEST_BYTES =
 const MAX_AWARENESS_REQUEST_BYTES =
   MAX_DOCUMENT_HTTP_METADATA_BYTES + MAX_DOCUMENT_AWARENESS_UPDATE_BYTES + 8;
 const MAX_RELOCATION_LEASE_RESPONSE_BYTES = 8 * 1024;
-const MAX_RELOCATION_REQUEST_BYTES = MAX_DOCUMENT_HTTP_METADATA_BYTES;
 
 export interface DocumentSyncHttpDependencies {
   readonly hub: DocumentSyncHub;
@@ -142,68 +131,6 @@ const binaryResponse = (body: Uint8Array): Response =>
     },
   });
 
-const relocationBinaryResponse = (body: Uint8Array): Response =>
-  new Response(copyToArrayBuffer(body), {
-    headers: {
-      "Content-Type": RELOCATION_HTTP_CONTENT_TYPE,
-      "Cache-Control": "no-store",
-    },
-  });
-
-const relocationStatusForError = (error: RelocationCommandError): number => {
-  if (
-    error.code === "source_document_not_found" ||
-    error.code === "target_document_not_found" ||
-    error.code === "block_not_found"
-  ) {
-    return 404;
-  }
-  if (error.code === "unknown" && error.retryable) return 503;
-  if (
-    error.code === "store_epoch_mismatch" ||
-    error.code === "relocation_id_collision" ||
-    error.code === "relocation_lease_timeout" ||
-    error.code === "document_not_ready" ||
-    error.code === "document_generation_mismatch" ||
-    error.code === "source_head_mismatch" ||
-    error.code === "target_head_changed" ||
-    error.code === "block_location_mismatch" ||
-    error.code === "block_location_revision_mismatch" ||
-    error.code === "block_relocated" ||
-    error.code === "recovery_required"
-  ) {
-    return 409;
-  }
-  return 400;
-};
-
-const relocationErrorResponse = (error: RelocationCommandError): Response =>
-  new Response(encodeRelocationHttpError(error), {
-    status: relocationStatusForError(error),
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    },
-  });
-
-const relocationFailure = (
-  code: RelocationCommandError["code"],
-  message: string,
-  options: {
-    readonly retryable?: boolean;
-    readonly reloadRequired?: boolean;
-    readonly relocationId?: string;
-  } = {},
-): Extract<RelocationCommandResult, { readonly ok: false }> => ({
-  ok: false,
-  error: {
-    code,
-    message,
-    retryable: options.retryable ?? false,
-    reloadRequired: options.reloadRequired ?? false,
-    ...(options.relocationId ? { relocationId: options.relocationId } : {}),
-  },
-});
 
 const invalidRequest = (message: string): Response =>
   errorResponse(commandError("invalid_document_update", message));
@@ -257,27 +184,6 @@ const readRelocationLeaseJsonBody = async (
   return parseDocumentRelocationLeaseResponseRequest(JSON.parse(body));
 };
 
-const readRelocationJsonBody = async (context: Context): Promise<string> => {
-  const contentType = context.req.header("content-type")?.split(";", 1)[0];
-  if (contentType !== "application/json") {
-    throw new TypeError("Block relocation requires application/json");
-  }
-  const contentLength = Number(context.req.header("content-length"));
-  if (
-    Number.isFinite(contentLength) &&
-    contentLength > MAX_RELOCATION_REQUEST_BYTES
-  ) {
-    throw new TypeError("Block relocation request is too large");
-  }
-  const body = await context.req.text();
-  if (
-    new TextEncoder().encode(body).byteLength > MAX_RELOCATION_REQUEST_BYTES
-  ) {
-    throw new TypeError("Block relocation request is too large");
-  }
-  return body;
-};
-
 const readCanvasJsonBody = async (context: Context): Promise<string> => {
   const contentType = context.req.header("content-type")?.split(";", 1)[0];
   if (contentType !== CANVAS_SCENE_HTTP_CONTENT_TYPE) {
@@ -285,7 +191,6 @@ const readCanvasJsonBody = async (context: Context): Promise<string> => {
   }
   return await context.req.text();
 };
-
 let browserTargetSequence = 0;
 
 class BrowserDocumentSyncTarget
@@ -810,72 +715,6 @@ export const registerDocumentSyncHttpRoutes = (
         return invalidRequest(
           error instanceof Error ? error.message : "Invalid Awareness request",
         );
-      }
-    },
-  );
-
-  app.post(
-    "/api/projects/:projectId/documents/:documentId/relocations",
-    async (context) => {
-      const projectId = context.req.param("projectId").trim();
-      const documentId = context.req.param("documentId").trim();
-      if (!projectId || !documentId) {
-        const failure = relocationFailure(
-          "invalid_relocation_request",
-          "Project and source Document are required",
-        );
-        return relocationErrorResponse(failure.error);
-      }
-      try {
-        const request = decodeRelocationHttpRequest(
-          await readRelocationJsonBody(context),
-          projectId,
-          documentId,
-        );
-        const scopeError = await resolveProjectScope(
-          dependencies,
-          projectId,
-          documentId,
-        );
-        if (scopeError) {
-          const failure = relocationFailure(
-            scopeError.code === "document_not_found"
-              ? "source_document_not_found"
-              : "unknown",
-            scopeError.message,
-            {
-              retryable: scopeError.retryable,
-              relocationId: request.intent.relocationId,
-            },
-          );
-          return relocationErrorResponse(failure.error);
-        }
-        const client = requireBrowserClient(clients, projectId, {
-          documentId,
-          clientSessionId: request.clientSessionId,
-        });
-        if (!client.ok) {
-          const failure = relocationFailure(
-            "invalid_relocation_request",
-            "Open the source Document event stream before relocating Blocks",
-            { relocationId: request.intent.relocationId },
-          );
-          return relocationErrorResponse(failure.error);
-        }
-        const result = await dependencies.hub.relocate(
-          client.value.target,
-          request.intent,
-          request.clientSessionId,
-        );
-        return result.ok
-          ? relocationBinaryResponse(encodeRelocationHttpResult(result.value))
-          : relocationErrorResponse(result.error);
-      } catch (error) {
-        const failure = relocationFailure(
-          "invalid_relocation_request",
-          error instanceof Error ? error.message : "Invalid Block relocation",
-        );
-        return relocationErrorResponse(failure.error);
       }
     },
   );

@@ -136,7 +136,7 @@ describe("schema v70 Block-first finalization", () => {
 
     await initializeDatabase();
     const after = getDb();
-    expect(after.pragma("user_version", { simple: true })).toBe(72);
+    expect(after.pragma("user_version", { simple: true })).toBe(73);
     expect(
       (after.prepare("PRAGMA table_info(documents)").all() as readonly {
         readonly name: string;

@@ -10,9 +10,15 @@ import type {
 } from "../../shared/database-query";
 import {
   compileDatabaseManagementRequest,
+  compileDatabaseMembershipTransferIntent,
   type DatabaseManagementIntent,
 } from "./database-management-intents";
-import { mutateDatabase, readDatabaseManagement } from "./api";
+import { mutateDatabase, readDatabaseManagement, transferBlocks } from "./api";
+import type {
+  BlockTransferCommandError,
+  BlockTransferCommandResult,
+} from "../../shared/block-transfer";
+import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
 
 export interface DatabaseManagementAuthority {
   readonly management: DatabaseReadSnapshot<GeneralDatabaseManagement>;
@@ -27,6 +33,10 @@ export interface DatabaseManagementRuntimeDependencies {
     projectId: string,
     request: DatabaseMutationRequest,
   ) => Promise<DatabaseMutationCommandResult>;
+  readonly transfer: (
+    projectId: string,
+    intent: PublicBlockTransferIntent,
+  ) => Promise<BlockTransferCommandResult>;
 }
 
 export class DatabaseManagementReadError extends Error {
@@ -37,7 +47,11 @@ export class DatabaseManagementReadError extends Error {
 }
 
 export class DatabaseManagementMutationError extends Error {
-  constructor(readonly commandError: DatabaseMutationCommandError) {
+  constructor(
+    readonly commandError:
+      | DatabaseMutationCommandError
+      | BlockTransferCommandError,
+  ) {
     super(commandError.message);
     this.name = "DatabaseManagementMutationError";
   }
@@ -46,6 +60,7 @@ export class DatabaseManagementMutationError extends Error {
 const defaultDependencies: DatabaseManagementRuntimeDependencies = {
   readManagement: readDatabaseManagement,
   mutate: mutateDatabase,
+  transfer: transferBlocks,
 };
 
 const requireManagement = async (
@@ -106,6 +121,25 @@ const applyExactRequest = async (
   return result;
 };
 
+const applyExactTransfer = async (
+  projectId: string,
+  intent: PublicBlockTransferIntent,
+  dependencies: DatabaseManagementRuntimeDependencies,
+): Promise<BlockTransferCommandResult> => {
+  let result: BlockTransferCommandResult;
+  let retried = false;
+  try {
+    result = await dependencies.transfer(projectId, intent);
+  } catch {
+    retried = true;
+    result = await dependencies.transfer(projectId, intent);
+  }
+  if (!result.ok && result.error.retryable && !retried) {
+    result = await dependencies.transfer(projectId, intent);
+  }
+  return result;
+};
+
 export const readDatabaseManagementAuthority = async (
   projectId: string,
   dependencies: DatabaseManagementRuntimeDependencies = defaultDependencies,
@@ -127,23 +161,30 @@ export const commitDatabaseManagementIntent = async (input: {
 }): Promise<DatabaseReadSnapshot<GeneralDatabaseManagement>> => {
   const dependencies = input.dependencies ?? defaultDependencies;
   const management = await requireManagement(input.projectId, dependencies);
-  const request = compileDatabaseManagementRequest({
-    context: {
-      operationId: input.operationId,
-      projectId: input.projectId,
-      storeEpoch: management.storeEpoch,
-      ...(input.clientSessionId
-        ? { clientSessionId: input.clientSessionId }
-        : {}),
-      actor: { kind: "renderer_database_management" },
-    },
-    intent: input.buildIntent(createDatabaseManagementAuthority(management)),
-  });
-  const result = await applyExactRequest(
-    input.projectId,
-    request,
-    dependencies,
+  const intent = input.buildIntent(
+    createDatabaseManagementAuthority(management),
   );
+  const context = {
+    operationId: input.operationId,
+    projectId: input.projectId,
+    storeEpoch: management.storeEpoch,
+    ...(input.clientSessionId
+      ? { clientSessionId: input.clientSessionId }
+      : {}),
+    actor: { kind: "renderer_database_management" },
+  } as const;
+  const result =
+    intent.kind === "set_membership"
+      ? await applyExactTransfer(
+          input.projectId,
+          compileDatabaseMembershipTransferIntent({ context, intent }),
+          dependencies,
+        )
+      : await applyExactRequest(
+          input.projectId,
+          compileDatabaseManagementRequest({ context, intent }),
+          dependencies,
+        );
   if (!result.ok) throw new DatabaseManagementMutationError(result.error);
 
   const refreshed = await requireManagement(input.projectId, dependencies);

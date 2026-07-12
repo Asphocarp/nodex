@@ -24,9 +24,7 @@ import type {
 } from "./block-documents/canvas-scene-sync";
 import type {
   OwnedDocumentDescriptor,
-  RelocationCommandResult,
 } from "./block-documents/contracts";
-import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
 import type { CardProjectTransferCommandResult } from "./card-project-transfer";
 import type { PublicCardProjectTransferIntent } from "./card-project-transfer-transport";
 import type { BlockTransferCommandResult } from "./block-transfer";
@@ -578,10 +576,6 @@ export interface IpcApi {
   "document-sync:relocation-lease:respond": {
     args: [request: DocumentRelocationLeaseResponseRequest];
     result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
-  };
-  "document-sync:relocate": {
-    args: [request: DocumentRelocationRequest];
-    result: RelocationCommandResult;
   };
   "blocks:transfer": {
     args: [projectId: string, intent: PublicBlockTransferIntent];

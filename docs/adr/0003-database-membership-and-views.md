@@ -28,7 +28,7 @@ The same Card can be shown in multiple views without copying content. A second D
 
 Migration must seed one primary Database Block and one primary Kanban View per Project, map legacy status/properties/order into capability records, and prove normalized parity before cutover. Existing inline snapshots must become references; recoverable orphan snapshots create standalone Cards before being referenced.
 
-The initial relational implementation uses stable primary property definitions and values scoped by both membership and Database identity. Composite foreign keys prevent a value from crossing Database or Project scope, and a partial unique membership index preserves the zero-or-one owning membership rule. Until BF-07 replaces the legacy metadata Interface, Card metadata writes synchronously project one way into these records; they do not enqueue Y.Doc content work.
+The relational implementation uses stable property definitions and values scoped by both membership and Database identity. Composite foreign keys prevent a value from crossing Database or Project scope, and the historical-membership constraint preserves one dormant identity per Card/Database pair. Public membership management compiles to ADR 0005's `BlockTransfer`; `transfer_membership` remains only an internal atomic Database step and is rejected by public Database-mutation transports.
 
 The one-membership constraint is deliberate for the first general model. If future product needs require multiple owning memberships, that decision must supersede this ADR rather than silently treating linked views as memberships.
 

@@ -30,14 +30,6 @@ import {
   decodeDocumentHttpError,
   decodeOwnedDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
-import type { RelocationCommandResult } from "../../shared/block-documents/contracts";
-import {
-  decodeRelocationHttpError,
-  decodeRelocationHttpResult,
-  encodeRelocationHttpRequest,
-  RELOCATION_HTTP_CONTENT_TYPE,
-  type DocumentRelocationRequest,
-} from "../../shared/block-documents/relocation-transport";
 import {
   decodeCardReferenceReadModelHttp,
   decodeDatabaseViewReadModelHttp,
@@ -2466,81 +2458,6 @@ export const browserRendererTransport = {
   },
   createCanvasSceneSyncAdapter(projectId: string) {
     return createHttpCanvasSceneSyncAdapter({ projectId });
-  },
-  async relocateBlocks(
-    request: DocumentRelocationRequest,
-  ): Promise<RelocationCommandResult> {
-    const { intent } = request;
-    const response = await fetch(
-      toApiUrl(
-        `/api/projects/${encodeURIComponent(intent.projectId)}/documents/${encodeURIComponent(intent.sourceDocumentId)}/relocations`,
-      ),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: RELOCATION_HTTP_CONTENT_TYPE,
-        },
-        body: encodeRelocationHttpRequest(request.clientSessionId, intent),
-      },
-    );
-    if (!response.ok) {
-      try {
-        return {
-          ok: false,
-          error: decodeRelocationHttpError(await response.text()),
-        };
-      } catch {
-        return {
-          ok: false,
-          error: {
-            code: "unknown",
-            message: `Block relocation failed with status ${response.status}`,
-            retryable: response.status >= 500,
-            reloadRequired: false,
-            relocationId: intent.relocationId,
-          },
-        };
-      }
-    }
-    if (
-      response.headers.get("content-type")?.split(";", 1)[0] !==
-      RELOCATION_HTTP_CONTENT_TYPE
-    ) {
-      return {
-        ok: false,
-        error: {
-          code: "unknown",
-          message: "Block relocation response has an invalid Content-Type",
-          retryable: false,
-          reloadRequired: true,
-          relocationId: intent.relocationId,
-        },
-      };
-    }
-    try {
-      return {
-        ok: true,
-        value: decodeRelocationHttpResult(
-          new Uint8Array(await response.arrayBuffer()),
-          intent,
-        ),
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: "unknown",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Block relocation response was invalid",
-          retryable: false,
-          reloadRequired: true,
-          relocationId: intent.relocationId,
-        },
-      };
-    }
   },
   async mutateDocument(
     projectId: string,

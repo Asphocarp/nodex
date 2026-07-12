@@ -3,7 +3,7 @@ import type { BoardSummary } from "@/lib/types";
 import {
   buildKanbanCardDragData,
   buildKanbanCardDropTargetData,
-  buildKanbanCardReferenceEditorDropTargetData,
+  buildKanbanCardEditorTransferTargetData,
   buildKanbanColumnDropTargetData,
 } from "./pragmatic-drag-data";
 import { emptyCardSelection } from "./card-selection";
@@ -199,7 +199,7 @@ describe("pragmatic drop location", () => {
     const result = resolveKanbanDropLocation({
       visibleBoard: board,
       dropTargets: [
-        { data: buildKanbanCardReferenceEditorDropTargetData() },
+        { data: buildKanbanCardEditorTransferTargetData() },
         {
           data: buildKanbanColumnDropTargetData({
             instanceId,

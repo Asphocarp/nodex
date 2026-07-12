@@ -372,6 +372,15 @@ vi.mock("@/lib/api", () => ({
     ok: false,
     error: { code: "not_found", message: "Not configured in this test." },
   }),
+  transferBlocks: async () => ({
+    ok: false,
+    error: {
+      code: "unknown",
+      message: "Not configured in this test.",
+      retryable: false,
+      reloadRequired: false,
+    },
+  }),
   readPrimaryDatabaseDescriptor: async (projectId: string) => {
     invokeCalls.push(["databases:primary:get", projectId]);
     const projectName = projectId === "beta" ? "Beta" : "Alpha";

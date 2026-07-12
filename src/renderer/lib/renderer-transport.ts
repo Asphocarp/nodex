@@ -40,11 +40,6 @@ export interface RendererTransport {
       import("../../shared/block-documents/contracts").OwnedDocumentDescriptor
     >
   >;
-  relocateBlocks: (
-    request: import("../../shared/block-documents/relocation-transport").DocumentRelocationRequest,
-  ) => Promise<
-    import("../../shared/block-documents/contracts").RelocationCommandResult
-  >;
   mutateDocument: (
     projectId: string,
     documentId: string,

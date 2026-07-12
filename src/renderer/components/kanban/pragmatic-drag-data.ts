@@ -32,9 +32,9 @@ export interface KanbanColumnDropTargetData extends Record<string | symbol, unkn
   columnId: CardStatus;
 }
 
-export interface KanbanCardReferenceEditorDropTargetData
+export interface KanbanCardEditorTransferTargetData
   extends Record<string | symbol, unknown> {
-  type: "kanban-card-reference-editor";
+  type: "kanban-card-editor-transfer";
 }
 
 export function buildKanbanCardDragData(args: {
@@ -92,8 +92,8 @@ export function buildKanbanColumnDropTargetData(args: {
   };
 }
 
-export function buildKanbanCardReferenceEditorDropTargetData(): KanbanCardReferenceEditorDropTargetData {
-  return { type: "kanban-card-reference-editor" };
+export function buildKanbanCardEditorTransferTargetData(): KanbanCardEditorTransferTargetData {
+  return { type: "kanban-card-editor-transfer" };
 }
 
 export function isKanbanCardDragData(value: unknown): value is KanbanCardDragData {
@@ -146,10 +146,10 @@ export function isKanbanColumnDropTargetData(
     && typeof candidate.instanceId === "symbol";
 }
 
-export function isKanbanCardReferenceEditorDropTargetData(
+export function isKanbanCardEditorTransferTargetData(
   value: unknown,
-): value is KanbanCardReferenceEditorDropTargetData {
+): value is KanbanCardEditorTransferTargetData {
   if (!value || typeof value !== "object") return false;
-  return (value as Partial<KanbanCardReferenceEditorDropTargetData>).type
-    === "kanban-card-reference-editor";
+  return (value as Partial<KanbanCardEditorTransferTargetData>).type
+    === "kanban-card-editor-transfer";
 }

@@ -22,6 +22,7 @@ import {
   type GeneralDatabasePropertyDefinition,
   type GeneralDatabaseViewDefinition,
 } from "../../shared/database-query";
+import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
 
 export type DatabaseManagementIntentErrorCode =
   | "invalid_intent"
@@ -140,13 +141,17 @@ export type DatabaseManagementIntent =
       readonly cardBlockId: string;
       readonly target: null | {
         readonly databaseBlockId: string;
-        readonly membershipId: string;
         readonly viewId: string;
         /** A new membership has no grouping value, so this must be null. */
         readonly groupKey?: string | null;
         readonly beforeCardBlockId?: string;
       };
     };
+
+type DatabaseKernelManagementIntent = Exclude<
+  DatabaseManagementIntent,
+  { readonly kind: "set_membership" }
+>;
 
 const fail = (
   code: DatabaseManagementIntentErrorCode,
@@ -544,7 +549,7 @@ function assertCardIdentity(
 
 const compileIntent = (
   context: DatabaseManagementRequestContext,
-  intent: DatabaseManagementIntent,
+  intent: DatabaseKernelManagementIntent,
 ): DatabaseMutationOperation => {
   switch (intent.kind) {
     case "create_database": {
@@ -736,80 +741,6 @@ const compileIntent = (
         expectedRevision: view.revision,
       };
     }
-    case "set_membership": {
-      const authority = readManagementAuthority(context, intent.authority);
-      const state = findMembershipState(authority, intent.cardBlockId);
-      assertCardIdentity(context, state.card);
-      const expectedMembership = state.membership
-        ? {
-            membershipId: state.membership.id,
-            revision: state.membership.revision,
-          }
-        : null;
-      if (intent.target === null) {
-        if (!state.membership) {
-          return fail(
-            "membership_not_found",
-            `Card ${intent.cardBlockId} has no owning Database membership`,
-          );
-        }
-        return {
-          kind: "transfer_membership",
-          cardBlockId: state.card.blockId,
-          expectedMembership,
-          target: null,
-        };
-      }
-      const target = intent.target;
-
-      if (state.membership?.databaseBlockId === target.databaseBlockId) {
-        return fail(
-          "membership_target_unchanged",
-          `Card ${intent.cardBlockId} already belongs to Database ${target.databaseBlockId}`,
-        );
-      }
-      if (
-        authority.cards.some(
-          (candidate) => candidate.membership?.id === target.membershipId,
-        )
-      ) {
-        return fail(
-          "membership_already_exists",
-          `Membership identity is already active: ${target.membershipId}`,
-        );
-      }
-      const descriptor = authority.catalog.databases.find(
-        (candidate) => candidate.database.blockId === target.databaseBlockId,
-      );
-      if (!descriptor) {
-        return fail(
-          "database_not_found",
-          `Target Database is absent from management authority: ${target.databaseBlockId}`,
-        );
-      }
-      const view = activeView(descriptor, target.viewId);
-      const groupKey = readNewMembershipGroup(target.groupKey);
-      const beforeCardBlockId = membershipAnchor({
-        authority,
-        databaseBlockId: descriptor.database.blockId,
-        viewId: view.id,
-        movingCardBlockId: intent.cardBlockId,
-        groupKey,
-        beforeCardBlockId: target.beforeCardBlockId,
-      });
-      return {
-        kind: "transfer_membership",
-        cardBlockId: state.card.blockId,
-        expectedMembership,
-        target: {
-          databaseBlockId: descriptor.database.blockId,
-          membershipId: target.membershipId,
-          viewId: view.id,
-          groupKey,
-          ...(beforeCardBlockId === undefined ? {} : { beforeCardBlockId }),
-        },
-      };
-    }
   }
 };
 
@@ -823,6 +754,12 @@ export const compileDatabaseManagementRequest = (input: {
   readonly intent: DatabaseManagementIntent;
 }): DatabaseMutationRequest => {
   try {
+    if (input.intent.kind === "set_membership") {
+      return fail(
+        "invalid_intent",
+        "Card membership is parent placement and must use BlockTransfer",
+      );
+    }
     const operation = compileIntent(input.context, input.intent);
     return parseDatabaseMutationRequest({
       version: DATABASE_MUTATION_CONTRACT_VERSION,
@@ -842,4 +779,87 @@ export const compileDatabaseManagementRequest = (input: {
     }
     throw error;
   }
+};
+
+/** Membership is Card parent placement, so public callers use BlockTransfer. */
+export const compileDatabaseMembershipTransferIntent = (input: {
+  readonly context: DatabaseManagementRequestContext;
+  readonly intent: Extract<DatabaseManagementIntent, { readonly kind: "set_membership" }>;
+}): PublicBlockTransferIntent => {
+  const authority = readManagementAuthority(
+    input.context,
+    input.intent.authority,
+  );
+  const state = findMembershipState(authority, input.intent.cardBlockId);
+  assertCardIdentity(input.context, state.card);
+  if (input.intent.target === null && !state.membership) {
+    return fail(
+      "membership_not_found",
+      `Card ${input.intent.cardBlockId} has no owning Database membership`,
+    );
+  }
+  const source = (() => {
+    if (state.card.location.kind === "space") return { kind: "space" as const };
+    if (state.card.location.kind === "document") {
+      return {
+        kind: "document" as const,
+        documentId: state.card.location.documentId,
+      };
+    }
+    return {
+      kind: "database" as const,
+      databaseBlockId: state.card.location.databaseBlockId,
+    };
+  })();
+  const membershipTarget = input.intent.target;
+  const target = membershipTarget
+    ? (() => {
+        if (
+          state.membership?.databaseBlockId ===
+          membershipTarget.databaseBlockId
+        ) {
+          return fail(
+            "membership_target_unchanged",
+            `Card ${input.intent.cardBlockId} already belongs to Database ${membershipTarget.databaseBlockId}`,
+          );
+        }
+        const descriptor = authority.catalog.databases.find(
+          (candidate) =>
+            candidate.database.blockId === membershipTarget.databaseBlockId,
+        );
+        if (!descriptor) {
+          return fail(
+            "database_not_found",
+            `Target Database is absent from management authority: ${membershipTarget.databaseBlockId}`,
+          );
+        }
+        const view = activeView(descriptor, membershipTarget.viewId);
+        const groupKey = readNewMembershipGroup(membershipTarget.groupKey);
+        const beforeCardBlockId = membershipAnchor({
+          authority,
+          databaseBlockId: descriptor.database.blockId,
+          viewId: view.id,
+          movingCardBlockId: input.intent.cardBlockId,
+          groupKey,
+          beforeCardBlockId: membershipTarget.beforeCardBlockId,
+        });
+        return {
+          kind: "database" as const,
+          databaseBlockId: descriptor.database.blockId,
+          viewId: view.id,
+          groupKey,
+          ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+        };
+      })()
+    : { kind: "space" as const };
+  return {
+    version: 1,
+    operationId: input.context.operationId,
+    projectId: input.context.projectId,
+    storeEpoch: input.context.storeEpoch,
+    mode: "move",
+    rootBlockIds: [state.card.blockId],
+    source,
+    target,
+  };
 };

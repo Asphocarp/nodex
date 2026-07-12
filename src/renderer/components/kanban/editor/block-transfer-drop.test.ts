@@ -5,8 +5,8 @@ import {
   setupKanbanCardTransferDrop,
   type BlockTransferDropEditor,
 } from "./block-transfer-drop";
-import type { KanbanCardDragData } from "../pragmatic-drag-data";
 import type { PublicBlockTransferIntent } from "../../../../shared/block-transfer-transport";
+import type { KanbanCardDragData } from "../pragmatic-drag-data";
 
 type ElementDropTargetArgs = Parameters<typeof dropTargetForElements>[0];
 
@@ -80,28 +80,34 @@ describe("Kanban Card Block transfer drop", () => {
     "submits one authority intent at drop time (alt=%s)",
     async (altKey, mode) => {
       const container = document.createElement("div");
-      const transfer = vi.fn(async (_intent: PublicBlockTransferIntent) => ({
-        ok: true as const,
-        value: {
-          version: 1 as const,
-          operationId: "operation-a",
-          projectId: "project-a",
-          storeEpoch: "epoch-a",
-          mode,
-          duplicate: false,
-          sourceRootBlockIds: ["card-target"],
-          resultRootBlockIds: ["card-target"],
-          copiedBlockIds: {},
-          finalLocations: {
-            "card-target": { kind: "document" as const, documentId: "document-host" },
+      const transfer = vi.fn(async (...args: [PublicBlockTransferIntent]) => {
+        void args;
+        return {
+          ok: true as const,
+          value: {
+            version: 1 as const,
+            operationId: "operation-a",
+            projectId: "project-a",
+            storeEpoch: "epoch-a",
+            mode,
+            duplicate: false,
+            sourceRootBlockIds: ["card-target"],
+            resultRootBlockIds: ["card-target"],
+            copiedBlockIds: {},
+            finalLocations: {
+              "card-target": {
+                kind: "document" as const,
+                documentId: "document-host",
+              },
+            },
+            finalLocationRevisions: { "card-target": 2 },
+            documentCommits: [],
+            affectedDatabaseBlockIds: ["database-a"],
+            changeLogSeq: 1,
+            committedAt: "2026-07-13T00:00:00.000Z",
           },
-          finalLocationRevisions: { "card-target": 2 },
-          documentCommits: [],
-          affectedDatabaseBlockIds: ["database-a"],
-          changeLogSeq: 1,
-          committedAt: "2026-07-13T00:00:00.000Z",
-        },
-      }));
+        };
+      });
       const cleanup = setupKanbanCardTransferDrop(
         container,
         { document: [] },

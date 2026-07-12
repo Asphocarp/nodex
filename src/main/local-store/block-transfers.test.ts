@@ -14,6 +14,7 @@ import type {
   BlockTransferIntent,
   BlockTransferRequest,
 } from "../../shared/block-transfer";
+import { createUuidV7, isUuidV7 } from "../../shared/card-id";
 import { initializeCardDocumentGenesis } from "./block-document-store";
 import {
   applyBlockTransfer,
@@ -74,6 +75,21 @@ const seedCard = (
        VALUES (?, ?, ?, ?)`,
     )
     .run(input.cardId, documentId, input.projectId, now);
+  database
+    .prepare(
+      `INSERT INTO blocks (
+         id, project_id, type, lifecycle, location_kind,
+         containing_document_id, containing_database_id,
+         location_revision, metadata_revision, created_at, updated_at
+       ) VALUES (?, ?, 'paragraph', 'active', 'document', ?, NULL, 1, 1, ?, ?)`,
+    )
+    .run(
+      `paragraph:${input.cardId}`,
+      input.projectId,
+      documentId,
+      now,
+      now,
+    );
   const genesis = createCardDocument({
     documentId,
     initialTitle: input.title,
@@ -446,6 +462,8 @@ describe("BlockTransfer store", () => {
         },
       });
       expect(nestForCopy.ok).toBe(true);
+      const largeDocumentCopySourceId = createUuidV7();
+      const largeDocumentBodySourceId = createUuidV7();
       const createNestedLargeDocument = applyAdditionalDocumentCommand(
         database,
         {
@@ -468,14 +486,14 @@ describe("BlockTransfer store", () => {
           },
           operation: {
             kind: "create_large_document",
-            blockId: "large-document-copy-source",
-            documentId: "document:large-document-copy-source",
+            blockId: largeDocumentCopySourceId,
+            documentId: `document:${largeDocumentCopySourceId}`,
             displayName: "Nested large document",
             content: {
               kind: "large_document",
               initialBlocks: [
                 {
-                  id: "large-document-body-source",
+                  id: largeDocumentBodySourceId,
                   type: "paragraph",
                   props: {},
                   content: [
@@ -497,6 +515,7 @@ describe("BlockTransfer store", () => {
         },
       );
       expect(createNestedLargeDocument.ok).toBe(true);
+      const externalReferenceCopySourceId = createUuidV7();
       const insertExternalReference = applyDocumentOperationBatch(database, {
         version: 1,
         mutationId: "insert-reference-before-copy",
@@ -510,7 +529,7 @@ describe("BlockTransfer store", () => {
           {
             kind: "insert_block",
             block: {
-              id: "external-reference-copy-source",
+              id: externalReferenceCopySourceId,
               type: "cardRef",
               props: {
                 targetBlockId: "card-host",
@@ -585,17 +604,17 @@ describe("BlockTransfer store", () => {
       expect(copied.ok).toBe(true);
       if (copied.ok) {
         const copiedCardId = copied.value.resultRootBlockIds[0];
-        expect(copiedCardId).toMatch(/^block:copy:/u);
+        expect(isUuidV7(copiedCardId)).toBe(true);
         expect(copied.value.copiedBlockIds["card-source"]).toBe(copiedCardId);
         const copiedNestedCardId =
           copied.value.copiedBlockIds["card-nested-copy-source"];
         const copiedLargeDocumentId =
-          copied.value.copiedBlockIds["large-document-copy-source"];
+          copied.value.copiedBlockIds[largeDocumentCopySourceId];
         const copiedReferenceId =
-          copied.value.copiedBlockIds["external-reference-copy-source"];
-        expect(copiedNestedCardId).toMatch(/^block:copy:/u);
-        expect(copiedLargeDocumentId).toMatch(/^block:copy:/u);
-        expect(copiedReferenceId).toMatch(/^block:copy:/u);
+          copied.value.copiedBlockIds[externalReferenceCopySourceId];
+        expect(isUuidV7(copiedNestedCardId ?? "")).toBe(true);
+        expect(isUuidV7(copiedLargeDocumentId ?? "")).toBe(true);
+        expect(isUuidV7(copiedReferenceId ?? "")).toBe(true);
         expect(copied.value.finalLocations[copiedCardId ?? ""]).toEqual({
           kind: "document",
           documentId: hostDocumentId,
@@ -883,7 +902,7 @@ describe("BlockTransfer store", () => {
           groupKey: "backlog",
         },
       });
-      expect(promoted.ok).toBe(true);
+      expect(promoted.ok, JSON.stringify(promoted)).toBe(true);
       expect(
         database
           .prepare(
@@ -957,7 +976,7 @@ describe("BlockTransfer store", () => {
       expect(wrapped.ok).toBe(true);
       if (wrapped.ok) {
         const wrapperCardId = wrapped.value.resultRootBlockIds[0];
-        expect(wrapperCardId).toMatch(/^card:transfer:/u);
+        expect(isUuidV7(wrapperCardId)).toBe(true);
         expect(wrapped.value.sourceRootBlockIds).toEqual([
           "paragraph:card-wrapper-host",
         ]);
@@ -1020,8 +1039,8 @@ describe("BlockTransfer store", () => {
           copiedBlockToDatabase.value.copiedBlockIds[
             "paragraph:card-copy-block-host"
           ];
-        expect(wrapperCardId).toMatch(/^card:copy-wrapper:/u);
-        expect(copiedParagraphId).toMatch(/^block:copy:/u);
+        expect(isUuidV7(wrapperCardId)).toBe(true);
+        expect(copiedParagraphId).toBe(wrapperCardId);
         expect(
           database
             .prepare(
@@ -1042,13 +1061,67 @@ describe("BlockTransfer store", () => {
           location_kind: "database",
           containing_database_id: primary.database_block_id,
         });
+        const copiedBody = database
+          .prepare(
+            "SELECT block_id, text FROM document_block_index WHERE document_id = ? AND text = ?",
+          )
+          .get(`document:${wrapperCardId}`, "Copy Block host body") as {
+          readonly block_id: string;
+          readonly text: string;
+        };
+        expect(isUuidV7(copiedBody.block_id)).toBe(true);
+        expect(copiedBody.text).toBe("Copy Block host body");
+      }
+
+      const copyQuoteHostDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-copy-quote-host",
+        title: "Copy quote host",
+        rankKey: "b1000000000000000000000000000000",
+        bodyType: "quote",
+      });
+      const copiedQuoteToDatabase = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "copy-quote-to-database",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "copy",
+        rootBlockIds: ["paragraph:card-copy-quote-host"],
+        expectedLocationRevisions: {
+          "paragraph:card-copy-quote-host": 1,
+        },
+        source: {
+          kind: "document",
+          documentId: copyQuoteHostDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          viewId: primary.view_id,
+          groupKey: "backlog",
+        },
+      });
+      expect(copiedQuoteToDatabase.ok).toBe(true);
+      if (copiedQuoteToDatabase.ok) {
+        const wrapperCardId = copiedQuoteToDatabase.value.resultRootBlockIds[0];
+        const copiedQuoteId =
+          copiedQuoteToDatabase.value.copiedBlockIds[
+            "paragraph:card-copy-quote-host"
+          ];
+        expect(isUuidV7(wrapperCardId)).toBe(true);
+        expect(isUuidV7(copiedQuoteId)).toBe(true);
+        expect(copiedQuoteId).not.toBe(wrapperCardId);
         expect(
           database
             .prepare(
-              "SELECT text FROM document_block_index WHERE document_id = ? AND block_id = ?",
+              "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
             )
-            .get(`document:${wrapperCardId}`, copiedParagraphId),
-        ).toEqual({ text: "Copy Block host body" });
+            .get(`document:${wrapperCardId}`, copiedQuoteId),
+        ).toEqual({ block_type: "quote" });
       }
 
       const spaceCopySourceDocumentId = seedCard(database, {
@@ -1105,6 +1178,396 @@ describe("BlockTransfer store", () => {
             .get(`document:${clonedCardId}`),
         ).toEqual({ title: "Space copy source" });
         expect(`document:${clonedCardId}`).not.toBe(spaceCopySourceDocumentId);
+      }
+
+      const ordinaryCopySourceDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-ordinary-copy-source",
+        title: "Ordinary copy source",
+        rankKey: "d0000000000000000000000000000000",
+      });
+      const ordinaryCopyTargetDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-ordinary-copy-target",
+        title: "Ordinary copy target",
+        rankKey: "e0000000000000000000000000000000",
+      });
+      const copiedOrdinaryBlock = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "copy-ordinary-block-document-to-document",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "copy",
+        rootBlockIds: ["paragraph:card-ordinary-copy-source"],
+        expectedLocationRevisions: {
+          "paragraph:card-ordinary-copy-source": 1,
+        },
+        source: {
+          kind: "document",
+          documentId: ordinaryCopySourceDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+        target: {
+          kind: "document",
+          documentId: ordinaryCopyTargetDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+      });
+      expect(copiedOrdinaryBlock.ok).toBe(true);
+      if (copiedOrdinaryBlock.ok) {
+        const copiedId =
+          copiedOrdinaryBlock.value.copiedBlockIds[
+            "paragraph:card-ordinary-copy-source"
+          ];
+        expect(isUuidV7(copiedId)).toBe(true);
+        expect(
+          database
+            .prepare(
+              "SELECT text FROM document_block_index WHERE document_id = ? AND block_id = ?",
+            )
+            .get(ordinaryCopyTargetDocumentId, copiedId),
+        ).toEqual({ text: "Ordinary copy source body" });
+        expect(
+          database
+            .prepare(
+              "SELECT text FROM document_block_index WHERE document_id = ? AND block_id = ?",
+            )
+            .get(
+              ordinaryCopySourceDocumentId,
+              "paragraph:card-ordinary-copy-source",
+            ),
+        ).toEqual({ text: "Ordinary copy source body" });
+      }
+
+      const multiOrdinaryDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-multi-ordinary-source",
+        title: "Multi ordinary source",
+        rankKey: "e1000000000000000000000000000000",
+      });
+      const secondOrdinaryRootId = createUuidV7();
+      const addSecondOrdinaryRoot = applyDocumentOperationBatch(database, {
+        version: 1,
+        mutationId: "add-second-ordinary-copy-root",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        documentId: multiOrdinaryDocumentId,
+        generation: 1,
+        expectedHeadSeq: 1,
+        operations: [
+          {
+            kind: "insert_block",
+            block: {
+              id: secondOrdinaryRootId,
+              type: "paragraph",
+              props: {},
+              content: [
+                {
+                  type: "text",
+                  text: "Second ordinary root",
+                  styles: {},
+                },
+              ],
+              children: [],
+            },
+          },
+        ],
+      });
+      expect(addSecondOrdinaryRoot.ok).toBe(true);
+      const copiedOrdinaryForest = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "copy-ordinary-forest-to-database",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "copy",
+        rootBlockIds: [
+          "paragraph:card-multi-ordinary-source",
+          secondOrdinaryRootId,
+        ],
+        expectedLocationRevisions: {
+          "paragraph:card-multi-ordinary-source": 1,
+          [secondOrdinaryRootId]: 1,
+        },
+        source: {
+          kind: "document",
+          documentId: multiOrdinaryDocumentId,
+          generation: 1,
+          expectedHeadSeq: 2,
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          viewId: primary.view_id,
+          groupKey: "backlog",
+        },
+      });
+      expect(copiedOrdinaryForest.ok).toBe(true);
+      if (copiedOrdinaryForest.ok) {
+        expect(copiedOrdinaryForest.value.resultRootBlockIds).toHaveLength(2);
+        expect(new Set(copiedOrdinaryForest.value.resultRootBlockIds).size).toBe(
+          2,
+        );
+        expect(copiedOrdinaryForest.value.resultRootBlockIds).toEqual([
+          copiedOrdinaryForest.value.copiedBlockIds[
+            "paragraph:card-multi-ordinary-source"
+          ],
+          copiedOrdinaryForest.value.copiedBlockIds[
+            secondOrdinaryRootId
+          ],
+        ]);
+        for (const copiedCardId of copiedOrdinaryForest.value.resultRootBlockIds) {
+          expect(
+            database
+              .prepare(
+                "SELECT type, location_kind FROM blocks WHERE id = ?",
+              )
+              .get(copiedCardId),
+          ).toEqual({ type: "card", location_kind: "database" });
+        }
+      }
+
+      const spacePromotionDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-space-promotion-source",
+        title: "Space promotion source",
+        rankKey: "f0000000000000000000000000000000",
+      });
+      const promotedToSpace = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "promote-paragraph-to-space-card",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["paragraph:card-space-promotion-source"],
+        expectedLocationRevisions: {
+          "paragraph:card-space-promotion-source": 1,
+        },
+        source: {
+          kind: "document",
+          documentId: spacePromotionDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+        target: { kind: "space" },
+      });
+      expect(promotedToSpace.ok).toBe(true);
+      expect(
+        database
+          .prepare(
+            `SELECT type, location_kind FROM blocks WHERE id = ?`,
+          )
+          .get("paragraph:card-space-promotion-source"),
+      ).toEqual({ type: "card", location_kind: "space" });
+      expect(
+        database
+          .prepare(
+            "SELECT document_id FROM block_documents WHERE block_id = ?",
+          )
+          .get("paragraph:card-space-promotion-source"),
+      ).toEqual({
+        document_id: "document:paragraph:card-space-promotion-source",
+      });
+
+      seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-multi-copy-a",
+        title: "Multi copy A",
+        rankKey: "f1000000000000000000000000000000",
+      });
+      seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-multi-copy-b",
+        title: "Multi copy B",
+        rankKey: "f2000000000000000000000000000000",
+      });
+      const multiCopyTargetHead = database
+        .prepare("SELECT head_seq FROM documents WHERE id = ?")
+        .get(ordinaryCopyTargetDocumentId) as { readonly head_seq: number };
+      const copiedCardForest = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "copy-card-forest-to-document",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "copy",
+        rootBlockIds: ["card-multi-copy-a", "card-multi-copy-b"],
+        expectedLocationRevisions: {
+          "card-multi-copy-a": 1,
+          "card-multi-copy-b": 1,
+        },
+        source: { kind: "space" },
+        target: {
+          kind: "document",
+          documentId: ordinaryCopyTargetDocumentId,
+          generation: 1,
+          expectedHeadSeq: multiCopyTargetHead.head_seq,
+        },
+      });
+      expect(copiedCardForest.ok).toBe(true);
+      if (copiedCardForest.ok) {
+        expect(copiedCardForest.value.resultRootBlockIds).toHaveLength(2);
+        for (const copiedCardId of copiedCardForest.value.resultRootBlockIds) {
+          expect(
+            database
+              .prepare(
+                "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
+              )
+              .get(ordinaryCopyTargetDocumentId, copiedCardId),
+          ).toEqual({ block_type: "card" });
+        }
+      }
+
+      const mixedSourceDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-mixed-source",
+        title: "Mixed source",
+        rankKey: "f3000000000000000000000000000000",
+      });
+      seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-mixed-nested",
+        title: "Mixed nested Card",
+        rankKey: "f4000000000000000000000000000000",
+      });
+      const nestedForMixedSelection = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "nest-card-for-mixed-selection",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["card-mixed-nested"],
+        expectedLocationRevisions: { "card-mixed-nested": 1 },
+        source: { kind: "space" },
+        target: {
+          kind: "document",
+          documentId: mixedSourceDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+      });
+      expect(nestedForMixedSelection.ok).toBe(true);
+      const mixedTargetDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-mixed-target",
+        title: "Mixed target",
+        rankKey: "f5000000000000000000000000000000",
+      });
+      const copiedMixedSelection = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "copy-mixed-selection-to-document",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "copy",
+        rootBlockIds: [
+          "paragraph:card-mixed-source",
+          "card-mixed-nested",
+        ],
+        expectedLocationRevisions: {
+          "paragraph:card-mixed-source": 1,
+          "card-mixed-nested": 2,
+        },
+        source: {
+          kind: "document",
+          documentId: mixedSourceDocumentId,
+          generation: 1,
+          expectedHeadSeq: 2,
+        },
+        target: {
+          kind: "document",
+          documentId: mixedTargetDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+      });
+      expect(copiedMixedSelection.ok).toBe(true);
+      if (copiedMixedSelection.ok) {
+        expect(copiedMixedSelection.value.resultRootBlockIds).toEqual([
+          copiedMixedSelection.value.copiedBlockIds[
+            "paragraph:card-mixed-source"
+          ],
+          copiedMixedSelection.value.copiedBlockIds["card-mixed-nested"],
+        ]);
+        expect(
+          database
+            .prepare(
+              "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
+            )
+            .get(
+              mixedTargetDocumentId,
+              copiedMixedSelection.value.resultRootBlockIds[0],
+            ),
+        ).toEqual({ block_type: "paragraph" });
+        expect(
+          database
+            .prepare(
+              "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
+            )
+            .get(
+              mixedTargetDocumentId,
+              copiedMixedSelection.value.resultRootBlockIds[1],
+            ),
+        ).toEqual({ block_type: "card" });
+      }
+      const movedMixedSelection = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "move-mixed-selection-to-database",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: [
+          "paragraph:card-mixed-source",
+          "card-mixed-nested",
+        ],
+        expectedLocationRevisions: {
+          "paragraph:card-mixed-source": 1,
+          "card-mixed-nested": 2,
+        },
+        source: {
+          kind: "document",
+          documentId: mixedSourceDocumentId,
+          generation: 1,
+          expectedHeadSeq: 2,
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          viewId: primary.view_id,
+          groupKey: "backlog",
+        },
+      });
+      expect(movedMixedSelection.ok).toBe(true);
+      if (movedMixedSelection.ok) {
+        expect(movedMixedSelection.value.resultRootBlockIds).toEqual([
+          "paragraph:card-mixed-source",
+          "card-mixed-nested",
+        ]);
+        for (const cardId of movedMixedSelection.value.resultRootBlockIds) {
+          expect(
+            database
+              .prepare(
+                "SELECT type, location_kind FROM blocks WHERE id = ?",
+              )
+              .get(cardId),
+          ).toEqual({ type: "card", location_kind: "database" });
+        }
       }
     } finally {
       closeDatabase();

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createUuidV7 } from "./card-id";
 
 export interface OwnershipClosureBlock {
   readonly blockId: string;
@@ -123,11 +124,12 @@ const deterministicIdentity = (
 export const allocateBlockOwnershipCopyIdentities = (
   operationId: string,
   closure: BlockOwnershipClosure,
+  allocateBlockId: () => string = createUuidV7,
 ): BlockOwnershipCopyIdentityMap => ({
   blockIds: Object.fromEntries(
     closure.blocks.map((block) => [
       block.blockId,
-      deterministicIdentity(operationId, "block", block.blockId),
+      allocateBlockId(),
     ]),
   ),
   documentIds: Object.fromEntries(

@@ -2,7 +2,7 @@
 
 ## Status
 - Active
-- Last updated: 2026-07-10
+- Last updated: 2026-07-13
 
 ## Scope
 This spec is the detailed source of truth for drag-and-drop behavior across the Kanban board and its directly connected editor surfaces.
@@ -13,7 +13,6 @@ It covers:
 - Drag behavior while Kanban search/filter/sort rules are active
 - Block drag from NFM editors into Kanban
 - Kanban card drag into NFM editors
-- `cardToggle` drag back into Kanban when it materializes card data
 
 It does not redefine general BlockNote side-menu behavior outside these Kanban-facing flows.
 
@@ -110,8 +109,8 @@ This post-removal contract must stay identical across:
 ## Editor Interop
 
 ### NFM block -> Kanban
-- Native block drag from Card Stage and Toggle List NFM editors into Kanban creates ordered card(s). The default operation is move; holding Alt/Option at drop time copies instead.
-- Move prepares an immutable projected source document at drag start, persists destination cards plus source-card description updates atomically, and only then removes the live source blocks. Copy sends no source updates and leaves the editor unchanged.
+- Native block drag from Card Stage and independently mounted reference editors into Kanban targets the Database parent, not a serialized row snapshot. The default operation is move; holding Alt/Option at drop time copies instead.
+- Move submits one logical `BlockTransfer`: text-like roots promote to Cards in place, while non-convertible roots receive deterministic wrapper Cards. Copy recursively clones ownership with fresh IDs and leaves the source unchanged. Neither path serializes NFM nor mutates a Card description projection.
 - Multi-block order follows the selected top-level document order. Nested selected blocks are represented only once through their selected ancestor.
 - Pointer position determines the Kanban insert slot when block-drop import is allowed.
 - The board shows truthful drag feedback for this import path.
@@ -119,23 +118,15 @@ This post-removal contract must stay identical across:
 - Auto-collapsed empty columns stay collapsed and express the target with the existing column-surface highlight.
 
 ### Kanban card -> NFM editor
-- Dragging one or more ordered Kanban cards into a Card Stage or Toggle List editor creates standalone `cardToggle` snapshot blocks from authoritative full card details.
-- Move is the default and removes the source cards in the same grouped transaction that updates target descriptions. Holding Alt/Option at drop time copies detached snapshots and preserves the source cards.
-- The target editor owns optimistic insertion and rollback; persistence failure restores its pre-drop document and leaves all source cards unchanged.
+- Dragging one or more ordered Kanban Cards into a Card Stage or independently mounted reference editor moves the real same-ID, childless Card shells into the target Document. Their separately owned title/body Documents are unchanged.
+- Move is the default. Holding Alt/Option at drop time copies each recursive ownership closure with fresh application IDs and preserves the source Cards.
+- The target editor shows pending feedback but does not insert or remove authority optimistically. `BlockTransfer` commits the source Database parent, target Y.Doc shells, projections, and receipt together; failure leaves both surfaces unchanged.
 - The editor renders a live insertion line even though the drag originates from the Kanban runtime.
 - Self-drop into the source card/editor context must be blocked.
 
 ### Cross-window transport
-- Electron supports both editor-to-board and board-to-editor drops across application windows, including different source and destination projects. Browser runtime keeps the same-window behavior.
-- Native `DataTransfer` contains only a versioned opaque session token under Nodex-specific block/card MIME types. Descriptions and full payloads never travel in native drag data.
-- A main-process coordinator validates the trusted main-frame sender, keeps the immutable payload for at most 120 seconds, exposes only a bounded hover preview, rejects same-window/wrong-kind/double claims, and releases the payload only when another window presents the matching token at drop.
-- Source `dragend` has a one-second claim grace because Chromium can report source completion before destination drop. Claimed operations have a 15-second completion timeout. Closing either participating window cancels and cleans the session.
-- Kanban-to-Kanban cross-window moves are outside this contract.
-
-### `cardToggle` -> Kanban
-- Dragging a `cardToggle` block back into Kanban materializes one or more cards.
-- Snapshot-preserved properties travel with the drag payload, including workflow metadata such as priority, estimate, tags, assignee, and scheduling fields.
-- Current title and description edits in the dragged block are used when materializing the new card.
+- Cross-window native DnD is intentionally unsupported. A drag payload is valid only while the same renderer owns its live source marker; another window fails closed without claiming or mutating it.
+- Cross-window consistency is provided by SQLite/Y.Doc synchronization. Supporting cross-window gestures later would require a trusted live-session handoff into the same `BlockTransfer` command, not a second snapshot transport.
 
 ## Visual Feedback Rules
 - Same-column board reorder uses an insertion line resolved against remaining cards.
@@ -155,7 +146,7 @@ This post-removal contract must stay identical across:
 - Renderer optimistic transforms and backend persistence must produce the same column order for identical inputs.
 - Drop-derived property patches must be applied atomically with the move, not through a follow-up card update.
 - Group IDs are globally unique and grouped history lookup is global rather than project-local, so undo/redo of a cross-project move restores every affected project atomically and publishes change notifications for each project.
-- Move semantics must stay atomic when a drag updates one surface and deletes from another.
+- Cross-surface Move/Copy carries stable IDs and logical parents only and commits through one idempotent `BlockTransfer`; source and target authority are never separate renderer mutations.
 
 ## Non-Goals
 - Copy-style Kanban-to-Kanban board drag

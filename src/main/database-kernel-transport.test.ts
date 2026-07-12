@@ -209,6 +209,33 @@ describe("Database IPC/HTTP transport", () => {
     );
     expect(mismatch.status).toBe(400);
     expect(received.length).toBe(2);
+
+    const parentBypass = await app.request(
+      "/api/projects/project-1/database-mutations",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...request("cli-session-4", "nodex_cli"),
+          operationId: "membership-parent-bypass",
+          operations: [
+            {
+              kind: "transfer_membership",
+              cardBlockId: "card-1",
+              expectedMembership: null,
+              target: {
+                databaseBlockId: "database-1",
+                membershipId: "membership-1",
+                viewId: "view-1",
+                groupKey: null,
+              },
+            },
+          ],
+        }),
+      },
+    );
+    expect(parentBypass.status).toBe(400);
+    expect(received.length).toBe(2);
   });
 
   test("returns the same JSON-only descriptor and View snapshots over IPC and HTTP", async () => {
