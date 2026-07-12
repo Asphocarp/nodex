@@ -887,6 +887,11 @@ Compiled utility CSS is an output, not a second hand-maintained renderer utility
 
 Also restore browser constructors like `Node`, `Element`, `HTMLElement`, `HTMLDivElement`, and input events in `src/renderer/test/setup.ts` after each test, not just `window` and `document`.
 
+### Large renderer workflow suites should shard one isolated suite definition
+Vitest parallelizes test files, while tests inside one file remain sequential. When a renderer workflow suite grows large but depends on one extensive mock and render harness, keep a single non-test `*.test-suite.tsx` module that owns the mocks, lifecycle hooks, fixtures, and mutually exclusive scope registration. Thin `*.test.tsx` shard files should register exactly one scope so Vitest can schedule those workflows across isolated fork workers without copying the harness or running any assertion twice.
+
+Keep the production component import dynamic and later than mock registration. Vitest transforms `vi.mock` in the shared suite module, and each shard receives an isolated module instance under the renderer suite's `forks` plus default isolation boundary. Do not use `test.concurrent` for React DOM workflows that mutate shared mock state, storage, DOM prototypes, or external stores.
+
 ---
 ## Codex session replay compaction boundaries
 

@@ -3028,7 +3028,24 @@ function getConnectedThreadStagePropsByThreadId(threadId: string): Record<string
   }).__mockConnectedThreadStagePropsByThreadId?.[threadId];
 }
 
-describe("workbench session shell", () => {
+export type WorkbenchShellTestScope =
+  | "sidebar-core"
+  | "sidebar-projects"
+  | "routes-threads"
+  | "automations-conversation"
+  | "layout-panel-actions"
+  | "panel-commands"
+  | "cards-shell-navigation";
+
+/**
+ * Registers one contiguous, mutually exclusive workflow shard. Keep new tests
+ * inside the nearest domain guard so no assertion falls outside collection.
+ * The shared module preserves one mock/harness authority while Vitest isolates
+ * each thin shard entry in its own fork.
+ */
+export function registerWorkbenchShellTests(scope: WorkbenchShellTestScope): void {
+describe(`workbench session shell / ${scope}`, () => {
+  if (scope === "sidebar-core") {
   test("keeps card-stage session tab ordering scoped to session ids", () => {
     const order = resolveCardStageSessionTabOrder(
       [
@@ -3824,6 +3841,9 @@ describe("workbench session shell", () => {
     }
   });
 
+  }
+
+  if (scope === "sidebar-projects") {
   test("Projects header actions mirror Codex controls and reopen previous project folders", async () => {
     const screen = renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],
@@ -4597,6 +4617,9 @@ describe("workbench session shell", () => {
     });
   });
 
+  }
+
+  if (scope === "routes-threads") {
   test("opens settings as a full-window route shell from the sidebar settings button", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -5235,6 +5258,9 @@ describe("workbench session shell", () => {
     expect(textContent(sidePanel).includes("Create bridge failed")).toBe(true);
   });
 
+  }
+
+  if (scope === "automations-conversation") {
   test("automations route creates updates and deletes scheduled tasks", async () => {
     const originalInnerWidth = window.innerWidth;
     setWindowInnerWidthForTest(1600);
@@ -6674,6 +6700,9 @@ describe("workbench session shell", () => {
     }));
   });
 
+  }
+
+  if (scope === "layout-panel-actions") {
   test("collapsed right panel opens from the global side-panel toggle", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
@@ -8419,6 +8448,9 @@ describe("workbench session shell", () => {
     expect(requestThreadStreamSnapshotCalls.filter((threadId) => threadId === "thread-child").length >= 1).toBe(true);
   });
 
+  }
+
+  if (scope === "panel-commands") {
   test("plus menu keeps DB and Browser available while hiding singleton Review", async () => {
     const browserTab = makeSessionTab({
       id: "session:alpha:database-view:browser",
@@ -10021,6 +10053,9 @@ describe("workbench session shell", () => {
     expect(String(getLastTerminalPanelProps().cwd)).toBe("undefined");
   });
 
+  }
+
+  if (scope === "cards-shell-navigation") {
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
@@ -11733,4 +11768,6 @@ describe("workbench session shell", () => {
     expect(screen.queryByTestId("session-right-panel") !== null).toBe(true);
     expect(toggleButton.getAttribute("aria-pressed")).toBe("true");
   });
+  }
 });
+}
