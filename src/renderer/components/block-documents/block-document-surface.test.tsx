@@ -154,6 +154,30 @@ function RelocationRegistrationProbe({
 }
 
 describe("BlockDocumentSurface", () => {
+  test("uses a surface-specific placeholder until initial sync is ready", async () => {
+    const adapter = new SurfaceTestAdapter();
+    const view = render(
+      <BlockDocumentSurface
+        projectId="project-1"
+        descriptor={descriptor()}
+        isActive
+        dependencies={{ createAdapter: () => adapter }}
+        pendingFallback={<div>Card loading shell</div>}
+      >
+        {(surface) => <div>{surface.title.toString()}</div>}
+      </BlockDocumentSurface>,
+    );
+
+    expect(view.getByText("Card loading shell").textContent).toBe(
+      "Card loading shell",
+    );
+    expect(view.queryByText("Opening content…")).toBe(null);
+    await waitFor(() => expect(view.getByText("Synced title")).toBeTruthy());
+
+    view.unmount();
+    adapter.destroy();
+  });
+
   test("registry-dispatches a body-only Synced Block surface without inventing a title root", async () => {
     const server = createSyncedBlockDocument({
       documentId: "document:synced-source-1",

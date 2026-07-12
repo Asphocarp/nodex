@@ -78,6 +78,8 @@ export interface BlockDocumentSurfaceProps {
   readonly dependencies?: BlockDocumentSurfaceDependencies;
   /** Read-only integration seam for flush/checkpoint before closing a stage. */
   readonly runtimeRef?: MutableRefObject<BlockDocumentSurfaceRuntime | null>;
+  /** Surface-specific first-sync placeholder; defaults to the generic status text. */
+  readonly pendingFallback?: ReactNode;
   readonly children: (surface: BlockDocumentSurfaceValue) => ReactNode;
 }
 
@@ -105,7 +107,14 @@ const createRuntime = (
   options: BlockDocumentSurfaceRuntimeOptions,
 ): BlockDocumentSurfaceRuntime => new BlockDocumentSurfaceRuntime(options);
 
-function SurfacePending({ phase }: { readonly phase?: string }) {
+function SurfacePending({
+  phase,
+  fallback,
+}: {
+  readonly phase?: string;
+  readonly fallback?: ReactNode;
+}) {
+  if (fallback !== undefined) return fallback;
   const label =
     phase === "connecting" ? "Connecting content…" : "Opening content…";
   return (
@@ -241,6 +250,7 @@ interface ReadySurfaceProps {
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
+  readonly pendingFallback?: ReactNode;
   readonly children: OwnedBlockDocumentSurfaceProps["children"];
 }
 
@@ -252,6 +262,7 @@ function ReadySurface({
   localAwarenessState,
   startupError,
   onReload,
+  pendingFallback,
   children,
 }: ReadySurfaceProps) {
   const status = useSyncExternalStore(
@@ -310,7 +321,9 @@ function ReadySurface({
   }
 
   const document = status.ready ? runtime.getReadyDocument() : null;
-  if (!document) return <SurfacePending phase={status.phase} />;
+  if (!document) {
+    return <SurfacePending phase={status.phase} fallback={pendingFallback} />;
+  }
 
   return children({
     ...document,
@@ -344,6 +357,7 @@ function RuntimeOwner({
   onReload,
   dependencies = DEFAULT_DEPENDENCIES,
   runtimeRef,
+  pendingFallback,
   children,
   restart,
 }: RuntimeOwnerProps) {
@@ -430,7 +444,7 @@ function RuntimeOwner({
         />
       );
     }
-    return <SurfacePending />;
+    return <SurfacePending fallback={pendingFallback} />;
   }
 
   const handleReload = async (): Promise<void> => {
@@ -452,6 +466,7 @@ function RuntimeOwner({
       localAwarenessState={localAwarenessState}
       startupError={startupError}
       onReload={handleReload}
+      pendingFallback={pendingFallback}
     >
       {children}
     </ReadySurface>

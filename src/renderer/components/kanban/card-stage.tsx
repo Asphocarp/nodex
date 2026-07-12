@@ -15,6 +15,7 @@ import { BlockDocumentSurface } from "@/components/block-documents/block-documen
 import { BlockDocumentSyncStatus } from "@/components/block-documents/block-document-sync-status";
 import { CollaborativeCardTitle } from "@/components/block-documents/collaborative-card-title";
 import { CardStageInlinePropertyStrip } from "./card-stage/inline-property-strip";
+import { CardStageContentSkeleton } from "./card-stage/content-skeleton";
 import { CardStagePropertiesSection } from "./card-stage/properties-section";
 import { CardStageRawContent } from "./card-stage/raw-content";
 import { CardStageToolbar } from "./card-stage/toolbar";
@@ -263,6 +264,9 @@ export function CardStage(props: CardStageProps) {
               runtimeRef={documentRuntimeRef}
               onReload={props.documentAuthority.reload}
               dependencies={props.documentAuthority.surfaceDependencies}
+              pendingFallback={
+                <CardStageContentSkeleton titleSnapshot={card.title} />
+              }
               localAwarenessState={{
                 user: { name: "You", color: "#3b82f6" },
               }}
