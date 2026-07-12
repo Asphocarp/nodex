@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
   decodeDocumentApplyHttpRequest,
@@ -50,6 +51,7 @@ import type {
   CanvasSceneRealtimeEvent,
   CanvasSceneSubscribeRequest,
 } from "../shared/block-documents/canvas-scene-sync";
+import { MAX_CANVAS_SCENE_MUTATION_BYTES } from "../shared/block-documents/canvas-scene-sync";
 import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
@@ -274,6 +276,14 @@ const readRelocationJsonBody = async (context: Context): Promise<string> => {
     throw new TypeError("Block relocation request is too large");
   }
   return body;
+};
+
+const readCanvasJsonBody = async (context: Context): Promise<string> => {
+  const contentType = context.req.header("content-type")?.split(";", 1)[0];
+  if (contentType !== CANVAS_SCENE_HTTP_CONTENT_TYPE) {
+    throw new TypeError("Canvas scene request has an invalid Content-Type");
+  }
+  return await context.req.text();
 };
 
 let browserTargetSequence = 0;
@@ -639,6 +649,7 @@ export const registerDocumentSyncHttpRoutes = (
       if (scopeError) return errorResponse(scopeError);
       const encoder = new TextEncoder();
       let entry: BrowserClientEntry | null = null;
+      let pingInterval: ReturnType<typeof setInterval> | null = null;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const target = new BrowserDocumentSyncTarget((serialized) => {
@@ -656,13 +667,23 @@ export const registerDocumentSyncHttpRoutes = (
           if (!result.ok) {
             clients.remove(entry);
             controller.error(new Error(result.error.message));
+            return;
           }
+          pingInterval = setInterval(() => {
+            try {
+              controller.enqueue(encoder.encode(": ping\n\n"));
+            } catch {
+              if (pingInterval) clearInterval(pingInterval);
+            }
+          }, SSE_PING_INTERVAL_MS);
         },
         cancel() {
+          if (pingInterval) clearInterval(pingInterval);
           if (entry) clients.remove(entry);
         },
       });
       context.req.raw.signal.addEventListener("abort", () => {
+        if (pingInterval) clearInterval(pingInterval);
         if (entry) clients.remove(entry);
       }, { once: true });
       return new Response(stream, {
@@ -677,12 +698,16 @@ export const registerDocumentSyncHttpRoutes = (
 
   app.post(
     "/api/projects/:projectId/documents/:documentId/canvas/sync",
+    bodyLimit({
+      maxSize: MAX_CANVAS_SCENE_MUTATION_BYTES,
+      onError: () => invalidRequest("Canvas sync request is too large"),
+    }),
     async (context) => {
       const projectId = context.req.param("projectId").trim();
       const documentId = context.req.param("documentId").trim();
       try {
         const request = decodeCanvasSceneSyncRequestHttp(
-          await context.req.text(), projectId, documentId,
+          await readCanvasJsonBody(context), projectId, documentId,
         );
         const client = clients.get(projectId, request, "canvas_scene");
         if (!client) return invalidRequest("Open the Canvas event stream before syncing");
@@ -699,12 +724,16 @@ export const registerDocumentSyncHttpRoutes = (
 
   app.post(
     "/api/projects/:projectId/documents/:documentId/canvas/mutations",
+    bodyLimit({
+      maxSize: MAX_CANVAS_SCENE_MUTATION_BYTES,
+      onError: () => invalidRequest("Canvas mutation request is too large"),
+    }),
     async (context) => {
       const projectId = context.req.param("projectId").trim();
       const documentId = context.req.param("documentId").trim();
       try {
         const request = decodeCanvasSceneMutationRequestHttp(
-          await context.req.text(), projectId, documentId,
+          await readCanvasJsonBody(context), projectId, documentId,
         );
         const client = clients.get(projectId, request, "canvas_scene");
         if (!client) return invalidRequest("Open the Canvas event stream before mutating");

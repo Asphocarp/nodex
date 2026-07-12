@@ -1,12 +1,25 @@
 import { describe, expect, test } from "vitest";
 import {
   decodeCanvasSceneMutationRequestHttp,
+  decodeCanvasSceneMutationResultHttp,
+  decodeCanvasSceneSseEvent,
   decodeCanvasSceneSyncRequestHttp,
+  decodeCanvasSceneSyncResultHttp,
   encodeCanvasSceneMutationRequestHttp,
   encodeCanvasSceneSyncRequestHttp,
 } from "./canvas-scene-http-contract";
 
 describe("Canvas scene HTTP contract", () => {
+  const emptyScene = {
+    kind: "canvas_scene",
+    schemaVersion: 1,
+    elements: [],
+    appState: {},
+    files: {},
+    cardReferences: [],
+    plainText: "",
+    preview: "",
+  } as const;
   test("round-trips bounded sync and mutation requests with exact route scope", () => {
     const sync = decodeCanvasSceneSyncRequestHttp(
       encodeCanvasSceneSyncRequestHttp({
@@ -52,5 +65,85 @@ describe("Canvas scene HTTP contract", () => {
     expect(() =>
       decodeCanvasSceneSyncRequestHttp(serialized, "project-2", "canvas-1"),
     ).toThrow("does not match its route");
+  });
+
+  test("rejects malformed successful sync and mutation envelopes", () => {
+    expect(() => decodeCanvasSceneSyncResultHttp(JSON.stringify({
+      ok: true,
+      value: {
+        version: 1,
+        projectId: "project-1",
+        documentId: "canvas-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 0,
+        scene: emptyScene,
+      },
+    }))).toThrow("sceneHash");
+    expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
+      ok: true,
+      value: {
+        version: 1,
+        mutationId: "mutation-1",
+        projectId: "project-1",
+        documentId: "canvas-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        baseHeadSeq: 0,
+        headSeq: 1,
+        duplicate: false,
+        outcome: "committed",
+        sceneHash: "a".repeat(64),
+        changedElementIds: [],
+        appliedAppStateKeys: [],
+        skippedAppStateKeys: [],
+        addedFileIds: [],
+        removedFileIds: [],
+      },
+    }))).toThrow("mutation result is invalid");
+  });
+
+  test("rejects malformed realtime coordinates and non-commit mutation events", () => {
+    expect(() => decodeCanvasSceneSseEvent(JSON.stringify({
+      type: "canvas_scene_resync_required",
+      version: 1,
+      projectId: "project-1",
+      documentId: "canvas-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: "1",
+    }))).toThrow("headSeq");
+    const value = {
+      version: 1,
+      mutationId: "mutation-1",
+      projectId: "project-1",
+      documentId: "canvas-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      baseHeadSeq: 0,
+      headSeq: 1,
+      duplicate: false,
+      outcome: "committed",
+      sceneHash: "a".repeat(64),
+      changedElementIds: [],
+      appliedAppStateKeys: [],
+      skippedAppStateKeys: [],
+      addedFileIds: [],
+      removedFileIds: [],
+      committedAt: "2026-07-13T00:00:00.000Z",
+    };
+    expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
+      ok: true,
+      value,
+      event: {
+        type: "canvas_scene_resync_required",
+        version: 1,
+        projectId: "project-1",
+        documentId: "canvas-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 1,
+      },
+    }))).toThrow("must be a committed event");
   });
 });

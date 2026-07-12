@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import {
 import { getOwnedDocumentDescriptor } from "./block-document-cutover";
 import { loadPrimaryBlockDocument } from "./block-document-store";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
+import { getDatabasePath } from "./config";
 import { createProject } from "./projects";
 import {
   applyCanvasSceneMutation,
@@ -24,10 +26,12 @@ import {
   getDocumentVersionDetail,
 } from "./document-versions";
 import { restoreDocumentVersion } from "./block-document-operations";
+import { prepareEditableOwnedBlockDocument } from "./owned-block-document-preparation";
 import {
   materializeInlineCanvasImage,
   resetAssetPathCacheForTests,
 } from "./assets";
+import { validateBackupStore } from "./backup-store-validation";
 
 const supportsBetterSqlite3 = (): boolean => {
   try {
@@ -268,6 +272,13 @@ describe("Canvas scene SQLite authority", () => {
     expect(() =>
       loadPrimaryBlockDocument(fixture.database, fixture.documentId),
     ).toThrow(/cannot enter the Yjs runtime/u);
+    const prepared = prepareEditableOwnedBlockDocument(
+      fixture.database,
+      fixture.projectId,
+      primaryCanvasBlockId(fixture.projectId),
+    );
+    expect(prepared.repairedEmptyRoot).toBe(false);
+    expect(prepared.descriptor.sync).toEqual({ kind: "canvas_scene" });
     expect(
       fixture.database
         .prepare(
@@ -394,6 +405,56 @@ describe("Canvas scene SQLite authority", () => {
         resetRequired: true,
       }),
     });
+  });
+
+  sqliteTest("fails closed when immutable Canvas result evidence is corrupted", async () => {
+    const fixture = await createFixture("Canvas receipt integrity");
+    const request = mutation(fixture, {
+      mutationId: "corrupt-result-evidence",
+      elementCandidates: [shape(1, 1, 10)],
+    });
+    const committed = applyCanvasSceneMutation(fixture.database, request);
+    expect(committed.ok).toBe(true);
+    fixture.database.exec(
+      "DROP TRIGGER canvas_scene_mutation_receipts_immutable_update",
+    );
+    const stored = fixture.database
+      .prepare(
+        `SELECT result_json FROM canvas_scene_mutation_receipts
+         WHERE document_id = ? AND mutation_id = ?`,
+      )
+      .get(fixture.documentId, request.mutationId) as {
+      readonly result_json: string;
+    };
+    const corruptResult = JSON.stringify({
+      ...(JSON.parse(stored.result_json) as Readonly<Record<string, unknown>>),
+      sceneHash: "not-a-sha256",
+    });
+    fixture.database
+      .prepare(
+        `UPDATE canvas_scene_mutation_receipts
+         SET result_json = ?, result_hash = ?
+         WHERE document_id = ? AND mutation_id = ?`,
+      )
+      .run(
+        corruptResult,
+        createHash("sha256").update(corruptResult).digest("hex"),
+        fixture.documentId,
+        request.mutationId,
+      );
+
+    expect(applyCanvasSceneMutation(fixture.database, request)).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: "canvas_scene_corrupt",
+        resetRequired: true,
+      }),
+    });
+    expect(() =>
+      validateBackupStore(getDatabasePath(), {
+        assetsPath: path.join(process.env.NODEX_DIR ?? "", "assets"),
+      }),
+    ).toThrow(/Canvas mutation receipt is corrupt/u);
   });
 
   sqliteTest("uses per-field appState CAS while allowing stale element merges", async () => {

@@ -17,6 +17,8 @@ import {
 import {
   canonicalizeCanvasSceneMutationRequest,
   encodeCanonicalCanvasSceneMutationRequest,
+  canonicalizeCanvasSceneMutationResult,
+  encodeCanonicalCanvasSceneMutationResult,
   type CanvasSceneCommittedEvent,
   type CanvasSceneMutationCommandResult,
   type CanvasSceneMutationError,
@@ -62,6 +64,7 @@ interface CanvasReceiptRow {
   readonly request_byte_length: number;
   readonly request_json: string;
   readonly result_json: string;
+  readonly result_hash: string;
   readonly outcome: "committed" | "no_change";
   readonly committed_at: string;
 }
@@ -545,7 +548,7 @@ const readReceipt = (
     .prepare(
       `SELECT document_id, generation, mutation_id, client_session_id,
         base_head_seq, committed_head_seq, request_hash, request_byte_length,
-        request_json, result_json, outcome, committed_at
+        request_json, result_json, result_hash, outcome, committed_at
        FROM canvas_scene_mutation_receipts
        WHERE document_id = ? AND mutation_id = ?`,
     )
@@ -558,7 +561,8 @@ const replayReceipt = (
 ): CanvasSceneMutationCommandResult => {
   if (
     sha256(receipt.request_json) !== receipt.request_hash ||
-    Buffer.byteLength(receipt.request_json) !== receipt.request_byte_length
+    Buffer.byteLength(receipt.request_json) !== receipt.request_byte_length ||
+    sha256(receipt.result_json) !== receipt.result_hash
   ) {
     throw new CanvasSceneStoreError(
       "canvas_scene_corrupt",
@@ -587,13 +591,37 @@ const replayReceipt = (
       request.mutationId,
     );
   }
-  const result = parsed as CanvasSceneMutationResult;
+  let result: CanvasSceneMutationResult;
+  try {
+    result = canonicalizeCanvasSceneMutationResult(parsed);
+  } catch (error) {
+    throw new CanvasSceneStoreError(
+      "canvas_scene_corrupt",
+      `Canvas mutation receipt ${request.mutationId} result is invalid`,
+      false,
+      true,
+      request.mutationId,
+      { cause: error },
+    );
+  }
   if (
+    encodeCanonicalCanvasSceneMutationResult(result) !== receipt.result_json ||
     result.mutationId !== request.mutationId ||
+    result.version !== CANVAS_SCENE_SYNC_VERSION ||
+    result.projectId !== request.projectId ||
     result.documentId !== request.documentId ||
+    result.storeEpoch !== request.storeEpoch ||
+    receipt.document_id !== request.documentId ||
+    receipt.mutation_id !== request.mutationId ||
+    receipt.client_session_id !== request.clientSessionId ||
     result.generation !== receipt.generation ||
+    receipt.generation !== request.generation ||
+    result.baseHeadSeq !== receipt.base_head_seq ||
+    receipt.base_head_seq !== request.baseHeadSeq ||
     result.headSeq !== receipt.committed_head_seq ||
-    result.outcome !== receipt.outcome
+    result.outcome !== receipt.outcome ||
+    result.committedAt !== receipt.committed_at ||
+    result.duplicate !== false
   ) {
     throw new CanvasSceneStoreError(
       "canvas_scene_corrupt",
@@ -922,8 +950,9 @@ export const applyCanvasSceneMutation = (
           `INSERT INTO canvas_scene_mutation_receipts (
             document_id, generation, mutation_id, client_session_id,
             base_head_seq, committed_head_seq, request_hash,
-            request_byte_length, request_json, result_json, outcome, committed_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            request_byte_length, request_json, result_json, result_hash,
+            outcome, committed_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           request.documentId,
@@ -936,6 +965,7 @@ export const applyCanvasSceneMutation = (
           Buffer.byteLength(requestJson),
           requestJson,
           resultJson,
+          sha256(resultJson),
           result.outcome,
           committedAt,
         );

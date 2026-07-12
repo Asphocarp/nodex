@@ -60,6 +60,8 @@ const main = async (): Promise<void> => {
         .get(target.id, targetDatabaseBlockId) as { readonly id: string }
     ).id;
     const cardId = createUuidV7();
+    const largeShellBlockId = createUuidV7();
+    const largeParagraphBlockId = createUuidV7();
     const created = applyCardLifecycleMutation(
       database,
       parseCardLifecycleMutationRequest({
@@ -89,12 +91,12 @@ const main = async (): Promise<void> => {
       clientSessionId: "transfer-probe",
       actor: { kind: "probe" },
       blockKind: "large_document",
-      blockId: "probe:large-shell",
+      blockId: largeShellBlockId,
       documentId: "document:probe-large-shell",
       displayName: "Nested owner",
       blockTree: [
         {
-          id: "probe:large-paragraph",
+          id: largeParagraphBlockId,
           type: "paragraph",
           props: {},
           content: [

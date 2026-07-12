@@ -34,6 +34,7 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -54,6 +55,24 @@ const paragraph = (
   content: [{ type: "text", text, styles: {} }],
   children,
 });
+
+const probeBlockId = (sequence: number): string =>
+  createUuidV7FromTimestamp(1_784_000_000_000, sequence);
+
+const blockIds = {
+  probeSource: probeBlockId(1),
+  probeParagraph: probeBlockId(2),
+  moveRoot: probeBlockId(3),
+  moveChild: probeBlockId(4),
+  moveReference: probeBlockId(5),
+  moveSource: probeBlockId(6),
+  faultRoot: probeBlockId(7),
+  faultReference: probeBlockId(8),
+  faultSource: probeBlockId(9),
+  staleSource: probeBlockId(10),
+  missing: probeBlockId(11),
+  copiedSource: probeBlockId(12),
+} as const;
 
 const writeFence = (
   leaseId: string,
@@ -239,22 +258,22 @@ const main = async (): Promise<void> => {
       operationId: "probe:create",
       projectId: project.id,
       storeEpoch,
-      sourceBlockId: "probe-source",
+      sourceBlockId: blockIds.probeSource,
       documentId: "document:probe-source",
       clientSessionId: "probe:create",
       actor: { surface: "probe", attempt: 1 },
-      blockTree: [paragraph("probe-paragraph", "base")],
+      blockTree: [paragraph(blockIds.probeParagraph, "base")],
     });
     invariant(!created.duplicate, "create was duplicate");
     const retry = createSyncedBlockSource(getDb(), {
       operationId: "probe:create",
       projectId: project.id,
       storeEpoch,
-      sourceBlockId: "probe-source",
+      sourceBlockId: blockIds.probeSource,
       documentId: "document:probe-source",
       clientSessionId: "probe:retry",
       actor: { surface: "lost-response-retry", attempt: 2 },
-      blockTree: [paragraph("probe-paragraph", "base")],
+      blockTree: [paragraph(blockIds.probeParagraph, "base")],
     });
     invariant(retry.duplicate, "lost-response retry was not durable");
 
@@ -280,7 +299,7 @@ const main = async (): Promise<void> => {
       updateId: "probe:left",
       clientSessionId: "probe:left",
       baseHeadSeq: 1,
-      touchedBlockIds: ["probe-paragraph"],
+      touchedBlockIds: [blockIds.probeParagraph],
       update: Y.encodeStateAsUpdate(left, leftVector),
     });
     applyBlockDocumentUpdate(getDb(), {
@@ -290,7 +309,7 @@ const main = async (): Promise<void> => {
       updateId: "probe:right",
       clientSessionId: "probe:right",
       baseHeadSeq: 1,
-      touchedBlockIds: ["probe-paragraph"],
+      touchedBlockIds: [blockIds.probeParagraph],
       update: Y.encodeStateAsUpdate(right, rightVector),
     });
     left.destroy();
@@ -324,7 +343,7 @@ const main = async (): Promise<void> => {
       updateId: "probe:later",
       clientSessionId: "probe:later",
       baseHeadSeq: 3,
-      touchedBlockIds: ["probe-paragraph"],
+      touchedBlockIds: [blockIds.probeParagraph],
       update: Y.encodeStateAsUpdate(later.document, laterVector),
     });
     later.document.destroy();
@@ -354,7 +373,9 @@ const main = async (): Promise<void> => {
     invariant(restored.ok, "forward history restore failed");
 
     seedHost(project.id, "probe-host", "document:probe-host", [
-      paragraph("move-root", "root", [paragraph("move-child", "child")]),
+      paragraph(blockIds.moveRoot, "root", [
+        paragraph(blockIds.moveChild, "child"),
+      ]),
     ]);
     const promoted = promoteBlockToSyncedSource(getDb(), {
       operationId: "probe:promote",
@@ -363,9 +384,9 @@ const main = async (): Promise<void> => {
       hostDocumentId: "document:probe-host",
       expectedGeneration: 1,
       expectedHeadSeq: 1,
-      rootBlockId: "move-root",
-      referenceBlockId: "move-ref",
-      sourceBlockId: "move-source",
+      rootBlockId: blockIds.moveRoot,
+      referenceBlockId: blockIds.moveReference,
+      sourceBlockId: blockIds.moveSource,
       sourceDocumentId: "document:move-source",
       clientSessionId: "probe:promote",
       actor: { surface: "probe", attempt: 1 },
@@ -377,8 +398,8 @@ const main = async (): Promise<void> => {
     });
     const promotedBody = materialize("document:move-source");
     invariant(
-      promotedBody.blockTree[0]?.id === "move-root" &&
-        promotedBody.blockTree[0]?.children[0]?.id === "move-child",
+      promotedBody.blockTree[0]?.id === blockIds.moveRoot &&
+        promotedBody.blockTree[0]?.children[0]?.id === blockIds.moveChild,
       "promotion did not preserve application IDs",
     );
     const libraryPlacement = getDb()
@@ -398,7 +419,7 @@ const main = async (): Promise<void> => {
         WHERE source.id = ? AND source.type = 'synced_block_source'
       `,
       )
-      .get("move-source") as {
+      .get(blockIds.moveSource) as {
       readonly location_kind: string;
       readonly has_placement: number;
       readonly has_membership: number;
@@ -413,7 +434,7 @@ const main = async (): Promise<void> => {
     try {
       assertSyncedBlockSourceIsUnreferenced(getDb(), {
         projectId: project.id,
-        sourceBlockId: "move-source",
+        sourceBlockId: blockIds.moveSource,
         sourceDocumentId: "document:move-source",
       });
     } catch (error) {
@@ -432,9 +453,9 @@ const main = async (): Promise<void> => {
       hostDocumentId: "document:probe-host",
       expectedGeneration: 1,
       expectedHeadSeq: 1,
-      rootBlockId: "move-root",
-      referenceBlockId: "move-ref",
-      sourceBlockId: "move-source",
+      rootBlockId: blockIds.moveRoot,
+      referenceBlockId: blockIds.moveReference,
+      sourceBlockId: blockIds.moveSource,
       sourceDocumentId: "document:move-source",
       clientSessionId: "probe:retry",
       actor: { surface: "lost-response-retry", attempt: 2 },
@@ -449,19 +470,19 @@ const main = async (): Promise<void> => {
       operationId: "probe:copy",
       projectId: project.id,
       storeEpoch,
-      sourceBlockId: "move-source",
+      sourceBlockId: blockIds.moveSource,
       sourceDocumentId: "document:move-source",
       expectedSourceGeneration: 1,
       expectedSourceHeadSeq: 1,
-      newSourceBlockId: "move-source-copy",
+      newSourceBlockId: blockIds.copiedSource,
       newDocumentId: "document:move-source-copy",
       clientSessionId: "probe:copy",
       actor: { surface: "probe" },
     });
     const copiedBody = materialize(copied.documentId).blockTree[0];
     invariant(
-      copiedBody?.id !== "move-root" &&
-        copiedBody?.children[0]?.id !== "move-child" &&
+      copiedBody?.id !== blockIds.moveRoot &&
+        copiedBody?.children[0]?.id !== blockIds.moveChild &&
         copiedBody?.id !== copiedBody?.children[0]?.id,
       "copy reused source identity",
     );
@@ -476,8 +497,8 @@ const main = async (): Promise<void> => {
         expectedHeadSeq: promoted.hostMutation.headSeq,
         expectedSourceGeneration: 1,
         expectedSourceHeadSeq: 1,
-        referenceBlockId: "move-ref",
-        sourceBlockId: "move-source",
+        referenceBlockId: blockIds.moveReference,
+        sourceBlockId: blockIds.moveSource,
         sourceDocumentId: "document:move-source",
         clientSessionId: "probe:demote:bad-fence",
         actor: { surface: "probe" },
@@ -494,7 +515,8 @@ const main = async (): Promise<void> => {
     }
     invariant(
       incompleteFenceRejected &&
-        materialize("document:probe-host").blockTree[0]?.id === "move-ref",
+        materialize("document:probe-host").blockTree[0]?.id ===
+          blockIds.moveReference,
       "demotion accepted an incomplete dual-Document write fence",
     );
     const demoted = demoteSyncedBlockSource(getDb(), {
@@ -506,8 +528,8 @@ const main = async (): Promise<void> => {
       expectedHeadSeq: promoted.hostMutation.headSeq,
       expectedSourceGeneration: 1,
       expectedSourceHeadSeq: 1,
-      referenceBlockId: "move-ref",
-      sourceBlockId: "move-source",
+      referenceBlockId: blockIds.moveReference,
+      sourceBlockId: blockIds.moveSource,
       sourceDocumentId: "document:move-source",
       clientSessionId: "probe:demote",
       actor: { surface: "probe" },
@@ -527,7 +549,7 @@ const main = async (): Promise<void> => {
     });
     invariant(!demoted.duplicate, "first demotion was duplicate");
     invariant(
-      materialize("document:probe-host").blockTree[0]?.id === "move-root",
+      materialize("document:probe-host").blockTree[0]?.id === blockIds.moveRoot,
       "demotion did not move original IDs back",
     );
     const clearedSource = materializePersistedSyncedSource(
@@ -560,11 +582,11 @@ const main = async (): Promise<void> => {
         `
         SELECT id, lifecycle, containing_document_id
         FROM blocks
-        WHERE id IN ('move-root', 'move-child')
+        WHERE id IN (?, ?)
         ORDER BY id
       `,
       )
-      .all() as readonly {
+      .all(blockIds.moveRoot, blockIds.moveChild) as readonly {
       readonly id: string;
       readonly lifecycle: string;
       readonly containing_document_id: string | null;
@@ -584,14 +606,14 @@ const main = async (): Promise<void> => {
       "document:move-source",
     );
     invariant(
-      materialize("document:probe-host").blockTree[0]?.id === "move-root" &&
+      materialize("document:probe-host").blockTree[0]?.id === blockIds.moveRoot &&
         restartedSource.headSeq === 2 &&
         restartedSource.materialization.blockTree.length === 0,
       "promotion/demotion state did not survive a SQLite restart",
     );
 
     seedHost(project.id, "fault-host", "document:fault-host", [
-      paragraph("fault-root", "fault"),
+      paragraph(blockIds.faultRoot, "fault"),
     ]);
     let faultRolledBack = false;
     try {
@@ -602,9 +624,9 @@ const main = async (): Promise<void> => {
         hostDocumentId: "document:fault-host",
         expectedGeneration: 1,
         expectedHeadSeq: 1,
-        rootBlockId: "fault-root",
-        referenceBlockId: "fault-ref",
-        sourceBlockId: "fault-source",
+        rootBlockId: blockIds.faultRoot,
+        referenceBlockId: blockIds.faultReference,
+        sourceBlockId: blockIds.faultSource,
         sourceDocumentId: "document:fault-source",
         clientSessionId: "probe:fault",
         actor: { surface: "probe" },
@@ -622,7 +644,9 @@ const main = async (): Promise<void> => {
     }
     const residue = getDb()
       .prepare("SELECT COUNT(*) AS count FROM blocks WHERE id IN (?, ?)")
-      .get("fault-source", "fault-ref") as { readonly count: number };
+      .get(blockIds.faultSource, blockIds.faultReference) as {
+      readonly count: number;
+    };
     invariant(
       faultRolledBack && residue.count === 0,
       "promotion fault left residue",
@@ -632,7 +656,7 @@ const main = async (): Promise<void> => {
       operationId: "probe:stale",
       projectId: project.id,
       storeEpoch,
-      sourceBlockId: "stale-source",
+      sourceBlockId: blockIds.staleSource,
       documentId: "document:stale-source",
       clientSessionId: "probe:stale",
       actor: { surface: "probe" },
@@ -654,8 +678,8 @@ const main = async (): Promise<void> => {
         expectedHeadSeq: 1,
         expectedSourceGeneration: 1,
         expectedSourceHeadSeq: 1,
-        referenceBlockId: "missing",
-        sourceBlockId: "stale-source",
+        referenceBlockId: blockIds.missing,
+        sourceBlockId: blockIds.staleSource,
         sourceDocumentId: "document:stale-source",
         clientSessionId: "probe:stale",
         actor: { surface: "probe", attempt: 1 },
@@ -693,8 +717,8 @@ const main = async (): Promise<void> => {
         expectedHeadSeq: 1,
         expectedSourceGeneration: 1,
         expectedSourceHeadSeq: 1,
-        referenceBlockId: "missing",
-        sourceBlockId: "stale-source",
+        referenceBlockId: blockIds.missing,
+        sourceBlockId: blockIds.staleSource,
         sourceDocumentId: "document:stale-source",
         clientSessionId: "probe:stale-retry",
         actor: { surface: "lost-response-retry", attempt: 2 },

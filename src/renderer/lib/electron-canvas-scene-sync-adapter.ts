@@ -8,6 +8,7 @@ import type {
 } from "../../shared/block-documents";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
+import { decodeDocumentRealtimeSseEvent } from "../../shared/block-documents/http-contract";
 
 const transportFailure = (error: unknown): CanvasSceneMutationError => ({
   code: "unknown",
@@ -48,11 +49,19 @@ export const createElectronCanvasSceneSyncAdapter = (
           (...args: unknown[]) => {
             const event = args[0] as CanvasSceneRealtimeEvent | import("./canvas-scene-provider").CanvasSceneRelocationLeaseEvent;
             if (event && "kind" in event) {
-              if (
-                event.documentId === request.documentId &&
-                event.clientSessionId === request.clientSessionId
-              ) {
-                leaseListeners.forEach((active) => active(event));
+              try {
+                const leaseEvent = decodeDocumentRealtimeSseEvent(JSON.stringify(event));
+                if (
+                  (leaseEvent.kind === "relocation-lease-prepare" ||
+                    leaseEvent.kind === "relocation-lease-release" ||
+                    leaseEvent.kind === "relocation-lease-cancel") &&
+                  leaseEvent.documentId === request.documentId &&
+                  leaseEvent.clientSessionId === request.clientSessionId
+                ) {
+                  leaseListeners.forEach((active) => active(leaseEvent));
+                }
+              } catch {
+                // Invalid main-to-renderer events never cross the adapter boundary.
               }
               return;
             }

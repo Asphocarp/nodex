@@ -69,6 +69,7 @@ describe("HTTP Canvas adapter", () => {
   test("opens SSE before bounded JSON sync/mutation and receives realtime", async () => {
     const sources: Array<{
       onopen: ((event: Event) => unknown) | null;
+      onerror: ((event: Event) => unknown) | null;
       onmessage: ((event: MessageEvent<string>) => unknown) | null;
       close(): void;
     }> = [];
@@ -87,7 +88,7 @@ describe("HTTP Canvas adapter", () => {
           version: 1, projectId: "project-1", documentId: "canvas-1",
           storeEpoch: "store-1", generation: 1, headSeq: 0,
           sceneHash: "a".repeat(64), scene: emptyScene,
-        } }));
+        } }), { headers: { "Content-Type": "application/vnd.nodex.canvas-scene.v1+json" } });
       }
       return new Response(encodeCanvasSceneMutationResultHttp({ ok: true, value: {
         version: 1, mutationId: "mutation-1", projectId: "project-1",
@@ -96,14 +97,14 @@ describe("HTTP Canvas adapter", () => {
         sceneHash: "b".repeat(64), changedElementIds: [], appliedAppStateKeys: [],
         skippedAppStateKeys: [], addedFileIds: [], removedFileIds: [],
         committedAt: "2026-07-13T00:00:00.000Z",
-      } }));
+      } }), { headers: { "Content-Type": "application/vnd.nodex.canvas-scene.v1+json" } });
     };
     const adapter = createHttpCanvasSceneSyncAdapter({
       projectId: "project-1",
       fetch: fetch as typeof globalThis.fetch,
       toUrl: (path) => `http://nodex.test${path}`,
       createEventSource: () => {
-        const source = { onopen: null, onmessage: null, close() {} };
+        const source = { onopen: null, onerror: null, onmessage: null, close() {} };
         sources.push(source);
         return source;
       },
@@ -117,11 +118,26 @@ describe("HTTP Canvas adapter", () => {
     });
     sources[0]?.onopen?.(new Event("open"));
     expect((await pending).ok).toBe(true);
+    sources[0]?.onerror?.(new Event("error"));
+    const disconnected = adapter.sync({
+      version: 1, projectId: "project-1", documentId: "canvas-1", clientSessionId: "client-1",
+    });
+    await Promise.resolve();
+    sources[0]?.onerror?.(new Event("error"));
+    expect(await disconnected).toEqual({
+      ok: false,
+      error: expect.objectContaining({ retryable: true }),
+    });
+    sources[0]?.onopen?.(new Event("open"));
+    expect(events).toEqual(["canvas_scene_resync_required"]);
     sources[0]?.onmessage?.({ data: encodeCanvasSceneSseEvent({
       type: "canvas_scene_resync_required", version: 1, projectId: "project-1",
       documentId: "canvas-1", storeEpoch: "store-1", generation: 1, headSeq: 1,
     }) } as MessageEvent<string>);
-    expect(events).toEqual(["canvas_scene_resync_required"]);
+    expect(events).toEqual([
+      "canvas_scene_resync_required",
+      "canvas_scene_resync_required",
+    ]);
     const lease = await adapter.respondToRelocationLease?.({
       response: "ack",
       leaseId: "lease-1",

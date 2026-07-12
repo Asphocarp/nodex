@@ -1,13 +1,17 @@
 import { describe, expect, test } from "vitest";
 import {
   CANVAS_SCENE_SYNC_VERSION,
-  canonicalPortableCanvasSceneFingerprint,
   materializePortableCanvasScene,
+  type CanvasSceneMutationCommandResult,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
+  type CanvasSceneSyncCommandResult,
   type PortableCanvasScene,
 } from "../../shared/block-documents";
-import { MemoryCanvasSceneOutbox } from "./canvas-scene-outbox";
+import {
+  MemoryCanvasSceneOutbox,
+  type CanvasSceneOutbox,
+} from "./canvas-scene-outbox";
 import {
   CanvasSceneProvider,
   type CanvasSceneRelocationLeaseEvent,
@@ -40,6 +44,8 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
   currentScene = scene();
   headSeq = 0;
   applyError: Error | null = null;
+  syncImplementation: CanvasSceneSyncAdapter["sync"] | null = null;
+  private readonly committed = new Map<string, Extract<Awaited<CanvasSceneMutationCommandResult>, { readonly ok: true }>["value"]>();
 
   subscribe: CanvasSceneSyncAdapter["subscribe"] = (_request, listener, leaseListener) => {
     this.calls.push("subscribe");
@@ -53,6 +59,12 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
 
   sync: CanvasSceneSyncAdapter["sync"] = async () => {
     this.calls.push("sync");
+    if (this.syncImplementation) return await this.syncImplementation({
+      version: 1,
+      projectId: "project-1",
+      documentId: "document-1",
+      clientSessionId: "window-1",
+    });
     return {
       ok: true,
       value: {
@@ -62,7 +74,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
         storeEpoch: "epoch-1",
         generation: 1,
         headSeq: this.headSeq,
-        sceneHash: canonicalPortableCanvasSceneFingerprint(this.currentScene),
+        sceneHash: "a".repeat(64),
         scene: this.currentScene,
       },
     };
@@ -72,6 +84,8 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
     this.calls.push(`apply:${request.mutationId}`);
     this.applied.push(request);
     if (this.applyError) throw this.applyError;
+    const committed = this.committed.get(request.mutationId);
+    if (committed) return { ok: true, value: { ...committed, duplicate: true } };
     this.currentScene = materializePortableCanvasScene({
       elements: request.elementCandidates,
       appState: this.currentScene.appState,
@@ -79,7 +93,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
     });
     const baseHeadSeq = this.headSeq;
     this.headSeq += 1;
-    return {
+    const result = {
       ok: true,
       value: {
         version: CANVAS_SCENE_SYNC_VERSION,
@@ -92,7 +106,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
         headSeq: this.headSeq,
         duplicate: false,
         outcome: "committed",
-        sceneHash: canonicalPortableCanvasSceneFingerprint(this.currentScene),
+        sceneHash: "b".repeat(64),
         changedElementIds: request.elementCandidates.map((candidate) => candidate.id as string),
         appliedAppStateKeys: [],
         skippedAppStateKeys: [],
@@ -100,7 +114,9 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
         removedFileIds: [],
         committedAt: "2026-07-13T00:00:00.000Z",
       },
-    };
+    } as const;
+    this.committed.set(request.mutationId, result.value);
+    return result;
   };
 
   respondToRelocationLease: NonNullable<
@@ -134,7 +150,7 @@ const manualScheduler = () => {
 
 const makeProvider = (input: {
   adapter: MemoryAdapter;
-  outbox?: MemoryCanvasSceneOutbox;
+  outbox?: CanvasSceneOutbox;
   schedule?: CanvasSceneProviderScheduler;
   scheduleRetry?: CanvasSceneProviderScheduler;
   onScene?: (value: PortableCanvasScene) => void;
@@ -245,6 +261,123 @@ describe("CanvasSceneProvider", () => {
     await provider.close();
   });
 
+  test("does not let a delayed full sync rewind newer realtime commits", async () => {
+    const adapter = new MemoryAdapter();
+    const provider = makeProvider({ adapter });
+    await provider.connect();
+    let resolveSync!: (result: CanvasSceneSyncCommandResult) => void;
+    adapter.syncImplementation = () => new Promise((resolve) => {
+      resolveSync = resolve;
+    });
+    adapter.listener?.({
+      type: "canvas_scene_resync_required",
+      version: 1,
+      projectId: "project-1",
+      documentId: "document-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      headSeq: 1,
+    });
+    await Promise.resolve();
+    for (const [headSeq, version] of [[1, 2], [2, 3]] as const) {
+      adapter.listener?.({
+        type: "canvas_scene_committed",
+        version: 1,
+        projectId: "project-1",
+        documentId: "document-1",
+        storeEpoch: "epoch-1",
+        generation: 1,
+        mutationId: `remote-${headSeq}`,
+        baseHeadSeq: headSeq - 1,
+        headSeq,
+        sceneHash: "c".repeat(64),
+        elementUpdates: [element(version)],
+        appState: {},
+        fileAdditions: {},
+        removedFileIds: [],
+      });
+    }
+    resolveSync({ ok: true, value: {
+      version: 1,
+      projectId: "project-1",
+      documentId: "document-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      headSeq: 0,
+      sceneHash: "a".repeat(64),
+      scene: scene(1),
+    } });
+    await waitForCondition(() => provider.getStatus().phase === "ready");
+    expect(provider.getStatus().headSeq).toBe(2);
+    expect(provider.getScene()?.elements[0]?.version).toBe(3);
+    adapter.syncImplementation = null;
+    await provider.close();
+  });
+
+  test("retries exact delivery when durable ACK cleanup fails", async () => {
+    class FailingRemoveOutbox implements CanvasSceneOutbox {
+      private readonly delegate = new MemoryCanvasSceneOutbox();
+      removeAttempts = 0;
+      list = this.delegate.list;
+      put = this.delegate.put;
+      clear = this.delegate.clear;
+      remove = async (documentId: string, mutationId: string): Promise<void> => {
+        this.removeAttempts += 1;
+        if (this.removeAttempts === 1) throw new Error("IndexedDB delete failed");
+        await this.delegate.remove(documentId, mutationId);
+      };
+    }
+    const adapter = new MemoryAdapter();
+    const outbox = new FailingRemoveOutbox();
+    const retry = manualScheduler();
+    const provider = makeProvider({ adapter, outbox, scheduleRetry: retry.schedule });
+    await provider.connect();
+    const submitted = provider.submit({ elementCandidates: [element(2)] });
+    provider.flush().catch(() => undefined);
+    await waitForCondition(() => retry.callbacks.length === 1);
+    expect((await outbox.list("document-1"))).toHaveLength(1);
+    retry.callbacks.shift()?.();
+    await submitted;
+    expect(outbox.removeAttempts).toBe(2);
+    expect(adapter.applied[1]).toEqual(adapter.applied[0]);
+    expect(await outbox.list("document-1")).toHaveLength(0);
+    await provider.close();
+  });
+
+  test("retains the outbox when a successful ACK crosses its request boundary", async () => {
+    const adapter = new MemoryAdapter();
+    const outbox = new MemoryCanvasSceneOutbox();
+    adapter.applyMutation = async (request): Promise<CanvasSceneMutationCommandResult> => ({
+      ok: true,
+      value: {
+        version: 1,
+        mutationId: request.mutationId,
+        projectId: "other-project",
+        documentId: request.documentId,
+        storeEpoch: request.storeEpoch,
+        generation: request.generation,
+        baseHeadSeq: request.baseHeadSeq,
+        headSeq: request.baseHeadSeq + 1,
+        duplicate: false,
+        outcome: "committed",
+        sceneHash: "d".repeat(64),
+        changedElementIds: [],
+        appliedAppStateKeys: [],
+        skippedAppStateKeys: [],
+        addedFileIds: [],
+        removedFileIds: [],
+        committedAt: "2026-07-13T00:00:00.000Z",
+      },
+    });
+    const provider = makeProvider({ adapter, outbox });
+    await provider.connect();
+    await expect(provider.submit({ elementCandidates: [element(2)] })).rejects.toThrow(
+      "durable request boundary",
+    );
+    expect(await outbox.list("document-1")).toHaveLength(1);
+    expect(provider.getStatus().phase).toBe("error");
+  });
+
   test("invalidates a recovered outbox across an epoch boundary", async () => {
     const adapter = new MemoryAdapter();
     const outbox = new MemoryCanvasSceneOutbox();
@@ -345,6 +478,68 @@ describe("CanvasSceneProvider", () => {
     await waitForCondition(() => provider.getStatus().phase === "ready");
     expect(provider.getStatus()).toMatchObject({ writeFrozen: false, headSeq: 3 });
     expect(provider.getScene()?.elements[0]?.version).toBe(4);
+    await provider.close();
+  });
+
+  test("waits for a queued sync cycle before completing a lease terminal", async () => {
+    const adapter = new MemoryAdapter();
+    const deadlines = manualScheduler();
+    const provider = makeProvider({
+      adapter,
+      scheduleLeaseDeadline: deadlines.schedule,
+      now: () => 1_000,
+    });
+    await provider.connect();
+    adapter.leaseListener?.(prepareLease());
+    await waitForCondition(() => provider.getStatus().phase === "frozen");
+
+    let syncCalls = 0;
+    let resolveFirst!: (result: CanvasSceneSyncCommandResult) => void;
+    let resolveSecond!: (result: CanvasSceneSyncCommandResult) => void;
+    const first = new Promise<CanvasSceneSyncCommandResult>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<CanvasSceneSyncCommandResult>((resolve) => {
+      resolveSecond = resolve;
+    });
+    adapter.syncImplementation = async () => {
+      syncCalls += 1;
+      return await (syncCalls === 1 ? first : second);
+    };
+    adapter.listener?.({
+      type: "canvas_scene_resync_required",
+      version: 1,
+      projectId: "project-1",
+      documentId: "document-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      headSeq: 1,
+    });
+    await waitForCondition(() => syncCalls === 1);
+    adapter.leaseListener?.({
+      kind: "relocation-lease-release",
+      leaseId: "lease-1",
+      documentId: "document-1",
+      clientSessionId: "window-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      headSeq: 2,
+    });
+    resolveFirst({ ok: true, value: {
+      version: 1, projectId: "project-1", documentId: "document-1",
+      storeEpoch: "epoch-1", generation: 1, headSeq: 1,
+      sceneHash: "e".repeat(64), scene: scene(2),
+    } });
+    await waitForCondition(() => syncCalls === 2);
+    expect(provider.getStatus().phase).toBe("frozen");
+    resolveSecond({ ok: true, value: {
+      version: 1, projectId: "project-1", documentId: "document-1",
+      storeEpoch: "epoch-1", generation: 1, headSeq: 2,
+      sceneHash: "f".repeat(64), scene: scene(3),
+    } });
+    await waitForCondition(() => provider.getStatus().phase === "ready");
+    expect(provider.getStatus().headSeq).toBe(2);
+    adapter.syncImplementation = null;
     await provider.close();
   });
 

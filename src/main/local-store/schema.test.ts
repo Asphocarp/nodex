@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -116,6 +116,138 @@ afterEach(() => {
 });
 
 describe("schema v70 Block-first finalization", () => {
+  test("upgrades a real pre-v71 schema before installing engine triggers", async () => {
+    seedPreFinalizationStore();
+    const before = new Database(getDatabasePath());
+    expect(
+      (before.prepare("PRAGMA table_info(documents)").all() as readonly {
+        readonly name: string;
+      }[]).some((column) => column.name === "sync_engine"),
+    ).toBe(false);
+    expect(
+      before
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'trigger' AND name = 'document_updates_require_yjs_engine'`,
+        )
+        .get(),
+    ).toBeUndefined();
+    before.close();
+
+    await initializeDatabase();
+    const after = getDb();
+    expect(after.pragma("user_version", { simple: true })).toBe(71);
+    expect(
+      (after.prepare("PRAGMA table_info(documents)").all() as readonly {
+        readonly name: string;
+      }[]).some((column) => column.name === "sync_engine"),
+    ).toBe(true);
+    expect(
+      after
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'trigger' AND name = 'document_updates_require_yjs_engine'`,
+        )
+        .get(),
+    ).toEqual({ name: "document_updates_require_yjs_engine" });
+  });
+
+  test("repairs an existing v71 Canvas receipt table without result hashes", async () => {
+    useTempStore();
+    await initializeDatabase();
+    closeDatabase();
+    const legacy = new Database(getDatabasePath());
+    legacy.pragma("foreign_keys = OFF");
+    legacy.exec(`
+      DROP TRIGGER IF EXISTS canvas_scene_mutation_receipts_immutable_update;
+      ALTER TABLE canvas_scene_mutation_receipts
+        RENAME TO canvas_scene_mutation_receipts_with_hash;
+      CREATE TABLE canvas_scene_mutation_receipts (
+        document_id TEXT NOT NULL REFERENCES canvas_scenes(document_id) ON DELETE CASCADE,
+        generation INTEGER NOT NULL CHECK (generation >= 1),
+        mutation_id TEXT NOT NULL,
+        client_session_id TEXT NOT NULL,
+        base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+        committed_head_seq INTEGER NOT NULL CHECK (committed_head_seq >= 0),
+        request_hash TEXT NOT NULL,
+        request_byte_length INTEGER NOT NULL CHECK (request_byte_length > 0),
+        request_json TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('committed', 'no_change')),
+        committed_at TEXT NOT NULL,
+        PRIMARY KEY (document_id, generation, mutation_id),
+        UNIQUE (document_id, mutation_id)
+      ) WITHOUT ROWID;
+      DROP TABLE canvas_scene_mutation_receipts_with_hash;
+    `);
+    const canvasDocument = legacy
+      .prepare("SELECT document_id FROM canvas_scenes LIMIT 1")
+      .get() as { readonly document_id: string };
+    const resultJson = '{"outcome":"no_change"}';
+    legacy
+      .prepare(
+        `INSERT INTO canvas_scene_mutation_receipts (
+          document_id, generation, mutation_id, client_session_id,
+          base_head_seq, committed_head_seq, request_hash,
+          request_byte_length, request_json, result_json, outcome, committed_at
+         ) VALUES (?, 1, 'legacy-receipt', 'legacy-client', 0, 0, ?, 2,
+           '{}', ?, 'no_change', '2026-07-13T00:00:00.000Z')`,
+      )
+      .run(
+        canvasDocument.document_id,
+        createHash("sha256").update("{}").digest("hex"),
+        resultJson,
+      );
+    legacy.pragma("foreign_keys = ON");
+    legacy.close();
+
+    await initializeDatabase();
+    const repaired = getDb();
+    expect(
+      (repaired
+        .prepare("PRAGMA table_info(canvas_scene_mutation_receipts)")
+        .all() as readonly { readonly name: string }[]).some(
+        (column) => column.name === "result_hash",
+      ),
+    ).toBe(true);
+    expect(
+      repaired
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'trigger'
+             AND name = 'canvas_scene_mutation_receipts_immutable_update'`,
+        )
+        .get(),
+    ).toEqual({ name: "canvas_scene_mutation_receipts_immutable_update" });
+    expect(
+      repaired
+        .prepare(
+          `SELECT result_hash FROM canvas_scene_mutation_receipts
+           WHERE mutation_id = 'legacy-receipt'`,
+        )
+        .get(),
+    ).toEqual({
+      result_hash: createHash("sha256").update(resultJson).digest("hex"),
+    });
+    expect(() =>
+      repaired
+        .prepare(
+          `INSERT INTO canvas_scene_mutation_receipts (
+            document_id, generation, mutation_id, client_session_id,
+            base_head_seq, committed_head_seq, request_hash,
+            request_byte_length, request_json, result_json, result_hash,
+            outcome, committed_at
+           ) VALUES (?, 1, 'invalid-result-hash', 'legacy-client', 0, 0, ?,
+             2, '{}', ?, 'bad', 'no_change', '2026-07-13T00:00:00.000Z')`,
+        )
+        .run(
+          canvasDocument.document_id,
+          createHash("sha256").update("{}").digest("hex"),
+          resultJson,
+        ),
+    ).toThrow(/result hash is invalid/u);
+  });
+
   test("exposes the final migration edge", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe(
       "[]",

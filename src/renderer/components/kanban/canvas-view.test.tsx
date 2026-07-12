@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { createElement, StrictMode, type ReactNode } from "react";
+import { createHash } from "node:crypto";
 import type { BoardSummary, CardSummary } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import {
@@ -119,7 +120,9 @@ const syncResponse = () => ({
   storeEpoch: descriptor.storeEpoch,
   generation: descriptor.generation,
   headSeq: serverHead,
-  sceneHash: canonicalPortableCanvasSceneFingerprint(serverScene),
+  sceneHash: createHash("sha256")
+    .update(canonicalPortableCanvasSceneFingerprint(serverScene))
+    .digest("hex"),
   scene: serverScene,
 });
 
@@ -160,7 +163,9 @@ const adapter: CanvasSceneSyncAdapter = {
         headSeq: serverHead,
         duplicate: false,
         outcome: "committed",
-        sceneHash: canonicalPortableCanvasSceneFingerprint(serverScene),
+        sceneHash: createHash("sha256")
+          .update(canonicalPortableCanvasSceneFingerprint(serverScene))
+          .digest("hex"),
         changedElementIds: request.elementCandidates.map((element) => element.id as string),
         appliedAppStateKeys: Object.keys(request.appStateIntents),
         skippedAppStateKeys: [],

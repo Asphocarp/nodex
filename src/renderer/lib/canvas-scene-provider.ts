@@ -437,7 +437,8 @@ export class CanvasSceneProvider {
   private requestSync(): Promise<void> {
     if (this.syncPromise) {
       this.syncAgain = true;
-      return this.syncPromise;
+      const active = this.syncPromise;
+      return active.then(() => this.syncPromise ?? Promise.resolve());
     }
     const promise = this.performSync().finally(() => {
       if (this.syncPromise === promise) this.syncPromise = null;
@@ -491,10 +492,36 @@ export class CanvasSceneProvider {
       this.enterReset("Canvas sync response crossed its store epoch or generation boundary");
       return;
     }
+    if (
+      response.version !== CANVAS_SCENE_SYNC_VERSION
+      || typeof response.storeEpoch !== "string"
+      || response.storeEpoch.length === 0
+      || !Number.isSafeInteger(response.generation)
+      || response.generation < 1
+      || !Number.isSafeInteger(response.headSeq)
+      || response.headSeq < 0
+      || typeof response.sceneHash !== "string"
+      || !/^[a-f0-9]{64}$/u.test(response.sceneHash)
+    ) {
+      this.enterFatal("Canvas sync response has invalid durable coordinates");
+      return;
+    }
+    let scene: PortableCanvasScene;
+    try {
+      scene = parsePortableCanvasScene(response.scene);
+    } catch (error) {
+      this.enterFatal(
+        `Canvas sync response contains an invalid scene: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+    if (response.headSeq < this.headSeq) return;
     this.storeEpoch = response.storeEpoch;
     this.generation = response.generation;
     this.headSeq = response.headSeq;
-    this.scene = parsePortableCanvasScene(response.scene);
+    this.scene = scene;
     this.error = undefined;
     this.connected = true;
     this.options.onScene(this.scene);
@@ -599,10 +626,34 @@ export class CanvasSceneProvider {
       this.enterFatal("Canvas mutation ACK does not match its request");
       return;
     }
-    await this.options.outbox.remove(
-      current.request.documentId,
-      current.request.mutationId,
-    );
+    if (
+      result.value.version !== CANVAS_SCENE_SYNC_VERSION
+      || result.value.projectId !== current.request.projectId
+      || result.value.documentId !== current.request.documentId
+      || result.value.storeEpoch !== current.request.storeEpoch
+      || result.value.generation !== current.request.generation
+      || result.value.baseHeadSeq !== current.request.baseHeadSeq
+      || !Number.isSafeInteger(result.value.headSeq)
+      || result.value.headSeq < result.value.baseHeadSeq
+      || (result.value.outcome !== "committed" && result.value.outcome !== "no_change")
+      || typeof result.value.duplicate !== "boolean"
+      || typeof result.value.sceneHash !== "string"
+      || !/^[a-f0-9]{64}$/u.test(result.value.sceneHash)
+    ) {
+      this.enterFatal("Canvas mutation ACK crossed its durable request boundary");
+      return;
+    }
+    try {
+      await this.options.outbox.remove(
+        current.request.documentId,
+        current.request.mutationId,
+      );
+    } catch (error) {
+      if (this.inFlight === current) {
+        this.handleRetryableError(transportError(error));
+      }
+      return;
+    }
     this.inFlight = null;
     if (result.value.headSeq > this.headSeq) await this.requestSync();
     current.waiters.forEach((waiter) => waiter.resolve());

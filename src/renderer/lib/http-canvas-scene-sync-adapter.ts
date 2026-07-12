@@ -9,15 +9,29 @@ import {
 import type {
   DocumentRelocationLeaseResponseAck,
   DocumentSyncCommandResult,
-  DocumentSyncRealtimeEvent,
 } from "../../shared/block-documents/document-sync";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import { toApiUrl } from "./http-base";
+import { decodeDocumentRealtimeSseEvent } from "../../shared/block-documents/http-contract";
 
 interface EventSourceLike {
   onopen: ((event: Event) => unknown) | null;
+  onerror: ((event: Event) => unknown) | null;
   onmessage: ((event: MessageEvent<string>) => unknown) | null;
   close(): void;
+}
+
+interface HttpCanvasSubscription {
+  readonly source: EventSourceLike;
+  readonly openWaiters: Set<(opened: boolean) => void>;
+  opened: boolean;
+  openedOnce: boolean;
+  disposed: boolean;
+  boundary?: {
+    readonly storeEpoch: string;
+    readonly generation: number;
+    readonly headSeq: number;
+  };
 }
 
 export const createHttpCanvasSceneSyncAdapter = (options: {
@@ -29,9 +43,27 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
   const fetchImplementation = options.fetch ?? globalThis.fetch;
   const toUrl = options.toUrl ?? toApiUrl;
   const createEventSource = options.createEventSource ?? ((url: string) => new EventSource(url));
-  const readyBySubscription = new Map<string, Promise<void>>();
+  const subscriptions = new Map<string, HttpCanvasSubscription>();
   const subscriptionKey = (documentId: string, clientSessionId: string): string =>
     JSON.stringify([documentId, clientSessionId]);
+  const readCanvasResponse = async (response: Response): Promise<string> => {
+    const contentType = response.headers.get("content-type")?.split(";", 1)[0];
+    if (contentType !== CANVAS_SCENE_HTTP_CONTENT_TYPE) {
+      throw new TypeError("Canvas HTTP response has an invalid Content-Type");
+    }
+    return await response.text();
+  };
+  const requireOpen = async (key: string): Promise<void> => {
+    const subscription = subscriptions.get(key);
+    if (!subscription || subscription.disposed) {
+      throw new Error("Canvas SSE subscription is not active");
+    }
+    if (subscription.opened) return;
+    const opened = await new Promise<boolean>((resolve) => {
+      subscription.openWaiters.add(resolve);
+    });
+    if (!opened) throw new Error("Canvas SSE subscription is disconnected");
+  };
   return {
     subscribe(request, listener, leaseListener) {
       if (request.projectId !== options.projectId) {
@@ -42,10 +74,39 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
         `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/canvas/events?${query.toString()}`,
       ));
       const key = subscriptionKey(request.documentId, request.clientSessionId);
-      const ready = new Promise<void>((resolve) => {
-        source.onopen = () => resolve();
-      });
-      readyBySubscription.set(key, ready);
+      const subscription: HttpCanvasSubscription = {
+        source,
+        openWaiters: new Set(),
+        opened: false,
+        openedOnce: false,
+        disposed: false,
+      };
+      subscriptions.set(key, subscription);
+      source.onopen = () => {
+        if (subscription.disposed) return;
+        const reconnect = subscription.openedOnce;
+        subscription.opened = true;
+        subscription.openedOnce = true;
+        const waiters = [...subscription.openWaiters];
+        subscription.openWaiters.clear();
+        waiters.forEach((resolve) => resolve(true));
+        if (reconnect && subscription.boundary) {
+          listener({
+            type: "canvas_scene_resync_required",
+            version: 1,
+            projectId: request.projectId,
+            documentId: request.documentId,
+            ...subscription.boundary,
+          });
+        }
+      };
+      source.onerror = () => {
+        if (subscription.disposed) return;
+        subscription.opened = false;
+        const waiters = [...subscription.openWaiters];
+        subscription.openWaiters.clear();
+        waiters.forEach((resolve) => resolve(false));
+      };
       source.onmessage = (message: MessageEvent<string>) => {
         try {
           const raw = JSON.parse(message.data) as unknown;
@@ -53,7 +114,14 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
             typeof raw === "object" && raw !== null && "kind" in raw &&
             (raw.kind === "relocation-lease-prepare" || raw.kind === "relocation-lease-release" || raw.kind === "relocation-lease-cancel")
           ) {
-            leaseListener?.(raw as DocumentSyncRealtimeEvent & { kind: "relocation-lease-prepare" });
+            const event = decodeDocumentRealtimeSseEvent(message.data);
+            if (
+              event.kind === "relocation-lease-prepare" ||
+              event.kind === "relocation-lease-release" ||
+              event.kind === "relocation-lease-cancel"
+            ) {
+              leaseListener?.(event);
+            }
             return;
           }
           listener(decodeCanvasSceneSseEvent(message.data));
@@ -62,15 +130,17 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
         }
       };
       return () => {
-        readyBySubscription.delete(key);
+        subscription.disposed = true;
+        subscriptions.delete(key);
+        subscription.openWaiters.forEach((resolve) => resolve(false));
+        subscription.openWaiters.clear();
         source.close();
       };
     },
     async sync(request) {
       try {
-        await readyBySubscription.get(
-          subscriptionKey(request.documentId, request.clientSessionId),
-        );
+        const key = subscriptionKey(request.documentId, request.clientSessionId);
+        await requireOpen(key);
         const response = await fetchImplementation(toUrl(
           `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/canvas/sync`,
         ), {
@@ -78,16 +148,24 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
           headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE, Accept: CANVAS_SCENE_HTTP_CONTENT_TYPE },
           body: encodeCanvasSceneSyncRequestHttp(request),
         });
-        return decodeCanvasSceneSyncResultHttp(await response.text());
+        const result = decodeCanvasSceneSyncResultHttp(await readCanvasResponse(response));
+        if (result.ok) {
+          const subscription = subscriptions.get(key);
+          if (subscription) subscription.boundary = {
+            storeEpoch: result.value.storeEpoch,
+            generation: result.value.generation,
+            headSeq: result.value.headSeq,
+          };
+        }
+        return result;
       } catch (error) {
         return { ok: false, error: { code: "unknown", message: error instanceof Error ? error.message : String(error), retryable: true, resetRequired: false } };
       }
     },
     async applyMutation(request) {
       try {
-        await readyBySubscription.get(
-          subscriptionKey(request.documentId, request.clientSessionId),
-        );
+        const key = subscriptionKey(request.documentId, request.clientSessionId);
+        await requireOpen(key);
         const response = await fetchImplementation(toUrl(
           `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/canvas/mutations`,
         ), {
@@ -95,7 +173,16 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
           headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE, Accept: CANVAS_SCENE_HTTP_CONTENT_TYPE },
           body: encodeCanvasSceneMutationRequestHttp(request),
         });
-        return decodeCanvasSceneMutationResultHttp(await response.text());
+        const result = decodeCanvasSceneMutationResultHttp(await readCanvasResponse(response));
+        if (result.ok) {
+          const subscription = subscriptions.get(key);
+          if (subscription) subscription.boundary = {
+            storeEpoch: result.value.storeEpoch,
+            generation: result.value.generation,
+            headSeq: result.value.headSeq,
+          };
+        }
+        return result;
       } catch (error) {
         return { ok: false, error: { code: "unknown", message: error instanceof Error ? error.message : String(error), retryable: true, resetRequired: false, mutationId: request.mutationId } };
       }

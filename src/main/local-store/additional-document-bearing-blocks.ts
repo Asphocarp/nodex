@@ -45,10 +45,7 @@ import {
   persistAuthoritativeOperationRejection,
   prepareAuthoritativeOperation,
 } from "./authoritative-operation-receipts";
-import {
-  getOwnedBlockDocumentDescriptor,
-  getOwnedDocumentDescriptor,
-} from "./block-document-cutover";
+import { getOwnedDocumentDescriptor } from "./block-document-cutover";
 import {
   BlockDocumentStoreError,
   initializeBlockDocumentGenesis,
@@ -854,7 +851,7 @@ const loadTemplateSource = (
 ): TemplateSourceState => {
   let descriptor;
   try {
-    descriptor = getOwnedBlockDocumentDescriptor(
+    descriptor = getOwnedDocumentDescriptor(
       database,
       input.projectId,
       input.sourceBlockId,
@@ -872,7 +869,7 @@ const loadTemplateSource = (
     descriptor.schemaKey !== REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY ||
     descriptor.schemaVersion !== REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION ||
     descriptor.readiness !== "ready" ||
-    descriptor.authority !== "ydoc_primary" ||
+    descriptor.sync.kind !== "yjs" ||
     descriptor.ownerLifecycle === "deleted"
   ) {
     throw new AdditionalDocumentBearingBlockError(

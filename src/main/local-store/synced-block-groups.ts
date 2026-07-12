@@ -30,7 +30,7 @@ import {
   SYNCED_BLOCK_REFERENCE_TYPE,
   SYNCED_BLOCK_SOURCE_TYPE,
 } from "../../shared/block-documents/synced-block-document";
-import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
+import { getOwnedDocumentDescriptor } from "./block-document-cutover";
 import {
   initializeBlockDocumentGenesis,
   getBlockDocumentProjectId,
@@ -993,7 +993,7 @@ const loadSyncedSourceMaterialization = (
 } => {
   let descriptor;
   try {
-    descriptor = getOwnedBlockDocumentDescriptor(
+    descriptor = getOwnedDocumentDescriptor(
       database,
       projectId,
       sourceBlockId,
@@ -1010,7 +1010,7 @@ const loadSyncedSourceMaterialization = (
     descriptor.schemaKey !== SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY ||
     descriptor.schemaVersion !== SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION ||
     descriptor.readiness !== "ready" ||
-    descriptor.authority !== "ydoc_primary" ||
+    descriptor.sync.kind !== "yjs" ||
     descriptor.ownerLifecycle === "deleted"
   ) {
     throw new SyncedBlockGroupError(

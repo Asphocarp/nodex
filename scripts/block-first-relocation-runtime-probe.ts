@@ -20,6 +20,7 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 import {
   createCardDocumentGenesis,
   materializeCardDocument,
@@ -188,6 +189,22 @@ const readBlockText = (document: Y.Doc, blockId: string): Y.XmlText => {
   throw new TypeError(`Block ${blockId} has no text node`);
 };
 
+const probeBlockId = (sequence: number): string =>
+  createUuidV7FromTimestamp(1_784_000_000_000, sequence);
+
+const blockIds = {
+  a: probeBlockId(1),
+  aChild: probeBlockId(2),
+  b: probeBlockId(3),
+  c: probeBlockId(4),
+  cChild: probeBlockId(5),
+  parent: probeBlockId(6),
+  x: probeBlockId(7),
+  y: probeBlockId(8),
+  faultRoot: probeBlockId(9),
+  faultStay: probeBlockId(10),
+} as const;
+
 const relocationInput = (input: {
   readonly relocationId: string;
   readonly projectId: string;
@@ -233,13 +250,13 @@ const run = async (): Promise<void> => {
       projectId: project.id,
       cardBlockId: "relocation-source-card",
       nfm: ["A **bold**", "\tA child", "B", "C", "\tC child"].join("\n"),
-      blockIds: ["a", "a-child", "b", "c", "c-child"],
+      blockIds: [blockIds.a, blockIds.aChild, blockIds.b, blockIds.c, blockIds.cChild],
     });
     const target = seedPrimaryDocument({
       projectId: project.id,
       cardBlockId: "relocation-target-card",
       nfm: ["Parent", "\tX", "\tY"].join("\n"),
-      blockIds: ["parent", "x", "y"],
+      blockIds: [blockIds.parent, blockIds.x, blockIds.y],
     });
     const offlineMovedReplica = clonePrimaryDocument(source.documentId);
     const offlineSafeReplica = clonePrimaryDocument(source.documentId);
@@ -252,18 +269,19 @@ const run = async (): Promise<void> => {
       sourceHeadSeq: source.headSeq,
       targetDocumentId: target.documentId,
       targetHeadSeq: target.headSeq,
-      rootBlockIds: ["c", "a"],
-      parentBlockId: "parent",
-      beforeBlockId: "y",
+      rootBlockIds: [blockIds.c, blockIds.a],
+      parentBlockId: blockIds.parent,
+      beforeBlockId: blockIds.y,
     });
     const committed = relocateBlocksAtomically(getDb(), request);
     invariant(!committed.duplicate, "first relocation was reported duplicate");
     invariant(
-      committed.rootBlockIds.join(",") === "a,c",
+      committed.rootBlockIds.join(",") === [blockIds.a, blockIds.c].join(","),
       "relocation did not canonicalize roots to source order",
     );
     invariant(
-      committed.movedBlockIds.join(",") === "a,a-child,c,c-child",
+      committed.movedBlockIds.join(",") ===
+        [blockIds.a, blockIds.aChild, blockIds.c, blockIds.cChild].join(","),
       "relocation did not include the exact ordered forest",
     );
     invariant(
@@ -284,9 +302,9 @@ const run = async (): Promise<void> => {
       "target subtree/order/formatting did not round-trip",
     );
     invariant(
-      readLocation("a").documentId === target.documentId &&
-        readLocation("a").revision === 2 &&
-        readLocation("a-child").revision === 2,
+      readLocation(blockIds.a).documentId === target.documentId &&
+        readLocation(blockIds.a).revision === 2 &&
+        readLocation(blockIds.aChild).revision === 2,
       "registry identity/location revisions did not move with the subtree",
     );
     invariant(
@@ -299,8 +317,8 @@ const run = async (): Promise<void> => {
     invariant(readNfm(source.documentId) === "B", "restart lost source state");
     const reversedRetry = relocateBlocksAtomically(getDb(), {
       ...request,
-      rootBlockIds: ["a", "c"],
-      expectedLocationRevisions: { a: 1, c: 1 },
+      rootBlockIds: [blockIds.a, blockIds.c],
+      expectedLocationRevisions: { [blockIds.a]: 1, [blockIds.c]: 1 },
     });
     invariant(
       reversedRetry.duplicate,
@@ -323,7 +341,7 @@ const run = async (): Promise<void> => {
     try {
       relocateBlocksAtomically(getDb(), {
         ...request,
-        target: { ...request.target, beforeBlockId: "x" },
+        target: { ...request.target, beforeBlockId: blockIds.x },
       });
     } catch (error) {
       collisionCode =
@@ -334,7 +352,7 @@ const run = async (): Promise<void> => {
       "ID collision was not typed",
     );
 
-    const movedText = readBlockText(offlineMovedReplica, "a");
+    const movedText = readBlockText(offlineMovedReplica, blockIds.a);
     movedText.insert(movedText.length, " from offline source");
     const staleMovedUpdate = Y.encodeStateAsUpdate(
       offlineMovedReplica,
@@ -405,7 +423,7 @@ const run = async (): Promise<void> => {
       "rejected stale update leaked into the ordinary durable update log",
     );
 
-    const safeText = readBlockText(offlineSafeReplica, "b");
+    const safeText = readBlockText(offlineSafeReplica, blockIds.b);
     safeText.insert(safeText.length, " still visible");
     const safeStaleUpdate = Y.encodeStateAsUpdate(
       offlineSafeReplica,
@@ -433,13 +451,13 @@ const run = async (): Promise<void> => {
       projectId: project.id,
       cardBlockId: "fault-source-card",
       nfm: "Move me",
-      blockIds: ["fault-root"],
+      blockIds: [blockIds.faultRoot],
     });
     const faultTarget = seedPrimaryDocument({
       projectId: project.id,
       cardBlockId: "fault-target-card",
       nfm: "Stay",
-      blockIds: ["fault-stay"],
+      blockIds: [blockIds.faultStay],
     });
     const preCommitFaults: readonly BlockRelocationFaultPoint[] = [
       "after_documents_loaded",
@@ -462,7 +480,7 @@ const run = async (): Promise<void> => {
         sourceHeadSeq: faultSource.headSeq,
         targetDocumentId: faultTarget.documentId,
         targetHeadSeq: faultTarget.headSeq,
-        rootBlockIds: ["fault-root"],
+        rootBlockIds: [blockIds.faultRoot],
       });
       let injected = false;
       try {
@@ -480,8 +498,8 @@ const run = async (): Promise<void> => {
       invariant(
         readHead(faultSource.documentId) === faultSource.headSeq &&
           readHead(faultTarget.documentId) === faultTarget.headSeq &&
-          readLocation("fault-root").documentId === faultSource.documentId &&
-          readLocation("fault-root").revision === 1,
+          readLocation(blockIds.faultRoot).documentId === faultSource.documentId &&
+          readLocation(blockIds.faultRoot).revision === 1,
         `${point} exposed a partial relocation`,
       );
       const ledger = getDb()
@@ -498,7 +516,7 @@ const run = async (): Promise<void> => {
       sourceHeadSeq: faultSource.headSeq,
       targetDocumentId: faultTarget.documentId,
       targetHeadSeq: faultTarget.headSeq,
-      rootBlockIds: ["fault-root"],
+      rootBlockIds: [blockIds.faultRoot],
     });
     let crashedAfterCommit = false;
     try {
@@ -516,7 +534,7 @@ const run = async (): Promise<void> => {
     invariant(
       readHead(faultSource.documentId) === faultSource.headSeq + 1 &&
         readHead(faultTarget.documentId) === faultTarget.headSeq + 1 &&
-        readLocation("fault-root").documentId === faultTarget.documentId,
+        readLocation(blockIds.faultRoot).documentId === faultTarget.documentId,
       "after_commit crash did not leave the complete new state",
     );
     invariant(

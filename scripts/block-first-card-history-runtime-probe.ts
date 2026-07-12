@@ -21,6 +21,7 @@ import {
 } from "../src/main/local-store/database";
 import { createDocumentVersionCheckpoint } from "../src/main/local-store/document-versions";
 import { createProject } from "../src/main/local-store/projects";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const T0 = "2026-06-01T10:00:00.000Z";
 const T1 = "2026-06-01T10:01:00.000Z";
@@ -38,6 +39,8 @@ interface CardFixture {
   readonly cardId: string;
   readonly documentId: string;
 }
+
+let bodyBlockSequence = 100;
 
 const assert = (condition: boolean, message: string): void => {
   if (condition) return;
@@ -68,7 +71,13 @@ const createCard = (
     }),
     {
       now: () => committedAt,
-      allocateBodyBlockId: () => `body:${cardId}`,
+      allocateBodyBlockId: () => {
+        bodyBlockSequence += 1;
+        return createUuidV7FromTimestamp(
+          1_784_000_000_000,
+          bodyBlockSequence,
+        );
+      },
     },
   );
   if (!result.ok) throw new Error(result.error.message);
@@ -232,7 +241,10 @@ const main = async (): Promise<void> => {
       storeEpoch: metadata.store_epoch,
     };
 
-    const mergeCard = createCard(fixture, "history-runtime-merge");
+    const mergeCard = createCard(
+      fixture,
+      createUuidV7FromTimestamp(1_784_000_000_000, 1),
+    );
     insertBareRelocation(fixture, mergeCard, {
       operationId: "history-runtime:missing-relocation-ledger",
       committedAt: T1,
@@ -321,7 +333,10 @@ const main = async (): Promise<void> => {
       ) === "card_not_found";
     assert(projectScope, "Card history leaked across Project scope");
 
-    const malformedCard = createCard(fixture, "history-runtime-malformed");
+    const malformedCard = createCard(
+      fixture,
+      createUuidV7FromTimestamp(1_784_000_000_000, 2),
+    );
     insertMutation(fixture, malformedCard, {
       mutationId: "history-runtime:bad-hash",
       committedAt: T2,
@@ -347,7 +362,10 @@ const main = async (): Promise<void> => {
       "Malformed evidence was trusted or leaked raw JSON",
     );
 
-    const boundedCard = createCard(fixture, "history-runtime-bounds");
+    const boundedCard = createCard(
+      fixture,
+      createUuidV7FromTimestamp(1_784_000_000_000, 3),
+    );
     checkpoint(fixture, boundedCard, {
       createdAt: T3,
       label: "L".repeat(512),
@@ -373,7 +391,10 @@ const main = async (): Promise<void> => {
       ) === "invalid_card_history_request";
     assert(boundedOutput, "History output or request budget was not bounded");
 
-    const standaloneCard = createCard(fixture, "history-runtime-standalone");
+    const standaloneCard = createCard(
+      fixture,
+      createUuidV7FromTimestamp(1_784_000_000_000, 4),
+    );
     const membership = database
       .prepare(
         `

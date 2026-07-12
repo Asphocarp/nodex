@@ -3,12 +3,19 @@ import {
   MAX_CANVAS_SCENE_MUTATION_BYTES,
   canonicalizeCanvasSceneMutationRequest,
   type CanvasSceneMutationCommandResult,
+  type CanvasSceneMutationError,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
   type CanvasSceneSyncCommandResult,
   type CanvasSceneSyncRequest,
 } from "./canvas-scene-sync";
-import { requireCanvasSceneIdentity } from "./canvas-scene";
+import {
+  canonicalizeCanvasSceneElement,
+  canonicalizeCanvasSceneFile,
+  parsePortableCanvasScene,
+  pickPortableCanvasSceneAppState,
+  requireCanvasSceneIdentity,
+} from "./canvas-scene";
 
 export const CANVAS_SCENE_HTTP_CONTENT_TYPE =
   "application/vnd.nodex.canvas-scene.v1+json";
@@ -35,6 +42,84 @@ const encodeBoundedJson = (value: unknown, maxBytes: number): string => {
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const requireInteger = (value: unknown, field: string, minimum = 0): number => {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
+    return value;
+  }
+  throw new TypeError(`${field} is invalid`);
+};
+
+const requireHash = (value: unknown, field: string): string => {
+  if (typeof value === "string" && /^[a-f0-9]{64}$/u.test(value)) return value;
+  throw new TypeError(`${field} is invalid`);
+};
+
+const requireStringArray = (value: unknown, field: string): readonly string[] => {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) =>
+      requireCanvasSceneIdentity(entry, `${field}[${index}]`),
+    );
+  }
+  throw new TypeError(`${field} is invalid`);
+};
+
+const requireError = (value: unknown): CanvasSceneMutationError => {
+  if (!isRecord(value)) throw new TypeError("Canvas scene error is invalid");
+  const codes = new Set([
+    "invalid_canvas_scene_mutation", "store_epoch_mismatch", "project_scope_mismatch",
+    "document_not_found", "document_not_ready", "document_engine_mismatch",
+    "document_generation_mismatch", "future_base_head", "mutation_id_collision",
+    "canvas_scene_corrupt", "unknown",
+  ]);
+  if (
+    typeof value.code !== "string" || !codes.has(value.code) ||
+    typeof value.message !== "string" || typeof value.retryable !== "boolean" ||
+    typeof value.resetRequired !== "boolean"
+  ) throw new TypeError("Canvas scene error is invalid");
+  return {
+    code: value.code as CanvasSceneMutationError["code"],
+    message: value.message,
+    retryable: value.retryable,
+    resetRequired: value.resetRequired,
+    ...(value.mutationId === undefined ? {} : {
+      mutationId: requireCanvasSceneIdentity(value.mutationId, "mutationId"),
+    }),
+  };
+};
+
+const parseRealtimeValue = (value: unknown): CanvasSceneRealtimeEvent => {
+  if (!isRecord(value) || value.version !== CANVAS_SCENE_SYNC_VERSION) {
+    throw new TypeError("Canvas scene realtime event is invalid");
+  }
+  const common = {
+    version: CANVAS_SCENE_SYNC_VERSION,
+    projectId: requireCanvasSceneIdentity(value.projectId, "projectId"),
+    documentId: requireCanvasSceneIdentity(value.documentId, "documentId"),
+    storeEpoch: requireCanvasSceneIdentity(value.storeEpoch, "storeEpoch"),
+    generation: requireInteger(value.generation, "generation", 1),
+    headSeq: requireInteger(value.headSeq, "headSeq"),
+  };
+  if (value.type === "canvas_scene_resync_required") {
+    return { type: value.type, ...common };
+  }
+  if (value.type !== "canvas_scene_committed" || !Array.isArray(value.elementUpdates) || !isRecord(value.fileAdditions)) {
+    throw new TypeError("Canvas scene realtime event is invalid");
+  }
+  return {
+    type: value.type,
+    ...common,
+    mutationId: requireCanvasSceneIdentity(value.mutationId, "mutationId"),
+    baseHeadSeq: requireInteger(value.baseHeadSeq, "baseHeadSeq"),
+    sceneHash: requireHash(value.sceneHash, "sceneHash"),
+    elementUpdates: value.elementUpdates.map((element) => canonicalizeCanvasSceneElement(element)),
+    appState: pickPortableCanvasSceneAppState(value.appState as Readonly<Record<string, unknown>>),
+    fileAdditions: Object.fromEntries(Object.entries(value.fileAdditions).map(
+      ([fileId, file]) => [fileId, canonicalizeCanvasSceneFile(file, fileId)],
+    )),
+    removedFileIds: requireStringArray(value.removedFileIds, "removedFileIds"),
+  };
+};
 
 const requireResultEnvelope = <T>(
   value: unknown,
@@ -127,11 +212,26 @@ export const encodeCanvasSceneSyncResultHttp = (
 
 export const decodeCanvasSceneSyncResultHttp = (
   serialized: string,
-): CanvasSceneSyncCommandResult =>
-  requireResultEnvelope<CanvasSceneSyncCommandResult>(
-    parseBoundedJson(serialized, MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES),
-    "Canvas scene sync result",
+): CanvasSceneSyncCommandResult => {
+  const envelope = requireResultEnvelope<Readonly<Record<string, unknown>>>(
+    parseBoundedJson(serialized, MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES), "Canvas scene sync result",
   );
+  if (envelope.ok === false) return { ok: false, error: requireError(envelope.error) };
+  if (!isRecord(envelope.value)) throw new TypeError("Canvas scene sync result is invalid");
+  if (envelope.value.version !== CANVAS_SCENE_SYNC_VERSION) {
+    throw new TypeError("Canvas scene sync result version is invalid");
+  }
+  return { ok: true, value: {
+    version: CANVAS_SCENE_SYNC_VERSION,
+    projectId: requireCanvasSceneIdentity(envelope.value.projectId, "projectId"),
+    documentId: requireCanvasSceneIdentity(envelope.value.documentId, "documentId"),
+    storeEpoch: requireCanvasSceneIdentity(envelope.value.storeEpoch, "storeEpoch"),
+    generation: requireInteger(envelope.value.generation, "generation", 1),
+    headSeq: requireInteger(envelope.value.headSeq, "headSeq"),
+    sceneHash: requireHash(envelope.value.sceneHash, "sceneHash"),
+    scene: parsePortableCanvasScene(envelope.value.scene),
+  } };
+};
 
 export const encodeCanvasSceneMutationResultHttp = (
   result: CanvasSceneMutationCommandResult,
@@ -139,11 +239,46 @@ export const encodeCanvasSceneMutationResultHttp = (
 
 export const decodeCanvasSceneMutationResultHttp = (
   serialized: string,
-): CanvasSceneMutationCommandResult =>
-  requireResultEnvelope<CanvasSceneMutationCommandResult>(
-    parseBoundedJson(serialized, MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES),
-    "Canvas scene mutation result",
+): CanvasSceneMutationCommandResult => {
+  const envelope = requireResultEnvelope<Readonly<Record<string, unknown>>>(
+    parseBoundedJson(serialized, MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES), "Canvas scene mutation result",
   );
+  if (envelope.ok === false) return { ok: false, error: requireError(envelope.error) };
+  if (!isRecord(envelope.value)) throw new TypeError("Canvas scene mutation result is invalid");
+  const value = envelope.value;
+  if (
+    value.version !== CANVAS_SCENE_SYNC_VERSION || typeof value.duplicate !== "boolean" ||
+    (value.outcome !== "committed" && value.outcome !== "no_change") ||
+    typeof value.committedAt !== "string"
+  ) throw new TypeError("Canvas scene mutation result is invalid");
+  const result: CanvasSceneMutationCommandResult = { ok: true, value: {
+    version: CANVAS_SCENE_SYNC_VERSION,
+    mutationId: requireCanvasSceneIdentity(value.mutationId, "mutationId"),
+    projectId: requireCanvasSceneIdentity(value.projectId, "projectId"),
+    documentId: requireCanvasSceneIdentity(value.documentId, "documentId"),
+    storeEpoch: requireCanvasSceneIdentity(value.storeEpoch, "storeEpoch"),
+    generation: requireInteger(value.generation, "generation", 1),
+    baseHeadSeq: requireInteger(value.baseHeadSeq, "baseHeadSeq"),
+    headSeq: requireInteger(value.headSeq, "headSeq"),
+    duplicate: value.duplicate,
+    outcome: value.outcome,
+    sceneHash: requireHash(value.sceneHash, "sceneHash"),
+    changedElementIds: requireStringArray(value.changedElementIds, "changedElementIds"),
+    appliedAppStateKeys: requireStringArray(value.appliedAppStateKeys, "appliedAppStateKeys"),
+    skippedAppStateKeys: requireStringArray(value.skippedAppStateKeys, "skippedAppStateKeys"),
+    addedFileIds: requireStringArray(value.addedFileIds, "addedFileIds"),
+    removedFileIds: requireStringArray(value.removedFileIds, "removedFileIds"),
+    committedAt: value.committedAt,
+  } };
+  if (envelope.event !== undefined) {
+    const event = parseRealtimeValue(envelope.event);
+    if (event.type !== "canvas_scene_committed") {
+      throw new TypeError("Canvas mutation event must be a committed event");
+    }
+    return { ...result, event };
+  }
+  return result;
+};
 
 export const encodeCanvasSceneSseEvent = (
   event: CanvasSceneRealtimeEvent,
@@ -152,19 +287,7 @@ export const encodeCanvasSceneSseEvent = (
 export const decodeCanvasSceneSseEvent = (
   serialized: string,
 ): CanvasSceneRealtimeEvent => {
-  const value = parseBoundedJson(
-    serialized,
-    MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES,
-  );
-  if (
-    !isRecord(value) ||
-    (value.type !== "canvas_scene_committed" &&
-      value.type !== "canvas_scene_resync_required") ||
-    value.version !== CANVAS_SCENE_SYNC_VERSION ||
-    typeof value.projectId !== "string" ||
-    typeof value.documentId !== "string"
-  ) {
-    throw new TypeError("Canvas scene realtime event is invalid");
-  }
-  return value as unknown as CanvasSceneRealtimeEvent;
+  return parseRealtimeValue(parseBoundedJson(
+    serialized, MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES,
+  ));
 };

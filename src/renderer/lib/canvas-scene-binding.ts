@@ -261,7 +261,8 @@ export class CanvasSceneBinding {
       } catch (error) {
         const failure = toError(error);
         this.lastDrainError = failure;
-        this.surfaceAppState = this.getCurrentScene().appState;
+        const current = this.provider.getScene();
+        if (current) this.surfaceAppState = current.appState;
         observation.waiters.forEach((waiter) => waiter.reject(failure));
         try {
           this.onError?.(failure);

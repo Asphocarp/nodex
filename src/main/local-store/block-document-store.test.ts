@@ -265,6 +265,7 @@ describe("BlockDocumentStore", () => {
         );
         expect(prepared.repairedEmptyRoot).toBe(true);
         expect(prepared.descriptor.headSeq).toBe(2);
+        expect(prepared.descriptor.sync.kind).toBe("yjs");
 
         const loaded = loadBlockDocument(database, documentId);
         const root = rootBlockGroup(loaded.document);
@@ -297,6 +298,7 @@ describe("BlockDocumentStore", () => {
         );
         expect(repeated.repairedEmptyRoot).toBe(false);
         expect(repeated.descriptor.headSeq).toBe(2);
+        expect(repeated.descriptor.sync.kind).toBe("yjs");
 
         const authoritative = loadBlockDocument(database, documentId);
         const destructiveReplica = new Y.Doc({ guid: documentId });

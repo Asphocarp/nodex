@@ -44,6 +44,26 @@ const providerFor = (stub: StubSceneProvider): CanvasSceneProvider =>
   stub as unknown as CanvasSceneProvider;
 
 describe("CanvasSceneBinding", () => {
+  test("rejects a pre-sync observation without stranding its waiter", async () => {
+    const failures: Error[] = [];
+    const provider = {
+      getScene: () => null,
+      submit: async () => undefined,
+      flush: async () => undefined,
+    } as unknown as CanvasSceneProvider;
+    const binding = new CanvasSceneBinding({
+      provider,
+      onRemoteScene: () => undefined,
+      onError: (error) => failures.push(error),
+    });
+    await expect(binding.submitLocalScene({
+      getSceneElementsIncludingDeleted: () => [element(1)],
+      appState: {},
+      binaryFiles: {},
+    })).rejects.toThrow("initial sync");
+    expect(failures).toHaveLength(1);
+  });
+
   test("forwards including-deleted element candidates to scene-native sync", async () => {
     const provider = new StubSceneProvider();
     const binding = new CanvasSceneBinding({

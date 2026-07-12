@@ -21,6 +21,7 @@ import {
 } from "../src/shared/block-documents/block-document-codec";
 import type { RelocationIntent } from "../src/shared/block-documents";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -29,6 +30,13 @@ const invariant: (condition: unknown, message: string) => asserts condition = (
   if (condition) return;
   throw new Error(message);
 };
+
+const blockIds = {
+  move: createUuidV7FromTimestamp(1_784_000_000_000, 1),
+  child: createUuidV7FromTimestamp(1_784_000_000_000, 2),
+  stay: createUuidV7FromTimestamp(1_784_000_000_000, 3),
+  target: createUuidV7FromTimestamp(1_784_000_000_000, 4),
+} as const;
 
 const seedPrimaryDocument = (input: {
   readonly projectId: string;
@@ -145,13 +153,13 @@ const run = async (): Promise<void> => {
       projectId: project.id,
       ownerBlockId: "worker-relocation-source",
       nfm: "Move\n\tChild\nStay",
-      blockIds: ["move", "child", "stay"],
+      blockIds: [blockIds.move, blockIds.child, blockIds.stay],
     });
     const target = seedPrimaryDocument({
       projectId: project.id,
       ownerBlockId: "worker-relocation-target",
       nfm: "Target",
-      blockIds: ["target"],
+      blockIds: [blockIds.target],
     });
     const storeEpoch = (
       getDb()
@@ -203,7 +211,7 @@ const run = async (): Promise<void> => {
       relocationId: "worker-relocation",
       projectId: project.id,
       storeEpoch,
-      rootBlockIds: ["move"],
+      rootBlockIds: [blockIds.move],
       sourceDocumentId: source.documentId,
       sourceGeneration: sourceBefore.value.generation,
       target: {
@@ -224,7 +232,7 @@ const run = async (): Promise<void> => {
       request.expectedSourceHeadSeq === flushed.value.headSeq &&
         request.target.kind === "document" &&
         request.target.expectedHeadSeq === targetBefore.value.headSeq &&
-        request.expectedLocationRevisions.move === 1,
+        request.expectedLocationRevisions[blockIds.move] === 1,
       "Preparation did not capture the latest flushed fence boundaries",
     );
 
@@ -306,7 +314,7 @@ const run = async (): Promise<void> => {
     );
     const collision = await restartedWriter.readCommittedRelocation({
       ...intent,
-      target: { ...intent.target, beforeBlockId: "target" },
+      target: { ...intent.target, beforeBlockId: blockIds.target },
     });
     invariant(
       !collision.ok && collision.error.code === "relocation_id_collision",

@@ -22,6 +22,7 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -42,6 +43,31 @@ const paragraph = (
   content: [{ type: "text", text, styles: {} }],
   children,
 });
+
+const probeBlockId = (sequence: number): string =>
+  createUuidV7FromTimestamp(1_784_000_000_000, sequence);
+
+const blockIds = {
+  syncedLibrary: probeBlockId(1),
+  syncedLibraryBody: probeBlockId(2),
+  syncRoot: probeBlockId(3),
+  syncChild: probeBlockId(4),
+  syncReference: probeBlockId(5),
+  syncSource: probeBlockId(6),
+  differentReference: probeBlockId(7),
+  targetAnchor: probeBlockId(8),
+  templateSource: probeBlockId(9),
+  templateRoot: probeBlockId(10),
+  largeOwner: probeBlockId(11),
+  largeBody: probeBlockId(12),
+  codeOwner: probeBlockId(13),
+  staleSource: probeBlockId(14),
+  staleBody: probeBlockId(15),
+  missingTemplate: probeBlockId(16),
+  faultTemplate: probeBlockId(17),
+  faultBody: probeBlockId(18),
+  secondaryCanvas: probeBlockId(19),
+} as const;
 
 const readEpoch = (): string =>
   (
@@ -173,9 +199,9 @@ const main = async (): Promise<void> => {
       "probe:create-synced",
       {
         kind: "create_synced_source",
-        sourceBlockId: "probe:synced-library",
+        sourceBlockId: blockIds.syncedLibrary,
         documentId: "document:probe-synced-library",
-        initialBlocks: [paragraph("probe:synced-library:body", "Library")],
+        initialBlocks: [paragraph(blockIds.syncedLibraryBody, "Library")],
         placement: {
           kind: "space",
           before: {
@@ -205,7 +231,7 @@ const main = async (): Promise<void> => {
       ...createSyncedRequest,
       operation: {
         ...createSyncedRequest.operation,
-        initialBlocks: [paragraph("probe:synced-library:body", "Changed")],
+        initialBlocks: [paragraph(blockIds.syncedLibraryBody, "Changed")],
       },
     });
     invariant(
@@ -219,8 +245,8 @@ const main = async (): Promise<void> => {
       "probe:sync-host",
       "document:probe-sync-host",
       [
-        paragraph("probe:sync-root", "Root", [
-          paragraph("probe:sync-child", "Child"),
+        paragraph(blockIds.syncRoot, "Root", [
+          paragraph(blockIds.syncChild, "Child"),
         ]),
       ],
     );
@@ -243,7 +269,7 @@ const main = async (): Promise<void> => {
       updateId: "probe:promote:flushed-update",
       clientSessionId: "probe:mounted-surface",
       baseHeadSeq: 1,
-      touchedBlockIds: ["probe:sync-root"],
+      touchedBlockIds: [blockIds.syncRoot],
       update: Y.encodeStateAsUpdate(pendingHost.document, pendingVector),
     });
     pendingHost.document.destroy();
@@ -260,9 +286,9 @@ const main = async (): Promise<void> => {
             documentId: "document:probe-sync-host",
             generation: 1,
           },
-          rootBlockId: "probe:sync-root",
-          referenceBlockId: "probe:sync-reference",
-          sourceBlockId: "probe:sync-source",
+          rootBlockId: blockIds.syncRoot,
+          referenceBlockId: blockIds.syncReference,
+          sourceBlockId: blockIds.syncSource,
           sourceDocumentId: "document:probe-sync-source",
         },
         lease("probe:lease-promote", [
@@ -300,7 +326,7 @@ const main = async (): Promise<void> => {
     promotedSource.document.destroy();
     invariant(
       promoted.value.effect.preservedBlockIds.join(",") ===
-        "probe:sync-child,probe:sync-root",
+        [blockIds.syncChild, blockIds.syncRoot].sort().join(","),
       "Synced promotion did not preserve subtree identities",
     );
     const demoteRequest = command(
@@ -317,8 +343,8 @@ const main = async (): Promise<void> => {
           documentId: sourceHead.documentId,
           generation: sourceHead.generation,
         },
-        referenceBlockId: "probe:sync-reference",
-        sourceBlockId: "probe:sync-source",
+        referenceBlockId: blockIds.syncReference,
+        sourceBlockId: blockIds.syncSource,
       },
       lease("probe:lease-demote", [hostHead, sourceHead]),
     );
@@ -326,9 +352,9 @@ const main = async (): Promise<void> => {
     invariant(
       demoted.ok &&
         demoted.value.effect.deletedBlockIds.join(",") ===
-          "probe:sync-reference,probe:sync-source" &&
+          [blockIds.syncReference, blockIds.syncSource].sort().join(",") &&
         demoted.value.effect.preservedBlockIds.join(",") ===
-          "probe:sync-child,probe:sync-root",
+          [blockIds.syncChild, blockIds.syncRoot].sort().join(","),
       "Synced demotion identity effect is invalid",
     );
     const demoteReplay = applyAdditionalDocumentCommand(getDb(), {
@@ -345,7 +371,7 @@ const main = async (): Promise<void> => {
       coordination: { kind: "receipt_replay" },
       operation: {
         ...demoteRequest.operation,
-        referenceBlockId: "probe:different-reference",
+        referenceBlockId: blockIds.differentReference,
       },
     });
     invariant(
@@ -358,16 +384,16 @@ const main = async (): Promise<void> => {
       project.id,
       "probe:target",
       "document:probe-target",
-      [paragraph("probe:target-anchor", "Target")],
+      [paragraph(blockIds.targetAnchor, "Target")],
     );
     const template = applyAdditionalDocumentCommand(
       getDb(),
       command(project.id, storeEpoch, "probe:template", {
         kind: "create_template",
-        sourceBlockId: "probe:template-source",
+        sourceBlockId: blockIds.templateSource,
         documentId: "document:probe-template",
         displayName: "Review",
-        initialBlocks: [paragraph("probe:template-root", "Template")],
+        initialBlocks: [paragraph(blockIds.templateRoot, "Template")],
         placement: { kind: "space" },
       }),
     );
@@ -380,7 +406,7 @@ const main = async (): Promise<void> => {
         "probe:instantiate",
         {
           kind: "instantiate_template",
-          sourceBlockId: "probe:template-source",
+          sourceBlockId: blockIds.templateSource,
           source: {
             documentId: "document:probe-template",
             generation: 1,
@@ -407,9 +433,9 @@ const main = async (): Promise<void> => {
     invariant(
       instantiated.ok &&
         instantiated.value.effect.preservedBlockIds[0] ===
-          "probe:template-source" &&
+          blockIds.templateSource &&
         !instantiated.value.effect.createdBlockIds.includes(
-          "probe:template-root",
+          blockIds.templateRoot,
         ) &&
         !instantiated.value.effect.createdBlockIds.includes("probe:target"),
       "Template instance identities were not freshly derived",
@@ -422,7 +448,7 @@ const main = async (): Promise<void> => {
         "probe:instantiate",
         {
           kind: "instantiate_template",
-          sourceBlockId: "probe:template-source",
+          sourceBlockId: blockIds.templateSource,
           source: {
             documentId: "document:probe-template",
             generation: 1,
@@ -461,7 +487,7 @@ const main = async (): Promise<void> => {
         "probe:instantiate",
         {
           kind: "instantiate_template",
-          sourceBlockId: "probe:template-source",
+          sourceBlockId: blockIds.templateSource,
           source: {
             documentId: "document:probe-template",
             generation: 1,
@@ -470,7 +496,7 @@ const main = async (): Promise<void> => {
             documentId: "document:probe-target",
             generation: 1,
           },
-          beforeBlockId: "probe:target-anchor",
+          beforeBlockId: blockIds.targetAnchor,
         },
         lease("probe:lease-instantiate-collision", [
           {
@@ -500,12 +526,12 @@ const main = async (): Promise<void> => {
         "probe:large-document",
         {
           kind: "create_large_document",
-          blockId: "probe:large-owner",
+          blockId: blockIds.largeOwner,
           documentId: "document:probe-large",
           displayName: "Architecture",
           content: {
             kind: "large_document",
-            initialBlocks: [paragraph("probe:large-body", "Large")],
+            initialBlocks: [paragraph(blockIds.largeBody, "Large")],
           },
           location: {
             kind: "document",
@@ -527,7 +553,7 @@ const main = async (): Promise<void> => {
     invariant(
       largeDocument.ok &&
         largeDocument.value.effect.createdBlockIds.join(",") ===
-          "probe:large-body,probe:large-owner" &&
+          [blockIds.largeBody, blockIds.largeOwner].sort().join(",") &&
         largeDocument.value.effect.documentHeads.length === 2,
       "Large Document command receipt is invalid",
     );
@@ -535,7 +561,7 @@ const main = async (): Promise<void> => {
       getDb(),
       command(project.id, storeEpoch, "probe:large-code", {
         kind: "create_large_document",
-        blockId: "probe:code-owner",
+        blockId: blockIds.codeOwner,
         documentId: "document:probe-code",
         displayName: "Worker",
         content: {
@@ -552,9 +578,9 @@ const main = async (): Promise<void> => {
       getDb(),
       command(project.id, storeEpoch, "probe:stale-anchor", {
         kind: "create_synced_source",
-        sourceBlockId: "probe:stale-source",
+        sourceBlockId: blockIds.staleSource,
         documentId: "document:probe-stale",
-        initialBlocks: [paragraph("probe:stale-body", "Stale")],
+        initialBlocks: [paragraph(blockIds.staleBody, "Stale")],
         placement: {
           kind: "space",
           before: {
@@ -587,7 +613,7 @@ const main = async (): Promise<void> => {
         "probe:missing-replay",
         {
           kind: "instantiate_template",
-          sourceBlockId: "probe:missing-template",
+          sourceBlockId: blockIds.missingTemplate,
           source: {
             documentId: "document:missing-source",
             generation: 1,
@@ -617,10 +643,10 @@ const main = async (): Promise<void> => {
       "probe:fault",
       {
         kind: "create_template",
-        sourceBlockId: "probe:fault-template",
+        sourceBlockId: blockIds.faultTemplate,
         documentId: "document:probe-fault-template",
         displayName: "Fault",
-        initialBlocks: [paragraph("probe:fault-body", "Rollback")],
+        initialBlocks: [paragraph(blockIds.faultBody, "Rollback")],
         placement: { kind: "space" },
       },
     );
@@ -659,7 +685,7 @@ const main = async (): Promise<void> => {
       command(project.id, storeEpoch, "probe:canvas-create", {
         kind: "create_canvas_owner",
         scope: "non_primary",
-        blockId: "probe:secondary-canvas",
+        blockId: blockIds.secondaryCanvas,
         documentId: "document:probe-secondary-canvas",
         displayName: "Sketch",
         placement: { kind: "space" },
@@ -675,7 +701,7 @@ const main = async (): Promise<void> => {
       .prepare(
         `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
       )
-      .get("probe:secondary-canvas") as {
+      .get(blockIds.secondaryCanvas) as {
       readonly metadata_revision: number;
       readonly location_revision: number;
     };
@@ -689,7 +715,7 @@ const main = async (): Promise<void> => {
           kind: "delete_canvas_owner",
           scope: "non_primary",
           owner: {
-            ownerBlockId: "probe:secondary-canvas",
+            ownerBlockId: blockIds.secondaryCanvas,
             documentId: canvasHead.documentId,
             generation: canvasHead.generation,
             metadataRevision: canvasOwner.metadata_revision,
@@ -703,7 +729,7 @@ const main = async (): Promise<void> => {
     invariant(
       deletedCanvas.ok &&
         deletedCanvas.value.effect.deletedBlockIds.join(",") ===
-          "probe:secondary-canvas",
+          blockIds.secondaryCanvas,
       "Non-primary Canvas deletion did not tombstone its owner",
     );
 
@@ -732,7 +758,7 @@ const main = async (): Promise<void> => {
         stableIds:
           demoted.ok &&
           demoted.value.effect.preservedBlockIds.join(",") ===
-            "probe:sync-child,probe:sync-root",
+            [blockIds.syncChild, blockIds.syncRoot].sort().join(","),
         receiptReplay: demoteReplay.ok && demoteReplay.value.duplicate,
         replayCollision: !demoteCollision.ok,
         createTemplate: template.ok,

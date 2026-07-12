@@ -22,6 +22,7 @@ import type {
 } from "../src/shared/block-documents/document-operations";
 import type { DocumentSyncRealtimeEvent } from "../src/shared/block-documents/document-sync";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -166,7 +167,7 @@ const run = async (): Promise<void> => {
     left.events.splice(0);
     right.events.splice(0);
 
-    const insertedBlockId = "document-operation-transport:inserted";
+    const insertedBlockId = createUuidV7FromTimestamp(1_784_000_000_000, 1);
     const insertRequest = mutation({
       mutationId: "document-operation-transport:insert",
       projectId: project.id,

@@ -19,7 +19,8 @@ The architectural outcome is equally important: an Owned Document means independ
 - [x] (2026-07-13 03:00Z) Replaced the renderer Canvas Y.Doc surface with a Canvas scene provider, durable IndexedDB outbox, coalescing, reconnect/gap repair, exact write-lease flush/freeze/resync, and bounded app-close flush.
 - [x] (2026-07-13 03:41Z) Removed Canvas from the public/Yjs schema adapter registry and runtime barrel, deleted Canvas-as-Yjs probes, made Yjs load/apply/compact statically and dynamically reject scene Documents, and isolated the old Canvas Y.Doc codec to v69/v70 migration files.
 - [x] (2026-07-13 03:00Z) Updated domain, architecture, reliability, product, engineering-learning, ADR supersession, and changelog sources; no security contract or visual Storybook behavior changed.
-- [ ] Complete multi-angle code review, targeted tests, full typecheck/lint/test, runtime probes, and atomic conventional commits.
+- [x] (2026-07-13 04:12Z) Completed three independent boundary/store/renderer reviews; hardened monotonic sync, durable outbox retry, strict HTTP/SSE parsing and bounds, pre-v71 migration ordering, and mutation receipt result integrity.
+- [x] (2026-07-13 04:12Z) Passed targeted regressions, typecheck, lint, unit/main/renderer/integration suites, browser tests, all 23 Electron runtime probes, production build, and Electron E2E; updated stale runtime fixtures to canonical UUID-v7 identities and scene-native Canvas authority.
 
 ## Surprises & Discoveries
 
@@ -37,6 +38,9 @@ The architectural outcome is equally important: an Owned Document means independ
 
 - Observation: Main-process Vitest must run through `scripts/run-vitest-in-electron.mjs`; invoking `vitest.main.config.ts` directly loads `better-sqlite3` with the wrong Node module ABI.
   Evidence: direct Vitest reported module versions 143 versus 137, while `pnpm run test:main` passed 130 files and 890 tests.
+
+- Observation: The release-gate runtime probes still encoded pre-UUID-v7 Block fixtures, and one worker probe still queried the removed whole-scene Canvas materialization.
+  Evidence: the authority correctly rejected those synthetic identities; after moving fixtures to deterministic UUID-v7 values and querying `canvas_scenes`, all 23 probes passed.
 
 ## Decision Log
 
@@ -62,15 +66,17 @@ The architectural outcome is equally important: an Owned Document means independ
 
 ## Outcomes & Retrospective
 
-The ADR and implementation map are complete. Runtime implementation is in progress. This section must be expanded after every milestone with the observable behavior achieved, remaining risks, and validation evidence.
+The migration is complete. Owned Document descriptors now discriminate `yjs` from `canvas_scene`; Canvas authority, history, transport, provider/outbox, projection, backup, and retention paths use normalized portable scenes. The former Canvas Y.Doc codec is confined to v69/v70 bootstrap and v70-to-v71 cutover. Final review additionally closed stale full-sync rewind, exact outbox recovery, malformed wire/body handling, old-schema trigger ordering, and receipt-result corruption gaps.
+
+Validation passed typecheck and lint; 832 unit, 911 main-process, 2,531 renderer, and 21 integration tests; 23 browser tests; all 23 Electron runtime probes; production build; and the Electron restart E2E. The only remaining acceptance step is manual multi-window Canvas interaction because repository policy delegates visual/UI verification to the user.
 
 ## Context and Orientation
 
 Nodex is a local-first Block-based desktop application. A Project is the isolation scope. A Block is the persistent content identity. A document-bearing Block owns an independently loaded content aggregate through the relational `block_documents` table. This plan calls that aggregate an Owned Document.
 
-Today `src/shared/block-documents/contracts.ts` defines every descriptor with a Yjs state vector and calls the live authority `ydoc_primary`. `src/shared/block-documents/document-schema-adapters.ts` registers both BlockNote `block_tree` and Canvas `scene_graph` schemas as functions over `Y.Doc`. The renderer's `src/renderer/lib/block-document-surface-runtime.ts` always creates `Y.Doc` plus `NodexYProvider`. The main process `src/main/document-sync-hub.ts` accepts only Yjs state-vector sync and binary updates. `src/main/local-store/block-document-store.ts` reconstructs every registered Document from Yjs snapshots and updates.
+Before this plan, `src/shared/block-documents/contracts.ts` defined every descriptor with a Yjs state vector and called the live authority `ydoc_primary`. `src/shared/block-documents/document-schema-adapters.ts` registered both BlockNote `block_tree` and Canvas `scene_graph` schemas as functions over `Y.Doc`. The renderer's `src/renderer/lib/block-document-surface-runtime.ts` always created `Y.Doc` plus `NodexYProvider`. The main process `src/main/document-sync-hub.ts` accepted only Yjs state-vector sync and binary updates. `src/main/local-store/block-document-store.ts` reconstructed every registered Document from Yjs snapshots and updates.
 
-Canvas begins in `src/renderer/components/kanban/canvas-view.tsx`. `CanvasSceneBinding` in `src/renderer/lib/canvas-scene-binding.ts` observes Excalidraw, uploads managed images, and mutates Canvas Yjs roots from `src/shared/block-documents/canvas-document.ts`. `NodexYProvider` sends the resulting binary update through IPC or HTTP/SSE. The writer reconstructs and validates the Y.Doc, then writes a complete rebuildable JSON projection through `src/main/local-store/canvas-scene-materializations.ts`.
+In that pre-migration baseline, Canvas began in `src/renderer/components/kanban/canvas-view.tsx`. `CanvasSceneBinding` observed Excalidraw, uploaded managed images, and mutated Canvas Yjs roots from `src/shared/block-documents/canvas-document.ts`. `NodexYProvider` sent the resulting binary update through IPC or HTTP/SSE. The writer reconstructed and validated the Y.Doc, then wrote a complete rebuildable JSON projection. Those paths are historical context for the replacement described below, not current runtime architecture.
 
 The replacement keeps the `documents` and `block_documents` ownership records but adds a sync-engine field. `yjs` continues to mean binary causal synchronization for BlockNote trees. `canvas_scene` means a scene-native protocol whose authority is current normalized SQLite rows and whose conflicts use Excalidraw element versions. A durable head is the monotonically increasing SQLite sequence for either engine. A write lease is the common Hub protocol that asks mounted surfaces to flush, acknowledges the exact resulting head, freezes writes during an identity-sensitive command, and resynchronizes before release.
 

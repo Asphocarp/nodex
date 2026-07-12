@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { getDatabasePath } from "./config";
@@ -1159,7 +1159,6 @@ function createBlockFoundationSchema(db: Database.Database): void {
       schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
       state_vector BLOB NOT NULL DEFAULT X'',
       state_hash TEXT NOT NULL DEFAULT '',
-      sync_engine TEXT NOT NULL DEFAULT 'yjs',
       readiness TEXT NOT NULL DEFAULT 'pending_genesis',
       authority TEXT NOT NULL DEFAULT 'legacy_shadow',
       genesis_source_revision INTEGER,
@@ -1167,7 +1166,6 @@ function createBlockFoundationSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL,
       UNIQUE (id, project_id),
       CHECK (readiness IN ('pending_genesis', 'ready', 'failed')),
-      CHECK (sync_engine IN ('yjs', 'canvas_scene')),
       CHECK (authority IN ('legacy_shadow', 'ydoc_primary')),
       CHECK (authority <> 'ydoc_primary' OR readiness = 'ready')
     );
@@ -3680,7 +3678,6 @@ function createCanvasSceneDerivedProjectionSchema(
     CREATE INDEX IF NOT EXISTS idx_canvas_card_references_target
       ON canvas_card_references(project_id, target_block_id, document_id);
   `);
-  createCanvasSceneAuthoritySchema(db);
 }
 
 /**
@@ -3759,6 +3756,7 @@ export function createCanvasSceneAuthoritySchema(db: Database.Database): void {
       request_byte_length INTEGER NOT NULL CHECK (request_byte_length > 0),
       request_json TEXT NOT NULL,
       result_json TEXT NOT NULL,
+      result_hash TEXT NOT NULL,
       outcome TEXT NOT NULL CHECK (outcome IN ('committed', 'no_change')),
       committed_at TEXT NOT NULL,
       PRIMARY KEY (document_id, generation, mutation_id),
@@ -3771,7 +3769,11 @@ export function createCanvasSceneAuthoritySchema(db: Database.Database): void {
       ),
       CHECK (request_byte_length = length(CAST(request_json AS BLOB))),
       CHECK (json_valid(request_json) AND json_type(request_json) = 'object'),
-      CHECK (json_valid(result_json) AND json_type(result_json) = 'object')
+      CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
+      CHECK (
+        length(result_hash) = 64
+        AND result_hash NOT GLOB '*[^0-9a-f]*'
+      )
     ) WITHOUT ROWID;
 
     CREATE INDEX IF NOT EXISTS idx_canvas_scene_mutation_receipts_head
@@ -3812,6 +3814,53 @@ export function createCanvasSceneAuthoritySchema(db: Database.Database): void {
       ), '') <> 'yjs'
       BEGIN
         SELECT RAISE(ABORT, 'Document snapshot requires yjs sync engine');
+      END;
+  `);
+  if (!tableHasColumn(db, "canvas_scene_mutation_receipts", "result_hash")) {
+    db.exec(`
+      DROP TRIGGER IF EXISTS canvas_scene_mutation_receipts_immutable_update;
+      ALTER TABLE canvas_scene_mutation_receipts
+        ADD COLUMN result_hash TEXT NOT NULL DEFAULT '';
+    `);
+    const rows = db
+      .prepare(
+        `SELECT document_id, generation, mutation_id, result_json
+         FROM canvas_scene_mutation_receipts`,
+      )
+      .all() as readonly {
+      readonly document_id: string;
+      readonly generation: number;
+      readonly mutation_id: string;
+      readonly result_json: string;
+    }[];
+    const update = db.prepare(
+      `UPDATE canvas_scene_mutation_receipts SET result_hash = ?
+       WHERE document_id = ? AND generation = ? AND mutation_id = ?`,
+    );
+    for (const row of rows) {
+      update.run(
+        createHash("sha256").update(row.result_json).digest("hex"),
+        row.document_id,
+        row.generation,
+        row.mutation_id,
+      );
+    }
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS canvas_scene_mutation_receipts_immutable_update
+        BEFORE UPDATE ON canvas_scene_mutation_receipts
+        BEGIN
+          SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
+        END;
+    `);
+  }
+  db.exec(`
+    DROP TRIGGER IF EXISTS canvas_scene_mutation_receipts_validate_result_hash_insert;
+    CREATE TRIGGER canvas_scene_mutation_receipts_validate_result_hash_insert
+      BEFORE INSERT ON canvas_scene_mutation_receipts
+      WHEN length(NEW.result_hash) <> 64
+        OR NEW.result_hash GLOB '*[^0-9a-f]*'
+      BEGIN
+        SELECT RAISE(ABORT, 'Canvas scene mutation result hash is invalid');
       END;
   `);
 }
@@ -7746,6 +7795,19 @@ function migrateSchema68To69(db: Database.Database): void {
 
 export type MigrateSchema70To71Options = CanvasSceneCutoverOptions;
 
+function ensureV71DocumentEngineColumns(db: Database.Database): void {
+  if (!tableHasColumn(db, "documents", "sync_engine")) {
+    db.exec(
+      "ALTER TABLE documents ADD COLUMN sync_engine TEXT NOT NULL DEFAULT 'yjs' CHECK (sync_engine IN ('yjs', 'canvas_scene'))",
+    );
+  }
+  if (!tableHasColumn(db, "document_versions", "checkpoint_format")) {
+    db.exec(
+      "ALTER TABLE document_versions ADD COLUMN checkpoint_format TEXT NOT NULL DEFAULT 'yjs_update_v1' CHECK (checkpoint_format IN ('yjs_update_v1', 'canvas_scene_json_v1'))",
+    );
+  }
+}
+
 function createV71OwnedDocumentEngineGuards(db: Database.Database): void {
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS documents_sync_engine_immutable
@@ -7807,16 +7869,7 @@ export function migrateSchema70To71(
   options: MigrateSchema70To71Options = {},
 ): CanvasSceneCutoverResult {
   const migrate = db.transaction(() => {
-    if (!tableHasColumn(db, "documents", "sync_engine")) {
-      db.exec(
-        "ALTER TABLE documents ADD COLUMN sync_engine TEXT NOT NULL DEFAULT 'yjs' CHECK (sync_engine IN ('yjs', 'canvas_scene'))",
-      );
-    }
-    if (!tableHasColumn(db, "document_versions", "checkpoint_format")) {
-      db.exec(
-        "ALTER TABLE document_versions ADD COLUMN checkpoint_format TEXT NOT NULL DEFAULT 'yjs_update_v1' CHECK (checkpoint_format IN ('yjs_update_v1', 'canvas_scene_json_v1'))",
-      );
-    }
+    ensureV71DocumentEngineColumns(db);
     createCanvasSceneAuthoritySchema(db);
     const result = cutoverCanvasScenesFromYjs(db, options);
     db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
@@ -8234,6 +8287,9 @@ function runMigrations(
       // asynchronous shadow/reference/cutover fixed point. initializeDatabase
       // performs that content migration on the opened authority connection and
       // advances user_version atomically with the final table drop.
+      // Stage engine columns without installing v71 triggers: the v69
+      // finalizer still reads/writes legacy Canvas Yjs authority.
+      ensureV71DocumentEngineColumns(db);
       createSchemaMigrationSafetyBackup(db, 69, 70);
       fromVersion = 70;
       // The durable store is still v69 here. The asynchronous finalizer must
@@ -8266,6 +8322,8 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     createBlockFirstPreFinalizationSchema(db);
     dropLegacyBlockFirstTables(db, CURRENT_SCHEMA_VERSION);
     db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
+    ensureV71DocumentEngineColumns(db);
+    createCanvasSceneAuthoritySchema(db);
     createV71OwnedDocumentEngineGuards(db);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");

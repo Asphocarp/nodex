@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { Hono } from "hono";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
@@ -20,9 +20,11 @@ import type {
   DocumentSyncResponse,
 } from "../shared/block-documents/document-sync";
 import {
+  CANVAS_SCENE_HTTP_CONTENT_TYPE,
   decodeCanvasSceneSyncResultHttp,
   encodeCanvasSceneSyncRequestHttp,
 } from "../shared/block-documents/canvas-scene-http-contract";
+import { MAX_CANVAS_SCENE_MUTATION_BYTES } from "../shared/block-documents/canvas-scene-sync";
 import type {
   RelocationIntent,
   RelocationResult,
@@ -221,6 +223,46 @@ describe("Document sync HTTP routes", () => {
     expect(result.ok).toBe(true);
     abort.abort();
     await eventResponsePromise;
+  });
+
+  test("rejects Canvas bodies with the wrong media type or an oversized payload", async () => {
+    const { app } = createApp();
+    const wrongMedia = await app.request(
+      "/api/projects/project-1/documents/canvas-1/canvas/sync",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+    );
+    expect(wrongMedia.status).toBe(400);
+    expect(await wrongMedia.text()).toContain("invalid Content-Type");
+
+    const oversized = await app.request(
+      "/api/projects/project-1/documents/canvas-1/canvas/mutations",
+      {
+        method: "POST",
+        headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE },
+        body: "x".repeat(MAX_CANVAS_SCENE_MUTATION_BYTES + 1),
+      },
+    );
+    expect(oversized.status).toBe(400);
+    expect(await oversized.text()).toContain("too large");
+  });
+
+  test("keeps an idle Canvas event stream alive", async () => {
+    vi.useFakeTimers();
+    try {
+      const { app } = createApp();
+      const response = await app.request(
+        "/api/projects/project-1/documents/canvas-1/canvas/events?clientSessionId=canvas-keepalive",
+      );
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Missing Canvas SSE response body");
+      const pending = reader.read();
+      await vi.advanceTimersByTimeAsync(30_000);
+      const frame = await pending;
+      expect(new TextDecoder().decode(frame.value)).toContain(": ping");
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("returns a strictly project-scoped owned Document descriptor", async () => {

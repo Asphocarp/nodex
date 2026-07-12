@@ -37,6 +37,7 @@ import {
 } from "../src/main/local-store/database";
 import { createDocumentVersionCheckpoint } from "../src/main/local-store/document-versions";
 import { createProject } from "../src/main/local-store/projects";
+import { createUuidV7FromTimestamp, isUuidV7 } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -57,6 +58,24 @@ const paragraph = (
   content: [{ type: "text", text, styles: {} }],
   children,
 });
+
+const probeBlockId = (sequence: number): string =>
+  createUuidV7FromTimestamp(1_784_000_000_000, sequence);
+
+const blockIds = {
+  hostAnchor: probeBlockId(1),
+  template: probeBlockId(2),
+  templateRoot: probeBlockId(3),
+  templateChild: probeBlockId(4),
+  templateReference: probeBlockId(5),
+  invalidTemplate: probeBlockId(6),
+  nestedOwner: probeBlockId(7),
+  largeDocument: probeBlockId(8),
+  largeParagraph: probeBlockId(9),
+  largeCode: probeBlockId(10),
+  faultOwner: probeBlockId(11),
+  faultBody: probeBlockId(12),
+} as const;
 
 const readEpoch = (): string =>
   (
@@ -111,7 +130,7 @@ const seedHost = (
   const detached = createDetachedCardDocumentFromBlockTree({
     documentId,
     title: "Host",
-    blockTree: [paragraph(`${cardId}:anchor`, "anchor")],
+    blockTree: [paragraph(blockIds.hostAnchor, "anchor")],
   });
   try {
     initializeBlockDocumentGenesis(database, {
@@ -170,12 +189,12 @@ const main = async (): Promise<void> => {
       storeEpoch,
       clientSessionId: "probe:template-create",
       actor: { attempt: 1, surface: "probe" },
-      sourceBlockId: "probe:template",
+      sourceBlockId: blockIds.template,
       documentId: "document:probe-template",
       displayName: "Incident review",
       blockTree: [
-        paragraph("probe:template-root", "Template", [
-          paragraph("probe:template-child", "Child"),
+        paragraph(blockIds.templateRoot, "Template", [
+          paragraph(blockIds.templateChild, "Child"),
         ]),
       ],
     });
@@ -187,18 +206,18 @@ const main = async (): Promise<void> => {
       storeEpoch,
       clientSessionId: "probe:template-retry",
       actor: { attempt: 2, surface: "lost-response" },
-      sourceBlockId: "probe:template",
+      sourceBlockId: blockIds.template,
       documentId: "document:probe-template",
       displayName: "Incident review",
       blockTree: [
-        paragraph("probe:template-root", "Template", [
-          paragraph("probe:template-child", "Child"),
+        paragraph(blockIds.templateRoot, "Template", [
+          paragraph(blockIds.templateChild, "Child"),
         ]),
       ],
     });
     invariant(!template.duplicate && retry.duplicate, "template receipt retry failed");
     invariant(
-      getDocumentBearingBlockSummary(getDb(), project.id, "probe:template")
+      getDocumentBearingBlockSummary(getDb(), project.id, blockIds.template)
         .displayName === "Incident review",
       "template summary lost its authoritative display name",
     );
@@ -210,7 +229,7 @@ const main = async (): Promise<void> => {
           (SELECT COUNT(*) FROM database_memberships WHERE card_block_id = ? AND removed_at IS NULL) AS memberships
       `,
       )
-      .get("probe:template", "probe:template") as {
+      .get(blockIds.template, blockIds.template) as {
       readonly placements: number;
       readonly memberships: number;
     };
@@ -221,7 +240,7 @@ const main = async (): Promise<void> => {
     assertReusableTemplateSourceIsUnreferenced(
       getDb(),
       project.id,
-      "probe:template",
+      blockIds.template,
     );
     createReusableTemplateReference(getDb(), {
       version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
@@ -231,21 +250,21 @@ const main = async (): Promise<void> => {
       storeEpoch,
       clientSessionId: "probe:template-reference",
       actor: {},
-      sourceBlockId: "probe:template",
+      sourceBlockId: blockIds.template,
       sourceDocumentId: "document:probe-template",
       expectedSourceGeneration: 1,
       expectedSourceHeadSeq: 1,
       hostDocumentId: "document:probe-host",
       expectedHostGeneration: 1,
       expectedHostHeadSeq: 1,
-      referenceBlockId: "probe:template-ref",
+      referenceBlockId: blockIds.templateReference,
     });
     let referenceGuarded = false;
     try {
       assertReusableTemplateSourceIsUnreferenced(
         getDb(),
         project.id,
-        "probe:template",
+        blockIds.template,
       );
     } catch (error) {
       referenceGuarded =
@@ -261,7 +280,7 @@ const main = async (): Promise<void> => {
       storeEpoch,
       clientSessionId: "probe:template-instance",
       actor: {},
-      sourceBlockId: "probe:template",
+      sourceBlockId: blockIds.template,
       sourceDocumentId: "document:probe-template",
       expectedSourceGeneration: 1,
       expectedSourceHeadSeq: 1,
@@ -276,9 +295,9 @@ const main = async (): Promise<void> => {
       "template reference embedded source content",
     );
     invariant(
-      hostAfterTemplate.blockTree[2]?.id !== "probe:template-root" &&
+      hostAfterTemplate.blockTree[2]?.id !== blockIds.templateRoot &&
         hostAfterTemplate.blockTree[2]?.children[0]?.id !==
-          "probe:template-child",
+          blockIds.templateChild,
       "template instance reused source identities",
     );
     const instantiatedRootId = hostAfterTemplate.blockTree[2]?.id;
@@ -303,12 +322,12 @@ const main = async (): Promise<void> => {
           storeEpoch,
           clientSessionId: `probe:invalid-template:${attempt}`,
           actor: { attempt },
-          sourceBlockId: "probe:invalid-template",
+          sourceBlockId: blockIds.invalidTemplate,
           documentId: "document:probe-invalid-template",
           displayName: "Invalid",
           blockTree: [
             {
-              id: "probe:nested-owner",
+              id: blockIds.nestedOwner,
               type: LARGE_DOCUMENT_BLOCK_TYPE,
               props: { displayName: "Nested" },
               children: [],
@@ -346,10 +365,10 @@ const main = async (): Promise<void> => {
       clientSessionId: "probe:large-document",
       actor: {},
       blockKind: "large_document",
-      blockId: "probe:large-document",
+      blockId: blockIds.largeDocument,
       documentId: "document:probe-large-document",
       displayName: "Architecture",
-      blockTree: [paragraph("probe:large-paragraph", "Foreign body")],
+      blockTree: [paragraph(blockIds.largeParagraph, "Foreign body")],
       location: {
         kind: "document",
         hostDocumentId: "document:probe-host",
@@ -373,7 +392,7 @@ const main = async (): Promise<void> => {
       clientSessionId: "probe:large-code",
       actor: {},
       blockKind: "large_code",
-      blockId: "probe:large-code",
+      blockId: blockIds.largeCode,
       documentId: "document:probe-large-code",
       displayName: "Sync",
       code: "base",
@@ -436,17 +455,17 @@ const main = async (): Promise<void> => {
       relocationId: "probe:large-document:relocate-body",
       projectId: project.id,
       storeEpoch,
-      rootBlockIds: ["probe:large-paragraph"],
+      rootBlockIds: [blockIds.largeParagraph],
       sourceDocumentId: "document:probe-large-document",
       sourceGeneration: 1,
       expectedSourceHeadSeq: 1,
-      expectedLocationRevisions: { "probe:large-paragraph": 1 },
+      expectedLocationRevisions: { [blockIds.largeParagraph]: 1 },
       target: {
         kind: "document",
         documentId: "document:probe-host",
         generation: 1,
         expectedHeadSeq: 4,
-        beforeBlockId: "probe:large-document",
+        beforeBlockId: blockIds.largeDocument,
       },
     };
     const relocated = relocateBlocksAtomically(getDb(), relocate);
@@ -456,11 +475,9 @@ const main = async (): Promise<void> => {
         emptiedLargeDocument.nfm === "" &&
         emptiedLargeDocument.blockTree.length === 1 &&
         emptiedLargeDocument.blockTree[0]?.type === "paragraph" &&
-        emptiedLargeDocument.blockTree[0]?.id.startsWith(
-          "block:relocation-empty:",
-        ) === true &&
+        isUuidV7(emptiedLargeDocument.blockTree[0]?.id ?? "") &&
         materialize("document:probe-host").blockTree.some(
-          (block) => block.id === "probe:large-paragraph",
+          (block) => block.id === blockIds.largeParagraph,
         ),
       "Large Document did not reuse atomic relocation",
     );
@@ -478,10 +495,10 @@ const main = async (): Promise<void> => {
           clientSessionId: "probe:fault",
           actor: {},
           blockKind: "large_document",
-          blockId: "probe:fault-owner",
+          blockId: blockIds.faultOwner,
           documentId: "document:probe-fault",
           displayName: "Fault",
-          blockTree: [paragraph("probe:fault-body", "rollback")],
+          blockTree: [paragraph(blockIds.faultBody, "rollback")],
           location: { kind: "space" },
         },
         {
@@ -496,8 +513,8 @@ const main = async (): Promise<void> => {
     invariant(rolledBack, "fault injection was not observed");
     invariant(
       getDb()
-        .prepare("SELECT 1 FROM blocks WHERE id = 'probe:fault-owner'")
-        .get() === undefined &&
+        .prepare("SELECT 1 FROM blocks WHERE id = ?")
+        .get(blockIds.faultOwner) === undefined &&
         getDb()
           .prepare("SELECT 1 FROM documents WHERE id = 'document:probe-fault'")
           .get() === undefined,
@@ -519,9 +536,11 @@ const main = async (): Promise<void> => {
     );
     const ownerTypes = getDb()
       .prepare(
-        `SELECT type FROM blocks WHERE id IN ('probe:large-code', 'probe:large-document') ORDER BY type`,
+        "SELECT type FROM blocks WHERE id IN (?, ?) ORDER BY type",
       )
-      .all() as readonly { readonly type: string }[];
+      .all(blockIds.largeCode, blockIds.largeDocument) as readonly {
+      readonly type: string;
+    }[];
     invariant(
       ownerTypes.some((row) => row.type === LARGE_CODE_BLOCK_TYPE) &&
         ownerTypes.some((row) => row.type === LARGE_DOCUMENT_BLOCK_TYPE),

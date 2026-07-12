@@ -6,24 +6,19 @@ import {
   DOCUMENT_OPERATION_CONTRACT_VERSION,
   type DocumentOperationBatch,
 } from "../../shared/block-documents/document-operations";
-import {
-  getRegisteredBlockDocumentSchemaAdapter,
-  inspectRegisteredOwnedBlockDocument,
-} from "../../shared/block-documents/document-schema-adapters";
-import {
-  getOwnedBlockDocumentDescriptor,
-  type LegacyOwnedBlockDocumentDescriptor,
-} from "./block-document-cutover";
+import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
+import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
+import { getOwnedDocumentDescriptor } from "./block-document-cutover";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { loadBlockDocument } from "./block-document-store";
 
 export interface PreparedEditableOwnedBlockDocument {
-  readonly descriptor: LegacyOwnedBlockDocumentDescriptor;
+  readonly descriptor: OwnedDocumentDescriptor;
   readonly repairedEmptyRoot: boolean;
 }
 
 const coordinateDigest = (
-  descriptor: LegacyOwnedBlockDocumentDescriptor,
+  descriptor: OwnedDocumentDescriptor,
 ): string =>
   createHash("sha256")
     .update(descriptor.storeEpoch)
@@ -46,7 +41,7 @@ export const prepareEditableOwnedBlockDocument = (
   projectId: string,
   ownerBlockId: string,
 ): PreparedEditableOwnedBlockDocument => {
-  const descriptor = getOwnedBlockDocumentDescriptor(
+  const descriptor = getOwnedDocumentDescriptor(
     database,
     projectId,
     ownerBlockId,
@@ -54,28 +49,19 @@ export const prepareEditableOwnedBlockDocument = (
   if (
     descriptor.ownerLifecycle !== "active" ||
     descriptor.readiness !== "ready" ||
-    descriptor.authority !== "ydoc_primary"
+    descriptor.sync.kind !== "yjs"
   ) {
-    return { descriptor, repairedEmptyRoot: false };
-  }
-
-  const adapter = getRegisteredBlockDocumentSchemaAdapter({
-    ownerType: descriptor.ownerType,
-    schemaKey: descriptor.schemaKey,
-    schemaVersion: descriptor.schemaVersion,
-  });
-  if (adapter.contentModel !== "block_tree") {
     return { descriptor, repairedEmptyRoot: false };
   }
 
   const loaded = loadBlockDocument(database, descriptor.documentId);
   try {
-    const inspection = inspectRegisteredOwnedBlockDocument(loaded.document, {
+    const inspection = inspectOwnedBlockDocument(loaded.document, {
       ownerType: descriptor.ownerType,
       schemaKey: descriptor.schemaKey,
       schemaVersion: descriptor.schemaVersion,
     });
-    if (!("blocks" in inspection) || inspection.blocks.length > 0) {
+    if (inspection.blocks.length > 0) {
       return { descriptor, repairedEmptyRoot: false };
     }
   } finally {
@@ -110,7 +96,7 @@ export const prepareEditableOwnedBlockDocument = (
     );
   }
   return {
-    descriptor: getOwnedBlockDocumentDescriptor(
+    descriptor: getOwnedDocumentDescriptor(
       database,
       projectId,
       ownerBlockId,

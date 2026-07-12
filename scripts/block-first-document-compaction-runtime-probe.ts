@@ -22,6 +22,7 @@ import { createProject } from "../src/main/local-store/projects";
 import { openCardDocument } from "../src/shared/block-documents";
 import { parseCardLifecycleMutationRequest } from "../src/shared/card-lifecycle";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -133,12 +134,12 @@ const main = async (): Promise<void> => {
     const first = createCard(
       project.id,
       storeEpoch,
-      "compaction-card-a",
+      createUuidV7FromTimestamp(1_784_000_000_000, 1),
     );
     const second = createCard(
       project.id,
       storeEpoch,
-      "compaction-card-b",
+      createUuidV7FromTimestamp(1_784_000_000_000, 2),
     );
     rewriteTitle(first.documentId, "first-edit-1", "First one");
     const firstHead = rewriteTitle(

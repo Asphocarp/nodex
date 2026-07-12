@@ -25,6 +25,7 @@ import {
 import { createProject } from "../src/main/local-store/projects";
 import { createCardDocumentGenesis } from "../src/shared/block-documents/block-document-codec";
 import { translateLegacyNfmIntoCardDocument } from "../src/shared/block-documents/legacy-nfm-shadow-translator";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 function invariant(condition: boolean, message: string): asserts condition {
   if (condition) return;
@@ -37,6 +38,12 @@ interface SeededDocument {
   readonly blockIds: readonly string[];
   readonly headSeq: number;
 }
+
+let blockIdSequence = 0;
+const allocateBlockId = (): string => {
+  blockIdSequence += 1;
+  return createUuidV7FromTimestamp(1_784_000_000_000, blockIdSequence);
+};
 
 const readStoreEpoch = (): string =>
   (
@@ -100,12 +107,11 @@ const seedDocument = (input: {
     )
     .run(input.cardBlockId, documentId, input.projectId, now);
 
-  let nextBlock = 0;
   const genesis = createCardDocumentGenesis({
     documentId,
     title: input.title,
     nfm: input.nfm,
-    allocateBlockId: () => `${input.cardBlockId}:block:${nextBlock++}`,
+    allocateBlockId,
   });
   try {
     const ack = initializeCardDocumentGenesis(database, {
@@ -142,14 +148,13 @@ const prepareLegacyUpdate = (input: {
     input.documentId,
   );
   try {
-    let nextBlock = 0;
     const translated = translateLegacyNfmIntoCardDocument({
       document: loaded.document,
       authority: loaded.authority,
       readiness: "ready",
       title: input.title,
       nfm: input.nfm,
-      allocateBlockId: () => `${input.documentId}:translated:${nextBlock++}`,
+      allocateBlockId,
     });
     invariant(translated.changed, "expected a changed legacy translation");
     return {

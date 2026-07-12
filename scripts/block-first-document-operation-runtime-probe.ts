@@ -25,11 +25,31 @@ import {
   type BlockTreeNode,
 } from "../src/shared/block-documents/block-document-codec";
 import { locateBlockContainer } from "../src/shared/block-documents/block-subtree-relocation";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 function invariant(condition: boolean, message: string): asserts condition {
   if (condition) return;
   throw new Error(message);
 }
+
+const probeBlockId = (sequence: number): string =>
+  createUuidV7FromTimestamp(1_784_000_000_000, sequence);
+
+const blockIds = {
+  alpha: probeBlockId(1),
+  beta: probeBlockId(2),
+  gamma: probeBlockId(3),
+  inserted: probeBlockId(4),
+  titleBody: probeBlockId(5),
+  netZeroInserted: probeBlockId(6),
+  updateTemplate: probeBlockId(7),
+  nfmSameOne: probeBlockId(8),
+  nfmSameTwo: probeBlockId(9),
+  nfmTail: probeBlockId(10),
+  classificationParent: probeBlockId(11),
+  classificationChild: probeBlockId(12),
+  epochScoped: probeBlockId(13),
+} as const;
 
 const readEpoch = (): string =>
   (
@@ -320,7 +340,7 @@ const run = async (): Promise<void> => {
       cardBlockId: "operation-main-card",
       title: "Before",
       nfm: "Alpha\nBeta\nGamma",
-      blockIds: ["operation-alpha", "operation-beta", "operation-gamma"],
+      blockIds: [blockIds.alpha, blockIds.beta, blockIds.gamma],
     });
     invariant(main.headSeq === 1, "main genesis head is not 1");
 
@@ -328,7 +348,7 @@ const run = async (): Promise<void> => {
       documentId: "operation-insert-template",
       title: "",
       nfm: "Inserted",
-      allocateBlockId: () => "operation-inserted",
+      allocateBlockId: () => blockIds.inserted,
     });
     const insertedBlock = insertTemplate.materialization
       .blockTree[0] as BlockTreeNode;
@@ -344,7 +364,7 @@ const run = async (): Promise<void> => {
         {
           kind: "insert_block" as const,
           block: insertedBlock,
-          beforeBlockId: "operation-beta",
+          beforeBlockId: blockIds.beta,
         },
       ],
     };
@@ -357,7 +377,7 @@ const run = async (): Promise<void> => {
     invariant(
       merged.value.coordination === "merge_friendly" &&
         !merged.value.titleChanged &&
-        merged.value.createdBlockIds.join(",") === "operation-inserted",
+        merged.value.createdBlockIds.join(",") === blockIds.inserted,
       "merge-friendly semantic result is wrong",
     );
 
@@ -383,7 +403,7 @@ const run = async (): Promise<void> => {
       cardBlockId: "operation-title-card",
       title: "Before title",
       nfm: "Title body",
-      blockIds: ["operation-title-body"],
+      blockIds: [blockIds.titleBody],
     });
     const titleRequest = {
       ...mutationBase({
@@ -431,7 +451,7 @@ const run = async (): Promise<void> => {
       documentId: "operation-net-zero-template",
       title: "",
       nfm: "Net zero insert",
-      allocateBlockId: () => "operation-net-zero-inserted",
+      allocateBlockId: () => blockIds.netZeroInserted,
     });
     const netZeroInserted = netZeroTemplate.materialization
       .blockTree[0] as BlockTreeNode;
@@ -468,7 +488,7 @@ const run = async (): Promise<void> => {
         !fencedNetZeroTitle.value.titleChanged &&
         fencedNetZeroTitle.value.coordination === "write_fence" &&
         fencedNetZeroTitle.value.createdBlockIds.join(",") ===
-          "operation-net-zero-inserted" &&
+          blockIds.netZeroInserted &&
         fencedNetZeroTitle.value.writeFenceBlockIds.join(",") ===
           "operation-title-card",
       "net-zero title rewrite lost its structural barrier",
@@ -481,25 +501,25 @@ const run = async (): Promise<void> => {
       replaced: createOfflineTextUpdate(
         main.documentId,
         offlineFullState,
-        "operation-alpha",
+        blockIds.alpha,
         " offline-replaced",
       ),
       deleted: createOfflineTextUpdate(
         main.documentId,
         offlineFullState,
-        "operation-beta",
+        blockIds.beta,
         " offline-deleted",
       ),
       moved: createOfflineTextUpdate(
         main.documentId,
         offlineFullState,
-        "operation-gamma",
+        blockIds.gamma,
         " offline-moved",
       ),
       unaffected: createOfflineTextUpdate(
         main.documentId,
         offlineFullState,
-        "operation-inserted",
+        blockIds.inserted,
         " offline-safe",
       ),
     };
@@ -508,7 +528,7 @@ const run = async (): Promise<void> => {
       documentId: "operation-update-template",
       title: "",
       nfm: "Alpha updated",
-      allocateBlockId: () => "operation-update-template-block",
+      allocateBlockId: () => blockIds.updateTemplate,
     });
     const updatedBlock = updateTemplate.materialization
       .blockTree[0] as BlockTreeNode;
@@ -523,7 +543,7 @@ const run = async (): Promise<void> => {
       operations: [
         {
           kind: "update_block" as const,
-          blockId: "operation-alpha",
+          blockId: blockIds.alpha,
           patch: {
             type: updatedBlock.type,
             props: updatedBlock.props,
@@ -532,10 +552,10 @@ const run = async (): Promise<void> => {
         },
         {
           kind: "move_block" as const,
-          blockId: "operation-gamma",
-          parentBlockId: "operation-alpha",
+          blockId: blockIds.gamma,
+          parentBlockId: blockIds.alpha,
         },
-        { kind: "delete_block" as const, blockId: "operation-beta" },
+        { kind: "delete_block" as const, blockId: blockIds.beta },
       ],
     };
     const unfenced = applyDocumentOperationBatch(getDb(), destructiveRequest);
@@ -558,11 +578,11 @@ const run = async (): Promise<void> => {
     invariant(destructive.ok, "fenced destructive mutation failed");
     invariant(
       destructive.value.coordination === "write_fence" &&
-        destructive.value.deletedBlockIds.includes("operation-beta") &&
-        destructive.value.updatedBlockIds.includes("operation-alpha") &&
-        destructive.value.movedBlockIds.includes("operation-gamma") &&
+        destructive.value.deletedBlockIds.includes(blockIds.beta) &&
+        destructive.value.updatedBlockIds.includes(blockIds.alpha) &&
+        destructive.value.movedBlockIds.includes(blockIds.gamma) &&
         destructive.value.writeFenceBlockIds.join(",") ===
-          "operation-alpha,operation-beta,operation-gamma",
+          [blockIds.alpha, blockIds.beta, blockIds.gamma].join(","),
       "destructive semantic change set is incomplete",
     );
     invariant(
@@ -580,7 +600,7 @@ const run = async (): Promise<void> => {
       operations: [
         {
           kind: "insert_block",
-          block: { ...insertedBlock, id: "operation-beta" },
+          block: { ...insertedBlock, id: blockIds.beta },
         },
       ],
     });
@@ -751,7 +771,7 @@ const run = async (): Promise<void> => {
       cardBlockId: "operation-nfm-card",
       title: "NFM title",
       nfm: "Same\nSame\nTail",
-      blockIds: ["nfm-same-1", "nfm-same-2", "nfm-tail"],
+      blockIds: [blockIds.nfmSameOne, blockIds.nfmSameTwo, blockIds.nfmTail],
     });
     const staleNfm = replaceDocumentFromNfm(getDb(), {
       ...mutationBase({
@@ -788,9 +808,9 @@ const run = async (): Promise<void> => {
     invariant(replaced.ok, "fenced NFM replacement failed");
     invariant(
       replaced.value.createdBlockIds.length === 2 &&
-        replaced.value.deletedBlockIds.includes("nfm-same-1") &&
-        replaced.value.deletedBlockIds.includes("nfm-same-2") &&
-        !replaced.value.deletedBlockIds.includes("nfm-tail") &&
+        replaced.value.deletedBlockIds.includes(blockIds.nfmSameOne) &&
+        replaced.value.deletedBlockIds.includes(blockIds.nfmSameTwo) &&
+        !replaced.value.deletedBlockIds.includes(blockIds.nfmTail) &&
         readNfm(nfm.documentId) === "Same revised\nSame\nTail",
       "ambiguous NFM identity replacement was not conservative",
     );
@@ -800,13 +820,13 @@ const run = async (): Promise<void> => {
       cardBlockId: "operation-classification-card",
       title: "Classification",
       nfm: "Parent",
-      blockIds: ["classification-parent"],
+      blockIds: [blockIds.classificationParent],
     });
     const classificationTemplate = createCardDocumentGenesis({
       documentId: "operation-classification-template",
       title: "",
       nfm: "New child",
-      allocateBlockId: () => "classification-new-child",
+      allocateBlockId: () => blockIds.classificationChild,
     });
     const classificationBlock = classificationTemplate.materialization
       .blockTree[0] as BlockTreeNode;
@@ -822,8 +842,8 @@ const run = async (): Promise<void> => {
         { kind: "insert_block", block: classificationBlock },
         {
           kind: "move_block",
-          blockId: "classification-new-child",
-          parentBlockId: "classification-parent",
+          blockId: blockIds.classificationChild,
+          parentBlockId: blockIds.classificationParent,
         },
       ],
     });
@@ -840,7 +860,7 @@ const run = async (): Promise<void> => {
       cardBlockId: "operation-epoch-card",
       title: "Epoch",
       nfm: "Epoch body",
-      blockIds: ["epoch-scoped-block"],
+      blockIds: [blockIds.epochScoped],
     });
     const epochBase = loadBlockDocument(getDb(), epochScoped.documentId);
     const epochBaseState = Y.encodeStateAsUpdate(epochBase.document);
@@ -849,13 +869,13 @@ const run = async (): Promise<void> => {
     const currentEpochUpdate = createOfflineTextUpdate(
       epochScoped.documentId,
       epochBaseState,
-      "epoch-scoped-block",
+      blockIds.epochScoped,
       " server",
     );
     const futureEpochUpdate = createOfflineTextUpdate(
       epochScoped.documentId,
       epochBaseState,
-      "epoch-scoped-block",
+      blockIds.epochScoped,
       " client",
     );
     const currentEpochAck = applyBlockDocumentUpdate(getDb(), {
@@ -877,7 +897,7 @@ const run = async (): Promise<void> => {
       projectId: project.id,
       storeEpoch: oldEpoch,
       documentId: epochScoped.documentId,
-      blockId: "epoch-scoped-block",
+      blockId: blockIds.epochScoped,
       baseHeadSeq: 1,
       headSeq: 2,
     });

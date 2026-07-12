@@ -14,6 +14,7 @@ import {
   ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   parseAdditionalDocumentCommandRequest,
 } from "../src/shared/additional-document-commands";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -22,6 +23,12 @@ const invariant: (condition: unknown, message: string) => asserts condition = (
   if (condition) return;
   throw new Error(message);
 };
+
+const blockIds = {
+  templateSource: createUuidV7FromTimestamp(1_784_000_000_000, 1),
+  templateBody: createUuidV7FromTimestamp(1_784_000_000_000, 2),
+  secondaryCanvas: createUuidV7FromTimestamp(1_784_000_000_000, 3),
+} as const;
 
 const main = async (): Promise<void> => {
   const previous = process.env.NODEX_DIR;
@@ -51,12 +58,12 @@ const main = async (): Promise<void> => {
       coordination: { kind: "fifo_only" },
       operation: {
         kind: "create_template",
-        sourceBlockId: "worker:template-source",
+        sourceBlockId: blockIds.templateSource,
         documentId: "document:worker-template",
         displayName: "Worker template",
         initialBlocks: [
           {
-            id: "worker:template-body",
+            id: blockIds.templateBody,
             type: "paragraph",
             props: {},
             content: [
@@ -77,7 +84,7 @@ const main = async (): Promise<void> => {
       first.ok &&
         !first.value.duplicate &&
         first.value.effect.createdBlockIds.join(",") ===
-          "worker:template-body,worker:template-source",
+          [blockIds.templateBody, blockIds.templateSource].sort().join(","),
       "Worker did not preserve the additional Document receipt",
     );
     const duplicate = await writer.applyAdditionalDocumentCommand({
@@ -104,7 +111,7 @@ const main = async (): Promise<void> => {
         operation: {
           kind: "create_canvas_owner",
           scope: "non_primary",
-          blockId: "worker:secondary-canvas",
+          blockId: blockIds.secondaryCanvas,
           documentId: "document:worker-secondary-canvas",
           displayName: "Sketch",
           placement: { kind: "space" },
@@ -114,7 +121,7 @@ const main = async (): Promise<void> => {
     invariant(
       canvas.ok &&
         canvas.value.effect.createdBlockIds.join(",") ===
-          "worker:secondary-canvas",
+          blockIds.secondaryCanvas,
       "Worker did not commit the non-primary Canvas owner",
     );
     await writer.shutdown();
@@ -135,7 +142,7 @@ const main = async (): Promise<void> => {
           WHERE block.id = ? AND block.project_id = ?
         `,
         )
-        .get("worker:template-source", project.id) as {
+        .get(blockIds.templateSource, project.id) as {
         readonly type: string;
         readonly head_seq: number;
         readonly projected_seq: number;
@@ -152,19 +159,18 @@ const main = async (): Promise<void> => {
         .prepare(
           `
           SELECT block.lifecycle, document.head_seq,
-            materialization.projected_seq
+            scene.head_seq AS scene_head_seq
           FROM blocks block
           INNER JOIN block_documents ownership ON ownership.block_id = block.id
           INNER JOIN documents document ON document.id = ownership.document_id
-          INNER JOIN canvas_scene_materializations materialization
-            ON materialization.document_id = document.id
+          INNER JOIN canvas_scenes scene ON scene.document_id = document.id
           WHERE block.id = ? AND block.project_id = ?
         `,
         )
-        .get("worker:secondary-canvas", project.id) as {
+        .get(blockIds.secondaryCanvas, project.id) as {
         readonly lifecycle: string;
         readonly head_seq: number;
-        readonly projected_seq: number;
+        readonly scene_head_seq: number;
       };
       const foreignKeys = persisted.pragma(
         "foreign_key_check",
@@ -176,7 +182,7 @@ const main = async (): Promise<void> => {
           receipt.outcome === "committed" &&
           receipt.change_log_seq === first.value.changeLogSeq &&
           canvasOwner.lifecycle === "active" &&
-          canvasOwner.head_seq === canvasOwner.projected_seq &&
+          canvasOwner.head_seq === canvasOwner.scene_head_seq &&
           foreignKeys.length === 0,
         "Worker ACK preceded durable owner/projection/receipt state",
       );

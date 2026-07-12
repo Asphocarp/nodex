@@ -4,6 +4,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
+  canonicalizeCanvasSceneMutationRequest,
+  canonicalizeCanvasSceneMutationResult,
+  encodeCanonicalCanvasSceneMutationRequest,
+  encodeCanonicalCanvasSceneMutationResult,
   getOwnedDocumentSchemaRegistration,
 } from "../../shared/block-documents";
 import {
@@ -41,6 +45,72 @@ const scalarCount = (database: Database.Database, sql: string): number => {
 
 const hashText = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
+
+const validateCanvasMutationReceipts = (database: Database.Database): void => {
+  const rows = database
+    .prepare(
+      `SELECT document_id, generation, mutation_id, client_session_id,
+        base_head_seq, committed_head_seq, request_hash, request_byte_length,
+        request_json, result_json, result_hash, outcome, committed_at
+       FROM canvas_scene_mutation_receipts
+       ORDER BY document_id, generation, mutation_id`,
+    )
+    .all() as readonly {
+    readonly document_id: string;
+    readonly generation: number;
+    readonly mutation_id: string;
+    readonly client_session_id: string;
+    readonly base_head_seq: number;
+    readonly committed_head_seq: number;
+    readonly request_hash: string;
+    readonly request_byte_length: number;
+    readonly request_json: string;
+    readonly result_json: string;
+    readonly result_hash: string;
+    readonly outcome: "committed" | "no_change";
+    readonly committed_at: string;
+  }[];
+  for (const row of rows) {
+    try {
+      const request = canonicalizeCanvasSceneMutationRequest(
+        JSON.parse(row.request_json) as unknown,
+      );
+      const canonicalRequest = encodeCanonicalCanvasSceneMutationRequest(request);
+      const result = canonicalizeCanvasSceneMutationResult(
+        JSON.parse(row.result_json) as unknown,
+      );
+      if (
+        canonicalRequest !== row.request_json ||
+        hashText(row.request_json) !== row.request_hash ||
+        Buffer.byteLength(row.request_json) !== row.request_byte_length ||
+        encodeCanonicalCanvasSceneMutationResult(result) !== row.result_json ||
+        hashText(row.result_json) !== row.result_hash ||
+        request.documentId !== row.document_id ||
+        request.generation !== row.generation ||
+        request.mutationId !== row.mutation_id ||
+        request.clientSessionId !== row.client_session_id ||
+        request.baseHeadSeq !== row.base_head_seq ||
+        result.documentId !== row.document_id ||
+        result.generation !== row.generation ||
+        result.mutationId !== row.mutation_id ||
+        result.projectId !== request.projectId ||
+        result.storeEpoch !== request.storeEpoch ||
+        result.baseHeadSeq !== row.base_head_seq ||
+        result.headSeq !== row.committed_head_seq ||
+        result.outcome !== row.outcome ||
+        result.committedAt !== row.committed_at ||
+        result.duplicate !== false
+      ) {
+        throw new TypeError("receipt evidence diverges");
+      }
+    } catch (error) {
+      throw new BackupStoreValidationError(
+        `Backup Canvas mutation receipt is corrupt: ${row.document_id}/${row.mutation_id}`,
+        { cause: error },
+      );
+    }
+  }
+};
 
 const validateManagedAssets = (
   database: Database.Database,
@@ -514,6 +584,7 @@ const validateOpenDatabase = (
       `Backup database has ${canvasYjsRowCount} Canvas row(s) in Yjs authority tables`,
     );
   }
+  validateCanvasMutationReceipts(database);
 
   return {
     schemaVersion,

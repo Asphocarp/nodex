@@ -360,3 +360,145 @@ export const encodeCanonicalCanvasSceneMutationRequest = (
   request: CanvasSceneMutationRequest,
 ): string =>
   canonicalStringifyCanvasScene(request);
+
+const canonicalResultIds = (
+  value: unknown,
+  field: string,
+  maximum: number,
+): readonly string[] => {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw new CanvasSceneContractError(
+      `${field} must be a bounded identity array`,
+    );
+  }
+  const ids = value.map((entry, index) =>
+    requireCanvasSceneIdentity(entry, `${field}[${index}]`),
+  );
+  const canonical = [...new Set(ids)].sort();
+  if (
+    canonical.length !== ids.length ||
+    canonical.some((id, index) => id !== ids[index])
+  ) {
+    throw new CanvasSceneContractError(`${field} must be sorted and unique`);
+  }
+  return canonical;
+};
+
+export const canonicalizeCanvasSceneMutationResult = (
+  input: unknown,
+): CanvasSceneMutationResult => {
+  if (!isRecord(input)) {
+    throw new CanvasSceneContractError("Canvas scene mutation result must be an object");
+  }
+  exactKeys(input, "Canvas scene mutation result", [
+    "version",
+    "mutationId",
+    "projectId",
+    "documentId",
+    "storeEpoch",
+    "generation",
+    "baseHeadSeq",
+    "headSeq",
+    "duplicate",
+    "outcome",
+    "sceneHash",
+    "changedElementIds",
+    "appliedAppStateKeys",
+    "skippedAppStateKeys",
+    "addedFileIds",
+    "removedFileIds",
+    "committedAt",
+  ]);
+  if (input.version !== CANVAS_SCENE_SYNC_VERSION) {
+    throw new CanvasSceneContractError(
+      `Canvas scene mutation result.version must be ${CANVAS_SCENE_SYNC_VERSION}`,
+    );
+  }
+  if (typeof input.duplicate !== "boolean") {
+    throw new CanvasSceneContractError(
+      "Canvas scene mutation result.duplicate must be boolean",
+    );
+  }
+  if (input.outcome !== "committed" && input.outcome !== "no_change") {
+    throw new CanvasSceneContractError(
+      "Canvas scene mutation result.outcome is invalid",
+    );
+  }
+  if (
+    typeof input.sceneHash !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(input.sceneHash)
+  ) {
+    throw new CanvasSceneContractError(
+      "Canvas scene mutation result.sceneHash must be lowercase SHA-256",
+    );
+  }
+  if (typeof input.committedAt !== "string") {
+    throw new CanvasSceneContractError(
+      "Canvas scene mutation result.committedAt must be canonical ISO time",
+    );
+  }
+  const committedDate = new Date(input.committedAt);
+  if (
+    Number.isNaN(committedDate.getTime()) ||
+    committedDate.toISOString() !== input.committedAt
+  ) {
+    throw new CanvasSceneContractError(
+      "Canvas scene mutation result.committedAt must be canonical ISO time",
+    );
+  }
+  const appliedAppStateKeys = canonicalResultIds(
+    input.appliedAppStateKeys,
+    "Canvas scene mutation result.appliedAppStateKeys",
+    DURABLE_CANVAS_SCENE_APP_STATE_KEYS.length,
+  );
+  const skippedAppStateKeys = canonicalResultIds(
+    input.skippedAppStateKeys,
+    "Canvas scene mutation result.skippedAppStateKeys",
+    DURABLE_CANVAS_SCENE_APP_STATE_KEYS.length,
+  );
+  const allowedAppStateKeys = new Set<string>(DURABLE_CANVAS_SCENE_APP_STATE_KEYS);
+  if (
+    [...appliedAppStateKeys, ...skippedAppStateKeys].some(
+      (key) => !allowedAppStateKeys.has(key),
+    )
+  ) {
+    throw new CanvasSceneContractError(
+      "Canvas scene mutation result contains a non-durable appState key",
+    );
+  }
+  return {
+    version: CANVAS_SCENE_SYNC_VERSION,
+    mutationId: requireCanvasSceneIdentity(input.mutationId, "mutationId"),
+    projectId: requireCanvasSceneIdentity(input.projectId, "projectId"),
+    documentId: requireCanvasSceneIdentity(input.documentId, "documentId"),
+    storeEpoch: requireCanvasSceneIdentity(input.storeEpoch, "storeEpoch"),
+    generation: requireSafeInteger(input.generation, "generation", 1),
+    baseHeadSeq: requireSafeInteger(input.baseHeadSeq, "baseHeadSeq", 0),
+    headSeq: requireSafeInteger(input.headSeq, "headSeq", 0),
+    duplicate: input.duplicate,
+    outcome: input.outcome,
+    sceneHash: input.sceneHash,
+    changedElementIds: canonicalResultIds(
+      input.changedElementIds,
+      "Canvas scene mutation result.changedElementIds",
+      MAX_CANVAS_SCENE_ELEMENTS,
+    ),
+    appliedAppStateKeys,
+    skippedAppStateKeys,
+    addedFileIds: canonicalResultIds(
+      input.addedFileIds,
+      "Canvas scene mutation result.addedFileIds",
+      MAX_CANVAS_SCENE_FILES,
+    ),
+    removedFileIds: canonicalResultIds(
+      input.removedFileIds,
+      "Canvas scene mutation result.removedFileIds",
+      MAX_CANVAS_SCENE_FILES,
+    ),
+    committedAt: input.committedAt,
+  };
+};
+
+export const encodeCanonicalCanvasSceneMutationResult = (
+  result: CanvasSceneMutationResult,
+): string => canonicalStringifyCanvasScene(result);
