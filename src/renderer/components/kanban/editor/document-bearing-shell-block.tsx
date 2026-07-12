@@ -13,6 +13,7 @@ import {
 import {
   largeCodeBlockConfig,
   largeDocumentBlockConfig,
+  cardBlockConfig,
   reusableTemplateRefBlockConfig,
 } from "../../../../shared/block-documents/blocknote-schema-config";
 
@@ -144,6 +145,18 @@ export const createReusableTemplateRefBlockSpec = createReactBlockSpec(
     ),
   },
 );
+
+export const createCardBlockSpec = createReactBlockSpec(cardBlockConfig, {
+  render: ({ block }) => (
+    <DocumentBearingShellBlock
+      icon={FileText}
+      label="Card"
+      detail={block.props.displayHint}
+      identity={block.id}
+      shellBlockId={block.id}
+    />
+  ),
+});
 
 export const createLargeDocumentBlockSpec = createReactBlockSpec(
   largeDocumentBlockConfig,

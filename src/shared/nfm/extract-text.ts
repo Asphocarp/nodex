@@ -43,6 +43,10 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       parts.push(block.displayHint || block.targetBlockId || block.cardId);
     }
 
+    if (block.type === "card" && block.displayHint) {
+      parts.push(block.displayHint);
+    }
+
     if (block.type === "databaseViewRef") {
       parts.push(block.displayHint || block.databaseViewId);
     }

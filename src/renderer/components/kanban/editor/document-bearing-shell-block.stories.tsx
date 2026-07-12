@@ -34,6 +34,14 @@ function InteractiveShells() {
         </p>
         <DocumentBearingShellVisual
           {...sharedState}
+          icon={FileText}
+          label="Card"
+          detail="Nested implementation notes"
+          identity="card:nested-notes"
+          referenceKey="story:card"
+        />
+        <DocumentBearingShellVisual
+          {...sharedState}
           icon={RefreshCw}
           label="Synced block"
           detail="Shared launch notes"

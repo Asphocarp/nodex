@@ -61,6 +61,7 @@ export interface ChildlessBlockViolation {
   readonly blockId: BlockId | null;
   readonly blockType:
     | "cardRef"
+    | "card"
     | "databaseViewRef"
     | "syncedBlockRef"
     | "templateRef"
@@ -115,6 +116,7 @@ const isCanonicalChildlessBlockContent = (
 ): content is Y.XmlElement & {
   readonly nodeName:
     | "cardRef"
+    | "card"
     | "databaseViewRef"
     | "syncedBlockRef"
     | "templateRef"
@@ -124,6 +126,7 @@ const isCanonicalChildlessBlockContent = (
   if (!content) return false;
   if (
     content.nodeName === "databaseViewRef" ||
+    content.nodeName === "card" ||
     content.nodeName === "largeDocument" ||
     content.nodeName === "largeCode"
   ) {

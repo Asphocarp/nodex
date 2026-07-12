@@ -42,6 +42,14 @@ export const cardRefBlockConfig = {
   content: "none",
 } as const satisfies CustomBlockConfig;
 
+export const cardBlockConfig = {
+  type: "card",
+  propSchema: {
+    displayHint: { default: "Untitled" },
+  },
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
 export const databaseViewRefBlockConfig = {
   type: "databaseViewRef",
   propSchema: {
@@ -159,6 +167,7 @@ export const threadMentionInlineContentConfig = {
 export const blockDocumentCustomBlockConfigs = {
   callout: calloutBlockConfig,
   threadSection: threadSectionBlockConfig,
+  card: cardBlockConfig,
   cardRef: cardRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,

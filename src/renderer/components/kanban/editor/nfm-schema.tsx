@@ -17,6 +17,7 @@ import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 import {
+  createCardBlockSpec,
   createLargeCodeBlockSpec,
   createLargeDocumentBlockSpec,
   createReusableTemplateRefBlockSpec,
@@ -37,6 +38,7 @@ export const nfmSchema = BlockNoteSchema.create({
     image: imageBlockSpec,
     callout: createCalloutBlock(),
     threadSection: createThreadSectionBlockSpec(),
+    card: createCardBlockSpec(),
     databaseViewRef: createDatabaseViewRefBlockSpec(),
     cardRef: createCardRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),

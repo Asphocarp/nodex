@@ -145,6 +145,13 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         );
         break;
       }
+      case "card": {
+        const displayHint = block.displayHint
+          ? ` display-hint="${escapeXmlAttr(block.displayHint)}"`
+          : "";
+        lines.push(prefix + `<card${displayHint} />`);
+        break;
+      }
       case "largeCode": {
         lines.push(
           prefix +

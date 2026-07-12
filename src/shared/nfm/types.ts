@@ -147,6 +147,7 @@ export type NfmBlockType =
   | "largeCode"
   | "threadSection"
   | "cardToggle"
+  | "card"
   | "cardRef"
   | "divider"
   | "emptyBlock";
@@ -303,6 +304,11 @@ export interface NfmCardRef extends NfmBlockBase {
   cardId: string;
 }
 
+export interface NfmCard extends NfmBlockBase {
+  type: "card";
+  displayHint?: string;
+}
+
 export type NfmCanonicalCardRef = NfmCardRef & {
   targetBlockId: string;
 };
@@ -356,6 +362,7 @@ export type NfmBlock =
   | NfmLargeCode
   | NfmThreadSection
   | NfmCardToggle
+  | NfmCard
   | NfmCardRef
   | NfmDivider
   | NfmEmptyBlock;

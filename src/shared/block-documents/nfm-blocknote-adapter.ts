@@ -271,6 +271,13 @@ function nfmBlockToBN(
         children: [],
       };
 
+    case "card":
+      return {
+        type: "card",
+        props: { displayHint: block.displayHint ?? "Untitled" },
+        children: [],
+      };
+
     case "largeCode":
       return {
         type: "largeCode",
@@ -680,6 +687,15 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         type: "largeDocument",
         displayName:
           normalizeString(block.props?.displayName) ?? "Untitled document",
+        children: [],
+      };
+
+    case "card":
+      return {
+        type: "card",
+        ...(normalizeString(block.props?.displayHint) === undefined
+          ? {}
+          : { displayHint: normalizeString(block.props?.displayHint) }),
         children: [],
       };
 

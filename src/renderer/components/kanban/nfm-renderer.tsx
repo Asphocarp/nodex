@@ -319,6 +319,16 @@ function BlockComponent({
         </div>
       );
 
+    case "card":
+      return (
+        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
+          <span aria-hidden="true">▣</span>
+          <span className="whitespace-nowrap">
+            Card · {block.displayHint || "Untitled"}
+          </span>
+        </div>
+      );
+
     case "cardToggle":
       return (
         <details className="nfm-toggle my-1" open>

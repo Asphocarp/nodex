@@ -133,6 +133,18 @@ const createParagraphBlock = (blockId: string, value: string): Y.XmlElement => {
   return container;
 };
 
+const createCardShellBlock = (
+  blockId: string,
+  displayHint: string,
+): Y.XmlElement => {
+  const container = new Y.XmlElement("blockContainer");
+  container.setAttribute("id", blockId);
+  const card = new Y.XmlElement("card");
+  card.setAttribute("displayHint", displayHint);
+  container.insert(0, [card]);
+  return container;
+};
+
 const rootBlockGroup = (document: Y.Doc): Y.XmlElement => {
   const root = openCardDocument(document).body.get(0);
   if (root instanceof Y.XmlElement && root.nodeName === "blockGroup")
@@ -430,7 +442,76 @@ describe("BlockDocumentStore", () => {
           "invalid_document_update",
         );
         invalidReplica.document.destroy();
-        expect(getBlockDocumentRuntimeIdentity(database, documentId).head.headSeq).toBe(2);
+        expect(
+          getBlockDocumentRuntimeIdentity(database, documentId).head.headSeq,
+        ).toBe(2);
+        database.close();
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  sqliteTest(
+    "rejects an ordinary Yjs update that manufactures a Card owner shell",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-card-shell-typed-create-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+
+      try {
+        await initializeDatabase();
+        closeDatabase();
+        const database = new Database(getDatabasePath(), { readonly: false });
+        database.pragma("foreign_keys = ON");
+        const { documentId, storeEpoch } = seedPendingCardDocument(
+          database,
+          "card-shell-host",
+        );
+        const genesis = createCardDocument({
+          documentId,
+          initialTitle: "Host",
+        });
+        initializeCardDocumentGenesis(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "card-shell-host-genesis",
+          clientSessionId: "migration",
+          update: Y.encodeStateAsUpdate(genesis.document),
+          finalAuthority: "ydoc_primary",
+        });
+        genesis.document.destroy();
+
+        const replica = loadBlockDocument(database, documentId);
+        const before = Y.encodeStateVector(replica.document);
+        rootBlockGroup(replica.document).insert(
+          rootBlockGroup(replica.document).length,
+          [createCardShellBlock("unowned-card-shell", "Unowned")],
+        );
+        expectThrowsCode(
+          () =>
+            applyBlockDocumentUpdate(database, {
+              documentId,
+              storeEpoch,
+              generation: 1,
+              updateId: "manufacture-card-shell",
+              clientSessionId: "window-1",
+              baseHeadSeq: 1,
+              touchedBlockIds: ["unowned-card-shell"],
+              update: Y.encodeStateAsUpdate(replica.document, before),
+            }),
+          "invalid_document_update",
+        );
+        replica.document.destroy();
+        expect(
+          database
+            .prepare("SELECT 1 FROM blocks WHERE id = 'unowned-card-shell'")
+            .get(),
+        ).toBeUndefined();
         database.close();
       } finally {
         closeDatabase();

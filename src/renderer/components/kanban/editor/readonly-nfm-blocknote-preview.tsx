@@ -31,6 +31,7 @@ import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 import {
   agentConfigInlineContentConfig,
   attachmentInlineContentConfig,
+  cardBlockConfig,
   cardRefBlockConfig,
   databaseViewRefBlockConfig,
   syncedBlockRefBlockConfig,
@@ -112,6 +113,16 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
     },
   },
 );
+
+const createReadonlyCardBlockSpec = createReactBlockSpec(cardBlockConfig, {
+  render: ({ block }) => (
+    <InertEmbedPlaceholder
+      icon={FileText}
+      label="Card"
+      detail={String(block.props.displayHint || "Untitled").trim()}
+    />
+  ),
+});
 
 const createReadonlyDatabaseViewRefBlockSpec = createReactBlockSpec(
   databaseViewRefBlockConfig,
@@ -299,6 +310,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     image: imageBlockSpec,
     callout: createCalloutBlock(),
     cardToggle: createCardToggleBlockSpec(),
+    card: createReadonlyCardBlockSpec(),
     cardRef: createReadonlyCardRefBlockSpec(),
     databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),

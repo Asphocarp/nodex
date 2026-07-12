@@ -110,6 +110,11 @@ describe("headless Block Document schema", () => {
         },
       },
       {
+        id: "card-block",
+        type: "card",
+        props: { displayHint: "Nested Card" },
+      },
+      {
         id: "card-ref-block",
         type: "cardRef",
         props: { sourceProjectId: "project-1", cardId: "card-2" },
@@ -165,7 +170,7 @@ describe("headless Block Document schema", () => {
 
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(editor.document));
     expect(decoded.map((block) => block.id).join(",")).toBe(
-      "callout-block,card-toggle-block,thread-section-block,inline-view-block,card-ref-block,canonical-card-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block,large-document-block,large-code-block",
+      "callout-block,card-toggle-block,thread-section-block,inline-view-block,card-block,card-ref-block,canonical-card-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block,large-document-block,large-code-block",
     );
   });
 });

@@ -1,6 +1,7 @@
 import type {
   NfmBlock,
   NfmCardToggle,
+  NfmCard,
   NfmCardRef,
   NfmDatabaseViewRef,
   NfmColor,
@@ -207,6 +208,15 @@ export function parseNfm(input: string): NfmBlock[] {
       const cardRef = parseCardRef(content.trim());
       if (cardRef) {
         addBlock(cardRef, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<card")) {
+      const card = parseCard(content.trim());
+      if (card) {
+        addBlock(card, indent);
         i++;
         continue;
       }
@@ -601,6 +611,17 @@ function parseLargeDocument(line: string): NfmLargeDocument | null {
     type: "largeDocument",
     displayName:
       getXmlAttr(match[1] ?? "", "display-name") ?? "Untitled document",
+    children: [],
+  };
+}
+
+function parseCard(line: string): NfmCard | null {
+  const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const displayHint = getXmlAttr(match[1] ?? "", "display-hint");
+  return {
+    type: "card",
+    ...(displayHint === undefined ? {} : { displayHint }),
     children: [],
   };
 }
