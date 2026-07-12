@@ -29,6 +29,8 @@ import type {
 import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
 import type { CardProjectTransferCommandResult } from "./card-project-transfer";
 import type { PublicCardProjectTransferIntent } from "./card-project-transfer-transport";
+import type { BlockTransferCommandResult } from "./block-transfer";
+import type { PublicBlockTransferIntent } from "./block-transfer-transport";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -580,6 +582,10 @@ export interface IpcApi {
   "document-sync:relocate": {
     args: [request: DocumentRelocationRequest];
     result: RelocationCommandResult;
+  };
+  "blocks:transfer": {
+    args: [projectId: string, intent: PublicBlockTransferIntent];
+    result: BlockTransferCommandResult;
   };
   "diagnostics:renderer-log": {
     args: [input: RendererDiagnosticsLogInput];

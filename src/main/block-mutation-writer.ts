@@ -75,6 +75,9 @@ import type {
 } from "../shared/card-project-transfer";
 import type {
   BlockTransferCommandResult,
+  BlockTransferIntent,
+  BlockTransferPreparation,
+  BlockTransferReceipt,
   BlockTransferRequest,
 } from "../shared/block-transfer";
 import type {
@@ -276,6 +279,30 @@ export class BlockMutationWriter {
       );
     }
     return envelope;
+  }
+
+  async prepareBlockTransfer(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult<BlockTransferPreparation>> {
+    const envelope = await this.executeTyped<
+      BlockTransferCommandResult<BlockTransferPreparation>
+    >({
+      type: "prepareBlockTransfer",
+      payload: intent,
+    });
+    return envelope.result;
+  }
+
+  async readCommittedBlockTransfer(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult<BlockTransferReceipt | null>> {
+    const envelope = await this.executeTyped<
+      BlockTransferCommandResult<BlockTransferReceipt | null>
+    >({
+      type: "readCommittedBlockTransfer",
+      payload: intent,
+    });
+    return envelope.result;
   }
 
   async applyCardLifecycleMutation(

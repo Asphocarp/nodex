@@ -1,32 +1,24 @@
-import type { CardCreateInput } from "@/lib/types";
+import type {
+  BlockTransferIntentSource,
+  BlockTransferMode,
+} from "../../../shared/block-transfer";
 
-export const NODEX_CARD_REFERENCES_DRAG_MIME =
-  "application/vnd.nodex.card-references.v1+json";
-export const NODEX_BLOCK_CARD_COPIES_DRAG_MIME =
-  "application/vnd.nodex.block-card-copies.v1+json";
+export const NODEX_BLOCK_TRANSFER_DRAG_MIME =
+  "application/vnd.nodex.block-transfer.v1+json";
 
 const VERSION = 1 as const;
 const MAX_ITEMS = 128;
-const MAX_PAYLOAD_LENGTH = 1_900_000;
+const MAX_PAYLOAD_LENGTH = 256 * 1024;
 const MAX_ID_LENGTH = 512;
 
-export interface CrossSurfaceCardReference {
+export interface CrossSurfaceBlockTransferPayload {
+  readonly version: typeof VERSION;
+  readonly kind: "block_transfer";
   readonly projectId: string;
-  readonly cardId: string;
-  readonly title: string;
-}
-
-export interface CrossSurfaceCardReferencePayload {
-  readonly version: typeof VERSION;
-  readonly kind: "card_references";
-  readonly cards: readonly CrossSurfaceCardReference[];
-}
-
-export interface CrossSurfaceBlockCardCopyPayload {
-  readonly version: typeof VERSION;
-  readonly kind: "block_card_copies";
-  readonly sourceProjectId: string;
-  readonly cards: readonly CardCreateInput[];
+  readonly storeEpoch: string;
+  readonly source: BlockTransferIntentSource;
+  readonly rootBlockIds: readonly string[];
+  readonly displayHints: readonly string[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -38,111 +30,94 @@ const isBoundedIdentity = (value: unknown): value is string =>
   value.length <= MAX_ID_LENGTH &&
   value === value.trim();
 
-const parseJson = (serialized: string): unknown => {
+const parseSource = (value: unknown): BlockTransferIntentSource | null => {
+  if (!isRecord(value)) return null;
+  if (value.kind === "space" && Object.keys(value).length === 1) {
+    return { kind: "space" };
+  }
+  if (
+    value.kind === "document" &&
+    Object.keys(value).length === 2 &&
+    isBoundedIdentity(value.documentId)
+  ) {
+    return { kind: "document", documentId: value.documentId };
+  }
+  if (
+    value.kind === "database" &&
+    Object.keys(value).length === 2 &&
+    isBoundedIdentity(value.databaseBlockId)
+  ) {
+    return { kind: "database", databaseBlockId: value.databaseBlockId };
+  }
+  return null;
+};
+
+export const encodeBlockTransferDragPayload = (
+  payload: Omit<CrossSurfaceBlockTransferPayload, "version" | "kind">,
+): string =>
+  JSON.stringify({ version: VERSION, kind: "block_transfer", ...payload });
+
+export const parseBlockTransferDragPayload = (
+  serialized: string,
+): CrossSurfaceBlockTransferPayload | null => {
   if (!serialized || serialized.length > MAX_PAYLOAD_LENGTH) return null;
+  let value: unknown;
   try {
-    return JSON.parse(serialized) as unknown;
+    value = JSON.parse(serialized) as unknown;
   } catch {
     return null;
   }
-};
-
-export const encodeCardReferenceDragPayload = (
-  cards: readonly CrossSurfaceCardReference[],
-): string =>
-  JSON.stringify({ version: VERSION, kind: "card_references", cards });
-
-export const parseCardReferenceDragPayload = (
-  serialized: string,
-): CrossSurfaceCardReferencePayload | null => {
-  const value = parseJson(serialized);
   if (!isRecord(value)) return null;
-  if (value.version !== VERSION || value.kind !== "card_references")
+  if (value.version !== VERSION || value.kind !== "block_transfer") return null;
+  if (!isBoundedIdentity(value.projectId) || !isBoundedIdentity(value.storeEpoch)) {
     return null;
+  }
+  const source = parseSource(value.source);
+  if (!source) return null;
   if (
-    !Array.isArray(value.cards) ||
-    value.cards.length < 1 ||
-    value.cards.length > MAX_ITEMS
+    !Array.isArray(value.rootBlockIds) ||
+    value.rootBlockIds.length < 1 ||
+    value.rootBlockIds.length > MAX_ITEMS ||
+    !value.rootBlockIds.every(isBoundedIdentity) ||
+    new Set(value.rootBlockIds).size !== value.rootBlockIds.length
   ) {
     return null;
   }
-  const cards: CrossSurfaceCardReference[] = [];
-  for (const candidate of value.cards) {
-    if (!isRecord(candidate)) return null;
-    if (
-      !isBoundedIdentity(candidate.projectId) ||
-      !isBoundedIdentity(candidate.cardId)
-    ) {
-      return null;
-    }
-    if (typeof candidate.title !== "string" || candidate.title.length > 512)
-      return null;
-    cards.push({
-      projectId: candidate.projectId,
-      cardId: candidate.cardId,
-      title: candidate.title,
-    });
-  }
-  if (new Set(cards.map((card) => card.cardId)).size !== cards.length)
-    return null;
-  return { version: VERSION, kind: "card_references", cards };
-};
-
-export const encodeBlockCardCopyDragPayload = (
-  payload: Omit<CrossSurfaceBlockCardCopyPayload, "version" | "kind">,
-): string =>
-  JSON.stringify({
-    version: VERSION,
-    kind: "block_card_copies",
-    ...payload,
-  });
-
-export const parseBlockCardCopyDragPayload = (
-  serialized: string,
-): CrossSurfaceBlockCardCopyPayload | null => {
-  const value = parseJson(serialized);
-  if (!isRecord(value)) return null;
-  if (value.version !== VERSION || value.kind !== "block_card_copies")
-    return null;
-  if (!isBoundedIdentity(value.sourceProjectId)) return null;
   if (
-    !Array.isArray(value.cards) ||
-    value.cards.length < 1 ||
-    value.cards.length > MAX_ITEMS
-  ) {
-    return null;
-  }
-  const cards: CardCreateInput[] = [];
-  for (const candidate of value.cards) {
-    if (!isRecord(candidate)) return null;
-    if (
-      typeof candidate.title !== "string" ||
-      candidate.title.trim().length === 0
+    !Array.isArray(value.displayHints) ||
+    value.displayHints.length !== value.rootBlockIds.length ||
+    !value.displayHints.every(
+      (hint) => typeof hint === "string" && hint.length <= MAX_ID_LENGTH,
     )
-      return null;
-    if (typeof candidate.description !== "string") return null;
-    cards.push({
-      title: candidate.title,
-      description: candidate.description,
-      ...(typeof candidate.priority === "string"
-        ? { priority: candidate.priority as CardCreateInput["priority"] }
-        : {}),
-      ...(typeof candidate.estimate === "string"
-        ? { estimate: candidate.estimate as CardCreateInput["estimate"] }
-        : {}),
-      ...(Array.isArray(candidate.tags) &&
-      candidate.tags.every((tag) => typeof tag === "string")
-        ? { tags: candidate.tags }
-        : {}),
-    });
+  ) {
+    return null;
   }
   return {
     version: VERSION,
-    kind: "block_card_copies",
-    sourceProjectId: value.sourceProjectId,
-    cards,
+    kind: "block_transfer",
+    projectId: value.projectId,
+    storeEpoch: value.storeEpoch,
+    source,
+    rootBlockIds: value.rootBlockIds,
+    displayHints: value.displayHints,
   };
 };
+
+export const resolveCrossSurfaceTransferMode = (
+  event: { readonly altKey: boolean },
+): BlockTransferMode => (event.altKey ? "copy" : "move");
+
+export const blockTransferDropLabel = (
+  mode: BlockTransferMode,
+  target: "document" | "database",
+): string =>
+  mode === "copy"
+    ? target === "database"
+      ? "Copy as Card"
+      : "Copy into page"
+    : target === "database"
+      ? "Move to Database"
+      : "Move into page";
 
 export const hasDragType = (
   dataTransfer: Pick<DataTransfer, "types">,
@@ -163,18 +138,11 @@ export const endLocalNativeEditorDrag = (source: HTMLElement): void => {
 export const isLocalNativeEditorDragFromAnotherSurface = (
   target: HTMLElement,
 ): boolean =>
-  localNativeEditorDragSource !== null
-  && localNativeEditorDragSource !== target;
+  localNativeEditorDragSource !== null && localNativeEditorDragSource !== target;
 
-/**
- * The native bridge is deliberately window-local and editor-owned. Kanban
- * Cards use the element adapter, and another renderer window has no access to
- * this in-memory source identity even if its DataTransfer exposes our MIME.
- */
+/** Native cross-surface DnD is intentionally renderer-window local. */
 export const shouldHandleNativeCrossSurfaceDrag = (
   dataTransfer: Pick<DataTransfer, "types">,
-): boolean => {
-  if (!localNativeEditorDragSource) return false;
-  return hasDragType(dataTransfer, NODEX_BLOCK_CARD_COPIES_DRAG_MIME)
-    || hasDragType(dataTransfer, NODEX_CARD_REFERENCES_DRAG_MIME);
-};
+): boolean =>
+  localNativeEditorDragSource !== null &&
+  hasDragType(dataTransfer, NODEX_BLOCK_TRANSFER_DRAG_MIME);

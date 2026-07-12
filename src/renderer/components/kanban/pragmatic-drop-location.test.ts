@@ -142,6 +142,8 @@ describe("pragmatic drop location", () => {
       selection: emptyCardSelection(),
       instanceId,
       projectId: "default",
+      databaseBlockId: "database-default",
+      storeEpoch: "epoch-default",
       activeCard: board.columns[0]!.cards[0]!,
       columnId: "in_progress",
     });

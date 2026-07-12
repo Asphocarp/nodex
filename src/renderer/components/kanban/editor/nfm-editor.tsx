@@ -133,7 +133,11 @@ import {
   type ThreadMentionRuntimeValue,
 } from "./thread-mention-chip";
 import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
-import { invoke, prepareOwnedBlockDocument, relocateBlocks } from "@/lib/api";
+import {
+  invoke,
+  prepareOwnedBlockDocument,
+  transferBlocks,
+} from "@/lib/api";
 import {
   serializeNfm,
   blockNoteToNfm,
@@ -170,10 +174,6 @@ import {
   prepareNfmEditorForRelocation,
   type NfmEditorRelocationRuntime,
 } from "./nfm-editor-relocation";
-import {
-  buildCardBlockRelocationRequest,
-  executeCardBlockRelocation,
-} from "./nfm-editor-card-relocation";
 
 interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
   isFocused?: () => boolean;
@@ -1610,20 +1610,23 @@ function NfmEditorInstance({
       if (!preparedTarget.ok) {
         throw new Error(preparedTarget.error.message);
       }
-      const request = buildCardBlockRelocationRequest({
+      if (preparedTarget.value.documentId === source.documentId) {
+        throw new Error("Choose a different destination Card.");
+      }
+      const result = await transferBlocks(projectId, {
+        version: 1,
+        operationId: crypto.randomUUID(),
         projectId,
-        source,
-        sourceCardId: sourceCardContext.cardId,
+        storeEpoch: source.storeEpoch,
+        mode: "move",
         rootBlockIds: selection.blockIds,
-        targetCardId,
-        target: preparedTarget.value,
-        createRelocationId: () => crypto.randomUUID(),
+        source: { kind: "document", documentId: source.documentId },
+        target: {
+          kind: "document",
+          documentId: preparedTarget.value.documentId,
+        },
       });
-      const relocation = await executeCardBlockRelocation(
-        request,
-        relocateBlocks,
-      );
-      if (!relocation.ok) throw new Error(relocation.error.message);
+      if (!result.ok) throw new Error(result.error.message);
     },
     [
       projectId,
@@ -1757,18 +1760,27 @@ function NfmEditorInstance({
   const crossSurfaceDrag = useMemo(
     () => ({
       projectId,
-      cardReferenceDrop: {
+      documentId: source.documentId,
+      storeEpoch: source.storeEpoch,
+      blockTransferDrop: {
         projectId,
+        documentId: source.documentId,
+        storeEpoch: source.storeEpoch,
         ...(sourceCardContext?.cardId
           ? { hostCardId: sourceCardContext.cardId }
           : {}),
         ancestorCardIds: parentBlockReferenceRuntime?.ancestorCardIds ?? [],
-        allocateBlockId: createUuidV7,
+        createOperationId: () => crypto.randomUUID(),
+        transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
+          transferBlocks(projectId, intent),
+        reportError: (message: string) => toast.danger(message),
       },
     }),
     [
       parentBlockReferenceRuntime?.ancestorCardIds,
       projectId,
+      source.documentId,
+      source.storeEpoch,
       sourceCardContext?.cardId,
     ],
   );

@@ -197,6 +197,7 @@ import {
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
 import { registerCardProjectTransferIpcHandler } from "./card-project-transfer-ipc";
+import { registerBlockTransferIpcHandler } from "./block-transfer-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 import {
   registerCardLifecycleIpcHandler,
@@ -1085,6 +1086,26 @@ export function registerIpcHandlers(
       };
     },
     transfer: (intent) => documentSyncHub.transferCardProject(intent),
+  });
+
+  registerBlockTransferIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, intent) =>
+        listener(event, projectId, intent),
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    transfer: (intent) => documentSyncHub.transferBlocks(intent),
   });
 
   registerDocumentHistoryIpcHandlers({

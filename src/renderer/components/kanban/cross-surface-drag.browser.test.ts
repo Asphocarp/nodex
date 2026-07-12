@@ -1,62 +1,28 @@
 import { describe, expect, test } from "vitest";
-import { setupCardReferenceDrop } from "./editor/card-reference-drop";
 import {
-  beginLocalNativeEditorDrag,
-  encodeCardReferenceDragPayload,
-  endLocalNativeEditorDrag,
-  NODEX_CARD_REFERENCES_DRAG_MIME,
+  encodeBlockTransferDragPayload,
+  NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  parseBlockTransferDragPayload,
 } from "./cross-surface-drag";
 
-describe("cross-surface drag in Chromium", () => {
-  test("reads the custom MIME payload at drop and inserts a Card reference", () => {
-    const container = document.createElement("div");
-    const source = document.createElement("div");
-    document.body.append(source, container);
-    const replacements: unknown[][] = [];
-    const cleanup = setupCardReferenceDrop(
-      container,
-      {
-        document: [],
-        insertBlocks: () => undefined,
-        replaceBlocks: (_removed, next) => replacements.push([...next]),
-      },
-      {
-        projectId: "project-a",
-        hostCardId: "host-card",
-        ancestorCardIds: [],
-        allocateBlockId: () => "reference-block",
-      },
-    );
+describe("cross-surface Block transfer in Chromium", () => {
+  test("preserves the stable-ID payload through a native DataTransfer", () => {
     const transfer = new DataTransfer();
     transfer.setData(
-      NODEX_CARD_REFERENCES_DRAG_MIME,
-      encodeCardReferenceDragPayload([
-        { projectId: "project-a", cardId: "target-card", title: "Target" },
-      ]),
-    );
-    beginLocalNativeEditorDrag(source);
-
-    container.dispatchEvent(
-      new DragEvent("drop", {
-        bubbles: true,
-        clientX: 0,
-        clientY: 0,
-        dataTransfer: transfer,
+      NODEX_BLOCK_TRANSFER_DRAG_MIME,
+      encodeBlockTransferDragPayload({
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        source: { kind: "document", documentId: "document-a" },
+        rootBlockIds: ["block-a"],
+        displayHints: ["paragraph"],
       }),
     );
 
-    expect(replacements).toEqual([
-      [
-        {
-          id: "reference-block",
-          type: "cardRef",
-          props: { targetBlockId: "target-card", displayHint: "Target" },
-        },
-      ],
-    ]);
-    cleanup();
-    endLocalNativeEditorDrag(source);
-    source.remove();
-    container.remove();
+    expect(
+      parseBlockTransferDragPayload(
+        transfer.getData(NODEX_BLOCK_TRANSFER_DRAG_MIME),
+      ),
+    ).toMatchObject({ rootBlockIds: ["block-a"] });
   });
 });

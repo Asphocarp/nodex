@@ -21,4 +21,10 @@ export const documentSyncHub = new DocumentSyncHub({
     blockMutationWriter.prepareCardProjectTransfer(intent),
   applyCardProjectTransfer: (request) =>
     blockMutationWriter.applyCardProjectTransfer(request),
+  lookupCommittedBlockTransfer: (intent) =>
+    blockMutationWriter.readCommittedBlockTransfer(intent),
+  prepareBlockTransfer: (intent) =>
+    blockMutationWriter.prepareBlockTransfer(intent),
+  applyBlockTransfer: async (request) =>
+    (await blockMutationWriter.applyBlockTransfer(request)).result,
 });

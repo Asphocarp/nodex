@@ -4,10 +4,16 @@ import * as Y from "yjs";
 import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   BlockTransferContractError,
+  blockTransferIntentFromRequest,
   canonicalizeBlockTransferIntent,
+  canonicalizeBlockTransferLogicalIntent,
+  parseBlockTransferIntent,
   parseBlockTransferRequest,
   type BlockTransferCommandError,
   type BlockTransferCommandResult,
+  type BlockTransferDocumentHead,
+  type BlockTransferIntent,
+  type BlockTransferPreparation,
   type BlockTransferReceipt,
   type BlockTransferRequest,
 } from "../../shared/block-transfer";
@@ -2189,7 +2195,13 @@ const transitionCardParents = (
       const offDatabaseParent: CardOffDatabaseParent =
         request.target.kind === "document"
           ? { kind: "document", documentId: request.target.documentId }
-          : { kind: "space" };
+          : {
+              kind: "space",
+              ...(request.target.kind === "space" &&
+              request.target.beforeBlockId
+                ? { beforeBlockId: request.target.beforeBlockId }
+                : {}),
+            };
       const result = transitionCardDatabaseParent(
         database,
         databaseTransitionRequest(request, requestHash, row),
@@ -2491,6 +2503,385 @@ const mapUnexpectedDomainError = (
     );
   }
   throw error;
+};
+
+const preparationFailure = <Value>(
+  intent: Pick<BlockTransferIntent, "operationId">,
+  code: BlockTransferCommandError["code"],
+  message: string,
+  options: Pick<
+    BlockTransferCommandError,
+    "retryable" | "reloadRequired"
+  > = { retryable: false, reloadRequired: false },
+): BlockTransferCommandResult<Value> => ({
+  ok: false,
+  error: {
+    code,
+    message,
+    operationId: intent.operationId,
+    retryable: options.retryable,
+    reloadRequired: options.reloadRequired,
+  },
+});
+
+const readDocumentHeadForTransfer = (
+  database: Database.Database,
+  intent: BlockTransferIntent,
+  documentId: string,
+  role: "source" | "target" | "owned",
+): BlockTransferDocumentHead => {
+  const row = database
+    .prepare(
+      `SELECT generation, head_seq, project_id, readiness, authority
+       FROM documents WHERE id = ?`,
+    )
+    .get(documentId) as
+    | {
+        readonly generation: number;
+        readonly head_seq: number;
+        readonly project_id: string;
+        readonly readiness: string;
+        readonly authority: string;
+      }
+    | undefined;
+  if (!row || row.project_id !== intent.projectId) {
+    return reject(
+      intent,
+      role === "target" ? "target_not_found" : "block_not_found",
+      `${role === "target" ? "Target" : "Source"} Document does not exist in this Project: ${documentId}`,
+    );
+  }
+  if (row.readiness !== "ready" || row.authority !== "ydoc_primary") {
+    reject(
+      intent,
+      "recovery_required",
+      `Document ${documentId} is not ready Y.Doc authority`,
+      { retryable: false, reloadRequired: true },
+    );
+  }
+  return {
+    documentId,
+    generation: row.generation,
+    expectedHeadSeq: row.head_seq,
+  };
+};
+
+const readPreparationBlockRows = (
+  database: Database.Database,
+  intent: BlockTransferIntent,
+): readonly BlockRow[] => {
+  const read = database.prepare(`
+    SELECT id, project_id, type, lifecycle, location_kind,
+           containing_document_id, containing_database_id, location_revision
+    FROM blocks WHERE id = ?
+  `);
+  return intent.rootBlockIds.map((blockId) => {
+    const row = read.get(blockId) as BlockRow | undefined;
+    if (!row) {
+      return reject(
+        intent,
+        "block_not_found",
+        `Transferred Block does not exist: ${blockId}`,
+      );
+    }
+    if (row.project_id !== intent.projectId) {
+      reject(intent, "source_parent_mismatch", `Block ${blockId} belongs to another Project`);
+    }
+    if (row.lifecycle !== "active") {
+      reject(intent, "block_not_active", `Block ${blockId} is not active`);
+    }
+    const matches =
+      intent.source.kind === "space"
+        ? row.location_kind === "space"
+        : intent.source.kind === "document"
+          ? row.location_kind === "document" &&
+            row.containing_document_id === intent.source.documentId
+          : row.location_kind === "database" &&
+            row.containing_database_id === intent.source.databaseBlockId;
+    if (!matches) {
+      reject(
+        intent,
+        "source_parent_mismatch",
+        `Block ${blockId} no longer belongs to the requested source parent`,
+        { retryable: true, reloadRequired: true },
+      );
+    }
+    return row;
+  });
+};
+
+const readOwnedDocumentHeads = (
+  database: Database.Database,
+  intent: BlockTransferIntent,
+): readonly BlockTransferDocumentHead[] => {
+  if (intent.mode !== "copy") return [];
+  const read = database.prepare(`
+    WITH RECURSIVE closure(block_id) AS (
+      VALUES (?)
+      UNION
+      SELECT child.id
+      FROM closure current
+      INNER JOIN block_documents ownership
+        ON ownership.block_id = current.block_id
+      INNER JOIN blocks child
+        ON child.containing_document_id = ownership.document_id
+    )
+    SELECT document.id
+    FROM closure
+    INNER JOIN block_documents ownership
+      ON ownership.block_id = closure.block_id
+    INNER JOIN documents document
+      ON document.id = ownership.document_id
+    ORDER BY document.id
+  `);
+  const documentIds = new Set<string>();
+  for (const rootBlockId of intent.rootBlockIds) {
+    const rows = read.all(rootBlockId) as readonly { readonly id: string }[];
+    rows.forEach((row) => documentIds.add(row.id));
+  }
+  return [...documentIds]
+    .sort((left, right) => left.localeCompare(right))
+    .map((documentId) =>
+      readDocumentHeadForTransfer(database, intent, documentId, "owned"),
+    );
+};
+
+const uniqueDocumentHeads = (
+  heads: readonly BlockTransferDocumentHead[],
+): readonly BlockTransferDocumentHead[] => {
+  const byId = new Map<string, BlockTransferDocumentHead>();
+  for (const head of heads) {
+    const existing = byId.get(head.documentId);
+    if (
+      existing &&
+      (existing.generation !== head.generation ||
+        existing.expectedHeadSeq !== head.expectedHeadSeq)
+    ) {
+      throw new Error(`Conflicting prepared head for Document ${head.documentId}`);
+    }
+    byId.set(head.documentId, head);
+  }
+  return [...byId.values()].sort((left, right) =>
+    left.documentId.localeCompare(right.documentId),
+  );
+};
+
+/** Compile a public logical parent intent into exact current SQLite authority. */
+export const prepareBlockTransfer = (
+  database: Database.Database,
+  rawIntent: BlockTransferIntent,
+): BlockTransferCommandResult<BlockTransferPreparation> => {
+  let intent: BlockTransferIntent;
+  try {
+    intent = parseBlockTransferIntent(rawIntent);
+  } catch (error) {
+    if (!(error instanceof BlockTransferContractError)) throw error;
+    return {
+      ok: false,
+      error: {
+        code: "invalid_transfer_request",
+        message: error.message,
+        retryable: false,
+        reloadRequired: false,
+      },
+    };
+  }
+  try {
+    if (readStoreEpoch(database) !== intent.storeEpoch) {
+      return preparationFailure(
+        intent,
+        "store_epoch_mismatch",
+        `Transfer belongs to store epoch ${intent.storeEpoch}`,
+        { retryable: false, reloadRequired: true },
+      );
+    }
+    const project = database
+      .prepare("SELECT 1 AS present FROM projects WHERE id = ?")
+      .get(intent.projectId);
+    if (!project) {
+      return preparationFailure(
+        intent,
+        "project_not_found",
+        `Project does not exist: ${intent.projectId}`,
+      );
+    }
+    const rows = readPreparationBlockRows(database, intent);
+    const expectedLocationRevisions = Object.fromEntries(
+      rows.map((row) => [row.id, row.location_revision]),
+    );
+    const source = (() => {
+      if (intent.source.kind === "space") return { kind: "space" as const };
+      if (intent.source.kind === "document") {
+        const head = readDocumentHeadForTransfer(
+          database,
+          intent,
+          intent.source.documentId,
+          "source",
+        );
+        return {
+          kind: "document" as const,
+          documentId: head.documentId,
+          generation: head.generation,
+          expectedHeadSeq: head.expectedHeadSeq,
+        };
+      }
+      const readMembership = database.prepare(`
+        SELECT id, revision
+        FROM database_memberships
+        WHERE card_block_id = ? AND database_block_id = ?
+          AND project_id = ? AND removed_at IS NULL
+      `);
+      return {
+        kind: "database" as const,
+        databaseBlockId: intent.source.databaseBlockId,
+        memberships: Object.fromEntries(
+          rows.map((row) => {
+            const membership = readMembership.get(
+              row.id,
+              intent.source.kind === "database"
+                ? intent.source.databaseBlockId
+                : "",
+              intent.projectId,
+            ) as { readonly id: string; readonly revision: number } | undefined;
+            if (!membership) {
+              return reject(
+                intent,
+                "source_parent_mismatch",
+                `Card ${row.id} has no active source Database membership`,
+                { retryable: true, reloadRequired: true },
+              );
+            }
+            return [
+              row.id,
+              { membershipId: membership.id, revision: membership.revision },
+            ];
+          }),
+        ),
+      };
+    })();
+    const target = (() => {
+      if (intent.target.kind === "space") return { ...intent.target };
+      if (intent.target.kind === "database") return { ...intent.target };
+      const head = readDocumentHeadForTransfer(
+        database,
+        intent,
+        intent.target.documentId,
+        "target",
+      );
+      return {
+        ...intent.target,
+        generation: head.generation,
+        expectedHeadSeq: head.expectedHeadSeq,
+      };
+    })();
+    const request = parseBlockTransferRequest({
+      ...intent,
+      expectedLocationRevisions,
+      source,
+      target,
+    });
+    const leaseDocuments = uniqueDocumentHeads([
+      ...(source.kind === "document"
+        ? [
+            {
+              documentId: source.documentId,
+              generation: source.generation,
+              expectedHeadSeq: source.expectedHeadSeq,
+            },
+          ]
+        : []),
+      ...(target.kind === "document"
+        ? [
+            {
+              documentId: target.documentId,
+              generation: target.generation,
+              expectedHeadSeq: target.expectedHeadSeq,
+            },
+          ]
+        : []),
+      ...readOwnedDocumentHeads(database, intent),
+    ]);
+    return { ok: true, value: { request, leaseDocuments } };
+  } catch (error) {
+    if (error instanceof BlockTransferRejection) {
+      return { ok: false, error: error.commandError };
+    }
+    throw error;
+  }
+};
+
+/** Resolve a response-loss retry without re-reading a source that already moved. */
+export const readCommittedBlockTransfer = (
+  database: Database.Database,
+  rawIntent: BlockTransferIntent,
+): BlockTransferCommandResult<BlockTransferReceipt | null> => {
+  let intent: BlockTransferIntent;
+  try {
+    intent = parseBlockTransferIntent(rawIntent);
+  } catch (error) {
+    if (!(error instanceof BlockTransferContractError)) throw error;
+    return {
+      ok: false,
+      error: {
+        code: "invalid_transfer_request",
+        message: error.message,
+        retryable: false,
+        reloadRequired: false,
+      },
+    };
+  }
+  if (readStoreEpoch(database) !== intent.storeEpoch) {
+    return preparationFailure(
+      intent,
+      "store_epoch_mismatch",
+      `Transfer belongs to store epoch ${intent.storeEpoch}`,
+      { retryable: false, reloadRequired: true },
+    );
+  }
+  const stored = readStoredMutation(database, intent.operationId);
+  if (!stored) return { ok: true, value: null };
+  if (
+    stored.project_id !== intent.projectId ||
+    stored.store_epoch !== intent.storeEpoch ||
+    stored.mutation_kind !== MUTATION_KIND
+  ) {
+    return preparationFailure(
+      intent,
+      "operation_id_collision",
+      `Operation ID ${intent.operationId} is already used by another mutation`,
+    );
+  }
+  try {
+    const storedRequest = parseBlockTransferRequest(
+      JSON.parse(stored.request_json) as unknown,
+    );
+    if (
+      canonicalizeBlockTransferLogicalIntent(
+        blockTransferIntentFromRequest(storedRequest),
+      ) !== canonicalizeBlockTransferLogicalIntent(intent)
+    ) {
+      return preparationFailure(
+        intent,
+        "operation_id_collision",
+        `Operation ID ${intent.operationId} is already used by another Block transfer`,
+      );
+    }
+    return {
+      ok: true,
+      value: loadDuplicate(
+        database,
+        stored,
+        storedRequest,
+        stored.request_json,
+        stored.request_hash,
+      ),
+    };
+  } catch (error) {
+    if (error instanceof BlockTransferRejection) {
+      return { ok: false, error: error.commandError };
+    }
+    throw error;
+  }
 };
 
 /**

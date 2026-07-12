@@ -11,6 +11,8 @@ export interface KanbanCardDragData extends Record<string | symbol, unknown> {
   type: "kanban-card";
   instanceId: symbol;
   projectId: string;
+  databaseBlockId: string;
+  storeEpoch: string;
   sourceCardId: string;
   sourceColumnId: CardStatus;
   sourceCard: CardSummary;
@@ -40,6 +42,8 @@ export function buildKanbanCardDragData(args: {
   selection: CardSelectionState;
   instanceId: symbol;
   projectId: string;
+  databaseBlockId: string;
+  storeEpoch: string;
   activeCard: CardSummary;
   columnId: CardStatus;
 }): KanbanCardDragData {
@@ -55,6 +59,8 @@ export function buildKanbanCardDragData(args: {
     type: "kanban-card",
     instanceId: args.instanceId,
     projectId: args.projectId,
+    databaseBlockId: args.databaseBlockId,
+    storeEpoch: args.storeEpoch,
     sourceCardId: args.activeCard.id,
     sourceColumnId: args.columnId,
     sourceCard: args.activeCard,
@@ -95,6 +101,8 @@ export function isKanbanCardDragData(value: unknown): value is KanbanCardDragDat
   const candidate = value as Partial<KanbanCardDragData>;
   return candidate.type === "kanban-card"
     && typeof candidate.projectId === "string"
+    && typeof candidate.databaseBlockId === "string"
+    && typeof candidate.storeEpoch === "string"
     && typeof candidate.sourceCardId === "string"
     && typeof candidate.sourceColumnId === "string"
     && typeof candidate.instanceId === "symbol"

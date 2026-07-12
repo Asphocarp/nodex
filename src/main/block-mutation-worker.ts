@@ -29,7 +29,11 @@ import {
 } from "./local-store/card-project-transfer";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
-import { applyBlockTransfer } from "./local-store/block-transfers";
+import {
+  applyBlockTransfer,
+  prepareBlockTransfer,
+  readCommittedBlockTransfer,
+} from "./local-store/block-transfers";
 import {
   applyDatabaseMutation,
   queryDatabaseViewSnapshot,
@@ -635,6 +639,10 @@ async function runRequest(
       }
       return result;
     }
+    case "prepareBlockTransfer":
+      return prepareBlockTransfer(getDb(), request.payload);
+    case "readCommittedBlockTransfer":
+      return readCommittedBlockTransfer(getDb(), request.payload);
     case "applyCardLifecycleMutation": {
       let previousSummary: CardSummary | null = null;
       if (request.payload.operation.kind === "delete_card") {

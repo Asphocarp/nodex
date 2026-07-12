@@ -70,6 +70,17 @@ import {
   type CardProjectTransferReceipt,
   type CardProjectTransferRequest,
 } from "../shared/card-project-transfer";
+import {
+  canonicalizeBlockTransferLogicalIntent,
+  parseBlockTransferIntent,
+  type BlockTransferCommandError,
+  type BlockTransferCommandResult,
+  type BlockTransferDocumentHead,
+  type BlockTransferIntent,
+  type BlockTransferPreparation,
+  type BlockTransferReceipt,
+  type BlockTransferRequest,
+} from "../shared/block-transfer";
 import { safeSendToWebContents } from "./ipc-safe-send";
 import {
   DocumentRelocationLeaseCoordinator,
@@ -125,6 +136,15 @@ export interface DocumentSyncDurableBackend {
   applyCardProjectTransfer?(
     request: CardProjectTransferRequest,
   ): Promise<CardProjectTransferCommandResult>;
+  lookupCommittedBlockTransfer?(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult<BlockTransferReceipt | null>>;
+  prepareBlockTransfer?(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult<BlockTransferPreparation>>;
+  applyBlockTransfer?(
+    request: BlockTransferRequest,
+  ): Promise<BlockTransferCommandResult>;
 }
 
 export interface DocumentSyncHubOptions {
@@ -494,6 +514,113 @@ const preparedCommandMatchesIntent = (
   );
 };
 
+const blockTransferFailure = <Value>(
+  intent: Pick<BlockTransferIntent, "operationId"> | null,
+  code: BlockTransferCommandError["code"],
+  message: string,
+  options: {
+    readonly retryable?: boolean;
+    readonly reloadRequired?: boolean;
+  } = {},
+): BlockTransferCommandResult<Value> => ({
+  ok: false,
+  error: {
+    code,
+    message,
+    retryable: options.retryable ?? false,
+    reloadRequired: options.reloadRequired ?? false,
+    ...(intent ? { operationId: intent.operationId } : {}),
+  },
+});
+
+const blockTransferPreparationMatchesIntent = (
+  intent: BlockTransferIntent,
+  preparation: BlockTransferPreparation,
+): boolean => {
+  try {
+    return (
+      canonicalizeBlockTransferLogicalIntent(intent) ===
+      canonicalizeBlockTransferLogicalIntent({
+        version: preparation.request.version,
+        operationId: preparation.request.operationId,
+        projectId: preparation.request.projectId,
+        storeEpoch: preparation.request.storeEpoch,
+        ...(preparation.request.clientSessionId
+          ? { clientSessionId: preparation.request.clientSessionId }
+          : {}),
+        actor: preparation.request.actor,
+        mode: preparation.request.mode,
+        rootBlockIds: preparation.request.rootBlockIds,
+        source:
+          preparation.request.source.kind === "space"
+            ? { kind: "space" }
+            : preparation.request.source.kind === "document"
+              ? {
+                  kind: "document",
+                  documentId: preparation.request.source.documentId,
+                }
+              : {
+                  kind: "database",
+                  databaseBlockId:
+                    preparation.request.source.databaseBlockId,
+                },
+        target:
+          preparation.request.target.kind === "space"
+            ? {
+                kind: "space",
+                ...(preparation.request.target.beforeBlockId
+                  ? {
+                      beforeBlockId:
+                        preparation.request.target.beforeBlockId,
+                    }
+                  : {}),
+              }
+            : preparation.request.target.kind === "document"
+              ? {
+                  kind: "document",
+                  documentId: preparation.request.target.documentId,
+                  ...(preparation.request.target.parentBlockId
+                    ? {
+                        parentBlockId:
+                          preparation.request.target.parentBlockId,
+                      }
+                    : {}),
+                  ...(preparation.request.target.beforeBlockId
+                    ? {
+                        beforeBlockId:
+                          preparation.request.target.beforeBlockId,
+                      }
+                    : {}),
+                }
+              : {
+                  kind: "database",
+                  databaseBlockId:
+                    preparation.request.target.databaseBlockId,
+                  viewId: preparation.request.target.viewId,
+                  groupKey: preparation.request.target.groupKey,
+                  ...(preparation.request.target.beforeCardBlockId
+                    ? {
+                        beforeCardBlockId:
+                          preparation.request.target.beforeCardBlockId,
+                      }
+                    : {}),
+                },
+      })
+    );
+  } catch {
+    return false;
+  }
+};
+
+const sameBlockTransferDocumentClosure = (
+  left: readonly BlockTransferDocumentHead[],
+  right: readonly BlockTransferDocumentHead[],
+): boolean =>
+  left.length === right.length &&
+  left.every(
+    (head, index) => head.documentId === right[index]?.documentId,
+  );
+
 export class DocumentSyncHub {
   private readonly backend: DocumentSyncDurableBackend;
   private readonly relocationLeaseCoordinator: DocumentRelocationLeaseCoordinator;
@@ -514,6 +641,7 @@ export class DocumentSyncHub {
     HubRelocationLeaseBoundary
   >();
   private relocationLeaseSequence = 0;
+  private blockTransferLeaseSequence = 0;
   private documentMutationLeaseSequence = 0;
   private additionalDocumentLeaseSequence = 0;
   private cardProjectTransferLeaseSequence = 0;
@@ -1389,6 +1517,222 @@ export class DocumentSyncHub {
     return result;
   };
 
+  transferBlocks = async (
+    rawIntent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult> => {
+    let intent: BlockTransferIntent;
+    try {
+      intent = parseBlockTransferIntent(rawIntent);
+    } catch (error) {
+      return blockTransferFailure(
+        null,
+        "invalid_transfer_request",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const lookup = this.backend.lookupCommittedBlockTransfer;
+    const prepare = this.backend.prepareBlockTransfer;
+    const apply = this.backend.applyBlockTransfer;
+    if (!lookup || !prepare || !apply) {
+      return blockTransferFailure(
+        intent,
+        "unknown",
+        "The durable Block transfer writer is unavailable",
+        { retryable: true },
+      );
+    }
+
+    let committed;
+    try {
+      committed = await lookup(intent);
+    } catch {
+      return blockTransferFailure(
+        intent,
+        "unknown",
+        "Block transfer receipt lookup failed",
+        { retryable: true },
+      );
+    }
+    if (!committed.ok) return committed;
+    if (committed.value) {
+      this.fanoutBlockTransferResync(committed.value);
+      return { ok: true, value: committed.value };
+    }
+
+    let initial;
+    try {
+      initial = await prepare(intent);
+    } catch {
+      return blockTransferFailure(
+        intent,
+        "unknown",
+        "Block transfer preparation failed",
+        { retryable: true },
+      );
+    }
+    if (!initial.ok) return initial;
+    if (!blockTransferPreparationMatchesIntent(intent, initial.value)) {
+      return blockTransferFailure(
+        intent,
+        "invalid_transfer_request",
+        "The durable writer prepared a different Block transfer intent",
+      );
+    }
+
+    if (initial.value.leaseDocuments.length === 0) {
+      let directResult: BlockTransferCommandResult;
+      try {
+        directResult = await apply(initial.value.request);
+      } catch {
+        return blockTransferFailure(
+          intent,
+          "unknown",
+          "Block transfer commit failed",
+          { retryable: true },
+        );
+      }
+      if (!directResult.ok) return directResult;
+      this.fanoutBlockTransferResult(directResult.value);
+      return directResult;
+    }
+
+    const leaseId = this.createBlockTransferLeaseId();
+    this.setBlockTransferLeaseBoundary(
+      leaseId,
+      intent.storeEpoch,
+      initial.value.leaseDocuments,
+    );
+    let preparedLease;
+    try {
+      preparedLease = await this.relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: initial.value.leaseDocuments,
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return blockTransferFailure(
+        intent,
+        "transfer_lease_timeout",
+        "Block transfer write lease preparation failed",
+        { retryable: true },
+      );
+    }
+    if (!preparedLease.ok) {
+      this.relocationLeaseBoundaries.delete(leaseId);
+      return blockTransferFailure(
+        intent,
+        preparedLease.error.code === "invalid_request" ||
+          preparedLease.error.code === "lease_id_collision"
+          ? "invalid_transfer_request"
+          : "transfer_lease_timeout",
+        preparedLease.error.message,
+        {
+          retryable:
+            preparedLease.error.code !== "invalid_request" &&
+            preparedLease.error.code !== "lease_id_collision",
+        },
+      );
+    }
+
+    let flushed;
+    try {
+      flushed = await prepare(intent);
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return blockTransferFailure(
+        intent,
+        "unknown",
+        "Block transfer flush verification failed",
+        { retryable: true },
+      );
+    }
+    if (!flushed.ok) {
+      this.cancelRelocationLease(leaseId);
+      return flushed;
+    }
+    if (!blockTransferPreparationMatchesIntent(intent, flushed.value)) {
+      this.cancelRelocationLease(leaseId);
+      return blockTransferFailure(
+        intent,
+        "invalid_transfer_request",
+        "The flushed preparation changed Block transfer intent",
+      );
+    }
+    const resolvedHeads = new Map(
+      preparedLease.value.resolvedHeads.map((head) => [head.documentId, head]),
+    );
+    const observedEveryHead = flushed.value.leaseDocuments.every((document) => {
+      const resolved = resolvedHeads.get(document.documentId);
+      return (
+        resolved !== undefined &&
+        resolved.generation === document.generation &&
+        document.expectedHeadSeq >= resolved.headSeq
+      );
+    });
+    if (
+      !sameBlockTransferDocumentClosure(
+        initial.value.leaseDocuments,
+        flushed.value.leaseDocuments,
+      ) ||
+      resolvedHeads.size !== flushed.value.leaseDocuments.length ||
+      !observedEveryHead
+    ) {
+      this.cancelRelocationLease(leaseId);
+      return blockTransferFailure(
+        intent,
+        "source_head_mismatch",
+        "The writer did not observe every leased Document head in the final Block transfer closure",
+        { retryable: true, reloadRequired: true },
+      );
+    }
+    this.setBlockTransferLeaseBoundary(
+      leaseId,
+      intent.storeEpoch,
+      flushed.value.leaseDocuments,
+    );
+
+    let result: BlockTransferCommandResult;
+    try {
+      result = await apply(flushed.value.request);
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return blockTransferFailure(
+        intent,
+        "unknown",
+        "Block transfer commit failed",
+        { retryable: true },
+      );
+    }
+    if (!result.ok) {
+      this.cancelRelocationLease(leaseId);
+      return result;
+    }
+
+    this.setBlockTransferResultBoundary(
+      leaseId,
+      intent.storeEpoch,
+      flushed.value.leaseDocuments,
+      result.value,
+    );
+    try {
+      this.fanoutBlockTransferResult(result.value);
+    } catch {
+      this.fanoutBlockTransferResync(result.value);
+    }
+    const released = this.relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      this.publishBlockTransferReleaseFallback(
+        leaseId,
+        intent.storeEpoch,
+        flushed.value.leaseDocuments,
+        result.value,
+      );
+      this.fanoutBlockTransferResync(result.value);
+    }
+    this.relocationLeaseBoundaries.delete(leaseId);
+    return result;
+  };
+
   publishAwareness = (
     target: DocumentSyncClientTarget,
     request: DocumentAwarenessPublishRequest,
@@ -1889,6 +2233,11 @@ export class DocumentSyncHub {
     return `document-relocation-lease:${this.relocationLeaseSequence.toString(36)}`;
   }
 
+  private createBlockTransferLeaseId(): string {
+    this.blockTransferLeaseSequence += 1;
+    return `block-transfer-lease:${this.blockTransferLeaseSequence.toString(36)}`;
+  }
+
   private createDocumentMutationLeaseId(): string {
     this.documentMutationLeaseSequence += 1;
     return `document-mutation-lease:${this.documentMutationLeaseSequence.toString(36)}`;
@@ -1912,6 +2261,52 @@ export class DocumentSyncHub {
       leaseId,
       documents: new Map([[boundary.documentId, boundary]]),
     });
+  }
+
+  private setBlockTransferLeaseBoundary(
+    leaseId: string,
+    storeEpoch: string,
+    heads: readonly BlockTransferDocumentHead[],
+  ): void {
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents: new Map(
+        heads.map((head) => [
+          head.documentId,
+          {
+            documentId: head.documentId,
+            storeEpoch,
+            generation: head.generation,
+            headSeq: head.expectedHeadSeq,
+          },
+        ]),
+      ),
+    });
+  }
+
+  private setBlockTransferResultBoundary(
+    leaseId: string,
+    storeEpoch: string,
+    leasedHeads: readonly BlockTransferDocumentHead[],
+    receipt: BlockTransferReceipt,
+  ): void {
+    const committedById = new Map(
+      receipt.documentCommits.map((commit) => [commit.documentId, commit]),
+    );
+    this.setBlockTransferLeaseBoundary(
+      leaseId,
+      storeEpoch,
+      leasedHeads.map((leased) => {
+        const committed = committedById.get(leased.documentId);
+        return committed
+          ? {
+              documentId: committed.documentId,
+              generation: committed.generation,
+              expectedHeadSeq: committed.headSeq,
+            }
+          : leased;
+      }),
+    );
   }
 
   private setAdditionalDocumentLeaseBoundary(
@@ -2121,6 +2516,25 @@ export class DocumentSyncHub {
     }
   }
 
+  private fanoutBlockTransferResult(receipt: BlockTransferReceipt): void {
+    for (const commit of receipt.documentCommits) {
+      this.fanoutRelocationCommit(receipt.storeEpoch, commit);
+    }
+  }
+
+  private fanoutBlockTransferResync(receipt: BlockTransferReceipt): void {
+    for (const commit of receipt.documentCommits) {
+      this.fanout(commit.documentId, {
+        kind: "resync-required",
+        documentId: commit.documentId,
+        storeEpoch: receipt.storeEpoch,
+        generation: commit.generation,
+        headSeq: commit.headSeq,
+        reason: "event-gap",
+      });
+    }
+  }
+
   private fanoutRelocationCommit(
     storeEpoch: string,
     commit: RelocationResult["sourceCommit"],
@@ -2272,6 +2686,52 @@ export class DocumentSyncHub {
               documentId,
               clientSessionId: subscription.clientSessionId,
               storeEpoch: receipt.storeEpoch,
+              generation: head.generation,
+              headSeq: head.headSeq,
+            } satisfies DocumentSyncRealtimeEvent,
+          ],
+        );
+      }
+    }
+  }
+
+  private publishBlockTransferReleaseFallback(
+    leaseId: string,
+    storeEpoch: string,
+    leasedHeads: readonly BlockTransferDocumentHead[],
+    receipt: BlockTransferReceipt,
+  ): void {
+    const committedById = new Map(
+      receipt.documentCommits.map((commit) => [commit.documentId, commit]),
+    );
+    for (const leased of leasedHeads) {
+      const committed = committedById.get(leased.documentId);
+      const head = committed
+        ? {
+            documentId: committed.documentId,
+            generation: committed.generation,
+            headSeq: committed.headSeq,
+          }
+        : {
+            documentId: leased.documentId,
+            generation: leased.generation,
+            headSeq: leased.expectedHeadSeq,
+          };
+      const keys = this.subscriptionKeysByDocument.get(head.documentId);
+      if (!keys) continue;
+      for (const key of keys) {
+        const subscription = this.subscriptions.get(key);
+        if (!subscription) continue;
+        safeSendToWebContents(
+          subscription.target,
+          DOCUMENT_SYNC_EVENT_CHANNEL,
+          [
+            {
+              kind: "relocation-lease-release",
+              leaseId,
+              documentId: head.documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch,
               generation: head.generation,
               headSeq: head.headSeq,
             } satisfies DocumentSyncRealtimeEvent,

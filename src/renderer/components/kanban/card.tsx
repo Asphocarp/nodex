@@ -613,7 +613,7 @@ export function Card({
     }
 
     const onNativeDragStart = (event: DragEvent) => {
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "linkMove";
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove";
     };
     element.addEventListener("dragstart", onNativeDragStart);
     const nativeDragCleanup = () => {

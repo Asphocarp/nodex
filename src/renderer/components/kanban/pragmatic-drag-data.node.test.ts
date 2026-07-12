@@ -52,6 +52,8 @@ describe("pragmatic drag data", () => {
       selection: emptyCardSelection(),
       instanceId: Symbol("test-instance"),
       projectId: "default",
+      databaseBlockId: "database-default",
+      storeEpoch: "epoch-default",
       activeCard: board.columns[0]!.cards[0]!,
       columnId: "in_progress",
     });
@@ -71,6 +73,8 @@ describe("pragmatic drag data", () => {
       selection,
       instanceId,
       projectId: "default",
+      databaseBlockId: "database-default",
+      storeEpoch: "epoch-default",
       activeCard: board.columns[0]!.cards[0]!,
       columnId: "in_progress",
     });

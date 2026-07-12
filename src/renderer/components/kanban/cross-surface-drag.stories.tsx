@@ -10,12 +10,12 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const CopyAndReferenceCues: Story = {
+export const MoveAndOptionCopyCues: Story = {
   render: () => (
     <div className="grid w-[560px] gap-8 rounded-xl bg-(--background) p-8 text-(--foreground)">
       <section>
         <p className="mb-3 text-xs text-(--foreground-secondary)">
-          Card → editor · link
+          Card → editor · move (Option copies)
         </p>
         <div className="relative rounded-lg border border-(--border) bg-(--card) px-4 py-5">
           <p className="text-sm">Existing document Block</p>
@@ -24,12 +24,12 @@ export const CopyAndReferenceCues: Story = {
       </section>
       <section style={{ "--column-accent": "#4f7cac" } as CSSProperties}>
         <p className="mb-3 text-xs text-(--foreground-secondary)">
-          Editor Block → Kanban · copy
+          Editor Block → Kanban · move (Option copies)
         </p>
         <div className="relative h-16 rounded-lg bg-(--background-secondary) px-3 pt-4">
           <DropIndicator
             className="absolute inset-x-3 top-4"
-            label="Copy as Card"
+            label="Move to Database"
           />
         </div>
       </section>

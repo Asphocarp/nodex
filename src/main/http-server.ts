@@ -78,6 +78,8 @@ import {
 } from "./card-lifecycle-http";
 import { registerCardHistoryHttpRoute } from "./card-history-http";
 import { registerCardMetadataPropertySnapshotHttpRoute } from "./card-metadata-property-snapshot-http";
+import { registerCardProjectTransferHttpRoute } from "./card-project-transfer-http";
+import { registerBlockTransferHttpRoute } from "./block-transfer-http";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardReference,
@@ -298,6 +300,14 @@ registerDocumentMutationHttpRoute(app, {
 registerAdditionalDocumentCommandHttpRoute(app, {
   applyCommand: (request) =>
     documentSyncHub.applyAdditionalDocumentCommand(request),
+});
+
+registerCardProjectTransferHttpRoute(app, {
+  transfer: (intent) => documentSyncHub.transferCardProject(intent),
+});
+
+registerBlockTransferHttpRoute(app, {
+  transfer: (intent) => documentSyncHub.transferBlocks(intent),
 });
 
 registerDocumentHistoryHttpRoutes(app, {

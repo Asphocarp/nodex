@@ -186,7 +186,7 @@ export interface CardDatabaseParentTransitionResult {
 }
 
 export type CardOffDatabaseParent =
-  | { readonly kind: "space" }
+  | { readonly kind: "space"; readonly beforeBlockId?: string }
   | { readonly kind: "document"; readonly documentId: string };
 
 class DatabaseMutationRejection extends Error {
@@ -1859,6 +1859,10 @@ const transferMembership = (
           )
           .all(request.projectId) as DatabaseRankedItem[],
         targetId: operation.cardBlockId,
+        ...(offDatabaseParent.kind === "space" &&
+        offDatabaseParent.beforeBlockId
+          ? { beforeId: offDatabaseParent.beforeBlockId }
+          : {}),
         updateExisting: (id, rankKey) => {
           database
             .prepare(

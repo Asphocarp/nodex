@@ -39,6 +39,11 @@ import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneMutationRequest,
 } from "../shared/block-documents/canvas-scene-sync";
+import type {
+  BlockTransferIntent,
+  BlockTransferPreparation,
+  BlockTransferReceipt,
+} from "../shared/block-transfer";
 import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
@@ -345,6 +350,88 @@ const cardProjectTransferIntent = (): CardProjectTransferIntent => ({
   },
   clientSessionId: "transfer-caller",
   actor: { kind: "test" },
+});
+
+const blockTransferIntent = (): BlockTransferIntent => ({
+  version: 1,
+  operationId: "block-transfer-1",
+  projectId: "project-1",
+  storeEpoch: "epoch-1",
+  clientSessionId: "transfer-caller",
+  actor: { kind: "test" },
+  mode: "copy",
+  rootBlockIds: ["card-source"],
+  source: { kind: "database", databaseBlockId: "database-source" },
+  target: { kind: "document", documentId: "doc-target" },
+});
+
+const blockTransferPreparation = (
+  intent: BlockTransferIntent,
+  ownedHeadSeq: number,
+  targetHeadSeq: number,
+): BlockTransferPreparation => ({
+  request: {
+    ...intent,
+    expectedLocationRevisions: { "card-source": 1 },
+    source: {
+      kind: "database",
+      databaseBlockId: "database-source",
+      memberships: {
+        "card-source": { membershipId: "membership-source", revision: 1 },
+      },
+    },
+    target: {
+      kind: "document",
+      documentId: "doc-target",
+      generation: 1,
+      expectedHeadSeq: targetHeadSeq,
+    },
+  },
+  leaseDocuments: [
+    {
+      documentId: "doc-owned-source",
+      generation: 1,
+      expectedHeadSeq: ownedHeadSeq,
+    },
+    {
+      documentId: "doc-target",
+      generation: 1,
+      expectedHeadSeq: targetHeadSeq,
+    },
+  ],
+});
+
+const blockTransferReceipt = (
+  intent: BlockTransferIntent,
+  duplicate: boolean,
+): BlockTransferReceipt => ({
+  version: 1,
+  operationId: intent.operationId,
+  projectId: intent.projectId,
+  storeEpoch: intent.storeEpoch,
+  mode: intent.mode,
+  duplicate,
+  sourceRootBlockIds: ["card-source"],
+  resultRootBlockIds: ["card-copy"],
+  copiedBlockIds: { "card-source": "card-copy" },
+  finalLocations: {
+    "card-copy": { kind: "document", documentId: "doc-target" },
+  },
+  finalLocationRevisions: { "card-copy": 1 },
+  documentCommits: [
+    {
+      documentId: "doc-target",
+      generation: 1,
+      baseHeadSeq: 2,
+      headSeq: 3,
+      updateId: "block-transfer-target-update",
+      update: new Uint8Array([9]),
+      stateVector: new Uint8Array([3]),
+    },
+  ],
+  affectedDatabaseBlockIds: ["database-source"],
+  changeLogSeq: 20,
+  committedAt: "2026-07-13T00:00:00.000Z",
 });
 
 const cardProjectTransferRequest = (
@@ -1802,5 +1889,122 @@ describe("DocumentSyncHub", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  test("coordinates BlockTransfer over every source-owned and target Document", async () => {
+    const intent = blockTransferIntent();
+    let prepareCalls = 0;
+    let applyCalls = 0;
+    let committed = false;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      lookupCommittedBlockTransfer: async () => ({
+        ok: true,
+        value: committed ? blockTransferReceipt(intent, true) : null,
+      }),
+      prepareBlockTransfer: async () => {
+        prepareCalls += 1;
+        return {
+          ok: true,
+          value: blockTransferPreparation(
+            intent,
+            prepareCalls > 1 ? 2 : 1,
+            prepareCalls > 1 ? 2 : 1,
+          ),
+        };
+      },
+      applyBlockTransfer: async (request) => {
+        applyCalls += 1;
+        expect(request.target.kind).toBe("document");
+        if (request.target.kind === "document") {
+          expect(request.target.expectedHeadSeq).toBe(2);
+        }
+        committed = true;
+        return { ok: true, value: blockTransferReceipt(intent, false) };
+      },
+    });
+    const ownedSurface = new FakeTarget(90);
+    const targetSurface = new FakeTarget(91);
+    subscribe(hub, ownedSurface, "doc-owned-source", "surface-owned");
+    subscribe(hub, targetSurface, "doc-target", "surface-target");
+    await syncSubscription(
+      hub,
+      ownedSurface,
+      "doc-owned-source",
+      "surface-owned",
+    );
+    await syncSubscription(hub, targetSurface, "doc-target", "surface-target");
+    clearSent(ownedSurface, targetSurface);
+
+    const pending = hub.transferBlocks(intent);
+    await waitUntil(() =>
+      [ownedSurface, targetSurface].every((surface) =>
+        surface.sent.some(
+          (delivery) =>
+            (delivery.value as DocumentSyncRealtimeEvent).kind ===
+            "relocation-lease-prepare",
+        ),
+      ),
+    );
+    for (const surface of [ownedSurface, targetSurface]) {
+      const prepare = surface.sent
+        .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+        .find(
+          (
+            event,
+          ): event is Extract<
+            DocumentSyncRealtimeEvent,
+            { kind: "relocation-lease-prepare" }
+          > => event.kind === "relocation-lease-prepare",
+        );
+      if (!prepare) throw new Error("Missing Block transfer lease prepare");
+      expect(
+        hub.respondToRelocationLease(surface, {
+          response: "ack",
+          leaseId: prepare.leaseId,
+          documentId: prepare.documentId,
+          clientSessionId: prepare.clientSessionId,
+          storeEpoch: prepare.storeEpoch,
+          generation: prepare.generation,
+          headSeq: prepare.expectedHeadSeq + 1,
+        }).ok,
+      ).toBe(true);
+    }
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(prepareCalls).toBe(2);
+    expect(applyCalls).toBe(1);
+    expect(
+      targetSurface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "document-update",
+      ),
+    ).toBe(true);
+    for (const surface of [ownedSurface, targetSurface]) {
+      expect(
+        surface.sent.some(
+          (delivery) =>
+            (delivery.value as DocumentSyncRealtimeEvent).kind ===
+            "relocation-lease-release",
+        ),
+      ).toBe(true);
+    }
+
+    clearSent(ownedSurface, targetSurface);
+    const retry = await hub.transferBlocks({
+      ...intent,
+      clientSessionId: "retry-session",
+    });
+    expect(retry.ok && retry.value.duplicate).toBe(true);
+    expect(prepareCalls).toBe(2);
+    expect(applyCalls).toBe(1);
+    expect(
+      targetSurface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "resync-required",
+      ),
+    ).toBe(true);
   });
 });

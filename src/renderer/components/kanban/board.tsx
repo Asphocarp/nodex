@@ -50,15 +50,16 @@ import { resolveKanbanDropCapabilities } from "./kanban-drop-capabilities";
 import { resolveKanbanDropFeedback } from "./drop-feedback";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
+  blockTransferDropLabel,
   hasDragType,
-  NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
-  NODEX_CARD_REFERENCES_DRAG_MIME,
-  parseBlockCardCopyDragPayload,
-  parseCardReferenceDragPayload,
+  NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  parseBlockTransferDragPayload,
+  resolveCrossSurfaceTransferMode,
   shouldHandleNativeCrossSurfaceDrag,
 } from "./cross-surface-drag";
 import { toast } from "@/components/ui/toast";
 import { useKanbanElementDragMonitor } from "./use-kanban-element-drag-monitor";
+import { transferBlocks } from "@/lib/api";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenCardStageOptions["openMode"]>;
@@ -120,6 +121,7 @@ export function KanbanBoard({
 
   const {
     board,
+    databaseView,
     loading,
     error,
     createCard,
@@ -246,9 +248,11 @@ export function KanbanBoard({
       instanceId: dragInstanceId,
       projectId,
       activeCard: card,
+      databaseBlockId: databaseView?.databaseBlockId ?? "unavailable",
+      storeEpoch: databaseView?.storeEpoch ?? "unavailable",
       columnId: columnId as CardStatus,
     }),
-    [board, cardSelection, dragInstanceId, filteredBoard, projectId],
+    [board, cardSelection, databaseView, dragInstanceId, filteredBoard, projectId],
   );
 
   const clearBoardCardDragState = useCallback(() => {
@@ -261,29 +265,29 @@ export function KanbanBoard({
   const handleExternalBlockDragOver = useCallback(
     (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
       if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
-      const copiesBlocks = hasDragType(
+      const transfersBlocks = hasDragType(
         event.dataTransfer,
-        NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
+        NODEX_BLOCK_TRANSFER_DRAG_MIME,
       );
-      const movesReference = hasDragType(
-        event.dataTransfer,
-        NODEX_CARD_REFERENCES_DRAG_MIME,
-      );
-      if (!copiesBlocks && !movesReference) return;
+      if (!transfersBlocks) return;
 
       event.preventDefault();
       event.stopPropagation();
-      event.dataTransfer.dropEffect = movesReference ? "move" : "copy";
+      const mode = resolveCrossSurfaceTransferMode(event);
+      event.dataTransfer.dropEffect = mode;
       const index = computeNativeDropIndexFromSurface(
         event.currentTarget,
         event.clientY,
       );
       setActiveDropColumnId(columnId);
-      setDropIndicator({
-        columnId,
-        index,
-        label: movesReference ? "Move referenced Card" : "Copy as Card",
-      });
+      const label = blockTransferDropLabel(mode, "database");
+      setDropIndicator((current) =>
+        current?.columnId === columnId &&
+        current.index === index &&
+        current.label === label
+          ? current
+          : { columnId, index, label },
+      );
       setBlockedDropMessage(null);
     },
     [],
@@ -307,13 +311,10 @@ export function KanbanBoard({
   const handleExternalBlockDrop = useCallback(
     async (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
       if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
-      const referencePayload = parseCardReferenceDragPayload(
-        event.dataTransfer.getData(NODEX_CARD_REFERENCES_DRAG_MIME),
+      const payload = parseBlockTransferDragPayload(
+        event.dataTransfer.getData(NODEX_BLOCK_TRANSFER_DRAG_MIME),
       );
-      const payload = parseBlockCardCopyDragPayload(
-        event.dataTransfer.getData(NODEX_BLOCK_CARD_COPIES_DRAG_MIME),
-      );
-      if (!referencePayload && !payload) return;
+      if (!payload) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -325,64 +326,41 @@ export function KanbanBoard({
       setDropIndicator(null);
       setBlockedDropMessage(null);
 
-      if (referencePayload) {
-        for (const reference of referencePayload.cards) {
-          const source = board?.columns
-            .flatMap((column) =>
-              column.cards.map((card) => ({ card, columnId: column.id })),
-            )
-            .find((entry) => entry.card.id === reference.cardId);
-          if (!source) {
-            toast.danger(
-              "That referenced Card is not a member of this Database.",
-            );
-            continue;
-          }
-          const dropIntent = resolveKanbanCardDropIntent({
-            board,
-            visibleBoard: filteredBoard,
-            rules: viewPrefs.rules,
-            destinationColumnId: columnId,
-            destinationIndex,
-            dragItems: [source],
-          });
-          if (dropIntent.kind === "blocked") {
-            toast.danger(dropIntent.message);
-            continue;
-          }
-          const newOrder = dropIntent.kind === "reorder"
-            || dropIntent.kind === "reorder-with-patch"
-            ? dropIntent.newOrder
-            : undefined;
-          const fieldPatch = dropIntent.kind === "reorder-with-patch"
-            ? dropIntent.fieldPatch
-            : undefined;
-          await moveCard({
-            cardId: reference.cardId,
-            fromStatus: source.columnId,
-            toStatus: columnId,
-            ...(typeof newOrder === "number" ? { newOrder } : {}),
-            ...(fieldPatch ? { fieldPatch } : {}),
-          });
-        }
+      if (
+        !databaseView ||
+        payload.projectId !== projectId ||
+        payload.storeEpoch !== databaseView.storeEpoch
+      ) {
+        toast.danger("Block transfer belongs to another Project or store generation.");
         return;
       }
-
       const destinationCards = filteredBoard?.columns.find(
         (column) => column.id === columnId,
       )?.cards ?? [];
-      const beforeCardId = destinationCards[destinationIndex]?.id;
-      const placement: CardCreatePlacement =
-        resolveKanbanCardDragMode({ rules: viewPrefs.rules }).kind === "manual-rank"
-          && beforeCardId
-          ? { beforeCardId }
-          : "bottom";
-      for (const card of payload!.cards) {
-        const created = await createCard(columnId, card, placement);
-        if (!created) break;
+      const beforeCardBlockId = destinationCards[destinationIndex]?.id;
+      const result = await transferBlocks(projectId, {
+        version: 1,
+        operationId: crypto.randomUUID(),
+        projectId,
+        storeEpoch: databaseView.storeEpoch,
+        mode: resolveCrossSurfaceTransferMode(event),
+        rootBlockIds: payload.rootBlockIds,
+        source: payload.source,
+        target: {
+          kind: "database",
+          databaseBlockId: databaseView.databaseBlockId,
+          viewId: databaseView.databaseViewId,
+          groupKey: columnId,
+          ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+        },
+      });
+      if (!result.ok) {
+        toast.danger(result.error.message);
+        return;
       }
+      await refresh();
     },
-    [board, createCard, filteredBoard, moveCard, viewPrefs.rules],
+    [databaseView, filteredBoard, projectId, refresh],
   );
 
   const performCardDrop = useCallback(async (

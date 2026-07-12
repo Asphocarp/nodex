@@ -1142,6 +1142,11 @@
   display: none !important;
 }
 
+.nfm-editor[data-block-transfer-drop-hover]
+  .prosemirror-dropcursor-block:not([data-block-transfer-drop-indicator]) {
+  display: none !important;
+}
+
 /* ===== Toggle List Editor (BlockNote targeting via marker classes) ===== */
 
 .nodex-toggle-list-editor-shell .bn-editor {

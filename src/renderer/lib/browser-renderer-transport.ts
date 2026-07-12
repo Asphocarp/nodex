@@ -71,6 +71,11 @@ import {
   type CardProjectTransferCommandResult,
 } from "../../shared/card-project-transfer";
 import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
+import type { BlockTransferCommandResult } from "../../shared/block-transfer";
+import {
+  decodeBlockTransferHttpResult,
+  type PublicBlockTransferIntent,
+} from "../../shared/block-transfer-transport";
 import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
@@ -2594,6 +2599,25 @@ export const browserRendererTransport = {
       },
     );
     return parseCardProjectTransferCommandResult(await response.json());
+  },
+  async transferBlocks(
+    projectId: string,
+    intent: PublicBlockTransferIntent,
+  ): Promise<BlockTransferCommandResult> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/block-transfers`,
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(intent),
+      },
+    );
+    return decodeBlockTransferHttpResult(await response.json());
   },
   async createDocumentVersionCheckpoint(
     projectId: string,

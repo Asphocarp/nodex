@@ -3,6 +3,9 @@ import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   BlockTransferContractError,
   canonicalizeBlockTransferIntent,
+  canonicalizeBlockTransferLogicalIntent,
+  blockTransferIntentFromRequest,
+  parseBlockTransferIntent,
   parseBlockTransferRequest,
   type BlockTransferRequest,
 } from "./block-transfer";
@@ -43,6 +46,26 @@ describe("BlockTransfer contract", () => {
     const second = { ...first, clientSessionId: "window-after-reconnect" };
     expect(canonicalizeBlockTransferIntent(first)).toBe(
       canonicalizeBlockTransferIntent(second),
+    );
+  });
+
+  test("keeps freshness evidence out of the public logical intent", () => {
+    const logical = blockTransferIntentFromRequest(request());
+    expect(parseBlockTransferIntent(logical)).toEqual(logical);
+    expect(logical.source).toEqual({
+      kind: "database",
+      databaseBlockId: "database-a",
+    });
+    expect(logical.target).toEqual({
+      kind: "document",
+      documentId: "document-b",
+      beforeBlockId: "paragraph-b",
+    });
+    expect(canonicalizeBlockTransferLogicalIntent(logical)).not.toContain(
+      "expectedHeadSeq",
+    );
+    expect(canonicalizeBlockTransferLogicalIntent(logical)).not.toContain(
+      "revision",
     );
   });
 

@@ -10,9 +10,16 @@ import {
 import type {
   DatabaseMutationRequest,
 } from "../../shared/database-kernel";
-import type { BlockTransferRequest } from "../../shared/block-transfer";
+import type {
+  BlockTransferIntent,
+  BlockTransferRequest,
+} from "../../shared/block-transfer";
 import { initializeCardDocumentGenesis } from "./block-document-store";
-import { applyBlockTransfer } from "./block-transfers";
+import {
+  applyBlockTransfer,
+  prepareBlockTransfer,
+  readCommittedBlockTransfer,
+} from "./block-transfers";
 import { applyAdditionalDocumentCommand } from "./additional-document-command-kernel";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -218,6 +225,28 @@ describe("BlockTransfer store", () => {
           expectedHeadSeq: 1,
         },
       };
+      const toDocumentIntent: BlockTransferIntent = {
+        version: 1,
+        operationId: toDocument.operationId,
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        clientSessionId: "window-1",
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["card-source"],
+        source: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+        },
+        target: { kind: "document", documentId: hostDocumentId },
+      };
+      const prepared = prepareBlockTransfer(database, toDocumentIntent);
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) return;
+      expect(prepared.value.request).toEqual(toDocument);
+      expect(prepared.value.leaseDocuments).toEqual([
+        { documentId: hostDocumentId, generation: 1, expectedHeadSeq: 1 },
+      ]);
       for (const point of [
         "after_parent_transition",
         "after_target_document",
@@ -265,6 +294,14 @@ describe("BlockTransfer store", () => {
           },
         }),
       ).toThrow("injected response loss");
+      const committedAfterResponseLoss = readCommittedBlockTransfer(
+        database,
+        { ...toDocumentIntent, clientSessionId: "window-after-reconnect" },
+      );
+      expect(
+        committedAfterResponseLoss.ok &&
+          committedAfterResponseLoss.value?.duplicate,
+      ).toBe(true);
       const movedIntoDocument = applyBlockTransfer(database, toDocument);
       expect(movedIntoDocument.ok).toBe(true);
       if (!movedIntoDocument.ok) return;

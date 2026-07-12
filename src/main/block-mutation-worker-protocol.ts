@@ -80,6 +80,9 @@ import type {
 } from "../shared/types";
 import type {
   BlockTransferCommandResult,
+  BlockTransferIntent,
+  BlockTransferPreparation,
+  BlockTransferReceipt,
   BlockTransferRequest,
 } from "../shared/block-transfer";
 
@@ -139,6 +142,14 @@ export type BlockMutationWorkerRequest =
   | (BlockMutationWorkerRequestBase & {
       type: "applyBlockTransfer";
       payload: BlockTransferRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareBlockTransfer";
+      payload: BlockTransferIntent;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "readCommittedBlockTransfer";
+      payload: BlockTransferIntent;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyCardLifecycleMutation";
@@ -285,6 +296,8 @@ export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<string>
   | DocumentOperationCommandResult
   | DocumentHistoryCommandResult<CreatedDocumentVersionSummary>
+  | BlockTransferCommandResult<BlockTransferPreparation>
+  | BlockTransferCommandResult<BlockTransferReceipt | null>
   | DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
   | DocumentHistoryCommandResult<DocumentVersionDetail>
   | CardHistoryCommandResult

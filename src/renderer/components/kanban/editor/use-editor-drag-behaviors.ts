@@ -2,22 +2,17 @@ import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import {
   beginLocalNativeEditorDrag,
-  encodeBlockCardCopyDragPayload,
-  encodeCardReferenceDragPayload,
+  encodeBlockTransferDragPayload,
   endLocalNativeEditorDrag,
-  NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
-  NODEX_CARD_REFERENCES_DRAG_MIME,
+  NODEX_BLOCK_TRANSFER_DRAG_MIME,
 } from "../cross-surface-drag";
 import {
-  mapBlocksToCardCopies,
-  mapCanonicalCardReferences,
   resolveTopLevelDraggedBlocks,
-} from "./block-card-copy-mapper";
+} from "./dragged-block-roots";
 import {
-  setupKanbanCardReferenceDrop,
-  setupCardReferenceDrop,
-  type CardReferenceDropBoundary,
-} from "./card-reference-drop";
+  setupKanbanCardTransferDrop,
+  type BlockTransferDropBoundary,
+} from "./block-transfer-drop";
 import { resolveDraggedBlockIds } from "./drag-source-resolver";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 import { setupToggleDrop } from "./toggle-drop";
@@ -27,7 +22,9 @@ interface UseEditorDragBehaviorsOptions {
   containerRef: RefObject<HTMLElement | null>;
   crossSurface?: {
     readonly projectId: string;
-    readonly cardReferenceDrop: CardReferenceDropBoundary;
+    readonly documentId: string;
+    readonly storeEpoch: string;
+    readonly blockTransferDrop: BlockTransferDropBoundary;
   };
 }
 
@@ -72,31 +69,22 @@ export function useEditorDragBehaviors({
 
       const draggedBlockIds = resolveDraggedBlockIds(current.editor, el);
       const blocks = resolveTopLevelDraggedBlocks(current.editor, draggedBlockIds);
-      const cardReferences = mapCanonicalCardReferences(
-        blocks,
-        current.crossSurface.projectId,
-      );
-      if (cardReferences) {
-        event.dataTransfer.setData(
-          NODEX_CARD_REFERENCES_DRAG_MIME,
-          encodeCardReferenceDragPayload(cardReferences),
-        );
-        beginLocalNativeEditorDrag(el);
-        event.dataTransfer.effectAllowed = "linkMove";
-        return;
-      }
-
-      const cards = mapBlocksToCardCopies(blocks);
-      if (cards.length === 0) return;
+      if (blocks.length === 0) return;
       event.dataTransfer.setData(
-        NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
-        encodeBlockCardCopyDragPayload({
-          sourceProjectId: current.crossSurface.projectId,
-          cards,
+        NODEX_BLOCK_TRANSFER_DRAG_MIME,
+        encodeBlockTransferDragPayload({
+          projectId: current.crossSurface.projectId,
+          storeEpoch: current.crossSurface.storeEpoch,
+          source: {
+            kind: "document",
+            documentId: current.crossSurface.documentId,
+          },
+          rootBlockIds: blocks.map((block) => block.id),
+          displayHints: blocks.map((block) => block.type),
         }),
       );
       beginLocalNativeEditorDrag(el);
-      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.effectAllowed = "copyMove";
     };
 
     const onDragEnd = () => {
@@ -137,20 +125,10 @@ export function useEditorDragBehaviors({
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !editor || !crossSurface) return;
-    return setupCardReferenceDrop(
+    return setupKanbanCardTransferDrop(
       el,
-      editor as unknown as Parameters<typeof setupCardReferenceDrop>[1],
-      crossSurface.cardReferenceDrop,
-    );
-  }, [containerRef, crossSurface, editor]);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !editor || !crossSurface) return;
-    return setupKanbanCardReferenceDrop(
-      el,
-      editor as unknown as Parameters<typeof setupKanbanCardReferenceDrop>[1],
-      crossSurface.cardReferenceDrop,
+      editor as unknown as Parameters<typeof setupKanbanCardTransferDrop>[1],
+      crossSurface.blockTransferDrop,
     );
   }, [containerRef, crossSurface, editor]);
 }

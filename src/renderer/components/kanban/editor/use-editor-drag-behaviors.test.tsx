@@ -4,8 +4,8 @@ import { createRef, type RefObject } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
-  NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
-  parseBlockCardCopyDragPayload,
+  NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  parseBlockTransferDragPayload,
   shouldHandleNativeCrossSurfaceDrag,
 } from "../cross-surface-drag";
 
@@ -51,11 +51,25 @@ function DragBehaviorHarness({
       ? {
           crossSurface: {
             projectId: "project-a",
-            cardReferenceDrop: {
+            documentId: "document-a",
+            storeEpoch: "epoch-a",
+            blockTransferDrop: {
               projectId: "project-1",
+              documentId: "document-a",
+              storeEpoch: "epoch-a",
               hostCardId: "card-host",
               ancestorCardIds: [],
-              allocateBlockId: () => "reference-a",
+              createOperationId: () => "operation-a",
+              transfer: async () => ({
+                ok: false,
+                error: {
+                  code: "unknown",
+                  message: "not used",
+                  retryable: false,
+                  reloadRequired: false,
+                },
+              }),
+              reportError: () => undefined,
             },
           },
         }
@@ -106,7 +120,7 @@ describe("useEditorDragBehaviors", () => {
     expect(blockDragEndCount).toBe(1);
   });
 
-  test("publishes an editor Block only as new-Card genesis copy data", async () => {
+  test("publishes stable Block identities and current parent authority", async () => {
     const editor = makeEditor(() => undefined);
     const containerRef = createRef<HTMLDivElement>();
     const view = render(
@@ -137,13 +151,16 @@ describe("useEditorDragBehaviors", () => {
       await Promise.resolve();
     });
 
-    const payload = parseBlockCardCopyDragPayload(
-      data.get(NODEX_BLOCK_CARD_COPIES_DRAG_MIME) ?? "",
+    const payload = parseBlockTransferDragPayload(
+      data.get(NODEX_BLOCK_TRANSFER_DRAG_MIME) ?? "",
     );
-    expect(payload?.sourceProjectId).toBe("project-a");
-    expect(payload?.cards).toEqual([
-      { title: "Block", description: "" },
-    ]);
+    expect(payload?.projectId).toBe("project-a");
+    expect(payload?.source).toEqual({
+      kind: "document",
+      documentId: "document-a",
+    });
+    expect(payload?.rootBlockIds).toEqual(["block-1"]);
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
     expect(shouldHandleNativeCrossSurfaceDrag(dataTransfer)).toBe(true);
 
     await act(async () => {
