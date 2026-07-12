@@ -16,9 +16,6 @@ import {
   BLOCK_CONTAINER_NODE_NAME,
   BLOCK_GROUP_NODE_NAME,
   BLOCK_ID_ATTRIBUTE,
-  CANVAS_BLOCK_TYPE,
-  CANVAS_DOCUMENT_SCHEMA_KEY,
-  CANVAS_DOCUMENT_SCHEMA_VERSION,
   LARGE_DOCUMENT_BLOCK_TYPE,
   LARGE_DOCUMENT_SCHEMA_KEY,
   LARGE_DOCUMENT_SCHEMA_VERSION,
@@ -1174,33 +1171,6 @@ describe("NodexYProvider", () => {
         expect(adapter.inspect(document).materialization.plainText).toBe(
           "Recovered offline body",
         );
-      },
-    });
-  });
-
-  test("recovers a Canvas scene_graph from its registered schema after restart", async () => {
-    await recoverDisconnectedRegisteredDocumentEdit({
-      schema: {
-        ownerType: CANVAS_BLOCK_TYPE,
-        schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
-      },
-      mutate: (document, adapter) => {
-        if (adapter.contentModel !== "scene_graph") {
-          throw new TypeError("Expected the Canvas scene-graph Adapter");
-        }
-        adapter.inspect(document).envelope.appState.set(
-          "gridModeEnabled",
-          true,
-        );
-      },
-      assertRecovered: (document, adapter) => {
-        if (adapter.contentModel !== "scene_graph") {
-          throw new TypeError("Expected the Canvas scene-graph Adapter");
-        }
-        expect(
-          adapter.inspect(document).materialization.appState.gridModeEnabled,
-        ).toBe(true);
       },
     });
   });

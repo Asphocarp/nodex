@@ -4,10 +4,10 @@ import * as Y from "yjs";
 import {
   canonicalPortableCanvasSceneFingerprint,
   canonicalStringifyCanvasScene,
-  inspectCanvasDocument,
   materializePortableCanvasScene,
   type PortableCanvasScene,
 } from "../../shared/block-documents";
+import { inspectCanvasDocument } from "./legacy-canvas-ydoc-codec";
 import { loadLegacyCanvasYjsDocumentForCutover } from "./block-document-store";
 import {
   initializeCanvasSceneAuthority,

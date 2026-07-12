@@ -97,11 +97,6 @@ export function EmbeddedOwnedBlockDocument({
             }}
           >
             {(surface) => {
-              if (surface.kind === "scene_graph") {
-                throw new TypeError(
-                  "Block-tree inline editor resolved a scene Document",
-                );
-              }
               return (
                 <div
                   data-embedded-owned-document={ownerBlockId}

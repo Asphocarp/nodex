@@ -30,7 +30,6 @@ import {
 } from "../../shared/block-documents/canvas-scene-sync";
 import { parseAssetSource } from "../../shared/assets";
 import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents/document-schema-adapters";
-import { persistCanvasSceneMaterialization } from "./canvas-scene-materializations";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { resolveAssetPath } from "./assets";
 import {
@@ -354,22 +353,11 @@ const persistFile = (
     );
 };
 
-const persistProjection = (
+const persistDerivedProjections = (
   database: Database.Database,
   authority: Pick<LoadedCanvasAuthority, "document">,
   headSeq: number,
-  scene: PortableCanvasScene,
-  updatedAt: string,
 ): void => {
-  persistCanvasSceneMaterialization(database, {
-    documentId: authority.document.document_id,
-    ownerBlockId: authority.document.owner_block_id,
-    projectId: authority.document.project_id,
-    generation: authority.document.generation,
-    projectedSeq: headSeq,
-    materialization: scene,
-    updatedAt,
-  });
   replaceDocumentSecondaryProjections(database, {
     documentId: authority.document.document_id,
     expectedGeneration: authority.document.generation,
@@ -495,7 +483,7 @@ export const initializeCanvasSceneAuthority = (
     for (const file of Object.values(scene.files)) {
       persistFile(database, input.documentId, file, updatedAt);
     }
-    persistProjection(database, { document }, document.head_seq, scene, updatedAt);
+    persistDerivedProjections(database, { document }, document.head_seq);
     return toSyncResponse(loadAuthority(database, input.projectId, input.documentId));
   });
   return initialize.immediate();
@@ -906,7 +894,7 @@ export const applyCanvasSceneMutation = (
             request.generation,
             document.head_seq,
           );
-        persistProjection(database, { document }, headSeq, scene, committedAt);
+        persistDerivedProjections(database, { document }, headSeq);
       }
 
       const result: CanvasSceneMutationResult = {

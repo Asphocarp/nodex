@@ -35,7 +35,7 @@ import {
   type BlockTreeValue,
 } from "../../shared/block-documents/block-document-codec";
 import {
-  getRegisteredBlockDocumentSchemaAdapter,
+  getOwnedDocumentSchemaRegistration,
   inspectOwnedBlockDocument,
   inspectRegisteredOwnedBlockDocument,
 } from "../../shared/block-documents/document-schema-adapters";
@@ -268,9 +268,7 @@ export const getDocumentBearingBlockSummary = (
       SELECT owner.type AS owner_type, owner.lifecycle, property.value_json,
         document.id AS document_id, document.generation, document.head_seq,
         document.schema_key, document.schema_version, document.sync_engine,
-        COALESCE(materialization.projected_seq, scene.projected_seq)
-          AS projected_seq,
-        COALESCE(materialization.preview, scene.preview) AS preview
+        materialization.projected_seq, materialization.preview
       FROM blocks owner
       INNER JOIN block_documents ownership
         ON ownership.block_id = owner.id
@@ -280,8 +278,6 @@ export const getDocumentBearingBlockSummary = (
         AND document.project_id = ownership.project_id
       LEFT JOIN document_materializations materialization
         ON materialization.document_id = document.id
-      LEFT JOIN canvas_scene_materializations scene
-        ON scene.document_id = document.id
       INNER JOIN block_properties property
         ON property.block_id = owner.id
         AND property.project_id = owner.project_id
@@ -316,7 +312,7 @@ export const getDocumentBearingBlockSummary = (
   }
   let adapter;
   try {
-    adapter = getRegisteredBlockDocumentSchemaAdapter({
+    adapter = getOwnedDocumentSchemaRegistration({
       ownerType: row.owner_type,
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
@@ -429,7 +425,7 @@ export const assertReusableTemplateSourceIsUnreferenced = (
   for (const row of rows) {
     let contentModel: "block_tree" | "scene_graph";
     try {
-      contentModel = getRegisteredBlockDocumentSchemaAdapter({
+      contentModel = getOwnedDocumentSchemaRegistration({
         ownerType: row.owner_type,
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
@@ -1678,7 +1674,7 @@ const collectOwnedDocumentClosure = (
         `Owned Document ${document.id} is not ready primary authority`,
       );
     }
-    const registration = getRegisteredBlockDocumentSchemaAdapter({
+    const registration = getOwnedDocumentSchemaRegistration({
       ownerType: document.owner_type,
       schemaKey: document.schema_key,
       schemaVersion: document.schema_version,
@@ -1768,7 +1764,7 @@ const assertNoExternalBlockReferences = (
     if (ownedDocumentIds.has(document.id)) continue;
     let adapter;
     try {
-      adapter = getRegisteredBlockDocumentSchemaAdapter({
+      adapter = getOwnedDocumentSchemaRegistration({
         ownerType: document.owner_type,
         schemaKey: document.schema_key,
         schemaVersion: document.schema_version,

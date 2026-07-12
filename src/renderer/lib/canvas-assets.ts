@@ -1,4 +1,4 @@
-import type { CanvasFileSnapshot } from "../../shared/block-documents";
+import type { CanvasSceneFile } from "../../shared/block-documents/canvas-scene";
 import { resolveAssetSourceToHttpUrl, uploadImageAsset } from "./assets";
 
 export interface CanvasBinaryFileData {
@@ -59,11 +59,11 @@ const dataUrlToFile = async (file: CanvasBinaryFileData): Promise<File> => {
 export const materializeDurableCanvasFiles = async (input: {
   readonly elementsIncludingDeleted: readonly unknown[];
   readonly binaryFiles: CanvasBinaryFiles;
-  readonly current: Readonly<Record<string, CanvasFileSnapshot>>;
+  readonly current: Readonly<Record<string, CanvasSceneFile>>;
   readonly dependencies?: CanvasAssetBridgeDependencies;
-}): Promise<Readonly<Record<string, CanvasFileSnapshot>>> => {
+}): Promise<Readonly<Record<string, CanvasSceneFile>>> => {
   const upload = input.dependencies?.uploadImage ?? uploadImageAsset;
-  const durable: Record<string, CanvasFileSnapshot> = {};
+  const durable: Record<string, CanvasSceneFile> = {};
   for (const fileId of collectCanvasReferencedFileIds(
     input.elementsIncludingDeleted,
   )) {
@@ -107,7 +107,7 @@ interface CanvasBinaryFileCacheEntry {
   readonly dataUrl: Promise<string>;
 }
 
-const canvasFileContentIdentity = (file: CanvasFileSnapshot): string =>
+const canvasFileContentIdentity = (file: CanvasSceneFile): string =>
   `${file.source}\0${file.mimeType}`;
 
 /**
@@ -125,7 +125,7 @@ export class CanvasBinaryFileResolver {
   }
 
   resolve = async (
-    files: Readonly<Record<string, CanvasFileSnapshot>>,
+    files: Readonly<Record<string, CanvasSceneFile>>,
   ): Promise<CanvasBinaryFiles> => {
     if (this.destroyed) {
       throw new Error("Canvas binary file resolver is destroyed");
@@ -169,7 +169,7 @@ export class CanvasBinaryFileResolver {
 
   private getOrCreateEntry(
     fileId: string,
-    file: CanvasFileSnapshot,
+    file: CanvasSceneFile,
     identity: string,
   ): CanvasBinaryFileCacheEntry {
     const current = this.cache.get(fileId);
@@ -195,7 +195,7 @@ export class CanvasBinaryFileResolver {
 
 /** Resolve ref-only durable files into Excalidraw's disposable BinaryFiles. */
 export const resolveCanvasBinaryFiles = async (
-  files: Readonly<Record<string, CanvasFileSnapshot>>,
+  files: Readonly<Record<string, CanvasSceneFile>>,
   dependencies: CanvasAssetBridgeDependencies = {},
 ): Promise<CanvasBinaryFiles> => {
   const resolver = new CanvasBinaryFileResolver(dependencies);

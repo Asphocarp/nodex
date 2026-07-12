@@ -5,17 +5,18 @@ import {
 } from "../block-property-mutations";
 import { getAssetSource, parseAssetSource } from "../assets";
 import type { DocumentId } from "./contracts";
+export {
+  CANVAS_BLOCK_TYPE,
+  CANVAS_DOCUMENT_SCHEMA_KEY,
+  CANVAS_DOCUMENT_SCHEMA_VERSION,
+  primaryCanvasBlockId,
+  primaryCanvasDocumentId,
+} from "./canvas-document-identity";
+import {
+  CANVAS_DOCUMENT_SCHEMA_VERSION,
+} from "./canvas-document-identity";
 
-export const CANVAS_BLOCK_TYPE = "canvas";
-export const CANVAS_DOCUMENT_SCHEMA_KEY = "nodex.canvas";
-export const CANVAS_DOCUMENT_SCHEMA_VERSION = 1;
 export const CANVAS_DOCUMENT_KIND = "canvas_scene";
-
-export const primaryCanvasBlockId = (projectId: string): string =>
-  `canvas:primary:${projectId}`;
-
-export const primaryCanvasDocumentId = (projectId: string): string =>
-  `document:canvas:primary:${projectId}`;
 
 export const CANVAS_ELEMENTS_ROOT = "elements";
 export const CANVAS_ORDER_ROOT = "order";

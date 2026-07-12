@@ -76,7 +76,6 @@ const RESETTABLE_TABLES = [
   "scheduled_card_index",
   "canvas_card_references",
   "canvas_scene_file_refs",
-  "canvas_scene_materializations",
   "canvas_scene_mutation_receipts",
   "canvas_scene_files",
   "canvas_scene_elements",
@@ -3578,10 +3577,12 @@ export function createBlockFirstPreFinalizationSchema(
   createForeignReferenceMigrationSchema(db);
   createAtomicBlockRelocationSchema(db);
   createBlockSecondaryAuthorityFoundationSchema(db);
-  createCanvasSceneMaterializationSchema(db);
+  createLegacyCanvasSceneMaterializationSchema(db);
+  createCanvasSceneDerivedProjectionSchema(db);
 }
 
-function createCanvasSceneMaterializationSchema(
+/** v68-v70 compatibility projection; v71 drops it after scene cutover. */
+function createLegacyCanvasSceneMaterializationSchema(
   db: Database.Database,
 ): void {
   db.exec(`
@@ -3615,6 +3616,15 @@ function createCanvasSceneMaterializationSchema(
 
     CREATE INDEX IF NOT EXISTS idx_canvas_scene_materializations_freshness
       ON canvas_scene_materializations(generation, projected_seq);
+  `);
+}
+
+function createCanvasSceneDerivedProjectionSchema(
+  db: Database.Database,
+): void {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_block_documents_owner_document_project
+      ON block_documents(block_id, document_id, project_id);
 
     CREATE TABLE IF NOT EXISTS canvas_scene_file_refs (
       document_id TEXT NOT NULL,
@@ -7577,7 +7587,8 @@ function migrateSchema66To67(db: Database.Database): void {
 
 function migrateSchema67To68(db: Database.Database): void {
   const migrate = db.transaction(() => {
-    createCanvasSceneMaterializationSchema(db);
+    createLegacyCanvasSceneMaterializationSchema(db);
+    createCanvasSceneDerivedProjectionSchema(db);
     setUserVersion(db, 68);
   });
   migrate.immediate();
@@ -7655,7 +7666,7 @@ function rebuildV69ProjectTransferScopeTables(db: Database.Database): void {
   createBlockFoundationSchema(db);
   createAtomicBlockRelocationSchema(db);
   createBlockSecondaryAuthorityFoundationSchema(db);
-  createCanvasSceneMaterializationSchema(db);
+  createCanvasSceneDerivedProjectionSchema(db);
 
   for (const tableName of V69_PROJECT_TRANSFER_SCOPE_TABLES) {
     copyV69TableRowsByColumnName(db, tableName);
@@ -7673,7 +7684,7 @@ function rebuildV69ProjectTransferScopeTables(db: Database.Database): void {
   createBlockFoundationSchema(db);
   createAtomicBlockRelocationSchema(db);
   createBlockSecondaryAuthorityFoundationSchema(db);
-  createCanvasSceneMaterializationSchema(db);
+  createCanvasSceneDerivedProjectionSchema(db);
 }
 
 function assertV69ProjectTransferScopeSchema(db: Database.Database): void {
@@ -7808,6 +7819,7 @@ export function migrateSchema70To71(
     }
     createCanvasSceneAuthoritySchema(db);
     const result = cutoverCanvasScenesFromYjs(db, options);
+    db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
     createV71OwnedDocumentEngineGuards(db);
     setUserVersion(db, 71);
     const violations = db.pragma("foreign_key_check") as unknown[];
@@ -8253,6 +8265,7 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     db.pragma("auto_vacuum = INCREMENTAL");
     createBlockFirstPreFinalizationSchema(db);
     dropLegacyBlockFirstTables(db, CURRENT_SCHEMA_VERSION);
+    db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
     createV71OwnedDocumentEngineGuards(db);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");

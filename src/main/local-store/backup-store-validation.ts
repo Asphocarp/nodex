@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
-  getRegisteredBlockDocumentSchemaAdapterForSchema,
+  getOwnedDocumentSchemaRegistration,
 } from "../../shared/block-documents";
 import {
   isSafeAssetFileName,
@@ -38,6 +38,9 @@ const scalarCount = (database: Database.Database, sql: string): number => {
   }
   return row.count;
 };
+
+const hashText = (value: string): string =>
+  createHash("sha256").update(value).digest("hex");
 
 const validateManagedAssets = (
   database: Database.Database,
@@ -320,7 +323,8 @@ const validateOpenDatabase = (
       `
       SELECT document.id, document.project_id, document.generation, document.head_seq,
         document.schema_key, document.schema_version, document.readiness,
-        document.sync_engine, owner.type AS owner_type
+        document.sync_engine, ownership.block_id AS owner_block_id,
+        owner.type AS owner_type
       FROM documents document
       INNER JOIN block_documents ownership
         ON ownership.document_id = document.id
@@ -341,20 +345,19 @@ const validateOpenDatabase = (
     readonly schema_version: number;
     readonly readiness: string;
     readonly sync_engine: "yjs" | "canvas_scene";
+    readonly owner_block_id: string;
     readonly owner_type: string;
   }[];
   let stalePrimaryProjections = 0;
   for (const document of primaryDocuments) {
     let contentModel: "block_tree" | "scene_graph";
     try {
-      const adapter = getRegisteredBlockDocumentSchemaAdapterForSchema({
+      const adapter = getOwnedDocumentSchemaRegistration({
+        ownerType: document.owner_type,
         schemaKey: document.schema_key,
         schemaVersion: document.schema_version,
       });
-      if (
-        adapter.ownerType !== document.owner_type ||
-        adapter.syncEngine !== document.sync_engine
-      ) {
+      if (adapter.syncEngine !== document.sync_engine) {
         stalePrimaryProjections += 1;
         continue;
       }
@@ -378,14 +381,35 @@ const validateOpenDatabase = (
           headSeq: document.head_seq,
           schemaVersion: document.schema_version,
         });
-        projection = database
+        const marker = database
           .prepare(
-            `SELECT generation, projected_seq
-             FROM canvas_scene_materializations WHERE document_id = ?`,
+            `SELECT document_generation AS generation, projected_seq, text,
+               text_hash
+             FROM block_search_units
+             WHERE document_id = ? AND owner_block_id = ?
+               AND block_id = ? AND source_kind = 'document_marker'
+               AND field_key = 'marker'`,
           )
-          .get(document.id) as
-          | { readonly generation: number; readonly projected_seq: number }
+          .get(
+            document.id,
+            document.owner_block_id,
+            document.owner_block_id,
+          ) as
+          | {
+              readonly generation: number;
+              readonly projected_seq: number;
+              readonly text: string;
+              readonly text_hash: string;
+            }
           | undefined;
+        projection = marker;
+        if (
+          marker &&
+          (marker.text !== authority.scene.plainText ||
+            marker.text_hash !== hashText(authority.scene.plainText))
+        ) {
+          projection = undefined;
+        }
         const projectedReferences = database
           .prepare(
             `SELECT source_element_id, target_block_id
@@ -412,6 +436,34 @@ const validateOpenDatabase = (
             left.source_element_id.localeCompare(right.source_element_id),
           );
         if (JSON.stringify(projectedReferences) !== JSON.stringify(expectedReferences)) {
+          projection = undefined;
+        }
+        const projectedFiles = database
+          .prepare(
+            `SELECT file_id, mime_type, asset_uri
+             FROM canvas_scene_file_refs
+             WHERE document_id = ? AND project_id = ?
+               AND document_generation = ? AND projected_seq = ?
+             ORDER BY file_id`,
+          )
+          .all(
+            document.id,
+            document.project_id,
+            document.generation,
+            document.head_seq,
+          ) as readonly {
+          readonly file_id: string;
+          readonly mime_type: string;
+          readonly asset_uri: string;
+        }[];
+        const expectedFiles = Object.entries(authority.scene.files)
+          .map(([fileId, file]) => ({
+            file_id: fileId,
+            mime_type: file.mimeType,
+            asset_uri: file.source,
+          }))
+          .sort((left, right) => left.file_id.localeCompare(right.file_id));
+        if (JSON.stringify(projectedFiles) !== JSON.stringify(expectedFiles)) {
           projection = undefined;
         }
       } else {

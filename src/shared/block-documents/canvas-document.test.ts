@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  CANVAS_BLOCK_TYPE,
-  CANVAS_DOCUMENT_SCHEMA_KEY,
-  CANVAS_DOCUMENT_SCHEMA_VERSION,
   CanvasDocumentSchemaError,
   applyCanvasForwardRestorePlan,
   applyRebasedCanvasSceneObservation,
@@ -15,9 +12,8 @@ import {
   compileCanvasForwardRestorePlan,
   createCanvasDocument,
   inspectCanvasDocument,
-  inspectRegisteredOwnedBlockDocument,
   parseCanvasSceneMaterialization,
-} from ".";
+} from "./canvas-document";
 
 const element = (
   id: string,
@@ -59,7 +55,7 @@ const mergeInOrder = (
   return document;
 };
 
-describe("Canvas scene_graph Document", () => {
+describe("legacy Canvas Y.Doc migration codec", () => {
   test("owns exact scene roots and canonicalizes legacy Card references", () => {
     const envelope = createCanvasDocument({
       documentId: "document:canvas:roots",
@@ -92,18 +88,7 @@ describe("Canvas scene_graph Document", () => {
         },
       },
     });
-    const inspection = inspectRegisteredOwnedBlockDocument(
-      envelope.document,
-      {
-        ownerType: CANVAS_BLOCK_TYPE,
-        schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
-      },
-    );
-    if (inspection.materialization.kind !== "canvas_scene") {
-      throw new TypeError("Expected a Canvas scene materialization");
-    }
-    expect(inspection.envelope.kind).toBe("scene_graph");
+    const inspection = inspectCanvasDocument(envelope.document);
     expect(
       JSON.stringify([...envelope.document.share.keys()].sort()),
     ).toBe('["appState","elements","files","order"]');

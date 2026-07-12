@@ -4,11 +4,9 @@ import {
   CANVAS_BLOCK_TYPE,
   CANVAS_DOCUMENT_SCHEMA_KEY,
   CANVAS_DOCUMENT_SCHEMA_VERSION,
-  createCanvasDocument,
   materializePortableCanvasScene,
   primaryCanvasBlockId,
   primaryCanvasDocumentId,
-  type CanvasSceneSnapshot,
 } from "../../shared/block-documents";
 import { getAssetSource, parseAssetSource } from "../../shared/assets";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
@@ -17,8 +15,12 @@ import {
   getOwnedBlockDocumentDescriptor,
   getOwnedDocumentDescriptor,
 } from "./block-document-cutover";
-import { initializeBlockDocumentGenesis } from "./block-document-store";
+import { initializeLegacyCanvasYjsGenesis } from "./block-document-store";
 import { initializeCanvasSceneAuthority, syncCanvasScene } from "./canvas-scene-store";
+import {
+  createCanvasDocument,
+  type CanvasSceneSnapshot,
+} from "./legacy-canvas-ydoc-codec";
 
 const PRIMARY_CANVAS_RANK_KEY = "e0000000000000000000000000000000";
 
@@ -287,7 +289,7 @@ export const ensurePrimaryCanvasDocument = (
     }
     const envelope = createCanvasDocument({ documentId, initialScene: scene });
     try {
-      initializeBlockDocumentGenesis(database, {
+    initializeLegacyCanvasYjsGenesis(database, {
         documentId,
         storeEpoch: readStoreEpoch(database),
         generation: 1,

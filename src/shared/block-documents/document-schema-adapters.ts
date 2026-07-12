@@ -54,11 +54,8 @@ import {
   CANVAS_BLOCK_TYPE,
   CANVAS_DOCUMENT_SCHEMA_KEY,
   CANVAS_DOCUMENT_SCHEMA_VERSION,
-  createCanvasDocument,
-  inspectCanvasDocument,
-  type CanvasDocumentEnvelope,
-  type CanvasSceneMaterialization,
-} from "./canvas-document";
+} from "./canvas-document-identity";
+import type { PortableCanvasScene } from "./canvas-scene";
 
 export interface CommonOwnedDocumentMaterialization {
   readonly schemaVersion: number;
@@ -88,28 +85,16 @@ export type OwnedDocumentMaterialization =
   | SyncedBlockOwnedDocumentMaterialization
   | AdditionalBlockOwnedDocumentMaterialization;
 
-export type SceneGraphOwnedDocumentMaterialization = CanvasSceneMaterialization;
-
 export type RegisteredOwnedDocumentMaterialization =
   | OwnedDocumentMaterialization
-  | SceneGraphOwnedDocumentMaterialization;
+  | PortableCanvasScene;
 
 export type BlockTreeOwnedDocumentEnvelope =
   | ({ readonly kind: "card" } & CardDocumentEnvelope)
   | ({ readonly kind: "synced_block" } & SyncedBlockDocumentEnvelope)
   | ({ readonly kind: AdditionalBlockDocumentKind } & BodyOnlyBlockDocumentEnvelope);
 
-/**
- * Reserved contract for scene/canvas-style Documents. It intentionally has no
- * `body` or title root: those adapters must define and validate their own Yjs
- * roots instead of pretending to be BlockNote documents.
- */
-export interface SceneGraphOwnedDocumentEnvelope extends CanvasDocumentEnvelope {
-  readonly kind: "scene_graph";
-}
-
-export type OwnedDocumentEnvelope =
-  BlockTreeOwnedDocumentEnvelope | SceneGraphOwnedDocumentEnvelope;
+export type OwnedDocumentEnvelope = BlockTreeOwnedDocumentEnvelope;
 
 export interface OwnedDocumentInspection {
   readonly envelope: BlockTreeOwnedDocumentEnvelope;
@@ -117,13 +102,7 @@ export interface OwnedDocumentInspection {
   readonly materialization: OwnedDocumentMaterialization;
 }
 
-export interface SceneGraphOwnedDocumentInspection {
-  readonly envelope: SceneGraphOwnedDocumentEnvelope;
-  readonly materialization: SceneGraphOwnedDocumentMaterialization;
-}
-
-export type RegisteredOwnedDocumentInspection =
-  OwnedDocumentInspection | SceneGraphOwnedDocumentInspection;
+export type RegisteredOwnedDocumentInspection = OwnedDocumentInspection;
 
 export interface BlockDocumentSchemaCapabilities {
   readonly title: boolean;
@@ -153,34 +132,12 @@ export interface BlockDocumentSchemaAdapter {
   readonly inspect: (document: Y.Doc) => OwnedDocumentInspection;
 }
 
-export interface SceneGraphDocumentSchemaAdapter {
-  readonly kind: "scene_graph";
-  readonly contentModel: "scene_graph";
-  readonly syncEngine: "canvas_scene";
-  readonly ownerType: string;
-  readonly schemaKey: string;
-  readonly schemaVersion: number;
-  readonly capabilities: {
-    readonly title: false;
-    readonly blockTree: false;
-    readonly nfmGenesis: false;
-    readonly nfmReplace: false;
-  };
-  readonly limits: Pick<
-    BlockDocumentSchemaLimits,
-    "maxUpdateBytes" | "maxStateBytes"
-  >;
-  readonly create: (documentId: DocumentId) => SceneGraphOwnedDocumentEnvelope;
-  readonly inspect: (document: Y.Doc) => SceneGraphOwnedDocumentInspection;
-}
-
-export type RegisteredBlockDocumentSchemaAdapter =
-  BlockDocumentSchemaAdapter | SceneGraphDocumentSchemaAdapter;
+export type RegisteredBlockDocumentSchemaAdapter = BlockDocumentSchemaAdapter;
 
 export interface OwnedDocumentSchemaRegistration {
-  readonly kind: RegisteredBlockDocumentSchemaAdapter["kind"];
-  readonly contentModel: RegisteredBlockDocumentSchemaAdapter["contentModel"];
-  readonly syncEngine: RegisteredBlockDocumentSchemaAdapter["syncEngine"];
+  readonly kind: BlockTreeOwnedDocumentEnvelope["kind"] | "scene_graph";
+  readonly contentModel: "block_tree" | "scene_graph";
+  readonly syncEngine: "yjs" | "canvas_scene";
   readonly ownerType: string;
   readonly schemaKey: string;
   readonly schemaVersion: number;
@@ -400,50 +357,40 @@ const largeCodeDocumentAdapter = createAdditionalBodyOnlyAdapter({
   validate: assertLargeCodeBody,
 });
 
-const canvasDocumentAdapter: SceneGraphDocumentSchemaAdapter = {
+const canvasDocumentRegistration: OwnedDocumentSchemaRegistration = {
   kind: "scene_graph",
   contentModel: "scene_graph",
   syncEngine: "canvas_scene",
   ownerType: CANVAS_BLOCK_TYPE,
   schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
   schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
-  capabilities: {
-    title: false,
-    blockTree: false,
-    nfmGenesis: false,
-    nfmReplace: false,
-  },
-  limits: {
-    maxUpdateBytes: MAX_CARD_DOCUMENT_UPDATE_BYTES,
-    maxStateBytes: MAX_CARD_DOCUMENT_STATE_BYTES,
-  },
-  create: (documentId) => ({
-    kind: "scene_graph",
-    ...createCanvasDocument({ documentId }),
-  }),
-  inspect: (document) => {
-    const inspection = inspectCanvasDocument(document);
-    return {
-      envelope: { kind: "scene_graph", ...inspection.envelope },
-      materialization: inspection.materialization,
-    };
-  },
 };
 
-const schemaAdapters: readonly RegisteredBlockDocumentSchemaAdapter[] = [
+const schemaAdapters: readonly BlockDocumentSchemaAdapter[] = [
   cardDocumentAdapter,
   syncedBlockDocumentAdapter,
   reusableTemplateDocumentAdapter,
   largeDocumentAdapter,
   largeCodeDocumentAdapter,
-  canvasDocumentAdapter,
+] as const;
+
+const schemaRegistrations: readonly OwnedDocumentSchemaRegistration[] = [
+  ...schemaAdapters.map(({ kind, contentModel, syncEngine, ownerType, schemaKey, schemaVersion }) => ({
+    kind,
+    contentModel,
+    syncEngine,
+    ownerType,
+    schemaKey,
+    schemaVersion,
+  })),
+  canvasDocumentRegistration,
 ] as const;
 
 export const getRegisteredBlockDocumentSchemaAdapter = (input: {
   readonly ownerType: string;
   readonly schemaKey: string;
   readonly schemaVersion: number;
-}): RegisteredBlockDocumentSchemaAdapter => {
+}): BlockDocumentSchemaAdapter => {
   const adapter = schemaAdapters.find(
     (candidate) =>
       candidate.ownerType === input.ownerType &&
@@ -461,15 +408,31 @@ export const getOwnedDocumentSchemaRegistration = (input: {
   readonly schemaKey: string;
   readonly schemaVersion: number;
 }): OwnedDocumentSchemaRegistration => {
-  const adapter = getRegisteredBlockDocumentSchemaAdapter(input);
-  return {
-    kind: adapter.kind,
-    contentModel: adapter.contentModel,
-    syncEngine: adapter.syncEngine,
-    ownerType: adapter.ownerType,
-    schemaKey: adapter.schemaKey,
-    schemaVersion: adapter.schemaVersion,
-  };
+  const registration = schemaRegistrations.find(
+    (candidate) =>
+      candidate.ownerType === input.ownerType &&
+      candidate.schemaKey === input.schemaKey &&
+      candidate.schemaVersion === input.schemaVersion,
+  );
+  if (registration) return registration;
+  throw new BlockDocumentSchemaError(
+    `No owned Document schema is registered for ${input.ownerType}/${input.schemaKey}@${input.schemaVersion}`,
+  );
+};
+
+export const getOwnedDocumentSchemaRegistrationForSchema = (input: {
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+}): OwnedDocumentSchemaRegistration => {
+  const matches = schemaRegistrations.filter(
+    (candidate) =>
+      candidate.schemaKey === input.schemaKey &&
+      candidate.schemaVersion === input.schemaVersion,
+  );
+  if (matches.length === 1 && matches[0]) return matches[0];
+  throw new BlockDocumentSchemaError(
+    `Owned Document schema ${input.schemaKey}@${input.schemaVersion} is ${matches.length === 0 ? "not registered" : "ambiguous without an owner type"}`,
+  );
 };
 
 /** Yjs content code must never receive a scene-native Canvas registration. */
@@ -478,11 +441,7 @@ export const getYjsDocumentSchemaAdapter = (input: {
   readonly schemaKey: string;
   readonly schemaVersion: number;
 }): BlockDocumentSchemaAdapter => {
-  const adapter = getRegisteredBlockDocumentSchemaAdapter(input);
-  if (adapter.syncEngine === "yjs") return adapter;
-  throw new BlockDocumentSchemaError(
-    `Owned Document ${input.ownerType}/${input.schemaKey}@${input.schemaVersion} uses ${adapter.syncEngine}, not the Yjs sync engine`,
-  );
+  return getRegisteredBlockDocumentSchemaAdapter(input);
 };
 
 /** BlockNote/NFM pipelines must opt into the block-tree content model. */
@@ -550,7 +509,7 @@ export const inspectRegisteredOwnedBlockDocument = (
     readonly schemaKey: string;
     readonly schemaVersion: number;
   },
-): RegisteredOwnedDocumentInspection =>
+): OwnedDocumentInspection =>
   getRegisteredBlockDocumentSchemaAdapter(input).inspect(document);
 
 /** Relational persistence keeps a non-null title column for Card compatibility. */
@@ -568,4 +527,4 @@ export const toPersistedBlockDocumentMaterialization = (
 });
 
 export const listBlockDocumentSchemaAdapters =
-  (): readonly RegisteredBlockDocumentSchemaAdapter[] => schemaAdapters;
+  (): readonly BlockDocumentSchemaAdapter[] => schemaAdapters;

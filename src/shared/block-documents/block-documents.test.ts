@@ -170,7 +170,7 @@ describe("Card block document envelope", () => {
 describe("registered document-bearing Block envelopes", () => {
   test("keeps every owner/schema registration exact and unambiguous", () => {
     const adapters = listBlockDocumentSchemaAdapters();
-    expect(adapters.length).toBe(6);
+    expect(adapters.length).toBe(5);
     expect(
       adapters
         .map(
@@ -181,7 +181,6 @@ describe("registered document-bearing Block envelopes", () => {
         .join(","),
     ).toBe(
       [
-        "canvas/nodex.canvas@1:scene_graph/canvas_scene",
         "card/nodex.card@1:block_tree/yjs",
         "largeCode/nodex.large-code@1:block_tree/yjs",
         "largeDocument/nodex.large-document@1:block_tree/yjs",
@@ -204,7 +203,7 @@ describe("registered document-bearing Block envelopes", () => {
       ...input,
     });
     expect(() => getYjsDocumentSchemaAdapter(input)).toThrow(
-      "uses canvas_scene, not the Yjs sync engine",
+      "No owned Document Adapter is registered",
     );
   });
 

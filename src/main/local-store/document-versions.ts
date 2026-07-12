@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { type BlockTreeValue } from "../../shared/block-documents/block-document-codec";
 import {
+  getOwnedDocumentSchemaRegistrationForSchema,
   getRegisteredBlockDocumentSchemaAdapterForSchema,
   getBlockDocumentSchemaAdapterForSchema,
   inspectRegisteredOwnedBlockDocument,
@@ -468,7 +469,7 @@ const decodeVersionRow = (
     }
     let materialization: RegisteredOwnedDocumentMaterialization;
     try {
-      const adapter = getRegisteredBlockDocumentSchemaAdapterForSchema({
+      const adapter = getOwnedDocumentSchemaRegistrationForSchema({
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
       });
@@ -584,10 +585,7 @@ const decodeVersionRow = (
       materializationKind: materialization.kind,
       title: materialization.kind === "card" ? materialization.title : null,
       preview: materialization.preview,
-      blockCount:
-        materialization.kind === "canvas_scene"
-          ? materialization.elements.length
-          : countBlocks(materialization.blockTree),
+      blockCount: countBlocks(materialization.blockTree),
       createdAt: row.created_at,
       fullUpdate: asBytes(row.full_update_blob),
       stateVector: asBytes(stateVector),
@@ -1282,16 +1280,6 @@ export const prepareDocumentVersionRestore = (
         throw new DocumentVersionStoreError(
           "document_version_schema_mismatch",
           `Version ${version.versionId} materialization kind does not match the current Document`,
-        );
-      }
-      if (
-        registeredAdapter.contentModel === "scene_graph" ||
-        current.kind === "canvas_scene" ||
-        version.materialization.kind === "canvas_scene"
-      ) {
-        throw new DocumentVersionStoreError(
-          "document_version_schema_mismatch",
-          "Canvas history restore requires matching scene-graph materializations",
         );
       }
       if (materializationHash(current) === version.materializationHash) {

@@ -6,15 +6,15 @@ import path from "node:path";
 import * as Y from "yjs";
 import { afterEach, describe, expect, test } from "vitest";
 import {
-  createCanvasDocument,
   primaryCanvasBlockId,
 } from "../../shared/block-documents";
+import { createCanvasDocument } from "./legacy-canvas-ydoc-codec";
 import { getOwnedDocumentDescriptor } from "./block-document-cutover";
 import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
 import { migrateSchema70To71 } from "./schema";
-import { initializeBlockDocumentGenesis } from "./block-document-store";
+import { initializeLegacyCanvasYjsGenesis } from "./block-document-store";
 import { getDocumentVersionDetail } from "./document-versions";
 
 const directories: string[] = [];
@@ -80,7 +80,7 @@ const seedV70CanvasYjsAuthority = (
         .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
         .get() as { readonly store_epoch: string }
     ).store_epoch;
-    const initialized = initializeBlockDocumentGenesis(database, {
+    const initialized = initializeLegacyCanvasYjsGenesis(database, {
       documentId,
       storeEpoch,
       generation: 1,
@@ -185,6 +185,9 @@ describe("schema v71 Canvas scene cutover", () => {
       project.id,
       canvasDescriptor.documentId,
     );
+    database.exec(
+      "CREATE TABLE canvas_scene_materializations (document_id TEXT PRIMARY KEY)",
+    );
     const cardUpdatesBefore = (
       database
         .prepare("SELECT COUNT(*) AS count FROM document_updates WHERE document_id = ?")
@@ -231,6 +234,14 @@ describe("schema v71 Canvas scene cutover", () => {
       kind: "canvas_scene",
       elements: [expect.objectContaining({ id: "migrated-shape", x: 42 })],
     });
+    expect(
+      database
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'table' AND name = 'canvas_scene_materializations'`,
+        )
+        .get(),
+    ).toBeUndefined();
     expect(
       getDocumentVersionDetail(database, {
         projectId: project.id,
@@ -282,5 +293,13 @@ describe("schema v71 Canvas scene cutover", () => {
     expect(row.state_hash).toBe(row.scene_hash);
     expect({ updates: row.updates, snapshots: row.snapshots, receipts: row.receipts })
       .toEqual({ updates: 0, snapshots: 0, receipts: 0 });
+    expect(
+      database
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'table' AND name = 'canvas_scene_materializations'`,
+        )
+        .get(),
+    ).toBeUndefined();
   });
 });

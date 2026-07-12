@@ -8,7 +8,7 @@ import type {
 import type { CanvasSceneFile } from "../../shared/block-documents/canvas-scene";
 import {
   getBlockDocumentSchemaAdapter,
-  getRegisteredBlockDocumentSchemaAdapter,
+  getOwnedDocumentSchemaRegistration,
 } from "../../shared/block-documents/document-schema-adapters";
 import { parseAssetSource } from "../../shared/assets";
 import { tokenizeSearchQuery } from "../../shared/search-text";
@@ -741,7 +741,7 @@ const readRegisteredProjectionSource = (
     documentId,
   );
   try {
-    const adapter = getRegisteredBlockDocumentSchemaAdapter({
+    const adapter = getOwnedDocumentSchemaRegistration({
       ownerType: row.owner_type,
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
@@ -1119,7 +1119,7 @@ export const repairDocumentSecondaryProjections = (
       const repairs = documents
         .filter((document) => {
           if (document.unit_key !== null) return false;
-          const adapter = getRegisteredBlockDocumentSchemaAdapter({
+          const adapter = getOwnedDocumentSchemaRegistration({
             ownerType: document.owner_type,
             schemaKey: document.schema_key,
             schemaVersion: document.schema_version,

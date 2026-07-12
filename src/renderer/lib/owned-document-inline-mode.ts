@@ -1,4 +1,4 @@
-import { getRegisteredBlockDocumentSchemaAdapter } from "../../shared/block-documents/document-schema-adapters";
+import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents/document-schema-adapters";
 
 export interface OwnedDocumentSchemaIdentity {
   readonly ownerType: string;
@@ -12,7 +12,7 @@ export type OwnedDocumentInlineMode = "block_tree" | "scene_view";
 export const resolveOwnedDocumentInlineMode = (
   identity: OwnedDocumentSchemaIdentity,
 ): OwnedDocumentInlineMode =>
-  getRegisteredBlockDocumentSchemaAdapter(identity).contentModel ===
+  getOwnedDocumentSchemaRegistration(identity).contentModel ===
   "block_tree"
     ? "block_tree"
     : "scene_view";

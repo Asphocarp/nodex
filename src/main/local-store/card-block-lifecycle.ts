@@ -403,19 +403,15 @@ const readCurrentIndexedBlockClosure = (
         `
         SELECT
           document.id, document.generation, document.head_seq,
-          document.readiness, document.authority,
+          document.readiness, document.authority, document.sync_engine,
           materialization.generation AS materialization_generation,
-          materialization.projected_seq AS materialization_projected_seq,
-          scene.generation AS scene_generation,
-          scene.projected_seq AS scene_projected_seq
+          materialization.projected_seq AS materialization_projected_seq
         FROM block_documents ownership
         INNER JOIN documents document
           ON document.id = ownership.document_id
          AND document.project_id = ownership.project_id
         LEFT JOIN document_materializations materialization
           ON materialization.document_id = document.id
-        LEFT JOIN canvas_scene_materializations scene
-          ON scene.document_id = document.id
         WHERE ownership.block_id = ? AND ownership.project_id = ?
       `,
       )
@@ -426,10 +422,9 @@ const readCurrentIndexedBlockClosure = (
           readonly head_seq: number;
           readonly readiness: string;
           readonly authority: string;
+          readonly sync_engine: "yjs" | "canvas_scene";
           readonly materialization_generation: number | null;
           readonly materialization_projected_seq: number | null;
-          readonly scene_generation: number | null;
-          readonly scene_projected_seq: number | null;
         }
       | undefined;
     if (!document) continue;
@@ -440,39 +435,18 @@ const readCurrentIndexedBlockClosure = (
         request,
       );
     }
-    const materializationCoordinates = [
-      document.materialization_generation === null ||
-      document.materialization_projected_seq === null
-        ? null
-        : {
-            generation: document.materialization_generation,
-            headSeq: document.materialization_projected_seq,
-          },
-      document.scene_generation === null ||
-      document.scene_projected_seq === null
-        ? null
-        : {
-            generation: document.scene_generation,
-            headSeq: document.scene_projected_seq,
-          },
-    ].filter(
-      (
-        coordinate,
-      ): coordinate is { readonly generation: number; readonly headSeq: number } =>
-        coordinate !== null,
-    );
     if (
       document.readiness !== "ready" ||
       document.authority !== "ydoc_primary" ||
+      document.sync_engine !== "yjs" ||
       document.generation < 1 ||
       document.head_seq < 1 ||
-      materializationCoordinates.length !== 1 ||
-      materializationCoordinates[0]?.generation !== document.generation ||
-      materializationCoordinates[0]?.headSeq !== document.head_seq
+      document.materialization_generation !== document.generation ||
+      document.materialization_projected_seq !== document.head_seq
     ) {
       return reject(
         "document_state_corrupt",
-        `Owned Document ${document.id} lacks one exact-head primary materialization`,
+        `Owned Document ${document.id} lacks an exact-head block-tree materialization`,
         request,
       );
     }

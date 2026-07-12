@@ -24,7 +24,6 @@ const probes = [
   "block-first-database-transport-runtime-probe",
   "block-first-database-bulk-drag-runtime-probe",
   "block-first-additional-documents-runtime-probe",
-  "block-first-canvas-document-runtime-probe",
   "block-first-document-version-runtime-probe",
   "block-first-document-compaction-runtime-probe",
   "block-first-card-clone-runtime-probe",
@@ -33,7 +32,6 @@ const probes = [
   "block-first-relocation-worker-runtime-probe",
   "block-first-additional-document-command-runtime-probe",
   "block-first-additional-document-command-worker-runtime-probe",
-  "block-first-block-retention-gc-runtime-probe",
   "block-first-card-history-runtime-probe",
   "block-first-database-view-snapshot-runtime-probe",
   "block-first-card-project-transfer-runtime-probe",
@@ -47,7 +45,6 @@ const workerProbes = new Set([
   "block-first-database-transport-runtime-probe",
   "block-first-relocation-worker-runtime-probe",
   "block-first-additional-document-command-worker-runtime-probe",
-  "block-first-block-retention-gc-runtime-probe",
 ]);
 
 const requestedProbes = process.argv.slice(2).filter((argument) => argument !== "--");

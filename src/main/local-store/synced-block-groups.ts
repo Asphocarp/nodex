@@ -15,7 +15,7 @@ import {
 } from "../../shared/block-documents/block-document-codec";
 import { compileBlockTreeReplacementOperations } from "../../shared/block-documents/document-operation-engine";
 import {
-  getRegisteredBlockDocumentSchemaAdapter,
+  getOwnedDocumentSchemaRegistration,
   inspectOwnedBlockDocument,
 } from "../../shared/block-documents/document-schema-adapters";
 import {
@@ -1494,7 +1494,7 @@ const countSyncedBlockSourceInstances = (
   for (const row of rows) {
     let contentModel: "block_tree" | "scene_graph";
     try {
-      contentModel = getRegisteredBlockDocumentSchemaAdapter({
+      contentModel = getOwnedDocumentSchemaRegistration({
         ownerType: row.owner_type,
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,

@@ -24,7 +24,7 @@ import {
   type BlockPropertyJsonValue,
 } from "../../shared/block-property-mutations";
 import type { CardStatus } from "../../shared/card-status";
-import { getRegisteredBlockDocumentSchemaAdapter } from "../../shared/block-documents/document-schema-adapters";
+import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents/document-schema-adapters";
 import {
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
@@ -353,7 +353,7 @@ const readAuthorityClosure = (
     }
     let adapter;
     try {
-      adapter = getRegisteredBlockDocumentSchemaAdapter({
+      adapter = getOwnedDocumentSchemaRegistration({
         ownerType: blocks.find((block) => block.id === document.owner_block_id)?.type ?? "",
         schemaKey: document.schema_key,
         schemaVersion: document.schema_version,
@@ -1354,11 +1354,6 @@ const moveProjectCoordinates = (
      SET project_id = ?
      WHERE block_id = ? AND document_id = ? AND project_id = ?`,
   );
-  const updateCanvasMaterialization = database.prepare(
-    `UPDATE canvas_scene_materializations
-     SET project_id = ?
-     WHERE document_id = ? AND project_id = ?`,
-  );
   const updateCanvasFiles = database.prepare(
     `UPDATE canvas_scene_file_refs
      SET project_id = ?
@@ -1381,11 +1376,6 @@ const moveProjectCoordinates = (
         `Document ownership changed during Card transfer: ${document.document_id}`,
       );
     }
-    updateCanvasMaterialization.run(
-      request.targetProjectId,
-      document.document_id,
-      request.sourceProjectId,
-    );
     updateCanvasFiles.run(
       request.targetProjectId,
       document.document_id,

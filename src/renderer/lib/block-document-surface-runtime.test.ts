@@ -271,9 +271,9 @@ describe("BlockDocumentSurfaceRuntime", () => {
     await Promise.all([first.close(), second.close()]);
   });
 
-  test("passes the descriptor schema identity to local checkpoint recovery", async () => {
+  test("rejects Canvas before constructing a Yjs surface provider", () => {
     const providers: FakeSurfaceProvider[] = [];
-    const runtime = new BlockDocumentSurfaceRuntime({
+    expect(() => new BlockDocumentSurfaceRuntime({
       descriptor: descriptor({
         ownerBlockId: "canvas-1",
         ownerType: CANVAS_BLOCK_TYPE,
@@ -284,18 +284,8 @@ describe("BlockDocumentSurfaceRuntime", () => {
       adapter: unusedAdapter,
       createProvider: createFactory(providers, []),
       localCheckpointStore: null,
-    });
-    const provider = providers[0];
-    if (!provider) throw new Error("Expected provider");
-
-    expect(provider.options.documentSchema?.ownerType).toBe(CANVAS_BLOCK_TYPE);
-    expect(provider.options.documentSchema?.schemaKey).toBe(
-      CANVAS_DOCUMENT_SCHEMA_KEY,
-    );
-    expect(provider.options.documentSchema?.schemaVersion).toBe(
-      CANVAS_DOCUMENT_SCHEMA_VERSION,
-    );
-    await runtime.close();
+    })).toThrow("No owned Document Adapter is registered");
+    expect(providers).toHaveLength(0);
   });
 
   test("runs only surface-local relocation preparers and exposes the write fence", async () => {

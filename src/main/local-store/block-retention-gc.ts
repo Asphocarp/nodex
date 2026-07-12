@@ -2,13 +2,15 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
+  getOwnedDocumentSchemaRegistration,
+  getOwnedDocumentSchemaRegistrationForSchema,
   getRegisteredBlockDocumentSchemaAdapter,
-  getRegisteredBlockDocumentSchemaAdapterForSchema,
   inspectRegisteredOwnedBlockDocument,
   listBlockDocumentSchemaAdapters,
   type RegisteredBlockDocumentSchemaAdapter,
 } from "../../shared/block-documents/document-schema-adapters";
 import { parsePortableCanvasScene } from "../../shared/block-documents/canvas-scene";
+import { MAX_CARD_DOCUMENT_STATE_BYTES } from "../../shared/block-documents/contracts";
 import type { BlockDocumentReference } from "../../shared/block-documents/derived-records";
 import { parseProjectSessionTabConfig } from "../../shared/schemas/project-sessions";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
@@ -166,7 +168,6 @@ const KNOWN_INBOUND_AUTHORITY_TABLES = new Set([
   "canvas_scene_elements",
   "canvas_scene_file_refs",
   "canvas_scene_files",
-  "canvas_scene_materializations",
   "canvas_scene_mutation_receipts",
   "canvas_scenes",
   "card_read_model",
@@ -637,9 +638,9 @@ const analyzeDocumentProjectionRoots = (
   }[];
   for (const document of documents) {
     if (closure.documentIds.has(document.id)) continue;
-    let adapter: RegisteredBlockDocumentSchemaAdapter;
+    let registration;
     try {
-      adapter = getRegisteredBlockDocumentSchemaAdapter({
+      registration = getOwnedDocumentSchemaRegistration({
         ownerType: document.owner_type,
         schemaKey: document.schema_key,
         schemaVersion: document.schema_version,
@@ -651,12 +652,12 @@ const analyzeDocumentProjectionRoots = (
     if (
       document.readiness !== "ready" ||
       document.authority !== "ydoc_primary" ||
-      adapter.syncEngine !== document.sync_engine
+      registration.syncEngine !== document.sync_engine
     ) {
       addProjectionFailure(collector, document.id, "document_not_primary_ready");
       continue;
     }
-    if (adapter.contentModel === "block_tree") {
+    if (registration.contentModel === "block_tree") {
       const materialization = database
         .prepare(
           `
@@ -930,9 +931,9 @@ const analyzeHistoricalDocumentVersionRoots = (
         documentId: version.document_id,
       });
     };
-    let adapter: RegisteredBlockDocumentSchemaAdapter;
+    let registration;
     try {
-      adapter = getRegisteredBlockDocumentSchemaAdapterForSchema({
+      registration = getOwnedDocumentSchemaRegistrationForSchema({
         schemaKey: version.schema_key,
         schemaVersion: version.schema_version,
       });
@@ -943,7 +944,7 @@ const analyzeHistoricalDocumentVersionRoots = (
     if (
       version.byte_length < 1 ||
       version.byte_length !== version.full_update_blob.byteLength ||
-      version.byte_length > adapter.limits.maxStateBytes ||
+      version.byte_length > MAX_CARD_DOCUMENT_STATE_BYTES ||
       !/^[a-f0-9]{64}$/u.test(version.checkpoint_hash) ||
       sha256(version.full_update_blob) !== version.checkpoint_hash
     ) {
@@ -951,7 +952,10 @@ const analyzeHistoricalDocumentVersionRoots = (
       continue;
     }
     if (version.checkpoint_format === "canvas_scene_json_v1") {
-      if (version.state_vector.byteLength !== 0 || adapter.syncEngine !== "canvas_scene") {
+      if (
+        version.state_vector.byteLength !== 0 ||
+        registration.syncEngine !== "canvas_scene"
+      ) {
         corrupt("historical_checkpoint_format_corrupt");
         continue;
       }
@@ -973,8 +977,19 @@ const analyzeHistoricalDocumentVersionRoots = (
       }
       continue;
     }
-    if (adapter.syncEngine !== "yjs") {
+    if (registration.syncEngine !== "yjs") {
       corrupt("historical_checkpoint_format_corrupt");
+      continue;
+    }
+    let adapter: RegisteredBlockDocumentSchemaAdapter;
+    try {
+      adapter = getRegisteredBlockDocumentSchemaAdapter({
+        ownerType: registration.ownerType,
+        schemaKey: version.schema_key,
+        schemaVersion: version.schema_version,
+      });
+    } catch {
+      corrupt("historical_schema_unregistered");
       continue;
     }
     const document = new Y.Doc({ guid: version.document_id });
@@ -1003,18 +1018,6 @@ const analyzeHistoricalDocumentVersionRoots = (
           schemaKey: version.schema_key,
           schemaVersion: version.schema_version,
         }).materialization;
-        if (materialization.kind === "canvas_scene") {
-          for (const reference of materialization.cardReferences) {
-            if (!closure.blockIds.has(reference.targetBlockId)) continue;
-            collector.add("canvas_card_reference", {
-              source: "document_versions",
-              identity: version.version_id,
-              relation: `historical_canvas:${reference.sourceElementId}`,
-              documentId: version.document_id,
-            });
-          }
-          continue;
-        }
         for (const blockId of readBlockTreeIds(
           materialization.blockTree,
           `Document version ${version.version_id} Block tree`,
