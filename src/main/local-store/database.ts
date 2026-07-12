@@ -6,6 +6,7 @@ import { finalizeBlockFirstAuthority } from "./block-first-finalization";
 import {
   CURRENT_SCHEMA_VERSION,
   ensureDatabase,
+  migrateSchema70To71,
   type EnsureDatabaseOptions,
 } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
@@ -99,15 +100,22 @@ export async function initializeDatabase(options?: EnsureDatabaseOptions): Promi
   recoverInterruptedStoreRestore();
   ensureDatabase(options);
   const database = getDb();
-  ensurePrimaryCanvasDocuments(database);
   const schemaVersion = database.pragma("user_version", {
     simple: true,
   }) as number;
-  if (schemaVersion === CURRENT_SCHEMA_VERSION) return;
-  if (schemaVersion !== CURRENT_SCHEMA_VERSION - 1) {
+  if (schemaVersion === CURRENT_SCHEMA_VERSION) {
+    ensurePrimaryCanvasDocuments(database);
+    return;
+  }
+  if (schemaVersion !== 69) {
     throw new Error(
-      `Cannot finalize Block-first schema v${schemaVersion}; expected v${CURRENT_SCHEMA_VERSION - 1}`,
+      `Cannot finalize Block-first schema v${schemaVersion}; expected v69`,
     );
   }
-  await finalizeBlockFirstAuthority(database, CURRENT_SCHEMA_VERSION);
+  // v69 still needs the old Canvas Y.Doc shape while the Block-first fixed
+  // point runs. Only after v70 commits may the scene-native v71 edge execute.
+  ensurePrimaryCanvasDocuments(database);
+  await finalizeBlockFirstAuthority(database, 70);
+  migrateSchema70To71(database);
+  ensurePrimaryCanvasDocuments(database);
 }

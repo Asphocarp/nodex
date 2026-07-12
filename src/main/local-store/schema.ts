@@ -26,14 +26,19 @@ import {
   seededPrimaryDatabaseViewId,
 } from "./project-session-defaults";
 import { dropLegacyBlockFirstTables } from "./block-first-legacy-schema";
+import {
+  cutoverCanvasScenesFromYjs,
+  type CanvasSceneCutoverOptions,
+  type CanvasSceneCutoverResult,
+} from "./canvas-scene-cutover";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 70;
+export const CURRENT_SCHEMA_VERSION = 71;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
-    70,
+    70, 71,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -1155,6 +1160,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
       schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
       state_vector BLOB NOT NULL DEFAULT X'',
       state_hash TEXT NOT NULL DEFAULT '',
+      sync_engine TEXT NOT NULL DEFAULT 'yjs',
       readiness TEXT NOT NULL DEFAULT 'pending_genesis',
       authority TEXT NOT NULL DEFAULT 'legacy_shadow',
       genesis_source_revision INTEGER,
@@ -1162,6 +1168,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL,
       UNIQUE (id, project_id),
       CHECK (readiness IN ('pending_genesis', 'ready', 'failed')),
+      CHECK (sync_engine IN ('yjs', 'canvas_scene')),
       CHECK (authority IN ('legacy_shadow', 'ydoc_primary')),
       CHECK (authority <> 'ydoc_primary' OR readiness = 'ready')
     );
@@ -1918,6 +1925,7 @@ function createBlockSecondaryAuthorityFoundationSchema(
       cause TEXT NOT NULL,
       label TEXT,
       actor_json TEXT NOT NULL DEFAULT '{}',
+      checkpoint_format TEXT NOT NULL DEFAULT 'yjs_update_v1',
       full_update_blob BLOB NOT NULL,
       state_vector BLOB NOT NULL,
       checkpoint_hash TEXT NOT NULL,
@@ -1930,6 +1938,15 @@ function createBlockSecondaryAuthorityFoundationSchema(
       CHECK (length(cause) BETWEEN 1 AND 128),
       CHECK (label IS NULL OR length(label) <= 512),
       CHECK (json_valid(actor_json) AND json_type(actor_json) = 'object'),
+      CHECK (checkpoint_format IN ('yjs_update_v1', 'canvas_scene_json_v1')),
+      CHECK (
+        checkpoint_format <> 'canvas_scene_json_v1'
+        OR (
+          length(state_vector) = 0
+          AND json_valid(CAST(full_update_blob AS TEXT))
+          AND json_type(CAST(full_update_blob AS TEXT)) = 'object'
+        )
+      ),
       CHECK (byte_length = length(full_update_blob)),
       CHECK (
         length(checkpoint_hash) = 64
@@ -3661,7 +3678,7 @@ function createCanvasSceneMaterializationSchema(
  * do not duplicate Project coordinates: ownership and scope remain canonical
  * in documents/block_documents, so a Project transfer never rewrites content.
  */
-function createCanvasSceneAuthoritySchema(db: Database.Database): void {
+export function createCanvasSceneAuthoritySchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS canvas_scenes (
       document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
@@ -3759,6 +3776,33 @@ function createCanvasSceneAuthoritySchema(db: Database.Database): void {
     -- Receipts are immutable while their Document exists. Do not block DELETE:
     -- physical Document retention must be able to cascade the owned evidence.
     DROP TRIGGER IF EXISTS canvas_scene_mutation_receipts_immutable_delete;
+
+    CREATE TRIGGER IF NOT EXISTS canvas_scenes_require_scene_engine
+      BEFORE INSERT ON canvas_scenes
+      WHEN COALESCE((
+        SELECT sync_engine FROM documents WHERE id = NEW.document_id
+      ), '') <> 'canvas_scene'
+      BEGIN
+        SELECT RAISE(ABORT, 'Canvas scene authority requires canvas_scene sync engine');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_updates_require_yjs_engine
+      BEFORE INSERT ON document_updates
+      WHEN COALESCE((
+        SELECT sync_engine FROM documents WHERE id = NEW.document_id
+      ), '') <> 'yjs'
+      BEGIN
+        SELECT RAISE(ABORT, 'Document update requires yjs sync engine');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_snapshots_require_yjs_engine
+      BEFORE INSERT ON document_snapshots
+      WHEN COALESCE((
+        SELECT sync_engine FROM documents WHERE id = NEW.document_id
+      ), '') <> 'yjs'
+      BEGIN
+        SELECT RAISE(ABORT, 'Document snapshot requires yjs sync engine');
+      END;
   `);
 }
 
@@ -7689,6 +7733,92 @@ function migrateSchema68To69(db: Database.Database): void {
   }
 }
 
+export type MigrateSchema70To71Options = CanvasSceneCutoverOptions;
+
+function createV71OwnedDocumentEngineGuards(db: Database.Database): void {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS documents_sync_engine_immutable
+      BEFORE UPDATE OF sync_engine ON documents
+      WHEN NEW.sync_engine <> OLD.sync_engine
+      BEGIN
+        SELECT RAISE(ABORT, 'Owned Document sync engine is immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS canvas_documents_require_empty_yjs_state_insert
+      BEFORE INSERT ON documents
+      WHEN NEW.sync_engine = 'canvas_scene'
+        AND (length(NEW.state_vector) <> 0 OR NEW.state_hash = '')
+      BEGIN
+        SELECT RAISE(ABORT, 'Canvas Document cannot contain Yjs state');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS canvas_documents_require_empty_yjs_state_update
+      BEFORE UPDATE OF state_vector, state_hash ON documents
+      WHEN NEW.sync_engine = 'canvas_scene'
+        AND (length(NEW.state_vector) <> 0 OR NEW.state_hash = '')
+      BEGIN
+        SELECT RAISE(ABORT, 'Canvas Document cannot contain Yjs state');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_update_receipts_require_yjs_engine
+      BEFORE INSERT ON document_update_receipts
+      WHEN COALESCE((
+        SELECT sync_engine FROM documents WHERE id = NEW.document_id
+      ), '') <> 'yjs'
+      BEGIN
+        SELECT RAISE(ABORT, 'Document update receipt requires yjs sync engine');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_versions_validate_checkpoint_format
+      BEFORE INSERT ON document_versions
+      WHEN (
+        NEW.checkpoint_format = 'canvas_scene_json_v1'
+        AND (
+          length(NEW.state_vector) <> 0
+          OR json_valid(CAST(NEW.full_update_blob AS TEXT)) = 0
+          OR json_type(CAST(NEW.full_update_blob AS TEXT)) <> 'object'
+        )
+      ) OR NEW.checkpoint_format NOT IN (
+        'yjs_update_v1', 'canvas_scene_json_v1'
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Document checkpoint format does not match its payload');
+      END;
+  `);
+}
+
+/**
+ * The v71 edge is one atomic content migration. It is also exported so tests
+ * can inject a fault and prove the v70 authority remains retryable.
+ */
+export function migrateSchema70To71(
+  db: Database.Database,
+  options: MigrateSchema70To71Options = {},
+): CanvasSceneCutoverResult {
+  const migrate = db.transaction(() => {
+    if (!tableHasColumn(db, "documents", "sync_engine")) {
+      db.exec(
+        "ALTER TABLE documents ADD COLUMN sync_engine TEXT NOT NULL DEFAULT 'yjs' CHECK (sync_engine IN ('yjs', 'canvas_scene'))",
+      );
+    }
+    if (!tableHasColumn(db, "document_versions", "checkpoint_format")) {
+      db.exec(
+        "ALTER TABLE document_versions ADD COLUMN checkpoint_format TEXT NOT NULL DEFAULT 'yjs_update_v1' CHECK (checkpoint_format IN ('yjs_update_v1', 'canvas_scene_json_v1'))",
+      );
+    }
+    createCanvasSceneAuthoritySchema(db);
+    const result = cutoverCanvasScenesFromYjs(db, options);
+    createV71OwnedDocumentEngineGuards(db);
+    setUserVersion(db, 71);
+    const violations = db.pragma("foreign_key_check") as unknown[];
+    if (violations.length > 0) {
+      throw new Error("Database schema v71 migration left foreign-key violations");
+    }
+    return result;
+  });
+  return migrate.immediate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -8094,6 +8224,19 @@ function runMigrations(
       // advances user_version atomically with the final table drop.
       createSchemaMigrationSafetyBackup(db, 69, 70);
       fromVersion = 70;
+      // The durable store is still v69 here. The asynchronous finalizer must
+      // commit v70 before initializeDatabase invokes the synchronous v71 edge.
+      break;
+    }
+    if (target === 71) {
+      if (fromVersion !== 70 || getUserVersion(db) !== 70) {
+        throw new Error(
+          `Unsupported Nodex database migration target 71 from ${getUserVersion(db)}`,
+        );
+      }
+      createSchemaMigrationSafetyBackup(db, 70, 71);
+      migrateSchema70To71(db);
+      fromVersion = 71;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
@@ -8110,6 +8253,7 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     db.pragma("auto_vacuum = INCREMENTAL");
     createBlockFirstPreFinalizationSchema(db);
     dropLegacyBlockFirstTables(db, CURRENT_SCHEMA_VERSION);
+    createV71OwnedDocumentEngineGuards(db);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -8172,6 +8316,10 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
     // Keep this additive invariant idempotent so databases produced by an
     // earlier v70 development build receive the permanent identity registry.
     createRetiredBlockIdentitySchema(db);
+    if (getUserVersion(db) >= 71) {
+      createCanvasSceneAuthoritySchema(db);
+      createV71OwnedDocumentEngineGuards(db);
+    }
     seedDefaultProjectIfMissing(db);
     const projects = db
       .prepare("SELECT id, created FROM projects")

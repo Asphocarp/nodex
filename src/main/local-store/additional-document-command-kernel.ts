@@ -228,7 +228,7 @@ const readDocumentHeads = (
         ) ||
         Number((head as { readonly generation: number }).generation) < 1 ||
         !Number.isSafeInteger((head as { readonly headSeq?: unknown }).headSeq) ||
-        Number((head as { readonly headSeq: number }).headSeq) < 1
+        Number((head as { readonly headSeq: number }).headSeq) < 0
       ) {
         throw new AdditionalDocumentCommandContractError(
           `Stored Document head ${documentId} is invalid`,

@@ -5,6 +5,7 @@ import {
   CANVAS_DOCUMENT_SCHEMA_KEY,
   CANVAS_DOCUMENT_SCHEMA_VERSION,
   createCanvasDocument,
+  materializePortableCanvasScene,
   primaryCanvasBlockId,
   primaryCanvasDocumentId,
   type CanvasSceneSnapshot,
@@ -12,8 +13,12 @@ import {
 import { getAssetSource, parseAssetSource } from "../../shared/assets";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 import { materializeInlineCanvasImage } from "./assets";
-import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
+import {
+  getOwnedBlockDocumentDescriptor,
+  getOwnedDocumentDescriptor,
+} from "./block-document-cutover";
 import { initializeBlockDocumentGenesis } from "./block-document-store";
+import { initializeCanvasSceneAuthority, syncCanvasScene } from "./canvas-scene-store";
 
 const PRIMARY_CANVAS_RANK_KEY = "e0000000000000000000000000000000";
 
@@ -120,6 +125,29 @@ const assertExistingPrimaryCanvas = (
   projectId: string,
   blockId: string,
 ) => {
+  const schemaVersion = database.pragma("user_version", { simple: true }) as number;
+  if (schemaVersion >= 71) {
+    const descriptor = getOwnedDocumentDescriptor(database, projectId, blockId);
+    const synced = syncCanvasScene(database, {
+      version: 1,
+      projectId,
+      documentId: descriptor.documentId,
+      clientSessionId: "system:primary-canvas-check",
+    });
+    if (
+      descriptor.ownerType === CANVAS_BLOCK_TYPE &&
+      descriptor.ownerLifecycle === "active" &&
+      descriptor.documentId === primaryCanvasDocumentId(projectId) &&
+      descriptor.schemaKey === CANVAS_DOCUMENT_SCHEMA_KEY &&
+      descriptor.schemaVersion === CANVAS_DOCUMENT_SCHEMA_VERSION &&
+      descriptor.readiness === "ready" &&
+      descriptor.sync.kind === "canvas_scene" &&
+      synced.ok
+    ) {
+      return descriptor;
+    }
+    throw new Error(`Project ${projectId} has a corrupt primary Canvas owner`);
+  }
   const descriptor = getOwnedBlockDocumentDescriptor(
     database,
     projectId,
@@ -139,7 +167,7 @@ const assertExistingPrimaryCanvas = (
   throw new Error(`Project ${projectId} has a corrupt primary Canvas owner`);
 };
 
-/** Idempotently bootstrap the Project's default Canvas as an owned Y.Doc. */
+/** Idempotently bootstrap the Project's default Canvas through its live engine. */
 export const ensurePrimaryCanvasDocument = (
   database: Database.Database,
   projectId: string,
@@ -157,6 +185,7 @@ export const ensurePrimaryCanvasDocument = (
   ) {
     throw new Error(`Primary Canvas Document identity collision: ${documentId}`);
   }
+  const schemaVersion = database.pragma("user_version", { simple: true }) as number;
   const scene = readLegacyCanvasScene(database, projectId);
   const create = database.transaction(() => {
     const now = new Date().toISOString();
@@ -195,25 +224,44 @@ export const ensurePrimaryCanvasDocument = (
       `,
       )
       .run(blockId, projectId, PRIMARY_CANVAS_RANK_KEY, now, now);
-    database
-      .prepare(
-        `
-        INSERT INTO documents (
-          id, project_id, generation, head_seq, schema_key, schema_version,
-          state_vector, state_hash, readiness, authority,
-          genesis_source_revision, created_at, updated_at
-        ) VALUES (?, ?, 1, 0, ?, ?, X'', '',
-          'pending_genesis', 'legacy_shadow', NULL, ?, ?)
-      `,
-      )
-      .run(
-        documentId,
-        projectId,
-        CANVAS_DOCUMENT_SCHEMA_KEY,
-        CANVAS_DOCUMENT_SCHEMA_VERSION,
-        now,
-        now,
-      );
+    if (schemaVersion >= 71) {
+      database
+        .prepare(
+          `INSERT INTO documents (
+            id, project_id, generation, head_seq, schema_key, schema_version,
+            state_vector, state_hash, sync_engine, readiness, authority,
+            genesis_source_revision, created_at, updated_at
+          ) VALUES (?, ?, 1, 0, ?, ?, X'', ?, 'canvas_scene',
+            'ready', 'ydoc_primary', NULL, ?, ?)` ,
+        )
+        .run(
+          documentId,
+          projectId,
+          CANVAS_DOCUMENT_SCHEMA_KEY,
+          CANVAS_DOCUMENT_SCHEMA_VERSION,
+          "0".repeat(64),
+          now,
+          now,
+        );
+    } else {
+      database
+        .prepare(
+          `INSERT INTO documents (
+            id, project_id, generation, head_seq, schema_key, schema_version,
+            state_vector, state_hash, readiness, authority,
+            genesis_source_revision, created_at, updated_at
+          ) VALUES (?, ?, 1, 0, ?, ?, X'', '',
+            'pending_genesis', 'legacy_shadow', NULL, ?, ?)` ,
+        )
+        .run(
+          documentId,
+          projectId,
+          CANVAS_DOCUMENT_SCHEMA_KEY,
+          CANVAS_DOCUMENT_SCHEMA_VERSION,
+          now,
+          now,
+        );
+    }
     database
       .prepare(
         `
@@ -223,6 +271,20 @@ export const ensurePrimaryCanvasDocument = (
       `,
       )
       .run(blockId, documentId, projectId, now);
+    if (schemaVersion >= 71) {
+      initializeCanvasSceneAuthority(database, {
+        projectId,
+        documentId,
+        expectedGeneration: 1,
+        expectedHeadSeq: 0,
+        scene: materializePortableCanvasScene({
+          elements: scene.elements,
+          appState: scene.appState,
+          files: scene.files,
+        }),
+      });
+      return;
+    }
     const envelope = createCanvasDocument({ documentId, initialScene: scene });
     try {
       initializeBlockDocumentGenesis(database, {

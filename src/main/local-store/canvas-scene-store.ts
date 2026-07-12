@@ -538,6 +538,7 @@ const assertCardReferencesAreScoped = (
       .prepare(
         `SELECT COUNT(*) AS count FROM blocks
          WHERE project_id = ? AND lifecycle <> 'deleted'
+           AND type = 'card'
            AND id IN (${placeholders})`,
       )
       .get(projectId, ...targetIds) as { readonly count: number }
@@ -588,6 +589,30 @@ export const initializeCanvasSceneAuthority = (
     assertCardReferencesAreScoped(database, input.projectId, scene);
     const updatedAt = input.updatedAt ?? new Date().toISOString();
     const sceneHash = sha256(canonicalPortableCanvasSceneFingerprint(scene));
+    const updatedDocument = database
+      .prepare(
+        `UPDATE documents
+         SET state_vector = X'', state_hash = ?, updated_at = ?
+         WHERE id = ? AND project_id = ?
+           AND generation = ? AND head_seq = ?
+           AND sync_engine = 'canvas_scene'`,
+      )
+      .run(
+        sceneHash,
+        updatedAt,
+        input.documentId,
+        input.projectId,
+        document.generation,
+        document.head_seq,
+      );
+    if (updatedDocument.changes !== 1) {
+      throw new CanvasSceneStoreError(
+        "document_engine_mismatch",
+        `Canvas Document ${input.documentId} is not staged for scene authority`,
+        false,
+        true,
+      );
+    }
     database
       .prepare(
         `INSERT INTO canvas_scenes (

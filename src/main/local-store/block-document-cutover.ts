@@ -63,6 +63,7 @@ interface OwnedDocumentRow {
   readonly readiness: DocumentReadiness;
   readonly authority: DocumentAuthority;
   readonly state_vector: Buffer;
+  readonly sync_engine: "yjs" | "canvas_scene";
 }
 
 interface LegacyCardContentRow {
@@ -114,6 +115,11 @@ const readOwnedDocumentRow = (
   projectId: string,
   ownerBlockId: string,
 ): OwnedDocumentRow => {
+  const hasSyncEngine = (
+    database.prepare("PRAGMA table_info(documents)").all() as readonly {
+      readonly name: string;
+    }[]
+  ).some((column) => column.name === "sync_engine");
   const row = database.prepare(`
     SELECT
       owner.project_id,
@@ -127,7 +133,8 @@ const readOwnedDocumentRow = (
       document.schema_version,
       document.readiness,
       document.authority,
-      document.state_vector
+      document.state_vector,
+      ${hasSyncEngine ? "document.sync_engine" : "'yjs'"} AS sync_engine
     FROM blocks owner
     INNER JOIN block_documents ownership
       ON ownership.block_id = owner.id
@@ -182,7 +189,13 @@ const toOwnedDocumentDescriptor = (
     schemaKey: row.schema_key,
     schemaVersion: row.schema_version,
   });
-  const sync = registration.syncEngine === "yjs"
+  if (registration.syncEngine !== row.sync_engine) {
+    throw new BlockDocumentCutoverError(
+      "document_not_ready",
+      `Document ${row.document_id} stores ${row.sync_engine} but its schema requires ${registration.syncEngine}`,
+    );
+  }
+  const sync = row.sync_engine === "yjs"
     ? {
         kind: "yjs" as const,
         stateVector: new Uint8Array(

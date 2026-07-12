@@ -72,7 +72,7 @@ describe("owned Document descriptor lookup", () => {
         primaryCanvasBlockId(project.id),
       );
       expect(legacyCanvasDescriptor.authority).toBe("ydoc_primary");
-      expect(legacyCanvasDescriptor.stateVector.byteLength).toBeGreaterThan(0);
+      expect(legacyCanvasDescriptor.stateVector.byteLength).toBe(0);
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });

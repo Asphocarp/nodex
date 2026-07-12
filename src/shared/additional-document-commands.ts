@@ -504,7 +504,9 @@ const parseHead = (
   return {
     documentId: readString(head, "documentId", label),
     generation: readInteger(head, "generation", label, 1),
-    headSeq: readInteger(head, "headSeq", label, 1),
+    // Scene-native Canvas genesis is a valid durable head at sequence zero;
+    // Yjs genesis continues to begin at one.
+    headSeq: readInteger(head, "headSeq", label, 0),
   };
 };
 

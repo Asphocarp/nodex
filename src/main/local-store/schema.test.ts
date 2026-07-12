@@ -72,7 +72,9 @@ const seedPreFinalizationStore = (): {
     )
     .run(projectId, now);
   ensureBlockFoundationForProject(database, projectId, now);
-  database.pragma(`user_version = ${CURRENT_SCHEMA_VERSION - 1}`);
+  // The asynchronous Block-first fixed point is specifically the v69→v70
+  // edge. v70 stores have already dropped this legacy fixture shape.
+  database.pragma("user_version = 69");
   database.close();
   return { projectId, now };
 };
@@ -463,7 +465,7 @@ describe("schema v70 Block-first finalization", () => {
     const database = getDb();
     expect(
       database.pragma("user_version", { simple: true }) as number,
-    ).toBe(CURRENT_SCHEMA_VERSION - 1);
+    ).toBe(69);
     const names = new Set(tableNames(database));
     expect(names.has("cards")).toBe(true);
     expect(names.has("legacy_card_shadow_jobs")).toBe(true);

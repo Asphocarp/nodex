@@ -19,8 +19,8 @@ import {
   REUSABLE_TEMPLATE_REFERENCE_TYPE,
   REUSABLE_TEMPLATE_SOURCE_TYPE,
   SYNCED_BLOCK_SOURCE_TYPE,
-  createCanvasDocument,
   createBodyOnlyBlockDocument,
+  materializePortableCanvasScene,
   primaryCanvasBlockId,
   type AdditionalDocumentBearingMutationResult,
   type CreateExplicitDocumentBearingBlock,
@@ -53,6 +53,7 @@ import {
 } from "./block-document-store";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { planDatabaseFractionalRank } from "./database-fractional-rank";
+import { initializeCanvasSceneAuthority } from "./canvas-scene-store";
 
 export type AdditionalDocumentBearingBlockErrorCode =
   | "invalid_request"
@@ -587,6 +588,7 @@ interface StageOwnedDocumentInput {
   readonly documentId: string;
   readonly schemaKey: string;
   readonly schemaVersion: number;
+  readonly syncEngine?: "yjs" | "canvas_scene";
   readonly displayName: string;
   readonly location:
     | {
@@ -674,10 +676,9 @@ const stageOwnedDocument = (
       `
       INSERT INTO documents (
         id, project_id, generation, head_seq, schema_key, schema_version,
-        state_vector, state_hash, readiness, authority,
+        state_vector, state_hash, sync_engine, readiness, authority,
         genesis_source_revision, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, ?, ?, X'', '', 'pending_genesis',
-        'legacy_shadow', NULL, ?, ?)
+      ) VALUES (?, ?, 1, 0, ?, ?, X'', ?, ?, ?, ?, NULL, ?, ?)
     `,
     )
     .run(
@@ -685,6 +686,10 @@ const stageOwnedDocument = (
       input.projectId,
       input.schemaKey,
       input.schemaVersion,
+      input.syncEngine === "canvas_scene" ? "0".repeat(64) : "",
+      input.syncEngine ?? "yjs",
+      input.syncEngine === "canvas_scene" ? "ready" : "pending_genesis",
+      input.syncEngine === "canvas_scene" ? "ydoc_primary" : "legacy_shadow",
       now,
       now,
     );
@@ -773,30 +778,25 @@ const initializeOwnedCanvasDocument = (
     readonly location: Extract<StageOwnedDocumentInput["location"], { kind: "space" }>;
   },
 ): { readonly generation: number; readonly headSeq: number } => {
-  let envelope: ReturnType<typeof createCanvasDocument> | null = null;
   try {
     stageOwnedDocument(database, {
       ...input,
       blockType: CANVAS_BLOCK_TYPE,
       schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
       schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+      syncEngine: "canvas_scene",
     });
-    envelope = createCanvasDocument({ documentId: input.documentId });
-    inspectRegisteredOwnedBlockDocument(envelope.document, {
-      ownerType: CANVAS_BLOCK_TYPE,
-      schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
-      schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
-    });
-    const ack = initializeBlockDocumentGenesis(database, {
+    const initialized = initializeCanvasSceneAuthority(database, {
+      projectId: input.projectId,
       documentId: input.documentId,
-      storeEpoch: input.storeEpoch,
-      generation: 1,
-      updateId: `${input.operationId}:genesis`,
-      clientSessionId: input.clientSessionId,
-      update: Y.encodeStateAsUpdate(envelope.document),
-      finalAuthority: "ydoc_primary",
+      expectedGeneration: 1,
+      expectedHeadSeq: 0,
+      scene: materializePortableCanvasScene({ elements: [] }),
     });
-    return { generation: ack.generation, headSeq: ack.headSeq };
+    return {
+      generation: initialized.generation,
+      headSeq: initialized.headSeq,
+    };
   } catch (error) {
     if (error instanceof AdditionalDocumentBearingBlockError) throw error;
     if (error instanceof BlockDocumentStoreError) {
@@ -813,8 +813,6 @@ const initializeOwnedCanvasDocument = (
       `Canvas genesis violates its registered Document schema: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
-  } finally {
-    envelope?.document.destroy();
   }
 };
 
@@ -1643,11 +1641,11 @@ const collectOwnedDocumentClosure = (
     if (
       document.readiness !== "ready" ||
       document.authority !== "ydoc_primary" ||
-      document.head_seq < 1
+      document.head_seq < 0
     ) {
       throw new AdditionalDocumentBearingBlockError(
         "document_state_corrupt",
-        `Owned Document ${document.id} is not ready Y.Doc authority`,
+        `Owned Document ${document.id} is not ready primary authority`,
       );
     }
     if (documentHeads.has(document.id)) continue;
@@ -1878,7 +1876,11 @@ export const deleteOwnedDocumentSource = (
   const ownerBlockId = requireIdentity(input.ownerBlockId, "ownerBlockId");
   const documentId = requireIdentity(input.documentId, "documentId");
   requireHead(input.expectedGeneration, "expectedGeneration", 1);
-  requireHead(input.expectedHeadSeq, "expectedHeadSeq", 1);
+  requireHead(
+    input.expectedHeadSeq,
+    "expectedHeadSeq",
+    input.ownerKind === "canvas" ? 0 : 1,
+  );
   requireHead(input.expectedMetadataRevision, "expectedMetadataRevision", 1);
   requireHead(input.expectedLocationRevision, "expectedLocationRevision", 1);
   if (

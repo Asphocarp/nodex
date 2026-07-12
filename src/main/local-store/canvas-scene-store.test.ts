@@ -461,6 +461,24 @@ describe("Canvas scene SQLite authority", () => {
       ok: false,
       error: expect.objectContaining({ code: "invalid_canvas_scene_mutation" }),
     });
+    const nonCard = applyCanvasSceneMutation(
+      fixture.database,
+      mutation(fixture, {
+        mutationId: "non-card-reference",
+        elementCandidates: [
+          shape(1, 2, 0, {
+            customData: {
+              type: "nodex-card-reference",
+              targetBlockId: primaryCanvasBlockId(fixture.projectId),
+            },
+          }),
+        ],
+      }),
+    );
+    expect(nonCard).toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: "invalid_canvas_scene_mutation" }),
+    });
     const after = syncCanvasScene(fixture.database, {
       version: 1,
       projectId: fixture.projectId,

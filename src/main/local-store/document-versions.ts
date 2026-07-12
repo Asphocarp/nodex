@@ -13,6 +13,7 @@ import {
   canonicalCanvasSceneSemanticFingerprint,
   compileCanvasForwardRestorePlan,
 } from "../../shared/block-documents/canvas-document";
+import { parsePortableCanvasScene } from "../../shared/block-documents/canvas-scene";
 import { compileBlockTreeReplacementOperations } from "../../shared/block-documents/document-operation-engine";
 import {
   DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -103,6 +104,7 @@ interface StoredDocumentVersionRow {
   readonly cause: string;
   readonly label: string | null;
   readonly actor_json: string;
+  readonly checkpoint_format: "yjs_update_v1" | "canvas_scene_json_v1";
   readonly full_update_blob: Buffer;
   readonly state_vector: Buffer;
   readonly checkpoint_hash: string;
@@ -390,7 +392,7 @@ const readVersionRowById = (
       `
       SELECT
         version_id, document_id, project_id, generation, base_head_seq,
-        schema_key, schema_version, cause, label, actor_json,
+        schema_key, schema_version, cause, label, actor_json, checkpoint_format,
         full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
       FROM document_versions
       WHERE version_id = ?
@@ -423,6 +425,62 @@ const decodeVersionRow = (
     );
   }
   const actor = parseStoredObject(row.actor_json, "Document version actor");
+  if (row.checkpoint_format === "canvas_scene_json_v1") {
+    if (row.state_vector.byteLength !== 0) {
+      throw new DocumentVersionStoreError(
+        "document_version_corrupt",
+        `Canvas Document version ${row.version_id} contains Yjs causal state`,
+      );
+    }
+    let materialization: RegisteredOwnedDocumentMaterialization;
+    try {
+      const adapter = getRegisteredBlockDocumentSchemaAdapterForSchema({
+        schemaKey: row.schema_key,
+        schemaVersion: row.schema_version,
+      });
+      if (adapter.contentModel !== "scene_graph") {
+        throw new TypeError("scene checkpoint uses a non-scene schema");
+      }
+      materialization = parsePortableCanvasScene(
+        JSON.parse(row.full_update_blob.toString("utf8")) as unknown,
+      );
+    } catch (error) {
+      throw new DocumentVersionStoreError(
+        "document_version_corrupt",
+        `Canvas Document version ${row.version_id} cannot be decoded: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return {
+      versionId: row.version_id,
+      documentId: row.document_id,
+      projectId: row.project_id,
+      generation: row.generation,
+      baseHeadSeq: row.base_head_seq,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+      cause: row.cause,
+      label: row.label,
+      actor,
+      checkpointHash: row.checkpoint_hash,
+      stateVectorHash: hashBytes(row.state_vector),
+      materializationHash: materializationHash(materialization),
+      byteLength: row.byte_length,
+      materializationKind: materialization.kind,
+      title: null,
+      preview: materialization.preview,
+      blockCount: materialization.elements.length,
+      createdAt: row.created_at,
+      fullUpdate: asBytes(row.full_update_blob),
+      stateVector: asBytes(row.state_vector),
+      materialization,
+    };
+  }
+  if (row.checkpoint_format !== "yjs_update_v1") {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} uses an unknown checkpoint format`,
+    );
+  }
   const document = new Y.Doc({ guid: row.document_id });
   try {
     try {
@@ -567,7 +625,7 @@ const readIdempotentCheckpoint = (
       `
       SELECT
         version_id, document_id, project_id, generation, base_head_seq,
-        schema_key, schema_version, cause, label, actor_json,
+        schema_key, schema_version, cause, label, actor_json, checkpoint_format,
         full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
       FROM document_versions
       WHERE project_id = ? AND document_id = ?
@@ -952,7 +1010,7 @@ export const listDocumentVersions = (
       `
       SELECT
         version_id, document_id, project_id, generation, base_head_seq,
-        schema_key, schema_version, cause, label, actor_json,
+        schema_key, schema_version, cause, label, actor_json, checkpoint_format,
         full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
       FROM document_versions
       WHERE project_id = ? AND document_id = ?

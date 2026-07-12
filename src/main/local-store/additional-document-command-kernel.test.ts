@@ -807,6 +807,24 @@ describe("additional Document authoritative command kernel", () => {
         expect(createdCanvas.value.effect.createdBlockIds.join(",")).toBe(
           canvasBlockId,
         );
+        expect(
+          database
+            .prepare(
+              `SELECT sync_engine,
+                (SELECT COUNT(*) FROM canvas_scenes WHERE document_id = documents.id) AS scenes,
+                (SELECT COUNT(*) FROM document_updates WHERE document_id = documents.id) AS updates,
+                (SELECT COUNT(*) FROM document_snapshots WHERE document_id = documents.id) AS snapshots,
+                (SELECT COUNT(*) FROM document_update_receipts WHERE document_id = documents.id) AS receipts
+               FROM documents WHERE id = ?`,
+            )
+            .get("document:canvas-secondary"),
+        ).toEqual({
+          sync_engine: "canvas_scene",
+          scenes: 1,
+          updates: 0,
+          snapshots: 0,
+          receipts: 0,
+        });
         const owner = database
           .prepare(
             `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
