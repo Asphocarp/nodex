@@ -59,7 +59,8 @@ export interface CardLifecycleOwnedBlockAuthority {
   readonly lifecycle: "active" | "archived" | "deleted";
   readonly location:
     | Readonly<{ kind: "space"; rankKey: string | null }>
-    | Readonly<{ kind: "document"; documentId: string }>;
+    | Readonly<{ kind: "document"; documentId: string }>
+    | Readonly<{ kind: "database"; databaseBlockId: string }>;
   readonly metadataRevision: number;
   readonly locationRevision: number;
   readonly document: CardLifecycleDocumentCoordinate;
@@ -237,6 +238,35 @@ const requireTopLevelCard = (
   return card;
 };
 
+const requireLifecycleCard = (
+  preflight: CardLifecyclePreflightSnapshot,
+  cardId: string,
+): CardLifecycleOwnedBlockAuthority => {
+  const card = requireCard(preflight, cardId);
+  if (card.location.kind === "document") {
+    return fail(
+      "card_location_invalid",
+      `Nested Card ${cardId} requires a Block transfer`,
+    );
+  }
+  if (card.location.kind === "space" && card.location.rankKey === null) {
+    return fail(
+      "card_location_invalid",
+      `Space Card ${cardId} has no top-level placement`,
+    );
+  }
+  if (
+    card.location.kind === "database" &&
+    card.membership?.databaseBlockId !== card.location.databaseBlockId
+  ) {
+    return fail(
+      "preflight_mismatch",
+      `Database Card ${cardId} has no matching active membership`,
+    );
+  }
+  return card;
+};
+
 const createOperation = (
   intent: Extract<CardLifecycleIntent, { readonly kind: "create" }>,
   preflight: CardLifecyclePreflightSnapshot,
@@ -305,7 +335,7 @@ export const compileCardLifecycleRequest = (input: {
   if (intent.kind === "create") {
     operation = createOperation(intent, preflight);
   } else if (intent.kind === "archive") {
-    const card = requireTopLevelCard(preflight, intent.cardId);
+    const card = requireLifecycleCard(preflight, intent.cardId);
     if (card.lifecycle !== "active") {
       return fail(
         "card_lifecycle_conflict",
@@ -318,7 +348,7 @@ export const compileCardLifecycleRequest = (input: {
       expectedMetadataRevision: card.metadataRevision,
     };
   } else if (intent.kind === "unarchive") {
-    const card = requireTopLevelCard(preflight, intent.cardId);
+    const card = requireLifecycleCard(preflight, intent.cardId);
     if (card.lifecycle !== "archived") {
       return fail(
         "card_lifecycle_conflict",
@@ -331,7 +361,7 @@ export const compileCardLifecycleRequest = (input: {
       expectedMetadataRevision: card.metadataRevision,
     };
   } else if (intent.kind === "delete") {
-    const card = requireTopLevelCard(preflight, intent.cardId);
+    const card = requireLifecycleCard(preflight, intent.cardId);
     if (card.lifecycle === "deleted") {
       return fail(
         "card_lifecycle_conflict",

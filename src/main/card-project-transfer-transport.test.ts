@@ -13,7 +13,7 @@ import {
 } from "./card-project-transfer-ipc";
 
 const intent: PublicCardProjectTransferIntent = {
-  version: 1,
+  version: 2,
   operationId: "transfer-public-1",
   sourceProjectId: "project-a",
   targetProjectId: "project-b",
@@ -30,7 +30,7 @@ const committed = (
 ): CardProjectTransferCommandResult => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     operationId: bound.operationId,
     storeEpoch: "epoch-1",
     sourceProjectId: bound.sourceProjectId,
@@ -48,7 +48,6 @@ const committed = (
     targetDatabaseSchemaRevision: 2,
     targetViewId: bound.target.viewId,
     targetStatus: bound.target.status,
-    targetTopLevelRankKey: "1000",
     targetViewRankKey: "2000",
     changeLogSeq: 9,
     committedAt: "2026-07-12T00:00:00.000Z",

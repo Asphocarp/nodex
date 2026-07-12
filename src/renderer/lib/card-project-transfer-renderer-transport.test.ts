@@ -8,7 +8,7 @@ import {
 } from "./electron-renderer-transport";
 
 const intent: PublicCardProjectTransferIntent = {
-  version: 1,
+  version: 2,
   operationId: "renderer-transfer-1",
   sourceProjectId: "project-a",
   targetProjectId: "project-b",

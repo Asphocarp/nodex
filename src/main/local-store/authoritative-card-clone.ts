@@ -50,7 +50,6 @@ export interface CloneAuthoritativeCardInput {
   readonly lifecycle: "active" | "archived";
   readonly status: CardStatus;
   readonly primaryViewRankKey: string;
-  readonly topLevelRankKey: string;
   readonly propertyOverrides?: AuthoritativeCardClonePropertyOverrides;
   readonly operationId: string;
   readonly clientSessionId?: string;
@@ -379,6 +378,7 @@ const persistIdentity = (
   database: Database.Database,
   input: CloneAuthoritativeCardInput,
   documentId: DocumentId,
+  databaseBlockId: BlockId,
   createdAt: string,
 ): void => {
   database
@@ -386,30 +386,17 @@ const persistIdentity = (
       `
       INSERT INTO blocks (
         id, project_id, type, lifecycle, location_kind,
-        containing_document_id, location_revision, metadata_revision,
+        containing_document_id, containing_database_id,
+        location_revision, metadata_revision,
         created_at, updated_at
-      ) VALUES (?, ?, 'card', ?, 'space', NULL, 1, 1, ?, ?)
+      ) VALUES (?, ?, 'card', ?, 'database', NULL, ?, 1, 1, ?, ?)
     `,
     )
     .run(
       input.newCardId,
       input.projectId,
       input.lifecycle,
-      createdAt,
-      createdAt,
-    );
-  database
-    .prepare(
-      `
-      INSERT INTO top_level_block_placements (
-        block_id, project_id, rank_key, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
-    `,
-    )
-    .run(
-      input.newCardId,
-      input.projectId,
-      input.topLevelRankKey,
+      databaseBlockId,
       createdAt,
       createdAt,
     );
@@ -593,10 +580,6 @@ export const cloneAuthoritativeCardInTransaction = (
       rawInput.primaryViewRankKey,
       "primaryViewRankKey",
     ),
-    topLevelRankKey: requireIdentity(
-      rawInput.topLevelRankKey,
-      "topLevelRankKey",
-    ),
   };
   assertUuidV7(input.newCardId, "new Card Block id");
   if (input.newCardId === input.sourceCardId) {
@@ -620,7 +603,6 @@ export const cloneAuthoritativeCardInTransaction = (
         lifecycle: input.lifecycle,
         status: input.status,
         primaryViewRankKey: input.primaryViewRankKey,
-        topLevelRankKey: input.topLevelRankKey,
         ...(input.propertyOverrides
           ? { propertyOverrides: input.propertyOverrides }
           : {}),
@@ -682,7 +664,13 @@ export const cloneAuthoritativeCardInTransaction = (
       blockTree: remapped.blockTree,
     });
 
-    persistIdentity(database, input, documentId, createdAt);
+    persistIdentity(
+      database,
+      input,
+      documentId,
+      source.database_block_id,
+      createdAt,
+    );
     inject("after_identity");
     const membershipId = persistRelationalProperties(
       database,

@@ -34,11 +34,11 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 71;
+export const CURRENT_SCHEMA_VERSION = 72;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
-    70, 71,
+  70, 71, 72,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -1102,6 +1102,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
       lifecycle TEXT NOT NULL DEFAULT 'active',
       location_kind TEXT NOT NULL,
       containing_document_id TEXT,
+      containing_database_id TEXT,
       location_revision INTEGER NOT NULL DEFAULT 1 CHECK (location_revision >= 1),
       metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK (metadata_revision >= 1),
       created_at TEXT NOT NULL,
@@ -1109,10 +1110,19 @@ function createBlockFoundationSchema(db: Database.Database): void {
       UNIQUE (id, project_id),
       FOREIGN KEY (containing_document_id, project_id)
         REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (containing_database_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id) ON DELETE RESTRICT,
       CHECK (lifecycle IN ('active', 'archived', 'deleted')),
       CHECK (
-        (location_kind = 'space' AND containing_document_id IS NULL)
-        OR (location_kind = 'document' AND containing_document_id IS NOT NULL)
+        (location_kind = 'space'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'document'
+          AND containing_document_id IS NOT NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'database'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NOT NULL)
       )
     );
 
@@ -1120,6 +1130,8 @@ function createBlockFoundationSchema(db: Database.Database): void {
       ON blocks(project_id, lifecycle, type);
     CREATE INDEX IF NOT EXISTS idx_blocks_containing_document
       ON blocks(containing_document_id, lifecycle);
+    CREATE INDEX IF NOT EXISTS idx_blocks_containing_database
+      ON blocks(containing_database_id, lifecycle, id);
 
     CREATE TABLE IF NOT EXISTS block_properties (
       block_id TEXT NOT NULL,
@@ -1200,15 +1212,16 @@ function createBlockFoundationSchema(db: Database.Database): void {
         SELECT RAISE(ABORT, 'top-level placement requires a space block');
       END;
 
-    CREATE TRIGGER IF NOT EXISTS blocks_document_location_has_no_top_level_placement
-      BEFORE UPDATE OF location_kind, containing_document_id ON blocks
-      WHEN NEW.location_kind = 'document'
+    CREATE TRIGGER IF NOT EXISTS blocks_non_space_location_has_no_top_level_placement
+      BEFORE UPDATE OF location_kind, containing_document_id, containing_database_id
+      ON blocks
+      WHEN NEW.location_kind <> 'space'
         AND EXISTS (
           SELECT 1 FROM top_level_block_placements placement
           WHERE placement.block_id = NEW.id
         )
       BEGIN
-        SELECT RAISE(ABORT, 'document block location cannot retain a top-level placement');
+        SELECT RAISE(ABORT, 'non-space block location cannot retain a top-level placement');
       END;
 
     CREATE TABLE IF NOT EXISTS block_documents (
@@ -2394,6 +2407,7 @@ function createBlockSecondaryAuthorityFoundationSchema(
       lifecycle TEXT NOT NULL,
       location_kind TEXT NOT NULL,
       containing_document_id TEXT,
+      containing_database_id TEXT,
       top_level_rank_key TEXT,
       location_revision INTEGER NOT NULL CHECK (location_revision >= 1),
       metadata_revision INTEGER NOT NULL CHECK (metadata_revision >= 1),
@@ -2424,16 +2438,26 @@ function createBlockSecondaryAuthorityFoundationSchema(
         REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
       FOREIGN KEY (containing_document_id, project_id)
         REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY (containing_database_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
       FOREIGN KEY (membership_id, database_block_id, project_id)
         REFERENCES database_memberships(id, database_block_id, project_id)
         ON UPDATE CASCADE ON DELETE CASCADE,
       FOREIGN KEY (view_id, project_id)
         REFERENCES database_views(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
       CHECK (lifecycle IN ('active', 'archived', 'deleted')),
-      CHECK (location_kind IN ('space', 'document')),
+      CHECK (location_kind IN ('space', 'document', 'database')),
       CHECK (
-        (location_kind = 'space' AND containing_document_id IS NULL)
-        OR (location_kind = 'document' AND containing_document_id IS NOT NULL)
+        (location_kind = 'space'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'document'
+          AND containing_document_id IS NOT NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'database'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NOT NULL)
       ),
       CHECK (document_authority IN ('legacy_shadow', 'ydoc_primary')),
       CHECK (
@@ -2483,6 +2507,7 @@ function createBlockSecondaryAuthorityFoundationSchema(
           AND card.lifecycle = NEW.lifecycle
           AND card.location_kind = NEW.location_kind
           AND card.containing_document_id IS NEW.containing_document_id
+          AND card.containing_database_id IS NEW.containing_database_id
           AND card.location_revision = NEW.location_revision
           AND card.metadata_revision = NEW.metadata_revision
           AND ownership.document_id = NEW.document_id
@@ -2544,6 +2569,7 @@ function createBlockSecondaryAuthorityFoundationSchema(
           AND card.lifecycle = NEW.lifecycle
           AND card.location_kind = NEW.location_kind
           AND card.containing_document_id IS NEW.containing_document_id
+          AND card.containing_database_id IS NEW.containing_database_id
           AND card.location_revision = NEW.location_revision
           AND card.metadata_revision = NEW.metadata_revision
           AND ownership.document_id = NEW.document_id
@@ -2871,7 +2897,14 @@ export function getSchemaMigrationTargets(
   const index = MIGRATION_TARGETS.indexOf(
     currentVersion as (typeof MIGRATION_TARGETS)[number],
   );
-  if (index >= 0) return MIGRATION_TARGETS.slice(index + 1);
+  if (index >= 0) {
+    const targets = MIGRATION_TARGETS.slice(index + 1);
+    const blockFirstFinalizationIndex = targets.indexOf(70);
+    if (blockFirstFinalizationIndex >= 0) {
+      return targets.slice(0, blockFirstFinalizationIndex + 1);
+    }
+    return targets;
+  }
   return null;
 }
 
@@ -7884,6 +7917,356 @@ export function migrateSchema70To71(
   return migrate.immediate();
 }
 
+interface NamedSchemaSql {
+  readonly name: string;
+  readonly sql: string | null;
+}
+
+function createExclusiveCardParentTriggers(db: Database.Database): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS database_memberships_require_card_block;
+    DROP TRIGGER IF EXISTS database_memberships_updates_require_card_block;
+    DROP TRIGGER IF EXISTS blocks_active_membership_requires_database_location;
+    DROP TRIGGER IF EXISTS blocks_document_location_has_no_top_level_placement;
+    DROP TRIGGER IF EXISTS blocks_non_space_location_has_no_top_level_placement;
+
+    CREATE TRIGGER database_memberships_require_card_block
+      BEFORE INSERT ON database_memberships
+      WHEN NEW.removed_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks card
+          WHERE card.id = NEW.card_block_id
+            AND card.project_id = NEW.project_id
+            AND card.type = 'card'
+            AND card.location_kind = 'database'
+            AND card.containing_database_id = NEW.database_block_id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'active database membership must match the Card database parent');
+      END;
+
+    CREATE TRIGGER database_memberships_updates_require_card_block
+      BEFORE UPDATE OF database_block_id, card_block_id, project_id, removed_at
+      ON database_memberships
+      WHEN NEW.removed_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks card
+          WHERE card.id = NEW.card_block_id
+            AND card.project_id = NEW.project_id
+            AND card.type = 'card'
+            AND card.location_kind = 'database'
+            AND card.containing_database_id = NEW.database_block_id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'active database membership must match the Card database parent');
+      END;
+
+    CREATE TRIGGER blocks_active_membership_requires_database_location
+      BEFORE UPDATE OF location_kind, containing_document_id, containing_database_id,
+        project_id, type
+      ON blocks
+      WHEN EXISTS (
+        SELECT 1
+        FROM database_memberships membership
+        WHERE membership.card_block_id = OLD.id
+          AND membership.removed_at IS NULL
+          AND (
+            NEW.type <> 'card'
+            OR NEW.project_id <> membership.project_id
+            OR NEW.location_kind <> 'database'
+            OR NEW.containing_database_id IS NOT membership.database_block_id
+          )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Card location cannot diverge from its active database membership');
+      END;
+
+    CREATE TRIGGER blocks_non_space_location_has_no_top_level_placement
+      BEFORE UPDATE OF location_kind, containing_document_id, containing_database_id
+      ON blocks
+      WHEN NEW.location_kind <> 'space'
+        AND EXISTS (
+          SELECT 1 FROM top_level_block_placements placement
+          WHERE placement.block_id = NEW.id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'non-space block location cannot retain a top-level placement');
+      END;
+  `);
+}
+
+function assertExclusiveCardParentParity(db: Database.Database): void {
+  const invalidLocation = db
+    .prepare(
+      `
+      SELECT id
+      FROM blocks
+      WHERE NOT (
+        (location_kind = 'space'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'document'
+          AND containing_document_id IS NOT NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'database'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NOT NULL)
+      )
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly id: string } | undefined;
+  if (invalidLocation) {
+    throw new Error(
+      `Database schema v72 found invalid Block location ${invalidLocation.id}`,
+    );
+  }
+
+  const mismatchedMembership = db
+    .prepare(
+      `
+      SELECT membership.card_block_id AS cardId
+      FROM database_memberships membership
+      LEFT JOIN blocks card ON card.id = membership.card_block_id
+      WHERE membership.removed_at IS NULL
+        AND (
+          card.id IS NULL
+          OR card.project_id <> membership.project_id
+          OR card.type <> 'card'
+          OR card.location_kind <> 'database'
+          OR card.containing_database_id IS NOT membership.database_block_id
+        )
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly cardId: string } | undefined;
+  if (mismatchedMembership) {
+    throw new Error(
+      `Database schema v72 found mismatched membership for Card ${mismatchedMembership.cardId}`,
+    );
+  }
+
+  const databaseCardWithoutMembership = db
+    .prepare(
+      `
+      SELECT card.id
+      FROM blocks card
+      WHERE card.type = 'card'
+        AND card.lifecycle <> 'deleted'
+        AND card.location_kind = 'database'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM database_memberships membership
+          WHERE membership.card_block_id = card.id
+            AND membership.project_id = card.project_id
+            AND membership.database_block_id = card.containing_database_id
+            AND membership.removed_at IS NULL
+        )
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly id: string } | undefined;
+  if (databaseCardWithoutMembership) {
+    throw new Error(
+      `Database schema v72 found Database Card without active membership ${databaseCardWithoutMembership.id}`,
+    );
+  }
+
+  const misplacedTopLevel = db
+    .prepare(
+      `
+      SELECT placement.block_id AS blockId
+      FROM top_level_block_placements placement
+      INNER JOIN blocks block ON block.id = placement.block_id
+      WHERE block.location_kind <> 'space'
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly blockId: string } | undefined;
+  if (misplacedTopLevel) {
+    throw new Error(
+      `Database schema v72 found non-Space top-level placement ${misplacedTopLevel.blockId}`,
+    );
+  }
+}
+
+function rebuildBlocksForExclusiveCardParents(db: Database.Database): void {
+  const retainedTriggers = db
+    .prepare(
+      `
+      SELECT name, sql
+      FROM sqlite_schema
+      WHERE type = 'trigger'
+        AND tbl_name = 'blocks'
+        AND name NOT IN (
+          'blocks_document_location_has_no_top_level_placement',
+          'blocks_non_space_location_has_no_top_level_placement',
+          'blocks_active_membership_requires_database_location'
+        )
+      ORDER BY name
+    `,
+    )
+    .all() as NamedSchemaSql[];
+
+  db.exec(`
+    ALTER TABLE blocks RENAME TO blocks_v71;
+
+    CREATE TABLE blocks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      location_kind TEXT NOT NULL,
+      containing_document_id TEXT,
+      containing_database_id TEXT,
+      location_revision INTEGER NOT NULL DEFAULT 1 CHECK (location_revision >= 1),
+      metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK (metadata_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, project_id),
+      FOREIGN KEY (containing_document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (containing_database_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id) ON DELETE RESTRICT,
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (
+        (location_kind = 'space'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'document'
+          AND containing_document_id IS NOT NULL
+          AND containing_database_id IS NULL)
+        OR (location_kind = 'database'
+          AND containing_document_id IS NULL
+          AND containing_database_id IS NOT NULL)
+      )
+    );
+
+    INSERT INTO blocks (
+      id, project_id, type, lifecycle, location_kind,
+      containing_document_id, containing_database_id,
+      location_revision, metadata_revision, created_at, updated_at
+    )
+    SELECT
+      block.id,
+      block.project_id,
+      block.type,
+      block.lifecycle,
+      CASE WHEN membership.id IS NOT NULL THEN 'database' ELSE block.location_kind END,
+      CASE WHEN membership.id IS NOT NULL THEN NULL ELSE block.containing_document_id END,
+      membership.database_block_id,
+      block.location_revision + CASE WHEN membership.id IS NOT NULL THEN 1 ELSE 0 END,
+      block.metadata_revision,
+      block.created_at,
+      CASE
+        WHEN membership.id IS NOT NULL THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        ELSE block.updated_at
+      END
+    FROM blocks_v71 block
+    LEFT JOIN database_memberships membership
+      ON membership.card_block_id = block.id
+      AND membership.removed_at IS NULL;
+
+    DROP TABLE blocks_v71;
+
+    CREATE INDEX idx_blocks_project_lifecycle_type
+      ON blocks(project_id, lifecycle, type);
+    CREATE INDEX idx_blocks_containing_document
+      ON blocks(containing_document_id, lifecycle);
+    CREATE INDEX idx_blocks_containing_database
+      ON blocks(containing_database_id, lifecycle, id);
+  `);
+
+  for (const trigger of retainedTriggers) {
+    if (!trigger.sql) continue;
+    db.exec(trigger.sql);
+  }
+}
+
+function migrateSchema71To72(db: Database.Database): void {
+  const conflictingCard = db
+    .prepare(
+      `
+      SELECT block.id, membership.database_block_id AS databaseBlockId
+      FROM blocks block
+      INNER JOIN database_memberships membership
+        ON membership.card_block_id = block.id
+        AND membership.removed_at IS NULL
+      WHERE block.location_kind = 'document'
+      LIMIT 1
+    `,
+    )
+    .get() as
+    | { readonly id: string; readonly databaseBlockId: string }
+    | undefined;
+  if (conflictingCard) {
+    throw new Error(
+      `Cannot migrate Card ${conflictingCard.id}: it is both Document-located and an active member of Database ${conflictingCard.databaseBlockId}`,
+    );
+  }
+
+  db.pragma("foreign_keys = OFF");
+  db.pragma("legacy_alter_table = ON");
+  try {
+    const migrate = db.transaction(() => {
+      db.exec("DROP TABLE IF EXISTS card_read_model");
+      db.exec(`
+        DELETE FROM top_level_block_placements
+        WHERE block_id IN (
+          SELECT membership.card_block_id
+          FROM database_memberships membership
+          WHERE membership.removed_at IS NULL
+        )
+      `);
+
+      if (!tableHasColumn(db, "blocks", "containing_database_id")) {
+        rebuildBlocksForExclusiveCardParents(db);
+      } else {
+        db.exec(`
+          UPDATE blocks
+          SET location_kind = 'database',
+              containing_document_id = NULL,
+              containing_database_id = (
+                SELECT membership.database_block_id
+                FROM database_memberships membership
+                WHERE membership.card_block_id = blocks.id
+                  AND membership.removed_at IS NULL
+              ),
+              location_revision = location_revision + 1,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE EXISTS (
+            SELECT 1
+            FROM database_memberships membership
+            WHERE membership.card_block_id = blocks.id
+              AND membership.removed_at IS NULL
+          )
+            AND location_kind <> 'database';
+        `);
+      }
+
+      createExclusiveCardParentTriggers(db);
+      createBlockSecondaryAuthorityFoundationSchema(db);
+      assertExclusiveCardParentParity(db);
+      setUserVersion(db, 72);
+    });
+    migrate.immediate();
+  } finally {
+    db.pragma("legacy_alter_table = OFF");
+    db.pragma("foreign_keys = ON");
+  }
+
+  const foreignKeys = db.pragma("foreign_key_check") as unknown[];
+  if (foreignKeys.length > 0) {
+    throw new Error("Database schema v72 migration failed foreign_key_check");
+  }
+  const integrity = db.pragma("integrity_check") as Array<{
+    readonly integrity_check: string;
+  }>;
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
+    throw new Error("Database schema v72 migration failed integrity_check");
+  }
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -8307,6 +8690,17 @@ function runMigrations(
       fromVersion = 71;
       continue;
     }
+    if (target === 72) {
+      if (fromVersion !== 71) {
+        throw new Error(
+          `Unsupported Nodex database migration target 72 from ${fromVersion}`,
+        );
+      }
+      createSchemaMigrationSafetyBackup(db, 71, 72);
+      migrateSchema71To72(db);
+      fromVersion = 72;
+      continue;
+    }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
   }
   options.onMigrationProgress?.({ type: "Done" });
@@ -8325,6 +8719,8 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     ensureV71DocumentEngineColumns(db);
     createCanvasSceneAuthoritySchema(db);
     createV71OwnedDocumentEngineGuards(db);
+    createExclusiveCardParentTriggers(db);
+    assertExclusiveCardParentParity(db);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }

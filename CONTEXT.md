@@ -1,6 +1,6 @@
 # Nodex Domain Context
 
-This document defines the canonical Block-first domain language for Nodex. Schema v71 implements engine-neutral Owned Documents and scene-native Canvas authority directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store through v70 before normal runtime begins; they are migration code, not an alternate authority.
+This document defines the canonical Block-first domain language for Nodex. Schema v72 implements engine-neutral Owned Documents, scene-native Canvas authority, and exclusive Card parents directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store through v70 before normal runtime begins; they are migration code, not an alternate authority.
 
 ## Product boundary
 
@@ -26,7 +26,7 @@ Physical retention may remove the live Block row only after global reachability 
 
 A Card is the user-facing name for a document-bearing Block. A Card has no separate storage identity: the Card ID is its Block ID. Every Card owns exactly one Document containing its collaborative title and body.
 
-A Card can be placed directly in a Space, nested in another Document, or shown through references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
+A Card has exactly one parent: a Space, another Document, or a Database. It can also be shown through non-owning references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
 
 Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready descriptor whose registered sync engine is `yjs` may mount Card Stage; the current schema has no snapshot-editor fallback.
 
@@ -73,6 +73,7 @@ Placement answers where an active Block lives. A Block has exactly one content l
 
 - `space`: directly under a Project/Space, ordered by a fractional `rankKey`.
 - `document`: inside one containing Document; parent and order are authoritative in that Yjs tree.
+- `database`: a Card child of one Database, with its typed placement detail in one matching active membership.
 
 Top-level Space order and Database View manual order are independent orderings. Both use fractional keys and `blockId` as a stable tie-breaker. SQL rank is never authoritative for order inside a Yjs Document.
 
@@ -82,7 +83,9 @@ A Database is a Block with a Database capability. The capability owns property d
 
 ### Database membership
 
-Database membership associates an existing Card with one owning Database. A Card has zero or one active owning membership. Membership does not create a second Card, change the Card's content placement, or copy its Document.
+Database membership is the typed placement record for an existing Card whose exclusive parent is that Database. It does not create a second Card or copy its Document. A Space- or Document-parented Card has no active membership; a Database-parented Card has exactly one matching active membership.
+
+Leaving a Database tombstones the membership but retains its property values as dormant data. Dormant values are excluded from active queries, scheduling, summaries, and mutations. Returning to the same Database reactivates the same membership and restores those values.
 
 Linked Database views and reference Blocks do not count as memberships.
 
@@ -158,7 +161,7 @@ Schema v64 stores the immutable relocation request/result, moved-member set, sou
 
 ### Card Project transfer
 
-A Card Project transfer moves one active top-level Card plus the complete recursively owned Document/Block closure. Traversal follows `block_documents` ownership only; Card, Database View, Synced Block, Template, and Canvas references remain external targets and are never pulled into the new Space. Every Block ID, Document ID, generation/head, and engine-specific authority identity is preserved; Yjs state vectors and internal identities remain unchanged for `block_tree` Documents.
+A Card Project transfer moves one active Database-parented Card plus the complete recursively owned Document/Block closure. Traversal follows `block_documents` ownership only; Card, Database View, Synced Block, Template, and Canvas references remain external targets and are never pulled into the new Space. Every Block ID, Document ID, generation/head, and engine-specific authority identity is preserved; Yjs state vectors, persisted updates, and internal identities remain unchanged for `block_tree` Documents.
 
 Electron, browser, renderer, and CLI callers submit only logical intent: operation ID, source/target Project, Card, target Database/View/status, and optional placement anchors. The FIFO writer first checks that intent against an immutable receipt, then compiles one exact snapshot of Block revisions, every recursively owned Document head, active Card memberships, root placement, and target schema. The realtime Hub leases every Document in that closure, lets mounted editors finish IME/flush/freeze, and asks the same FIFO to compile again; the second snapshot must retain the same logical intent/Document closure and observe every resolved head before commit.
 
@@ -189,9 +192,9 @@ The writer requires target properties to represent every source value, tombstone
 ## Invariants
 
 1. `blocks.id` is the single application identity for content. A Card ID is a Block ID.
-2. Every active Block belongs to exactly one Project/Space and has exactly one content location: directly in that Space or in one containing Document.
+2. Every active Block belongs to exactly one Project/Space and has exactly one content location: Space, containing Document, or containing Database.
 3. Every Card owns exactly one active Document. Registered Synced Block, Template, Large Document/Code, and Canvas owners use their registered Document schema; ordinary body Blocks do not own Documents.
-4. One active Card has at most one owning Database membership.
+4. A Database-parented active Card has exactly one matching active membership; a Space- or Document-parented Card has none.
 5. A reference never changes the target's location or membership and never embeds the target's body in the host Y.Doc.
 6. A committed engine mutation is idempotent by its Document-scoped mutation identity and is acknowledged only after its SQLite transaction commits. Yjs update receipts outlive compactable binary tails; Canvas mutation receipts bind the canonical scene request to its first durable outcome.
 7. `headSeq` orders local persistence for every engine. A Yjs state vector represents only `yjs` causal content state; a Canvas scene hash protects only canonical scene content. None substitutes for another.

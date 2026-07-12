@@ -229,13 +229,12 @@ describe("BlockMutationWriter", () => {
       publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
     const input: CardProjectTransferRequest = {
-      version: 1,
+      version: 2,
       operationId: "transfer-writer-1",
       storeEpoch: "epoch-1",
       sourceProjectId: "project-a",
       targetProjectId: "project-b",
       cardId: "card-1",
-      expectedTopLevelRankKey: "1000",
       expectedBlocks: [
         {
           blockId: "card-1",
@@ -289,7 +288,7 @@ describe("BlockMutationWriter", () => {
       result: {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           operationId: input.operationId,
           storeEpoch: input.storeEpoch,
           sourceProjectId: input.sourceProjectId,
@@ -309,7 +308,6 @@ describe("BlockMutationWriter", () => {
           targetDatabaseSchemaRevision: 2,
           targetViewId: "view-b",
           targetStatus: "in_progress",
-          targetTopLevelRankKey: "2000",
           targetViewRankKey: "3000",
           changeLogSeq: 8,
           committedAt: "2026-07-12T00:00:00.000Z",

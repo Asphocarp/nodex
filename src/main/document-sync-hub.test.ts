@@ -333,7 +333,7 @@ const relocationResult = (
 });
 
 const cardProjectTransferIntent = (): CardProjectTransferIntent => ({
-  version: 1,
+  version: 2,
   operationId: "card-transfer-1",
   sourceProjectId: "project-source",
   targetProjectId: "project-target",
@@ -352,13 +352,12 @@ const cardProjectTransferRequest = (
   rootHeadSeq: number,
   nestedHeadSeq: number,
 ): CardProjectTransferRequest => ({
-  version: 1,
+  version: 2,
   operationId: intent.operationId,
   storeEpoch: "epoch-1",
   sourceProjectId: intent.sourceProjectId,
   targetProjectId: intent.targetProjectId,
   cardId: intent.cardId,
-  expectedTopLevelRankKey: "1000",
   expectedBlocks: [
     {
       blockId: "card-root",
@@ -422,7 +421,7 @@ const cardProjectTransferReceipt = (
   intent: CardProjectTransferIntent,
   duplicate: boolean,
 ): CardProjectTransferReceipt => ({
-  version: 1,
+  version: 2,
   operationId: intent.operationId,
   storeEpoch: "epoch-1",
   sourceProjectId: intent.sourceProjectId,
@@ -443,7 +442,6 @@ const cardProjectTransferReceipt = (
   targetDatabaseSchemaRevision: 1,
   targetViewId: intent.target.viewId,
   targetStatus: intent.target.status,
-  targetTopLevelRankKey: "2000",
   targetViewRankKey: "3000",
   changeLogSeq: 10,
   committedAt: "2026-07-12T00:00:00.000Z",

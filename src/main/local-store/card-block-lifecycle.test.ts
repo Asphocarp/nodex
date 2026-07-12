@@ -195,11 +195,22 @@ const detachMembership = (fixture: Fixture, cardId: string): void => {
         .prepare(
           `
         UPDATE blocks
-        SET metadata_revision = metadata_revision + 1, updated_at = ?
+        SET location_kind = 'space', containing_database_id = NULL,
+            location_revision = location_revision + 1,
+            metadata_revision = metadata_revision + 1, updated_at = ?
         WHERE id = ? AND project_id = ?
       `,
         )
         .run(now, cardId, fixture.projectId);
+      fixture.database
+        .prepare(
+          `
+          INSERT INTO top_level_block_placements (
+            block_id, project_id, rank_key, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?)
+        `,
+        )
+        .run(cardId, fixture.projectId, `standalone:${cardId}`, now, now);
       refreshScheduledCardIndexProjection(
         fixture.database,
         fixture.projectId,
@@ -295,20 +306,14 @@ describe("authoritative Card lifecycle kernel", () => {
   );
 
   sqliteTest(
-    "creates, moves, archives, deletes, and restores one Card without a cards row",
+    "creates, archives, deletes, and restores one Database Card without a cards row",
     async () => {
       await withFixture((fixture) => {
         const firstId = createUuidV7();
-        const secondId = createUuidV7();
         const first = committed(
           fixture,
           "create-first",
           createOperation(firstId, "First"),
-        );
-        committed(
-          fixture,
-          "create-second",
-          createOperation(secondId, "Second"),
         );
 
         expect(
@@ -328,13 +333,6 @@ describe("authoritative Card lifecycle kernel", () => {
         expect(card?.status).toBe("draft");
         expect(first.documentHeadSeq).toBe(1);
 
-        const moved = committed(fixture, "move-first", {
-          kind: "move_card_in_space",
-          cardId: firstId,
-          expectedLocationRevision: 1,
-          beforeBlockId: secondId,
-        });
-        expect(moved.locationRevision).toBe(2);
         const archived = committed(fixture, "archive-first", {
           kind: "archive_card",
           cardId: firstId,
@@ -346,7 +344,7 @@ describe("authoritative Card lifecycle kernel", () => {
           kind: "delete_card",
           cardId: firstId,
           expectedMetadataRevision: archived.metadataRevision,
-          expectedLocationRevision: moved.locationRevision,
+          expectedLocationRevision: first.locationRevision,
         });
         expect(deleted.lifecycle).toBe("deleted");
         expect(
@@ -984,7 +982,7 @@ describe("authoritative Card lifecycle kernel", () => {
         if (!tombstone.ok) return;
         expect(tombstone.value.changeLogSeq).toBe(deleted.changeLogSeq);
         expect(tombstone.value.value?.card?.lifecycle).toBe("deleted");
-        expect(tombstone.value.value?.card?.location.kind).toBe("space");
+        expect(tombstone.value.value?.card?.location.kind).toBe("database");
         expect(tombstone.value.value?.card?.restoreEvidence?.deleteOperationId).toBe(
           "delete-preflight",
         );

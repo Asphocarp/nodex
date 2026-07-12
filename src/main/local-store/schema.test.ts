@@ -25,7 +25,7 @@ const tempDirectories: string[] = [];
 const useTempStore = (): string => {
   closeDatabase();
   const directory = fs.mkdtempSync(
-    path.join(os.tmpdir(), "nodex-schema-v70-"),
+    path.join(os.tmpdir(), "nodex-schema-v72-"),
   );
   tempDirectories.push(directory);
   process.env.NODEX_DIR = directory;
@@ -73,7 +73,7 @@ const seedPreFinalizationStore = (): {
     .run(projectId, now);
   ensureBlockFoundationForProject(database, projectId, now);
   // The asynchronous Block-first fixed point is specifically the v69→v70
-  // edge. v70 stores have already dropped this legacy fixture shape.
+  // edge. Later schema edges have already dropped this legacy fixture shape.
   database.pragma("user_version = 69");
   database.close();
   return { projectId, now };
@@ -136,7 +136,7 @@ describe("schema v70 Block-first finalization", () => {
 
     await initializeDatabase();
     const after = getDb();
-    expect(after.pragma("user_version", { simple: true })).toBe(71);
+    expect(after.pragma("user_version", { simple: true })).toBe(72);
     expect(
       (after.prepare("PRAGMA table_info(documents)").all() as readonly {
         readonly name: string;
@@ -152,7 +152,7 @@ describe("schema v70 Block-first finalization", () => {
     ).toEqual({ name: "document_updates_require_yjs_engine" });
   });
 
-  test("repairs an existing v71 Canvas receipt table without result hashes", async () => {
+  test("repairs an existing Canvas receipt table without result hashes", async () => {
     useTempStore();
     await initializeDatabase();
     closeDatabase();
@@ -248,6 +248,9 @@ describe("schema v70 Block-first finalization", () => {
     ).toThrow(/result hash is invalid/u);
   });
 
+});
+
+describe("schema v72 exclusive Card parents", () => {
   test("exposes the final migration edge", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe(
       "[]",
@@ -257,7 +260,9 @@ describe("schema v70 Block-first finalization", () => {
     ).toBe(`[${CURRENT_SCHEMA_VERSION}]`);
     expect(
       JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION - 2)),
-    ).toBe(`[${CURRENT_SCHEMA_VERSION - 1},${CURRENT_SCHEMA_VERSION}]`);
+    ).toBe(
+      `[${CURRENT_SCHEMA_VERSION - 1},${CURRENT_SCHEMA_VERSION}]`,
+    );
     expect(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION + 1)).toBe(null);
   });
 
@@ -290,6 +295,148 @@ describe("schema v70 Block-first finalization", () => {
       expect(names.has(tableName)).toBe(false);
     }
     assertHealthy(database);
+  });
+
+  test("migrates a v71 Database Card from dual placement to one Database parent", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    const project = database
+      .prepare("SELECT id FROM projects ORDER BY id LIMIT 1")
+      .get() as { readonly id: string };
+    const primary = database
+      .prepare(
+        "SELECT block_id FROM database_capabilities WHERE project_id = ? AND is_primary = 1",
+      )
+      .get(project.id) as { readonly block_id: string };
+    const now = new Date().toISOString();
+    const cardId = createUuidV7();
+    database
+      .prepare(
+        `
+        INSERT INTO blocks (
+          id, project_id, type, lifecycle, location_kind,
+          containing_document_id, containing_database_id,
+          location_revision, metadata_revision, created_at, updated_at
+        ) VALUES (?, ?, 'card', 'active', 'database', NULL, ?, 7, 3, ?, ?)
+      `,
+      )
+      .run(cardId, project.id, primary.block_id, now, now);
+    database
+      .prepare(
+        `
+        INSERT INTO database_memberships (
+          id, database_block_id, card_block_id, project_id,
+          revision, created_at, removed_at
+        ) VALUES (?, ?, ?, ?, 4, ?, NULL)
+      `,
+      )
+      .run(`membership:${cardId}`, primary.block_id, cardId, project.id, now);
+
+    const retainedTriggers = database
+      .prepare(
+        `
+        SELECT name, sql
+        FROM sqlite_schema
+        WHERE type = 'trigger' AND tbl_name = 'blocks'
+          AND name NOT IN (
+            'blocks_non_space_location_has_no_top_level_placement',
+            'blocks_active_membership_requires_database_location'
+          )
+        ORDER BY name
+      `,
+      )
+      .all() as readonly { readonly name: string; readonly sql: string }[];
+    database.pragma("foreign_keys = OFF");
+    database.pragma("legacy_alter_table = ON");
+    database.transaction(() => {
+      database.exec(`
+        DROP TABLE card_read_model;
+        ALTER TABLE blocks RENAME TO blocks_v71_fixture;
+        CREATE TABLE blocks (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          lifecycle TEXT NOT NULL DEFAULT 'active',
+          location_kind TEXT NOT NULL,
+          containing_document_id TEXT,
+          location_revision INTEGER NOT NULL DEFAULT 1 CHECK (location_revision >= 1),
+          metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK (metadata_revision >= 1),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (id, project_id),
+          FOREIGN KEY (containing_document_id, project_id)
+            REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+          CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+          CHECK (
+            (location_kind = 'space' AND containing_document_id IS NULL)
+            OR (location_kind = 'document' AND containing_document_id IS NOT NULL)
+          )
+        );
+        INSERT INTO blocks (
+          id, project_id, type, lifecycle, location_kind,
+          containing_document_id, location_revision, metadata_revision,
+          created_at, updated_at
+        )
+        SELECT
+          id, project_id, type, lifecycle,
+          CASE WHEN id = '${cardId}' THEN 'space' ELSE location_kind END,
+          CASE WHEN id = '${cardId}' THEN NULL ELSE containing_document_id END,
+          location_revision, metadata_revision, created_at, updated_at
+        FROM blocks_v71_fixture;
+        DROP TABLE blocks_v71_fixture;
+        CREATE INDEX idx_blocks_project_lifecycle_type
+          ON blocks(project_id, lifecycle, type);
+        CREATE INDEX idx_blocks_containing_document
+          ON blocks(containing_document_id, lifecycle);
+      `);
+      for (const trigger of retainedTriggers) database.exec(trigger.sql);
+      database
+        .prepare(
+          `
+          INSERT INTO top_level_block_placements (
+            block_id, project_id, rank_key, created_at, updated_at
+          ) VALUES (?, ?, 'legacy-rank', ?, ?)
+        `,
+        )
+        .run(cardId, project.id, now, now);
+      database.pragma("user_version = 71");
+    }).immediate();
+    database.pragma("legacy_alter_table = OFF");
+    database.pragma("foreign_keys = ON");
+    closeDatabase();
+
+    await initializeDatabase();
+    const migrated = getDb();
+    const block = migrated
+      .prepare(
+        `
+        SELECT location_kind, containing_document_id, containing_database_id,
+          location_revision
+        FROM blocks WHERE id = ?
+      `,
+      )
+      .get(cardId) as {
+      readonly location_kind: string;
+      readonly containing_document_id: string | null;
+      readonly containing_database_id: string | null;
+      readonly location_revision: number;
+    };
+    expect(block).toEqual({
+      location_kind: "database",
+      containing_document_id: null,
+      containing_database_id: primary.block_id,
+      location_revision: 8,
+    });
+    expect(
+      migrated
+        .prepare(
+          "SELECT 1 FROM top_level_block_placements WHERE block_id = ?",
+        )
+        .get(cardId),
+    ).toBeUndefined();
+    expect(migrated.pragma("user_version", { simple: true })).toBe(72);
+    assertHealthy(migrated);
   });
 
   test("never permits a physically retired Block identity to name new content", async () => {

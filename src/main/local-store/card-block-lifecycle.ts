@@ -144,8 +144,9 @@ interface BlockRow {
   readonly project_id: string;
   readonly type: string;
   readonly lifecycle: "active" | "archived" | "deleted";
-  readonly location_kind: "space" | "document";
+  readonly location_kind: "space" | "document" | "database";
   readonly containing_document_id: string | null;
+  readonly containing_database_id: string | null;
   readonly location_revision: number;
   readonly metadata_revision: number;
 }
@@ -303,7 +304,8 @@ const readBlock = (
       `
       SELECT
         id, project_id, type, lifecycle, location_kind,
-        containing_document_id, location_revision, metadata_revision
+        containing_document_id, containing_database_id,
+        location_revision, metadata_revision
       FROM blocks
       WHERE id = ? AND project_id = ?
     `,
@@ -957,11 +959,6 @@ const createCard = (
     now,
   );
   properties.set("tags", registeredTags.property);
-  const topLevelRank = allocateTopLevelRank(
-    database,
-    request,
-    request.operation.beforeBlockId,
-  );
   const viewRank = allocateViewRank(database, request, {
     viewId: primary.view_id,
     status: request.operation.status,
@@ -983,21 +980,13 @@ const createCard = (
         `
         INSERT INTO blocks (
           id, project_id, type, lifecycle, location_kind,
-          containing_document_id, location_revision, metadata_revision,
+          containing_document_id, containing_database_id,
+          location_revision, metadata_revision,
           created_at, updated_at
-        ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+        ) VALUES (?, ?, 'card', 'active', 'database', NULL, ?, 1, 1, ?, ?)
       `,
       )
-      .run(cardId, request.projectId, now, now);
-    database
-      .prepare(
-        `
-        INSERT INTO top_level_block_placements (
-          block_id, project_id, rank_key, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?)
-      `,
-      )
-      .run(cardId, request.projectId, topLevelRank.rankKey, now, now);
+      .run(cardId, request.projectId, primary.database_block_id, now, now);
     database
       .prepare(
         `
@@ -1139,7 +1128,7 @@ const createCard = (
       databaseBlockId: primary.database_block_id,
       membershipId,
       viewId: primary.view_id,
-      topLevelRankKey: topLevelRank.rankKey,
+      topLevelRankKey: null,
       viewRankKey: viewRank.rankKey,
       createdBlockIds,
       targetBlockIds: uniqueSorted([
@@ -1177,9 +1166,9 @@ const createCard = (
         viewId: primary.view_id,
         status: request.operation.status,
         createdBlockIds,
-        topLevelRankKey: topLevelRank.rankKey,
+        topLevelRankKey: null,
         viewRankKey: viewRank.rankKey,
-        rebalancedTopLevelPlacements: topLevelRank.rebalanced,
+        rebalancedTopLevelPlacements: [],
         rebalancedViewPositions: viewRank.rebalanced,
         createdTagOptionIds: registeredTags.createdOptionIds,
       },
@@ -1518,13 +1507,10 @@ const deleteCard = (
       request,
     );
   }
-  if (
-    block.location_kind !== "space" ||
-    block.containing_document_id !== null
-  ) {
+  if (block.location_kind === "document") {
     return reject(
       "card_location_invalid",
-      `Card ${block.id} is not a top-level Space Block`,
+      `Nested Card ${block.id} must be removed through Block transfer`,
       request,
     );
   }
@@ -1560,17 +1546,31 @@ const deleteCard = (
     );
   }
   const membership = readActiveMembership(database, request);
+  if (
+    (block.location_kind === "database" &&
+      membership?.database_block_id !== block.containing_database_id) ||
+    (block.location_kind === "space" && membership !== null)
+  ) {
+    return reject(
+      "database_schema_invalid",
+      `Card ${block.id} parent and active membership disagree`,
+      request,
+    );
+  }
   const primaryView = readPrimaryViewForMembership(
     database,
     request,
     membership,
   );
   const previousStatus = readMembershipStatus(database, request, membership);
-  const topLevelRankKey = readPlacementRank(database, request);
-  if (!topLevelRankKey) {
+  const topLevelRankKey =
+    block.location_kind === "space"
+      ? readPlacementRank(database, request)
+      : null;
+  if (block.location_kind === "space" && !topLevelRankKey) {
     return reject(
       "database_schema_invalid",
-      `Card ${block.id} is missing its top-level placement`,
+      `Space Card ${block.id} is missing its top-level placement`,
       request,
     );
   }
@@ -2142,13 +2142,10 @@ const restoreCard = (
       request,
     );
   }
-  if (
-    block.location_kind !== "space" ||
-    block.containing_document_id !== null
-  ) {
+  if (block.location_kind === "document") {
     return reject(
       "card_location_invalid",
-      `Deleted Card ${block.id} no longer has a Space shell`,
+      `Deleted nested Card ${block.id} must be restored through Block transfer`,
       request,
     );
   }
@@ -2173,11 +2170,6 @@ const restoreCard = (
       request,
     );
   }
-  const topLevelRank = allocateTopLevelRank(
-    database,
-    request,
-    request.operation.beforeBlockId,
-  );
   const restoreMembership =
     request.operation.membership === null
       ? null
@@ -2185,6 +2177,24 @@ const restoreCard = (
           readonly operation: RestoreWithMembershipOperation;
         });
   const requestedMembership = restoreMembership?.operation.membership ?? null;
+  const restoresDatabaseParent = requestedMembership !== null;
+  if (
+    (restoresDatabaseParent && block.location_kind !== "database") ||
+    (!restoresDatabaseParent && block.location_kind !== "space")
+  ) {
+    return reject(
+      "delete_evidence_invalid",
+      `Restore parent does not match deleted Card ${block.id} location`,
+      request,
+    );
+  }
+  const topLevelRank = restoresDatabaseParent
+    ? null
+    : allocateTopLevelRank(
+        database,
+        request,
+        request.operation.beforeBlockId,
+      );
   const evidenceMembershipMatches =
     (deleteEvidence.membershipId === null && requestedMembership === null) ||
     (requestedMembership !== null &&
@@ -2309,15 +2319,17 @@ const restoreCard = (
         committedMetadataRevision: contentBlock.metadataRevision + 1,
       };
     });
-  database
-    .prepare(
-      `
+  if (topLevelRank) {
+    database
+      .prepare(
+        `
       INSERT INTO top_level_block_placements (
         block_id, project_id, rank_key, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?)
     `,
-    )
-    .run(block.id, request.projectId, topLevelRank.rankKey, now, now);
+      )
+      .run(block.id, request.projectId, topLevelRank.rankKey, now, now);
+  }
   const membershipRevision = membership ? membership.revision + 1 : null;
   if (restoreMembership && membership && properties && viewRank) {
     const restoredMembership = database
@@ -2384,7 +2396,7 @@ const restoreCard = (
         ? {}
         : { membership: membershipRevision, viewPosition: 1 }),
     },
-    topLevelRankKey: topLevelRank.rankKey,
+    topLevelRankKey: topLevelRank?.rankKey ?? null,
     viewId: restoreMembership?.operation.membership.viewId ?? null,
     viewRankKey: viewRank?.rankKey ?? null,
     changePayload: {
@@ -2392,7 +2404,7 @@ const restoreCard = (
       deleteOperationId: request.operation.deleteOperationId,
       restoredLifecycle: deleteEvidence.previousLifecycle,
       status: restoreMembership?.operation.membership.status ?? null,
-      rebalancedTopLevelPlacements: topLevelRank.rebalanced,
+      rebalancedTopLevelPlacements: topLevelRank?.rebalanced ?? [],
       rebalancedViewPositions: viewRank?.rebalanced ?? 0,
     },
   });
@@ -3033,8 +3045,11 @@ const readOwnedCardAuthority = (
     membership,
   );
   const rankKey = readPlacementRank(database, request);
-  if (block.location_kind === "document" && !block.containing_document_id) {
-    throw new Error(`Card ${cardId} has an invalid Document location`);
+  if (
+    (block.location_kind === "document" && !block.containing_document_id) ||
+    (block.location_kind === "database" && !block.containing_database_id)
+  ) {
+    throw new Error(`Card ${cardId} has an invalid ${block.location_kind} location`);
   }
   return {
     reservedBlockType: null,
@@ -3044,10 +3059,15 @@ const readOwnedCardAuthority = (
       location:
         block.location_kind === "space"
           ? { kind: "space", rankKey }
-          : {
+          : block.location_kind === "document"
+            ? {
               kind: "document",
               documentId: block.containing_document_id as string,
-            },
+              }
+            : {
+                kind: "database",
+                databaseBlockId: block.containing_database_id as string,
+              },
       metadataRevision: block.metadata_revision,
       locationRevision: block.location_revision,
       document: {

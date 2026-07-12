@@ -6,7 +6,6 @@ import { finalizeBlockFirstAuthority } from "./block-first-finalization";
 import {
   CURRENT_SCHEMA_VERSION,
   ensureDatabase,
-  migrateSchema70To71,
   type EnsureDatabaseOptions,
 } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
@@ -112,10 +111,22 @@ export async function initializeDatabase(options?: EnsureDatabaseOptions): Promi
       `Cannot finalize Block-first schema v${schemaVersion}; expected v69`,
     );
   }
-  // v69 still needs the old Canvas Y.Doc shape while the Block-first fixed
-  // point runs. Only after v70 commits may the scene-native v71 edge execute.
+
+  // The asynchronous fixed point consumes the legacy v69 Canvas Y.Doc shape.
+  // Reopening through ensureDatabase then applies the two synchronous edges in
+  // order: scene-native authority (v71), followed by exclusive parents (v72).
   ensurePrimaryCanvasDocuments(database);
   await finalizeBlockFirstAuthority(database, 70);
-  migrateSchema70To71(database);
-  ensurePrimaryCanvasDocuments(database);
+  closeDatabase();
+  ensureDatabase(options);
+  const migratedDatabase = getDb();
+  const migratedVersion = migratedDatabase.pragma("user_version", {
+    simple: true,
+  }) as number;
+  if (migratedVersion !== CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `Nodex database stopped at schema v${migratedVersion}; expected v${CURRENT_SCHEMA_VERSION}`,
+    );
+  }
+  ensurePrimaryCanvasDocuments(migratedDatabase);
 }

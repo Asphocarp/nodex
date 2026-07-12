@@ -4,7 +4,7 @@ import {
 } from "./block-property-mutations";
 import { isCardStatus, type CardStatus } from "./card-status";
 
-export const CARD_PROJECT_TRANSFER_CONTRACT_VERSION = 1 as const;
+export const CARD_PROJECT_TRANSFER_CONTRACT_VERSION = 2 as const;
 
 const MAX_ID_LENGTH = 512;
 const MAX_TYPE_LENGTH = 128;
@@ -40,7 +40,8 @@ export interface CardProjectTransferBlockCoordinate {
   readonly lifecycle: "active" | "archived" | "deleted";
   readonly location:
     | Readonly<{ kind: "space" }>
-    | Readonly<{ kind: "document"; documentId: string }>;
+    | Readonly<{ kind: "document"; documentId: string }>
+    | Readonly<{ kind: "database"; databaseBlockId: string }>;
   readonly locationRevision: number;
   readonly metadataRevision: number;
 }
@@ -87,7 +88,6 @@ export interface CardProjectTransferRequest {
   readonly sourceProjectId: string;
   readonly targetProjectId: string;
   readonly cardId: string;
-  readonly expectedTopLevelRankKey: string;
   readonly expectedBlocks: readonly CardProjectTransferBlockCoordinate[];
   readonly expectedDocuments: readonly CardProjectTransferDocumentCoordinate[];
   readonly expectedMemberships: readonly CardProjectTransferMembershipCoordinate[];
@@ -117,7 +117,6 @@ export interface CardProjectTransferReceipt {
   readonly targetDatabaseSchemaRevision: number;
   readonly targetViewId: string;
   readonly targetStatus: CardStatus;
-  readonly targetTopLevelRankKey: string;
   readonly targetViewRankKey: string;
   readonly changeLogSeq: number;
   readonly committedAt: string;
@@ -327,6 +326,8 @@ const parseBlockCoordinate = (
     assertExactKeys(location, `${label}.location`, ["kind"]);
   } else if (location.kind === "document") {
     assertExactKeys(location, `${label}.location`, ["kind", "documentId"]);
+  } else if (location.kind === "database") {
+    assertExactKeys(location, `${label}.location`, ["kind", "databaseBlockId"]);
   } else {
     throw new CardProjectTransferContractError(
       `${label}.location.kind is invalid`,
@@ -339,10 +340,19 @@ const parseBlockCoordinate = (
     location:
       location.kind === "space"
         ? { kind: "space" }
-        : {
+        : location.kind === "document"
+          ? {
             kind: "document",
             documentId: readString(location, "documentId", `${label}.location`),
-          },
+            }
+          : {
+              kind: "database",
+              databaseBlockId: readString(
+                location,
+                "databaseBlockId",
+                `${label}.location`,
+              ),
+            },
     locationRevision: readRevision(record, "locationRevision", label),
     metadataRevision: readRevision(record, "metadataRevision", label),
   };
@@ -582,7 +592,6 @@ export const parseCardProjectTransferRequest = (
       "sourceProjectId",
       "targetProjectId",
       "cardId",
-      "expectedTopLevelRankKey",
       "expectedBlocks",
       "expectedDocuments",
       "expectedMemberships",
@@ -626,11 +635,6 @@ export const parseCardProjectTransferRequest = (
     sourceProjectId: readString(record, "sourceProjectId", label),
     targetProjectId: readString(record, "targetProjectId", label),
     cardId: readString(record, "cardId", label),
-    expectedTopLevelRankKey: readString(
-      record,
-      "expectedTopLevelRankKey",
-      label,
-    ),
     expectedBlocks,
     expectedDocuments,
     expectedMemberships,
@@ -763,7 +767,6 @@ export const parseCardProjectTransferReceipt = (
     "targetDatabaseSchemaRevision",
     "targetViewId",
     "targetStatus",
-    "targetTopLevelRankKey",
     "targetViewRankKey",
     "changeLogSeq",
     "committedAt",
@@ -828,11 +831,6 @@ export const parseCardProjectTransferReceipt = (
     ),
     targetViewId: readString(record, "targetViewId", label),
     targetStatus: readStatus(record, "targetStatus", label),
-    targetTopLevelRankKey: readString(
-      record,
-      "targetTopLevelRankKey",
-      label,
-    ),
     targetViewRankKey: readString(record, "targetViewRankKey", label),
     changeLogSeq: readRevision(record, "changeLogSeq", label),
     committedAt,

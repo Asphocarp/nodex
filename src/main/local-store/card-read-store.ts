@@ -63,8 +63,9 @@ interface CardAuthorityRow {
   readonly card_block_id: string;
   readonly project_id: string;
   readonly lifecycle: "active" | "archived" | "deleted";
-  readonly location_kind: "space" | "document";
+  readonly location_kind: "space" | "document" | "database";
   readonly containing_document_id: string | null;
+  readonly containing_database_id: string | null;
   readonly location_revision: number;
   readonly metadata_revision: number;
   readonly block_created_at: string;
@@ -153,6 +154,7 @@ const CARD_AUTHORITY_SELECT = `
     card.lifecycle,
     card.location_kind,
     card.containing_document_id,
+    card.containing_database_id,
     card.location_revision,
     card.metadata_revision,
     card.created_at AS block_created_at,
@@ -191,6 +193,8 @@ const CARD_AUTHORITY_SELECT = `
   LEFT JOIN database_memberships membership
     ON membership.card_block_id = card.id
     AND membership.project_id = card.project_id
+    AND card.location_kind = 'database'
+    AND card.containing_database_id = membership.database_block_id
     AND membership.removed_at IS NULL
   LEFT JOIN ranked_primary_positions position
     ON position.database_block_id = membership.database_block_id
@@ -777,7 +781,7 @@ const refreshDisposableProjection = (
       `
     INSERT INTO card_read_model (
       card_block_id, project_id, lifecycle, location_kind,
-      containing_document_id, top_level_rank_key,
+      containing_document_id, containing_database_id, top_level_rank_key,
       location_revision, metadata_revision,
       document_id, document_generation, document_projected_seq,
       document_schema_version, document_authority,
@@ -786,7 +790,7 @@ const refreshDisposableProjection = (
       database_values_json, intrinsic_properties_json, property_revisions_json,
       projection_version, created_at, updated_at
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, 1, ?, ?
     )
     ON CONFLICT(card_block_id) DO UPDATE SET
@@ -794,6 +798,7 @@ const refreshDisposableProjection = (
       lifecycle = excluded.lifecycle,
       location_kind = excluded.location_kind,
       containing_document_id = excluded.containing_document_id,
+      containing_database_id = excluded.containing_database_id,
       top_level_rank_key = excluded.top_level_rank_key,
       location_revision = excluded.location_revision,
       metadata_revision = excluded.metadata_revision,
@@ -825,6 +830,7 @@ const refreshDisposableProjection = (
       row.lifecycle,
       row.location_kind,
       row.containing_document_id,
+      row.containing_database_id,
       row.top_level_rank_key,
       row.location_revision,
       row.metadata_revision,

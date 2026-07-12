@@ -82,8 +82,9 @@ interface CardSummaryRow {
   readonly block_id: string;
   readonly project_id: string;
   readonly lifecycle: "active" | "archived" | "deleted";
-  readonly location_kind: "space" | "document";
+  readonly location_kind: "space" | "document" | "database";
   readonly containing_document_id: string | null;
+  readonly containing_database_id: string | null;
   readonly top_level_rank_key: string | null;
   readonly location_revision: number;
   readonly metadata_revision: number;
@@ -389,6 +390,7 @@ const readCardSummaryRows = (
       SELECT
         block.id AS block_id, block.project_id, block.lifecycle,
         block.location_kind, block.containing_document_id,
+        block.containing_database_id,
         placement.rank_key AS top_level_rank_key,
         block.location_revision, block.metadata_revision,
         block.created_at, block.updated_at,
@@ -439,7 +441,8 @@ const rowToCardSummary = (row: CardSummaryRow): CardContentSummary => {
     location:
       row.location_kind === "space"
         ? { kind: "space", rankKey: row.top_level_rank_key }
-        : {
+        : row.location_kind === "document"
+          ? {
             kind: "document",
             documentId:
               row.containing_document_id ??
@@ -448,7 +451,17 @@ const rowToCardSummary = (row: CardSummaryRow): CardContentSummary => {
                   `Card ${row.block_id} has an invalid Document location`,
                 );
               })(),
-          },
+            }
+          : {
+              kind: "database",
+              databaseBlockId:
+                row.containing_database_id ??
+                (() => {
+                  throw new GeneralDatabaseQueryError(
+                    `Card ${row.block_id} has an invalid Database location`,
+                  );
+                })(),
+            },
     locationRevision: row.location_revision,
     metadataRevision: row.metadata_revision,
     documentId: row.document_id,
@@ -528,6 +541,8 @@ export const readGeneralDatabaseManagement = (
        AND card.project_id = membership.project_id
        AND card.type = 'card'
        AND card.lifecycle = 'active'
+       AND card.location_kind = 'database'
+       AND card.containing_database_id = membership.database_block_id
       WHERE membership.project_id = ? AND membership.removed_at IS NULL
       ORDER BY membership.card_block_id, membership.id
     `,
@@ -623,6 +638,8 @@ const readMembershipRows = (
        AND card.project_id = membership.project_id
        AND card.type = 'card'
        AND card.lifecycle = 'active'
+       AND card.location_kind = 'database'
+       AND card.containing_database_id = membership.database_block_id
       LEFT JOIN database_view_positions position
         ON position.view_id = ?
        AND position.project_id = membership.project_id

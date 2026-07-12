@@ -337,7 +337,6 @@ const main = async (): Promise<void> => {
             lifecycle: "active",
             status: "in_progress",
             primaryViewRankKey: `fault:${point}`,
-            topLevelRankKey: `fault:${point}`,
             operationId: `card-clone-fault:${point}`,
           },
           {
@@ -455,7 +454,6 @@ const main = async (): Promise<void> => {
       lifecycle: "active",
       status: "done",
       primaryViewRankKey: `clone:${cloneCardId}`,
-      topLevelRankKey: `clone:${cloneCardId}`,
       propertyOverrides: {
         database: {
           status: "done",

@@ -403,6 +403,16 @@ describe("Block retention GC kernel", () => {
         .get(projectId) as { readonly block_id: string; readonly view_id: string };
       database
         .prepare(
+          `
+          UPDATE blocks
+          SET location_kind = 'database', containing_database_id = ?,
+              location_revision = location_revision + 1
+          WHERE id = ? AND project_id = ?
+        `,
+        )
+        .run(primary.block_id, "gc:database-card", projectId);
+      database
+        .prepare(
           `INSERT INTO database_memberships (
             id, database_block_id, card_block_id, project_id,
             revision, created_at, removed_at

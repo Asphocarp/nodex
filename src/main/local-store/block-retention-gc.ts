@@ -108,8 +108,9 @@ interface BlockRow {
   readonly project_id: string;
   readonly type: string;
   readonly lifecycle: "active" | "archived" | "deleted";
-  readonly location_kind: "space" | "document";
+  readonly location_kind: "space" | "document" | "database";
   readonly containing_document_id: string | null;
+  readonly containing_database_id: string | null;
   readonly updated_at: string;
 }
 
@@ -449,7 +450,7 @@ const readBlock = (
     .prepare(
       `
       SELECT id, project_id, type, lifecycle, location_kind,
-        containing_document_id, updated_at
+        containing_document_id, containing_database_id, updated_at
       FROM blocks WHERE id = ?
     `,
     )
@@ -560,7 +561,7 @@ const buildGcClosure = (
       .prepare(
         `
         SELECT id, project_id, type, lifecycle, location_kind,
-          containing_document_id, updated_at
+          containing_document_id, containing_database_id, updated_at
         FROM blocks
         WHERE containing_document_id = ? AND project_id = ?
         ORDER BY id

@@ -45,7 +45,6 @@ interface DbRecurrenceException {
 
 interface OccurrenceClonePlacement {
   readonly primaryRankKey: string;
-  readonly topLevelRankKey: string;
 }
 
 interface OccurrenceAuthorityScope {
@@ -403,13 +402,14 @@ const readOccurrenceClonePlacement = (
   newCardId: string,
 ): OccurrenceClonePlacement => {
   const row = database.prepare(`
-    SELECT position.rank_key AS primary_rank_key,
-           placement.rank_key AS top_level_rank_key
+    SELECT position.rank_key AS primary_rank_key
     FROM blocks card
     INNER JOIN database_memberships membership
       ON membership.card_block_id = card.id
       AND membership.project_id = card.project_id
       AND membership.removed_at IS NULL
+      AND card.location_kind = 'database'
+      AND card.containing_database_id = membership.database_block_id
     INNER JOIN database_views view
       ON view.database_block_id = membership.database_block_id
       AND view.project_id = membership.project_id
@@ -418,18 +418,13 @@ const readOccurrenceClonePlacement = (
       ON position.view_id = view.id
       AND position.block_id = card.id
       AND position.project_id = card.project_id
-    INNER JOIN top_level_block_placements placement
-      ON placement.block_id = card.id
-      AND placement.project_id = card.project_id
     WHERE card.id = ? AND card.project_id = ? AND card.type = 'card'
   `).get(cardId, projectId) as {
     readonly primary_rank_key: string;
-    readonly top_level_rank_key: string;
   } | undefined;
   if (!row) throw new Error(`Card ${cardId} has no authoritative placement`);
   return {
     primaryRankKey: `${row.primary_rank_key}~${newCardId}`,
-    topLevelRankKey: `${row.top_level_rank_key}~${newCardId}`,
   };
 };
 
@@ -549,7 +544,6 @@ export async function completeCardOccurrence(
       lifecycle: "archived",
       status: "done",
       primaryViewRankKey: `~archive:${nowIso}:${archiveCardId}`,
-      topLevelRankKey: `~archive:${nowIso}:${archiveCardId}`,
       propertyOverrides: cloneOverrides,
       operationId: occurrenceNestedOperationId(
         "complete-clone",
@@ -836,7 +830,6 @@ export async function updateCardOccurrence(
         lifecycle: "active",
         status: target.status,
         primaryViewRankKey: placement.primaryRankKey,
-        topLevelRankKey: placement.topLevelRankKey,
         propertyOverrides: {
           database: {
             status: target.status,
@@ -994,7 +987,6 @@ export async function updateCardOccurrence(
       lifecycle: "active",
       status: target.status,
       primaryViewRankKey: placement.primaryRankKey,
-      topLevelRankKey: placement.topLevelRankKey,
       propertyOverrides: {
         database: {
           status: target.status,

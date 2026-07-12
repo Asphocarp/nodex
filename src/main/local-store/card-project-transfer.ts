@@ -76,8 +76,9 @@ interface BlockRow {
   readonly project_id: string;
   readonly type: string;
   readonly lifecycle: "active" | "archived" | "deleted";
-  readonly location_kind: "space" | "document";
+  readonly location_kind: "space" | "document" | "database";
   readonly containing_document_id: string | null;
+  readonly containing_database_id: string | null;
   readonly location_revision: number;
   readonly metadata_revision: number;
   readonly top_level_rank_key: string | null;
@@ -185,7 +186,6 @@ interface PreparedTransfer {
   readonly targetDatabase: TargetDatabaseRow;
   readonly targetView: TargetViewRow;
   readonly targetMemberships: readonly PreparedTargetMembership[];
-  readonly topLevelRanks: RankPlan;
   readonly viewRanksByStatus: ReadonlyMap<CardStatus, RankPlan>;
 }
 
@@ -252,6 +252,7 @@ const readAuthorityClosure = (
        SELECT
          block.id, block.project_id, block.type, block.lifecycle,
          block.location_kind, block.containing_document_id,
+         block.containing_database_id,
          block.location_revision, block.metadata_revision,
          placement.rank_key AS top_level_rank_key
        FROM closure
@@ -287,13 +288,14 @@ const readAuthorityClosure = (
     );
   }
   if (
-    root.location_kind !== "space" ||
+    root.location_kind !== "database" ||
     root.containing_document_id !== null ||
-    root.top_level_rank_key === null
+    root.containing_database_id === null ||
+    root.top_level_rank_key !== null
   ) {
     throw new CardProjectTransferCompilationError(
       "card_location_invalid",
-      `Card ${cardId} must be a top-level Space Block`,
+      `Card ${cardId} must be parented by one Database`,
     );
   }
   for (const block of blocks) {
@@ -448,6 +450,15 @@ const readAuthorityClosure = (
     }
     const membership = rows[0];
     if (!membership) throw new Error("Membership cardinality check diverged");
+    if (
+      block.location_kind !== "database" ||
+      block.containing_database_id !== membership.database_block_id
+    ) {
+      throw new CardProjectTransferCompilationError(
+        "membership_authority_conflict",
+        `Card ${block.id} membership does not match its Database parent`,
+      );
+    }
     let status: unknown;
     try {
       status = JSON.parse(membership.status_value_json) as unknown;
@@ -484,10 +495,15 @@ const toBlockCoordinates = (
     location:
       block.location_kind === "space"
         ? { kind: "space" as const }
-        : {
+        : block.location_kind === "document"
+          ? {
             kind: "document" as const,
             documentId: block.containing_document_id ?? "",
-          },
+            }
+          : {
+              kind: "database" as const,
+              databaseBlockId: block.containing_database_id ?? "",
+            },
     locationRevision: block.location_revision,
     metadataRevision: block.metadata_revision,
   }));
@@ -605,13 +621,6 @@ export const compileCardProjectTransferRequest = (
       input.targetViewId,
     );
     const closure = readAuthorityClosure(database, sourceProjectId, cardId);
-    const root = closure.blocks.find((block) => block.id === cardId);
-    if (!root?.top_level_rank_key) {
-      throw new CardProjectTransferCompilationError(
-        "card_location_invalid",
-        `Card ${cardId} has no top-level rank`,
-      );
-    }
     const request = parseCardProjectTransferRequest({
       version: CARD_PROJECT_TRANSFER_CONTRACT_VERSION,
       operationId,
@@ -619,7 +628,6 @@ export const compileCardProjectTransferRequest = (
       sourceProjectId,
       targetProjectId,
       cardId,
-      expectedTopLevelRankKey: root.top_level_rank_key,
       expectedBlocks: toBlockCoordinates(closure),
       expectedDocuments: toDocumentCoordinates(closure),
       expectedMemberships: toMembershipCoordinates(closure),
@@ -688,7 +696,6 @@ const canonicalLogicalRequest = (
   sourceProjectId: request.sourceProjectId,
   targetProjectId: request.targetProjectId,
   cardId: request.cardId,
-  expectedTopLevelRankKey: request.expectedTopLevelRankKey,
   expectedBlocks: request.expectedBlocks as unknown as BlockPropertyJsonValue,
   expectedDocuments:
     request.expectedDocuments as unknown as BlockPropertyJsonValue,
@@ -807,14 +814,6 @@ const validateAuthorityClosure = (
     reject(
       "membership_authority_conflict",
       "Card transfer Database memberships changed after compilation",
-      request,
-    );
-  }
-  const root = closure.blocks.find((block) => block.id === request.cardId);
-  if (root?.top_level_rank_key !== request.expectedTopLevelRankKey) {
-    reject(
-      "block_authority_conflict",
-      "Card transfer top-level placement changed after compilation",
       request,
     );
   }
@@ -1132,33 +1131,6 @@ const validateTarget = (
     closure,
     targetProperties,
   );
-  const topLevelItems = readRankedItems(
-    database,
-    `SELECT block_id AS id, rank_key AS rankKey
-     FROM top_level_block_placements
-     WHERE project_id = ?
-     ORDER BY rank_key, block_id`,
-    request.targetProjectId,
-  );
-  const topLevelRanks = (() => {
-    try {
-      return planRanks(topLevelItems, [
-        {
-          id: request.cardId,
-          ...(request.target.beforeBlockId === undefined
-            ? {}
-            : { beforeId: request.target.beforeBlockId }),
-        },
-      ]);
-    } catch (error) {
-      return reject(
-        "position_anchor_not_found",
-        error instanceof Error ? error.message : String(error),
-        request,
-      );
-    }
-  })();
-
   const membershipGroups = new Map<CardStatus, PreparedTargetMembership[]>();
   for (const membership of targetMemberships) {
     const group = membershipGroups.get(membership.status) ?? [];
@@ -1218,7 +1190,6 @@ const validateTarget = (
     targetDatabase,
     targetView,
     targetMemberships,
-    topLevelRanks,
     viewRanksByStatus,
   };
 };
@@ -1286,20 +1257,6 @@ const moveProjectCoordinates = (
   closure: AuthorityClosure,
   now: string,
 ): void => {
-  const deletedPlacement = database
-    .prepare(
-      `DELETE FROM top_level_block_placements
-       WHERE block_id = ? AND project_id = ? AND rank_key = ?`,
-    )
-    .run(
-      request.cardId,
-      request.sourceProjectId,
-      request.expectedTopLevelRankKey,
-    );
-  if (deletedPlacement.changes !== 1) {
-    throw new Error("Root Card placement changed during atomic transfer");
-  }
-
   const updateDocument = database.prepare(
     `UPDATE documents
      SET project_id = ?, updated_at = ?
@@ -1328,6 +1285,7 @@ const moveProjectCoordinates = (
   const updateBlock = database.prepare(
     `UPDATE blocks
      SET project_id = ?,
+         containing_database_id = CASE WHEN id = ? THEN ? ELSE containing_database_id END,
          location_revision = location_revision + 1,
          metadata_revision = metadata_revision + 1,
          updated_at = ?
@@ -1339,6 +1297,8 @@ const moveProjectCoordinates = (
   for (const block of closure.blocks) {
     const updated = updateBlock.run(
       request.targetProjectId,
+      request.cardId,
+      request.target.databaseBlockId,
       now,
       block.id,
       request.sourceProjectId,
@@ -1395,35 +1355,6 @@ const insertTargetMemberships = (
   prepared: PreparedTransfer,
   now: string,
 ): void => {
-  applyExistingRanks(
-    database,
-    prepared.topLevelRanks,
-    (blockId, rankKey) => {
-      database
-        .prepare(
-          `UPDATE top_level_block_placements
-           SET rank_key = ?, updated_at = ?
-           WHERE block_id = ? AND project_id = ?`,
-        )
-        .run(rankKey, now, blockId, request.targetProjectId);
-    },
-  );
-  const rootRank = prepared.topLevelRanks.finalRanks.get(request.cardId);
-  if (!rootRank) throw new Error("Card transfer root rank plan is incomplete");
-  database
-    .prepare(
-      `INSERT INTO top_level_block_placements (
-         block_id, project_id, rank_key, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(
-      request.cardId,
-      request.targetProjectId,
-      rootRank,
-      now,
-      now,
-    );
-
   for (const [status, rankPlan] of prepared.viewRanksByStatus) {
     applyExistingRanks(database, rankPlan, (blockId, rankKey) => {
       database
@@ -1931,11 +1862,10 @@ const buildReceipt = (
       { generation: document.generation, headSeq: document.head_seq },
     ]),
   );
-  const topLevelRank = prepared.topLevelRanks.finalRanks.get(request.cardId);
   const targetViewRank = prepared.viewRanksByStatus
     .get(request.target.status)
     ?.finalRanks.get(request.cardId);
-  if (!topLevelRank || !targetViewRank) {
+  if (!targetViewRank) {
     throw new Error("Card transfer rank receipt is incomplete");
   }
   return parseCardProjectTransferReceipt({
@@ -1968,7 +1898,6 @@ const buildReceipt = (
     targetDatabaseSchemaRevision: request.target.databaseSchemaRevision,
     targetViewId: request.target.viewId,
     targetStatus: request.target.status,
-    targetTopLevelRankKey: topLevelRank,
     targetViewRankKey: targetViewRank,
     changeLogSeq,
     committedAt: now,

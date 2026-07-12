@@ -68,6 +68,10 @@ export type BlockLocation =
   | {
       readonly kind: "document";
       readonly documentId: DocumentId;
+    }
+  | {
+      readonly kind: "database";
+      readonly databaseBlockId: BlockId;
     };
 
 export interface BlockRecord {

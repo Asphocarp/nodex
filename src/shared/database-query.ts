@@ -101,7 +101,8 @@ export interface CardContentSummary {
   readonly lifecycle: "active" | "archived" | "deleted";
   readonly location:
     | { readonly kind: "space"; readonly rankKey: string | null }
-    | { readonly kind: "document"; readonly documentId: string };
+    | { readonly kind: "document"; readonly documentId: string }
+    | { readonly kind: "database"; readonly databaseBlockId: string };
   readonly locationRevision: number;
   readonly metadataRevision: number;
   readonly documentId: string;

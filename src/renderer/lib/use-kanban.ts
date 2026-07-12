@@ -405,7 +405,7 @@ export function useKanban(options: UseKanbanOptions) {
           apply: buildDeleteCardTransform(input.sourceStatus, input.cardId),
           runRemote: async () => {
             const result = await transferCardProject(projectId, {
-              version: 1,
+              version: 2,
               operationId,
               sourceProjectId: projectId,
               targetProjectId: input.targetProjectId,

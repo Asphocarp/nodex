@@ -8,13 +8,12 @@ import {
 } from "./card-project-transfer";
 
 const request = () => ({
-  version: 1,
+  version: 2,
   operationId: "transfer:1",
   storeEpoch: "epoch:1",
   sourceProjectId: "project:a",
   targetProjectId: "project:b",
   cardId: "card:1",
-  expectedTopLevelRankKey: "1000",
   expectedBlocks: [
     {
       blockId: "block:body",
@@ -116,7 +115,7 @@ describe("Card Project transfer contract", () => {
     const committed = parseCardProjectTransferCommandResult({
       ok: true,
       value: {
-        version: 1,
+        version: 2,
         operationId: "transfer:1",
         storeEpoch: "epoch:1",
         sourceProjectId: "project:a",
@@ -136,7 +135,6 @@ describe("Card Project transfer contract", () => {
         targetDatabaseSchemaRevision: 8,
         targetViewId: "database-view:project:b:primary-kanban",
         targetStatus: "in_review",
-        targetTopLevelRankKey: "2000",
         targetViewRankKey: "3000",
         changeLogSeq: 9,
         committedAt: "2026-07-12T00:00:00.000Z",

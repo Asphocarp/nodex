@@ -1,6 +1,6 @@
 # ADR 0003: Database capability, Card membership, and durable views
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0005
 - Date: 2026-07-11
 - Owners: Nodex maintainers
 
@@ -14,7 +14,7 @@ Nodex needs Database behavior without duplicating Cards or treating each visual 
 
 A Database is a Block with a relational Database capability. Its capability owns typed property definitions, Card memberships, shared view definitions, and view-specific positions.
 
-A Database row is the presentation of an existing Card membership. The row has no duplicate Card identity or body. One active Card may have zero or one owning Database membership. A linked view or reference does not create membership and does not affect the Card's content placement.
+A Database row is the presentation of an existing Card membership. The row has no duplicate Card identity or body. One active Card may have zero or one owning Database membership. ADR 0005 supersedes this ADR's placement-independent membership rule: an active membership is now the typed placement record for a Card whose exclusive parent is that Database. A linked view or reference does not create membership or change the target Card's parent.
 
 Database property values belong to the membership. Property changes use field/path-level operations. Independent fields merge naturally; stale writes to the same scalar return a typed conflict; set-like values preserve add/remove intent. Card-intrinsic behavior such as execution settings, recurrence, reminders, and agent state remains generic Block properties with typed read models even when a Database View displays it.
 

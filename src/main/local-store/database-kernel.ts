@@ -1551,6 +1551,37 @@ const transferMembership = (
         : { beforeCardBlockId: operation.target.beforeCardBlockId }),
     });
   }
+  const spaceRank = operation.target
+    ? null
+    : applyFractionalRankPlan({
+        request,
+        items: database
+          .prepare(
+            `
+            SELECT placement.block_id AS id, placement.rank_key AS rankKey
+            FROM top_level_block_placements placement
+            INNER JOIN blocks block
+              ON block.id = placement.block_id
+             AND block.project_id = placement.project_id
+             AND block.lifecycle <> 'deleted'
+            WHERE placement.project_id = ?
+            ORDER BY placement.rank_key, placement.block_id
+          `,
+          )
+          .all(request.projectId) as DatabaseRankedItem[],
+        targetId: operation.cardBlockId,
+        updateExisting: (id, rankKey) => {
+          database
+            .prepare(
+              `
+              UPDATE top_level_block_placements
+              SET rank_key = ?, updated_at = ?
+              WHERE block_id = ? AND project_id = ?
+            `,
+            )
+            .run(rankKey, now, id, request.projectId);
+        },
+      });
 
   const affectedDatabases: string[] = [];
   if (current) {
@@ -1583,6 +1614,31 @@ const transferMembership = (
     if (removed.changes !== 1) {
       throw new Error("Membership changed during atomic transfer");
     }
+  }
+  database
+    .prepare(
+      "DELETE FROM top_level_block_placements WHERE block_id = ? AND project_id = ?",
+    )
+    .run(operation.cardBlockId, request.projectId);
+  const movedParent = database
+    .prepare(
+      `
+      UPDATE blocks
+      SET location_kind = ?, containing_document_id = NULL,
+          containing_database_id = ?, location_revision = location_revision + 1,
+          updated_at = ?
+      WHERE id = ? AND project_id = ? AND type = 'card'
+    `,
+    )
+    .run(
+      operation.target ? "database" : "space",
+      operation.target?.databaseBlockId ?? null,
+      now,
+      operation.cardBlockId,
+      request.projectId,
+    );
+  if (movedParent.changes !== 1) {
+    throw new Error("Card parent changed during atomic membership transfer");
   }
   if (operation.target && targetRank && targetView) {
     affectedDatabases.push(operation.target.databaseBlockId);
@@ -1617,6 +1673,22 @@ const transferMembership = (
         request.projectId,
         operation.target.groupKey,
         targetRank.rankKey,
+        now,
+        now,
+      );
+  } else if (spaceRank) {
+    database
+      .prepare(
+        `
+        INSERT INTO top_level_block_placements (
+          block_id, project_id, rank_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+      `,
+      )
+      .run(
+        operation.cardBlockId,
+        request.projectId,
+        spaceRank.rankKey,
         now,
         now,
       );
