@@ -322,6 +322,8 @@ export interface StrictDocumentUpdateCommitPolicy {
   readonly allowPendingSyncedReferenceTargetIds?: readonly BlockId[];
   /** Trusted typed owner rows staged in the host by the same outer transaction. */
   readonly allowStagedDocumentBearingBlockIds?: readonly BlockId[];
+  /** Trusted existing rows reparented into this host by the same outer transaction. */
+  readonly allowStagedReparentedBlockIds?: readonly BlockId[];
   /** Trusted reparenting transaction removes only the host shell, not its owner. */
   readonly preserveRemovedBlockIds?: readonly BlockId[];
   /** Trusted outer transaction will refill or retire this Document before commit. */
@@ -2565,7 +2567,10 @@ const applyBlockDocumentUpdateForAuthority = (
     const document = loadDocumentFromRow(
       database,
       row,
-      new Set(strictCommitPolicy?.allowStagedDocumentBearingBlockIds ?? []),
+      new Set([
+        ...(strictCommitPolicy?.allowStagedDocumentBearingBlockIds ?? []),
+        ...(strictCommitPolicy?.allowStagedReparentedBlockIds ?? []),
+      ]),
     );
     try {
       const schema = {

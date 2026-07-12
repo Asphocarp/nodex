@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import * as Y from "yjs";
 import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   BlockTransferContractError,
@@ -21,13 +22,27 @@ import {
   type DocumentBlockOperation,
   type DocumentOperationResult,
 } from "../../shared/block-documents/document-operations";
+import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import type {
   BlockLocation,
   RelocationDocumentCommit,
 } from "../../shared/block-documents/contracts";
-import { createCanonicalEmptyParagraphBlock } from "../../shared/block-documents/block-document-codec";
+import {
+  createCanonicalEmptyParagraphBlock,
+} from "../../shared/block-documents/block-document-codec";
+import {
+  CARD_DOCUMENT_SCHEMA_KEY,
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  createCardDocument,
+} from "../../shared/block-documents/card-document";
+import {
+  BlockTransferCoercionError,
+  classifyDatabaseTransferBlock,
+  planDatabaseTransferCoercions,
+} from "../../shared/block-transfer-coercion";
 import { planFractionalRank } from "../../shared/fractional-rank";
 import { applyDocumentOperationBatch } from "./block-document-operations";
+import { initializeCardDocumentGenesis } from "./block-document-store";
 import {
   BlockRelocationStoreError,
   relocateBlocksAtomically,
@@ -99,6 +114,11 @@ interface StoredTransferReceipt {
   readonly affectedDatabaseBlockIds: readonly string[];
   readonly changeLogSeq: number;
   readonly committedAt: string;
+}
+
+interface PromotionSource {
+  readonly root: BlockTreeNode;
+  readonly blockIds: readonly string[];
 }
 
 const MUTATION_KIND = "block_transfer";
@@ -299,6 +319,290 @@ const cardDisplayHint = (
       .get(cardId) as { readonly title: string } | undefined
   )?.title ?? "Untitled";
 
+const flattenBlockTreeIds = (root: BlockTreeNode): readonly string[] => [
+  root.id,
+  ...root.children.flatMap(flattenBlockTreeIds),
+];
+
+const findBlockTreeRoot = (
+  blocks: readonly BlockTreeNode[],
+  blockId: string,
+): BlockTreeNode | null => {
+  for (const block of blocks) {
+    if (block.id === blockId) return block;
+    const nested = findBlockTreeRoot(block.children, blockId);
+    if (nested) return nested;
+  }
+  return null;
+};
+
+const readPromotionSource = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+): PromotionSource => {
+  if (request.source.kind !== "document" || request.rootBlockIds.length !== 1) {
+    return reject(
+      request,
+      "unsupported_transfer",
+      "Database coercion currently requires one Document root per atomic transfer",
+    );
+  }
+  const row = database
+    .prepare(
+      `SELECT materialization.block_tree_json
+       FROM document_materializations materialization
+       JOIN documents document ON document.id = materialization.document_id
+       WHERE materialization.document_id = ?
+         AND materialization.generation = ?
+         AND materialization.projected_seq = ?`,
+    )
+    .get(
+      request.source.documentId,
+      request.source.generation,
+      request.source.expectedHeadSeq,
+    ) as { readonly block_tree_json: string } | undefined;
+  if (!row) {
+    return reject(
+      request,
+      "source_head_mismatch",
+      "Source Document materialization does not match the requested head",
+      { retryable: true, reloadRequired: true },
+    );
+  }
+  const tree = JSON.parse(row.block_tree_json) as readonly BlockTreeNode[];
+  const rootId = request.rootBlockIds[0];
+  const root = rootId ? findBlockTreeRoot(tree, rootId) : null;
+  if (!root) {
+    return reject(
+      request,
+      "block_not_found",
+      `Source Document does not contain root ${rootId ?? "missing"}`,
+    );
+  }
+  return { root, blockIds: flattenBlockTreeIds(root) };
+};
+
+const insertDefaultIntrinsicCardProperties = (
+  database: Database.Database,
+  input: {
+    readonly cardId: string;
+    readonly projectId: string;
+    readonly now: string;
+  },
+): void => {
+  const values = [
+    ["agent.blocked", "boolean", false],
+    ["agent.status", "string", null],
+    ["run.target", "string", "localProject"],
+    ["run.localPath", "string", null],
+    ["run.baseBranch", "string", null],
+    ["run.worktreePath", "string", null],
+    ["run.environmentPath", "string", null],
+    ["schedule.isAllDay", "boolean", false],
+    ["schedule.timezone", "string", null],
+    ["recurrence.config", "json", null],
+    ["reminders.config", "json", []],
+  ] as const;
+  const insert = database.prepare(`
+    INSERT INTO block_properties (
+      block_id, project_id, property_key, value_type,
+      value_json, revision, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 1, ?)
+  `);
+  for (const [key, valueType, value] of values) {
+    insert.run(
+      input.cardId,
+      input.projectId,
+      key,
+      valueType,
+      JSON.stringify(value),
+      input.now,
+    );
+  }
+};
+
+const stagePromotedCardDocument = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  input: {
+    readonly source: PromotionSource;
+    readonly title: string;
+    readonly bodyRootId: string;
+    readonly now: string;
+  },
+): { readonly documentId: string; readonly body: BlockTreeNode } => {
+  const cardId = input.source.root.id;
+  const documentId = `document:${cardId}`;
+  const identityCollision = database
+    .prepare("SELECT 1 AS present FROM documents WHERE id = ?")
+    .get(documentId);
+  if (identityCollision) {
+    return reject(
+      request,
+      "invalid_target",
+      `Promoted Card Document identity already exists: ${documentId}`,
+    );
+  }
+  const promoted = database
+    .prepare(
+      `UPDATE blocks
+       SET type = 'card', metadata_revision = metadata_revision + 1,
+           updated_at = ?
+       WHERE id = ? AND project_id = ? AND lifecycle = 'active'
+         AND type = ? AND location_kind = 'document'
+         AND containing_document_id = ?`,
+    )
+    .run(
+      input.now,
+      cardId,
+      request.projectId,
+      input.source.root.type,
+      request.source.kind === "document" ? request.source.documentId : null,
+    );
+  if (promoted.changes !== 1) {
+    return reject(
+      request,
+      "source_parent_mismatch",
+      `Block ${cardId} changed before Card promotion`,
+      { retryable: true, reloadRequired: true },
+    );
+  }
+  database
+    .prepare(
+      `INSERT INTO documents (
+         id, project_id, generation, head_seq, schema_key, schema_version,
+         state_vector, state_hash, readiness, authority,
+         created_at, updated_at
+       ) VALUES (?, ?, 1, 0, ?, ?, X'', '',
+                 'pending_genesis', 'legacy_shadow', ?, ?)`,
+    )
+    .run(
+      documentId,
+      request.projectId,
+      CARD_DOCUMENT_SCHEMA_KEY,
+      CARD_DOCUMENT_SCHEMA_VERSION,
+      input.now,
+      input.now,
+    );
+  database
+    .prepare(
+      `INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(cardId, documentId, request.projectId, input.now);
+  const genesis = createCardDocument({
+    documentId,
+    initialTitle: input.title,
+  });
+  try {
+    initializeCardDocumentGenesis(database, {
+      documentId,
+      storeEpoch: request.storeEpoch,
+      generation: 1,
+      updateId: deterministicSubOperationId(requestHash, "promotion-genesis"),
+      clientSessionId: request.clientSessionId ?? "block-transfer:promotion",
+      update: Y.encodeStateAsUpdate(genesis.document),
+      finalAuthority: "ydoc_primary",
+    });
+  } finally {
+    genesis.document.destroy();
+  }
+  insertDefaultIntrinsicCardProperties(database, {
+    cardId,
+    projectId: request.projectId,
+    now: input.now,
+  });
+  return {
+    documentId,
+    body: { ...input.source.root, id: input.bodyRootId },
+  };
+};
+
+const stageWrapperCardDocument = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  input: {
+    readonly cardId: string;
+    readonly title: string;
+    readonly now: string;
+  },
+): string => {
+  const documentId = `document:${input.cardId}`;
+  const collision = database
+    .prepare(
+      `SELECT 'block' AS kind FROM blocks WHERE id = ?
+       UNION ALL SELECT 'document' FROM documents WHERE id = ? LIMIT 1`,
+    )
+    .get(input.cardId, documentId) as { readonly kind: string } | undefined;
+  if (collision) {
+    return reject(
+      request,
+      "invalid_target",
+      `Wrapper Card identity collides with an existing ${collision.kind}`,
+    );
+  }
+  database
+    .prepare(
+      `INSERT INTO blocks (
+         id, project_id, type, lifecycle, location_kind,
+         containing_document_id, containing_database_id,
+         location_revision, metadata_revision, created_at, updated_at
+       ) VALUES (?, ?, 'card', 'active', 'space', NULL, NULL, 1, 1, ?, ?)`,
+    )
+    .run(input.cardId, request.projectId, input.now, input.now);
+  database
+    .prepare(
+      `INSERT INTO documents (
+         id, project_id, generation, head_seq, schema_key, schema_version,
+         state_vector, state_hash, readiness, authority,
+         created_at, updated_at
+       ) VALUES (?, ?, 1, 0, ?, ?, X'', '',
+                 'pending_genesis', 'legacy_shadow', ?, ?)`,
+    )
+    .run(
+      documentId,
+      request.projectId,
+      CARD_DOCUMENT_SCHEMA_KEY,
+      CARD_DOCUMENT_SCHEMA_VERSION,
+      input.now,
+      input.now,
+    );
+  database
+    .prepare(
+      `INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(input.cardId, documentId, request.projectId, input.now);
+  const genesis = createCardDocument({
+    documentId,
+    initialTitle: input.title,
+  });
+  try {
+    initializeCardDocumentGenesis(database, {
+      documentId,
+      storeEpoch: request.storeEpoch,
+      generation: 1,
+      updateId: deterministicSubOperationId(
+        requestHash,
+        `wrapper-genesis:${sha256(input.cardId)}`,
+      ),
+      clientSessionId: request.clientSessionId ?? "block-transfer:wrapper",
+      update: Y.encodeStateAsUpdate(genesis.document),
+      finalAuthority: "ydoc_primary",
+    });
+  } finally {
+    genesis.document.destroy();
+  }
+  insertDefaultIntrinsicCardProperties(database, {
+    cardId: input.cardId,
+    projectId: request.projectId,
+    now: input.now,
+  });
+  return documentId;
+};
+
 const readDocumentCommit = (
   database: Database.Database,
   result: DocumentOperationResult,
@@ -348,6 +652,7 @@ const runDocumentBatch = (
     readonly expectedHeadSeq: number;
     readonly operations: readonly DocumentBlockOperation[];
     readonly stagedOwnerIds?: readonly string[];
+    readonly stagedReparentedBlockIds?: readonly string[];
     readonly preserveRemovedOwnerIds?: readonly string[];
   },
 ): RelocationDocumentCommit => {
@@ -368,6 +673,9 @@ const runDocumentBatch = (
     {
       ...(input.stagedOwnerIds
         ? { allowStagedDocumentBearingBlockIds: input.stagedOwnerIds }
+        : {}),
+      ...(input.stagedReparentedBlockIds
+        ? { allowStagedReparentedBlockIds: input.stagedReparentedBlockIds }
         : {}),
       ...(input.preserveRemovedOwnerIds
         ? { preserveRemovedBlockIds: input.preserveRemovedOwnerIds }
@@ -405,15 +713,32 @@ const sourceDeleteOperations = (
   requestHash: string,
 ): readonly DocumentBlockOperation[] => {
   if (request.source.kind !== "document") return [];
+  return sourceDeleteOperationsForForest(
+    database,
+    request,
+    requestHash,
+    request.rootBlockIds,
+    request.rootBlockIds,
+  );
+};
+
+const sourceDeleteOperationsForForest = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  rootBlockIds: readonly string[],
+  movedBlockIds: readonly string[],
+): readonly DocumentBlockOperation[] => {
+  if (request.source.kind !== "document") return [];
   const count = database
     .prepare(
       "SELECT COUNT(*) AS count FROM document_block_index WHERE document_id = ?",
     )
     .get(request.source.documentId) as { readonly count: number };
-  const deletes: DocumentBlockOperation[] = request.rootBlockIds.map(
+  const deletes: DocumentBlockOperation[] = rootBlockIds.map(
     (blockId) => ({ kind: "delete_block", blockId }),
   );
-  if (count.count !== request.rootBlockIds.length) return deletes;
+  if (count.count !== movedBlockIds.length) return deletes;
   return [
     ...deletes,
     {
@@ -423,6 +748,254 @@ const sourceDeleteOperations = (
       ),
     },
   ];
+};
+
+const promoteDocumentRootToDatabaseCard = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  rows: readonly BlockRow[],
+  now: string,
+): {
+  readonly documentCommits: readonly RelocationDocumentCommit[];
+  readonly affectedDatabaseBlockIds: readonly string[];
+  readonly resultBlockIds: readonly string[];
+} => {
+  if (request.source.kind !== "document" || request.target.kind !== "database") {
+    return reject(
+      request,
+      "unsupported_transfer",
+      "Block promotion requires a Document source and Database target",
+    );
+  }
+  const source = readPromotionSource(database, request);
+  let plan;
+  try {
+    plan = planDatabaseTransferCoercions({
+      roots: [
+        {
+          blockId: source.root.id,
+          blockType: source.root.type,
+          text: database
+            .prepare(
+              "SELECT text FROM document_block_index WHERE document_id = ? AND block_id = ?",
+            )
+            .pluck()
+            .get(request.source.documentId, source.root.id) as string,
+        },
+      ],
+      allocateWrapperCardId: (sourceBlockId) =>
+        `card:transfer:${sha256(`${requestHash}\0wrapper\0${sourceBlockId}`)}`,
+    })[0];
+  } catch (error) {
+    if (error instanceof BlockTransferCoercionError) {
+      return reject(request, "unsupported_transfer", error.message);
+    }
+    throw error;
+  }
+  if (!plan || plan.kind !== "promote_in_place") {
+    return reject(
+      request,
+      "unsupported_transfer",
+      `${source.root.type} requires wrapper Card compilation`,
+    );
+  }
+  const sourceCommit = runDocumentBatch(database, request, requestHash, {
+    role: "source-document",
+    documentId: request.source.documentId,
+    generation: request.source.generation,
+    expectedHeadSeq: request.source.expectedHeadSeq,
+    operations: sourceDeleteOperationsForForest(
+      database,
+      request,
+      requestHash,
+      [source.root.id],
+      source.blockIds,
+    ),
+    preserveRemovedOwnerIds: source.blockIds,
+  });
+  const bodyRootId = `block:promoted-body:${sha256(
+    `${requestHash}\0${source.root.id}`,
+  )}`;
+  const staged = stagePromotedCardDocument(database, request, requestHash, {
+    source,
+    title: plan.title,
+    bodyRootId,
+    now,
+  });
+  const descendants = source.blockIds.filter(
+    (blockId) => blockId !== source.root.id,
+  );
+  const moveDescendant = database.prepare(`
+    UPDATE blocks
+    SET containing_document_id = ?, location_revision = location_revision + 1,
+        updated_at = ?
+    WHERE id = ? AND project_id = ? AND lifecycle = 'active'
+      AND location_kind = 'document' AND containing_document_id = ?
+  `);
+  for (const blockId of descendants) {
+    const moved = moveDescendant.run(
+      staged.documentId,
+      now,
+      blockId,
+      request.projectId,
+      request.source.documentId,
+    );
+    if (moved.changes !== 1) {
+      return reject(
+        request,
+        "source_parent_mismatch",
+        `Descendant Block ${blockId} changed during Card promotion`,
+        { retryable: true, reloadRequired: true },
+      );
+    }
+  }
+  const bodyCommit = runDocumentBatch(database, request, requestHash, {
+    role: "promotion-body",
+    documentId: staged.documentId,
+    generation: 1,
+    expectedHeadSeq: 1,
+    operations: [{ kind: "insert_block", block: staged.body }],
+    stagedReparentedBlockIds: descendants,
+  });
+  const affectedDatabaseBlockIds = transitionCardParents(
+    database,
+    request,
+    requestHash,
+    rows,
+    now,
+  );
+  return {
+    documentCommits: [sourceCommit, bodyCommit],
+    affectedDatabaseBlockIds,
+    resultBlockIds: [source.root.id, bodyRootId, ...descendants],
+  };
+};
+
+const wrapDocumentRootInDatabaseCard = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  now: string,
+): {
+  readonly documentCommits: readonly RelocationDocumentCommit[];
+  readonly affectedDatabaseBlockIds: readonly string[];
+  readonly resultBlockIds: readonly string[];
+  readonly resultRootBlockIds: readonly string[];
+} => {
+  if (request.source.kind !== "document" || request.target.kind !== "database") {
+    return reject(
+      request,
+      "unsupported_transfer",
+      "Wrapper coercion requires a Document source and Database target",
+    );
+  }
+  const source = readPromotionSource(database, request);
+  let plan;
+  try {
+    const text = database
+      .prepare(
+        "SELECT text FROM document_block_index WHERE document_id = ? AND block_id = ?",
+      )
+      .pluck()
+      .get(request.source.documentId, source.root.id) as string;
+    plan = planDatabaseTransferCoercions({
+      roots: [
+        {
+          blockId: source.root.id,
+          blockType: source.root.type,
+          text,
+        },
+      ],
+      allocateWrapperCardId: (sourceBlockId) =>
+        `card:transfer:${sha256(`${requestHash}\0wrapper\0${sourceBlockId}`)}`,
+    })[0];
+  } catch (error) {
+    if (error instanceof BlockTransferCoercionError) {
+      return reject(request, "unsupported_transfer", error.message);
+    }
+    throw error;
+  }
+  if (!plan || plan.kind !== "wrap_in_card") {
+    return reject(
+      request,
+      "unsupported_transfer",
+      `${source.root.type} does not require a wrapper Card`,
+    );
+  }
+  const sourceCommit = runDocumentBatch(database, request, requestHash, {
+    role: "source-document",
+    documentId: request.source.documentId,
+    generation: request.source.generation,
+    expectedHeadSeq: request.source.expectedHeadSeq,
+    operations: sourceDeleteOperationsForForest(
+      database,
+      request,
+      requestHash,
+      [source.root.id],
+      source.blockIds,
+    ),
+    preserveRemovedOwnerIds: source.blockIds,
+  });
+  const wrapperDocumentId = stageWrapperCardDocument(
+    database,
+    request,
+    requestHash,
+    { cardId: plan.cardBlockId, title: plan.title, now },
+  );
+  const moveSourceBlock = database.prepare(`
+    UPDATE blocks
+    SET containing_document_id = ?, location_revision = location_revision + 1,
+        updated_at = ?
+    WHERE id = ? AND project_id = ? AND lifecycle = 'active'
+      AND location_kind = 'document' AND containing_document_id = ?
+  `);
+  for (const blockId of source.blockIds) {
+    const moved = moveSourceBlock.run(
+      wrapperDocumentId,
+      now,
+      blockId,
+      request.projectId,
+      request.source.documentId,
+    );
+    if (moved.changes !== 1) {
+      return reject(
+        request,
+        "source_parent_mismatch",
+        `Wrapped Block ${blockId} changed during Card creation`,
+        { retryable: true, reloadRequired: true },
+      );
+    }
+  }
+  const bodyCommit = runDocumentBatch(database, request, requestHash, {
+    role: "wrapper-body",
+    documentId: wrapperDocumentId,
+    generation: 1,
+    expectedHeadSeq: 1,
+    operations: [{ kind: "insert_block", block: source.root }],
+    stagedReparentedBlockIds: source.blockIds,
+  });
+  const wrapperRow = database
+    .prepare(
+      `SELECT id, project_id, type, lifecycle, location_kind,
+              containing_document_id, containing_database_id,
+              location_revision
+       FROM blocks WHERE id = ?`,
+    )
+    .get(plan.cardBlockId) as BlockRow;
+  const affectedDatabaseBlockIds = transitionCardParents(
+    database,
+    request,
+    requestHash,
+    [wrapperRow],
+    now,
+  );
+  return {
+    documentCommits: [sourceCommit, bodyCommit],
+    affectedDatabaseBlockIds,
+    resultBlockIds: [plan.cardBlockId, ...source.blockIds],
+    resultRootBlockIds: [plan.cardBlockId],
+  };
 };
 
 const allocateSpacePlacement = (
@@ -994,6 +1567,7 @@ export const applyBlockTransfer = (
     let documentCommits: readonly RelocationDocumentCommit[] = [];
     let affectedDatabaseBlockIds: readonly string[] = [];
     let resultBlockIds: readonly string[] = request.rootBlockIds;
+    let resultRootBlockIds: readonly string[] = request.rootBlockIds;
 
     try {
       if (
@@ -1027,6 +1601,35 @@ export const applyBlockTransfer = (
           ...(relocation.targetCommit ? [relocation.targetCommit] : []),
         ];
         resultBlockIds = relocation.movedBlockIds;
+      } else if (
+        request.source.kind === "document" &&
+        request.target.kind === "database" &&
+        rows.some((row) => row.type !== "card")
+      ) {
+        const policy = classifyDatabaseTransferBlock(rows[0]?.type ?? "");
+        if (policy === "promote_in_place") {
+          const promotion = promoteDocumentRootToDatabaseCard(
+            database,
+            request,
+            requestHash,
+            rows,
+            now,
+          );
+          documentCommits = promotion.documentCommits;
+          affectedDatabaseBlockIds = promotion.affectedDatabaseBlockIds;
+          resultBlockIds = promotion.resultBlockIds;
+        } else {
+          const wrapper = wrapDocumentRootInDatabaseCard(
+            database,
+            request,
+            requestHash,
+            now,
+          );
+          documentCommits = wrapper.documentCommits;
+          affectedDatabaseBlockIds = wrapper.affectedDatabaseBlockIds;
+          resultBlockIds = wrapper.resultBlockIds;
+          resultRootBlockIds = wrapper.resultRootBlockIds;
+        }
       } else {
         requireCardRoots(request, rows);
         if (request.source.kind === "document") {
@@ -1129,7 +1732,7 @@ export const applyBlockTransfer = (
       mode: request.mode,
       duplicate: false,
       sourceRootBlockIds: request.rootBlockIds,
-      resultRootBlockIds: request.rootBlockIds,
+      resultRootBlockIds,
       copiedBlockIds: {},
       finalLocations: final.locations,
       finalLocationRevisions: final.revisions,

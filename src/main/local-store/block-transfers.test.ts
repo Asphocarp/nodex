@@ -25,6 +25,7 @@ const seedCard = (
     readonly cardId: string;
     readonly title: string;
     readonly rankKey: string;
+    readonly bodyType?: string;
   },
 ): string => {
   const now = new Date().toISOString();
@@ -74,7 +75,7 @@ const seedCard = (
   }
   const paragraph = new Y.XmlElement("blockContainer");
   paragraph.setAttribute("id", `paragraph:${input.cardId}`);
-  const paragraphNode = new Y.XmlElement("paragraph");
+  const paragraphNode = new Y.XmlElement(input.bodyType ?? "paragraph");
   const text = new Y.XmlText();
   text.insert(0, `${input.title} body`);
   paragraphNode.insert(0, [text]);
@@ -497,6 +498,130 @@ describe("BlockTransfer store", () => {
           )
           .get("card-standalone"),
       ).toEqual({ lifecycle: "active", location_kind: "space" });
+
+      const promotionSourceHead = database
+        .prepare("SELECT head_seq FROM documents WHERE id = ?")
+        .get(secondHostDocumentId) as { readonly head_seq: number };
+      const promoted = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "promote-paragraph-to-card",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["paragraph:card-second-host"],
+        expectedLocationRevisions: { "paragraph:card-second-host": 1 },
+        source: {
+          kind: "document",
+          documentId: secondHostDocumentId,
+          generation: 1,
+          expectedHeadSeq: promotionSourceHead.head_seq,
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          viewId: primary.view_id,
+          groupKey: "backlog",
+        },
+      });
+      expect(promoted.ok).toBe(true);
+      expect(
+        database
+          .prepare(
+            `SELECT type, lifecycle, location_kind, containing_database_id
+             FROM blocks WHERE id = ?`,
+          )
+          .get("paragraph:card-second-host"),
+      ).toEqual({
+        type: "card",
+        lifecycle: "active",
+        location_kind: "database",
+        containing_database_id: primary.database_block_id,
+      });
+      const promotedDocument = database
+        .prepare(
+          `SELECT ownership.document_id, materialization.title,
+                  materialization.nfm
+           FROM block_documents ownership
+           JOIN document_materializations materialization
+             ON materialization.document_id = ownership.document_id
+           WHERE ownership.block_id = ?`,
+        )
+        .get("paragraph:card-second-host") as {
+        readonly document_id: string;
+        readonly title: string;
+        readonly nfm: string;
+      };
+      expect(promotedDocument.document_id).toBe(
+        "document:paragraph:card-second-host",
+      );
+      expect(promotedDocument.title).toBe("Second host body");
+      expect(promotedDocument.nfm).toContain("Second host body");
+      expect(
+        database
+          .prepare(
+            "SELECT 1 AS present FROM document_block_index WHERE document_id = ? AND block_id = ?",
+          )
+          .get(secondHostDocumentId, "paragraph:card-second-host"),
+      ).toBeUndefined();
+
+      const wrapperHostDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-wrapper-host",
+        title: "Wrapper host",
+        rankKey: "a0000000000000000000000000000000",
+        bodyType: "quote",
+      });
+      const wrapped = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "wrap-quote-in-card",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["paragraph:card-wrapper-host"],
+        expectedLocationRevisions: { "paragraph:card-wrapper-host": 1 },
+        source: {
+          kind: "document",
+          documentId: wrapperHostDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          viewId: primary.view_id,
+          groupKey: "backlog",
+        },
+      });
+      expect(wrapped.ok).toBe(true);
+      if (wrapped.ok) {
+        const wrapperCardId = wrapped.value.resultRootBlockIds[0];
+        expect(wrapperCardId).toMatch(/^card:transfer:/u);
+        expect(wrapped.value.sourceRootBlockIds).toEqual([
+          "paragraph:card-wrapper-host",
+        ]);
+        expect(
+          wrapped.value.finalLocations["paragraph:card-wrapper-host"],
+        ).toEqual({
+          kind: "document",
+          documentId: `document:${wrapperCardId}`,
+        });
+        expect(wrapped.value.finalLocations[wrapperCardId ?? ""]?.kind).toBe(
+          "database",
+        );
+        expect(
+          database
+            .prepare(
+              "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
+            )
+            .get(
+              `document:${wrapperCardId}`,
+              "paragraph:card-wrapper-host",
+            ),
+        ).toEqual({ block_type: "quote" });
+      }
     } finally {
       closeDatabase();
       fs.rmSync(directory, { recursive: true, force: true });

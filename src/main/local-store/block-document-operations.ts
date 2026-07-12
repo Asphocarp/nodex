@@ -87,6 +87,8 @@ export interface ApplyDocumentOperationOptions {
    * SQLite transaction.
    */
   readonly allowStagedDocumentBearingBlockIds?: readonly string[];
+  /** Trusted existing ordinary Blocks already reparented into this Document. */
+  readonly allowStagedReparentedBlockIds?: readonly string[];
   /** Trusted reparenting seam: remove host shells without deleting their owners. */
   readonly preserveRemovedBlockIds?: readonly string[];
   /** Trusted outer ownership transaction; never expose through transport input. */
@@ -843,8 +845,20 @@ const assertCreatedIdsAreNewOrStagedOwners = (
   request: MutationRequestBase,
   createdBlockIds: readonly string[],
   allowedStagedOwnerIds: readonly string[] = [],
+  allowedReparentedBlockIds: readonly string[] = [],
 ): void => {
-  const allowed = new Set(allowedStagedOwnerIds);
+  const stagedOwners = new Set(allowedStagedOwnerIds);
+  const reparented = new Set(allowedReparentedBlockIds);
+  const overlap = [...stagedOwners].find((blockId) => reparented.has(blockId));
+  if (overlap) {
+    reject(
+      "invalid_operation",
+      `Trusted staged identity ${overlap} cannot be both an owner and an ordinary reparented Block`,
+      request,
+      { blockId: overlap },
+    );
+  }
+  const allowed = new Set([...stagedOwners, ...reparented]);
   const created = new Set(createdBlockIds);
   if ([...allowed].some((blockId) => !created.has(blockId))) {
     reject(
@@ -859,7 +873,7 @@ const assertCreatedIdsAreNewOrStagedOwners = (
     createdBlockIds.filter((blockId) => !allowed.has(blockId)),
   );
   if (allowed.size === 0) return;
-  const read = database.prepare(`
+  const readOwner = database.prepare(`
     SELECT owner.project_id, owner.type, owner.lifecycle, owner.location_kind,
       owner.containing_document_id, document.readiness, document.authority,
       document.schema_key, document.schema_version
@@ -872,8 +886,8 @@ const assertCreatedIdsAreNewOrStagedOwners = (
       AND document.project_id = ownership.project_id
     WHERE owner.id = ?
   `);
-  for (const blockId of allowed) {
-    const row = read.get(blockId) as
+  for (const blockId of stagedOwners) {
+    const row = readOwner.get(blockId) as
       | {
           readonly project_id: string;
           readonly type: string;
@@ -908,6 +922,34 @@ const assertCreatedIdsAreNewOrStagedOwners = (
     reject(
       "invalid_operation",
       `Block ${blockId} is not a ready staged document-bearing owner in ${request.documentId}`,
+      request,
+      { blockId },
+    );
+  }
+  const readReparented = database.prepare(`
+    SELECT project_id, lifecycle, location_kind, containing_document_id
+    FROM blocks WHERE id = ?
+  `);
+  for (const blockId of reparented) {
+    const row = readReparented.get(blockId) as
+      | {
+          readonly project_id: string;
+          readonly lifecycle: string;
+          readonly location_kind: string;
+          readonly containing_document_id: string | null;
+        }
+      | undefined;
+    if (
+      row?.project_id === request.projectId &&
+      row.lifecycle === "active" &&
+      row.location_kind === "document" &&
+      row.containing_document_id === request.documentId
+    ) {
+      continue;
+    }
+    reject(
+      "invalid_operation",
+      `Block ${blockId} is not staged as an active ordinary Block in ${request.documentId}`,
       request,
       { blockId },
     );
@@ -1267,6 +1309,8 @@ const applyPreparedMutation = (
           options.allowPendingSyncedReferenceTargetIds,
         allowStagedDocumentBearingBlockIds:
           options.allowStagedDocumentBearingBlockIds,
+        allowStagedReparentedBlockIds:
+          options.allowStagedReparentedBlockIds,
         preserveRemovedBlockIds: options.preserveRemovedBlockIds,
         allowTransientEmptyBlockTree: options.allowTransientEmptyBlockTree,
         ...(prepared.trustedMaxUpdateBytes === undefined
@@ -1359,7 +1403,10 @@ const applyMutationInTransaction = (
   try {
     loaded = loadPrimaryBlockDocument(database, request.documentId, {
       allowAbsentActiveBlockIds:
-        options.allowStagedDocumentBearingBlockIds,
+        [
+          ...(options.allowStagedDocumentBearingBlockIds ?? []),
+          ...(options.allowStagedReparentedBlockIds ?? []),
+        ],
     });
   } catch (error) {
     if (!(error instanceof BlockDocumentStoreError)) throw error;
@@ -1450,6 +1497,7 @@ const applyMutationInTransaction = (
           request,
           prepared.createdBlockIds,
           options.allowStagedDocumentBearingBlockIds,
+          options.allowStagedReparentedBlockIds,
         );
       } else if (evidence.mutationKind === "replace_document_from_nfm") {
         if (!adapter.capabilities.nfmReplace) {
