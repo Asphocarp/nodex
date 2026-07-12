@@ -511,6 +511,7 @@ export const parseBlockTransferRequest = (
   const source = parseSource(request.source, rootBlockIds);
   const target = parseTarget(request.target, rootBlockIds);
   if (
+    request.mode === "move" &&
     source.kind === "document" &&
     target.kind === "document" &&
     source.documentId === target.documentId
@@ -520,6 +521,7 @@ export const parseBlockTransferRequest = (
     );
   }
   if (
+    request.mode === "move" &&
     source.kind === "database" &&
     target.kind === "database" &&
     source.databaseBlockId === target.databaseBlockId
@@ -528,7 +530,11 @@ export const parseBlockTransferRequest = (
       "BlockTransfer is for parent changes; reorder within one Database uses a View position operation",
     );
   }
-  if (source.kind === "space" && target.kind === "space") {
+  if (
+    request.mode === "move" &&
+    source.kind === "space" &&
+    target.kind === "space"
+  ) {
     throw new BlockTransferContractError(
       "BlockTransfer is for parent changes; reorder within a Space uses a top-level position operation",
     );

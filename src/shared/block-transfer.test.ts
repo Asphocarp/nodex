@@ -95,4 +95,19 @@ describe("BlockTransfer contract", () => {
       }),
     ).toThrow(/cannot be a transferred root/);
   });
+
+  test("allows Copy into the same parent because it creates fresh identity", () => {
+    expect(
+      parseBlockTransferRequest({
+        ...request(),
+        mode: "copy",
+        target: {
+          kind: "database",
+          databaseBlockId: "database-a",
+          viewId: "view-a",
+          groupKey: null,
+        },
+      }).mode,
+    ).toBe("copy");
+  });
 });

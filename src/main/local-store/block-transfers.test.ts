@@ -382,6 +382,60 @@ describe("BlockTransfer store", () => {
         containing_database_id: primary.database_block_id,
       });
 
+      const copyTargetHead = database
+        .prepare("SELECT head_seq FROM documents WHERE id = ?")
+        .get(hostDocumentId) as { readonly head_seq: number };
+      const copied = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "copy-source-card-into-host",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "copy",
+        rootBlockIds: ["card-source"],
+        expectedLocationRevisions: { "card-source": 4 },
+        source: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          memberships: {
+            "card-source": {
+              membershipId: "membership-source-target",
+              revision: 3,
+            },
+          },
+        },
+        target: {
+          kind: "document",
+          documentId: hostDocumentId,
+          generation: 1,
+          expectedHeadSeq: copyTargetHead.head_seq,
+        },
+      });
+      expect(copied.ok).toBe(true);
+      if (copied.ok) {
+        const copiedCardId = copied.value.resultRootBlockIds[0];
+        expect(copiedCardId).toMatch(/^block:copy:/u);
+        expect(copied.value.copiedBlockIds["card-source"]).toBe(copiedCardId);
+        expect(copied.value.finalLocations[copiedCardId ?? ""]).toEqual({
+          kind: "document",
+          documentId: hostDocumentId,
+        });
+        expect(
+          database
+            .prepare(
+              "SELECT location_kind, location_revision FROM blocks WHERE id = ?",
+            )
+            .get("card-source"),
+        ).toEqual({ location_kind: "database", location_revision: 4 });
+        expect(
+          database
+            .prepare(
+              "SELECT document_id FROM block_documents WHERE block_id = ?",
+            )
+            .get(copiedCardId),
+        ).toEqual({ document_id: `document:${copiedCardId}` });
+      }
+
       const standaloneDocumentId = seedCard(database, {
         projectId: project.id,
         storeEpoch: metadata.store_epoch,

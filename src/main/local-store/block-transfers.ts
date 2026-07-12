@@ -40,6 +40,10 @@ import {
   classifyDatabaseTransferBlock,
   planDatabaseTransferCoercions,
 } from "../../shared/block-transfer-coercion";
+import {
+  allocateBlockOwnershipCopyIdentities,
+  planBlockOwnershipClosure,
+} from "../../shared/block-ownership-copy-plan";
 import { planFractionalRank } from "../../shared/fractional-rank";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { initializeCardDocumentGenesis } from "./block-document-store";
@@ -53,6 +57,7 @@ import {
   type CardOffDatabaseParent,
 } from "./database-kernel";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
+import { cloneAuthoritativeCardInTransaction } from "./authoritative-card-clone";
 
 export type BlockTransferFaultPoint =
   | "after_source_document"
@@ -641,6 +646,39 @@ const readDocumentCommit = (
   };
 };
 
+const readDocumentCommitAt = (
+  database: Database.Database,
+  documentId: string,
+  generation: number,
+  headSeq: number,
+): RelocationDocumentCommit => {
+  const row = database
+    .prepare(
+      `SELECT committed_update.update_id, committed_update.base_head_seq,
+              committed_update.update_blob, document.state_vector
+       FROM document_updates committed_update
+       JOIN documents document ON document.id = committed_update.document_id
+       WHERE committed_update.document_id = ?
+         AND committed_update.generation = ? AND committed_update.seq = ?`,
+    )
+    .get(documentId, generation, headSeq) as {
+    readonly update_id: string;
+    readonly base_head_seq: number;
+    readonly update_blob: Uint8Array;
+    readonly state_vector: Uint8Array;
+  } | undefined;
+  if (!row) throw new Error(`Document ${documentId} has no commit at ${headSeq}`);
+  return {
+    documentId,
+    generation,
+    baseHeadSeq: row.base_head_seq,
+    headSeq,
+    updateId: row.update_id,
+    update: new Uint8Array(row.update_blob),
+    stateVector: new Uint8Array(row.state_vector),
+  };
+};
+
 const runDocumentBatch = (
   database: Database.Database,
   request: BlockTransferRequest,
@@ -995,6 +1033,245 @@ const wrapDocumentRootInDatabaseCard = (
     affectedDatabaseBlockIds,
     resultBlockIds: [plan.cardBlockId, ...source.blockIds],
     resultRootBlockIds: [plan.cardBlockId],
+  };
+};
+
+const copyDatabaseCard = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  now: string,
+): {
+  readonly documentCommits: readonly RelocationDocumentCommit[];
+  readonly affectedDatabaseBlockIds: readonly string[];
+  readonly resultBlockIds: readonly string[];
+  readonly resultRootBlockIds: readonly string[];
+  readonly copiedBlockIds: Readonly<Record<string, string>>;
+} => {
+  if (
+    request.source.kind !== "database" ||
+    request.rootBlockIds.length !== 1
+  ) {
+    return reject(
+      request,
+      "unsupported_transfer",
+      "Recursive Copy compilation currently requires one Database Card root",
+    );
+  }
+  const sourceCardId = request.rootBlockIds[0];
+  if (!sourceCardId) {
+    return reject(request, "block_not_found", "Copy root is missing");
+  }
+  const closure = planBlockOwnershipClosure(
+    {
+      readBlock: (blockId) =>
+        (database
+          .prepare(
+            `SELECT id AS blockId, type AS blockType,
+                    containing_document_id AS containingDocumentId
+             FROM blocks WHERE id = ? AND project_id = ? AND lifecycle = 'active'`,
+          )
+          .get(blockId, request.projectId) as
+          | {
+              readonly blockId: string;
+              readonly blockType: string;
+              readonly containingDocumentId: string | null;
+            }
+          | undefined) ?? null,
+      readOwnedDocument: (ownerBlockId) =>
+        (database
+          .prepare(
+            `SELECT document.id AS documentId,
+                    ownership.block_id AS ownerBlockId,
+                    document.schema_key AS schemaKey,
+                    document.schema_version AS schemaVersion
+             FROM block_documents ownership
+             JOIN documents document ON document.id = ownership.document_id
+             WHERE ownership.block_id = ? AND ownership.project_id = ?
+               AND document.readiness = 'ready'
+               AND document.authority = 'ydoc_primary'`,
+          )
+          .get(ownerBlockId, request.projectId) as
+          | {
+              readonly documentId: string;
+              readonly ownerBlockId: string;
+              readonly schemaKey: string;
+              readonly schemaVersion: number;
+            }
+          | undefined) ?? null,
+      readDocumentBlocks: (documentId) =>
+        database
+          .prepare(
+            `SELECT block.id AS blockId, block.type AS blockType,
+                    block.containing_document_id AS containingDocumentId
+             FROM document_block_index block_index
+             JOIN blocks block ON block.id = block_index.block_id
+             WHERE block_index.document_id = ? AND block.project_id = ?
+             ORDER BY block_index.ordinal, block.id`,
+          )
+          .all(documentId, request.projectId) as readonly {
+          readonly blockId: string;
+          readonly blockType: string;
+          readonly containingDocumentId: string | null;
+        }[],
+    },
+    [sourceCardId],
+  );
+  if (closure.documents.length !== 1) {
+    return reject(
+      request,
+      "unsupported_transfer",
+      "Nested document-bearing Copy requires the recursive clone compiler",
+    );
+  }
+  const identities = allocateBlockOwnershipCopyIdentities(
+    request.operationId,
+    closure,
+  );
+  const newCardId = identities.blockIds[sourceCardId];
+  if (!newCardId) throw new Error("Copy identity plan omitted its root Card");
+  const source = database
+    .prepare(
+      `SELECT membership.database_block_id, membership.id AS membership_id,
+              position.rank_key,
+              status_value.value_json AS status_json
+       FROM database_memberships membership
+       JOIN database_views view
+         ON view.database_block_id = membership.database_block_id
+        AND view.project_id = membership.project_id
+        AND view.is_primary = 1
+       JOIN database_view_positions position
+         ON position.view_id = view.id
+        AND position.block_id = membership.card_block_id
+       JOIN database_properties status_property
+         ON status_property.database_block_id = membership.database_block_id
+        AND status_property.project_id = membership.project_id
+        AND status_property.key = 'status'
+        AND status_property.lifecycle = 'active'
+       JOIN database_property_values status_value
+         ON status_value.membership_id = membership.id
+        AND status_value.property_id = status_property.id
+       WHERE membership.card_block_id = ? AND membership.project_id = ?
+         AND membership.removed_at IS NULL`,
+    )
+    .get(sourceCardId, request.projectId) as {
+    readonly database_block_id: string;
+    readonly membership_id: string;
+    readonly rank_key: string;
+    readonly status_json: string;
+  } | undefined;
+  if (!source) {
+    return reject(
+      request,
+      "source_parent_mismatch",
+      `Card ${sourceCardId} has no complete source Database placement`,
+    );
+  }
+  const allocatedContentIds = closure.blocks
+    .filter((block) => block.blockId !== sourceCardId)
+    .map((block) => identities.blockIds[block.blockId])
+    .filter((blockId): blockId is string => typeof blockId === "string");
+  let allocationIndex = 0;
+  const cloned = cloneAuthoritativeCardInTransaction(
+    database,
+    {
+      projectId: request.projectId,
+      sourceCardId,
+      newCardId,
+      lifecycle: "active",
+      status: JSON.parse(source.status_json) as never,
+      primaryViewRankKey: source.rank_key,
+      operationId: deterministicSubOperationId(requestHash, "clone-card"),
+      clientSessionId: request.clientSessionId,
+      actor: request.actor,
+      createdAt: now,
+    },
+    {
+      allocateBlockId: () => {
+        const blockId = allocatedContentIds[allocationIndex];
+        allocationIndex += 1;
+        if (blockId) return blockId;
+        throw new Error("Copy identity plan exhausted Block IDs");
+      },
+    },
+  );
+  const cloneRow = database
+    .prepare(
+      `SELECT id, project_id, type, lifecycle, location_kind,
+              containing_document_id, containing_database_id,
+              location_revision
+       FROM blocks WHERE id = ?`,
+    )
+    .get(newCardId) as BlockRow;
+  let affectedDatabaseBlockIds: readonly string[] = [
+    source.database_block_id,
+  ];
+  const sameDatabaseTarget =
+    request.target.kind === "database" &&
+    request.target.databaseBlockId === source.database_block_id;
+  const copyPlacementRequest: BlockTransferRequest = {
+    ...request,
+    rootBlockIds: [newCardId],
+    expectedLocationRevisions: { [newCardId]: 1 },
+    source: {
+      kind: "database",
+      databaseBlockId: source.database_block_id,
+      memberships: {
+        [newCardId]: { membershipId: cloned.membershipId, revision: 1 },
+      },
+    },
+  };
+  if (!sameDatabaseTarget) {
+    affectedDatabaseBlockIds = uniqueSorted([
+      ...affectedDatabaseBlockIds,
+      ...transitionCardParents(
+        database,
+        copyPlacementRequest,
+        requestHash,
+        [cloneRow],
+        now,
+      ),
+    ]);
+  }
+  const documentCommits: RelocationDocumentCommit[] = [
+    readDocumentCommitAt(database, cloned.documentId, 1, cloned.documentHeadSeq),
+  ];
+  if (request.target.kind === "document") {
+    documentCommits.push(
+      runDocumentBatch(database, copyPlacementRequest, requestHash, {
+        role: "copy-target-document",
+        documentId: request.target.documentId,
+        generation: request.target.generation,
+        expectedHeadSeq: request.target.expectedHeadSeq,
+        operations: [
+          {
+            kind: "insert_block",
+            block: {
+              id: newCardId,
+              type: "card",
+              props: {
+                displayHint: cardDisplayHint(database, newCardId),
+              },
+              children: [],
+            },
+            ...(request.target.parentBlockId
+              ? { parentBlockId: request.target.parentBlockId }
+              : {}),
+            ...(request.target.beforeBlockId
+              ? { beforeBlockId: request.target.beforeBlockId }
+              : {}),
+          },
+        ],
+        stagedOwnerIds: [newCardId],
+      }),
+    );
+  }
+  return {
+    documentCommits,
+    affectedDatabaseBlockIds,
+    resultBlockIds: [newCardId, ...Object.values(cloned.blockIdMap)],
+    resultRootBlockIds: [newCardId],
+    copiedBlockIds: { [sourceCardId]: newCardId, ...cloned.blockIdMap },
   };
 };
 
@@ -1537,19 +1814,6 @@ export const applyBlockTransfer = (
       throw error;
     }
   }
-  if (request.mode === "copy") {
-    return {
-      ok: false,
-      error: {
-        code: "unsupported_transfer",
-        message: "Copy requires the recursive ownership-copy phase",
-        retryable: false,
-        reloadRequired: false,
-        operationId: request.operationId,
-      },
-    };
-  }
-
   const transaction = database.transaction((): BlockTransferReceipt => {
     const project = database
       .prepare("SELECT 1 AS present FROM projects WHERE id = ?")
@@ -1568,9 +1832,22 @@ export const applyBlockTransfer = (
     let affectedDatabaseBlockIds: readonly string[] = [];
     let resultBlockIds: readonly string[] = request.rootBlockIds;
     let resultRootBlockIds: readonly string[] = request.rootBlockIds;
+    let copiedBlockIds: Readonly<Record<string, string>> = {};
 
     try {
-      if (
+      if (request.mode === "copy") {
+        const copy = copyDatabaseCard(
+          database,
+          request,
+          requestHash,
+          now,
+        );
+        documentCommits = copy.documentCommits;
+        affectedDatabaseBlockIds = copy.affectedDatabaseBlockIds;
+        resultBlockIds = copy.resultBlockIds;
+        resultRootBlockIds = copy.resultRootBlockIds;
+        copiedBlockIds = copy.copiedBlockIds;
+      } else if (
         request.source.kind === "document" &&
         request.target.kind === "document"
       ) {
@@ -1733,7 +2010,7 @@ export const applyBlockTransfer = (
       duplicate: false,
       sourceRootBlockIds: request.rootBlockIds,
       resultRootBlockIds,
-      copiedBlockIds: {},
+      copiedBlockIds,
       finalLocations: final.locations,
       finalLocationRevisions: final.revisions,
       documentCommits,
