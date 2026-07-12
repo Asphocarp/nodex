@@ -103,6 +103,15 @@ const DEFAULT_CARD_SCHEMA_ADAPTER = getRegisteredBlockDocumentSchemaAdapter({
   schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
 });
 
+const EMPTY_DOCUMENT_UPDATE = (() => {
+  const document = new Y.Doc();
+  try {
+    return Y.encodeStateAsUpdate(document);
+  } finally {
+    document.destroy();
+  }
+})();
+
 const validateStateConstraints = (
   constraints: DocumentLocalCheckpointStateConstraints | undefined,
 ): DocumentLocalCheckpointStateConstraints => {
@@ -353,12 +362,18 @@ export const restoreDocumentLocalCheckpoint = (
   const boundary = validateBoundary(checkpoint);
   requireHeadSeq(checkpoint.headSeq);
   const checkpointState = copyState(checkpoint.state, schemaAdapter.limits);
+  const durableSnapshot = Y.snapshot(document);
   const candidate = new Y.Doc({ guid: boundary.documentId });
   try {
     Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document), "checkpoint-current");
     Y.applyUpdate(candidate, checkpointState, "checkpoint-candidate");
     assertValidDocumentState(candidate, schemaAdapter);
-    const missingOnServer = Y.encodeStateAsUpdate(candidate, serverStateVector);
+    const missingOnServer = Y.equalSnapshots(
+      durableSnapshot,
+      Y.snapshot(candidate),
+    )
+      ? EMPTY_DOCUMENT_UPDATE.slice()
+      : Y.encodeStateAsUpdate(candidate, serverStateVector);
     Y.applyUpdate(document, checkpointState, origin);
     return missingOnServer.slice();
   } catch (error) {

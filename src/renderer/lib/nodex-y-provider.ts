@@ -259,6 +259,15 @@ const providerDestroyedError = (): Error =>
 const isNonNegativeInteger = (value: number): boolean =>
   Number.isInteger(value) && value >= 0;
 
+export const isDocumentApplyAckHeadValid = (
+  ack: Pick<DocumentSyncApplyAck, "committedSeq" | "headSeq" | "duplicate">,
+  request: Pick<DocumentSyncApplyRequest, "baseHeadSeq">,
+): boolean =>
+  isNonNegativeInteger(ack.committedSeq) &&
+  isNonNegativeInteger(ack.headSeq) &&
+  ack.committedSeq >= request.baseHeadSeq + (ack.duplicate ? 0 : 1) &&
+  ack.committedSeq <= ack.headSeq;
+
 const requireNonEmpty = (value: string, field: string): string => {
   if (value.trim().length > 0) {
     return value;
@@ -1471,12 +1480,7 @@ export class NodexYProvider {
     if (!this.assertBoundary(ack.storeEpoch, ack.generation)) {
       return false;
     }
-    if (
-      !isNonNegativeInteger(ack.committedSeq) ||
-      !isNonNegativeInteger(ack.headSeq) ||
-      ack.committedSeq < request.baseHeadSeq + 1 ||
-      ack.committedSeq > ack.headSeq
-    ) {
+    if (!isDocumentApplyAckHeadValid(ack, request)) {
       this.enterFatal(
         invalidResponseError("Document update ACK has an invalid head"),
       );

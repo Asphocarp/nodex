@@ -68,6 +68,31 @@ describe("document local checkpoints", () => {
     restarted.destroy();
   });
 
+  test("does not replay an already committed delete set as a local edit", () => {
+    const server = createCardDocument({
+      documentId: boundary.documentId,
+      initialTitle: "Committed",
+    }).document;
+    const title = openCardDocument(server).title;
+    title.insert(title.length, " transient");
+    title.delete("Committed".length, " transient".length);
+    const checkpoint = captureDocumentLocalCheckpoint(server, boundary);
+    const restarted = new Y.Doc({ guid: boundary.documentId });
+    Y.applyUpdate(restarted, Y.encodeStateAsUpdate(server));
+
+    const missing = restoreDocumentLocalCheckpoint(
+      restarted,
+      Y.encodeStateVector(server),
+      checkpoint,
+      "local-checkpoint",
+    );
+
+    expect(hasDocumentUpdateContent(missing)).toBe(false);
+    expect(openCardDocument(restarted).title.toString()).toBe("Committed");
+    server.destroy();
+    restarted.destroy();
+  });
+
   test("validates a corrupt checkpoint before mutating the mounted document", () => {
     const mounted = createCardDocument({
       documentId: boundary.documentId,

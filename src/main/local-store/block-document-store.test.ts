@@ -502,6 +502,30 @@ describe("BlockDocumentStore", () => {
         expect(duplicateB.committedSeq).toBe(3);
         expect(duplicateB.duplicate).toBe(true);
 
+        const causalReplay = applyBlockDocumentUpdate(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "client-b-causal-replay",
+          clientSessionId: "window-after-restart",
+          baseHeadSeq: 3,
+          touchedBlockIds: [],
+          update: updateB,
+        });
+        expect(causalReplay.headSeq).toBe(3);
+        expect(causalReplay.committedSeq).toBe(3);
+        expect(causalReplay.duplicate).toBe(true);
+        const causalReplayReceipt = database
+          .prepare(
+            `
+          SELECT COUNT(*) AS count
+          FROM document_update_receipts
+          WHERE document_id = ? AND update_id = 'client-b-causal-replay'
+        `,
+          )
+          .get(documentId) as { count: number };
+        expect(causalReplayReceipt.count).toBe(0);
+
         const rejectedUpdate = captureOneUpdate(clientA, () => {
           const title = openCardDocument(clientA).title;
           title.insert(title.length, " rejected");

@@ -5,6 +5,8 @@ import {
   Extension as TiptapExtension,
 } from "@tiptap/core";
 import { Gapcursor } from "@tiptap/extensions/gap-cursor";
+import type { Transaction } from "prosemirror-state";
+import { ySyncPluginKey } from "y-prosemirror";
 import { LinkExtension } from "../../../extensions/tiptap-extensions/Link/link.js";
 import { Text } from "@tiptap/extension-text";
 import { createDropFileExtension } from "../../../api/clipboard/fromClipboard/fileDropExtension.js";
@@ -45,6 +47,12 @@ import {
 import { ExtensionFactoryInstance } from "../../BlockNoteExtension.js";
 import { CollaborationExtension } from "../../../extensions/Collaboration/Collaboration.js";
 
+const isCollaborationChangeOrigin = (transaction: Transaction): boolean => {
+  const metadata = transaction.getMeta(ySyncPluginKey);
+  if (!metadata || typeof metadata !== "object") return false;
+  return "isChangeOrigin" in metadata && metadata.isChangeOrigin === true;
+};
+
 /**
  * Get all the Tiptap extensions BlockNote is configured with by default
  */
@@ -65,6 +73,13 @@ export function getDefaultTiptapExtensions(
       types: ["blockContainer", "columnList", "column"],
       setIdAttribute: options.setIdAttribute,
       isWithinEditor: editor.isWithinEditor,
+      // y-prosemirror renders authoritative Yjs changes by replacing the
+      // ProseMirror document. UniqueID must never reinterpret that replacement
+      // as locally inserted Blocks or it can feed generated IDs/content back
+      // into Yjs repeatedly. Local paste/drop transactions still pass through
+      // and receive fresh IDs before collaboration persists them.
+      filterTransaction: (transaction) =>
+        !isCollaborationChangeOrigin(transaction),
     }),
     HardBreak,
     Text,

@@ -109,6 +109,7 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Card conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
+- Fixed edited long Cards alternating between successful and failed opens by suppressing already-durable Yjs delete-set checkpoint replays and accepting causally redundant updates as idempotent no-ops.
 - Fixed title-only Cards failing to open collaborative content by giving every active block editor an authority-owned empty paragraph and repairing older zero-block Documents before mount.
 - Fixed switching between Project sessions with open Card Stages so retained editors close and recreate their collaborative runtime safely instead of reopening against a destroyed Y.Doc or crashing the window.
 - Whole-store backup and restore now freeze collaborative and managed-asset writes at one consistent boundary, recover interrupted database/assets swaps without mixing snapshots, and automatically reload open Cards without replaying pre-restore edits.

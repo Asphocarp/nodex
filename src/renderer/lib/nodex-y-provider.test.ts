@@ -40,6 +40,7 @@ import type {
   DocumentLocalCheckpointStore,
 } from "./document-local-checkpoint";
 import {
+  isDocumentApplyAckHeadValid,
   NodexYProvider,
   type DocumentSyncAdapter,
   type NodexYProviderOptions,
@@ -466,6 +467,21 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
 }
 
 describe("NodexYProvider", () => {
+  test("accepts a redundant CRDT replay at the unchanged durable head", () => {
+    expect(
+      isDocumentApplyAckHeadValid(
+        { committedSeq: 4, headSeq: 4, duplicate: true },
+        { baseHeadSeq: 4 },
+      ),
+    ).toBe(true);
+    expect(
+      isDocumentApplyAckHeadValid(
+        { committedSeq: 4, headSeq: 4, duplicate: false },
+        { baseHeadSeq: 4 },
+      ),
+    ).toBe(false);
+  });
+
   test("converges concurrent clients while keeping a fresh client identity per surface", async () => {
     const adapter = new MemoryDocumentSyncAdapter();
     const firstDocument = new Y.Doc({ guid: "document-1" });

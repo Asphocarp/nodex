@@ -2539,6 +2539,19 @@ const applyBlockDocumentUpdateForAuthority = (
         bytesEqual(nextStateVector, row.state_vector) &&
         nextStateHash === row.state_hash
       ) {
+        if (!strictCommitPolicy) {
+          return {
+            kind: "ack",
+            ack: makeAck(
+              row,
+              storeEpoch,
+              input.updateId,
+              row.head_seq,
+              row.state_vector,
+              true,
+            ),
+          };
+        }
         throw new BlockDocumentStoreError(
           "invalid_document_update",
           "Document update does not add any new causal or delete state",

@@ -71,7 +71,10 @@ export interface DocumentSyncApplyAck {
   readonly storeEpoch: string;
   readonly generation: number;
   readonly updateId: string;
-  /** Sequence assigned to this update; stable across idempotent retries. */
+  /**
+   * Sequence that causally satisfies this update. A redundant CRDT replay may
+   * use the unchanged current head; an advancing commit uses its assigned seq.
+   */
   readonly committedSeq: number;
   /** Latest durable sequence observed by the writer while producing the ACK. */
   readonly headSeq: number;

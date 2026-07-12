@@ -173,4 +173,84 @@ describe("NfmEditor source boundary", () => {
     editor.unmount();
     genesis.document.destroy();
   });
+
+  test("preserves long-Card identities across collaboration-origin rerenders", async () => {
+    let nextBlockId = 0;
+    const genesis = createCardDocumentGenesis({
+      documentId: "document-long-collaborative",
+      title: "Long collaborative Card",
+      nfm: Array.from(
+        { length: 96 },
+        (_, index) => `Paragraph ${index + 1} has enough content to exercise a full collaborative render.`,
+      ).join("\n\n"),
+      allocateBlockId: () => `block-long-${++nextBlockId}`,
+    });
+    const before = materializeCardDocument(genesis.document).blockTree.map(
+      (block) => block.id,
+    );
+    const localEditor = BlockNoteEditor.create(
+      createNfmEditorModeOptions(
+        createCollaborativeSource(genesis.document.getXmlFragment("body")),
+      ),
+    );
+    localEditor.mount(globalThis.document.createElement("div"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updates: Uint8Array[] = [];
+    const collectUpdate = (update: Uint8Array) => updates.push(update);
+    genesis.document.on("update", collectUpdate);
+    const ySyncPlugin = localEditor.prosemirrorState.plugins.find((plugin) =>
+      (plugin as unknown as { readonly key: string }).key.startsWith("y-sync$"),
+    );
+    if (!ySyncPlugin) throw new Error("Expected the Yjs sync plugin");
+    const ySyncPluginKey = ySyncPlugin.spec.key;
+    if (!ySyncPluginKey) throw new Error("Expected the Yjs sync plugin key");
+    let middleBlockPosition: number | undefined;
+    localEditor.prosemirrorState.doc.descendants((node, position) => {
+      if (middleBlockPosition !== undefined) return false;
+      if (node.type.name !== "blockContainer") return true;
+      if (node.attrs.id !== before[48]) return false;
+      middleBlockPosition = position;
+      return false;
+    });
+    if (middleBlockPosition === undefined) {
+      throw new Error("Expected a middle ProseMirror block");
+    }
+    const stableMiddleBlockPosition = middleBlockPosition;
+    const middleBlock = localEditor.prosemirrorState.doc.nodeAt(
+      stableMiddleBlockPosition,
+    );
+    if (!middleBlock) throw new Error("Expected a middle ProseMirror node");
+    const syncState = ySyncPlugin.getState(localEditor.prosemirrorState) as {
+      readonly binding: {
+        readonly mux: (operation: () => void) => void;
+        readonly _forceRerender: () => void;
+      };
+    };
+    syncState.binding.mux(() => {
+      localEditor.prosemirrorView.dispatch(
+        localEditor.prosemirrorState.tr
+          .setNodeMarkup(stableMiddleBlockPosition, undefined, {
+            ...middleBlock.attrs,
+            id: null,
+          })
+          .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+      );
+    });
+    expect(
+      localEditor.prosemirrorState.doc.nodeAt(stableMiddleBlockPosition)?.attrs.id,
+    ).toBeNull();
+    syncState.binding._forceRerender();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const after = materializeCardDocument(genesis.document).blockTree.map(
+      (block) => block.id,
+    );
+    expect(after).toEqual(before);
+    expect(updates).toHaveLength(0);
+
+    localEditor.unmount();
+    genesis.document.off("update", collectUpdate);
+    genesis.document.destroy();
+  });
 });
