@@ -8,6 +8,7 @@ export * from "./additional-document-bearing-operations";
 export * from "./canvas-document";
 export * from "./canvas-scene";
 export * from "./canvas-scene-sync";
+export * from "./canvas-scene-http-contract";
 export * from "./document-schema-adapters";
 export * from "./contracts";
 export * from "./document-sync";

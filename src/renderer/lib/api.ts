@@ -4,6 +4,7 @@ import {
 } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
+import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type {
   OwnedBlockDocumentDescriptor,
   RelocationCommandResult,
@@ -104,6 +105,15 @@ export function createDocumentSyncAdapter(
     return createAdapter(projectId);
   }
   throw new Error("Document sync is unavailable for this renderer transport");
+}
+
+export function createCanvasSceneSyncAdapter(
+  projectId: string,
+): CanvasSceneSyncAdapter {
+  const transport = resolveRendererTransport();
+  const createAdapter = transport.createCanvasSceneSyncAdapter;
+  if (createAdapter) return createAdapter(projectId);
+  throw new Error("Canvas scene sync is unavailable for this renderer transport");
 }
 
 export function getOwnedBlockDocumentDescriptor(

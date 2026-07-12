@@ -39,6 +39,18 @@ import {
   MAX_DOCUMENT_HTTP_METADATA_BYTES,
 } from "../shared/block-documents/http-wire";
 import {
+  CANVAS_SCENE_HTTP_CONTENT_TYPE,
+  decodeCanvasSceneMutationRequestHttp,
+  decodeCanvasSceneSyncRequestHttp,
+  encodeCanvasSceneMutationResultHttp,
+  encodeCanvasSceneSseEvent,
+  encodeCanvasSceneSyncResultHttp,
+} from "../shared/block-documents/canvas-scene-http-contract";
+import type {
+  CanvasSceneRealtimeEvent,
+  CanvasSceneSubscribeRequest,
+} from "../shared/block-documents/canvas-scene-sync";
+import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
 } from "./document-sync-hub";
@@ -285,8 +297,12 @@ class BrowserDocumentSyncTarget
 
   send(channel: string, ...args: unknown[]): void {
     if (this.destroyed || channel !== DOCUMENT_SYNC_EVENT_CHANNEL) return;
-    const event = args[0] as DocumentSyncRealtimeEvent;
-    this.enqueue(encodeDocumentRealtimeSseEvent(event));
+    const event = args[0] as DocumentSyncRealtimeEvent | CanvasSceneRealtimeEvent;
+    this.enqueue(
+      "type" in event
+        ? encodeCanvasSceneSseEvent(event)
+        : encodeDocumentRealtimeSseEvent(event),
+    );
   }
 
   destroy(): void {
@@ -299,21 +315,23 @@ class BrowserDocumentSyncTarget
 
 interface BrowserClientEntry {
   readonly projectId: string;
-  readonly request: DocumentSyncSubscribeRequest;
+  readonly engine: "yjs" | "canvas_scene";
+  readonly request: DocumentSyncSubscribeRequest | CanvasSceneSubscribeRequest;
   readonly target: BrowserDocumentSyncTarget;
 }
 
 const browserClientKey = (
   projectId: string,
-  request: DocumentSyncSubscribeRequest,
+  request: DocumentSyncSubscribeRequest | CanvasSceneSubscribeRequest,
+  engine: "yjs" | "canvas_scene" = "yjs",
 ): string =>
-  JSON.stringify([projectId, request.documentId, request.clientSessionId]);
+  JSON.stringify([engine, projectId, request.documentId, request.clientSessionId]);
 
 export class DocumentSyncHttpClients {
   private readonly entries = new Map<string, BrowserClientEntry>();
 
   replace(entry: BrowserClientEntry): void {
-    const key = browserClientKey(entry.projectId, entry.request);
+    const key = browserClientKey(entry.projectId, entry.request, entry.engine);
     const previous = this.entries.get(key);
     if (previous && previous.target !== entry.target) {
       previous.target.destroy();
@@ -324,12 +342,21 @@ export class DocumentSyncHttpClients {
   get(
     projectId: string,
     request: DocumentSyncSubscribeRequest,
+    engine: "yjs" | "canvas_scene" = "yjs",
   ): BrowserClientEntry | null {
-    return this.entries.get(browserClientKey(projectId, request)) ?? null;
+    return this.entries.get(browserClientKey(projectId, request, engine)) ?? null;
+  }
+
+  getAny(
+    projectId: string,
+    request: DocumentSyncSubscribeRequest,
+  ): BrowserClientEntry | null {
+    return this.get(projectId, request, "yjs") ??
+      this.get(projectId, request, "canvas_scene");
   }
 
   remove(entry: BrowserClientEntry): void {
-    const key = browserClientKey(entry.projectId, entry.request);
+    const key = browserClientKey(entry.projectId, entry.request, entry.engine);
     if (this.entries.get(key)?.target === entry.target) {
       this.entries.delete(key);
     }
@@ -372,6 +399,22 @@ const requireBrowserClient = (
     error: commandError(
       "unauthorized",
       "Open the Document event stream before issuing sync commands",
+    ),
+  };
+};
+
+const requireAnyBrowserClient = (
+  clients: DocumentSyncHttpClients,
+  projectId: string,
+  request: DocumentSyncSubscribeRequest,
+): DocumentSyncCommandResult<BrowserClientEntry> => {
+  const entry = clients.getAny(projectId, request);
+  if (entry) return { ok: true, value: entry };
+  return {
+    ok: false,
+    error: commandError(
+      "unauthorized",
+      "Open the Document event stream before responding to a lease",
     ),
   };
 };
@@ -507,6 +550,7 @@ export const registerDocumentSyncHttpRoutes = (
           const target = new BrowserDocumentSyncTarget(send);
           entry = {
             projectId,
+            engine: "yjs",
             request: { documentId, clientSessionId },
             target,
           };
@@ -578,6 +622,99 @@ export const registerDocumentSyncHttpRoutes = (
         return invalidRequest(
           error instanceof Error ? error.message : "Invalid sync request",
         );
+      }
+    },
+  );
+
+  app.get(
+    "/api/projects/:projectId/documents/:documentId/canvas/events",
+    async (context) => {
+      const projectId = context.req.param("projectId").trim();
+      const documentId = context.req.param("documentId").trim();
+      const clientSessionId = context.req.query("clientSessionId")?.trim() ?? "";
+      if (!projectId || !documentId || !clientSessionId) {
+        return invalidRequest("Project, Document, and client session are required");
+      }
+      const scopeError = await resolveProjectScope(dependencies, projectId, documentId);
+      if (scopeError) return errorResponse(scopeError);
+      const encoder = new TextEncoder();
+      let entry: BrowserClientEntry | null = null;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const target = new BrowserDocumentSyncTarget((serialized) => {
+            controller.enqueue(encoder.encode(`data: ${serialized}\n\n`));
+          });
+          const request: CanvasSceneSubscribeRequest = {
+            version: 1,
+            projectId,
+            documentId,
+            clientSessionId,
+          };
+          entry = { projectId, engine: "canvas_scene", request, target };
+          clients.replace(entry);
+          const result = dependencies.hub.subscribeCanvasScene(target, request);
+          if (!result.ok) {
+            clients.remove(entry);
+            controller.error(new Error(result.error.message));
+          }
+        },
+        cancel() {
+          if (entry) clients.remove(entry);
+        },
+      });
+      context.req.raw.signal.addEventListener("abort", () => {
+        if (entry) clients.remove(entry);
+      }, { once: true });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-store",
+          Connection: "keep-alive",
+        },
+      });
+    },
+  );
+
+  app.post(
+    "/api/projects/:projectId/documents/:documentId/canvas/sync",
+    async (context) => {
+      const projectId = context.req.param("projectId").trim();
+      const documentId = context.req.param("documentId").trim();
+      try {
+        const request = decodeCanvasSceneSyncRequestHttp(
+          await context.req.text(), projectId, documentId,
+        );
+        const client = clients.get(projectId, request, "canvas_scene");
+        if (!client) return invalidRequest("Open the Canvas event stream before syncing");
+        const result = await dependencies.hub.syncCanvasScene(client.target, request);
+        return new Response(encodeCanvasSceneSyncResultHttp(result), {
+          status: result.ok ? 200 : 409,
+          headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE },
+        });
+      } catch (error) {
+        return invalidRequest(error instanceof Error ? error.message : "Invalid Canvas sync request");
+      }
+    },
+  );
+
+  app.post(
+    "/api/projects/:projectId/documents/:documentId/canvas/mutations",
+    async (context) => {
+      const projectId = context.req.param("projectId").trim();
+      const documentId = context.req.param("documentId").trim();
+      try {
+        const request = decodeCanvasSceneMutationRequestHttp(
+          await context.req.text(), projectId, documentId,
+        );
+        const client = clients.get(projectId, request, "canvas_scene");
+        if (!client) return invalidRequest("Open the Canvas event stream before mutating");
+        const result = await dependencies.hub.applyCanvasSceneMutation(client.target, request);
+        return new Response(encodeCanvasSceneMutationResultHttp(result), {
+          status: result.ok ? 200 : 409,
+          headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE },
+        });
+      } catch (error) {
+        return invalidRequest(error instanceof Error ? error.message : "Invalid Canvas mutation request");
       }
     },
   );
@@ -738,7 +875,7 @@ export const registerDocumentSyncHttpRoutes = (
           documentId,
         );
         if (scopeError) return errorResponse(scopeError);
-        const client = requireBrowserClient(clients, projectId, request);
+        const client = requireAnyBrowserClient(clients, projectId, request);
         if (!client.ok) return errorResponse(client.error);
         const result = dependencies.hub.respondToRelocationLease(
           client.value.target,

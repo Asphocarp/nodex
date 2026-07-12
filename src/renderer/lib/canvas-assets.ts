@@ -55,7 +55,7 @@ const dataUrlToFile = async (file: CanvasBinaryFileData): Promise<File> => {
   );
 };
 
-/** Upload-first conversion; no Y.Doc transaction starts until every file exists. */
+/** Upload-first conversion; no scene mutation is enqueued until every file exists. */
 export const materializeDurableCanvasFiles = async (input: {
   readonly elementsIncludingDeleted: readonly unknown[];
   readonly binaryFiles: CanvasBinaryFiles;

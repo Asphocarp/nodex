@@ -1,22 +1,21 @@
-import type * as Y from "yjs";
 import {
-  applyRebasedCanvasSceneObservation,
-  inspectCanvasDocument,
-  pickDurableCanvasAppState,
-  type CanvasDocumentEnvelope,
-  type CanvasFileSnapshot,
-  type CanvasJsonValue,
-  type CanvasSceneMaterialization,
-  type CanvasSharedAppState,
-  type CanvasSharedAppStateFieldPatch,
-  type CanvasSharedAppStatePatch,
+  canonicalStringifyCanvasScene,
+  pickPortableCanvasSceneAppState,
+  type CanvasSceneAppState,
+  type CanvasSceneAppStateIntent,
+  type CanvasSceneAppStateIntents,
+  type CanvasSceneElement,
+  type CanvasSceneFile,
+  type CanvasSceneJsonValue,
+  type CanvasSceneOptionalJson,
+  type PortableCanvasScene,
 } from "../../shared/block-documents";
 import {
   materializeDurableCanvasFiles,
   type CanvasAssetBridgeDependencies,
   type CanvasBinaryFiles,
 } from "./canvas-assets";
-import type { BlockDocumentSurfaceRuntime } from "./block-document-surface-runtime";
+import type { CanvasSceneProvider } from "./canvas-scene-provider";
 
 export interface CanvasLocalSceneObservation {
   /** Must be ExcalidrawImperativeAPI.getSceneElementsIncludingDeleted. */
@@ -26,15 +25,15 @@ export interface CanvasLocalSceneObservation {
 }
 
 export interface CanvasSceneBindingOptions {
-  readonly envelope: CanvasDocumentEnvelope;
+  readonly provider: CanvasSceneProvider;
   readonly assetDependencies?: CanvasAssetBridgeDependencies;
-  readonly onRemoteScene: (scene: CanvasSceneMaterialization) => void;
+  readonly onRemoteScene: (scene: PortableCanvasScene) => void;
   readonly onError?: (error: Error) => void;
 }
 
 interface PendingObservation {
   readonly elementsIncludingDeleted: readonly unknown[];
-  readonly appStatePatch: CanvasSharedAppStatePatch;
+  readonly appStateIntents: CanvasSceneAppStateIntents;
   readonly binaryFiles: CanvasBinaryFiles;
   readonly waiters: Array<{
     readonly resolve: () => void;
@@ -42,45 +41,47 @@ interface PendingObservation {
   }>;
 }
 
-export type CanvasScenePreparationRegistry = Pick<
-  BlockDocumentSurfaceRuntime,
-  "registerPersistPreparer" | "registerRelocationPreparer"
->;
-
 const toError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
-const sameJsonValue = (
-  left: CanvasJsonValue | undefined,
-  right: CanvasJsonValue | undefined,
-): boolean => JSON.stringify(left) === JSON.stringify(right);
+const optionalJson = (
+  value: CanvasSceneJsonValue | undefined,
+): CanvasSceneOptionalJson =>
+  value === undefined ? { kind: "absent" } : { kind: "value", value };
 
-const appStatePatch = (
-  before: Readonly<Record<string, CanvasJsonValue>>,
-  after: Readonly<Record<string, CanvasJsonValue>>,
-): CanvasSharedAppStatePatch => {
-  const patch: Record<string, CanvasSharedAppStateFieldPatch> = {};
+const sameOptionalJson = (
+  left: CanvasSceneOptionalJson,
+  right: CanvasSceneOptionalJson,
+): boolean => canonicalStringifyCanvasScene(left) === canonicalStringifyCanvasScene(right);
+
+const appStateIntents = (
+  before: CanvasSceneAppState,
+  after: CanvasSceneAppState,
+): CanvasSceneAppStateIntents => {
+  const intents: Record<string, CanvasSceneAppStateIntent> = {};
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (sameJsonValue(before[key], after[key])) continue;
-    patch[key] = { expected: before[key], value: after[key] };
+    const expected = optionalJson(before[key]);
+    const value = optionalJson(after[key]);
+    if (sameOptionalJson(expected, value)) continue;
+    intents[key] = { expected, value };
   }
-  return patch;
+  return intents;
 };
 
-const mergeAppStatePatches = (
-  previous: CanvasSharedAppStatePatch,
-  next: CanvasSharedAppStatePatch,
-): CanvasSharedAppStatePatch => {
+const mergeAppStateIntents = (
+  previous: CanvasSceneAppStateIntents,
+  next: CanvasSceneAppStateIntents,
+): CanvasSceneAppStateIntents => {
   const merged = { ...previous };
   for (const [key, nextIntent] of Object.entries(next)) {
     const previousIntent = merged[key];
-    const intent = previousIntent && sameJsonValue(
+    const intent = previousIntent && sameOptionalJson(
       previousIntent.value,
       nextIntent.expected,
     )
       ? { expected: previousIntent.expected, value: nextIntent.value }
       : nextIntent;
-    if (sameJsonValue(intent.expected, intent.value)) {
+    if (sameOptionalJson(intent.expected, intent.value)) {
       delete merged[key];
     } else {
       merged[key] = intent;
@@ -94,43 +95,45 @@ const mergeObservations = (
   next: PendingObservation,
 ): PendingObservation => ({
   elementsIncludingDeleted: next.elementsIncludingDeleted,
-  appStatePatch: mergeAppStatePatches(
-    previous.appStatePatch,
-    next.appStatePatch,
+  appStateIntents: mergeAppStateIntents(
+    previous.appStateIntents,
+    next.appStateIntents,
   ),
   binaryFiles: next.binaryFiles,
   waiters: [...previous.waiters, ...next.waiters],
 });
 
+const optionalValue = (
+  value: CanvasSceneOptionalJson,
+): CanvasSceneJsonValue | undefined =>
+  value.kind === "value" ? value.value : undefined;
+
 const presentAppStateWithPendingIntent = (
-  shared: CanvasSharedAppState,
-  patch: CanvasSharedAppStatePatch,
-): CanvasSharedAppState => {
-  if (Object.keys(patch).length === 0) return shared;
-  const presented: Record<string, CanvasJsonValue> = { ...shared };
-  for (const [key, intent] of Object.entries(patch)) {
-    if (!sameJsonValue(shared[key], intent.expected)) continue;
-    if (intent.value === undefined) {
-      delete presented[key];
-    } else {
-      presented[key] = intent.value;
-    }
+  shared: CanvasSceneAppState,
+  intents: CanvasSceneAppStateIntents,
+): CanvasSceneAppState => {
+  if (Object.keys(intents).length === 0) return shared;
+  const presented: Record<string, CanvasSceneJsonValue> = { ...shared };
+  for (const [key, intent] of Object.entries(intents)) {
+    if (!sameOptionalJson(optionalJson(shared[key]), intent.expected)) continue;
+    const value = optionalValue(intent.value);
+    if (value === undefined) delete presented[key];
+    else presented[key] = value;
   }
   return presented;
 };
 
 /**
- * Bridges one mounted Excalidraw surface to its independent Canvas Y.Doc.
- * Local observations coalesce and rebase after upload; remote transactions are
- * presentation events rendered with CaptureUpdateAction.NEVER by the caller.
+ * Bridges Excalidraw runtime observations to the scene-native provider.
+ * Uploads complete before the provider durably enqueues a mutation; remote
+ * scenes remain presentation-only and therefore never enter local undo.
  */
 export class CanvasSceneBinding {
-  private readonly envelope: CanvasDocumentEnvelope;
+  private readonly provider: CanvasSceneProvider;
   private readonly assetDependencies?: CanvasAssetBridgeDependencies;
   private readonly onRemoteScene: CanvasSceneBindingOptions["onRemoteScene"];
   private readonly onError?: CanvasSceneBindingOptions["onError"];
-  private readonly localOrigin = Symbol("canvas-scene-local-origin");
-  private surfaceAppState: Readonly<Record<string, CanvasJsonValue>>;
+  private surfaceAppState: CanvasSceneAppState;
   private pending: PendingObservation | null = null;
   private inFlight: PendingObservation | null = null;
   private drainPromise: Promise<void> | null = null;
@@ -138,16 +141,38 @@ export class CanvasSceneBinding {
   private destroyed = false;
 
   constructor(options: CanvasSceneBindingOptions) {
-    this.envelope = options.envelope;
+    this.provider = options.provider;
     this.assetDependencies = options.assetDependencies;
     this.onRemoteScene = options.onRemoteScene;
     this.onError = options.onError;
-    this.surfaceAppState = this.getCurrentScene().appState;
-    this.envelope.document.on("afterTransaction", this.handleTransaction);
+    this.surfaceAppState = this.provider.getScene()?.appState ?? {};
   }
 
-  getCurrentScene = (): CanvasSceneMaterialization =>
-    inspectCanvasDocument(this.envelope.document).materialization;
+  getCurrentScene = (): PortableCanvasScene => {
+    const scene = this.provider.getScene();
+    if (scene) return scene;
+    throw new Error("Canvas scene provider has not completed its initial sync");
+  };
+
+  presentRemoteScene = (scene: PortableCanvasScene): void => {
+    if (this.destroyed) return;
+    try {
+      const pendingIntent = mergeAppStateIntents(
+        this.inFlight?.appStateIntents ?? {},
+        this.pending?.appStateIntents ?? {},
+      );
+      const appState = presentAppStateWithPendingIntent(
+        scene.appState,
+        pendingIntent,
+      );
+      this.surfaceAppState = appState;
+      this.onRemoteScene(
+        appState === scene.appState ? scene : { ...scene, appState },
+      );
+    } catch (error) {
+      this.onError?.(toError(error));
+    }
+  };
 
   submitLocalScene = (
     observation: CanvasLocalSceneObservation,
@@ -158,25 +183,19 @@ export class CanvasSceneBinding {
     const elementsIncludingDeleted = [
       ...observation.getSceneElementsIncludingDeleted(),
     ];
-    const nextAppState = pickDurableCanvasAppState(observation.appState);
-    const nextPatch = appStatePatch(this.surfaceAppState, nextAppState);
+    const nextAppState = pickPortableCanvasSceneAppState(observation.appState);
+    const nextIntents = appStateIntents(this.surfaceAppState, nextAppState);
     this.surfaceAppState = nextAppState;
-    const result = new Promise<void>((resolve, reject) => {
-      const waiters = [
-        ...(this.pending?.waiters ?? []),
-        { resolve, reject },
-      ];
-      this.pending = {
+    return new Promise<void>((resolve, reject) => {
+      const next: PendingObservation = {
         elementsIncludingDeleted,
-        appStatePatch: this.pending
-          ? mergeAppStatePatches(this.pending.appStatePatch, nextPatch)
-          : nextPatch,
+        appStateIntents: nextIntents,
         binaryFiles: observation.binaryFiles,
-        waiters,
+        waiters: [{ resolve, reject }],
       };
+      this.pending = this.pending ? mergeObservations(this.pending, next) : next;
       this.startDrain();
     });
-    return result;
   };
 
   flush = async (): Promise<void> => {
@@ -186,33 +205,11 @@ export class CanvasSceneBinding {
       if (active) await active;
     }
     if (this.lastDrainError) throw this.lastDrainError;
-  };
-
-  /** Use the same upload-aware flush at close/checkpoint and relocation fences. */
-  registerSurfacePreparers = (
-    registry: CanvasScenePreparationRegistry,
-  ): (() => void) => {
-    const unregisterPersist = registry.registerPersistPreparer(this.flush);
-    let unregisterRelocation: (() => void) | null = null;
-    try {
-      unregisterRelocation = registry.registerRelocationPreparer(this.flush);
-    } catch (error) {
-      unregisterPersist();
-      throw error;
-    }
-    let registered = true;
-    return () => {
-      if (!registered) return;
-      registered = false;
-      unregisterRelocation?.();
-      unregisterPersist();
-    };
+    await this.provider.flush();
   };
 
   destroy = (): void => {
-    if (this.destroyed) return;
     this.destroyed = true;
-    this.envelope.document.off("afterTransaction", this.handleTransaction);
   };
 
   private startDrain(): void {
@@ -230,7 +227,8 @@ export class CanvasSceneBinding {
       let observation = this.pending;
       this.pending = null;
       this.inFlight = observation;
-      const uploadedFiles: Record<string, CanvasFileSnapshot> = {};
+      const uploadedFiles: Record<string, CanvasSceneFile> = {};
+      let persisted = false;
       try {
         while (true) {
           const beforeUpload = this.getCurrentScene();
@@ -251,54 +249,30 @@ export class CanvasSceneBinding {
         if (this.destroyed) {
           throw new Error("Canvas scene binding was destroyed before persistence");
         }
-        applyRebasedCanvasSceneObservation(
-          this.envelope,
-          {
-            elementsIncludingDeleted: observation.elementsIncludingDeleted,
-            appStatePatch: observation.appStatePatch,
-            fileAdditions: uploadedFiles,
-          },
-          this.localOrigin,
-        );
+        await this.provider.submit({
+          elementCandidates:
+            observation.elementsIncludingDeleted as readonly CanvasSceneElement[],
+          appStateIntents: observation.appStateIntents,
+          fileAdditions: uploadedFiles,
+        });
+        persisted = true;
         this.lastDrainError = null;
         observation.waiters.forEach((waiter) => waiter.resolve());
       } catch (error) {
         const failure = toError(error);
         this.lastDrainError = failure;
-        // The failed optimistic observation is no longer pending. Reset only
-        // the diff baseline so submitting the still-visible scene retries its
-        // appState intent as well as its elements and files.
         this.surfaceAppState = this.getCurrentScene().appState;
         observation.waiters.forEach((waiter) => waiter.reject(failure));
         try {
           this.onError?.(failure);
         } catch {
-          // Error reporting must never strand the serialized persistence loop.
+          // Reporting must not strand the serialized persistence loop.
         }
       } finally {
         this.inFlight = null;
+        const canonical = this.provider.getScene();
+        if (persisted && canonical) this.presentRemoteScene(canonical);
       }
     }
   }
-
-  private readonly handleTransaction = (transaction: Y.Transaction): void => {
-    if (this.destroyed || transaction.origin === this.localOrigin) return;
-    try {
-      const scene = this.getCurrentScene();
-      const inFlightPatch = this.inFlight?.appStatePatch ?? {};
-      const pendingPatch = this.pending?.appStatePatch ?? {};
-      const presentedAppState = presentAppStateWithPendingIntent(
-        scene.appState,
-        mergeAppStatePatches(inFlightPatch, pendingPatch),
-      );
-      this.surfaceAppState = presentedAppState;
-      this.onRemoteScene(
-        presentedAppState === scene.appState
-          ? scene
-          : { ...scene, appState: presentedAppState },
-      );
-    } catch (error) {
-      this.onError?.(toError(error));
-    }
-  };
 }

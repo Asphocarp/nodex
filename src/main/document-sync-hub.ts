@@ -25,6 +25,17 @@ import {
   type DocumentSyncUnsubscribeAck,
 } from "../shared/block-documents/document-sync";
 import {
+  CANVAS_SCENE_SYNC_VERSION,
+  type CanvasSceneMutationCommandResult,
+  type CanvasSceneMutationError,
+  type CanvasSceneMutationRequest,
+  type CanvasSceneRealtimeEvent,
+  type CanvasSceneSubscribeRequest,
+  type CanvasSceneSubscriptionCommandResult,
+  type CanvasSceneSyncCommandResult,
+  type CanvasSceneSyncRequest,
+} from "../shared/block-documents/canvas-scene-sync";
+import {
   documentMutationFailure,
   parseRelocationIntent,
   type DocumentMutationRequest,
@@ -88,6 +99,12 @@ export interface DocumentSyncDurableBackend {
   applyUpdate(
     request: DocumentSyncApplyRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  syncCanvasScene?(
+    request: CanvasSceneSyncRequest,
+  ): Promise<CanvasSceneSyncCommandResult>;
+  applyCanvasSceneMutation?(
+    request: CanvasSceneMutationRequest,
+  ): Promise<CanvasSceneMutationCommandResult>;
   applyDocumentMutation(
     request: DocumentMutationRequest,
     writeFence?: DocumentWriteFenceProof,
@@ -119,14 +136,17 @@ export interface DocumentSyncHubOptions {
 
 interface DocumentSubscription {
   readonly key: string;
+  readonly engine: "yjs" | "canvas_scene";
+  readonly projectId?: string;
   readonly documentId: string;
   readonly clientSessionId: string;
   readonly participantSessionKey: string;
   readonly target: DocumentSyncClientTarget;
-  readonly awarenessDocument: Y.Doc;
-  readonly awareness: Awareness;
+  readonly awarenessDocument?: Y.Doc;
+  readonly awareness?: Awareness;
   storeEpoch?: string;
   generation?: number;
+  headSeq?: number;
 }
 
 interface HubRelocationDocumentBoundary {
@@ -317,8 +337,52 @@ const isNonNegativeInteger = (value: number): boolean =>
 const subscriptionKey = (
   targetId: number,
   request: DocumentSyncSubscribeRequest,
+  engine: "yjs" | "canvas_scene" = "yjs",
+  projectId?: string,
 ): string =>
-  JSON.stringify([targetId, request.clientSessionId, request.documentId]);
+  JSON.stringify([
+    targetId,
+    engine,
+    projectId ?? null,
+    request.clientSessionId,
+    request.documentId,
+  ]);
+
+const canvasSceneSubscriptionKey = (
+  targetId: number,
+  request: Pick<
+    CanvasSceneSubscribeRequest,
+    "projectId" | "documentId" | "clientSessionId"
+  >,
+): string =>
+  subscriptionKey(targetId, request, "canvas_scene", request.projectId);
+
+const hasCanvasSceneIdentity = (
+  request: CanvasSceneSubscribeRequest | CanvasSceneSyncRequest | CanvasSceneMutationRequest,
+): boolean =>
+  request.version === CANVAS_SCENE_SYNC_VERSION &&
+  request.projectId.trim().length > 0 &&
+  request.documentId.trim().length > 0 &&
+  request.clientSessionId.trim().length > 0;
+
+const canvasSceneFailure = (
+  code: CanvasSceneMutationError["code"],
+  message: string,
+  options: {
+    readonly retryable?: boolean;
+    readonly resetRequired?: boolean;
+    readonly mutationId?: string;
+  } = {},
+): { readonly ok: false; readonly error: CanvasSceneMutationError } => ({
+  ok: false,
+  error: {
+    code,
+    message,
+    retryable: options.retryable ?? false,
+    resetRequired: options.resetRequired ?? false,
+    ...(options.mutationId ? { mutationId: options.mutationId } : {}),
+  },
+});
 
 const participantSessionKey = (
   targetId: number,
@@ -511,6 +575,7 @@ export class DocumentSyncHub {
       const awarenessState = createSubscriptionAwareness();
       this.subscriptions.set(key, {
         key,
+        engine: "yjs",
         documentId: request.documentId,
         clientSessionId: request.clientSessionId,
         participantSessionKey: participantKey,
@@ -566,6 +631,198 @@ export class DocumentSyncHub {
 
     this.removeSubscription(subscription);
     return { ok: true, value: { unsubscribed: true } };
+  };
+
+  subscribeCanvasScene = (
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSubscribeRequest,
+  ): CanvasSceneSubscriptionCommandResult => {
+    if (
+      target.isDestroyed() ||
+      !hasCanvasSceneIdentity(request) ||
+      !this.bindSessionOwner(target, request.clientSessionId)
+    ) {
+      return canvasSceneFailure(
+        "invalid_canvas_scene_mutation",
+        "Canvas scene subscription identity is invalid or unauthorized",
+      );
+    }
+    this.bindTargetLifecycle(target);
+    const key = canvasSceneSubscriptionKey(target.id, request);
+    if (!this.subscriptions.has(key)) {
+      const participantKey = participantSessionKey(
+        target.id,
+        request.clientSessionId,
+      );
+      const leaseSubscription = this.relocationLeaseCoordinator.subscribe(
+        participantKey,
+        request.documentId,
+      );
+      if (!leaseSubscription.ok) {
+        return canvasSceneFailure(
+          "unknown",
+          leaseSubscription.error.message,
+          { retryable: leaseSubscription.error.code === "document_busy" },
+        );
+      }
+      this.subscriptions.set(key, {
+        key,
+        engine: "canvas_scene",
+        projectId: request.projectId,
+        documentId: request.documentId,
+        clientSessionId: request.clientSessionId,
+        participantSessionKey: participantKey,
+        target,
+      });
+      const documentKeys =
+        this.subscriptionKeysByDocument.get(request.documentId) ??
+        new Set<string>();
+      documentKeys.add(key);
+      this.subscriptionKeysByDocument.set(
+        request.documentId,
+        documentKeys,
+      );
+      const participantKeys =
+        this.subscriptionKeysByParticipantSession.get(participantKey) ??
+        new Set<string>();
+      participantKeys.add(key);
+      this.subscriptionKeysByParticipantSession.set(
+        participantKey,
+        participantKeys,
+      );
+    }
+    return { ok: true, value: { subscribed: true } };
+  };
+
+  unsubscribeCanvasScene = (
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSubscribeRequest,
+  ): CanvasSceneSubscriptionCommandResult => {
+    if (!hasCanvasSceneIdentity(request)) {
+      return canvasSceneFailure(
+        "invalid_canvas_scene_mutation",
+        "Canvas scene subscription identity is invalid",
+      );
+    }
+    const key = canvasSceneSubscriptionKey(target.id, request);
+    const subscription = this.subscriptions.get(key);
+    if (subscription?.target === target) {
+      this.removeSubscription(subscription);
+    }
+    return { ok: true, value: { unsubscribed: true } };
+  };
+
+  syncCanvasScene = async (
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSyncRequest,
+  ): Promise<CanvasSceneSyncCommandResult> => {
+    if (!this.requireCanvasSceneSubscription(target, request)) {
+      return canvasSceneFailure(
+        "project_scope_mismatch",
+        "An exact Canvas scene subscription is required",
+      );
+    }
+    if (!this.backend.syncCanvasScene) {
+      return canvasSceneFailure(
+        "unknown",
+        "Canvas scene sync is unavailable",
+        { retryable: true },
+      );
+    }
+    try {
+      const result = await this.backend.syncCanvasScene(request);
+      if (!result.ok) return result;
+      if (
+        result.value.projectId !== request.projectId ||
+        result.value.documentId !== request.documentId
+      ) {
+        return canvasSceneFailure(
+          "unknown",
+          "Canvas scene sync escaped its subscription scope",
+        );
+      }
+      const subscription = this.requireCanvasSceneSubscription(target, request);
+      if (subscription) {
+        subscription.storeEpoch = result.value.storeEpoch;
+        subscription.generation = result.value.generation;
+        subscription.headSeq = result.value.headSeq;
+      }
+      return result;
+    } catch (error) {
+      return canvasSceneFailure(
+        "unknown",
+        error instanceof Error
+          ? error.message
+          : "The durable Canvas scene writer is unavailable",
+        { retryable: true },
+      );
+    }
+  };
+
+  applyCanvasSceneMutation = async (
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneMutationRequest,
+  ): Promise<CanvasSceneMutationCommandResult> => {
+    if (!this.requireCanvasSceneSubscription(target, request)) {
+      return canvasSceneFailure(
+        "project_scope_mismatch",
+        "An exact Canvas scene subscription is required",
+        { mutationId: request.mutationId },
+      );
+    }
+    if (!this.backend.applyCanvasSceneMutation) {
+      return canvasSceneFailure(
+        "unknown",
+        "Canvas scene mutation is unavailable",
+        { retryable: true, mutationId: request.mutationId },
+      );
+    }
+    let result: CanvasSceneMutationCommandResult;
+    try {
+      result = await this.backend.applyCanvasSceneMutation(request);
+    } catch (error) {
+      return canvasSceneFailure(
+        "unknown",
+        error instanceof Error
+          ? error.message
+          : "The durable Canvas scene writer is unavailable",
+        { retryable: true, mutationId: request.mutationId },
+      );
+    }
+    if (!result.ok) return result;
+    if (
+      result.value.projectId !== request.projectId ||
+      result.value.documentId !== request.documentId ||
+      result.value.mutationId !== request.mutationId
+    ) {
+      return canvasSceneFailure(
+        "unknown",
+        "Canvas scene mutation ACK escaped its request scope",
+        { mutationId: request.mutationId },
+      );
+    }
+    const subscription = this.requireCanvasSceneSubscription(target, request);
+    if (subscription) {
+      subscription.storeEpoch = result.value.storeEpoch;
+      subscription.generation = result.value.generation;
+      subscription.headSeq = result.value.headSeq;
+    }
+    if (!result.value.duplicate && result.value.outcome === "committed") {
+      if (result.event) {
+        this.fanoutCanvasScene(request.documentId, result.event);
+      } else {
+        this.fanoutCanvasScene(request.documentId, {
+          type: "canvas_scene_resync_required",
+          version: CANVAS_SCENE_SYNC_VERSION,
+          projectId: result.value.projectId,
+          documentId: result.value.documentId,
+          storeEpoch: result.value.storeEpoch,
+          generation: result.value.generation,
+          headSeq: result.value.headSeq,
+        });
+      }
+    }
+    return result;
   };
 
   sync = async (
@@ -1137,9 +1394,10 @@ export class DocumentSyncHub {
     request: DocumentAwarenessPublishRequest,
   ): DocumentSyncCommandResult<DocumentAwarenessPublishAck> => {
     const subscription = this.requireSubscription(target, request);
-    if (!subscription) {
+    if (!subscription?.awareness) {
       return documentSyncUnauthorized();
     }
+    const awareness = subscription.awareness;
     if (
       !(request.update instanceof Uint8Array) ||
       request.update.byteLength > MAX_DOCUMENT_AWARENESS_UPDATE_BYTES
@@ -1212,10 +1470,10 @@ export class DocumentSyncHub {
       });
     };
 
-    subscription.awareness.on("update", captureChanges);
+    awareness.on("update", captureChanges);
     try {
       applyAwarenessUpdate(
-        subscription.awareness,
+        awareness,
         request.update.slice(),
         subscription.key,
       );
@@ -1227,7 +1485,7 @@ export class DocumentSyncHub {
         ),
       );
     } finally {
-      subscription.awareness.off("update", captureChanges);
+      awareness.off("update", captureChanges);
     }
 
     if (changedClientIds.length > 0) {
@@ -1441,7 +1699,7 @@ export class DocumentSyncHub {
         ),
       );
     }
-    const subscription = this.requireSubscription(target, request);
+    const subscription = this.requireAnySubscription(target, request);
     if (!subscription) return documentSyncUnauthorized();
     const lease = this.relocationLeaseBoundaries.get(request.leaseId);
     const boundary = lease?.documents.get(request.documentId);
@@ -1544,6 +1802,20 @@ export class DocumentSyncHub {
 
     const subscriptions = [...this.subscriptions.values()];
     for (const subscription of subscriptions) {
+      if (subscription.engine === "canvas_scene") {
+        if (subscription.generation !== undefined && subscription.headSeq !== undefined) {
+          safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [{
+            type: "canvas_scene_resync_required",
+            version: CANVAS_SCENE_SYNC_VERSION,
+            projectId: subscription.projectId ?? "",
+            documentId: subscription.documentId,
+            storeEpoch,
+            generation: subscription.generation,
+            headSeq: subscription.headSeq,
+          } satisfies CanvasSceneRealtimeEvent]);
+        }
+        continue;
+      }
       safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
         {
           kind: "store-reset",
@@ -1583,6 +1855,20 @@ export class DocumentSyncHub {
       (subscription) => deletedDocumentIds.has(subscription.documentId),
     );
     for (const subscription of subscriptions) {
+      if (subscription.engine === "canvas_scene") {
+        if (subscription.generation !== undefined && subscription.headSeq !== undefined) {
+          safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [{
+            type: "canvas_scene_resync_required",
+            version: CANVAS_SCENE_SYNC_VERSION,
+            projectId: subscription.projectId ?? "",
+            documentId: subscription.documentId,
+            storeEpoch,
+            generation: subscription.generation,
+            headSeq: subscription.headSeq,
+          } satisfies CanvasSceneRealtimeEvent]);
+        }
+        continue;
+      }
       safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
         {
           kind: "store-reset",
@@ -2078,6 +2364,52 @@ export class DocumentSyncHub {
     return subscription;
   }
 
+  private requireAnySubscription(
+    target: DocumentSyncClientTarget,
+    request: DocumentSyncSubscribeRequest,
+  ): DocumentSubscription | null {
+    if (target.isDestroyed() || !hasIdentity(request)) return null;
+    return [...this.subscriptions.values()].find(
+      (subscription) =>
+        subscription.target === target &&
+        subscription.documentId === request.documentId &&
+        subscription.clientSessionId === request.clientSessionId,
+    ) ?? null;
+  }
+
+  private requireCanvasSceneSubscription(
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSyncRequest | CanvasSceneMutationRequest,
+  ): DocumentSubscription | null {
+    if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) return null;
+    const subscription = this.subscriptions.get(
+      canvasSceneSubscriptionKey(target.id, request),
+    );
+    return subscription?.target === target &&
+        subscription.engine === "canvas_scene" &&
+        subscription.projectId === request.projectId
+      ? subscription
+      : null;
+  }
+
+  private fanoutCanvasScene(
+    documentId: string,
+    event: CanvasSceneRealtimeEvent,
+  ): void {
+    const keys = this.subscriptionKeysByDocument.get(documentId);
+    if (!keys) return;
+    const targets = new Map<number, DocumentSyncClientTarget>();
+    keys.forEach((key) => {
+      const subscription = this.subscriptions.get(key);
+      if (subscription?.engine === "canvas_scene") {
+        targets.set(subscription.target.id, subscription.target);
+      }
+    });
+    targets.forEach((target) => {
+      safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
+    });
+  }
+
   private adoptSubscriptionBoundary(
     subscription: DocumentSubscription,
     storeEpoch: string,
@@ -2105,6 +2437,7 @@ export class DocumentSyncHub {
   }
 
   private clearSubscriptionAwareness(subscription: DocumentSubscription): void {
+    if (!subscription.awareness) return;
     const clientIds = [...subscription.awareness.getStates().keys()];
     if (clientIds.length === 0) {
       return;
@@ -2137,8 +2470,8 @@ export class DocumentSyncHub {
       subscription.documentId,
     );
     this.clearSubscriptionAwareness(subscription);
-    subscription.awareness.destroy();
-    subscription.awarenessDocument.destroy();
+    subscription.awareness?.destroy();
+    subscription.awarenessDocument?.destroy();
     this.subscriptions.delete(subscription.key);
 
     const documentKeys = this.subscriptionKeysByDocument.get(
@@ -2179,7 +2512,7 @@ export class DocumentSyncHub {
     const targets = new Map<number, DocumentSyncClientTarget>();
     keys.forEach((key) => {
       const subscription = this.subscriptions.get(key);
-      if (subscription) {
+      if (subscription?.engine === "yjs") {
         targets.set(subscription.target.id, subscription.target);
       }
     });

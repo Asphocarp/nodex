@@ -15,6 +15,14 @@ import type {
   DocumentSyncUnsubscribeAck,
 } from "./block-documents/document-sync";
 import type {
+  CanvasSceneMutationCommandResult,
+  CanvasSceneMutationRequest,
+  CanvasSceneSubscribeRequest,
+  CanvasSceneSubscriptionCommandResult,
+  CanvasSceneSyncCommandResult,
+  CanvasSceneSyncRequest,
+} from "./block-documents/canvas-scene-sync";
+import type {
   OwnedBlockDocumentDescriptor,
   RelocationCommandResult,
 } from "./block-documents/contracts";
@@ -544,6 +552,22 @@ export interface IpcApi {
   "document-sync:apply": {
     args: [request: DocumentSyncApplyRequest];
     result: DocumentSyncCommandResult<DocumentSyncApplyAck>;
+  };
+  "canvas-scene:subscribe": {
+    args: [request: CanvasSceneSubscribeRequest];
+    result: CanvasSceneSubscriptionCommandResult;
+  };
+  "canvas-scene:unsubscribe": {
+    args: [request: CanvasSceneSubscribeRequest];
+    result: CanvasSceneSubscriptionCommandResult;
+  };
+  "canvas-scene:sync": {
+    args: [request: CanvasSceneSyncRequest];
+    result: CanvasSceneSyncCommandResult;
+  };
+  "canvas-scene:apply": {
+    args: [request: CanvasSceneMutationRequest];
+    result: CanvasSceneMutationCommandResult;
   };
   "document-sync:awareness:publish": {
     args: [request: DocumentAwarenessPublishRequest];

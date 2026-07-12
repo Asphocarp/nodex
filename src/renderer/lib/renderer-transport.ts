@@ -97,6 +97,9 @@ export interface RendererTransport {
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;
+  createCanvasSceneSyncAdapter?: (
+    projectId: string,
+  ) => import("./canvas-scene-provider").CanvasSceneSyncAdapter;
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (
     projectId: string,

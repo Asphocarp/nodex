@@ -25,6 +25,7 @@ import type {
 } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
+import { createHttpCanvasSceneSyncAdapter } from "./http-canvas-scene-sync-adapter";
 import {
   decodeDocumentHttpError,
   decodeOwnedBlockDocumentDescriptorHttp,
@@ -2457,6 +2458,9 @@ export const browserRendererTransport = {
   },
   createDocumentSyncAdapter(projectId: string) {
     return createHttpDocumentSyncAdapter({ projectId });
+  },
+  createCanvasSceneSyncAdapter(projectId: string) {
+    return createHttpCanvasSceneSyncAdapter({ projectId });
   },
   async relocateBlocks(
     request: DocumentRelocationRequest,

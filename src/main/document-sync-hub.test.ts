@@ -35,6 +35,10 @@ import type {
   CardProjectTransferReceipt,
   CardProjectTransferRequest,
 } from "../shared/card-project-transfer";
+import type {
+  CanvasSceneMutationCommandResult,
+  CanvasSceneMutationRequest,
+} from "../shared/block-documents/canvas-scene-sync";
 import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
@@ -460,6 +464,101 @@ const syncSubscription = async (
 };
 
 describe("DocumentSyncHub", () => {
+  test("fans out Canvas scene events only after durable mutation ACK", async () => {
+    let resolveMutation: (result: CanvasSceneMutationCommandResult) => void =
+      () => undefined;
+    const durable = new Promise<CanvasSceneMutationCommandResult>((resolve) => {
+      resolveMutation = resolve;
+    });
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      syncCanvasScene: async () => ({
+        ok: false,
+        error: {
+          code: "unknown",
+          message: "unused",
+          retryable: false,
+          resetRequired: false,
+        },
+      }),
+      applyCanvasSceneMutation: async () => durable,
+    });
+    const first = new FakeTarget(101);
+    const second = new FakeTarget(102);
+    for (const [target, clientSessionId] of [
+      [first, "canvas-session-1"],
+      [second, "canvas-session-2"],
+    ] as const) {
+      const subscribed = hub.subscribeCanvasScene(target, {
+        version: 1,
+        projectId: "project-1",
+        documentId: "canvas-1",
+        clientSessionId,
+      });
+      expect(subscribed.ok).toBe(true);
+    }
+    const request: CanvasSceneMutationRequest = {
+      version: 1,
+      mutationId: "canvas-mutation-1",
+      projectId: "project-1",
+      documentId: "canvas-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      baseHeadSeq: 2,
+      clientSessionId: "canvas-session-1",
+      elementCandidates: [],
+      appStateIntents: {},
+      fileAdditions: {},
+    };
+    const pending = hub.applyCanvasSceneMutation(first, request);
+    await Promise.resolve();
+    expect(first.sent.length).toBe(0);
+    expect(second.sent.length).toBe(0);
+
+    resolveMutation({
+      ok: true,
+      value: {
+        version: 1,
+        mutationId: request.mutationId,
+        projectId: request.projectId,
+        documentId: request.documentId,
+        storeEpoch: request.storeEpoch,
+        generation: request.generation,
+        baseHeadSeq: request.baseHeadSeq,
+        headSeq: 3,
+        duplicate: false,
+        outcome: "committed",
+        sceneHash: "a".repeat(64),
+        changedElementIds: [],
+        appliedAppStateKeys: [],
+        skippedAppStateKeys: [],
+        addedFileIds: [],
+        removedFileIds: [],
+        committedAt: "2026-07-13T00:00:00.000Z",
+      },
+      event: {
+        type: "canvas_scene_committed",
+        version: 1,
+        projectId: request.projectId,
+        documentId: request.documentId,
+        storeEpoch: request.storeEpoch,
+        generation: request.generation,
+        mutationId: request.mutationId,
+        baseHeadSeq: request.baseHeadSeq,
+        headSeq: 3,
+        sceneHash: "a".repeat(64),
+        elementUpdates: [],
+        appState: {},
+        fileAdditions: {},
+        removedFileIds: [],
+      },
+    });
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(first.sent[0]?.channel).toBe("document-sync:event");
+    expect(second.sent[0]?.channel).toBe("document-sync:event");
+  });
+
   test("fans out by document only after the durable apply succeeds", async () => {
     let resolveApply: (
       result: DocumentSyncCommandResult<DocumentSyncApplyAck>,

@@ -782,6 +782,67 @@ export function registerIpcHandlers(
     }
     return documentSyncHub.applyUpdate(target, request);
   });
+  registerHandle("canvas-scene:subscribe", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "project_scope_mismatch" as const,
+          message: "Canvas scene subscription is unauthorized",
+          retryable: false,
+          resetRequired: false,
+        },
+      };
+    }
+    return documentSyncHub.subscribeCanvasScene(target, request);
+  });
+  registerHandle("canvas-scene:unsubscribe", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "project_scope_mismatch" as const,
+          message: "Canvas scene subscription is unauthorized",
+          retryable: false,
+          resetRequired: false,
+        },
+      };
+    }
+    return documentSyncHub.unsubscribeCanvasScene(target, request);
+  });
+  registerHandle("canvas-scene:sync", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "project_scope_mismatch" as const,
+          message: "Canvas scene sync is unauthorized",
+          retryable: false,
+          resetRequired: false,
+        },
+      };
+    }
+    return documentSyncHub.syncCanvasScene(target, request);
+  });
+  registerHandle("canvas-scene:apply", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "project_scope_mismatch" as const,
+          message: "Canvas scene mutation is unauthorized",
+          retryable: false,
+          resetRequired: false,
+          mutationId: request.mutationId,
+        },
+      };
+    }
+    return documentSyncHub.applyCanvasSceneMutation(target, request);
+  });
   registerHandle("document-sync:awareness:publish", (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {

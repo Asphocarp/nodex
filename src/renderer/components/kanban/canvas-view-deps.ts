@@ -1,13 +1,17 @@
 import { useKanban } from "@/lib/use-kanban";
 import { useTheme } from "@/lib/use-theme";
 import { RegisteredOwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
-import { OwnedBlockDocumentSurface } from "@/components/block-documents/block-document-surface";
+import { createCanvasSceneSyncAdapter } from "@/lib/api";
+import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
+import { createDefaultCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
 
 export {
-  OwnedBlockDocumentSurface,
   RegisteredOwnedBlockDocumentBoundary,
   useKanban,
   useTheme,
+  createCanvasSceneSyncAdapter,
+  createDefaultCanvasSceneOutbox,
+  registerAppCloseFlushHandler,
 };
 
 export function loadExcalidraw() {

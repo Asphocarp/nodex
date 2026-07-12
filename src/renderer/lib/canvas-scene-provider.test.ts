@@ -10,9 +10,13 @@ import {
 import { MemoryCanvasSceneOutbox } from "./canvas-scene-outbox";
 import {
   CanvasSceneProvider,
+  type CanvasSceneRelocationLeaseEvent,
   type CanvasSceneProviderScheduler,
   type CanvasSceneSyncAdapter,
 } from "./canvas-scene-provider";
+import type {
+  DocumentRelocationLeaseResponseRequest,
+} from "../../shared/block-documents/document-sync";
 
 const element = (version: number, text = `v${version}`) => ({
   id: "element-1",
@@ -30,16 +34,20 @@ const scene = (version = 1): PortableCanvasScene =>
 class MemoryAdapter implements CanvasSceneSyncAdapter {
   readonly calls: string[] = [];
   readonly applied: CanvasSceneMutationRequest[] = [];
+  readonly leaseResponses: DocumentRelocationLeaseResponseRequest[] = [];
   listener: ((event: CanvasSceneRealtimeEvent) => void) | null = null;
+  leaseListener: ((event: CanvasSceneRelocationLeaseEvent) => void) | null = null;
   currentScene = scene();
   headSeq = 0;
   applyError: Error | null = null;
 
-  subscribe: CanvasSceneSyncAdapter["subscribe"] = (_request, listener) => {
+  subscribe: CanvasSceneSyncAdapter["subscribe"] = (_request, listener, leaseListener) => {
     this.calls.push("subscribe");
     this.listener = listener;
+    this.leaseListener = leaseListener ?? null;
     return () => {
       this.listener = null;
+      this.leaseListener = null;
     };
   };
 
@@ -94,6 +102,22 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
       },
     };
   };
+
+  respondToRelocationLease: NonNullable<
+    CanvasSceneSyncAdapter["respondToRelocationLease"]
+  > = async (request) => {
+    this.calls.push(`lease:${request.response}`);
+    this.leaseResponses.push(request);
+    return {
+      ok: true,
+      value: {
+        accepted: true,
+        leaseId: request.leaseId,
+        documentId: request.documentId,
+        status: request.response === "ack" ? "frozen" : "cancelled",
+      },
+    };
+  };
 }
 
 const manualScheduler = () => {
@@ -114,6 +138,8 @@ const makeProvider = (input: {
   schedule?: CanvasSceneProviderScheduler;
   scheduleRetry?: CanvasSceneProviderScheduler;
   onScene?: (value: PortableCanvasScene) => void;
+  now?: () => number;
+  scheduleLeaseDeadline?: CanvasSceneProviderScheduler;
 }) => new CanvasSceneProvider({
   projectId: "project-1",
   documentId: "document-1",
@@ -123,8 +149,32 @@ const makeProvider = (input: {
   createMutationId: () => "mutation-1",
   ...(input.schedule ? { schedule: input.schedule } : {}),
   ...(input.scheduleRetry ? { scheduleRetry: input.scheduleRetry } : {}),
+  ...(input.now ? { now: input.now } : {}),
+  ...(input.scheduleLeaseDeadline
+    ? { scheduleLeaseDeadline: input.scheduleLeaseDeadline }
+    : {}),
   onScene: input.onScene ?? (() => undefined),
 });
+
+const waitForCondition = async (condition: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Condition was not met");
+};
+
+const prepareLease = (overrides: Partial<CanvasSceneRelocationLeaseEvent> = {}) => ({
+  kind: "relocation-lease-prepare",
+  leaseId: "lease-1",
+  documentId: "document-1",
+  clientSessionId: "window-1",
+  storeEpoch: "epoch-1",
+  generation: 1,
+  expectedHeadSeq: 0,
+  deadlineAt: 2_000,
+  ...overrides,
+}) as Extract<CanvasSceneRelocationLeaseEvent, { readonly kind: "relocation-lease-prepare" }>;
 
 describe("CanvasSceneProvider", () => {
   test("subscribes before sync and coalesces observations into one durable mutation", async () => {
@@ -229,5 +279,98 @@ describe("CanvasSceneProvider", () => {
     expect(adapter.applied).toHaveLength(1);
     expect(adapter.listener).toBeNull();
     expect(provider.getStatus().phase).toBe("closed");
+  });
+
+  test("durably flushes the local scene before acknowledging and freezing a write lease", async () => {
+    const adapter = new MemoryAdapter();
+    const coalescing = manualScheduler();
+    const deadlines = manualScheduler();
+    const provider = makeProvider({
+      adapter,
+      schedule: coalescing.schedule,
+      scheduleLeaseDeadline: deadlines.schedule,
+      now: () => 1_000,
+    });
+    await provider.connect();
+    const submitted = provider.submit({ elementCandidates: [element(2)] });
+
+    adapter.leaseListener?.(prepareLease());
+    await waitForCondition(() => adapter.leaseResponses.some(({ response }) => response === "ack"));
+    await submitted;
+
+    const mutationCall = adapter.calls.findIndex((call) => call.startsWith("apply:"));
+    const ackCall = adapter.calls.indexOf("lease:ack");
+    expect(mutationCall).toBeGreaterThan(-1);
+    expect(ackCall).toBeGreaterThan(mutationCall);
+    expect(adapter.leaseResponses.at(-1)).toMatchObject({
+      response: "ack",
+      headSeq: 1,
+    });
+    expect(provider.getStatus()).toMatchObject({
+      phase: "frozen",
+      writeFrozen: true,
+      headSeq: 1,
+    });
+    await expect(
+      provider.submit({ elementCandidates: [element(3)] }),
+    ).rejects.toThrow("frozen by a Document write lease");
+    await provider.close();
+  });
+
+  test("stays frozen until the terminal head is fully synchronized", async () => {
+    const adapter = new MemoryAdapter();
+    const deadlines = manualScheduler();
+    const provider = makeProvider({
+      adapter,
+      scheduleLeaseDeadline: deadlines.schedule,
+      now: () => 1_000,
+    });
+    await provider.connect();
+    adapter.leaseListener?.(prepareLease());
+    await waitForCondition(() => provider.getStatus().phase === "frozen");
+
+    adapter.currentScene = scene(4);
+    adapter.headSeq = 3;
+    adapter.leaseListener?.({
+      kind: "relocation-lease-release",
+      leaseId: "lease-1",
+      documentId: "document-1",
+      clientSessionId: "window-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      headSeq: 3,
+    });
+
+    expect(provider.getStatus().writeFrozen).toBe(true);
+    await waitForCondition(() => provider.getStatus().phase === "ready");
+    expect(provider.getStatus()).toMatchObject({ writeFrozen: false, headSeq: 3 });
+    expect(provider.getScene()?.elements[0]?.version).toBe(4);
+    await provider.close();
+  });
+
+  test("fails closed when overlapping write leases arrive", async () => {
+    const adapter = new MemoryAdapter();
+    const deadlines = manualScheduler();
+    let releasePreparation: (() => void) | undefined;
+    const provider = makeProvider({
+      adapter,
+      scheduleLeaseDeadline: deadlines.schedule,
+      now: () => 1_000,
+    });
+    provider.registerWriteLeasePreparer(() => new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    }));
+    await provider.connect();
+    adapter.leaseListener?.(prepareLease());
+    adapter.leaseListener?.(prepareLease({ leaseId: "lease-2" }));
+
+    await waitForCondition(() => provider.getStatus().phase === "reset-required");
+    expect(adapter.leaseResponses).toContainEqual(expect.objectContaining({
+      response: "nack",
+      leaseId: "lease-2",
+      reason: "foreign_lease_event",
+    }));
+    expect(provider.getStatus().writeFrozen).toBe(false);
+    releasePreparation?.();
   });
 });

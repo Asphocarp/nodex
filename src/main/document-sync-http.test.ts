@@ -19,6 +19,10 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
 } from "../shared/block-documents/document-sync";
+import {
+  decodeCanvasSceneSyncResultHttp,
+  encodeCanvasSceneSyncRequestHttp,
+} from "../shared/block-documents/canvas-scene-http-contract";
 import type {
   RelocationIntent,
   RelocationResult,
@@ -72,6 +76,37 @@ const createApp = (options?: {
         duplicate: options?.duplicate === true,
       });
     },
+    syncCanvasScene: async (request) => ({
+      ok: true,
+      value: {
+        version: 1,
+        projectId: request.projectId,
+        documentId: request.documentId,
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 0,
+        sceneHash: "a".repeat(64),
+        scene: {
+          kind: "canvas_scene",
+          schemaVersion: 1,
+          elements: [],
+          appState: {},
+          files: {},
+          cardReferences: [],
+          plainText: "",
+          preview: "",
+        },
+      },
+    }),
+    applyCanvasSceneMutation: async (request) => ({
+      ok: false,
+      error: {
+        code: "unknown",
+        message: `unused ${request.mutationId}`,
+        retryable: false,
+        resetRequired: false,
+      },
+    }),
     applyDocumentMutation: async () => {
       throw new Error("Document mutation is not configured in sync tests");
     },
@@ -120,7 +155,7 @@ const createApp = (options?: {
             stateVector: new Uint8Array([2]),
           }),
     getDocumentProjectId: async (documentId) =>
-      documentId === "document-1"
+      documentId === "document-1" || documentId === "canvas-1"
         ? success("project-1")
         : {
             ok: false,
@@ -162,6 +197,34 @@ const readSseData = async (
 };
 
 describe("Document sync HTTP routes", () => {
+  test("serves Canvas full sync only behind its project-scoped SSE subscription", async () => {
+    const { app } = createApp();
+    const abort = new AbortController();
+    const eventResponsePromise = app.request(
+      "/api/projects/project-1/documents/canvas-1/canvas/events?clientSessionId=canvas-client-1",
+      { signal: abort.signal },
+    );
+    await Promise.resolve();
+    const response = await app.request(
+      "/api/projects/project-1/documents/canvas-1/canvas/sync",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/vnd.nodex.canvas-scene.v1+json" },
+        body: encodeCanvasSceneSyncRequestHttp({
+          version: 1,
+          projectId: "project-1",
+          documentId: "canvas-1",
+          clientSessionId: "canvas-client-1",
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    const result = decodeCanvasSceneSyncResultHttp(await response.text());
+    expect(result.ok).toBe(true);
+    abort.abort();
+    await eventResponsePromise;
+  });
+
   test("returns a strictly project-scoped owned Document descriptor", async () => {
     const { app } = createApp();
     const response = await app.request(

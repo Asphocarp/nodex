@@ -209,7 +209,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
-- Schema v70 stores Block identity, owned Yjs Documents, Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. The content-bearing Card/history/description snapshot tables are absent.
+- Schema v71 stores Block identity, engine-neutral Owned Documents, Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
 - One asynchronous `BlockMutationWriter` serializes Block/Card-domain `better-sqlite3` transactions outside the Electron main event loop.
 - New user/content Block identities use canonical lowercase UUID-v7 and are validated only at creation. Existing IDs remain opaque. View, property, membership, operation, mutation, and other non-Block identities default to UUID-v4 when they do not have a stronger domain-derived identity; explicit timestamps, ranks, and sequences remain the only ordering authority.
 
@@ -254,7 +254,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Notion-style slide-out panel for card details
 - Always-editable fields (no edit mode toggle)
 - Card is the user-facing term for a document-bearing Block; Card Stage never introduces a second Page identity
-- Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content. Only a ready, schema-compatible `ydoc_primary` descriptor mounts the editor; any invalid descriptor stays outside Card Stage on a retryable fail-closed diagnostic surface
+- Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content. Only a ready, schema-compatible `yjs` descriptor mounts the Card editor; `canvas_scene` descriptors route to Canvas view, and invalid descriptors remain on a retryable fail-closed diagnostic surface
 - Card Stage uses one continuous content skeleton across Card hydration, Document preparation, runtime creation, and the initial state-vector handshake. Normal opening never replaces that skeleton with a second text-only loading state; failures still expose retry, while delayed/offline sync status remains available after a Document has opened
 - A title-only Card opens as a normal empty editor. Its collaborative body contains one authority-owned empty paragraph with a stable Block ID, while NFM/plain-text exports remain empty; the editor never creates a placeholder identity during mount
 - On a primary Card, every mounted writable surface owns an independent Y.Doc client/session, completes state-vector synchronization before mounting content, binds title to `Y.Text("title")`, and binds BlockNote to `Y.XmlFragment("body")`
@@ -346,16 +346,16 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Drag handles, formatting toolbar, block selection
 - Delete card action
 - View history button opens an app-shell version-history modal for the currently open Card Stage card
-- Primary Card Document history is exposed through Project/Document-scoped list, get, checkpoint, and restore commands over both Electron IPC and loopback HTTP. A checkpoint stores title, body, stable Block IDs, schema and audit metadata as immutable evidence. Restore requires the selected version identity plus current generation/head, briefly flushes and freezes every mounted surface, creates a `before_restore` checkpoint, and appends one new forward Yjs update; it never rewinds the update log. Retrying the same restore mutation ID returns the original durable result.
+- Owned Document history is exposed through Project/Document-scoped list, get, checkpoint, and restore commands over both Electron IPC and loopback HTTP. A `block_tree` checkpoint stores a full Yjs update and causal metadata; a Canvas checkpoint stores bounded canonical scene JSON. Restore requires the selected version identity plus current generation/head, briefly flushes and freezes every mounted surface, creates a `before_restore` checkpoint, and appends one engine-specific forward mutation. Retrying the same restore mutation ID returns the original durable result.
 - History modal presents one cursor-paginated timeline merged from immutable Document checkpoints and canonical Block mutation/relocation evidence. A selected checkpoint has a full read-only preview; non-checkpoint entries show bounded durable evidence and do not pretend to be reversible snapshots.
 
 #### 8. Edit History & Undo/Redo
 - Typing undo/redo is owned by the mounted Yjs surface. `Cmd/Ctrl+Z` and redo operate only on transactions created by that surface's local origins; remote edits and another window's changes never enter its undo stack.
-- Durable content history is a retained `document_versions` checkpoint stream. A checkpoint stores the exact Y.Doc state, schema, stable Block IDs, content hash, and bounded audit metadata independently from operational update compaction.
+- Durable content history is a retained `document_versions` checkpoint stream. Each checkpoint records an explicit engine format, schema, content hash, and bounded audit metadata independently from operational compaction.
 - Property, lifecycle, Database membership/value/View, and location changes are immutable `block_mutations` / `block_relocations` joined through the Project change log. Their before/after evidence is field- or operation-scoped, not a reconstructed whole Card snapshot.
 - The Card history modal is Card-scoped and merges these sources into one stable cursor timeline. Pagination never depends on array offsets or renderer-local clocks.
 - Selecting a Document checkpoint loads a read-only preview. Reference and embed Blocks remain inert in previews and do not fetch or mutate current target state.
-- Restore is available only for a retained compatible Document checkpoint. It validates the current generation/head, briefly fences mounted editors, writes a mandatory `before_restore` checkpoint, and appends a new forward Yjs update with an exact-retry mutation receipt. Restore never rewinds the update log or reconstructs a new Y.Doc from NFM.
+- Restore is available only for a retained compatible Document checkpoint. It validates the current generation/head, briefly fences mounted editors, writes a mandatory `before_restore` checkpoint, and appends a new forward engine mutation with an exact-retry receipt. Card restore never rewinds Yjs causality; Canvas restore assigns newer element versions and explicit tombstones rather than replacing current authority with an old scene snapshot.
 - Mutation and relocation entries expose durable evidence but no generic inverse button. A future domain-specific inverse must be a new validated forward command, never Project-wide snapshot undo.
 - Fast local undo has no global toast. Durable restore reports pending/success/failure in the history surface and refreshes through the committed Document event.
 
@@ -371,12 +371,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 10. Canvas View (Excalidraw)
 - Canvas tab provides a freeform whiteboard per project for card brainstorming and visual mapping.
-- Every Project owns one primary Canvas Block and independent collaborative Y.Doc. Separate windows merge Excalidraw element changes by version/nonce instead of replacing the whole scene.
+- Every Project owns one primary Canvas Block and an independent `canvas_scene` Owned Document. SQLite stores normalized current element, durable app-state, and managed-file authority rather than a Y.Doc or renderer-overwritten whole scene.
+- Separate windows submit bounded element candidates and field-level app-state intent. Greater Excalidraw version wins, equal versions use the lower version nonce, a canonical hash breaks malformed ties, and deletion is always an explicit tombstone.
 - Card shapes are reference objects with a stable `targetBlockId`; they do not copy Card bodies or Database membership into Canvas content, and standalone Cards remain openable.
-- Shared scene state contains element contenders, ordering, and a bounded set of durable app-state fields. Selection, viewport, active tool, and focus remain window-local.
-- Embedded image bytes are uploaded to managed assets before the Y.Doc records a URI. Remote surfaces lazily resolve those URIs and reuse unchanged asset reads.
-- Pending scene and upload work flushes through the Document surface on persist, close, relocation, and forward history restore. Remote changes do not enter the local Excalidraw undo stack.
-- The old whole-scene IPC/HTTP save path and `canvas` storage row are not runtime authorities; startup imports and retires a legacy row only after durable primary-Document creation succeeds.
+- Shared scene state contains current portable elements, ordering, and a bounded set of durable app-state fields. Selection, viewport, active tool, and focus remain window-local.
+- Embedded image bytes are uploaded to managed assets before a scene mutation records immutable URI metadata. Remote surfaces lazily resolve those URIs and reuse unchanged asset reads.
+- The renderer coalesces frequent observations, persists each exact pending mutation to an IndexedDB outbox before transport, retries response loss idempotently, and invalidates stale outbox entries after a store-epoch or generation change.
+- Scene subscriptions start before synchronization. A missing/out-of-order head, reconnect, or completed write lease repairs through one bounded full canonical scene. Pending upload/outbox/provider work joins bounded close and write-fence flushing; remote scenes reconcile with `CaptureUpdateAction.NEVER` and do not enter local Excalidraw undo.
 
 #### 11. Calendar View
 - Calendar tab shows scheduled cards in a day-grid timeline with Day, Week, custom Multi-Day, and custom Multi-Week ranges.
@@ -742,11 +743,13 @@ The former board-create, Card-delete, and description-write snapshot endpoints r
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects/[projectId]/blocks/[ownerBlockId]/document` | Read the exact owned-Document descriptor without changing authority |
-| POST | `/api/projects/[projectId]/blocks/[ownerBlockId]/document/prepare` | Validate and return the exact ready owned descriptor; only `ydoc_primary` may mount Card Stage |
-| GET | `/api/projects/[projectId]/documents/[documentId]/events` | Subscribe to targeted update and Awareness events before synchronization |
+| POST | `/api/projects/[projectId]/blocks/[ownerBlockId]/document/prepare` | Validate and return the exact ready descriptor with its `yjs` or `canvas_scene` sync-engine discriminant |
+| GET | `/api/projects/[projectId]/documents/[documentId]/events` | Subscribe to targeted engine-discriminated events before synchronization |
 | POST | `/api/projects/[projectId]/documents/[documentId]/sync` | Send a state vector and receive the missing binary update plus current durable head |
 | POST | `/api/projects/[projectId]/documents/[documentId]/updates` | Submit one idempotent binary update; success is acknowledged only after SQLite commit |
 | POST | `/api/projects/[projectId]/documents/[documentId]/awareness` | Publish bounded ephemeral presence; it never mutates content or SQLite |
+| POST | `/api/projects/[projectId]/documents/[documentId]/canvas-scene/sync` | Load the bounded full canonical Canvas scene at its current durable head |
+| POST | `/api/projects/[projectId]/documents/[documentId]/canvas-scene/mutations` | Merge one idempotent bounded element/app-state/file mutation and return its durable receipt |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocations` | Move stable Block subtrees to another Card Document through a session-bound lease and one atomic SQLite commit |
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocation-leases/[leaseId]/responses` | ACK/NACK a surface-local relocation freeze after its pending edits are durable |
 | POST | `/api/projects/[projectId]/documents/[documentId]/mutations` | Apply a stable-ID title/insert/update/delete/move or CAS-gated NFM replacement batch |
@@ -766,7 +769,7 @@ The former board-create, Card-delete, and description-write snapshot endpoints r
 
 ### Database Schema
 
-Schema v70 is Block-first. `blocks` is the live content identity registry; `retired_block_identities` permanently reserves application IDs removed by physical retention; `documents` plus `block_documents` own independently synchronized Y.Docs; Database capability/membership/property/View tables model rows without copying Cards; immutable receipt/change/version/relocation records preserve retry and history evidence; and materialization/search/asset/Card/schedule records are rebuildable projections with exact authority coordinates. A supported v69 store finalizes before runtime by draining shadow content, converting every foreign body to a stable reference or recovered Card, repairing projections, and atomically dropping `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and transfer fence. Failure leaves v69 intact and blocks readiness.
+Schema v71 is Block-first. `blocks` is the live content identity registry; `retired_block_identities` permanently reserves collected identities; `documents` plus `block_documents` own independently synchronized content and select its sync engine. Yjs tables own `block_tree` causal state; `canvas_scenes`, `canvas_scene_elements`, `canvas_scene_files`, and immutable Canvas receipts own normalized `scene_graph` state. Database records model membership/properties/Views without copying Cards, while materialization/search/asset/Card/schedule records remain rebuildable exact-head projections.
 
 ```sql
 -- Current schema (simplified excerpt)
@@ -856,7 +859,7 @@ CREATE TABLE blocks (
   UNIQUE (id, project_id)
 );
 
--- Independently synchronized Yjs authority
+-- Engine-neutral Owned Document identity and durable coordinates
 CREATE TABLE documents (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -865,13 +868,15 @@ CREATE TABLE documents (
   schema_key TEXT NOT NULL,
   schema_version INTEGER NOT NULL,
   readiness TEXT NOT NULL,          -- pending_genesis | ready | failed
-  authority TEXT NOT NULL,          -- ydoc_primary in v70 runtime
-  state_vector BLOB NOT NULL,
-  state_hash TEXT NOT NULL,
+  sync_engine TEXT NOT NULL,        -- yjs | canvas_scene
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (id, project_id)
 );
+
+-- Yjs operational updates/snapshots are used only for sync_engine = 'yjs'.
+-- Canvas current authority and exact-retry receipts live in canvas_scenes,
+-- canvas_scene_elements, canvas_scene_files, and canvas_scene_mutation_receipts.
 
 CREATE TABLE block_documents (
   block_id TEXT PRIMARY KEY,
@@ -1459,7 +1464,7 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 | **Card** | The user-facing document-like Block; its Card ID is its Block ID and it owns one collaborative Document |
 | **Column** | A vertical list representing a workflow stage |
 | **Block** | The single persistent application identity for content, including Cards, Databases, ordinary body nodes, and references |
-| **Document** | An independently synchronized Y.Doc owned by a registered document-bearing Block |
+| **Document** | Independently synchronized content owned by a registered document-bearing Block; its schema selects `yjs` or `canvas_scene` |
 | **Project** | The Space, filesystem/execution, and data-isolation boundary for Blocks, Documents, Databases, and agent work |
 | **Card Stage** | Panel for viewing/editing Card properties and its independently synchronized title/body Document |
 | **SSE** | Server-Sent Events for real-time updates (browser mode) |

@@ -5,6 +5,9 @@ import { DocumentSyncHub } from "./document-sync-hub";
 export const documentSyncHub = new DocumentSyncHub({
   sync: (request) => blockMutationWriter.syncBlockDocument(request),
   applyUpdate: (request) => blockMutationWriter.applyBlockDocumentUpdate(request),
+  syncCanvasScene: (request) => blockMutationWriter.syncCanvasScene(request),
+  applyCanvasSceneMutation: (request) =>
+    blockMutationWriter.applyCanvasSceneMutation(request),
   applyDocumentMutation: (request, writeFence) =>
     blockMutationWriter.applyDocumentMutation(request, writeFence),
   lookupCommittedRelocation: (intent) =>

@@ -11,8 +11,10 @@ import "@excalidraw/excalidraw/index.css";
 import {
   loadCanvasCardSidebar,
   loadExcalidraw,
-  OwnedBlockDocumentSurface,
   RegisteredOwnedBlockDocumentBoundary,
+  createCanvasSceneSyncAdapter,
+  createDefaultCanvasSceneOutbox,
+  registerAppCloseFlushHandler,
   useKanban,
   useTheme,
 } from "./canvas-view-deps";
@@ -28,17 +30,16 @@ import {
 import type { CardSummary } from "@/lib/types";
 import { toCardSummary } from "../../../shared/card-summary";
 import {
-  inspectCanvasDocument,
   primaryCanvasBlockId,
-  type CanvasDocumentEnvelope,
-  type CanvasSceneMaterialization,
+  type PortableCanvasScene,
 } from "../../../shared/block-documents";
 import {
   CanvasBinaryFileResolver,
   type CanvasBinaryFiles,
 } from "@/lib/canvas-assets";
 import { CanvasSceneBinding } from "@/lib/canvas-scene-binding";
-import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
+import { CanvasSceneProvider } from "@/lib/canvas-scene-provider";
+import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "lucide-react";
 import { CanvasDocumentState } from "./canvas-document-state";
 
@@ -95,31 +96,16 @@ export function CanvasView({ projectId, databaseViewId, openCardStage, cardStage
           );
         }
         return (
-          <OwnedBlockDocumentSurface
+          <CanvasEditor
+            key={model.descriptor.documentId}
             projectId={projectId}
+            databaseViewId={databaseViewId}
             descriptor={model.descriptor}
-            isActive
-            localAwarenessState={{ surface: "canvas" }}
             onReload={controls.reload}
-          >
-            {(surface) => {
-              if (surface.kind !== "scene_graph") {
-                throw new TypeError("Canvas owner resolved a non-scene Document");
-              }
-              return (
-                <CanvasEditor
-                  key={surface.documentId}
-                  projectId={projectId}
-                  databaseViewId={databaseViewId}
-                  envelope={surface}
-                  runtime={surface.runtime}
-                  openCardStage={openCardStage}
-                  cardStageCardId={cardStageCardId}
-                  cardStageCloseRef={cardStageCloseRef}
-                />
-              );
-            }}
-          </OwnedBlockDocumentSurface>
+            openCardStage={openCardStage}
+            cardStageCardId={cardStageCardId}
+            cardStageCloseRef={cardStageCloseRef}
+          />
         );
       }}
     </RegisteredOwnedBlockDocumentBoundary>
@@ -127,15 +113,15 @@ export function CanvasView({ projectId, databaseViewId, openCardStage, cardStage
 }
 
 interface CanvasEditorProps extends CanvasViewProps {
-  readonly envelope: CanvasDocumentEnvelope;
-  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor;
+  readonly onReload: () => Promise<void>;
 }
 
 function CanvasEditor({
   projectId,
   databaseViewId,
-  envelope,
-  runtime,
+  descriptor,
+  onReload,
   openCardStage,
   cardStageCardId,
   cardStageCloseRef,
@@ -147,20 +133,18 @@ function CanvasEditor({
   const { resolved: themeResolved } = useTheme();
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const bindingRef = useRef<CanvasSceneBinding | null>(null);
+  const providerRef = useRef<CanvasSceneProvider | null>(null);
   const [resolvedScene, setResolvedScene] = useState<{
-    readonly materialization: CanvasSceneMaterialization;
+    readonly materialization: PortableCanvasScene;
     readonly files: CanvasBinaryFiles;
   } | null>(null);
   const [sceneError, setSceneError] = useState<string | null>(null);
   const retrySceneRef = useRef<(() => void) | null>(null);
-  const latestElementsRef = useRef<readonly OrderedExcalidrawElement[]>(
-    inspectCanvasDocument(envelope.document).materialization
-      .elements as readonly OrderedExcalidrawElement[],
-  );
+  const latestElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
   const [placedCardIds, setPlacedCardIds] = useState(() =>
     collectPlacedCardIds(latestElementsRef.current),
   );
-  const writeFrozen = runtime.getStatus().writeFrozen;
+  const [writeFrozen, setWriteFrozen] = useState(false);
 
   const handleExcalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
     excalidrawApiRef.current = api;
@@ -170,8 +154,32 @@ function CanvasEditor({
     let active = true;
     let presentationRevision = 0;
     const fileResolver = new CanvasBinaryFileResolver();
-    const binding = new CanvasSceneBinding({
-      envelope,
+    let binding: CanvasSceneBinding | null = null;
+    const provider = new CanvasSceneProvider({
+      projectId,
+      documentId: descriptor.documentId,
+      clientSessionId: `canvas:${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`,
+      expectedStoreEpoch: descriptor.storeEpoch,
+      expectedGeneration: descriptor.generation,
+      adapter: createCanvasSceneSyncAdapter(projectId),
+      outbox: createDefaultCanvasSceneOutbox(),
+      onScene: (scene) => binding?.presentRemoteScene(scene),
+    });
+    providerRef.current = provider;
+    const unsubscribeStatus = provider.subscribeStatus(() => {
+      if (!active) return;
+      const status = provider.getStatus();
+      setWriteFrozen(
+        status.writeFrozen
+        || status.phase === "reset-required"
+        || status.phase === "error"
+        || status.phase === "closing"
+        || status.phase === "closed",
+      );
+      if (status.error) setSceneError(status.error.message);
+    });
+    binding = new CanvasSceneBinding({
+      provider,
       onRemoteScene: (scene) => {
         void presentScene(scene);
       },
@@ -179,11 +187,13 @@ function CanvasEditor({
         if (active) setSceneError(error.message);
       },
     });
-    const unregisterPreparers = binding.registerSurfacePreparers(runtime);
     bindingRef.current = binding;
+    const unregisterWriteLeasePreparer = provider.registerWriteLeasePreparer(
+      binding.flush,
+    );
 
     async function presentScene(
-      materialization: CanvasSceneMaterialization,
+      materialization: PortableCanvasScene,
     ): Promise<void> {
       const revision = ++presentationRevision;
       try {
@@ -232,7 +242,12 @@ function CanvasEditor({
     const retry = (): void => {
       void (async () => {
         const api = excalidrawApiRef.current;
-        if (api && !runtime.getWriteFrozen()) {
+        const currentStatus = provider.getStatus();
+        if (
+          api
+          && currentStatus.phase !== "reset-required"
+          && currentStatus.phase !== "error"
+        ) {
           await binding.submitLocalScene({
             getSceneElementsIncludingDeleted: () =>
               api.getSceneElementsIncludingDeleted(),
@@ -240,6 +255,12 @@ function CanvasEditor({
             binaryFiles: api.getFiles() as unknown as CanvasBinaryFiles,
           });
         }
+        const status = provider.getStatus();
+        if (status.phase === "reset-required" || status.phase === "error") {
+          await onReload();
+          return;
+        }
+        await provider.connect();
         await presentScene(binding.getCurrentScene());
       })().catch((error: unknown) => {
         if (!active) return;
@@ -247,22 +268,29 @@ function CanvasEditor({
       });
     };
     retrySceneRef.current = retry;
-    retry();
+    const unregisterAppClose = registerAppCloseFlushHandler(binding.flush);
+    void provider.connect().catch((error: unknown) => {
+      if (active) setSceneError(error instanceof Error ? error.message : String(error));
+    });
 
     return () => {
       active = false;
       if (retrySceneRef.current === retry) retrySceneRef.current = null;
+      unregisterAppClose();
+      unregisterWriteLeasePreparer();
+      unsubscribeStatus();
       fileResolver.destroy();
       if (bindingRef.current === binding) bindingRef.current = null;
+      if (providerRef.current === provider) providerRef.current = null;
       void binding
         .flush()
         .catch(() => undefined)
         .finally(() => {
-          unregisterPreparers();
           binding.destroy();
+          void provider.close();
         });
     };
-  }, [envelope.document, envelope.documentId, runtime]);
+  }, [descriptor.documentId, descriptor.generation, descriptor.storeEpoch, onReload, projectId]);
 
   // Sync card labels when board changes
   useEffect(() => {
@@ -339,7 +367,7 @@ function CanvasEditor({
     async (card: CardSummary) => {
       const api = excalidrawApiRef.current;
       const binding = bindingRef.current;
-      if (!api || !binding || runtime.getWriteFrozen()) return;
+      if (!api || !binding || writeFrozen) return;
       const [convert, collaboration] = await Promise.all([
         convertPromise,
         collaborationPromise,
@@ -364,7 +392,7 @@ function CanvasEditor({
         binaryFiles: api.getFiles() as unknown as CanvasBinaryFiles,
       });
     },
-    [runtime],
+    [writeFrozen],
   );
 
   // Create a new card and place it on canvas
@@ -375,7 +403,7 @@ function CanvasEditor({
     await handlePlaceCard(toCardSummary(card));
   }, [createCard, handlePlaceCard]);
 
-  // Excalidraw observations update the Canvas-owned Y.Doc, never a whole-scene row.
+  // Excalidraw observations become mergeable scene mutations with explicit tombstones.
   const handleChange = useCallback(
     (
       elements: readonly OrderedExcalidrawElement[],
@@ -384,7 +412,7 @@ function CanvasEditor({
     ) => {
       const api = excalidrawApiRef.current;
       const binding = bindingRef.current;
-      if (!api || !binding || runtime.getWriteFrozen()) return;
+      if (!api || !binding || writeFrozen) return;
       latestElementsRef.current = elements;
       setPlacedCardIds((previous) => syncPlacedCardIds(previous, elements));
       void binding
@@ -398,7 +426,7 @@ function CanvasEditor({
           setSceneError(error instanceof Error ? error.message : String(error));
         });
     },
-    [runtime],
+    [writeFrozen],
   );
 
   // Render top-right UI: card sidebar toggle button

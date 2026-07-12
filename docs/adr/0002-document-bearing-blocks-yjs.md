@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-11
 - Owners: Nodex maintainers
+- Scope: Accepted for `block_tree`; its proposed Canvas/Yjs extension is superseded by ADR 0005
 
 ## Context
 
@@ -21,13 +22,13 @@ These are the complete named-root set; hidden extra shared roots are invalid. Th
 
 Title and body therefore participate in the same causal history and durable update stream. Ordinary paragraphs, headings, lists, and media are stable-ID Blocks inside the nearest Card's body fragment; they do not each own a Y.Doc.
 
-Only selected document-bearing Block types own independent Documents. Card, Synced Block sources, Reusable Template sources, explicit Large Documents, and explicit Large Code are registered now. Canvas scenes remain a later Adapter. Promotion, instantiation, and ownership changes are explicit transactions; content size never promotes an ordinary Block.
+Only selected document-bearing Block types own independent Documents. Card, Synced Block sources, Reusable Template sources, explicit Large Documents, explicit Large Code, and Canvas are registered. This ADR governs the Yjs `block_tree` owners; ADR 0005 governs Canvas's `canvas_scene` engine. Promotion, instantiation, and ownership changes are explicit transactions; content size never promotes an ordinary Block.
 
 A Synced Block source is a system-managed document-bearing Block with schema `nodex.synced-block@1`. Its Y.Doc has only `Y.XmlFragment("body")`; it must not manufacture a Card title root. Every visible occurrence is a childless `syncedBlockRef` that stores only `sourceBlockId` and lazy-mounts the source's independent surface. Nodex deliberately uses a library-source model: the source Block has a real Space placement so its relational location is total, but normal Card/Database/top-level navigation does not present it as another Card or standalone page. Exact owner lookup, reference expansion, history, search materialization, and maintenance may address it. The original promotion location becomes the first reference; this hidden source placement is product policy, not an accidental extra page.
 
 Promotion moves the original subtree's application Block IDs into the new source Document, creates a new UUID-v7 reference identity at the host location, and commits both Documents/registry/evidence atomically. Copy allocates fresh UUID-v7 IDs for the source body. Demotion is allowed only when exactly one current reference can be proven from exact-head projections. It requires one lease covering both host and source heads, relocates the source roots back with their existing IDs, leaves the source Y.Doc at a durable empty head/projection, and tombstones the source resource and reference in the same SQLite transaction. Typed deletion and physical GC must pass the same exact-head reference scan and reject any source with a live reference. The current BF-09 slice implements and proves the store/kernel boundary; production Hub/FIFO/transport commands remain required before this behavior is exposed to users.
 
-The schema registry dispatches on `contentModel`. Card, Synced Block, Reusable Template, Large Document, and Large Code use `block_tree`; future canvas/scene adapters use `scene_graph` and define their own named Yjs roots. BlockNote/NFM code requests the block-tree Adapter explicitly and fails closed for another content model, so a canvas is never forced into a fake title/body tree.
+The schema registry dispatches on content model and sync engine. Card, Synced Block, Reusable Template, Large Document, and Large Code use `block_tree` with `yjs`; Canvas uses `scene_graph` with `canvas_scene`. BlockNote/NFM code requests the block-tree Adapter explicitly and fails closed for another content model, so Canvas is never forced into a fake title/body tree or Yjs root set.
 
 Every body-only `block_tree` owner reuses one exact-root primitive rather than maintaining per-type `body` validators. Reusable Template, Large Document, and Large Code Documents have no title root. Large Code narrows the common tree contract to one childless root `codeBlock`; an update that drifts to another shape is rejected before durability.
 

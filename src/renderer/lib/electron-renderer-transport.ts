@@ -17,6 +17,7 @@ import type {
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
+import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
   OwnedBlockDocumentDescriptor,
   RelocationCommandResult,
@@ -96,6 +97,9 @@ export function createElectronRendererTransport(
     createDocumentSyncAdapter(projectId: string) {
       void projectId;
       return createElectronDocumentSyncAdapter(bridge);
+    },
+    createCanvasSceneSyncAdapter(projectId: string) {
+      return createElectronCanvasSceneSyncAdapter(bridge, projectId);
     },
     relocateBlocks(request: DocumentRelocationRequest) {
       return bridge.invoke(

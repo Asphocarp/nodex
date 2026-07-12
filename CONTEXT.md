@@ -1,6 +1,6 @@
 # Nodex Domain Context
 
-This document defines the canonical Block-first domain language for Nodex. Schema v70 implements this model directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store before normal runtime begins; they are migration code, not an alternate authority.
+This document defines the canonical Block-first domain language for Nodex. Schema v71 implements engine-neutral Owned Documents and scene-native Canvas authority directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store through v70 before normal runtime begins; they are migration code, not an alternate authority.
 
 ## Product boundary
 
@@ -28,28 +28,28 @@ A Card is the user-facing name for a document-bearing Block. A Card has no separ
 
 A Card can be placed directly in a Space, nested in another Document, or shown through references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
 
-Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready `ydoc_primary` descriptor may mount Card Stage; schema v70 has no snapshot-editor fallback.
+Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready descriptor whose registered sync engine is `yjs` may mount Card Stage; the current schema has no snapshot-editor fallback.
 
 ### Document
 
-A Document is an independently loaded, persisted, synchronized, and undo-scoped Yjs document. Its identity is `documentId`. A Card Document has exactly two named shared roots:
+A Document is an independently loaded, persisted, synchronized, and history-scoped content owner. Its identity is `documentId`; its registered schema selects a content-specific sync engine. A `block_tree` Card Document uses Yjs and has exactly two named shared roots:
 
 - `Y.Text("title")` for the Card title.
 - `Y.XmlFragment("body")` for the BlockNote-compatible body tree.
 
 No additional named shared roots are valid. The body fragment contains one canonical root `blockGroup` so every persisted ready Document can be mounted by the editor schema.
 
-A body-only Block Document has exactly one `Y.XmlFragment("body")` root and no synthetic title. Synced Block sources (`nodex.synced-block@1`), Reusable Template sources (`nodex.reusable-template@1`), Large Documents (`nodex.large-document@1`), and Large Code (`nodex.large-code@1`) share one root/envelope primitive. Document schemas dispatch through an exact `(ownerType, schemaKey, schemaVersion, contentModel)` registration and then apply type-specific content validation. Large Code additionally requires exactly one childless root `codeBlock`. BlockNote-backed Documents use `block_tree`; scene/canvas Documents use a separate `scene_graph` Adapter with their own roots.
+A body-only Block Document has exactly one `Y.XmlFragment("body")` root and no synthetic title. Synced Block sources (`nodex.synced-block@1`), Reusable Template sources (`nodex.reusable-template@1`), Large Documents (`nodex.large-document@1`), and Large Code (`nodex.large-code@1`) share one root/envelope primitive. Document schemas dispatch through an exact `(ownerType, schemaKey, schemaVersion, contentModel, syncEngine)` registration and then apply type-specific content validation. Large Code additionally requires exactly one childless root `codeBlock`. BlockNote-backed Documents use the `block_tree` content model and `yjs` engine; Canvas uses the `scene_graph` content model and `canvas_scene` engine.
 
 The Yjs state vector expresses causal synchronization state. SQLite `headSeq` expresses only the local durable append order. Neither is a content-integrity digest; persisted updates, snapshots, and reconstructed full states carry separate hashes.
 
-Every mounted writable Document surface owns a fresh local Y.Doc/client identity. It completes a state-vector handshake before resolving and mounting the `title` and `body` roots. A retained inactive surface may keep content synchronization alive, but it clears its local Awareness state so a hidden tab does not appear present.
+Every mounted writable `block_tree` surface owns a fresh local Y.Doc/client identity. It completes a state-vector handshake before resolving and mounting the `title` and `body` roots. A retained inactive surface may keep content synchronization alive, but it clears its local Awareness state so a hidden tab does not appear present. A mounted Canvas instead owns a scene-native provider/client session and completes a canonical scene handshake before mounting Excalidraw.
 
 ### Document-bearing Block
 
 A document-bearing Block owns a Document through `block_documents`. Card, the system-managed Synced Block source, Reusable Template source, explicit Large Document, explicit Large Code, and Canvas are registered document-bearing types. Every Project has one deterministic primary Canvas Block whose `nodex.canvas@1` Document uses the separate `scene_graph` content model. Ordinary paragraphs, headings, and list items remain first-class Blocks but share the nearest owning Document and are never promoted because of size.
 
-A Canvas Document stores Excalidraw element contenders, bounded durable app-state fields, ordering, and managed-file references in Yjs roots. Concurrent element updates resolve by Excalidraw version and version nonce; application Card references store only `targetBlockId` plus a disposable title hint. Binary image data is uploaded first and the Y.Doc retains only a `nodex://assets/*` URI. The legacy whole-scene Canvas row is a one-time startup import and is deleted only after every Project owns a ready primary Canvas Document.
+A Canvas Document stores normalized Excalidraw authority in SQLite: one current portable JSON value per element, bounded durable app-state fields, ordering, and immutable managed-file metadata. Concurrent candidates resolve by Excalidraw version and version nonce, with a canonical payload-hash tie-break; absence never deletes an element, so deletion requires an explicit tombstone. Application Card references store only `targetBlockId` plus a disposable title hint. Binary image data is uploaded first and the scene mutation retains only a `nodex://assets/*` URI. Renderers durably enqueue exact mutations in a local outbox, invalidate that outbox across store-epoch or generation changes, and repair event gaps by loading the full canonical scene.
 
 Document ownership changes only through an explicit promotion or demotion operation. It never changes automatically because content became large.
 
@@ -110,7 +110,7 @@ A `syncedBlockRef` follows the same foreign-body rule and targets a `synced_bloc
 
 A `templateRef` follows the same foreign-body rule but has copy-on-instantiate semantics rather than live-content expansion semantics. Collapsed reference UI resolves the source's authoritative summary when the production query transport is available; its optional display hint is never the source name authority and opaque IDs are not user-facing labels.
 
-Synced source, Template, explicit Large Document/Code, and non-primary Canvas ownership changes use one versioned Additional Document command. The Project route and actor/session are trusted transport evidence and are rebound by Electron main or loopback HTTP. Logical intent retains `operationId`, `storeEpoch`, application identities, generations, and requested placement; only the Document Hub may renew execution heads after mounted surfaces flush and freeze. Creation and reference-guarded recursive tombstoning commit through the same receipt boundary. The CLI and renderer API submit this same envelope, and committed heads repair through the ordinary Document SSE/state-vector path rather than a second realtime channel.
+Synced source, Template, explicit Large Document/Code, and non-primary Canvas ownership changes use one versioned Additional Document command. The Project route and actor/session are trusted transport evidence and are rebound by Electron main or loopback HTTP. Logical intent retains `operationId`, `storeEpoch`, application identities, generations, and requested placement; only the Document Hub may renew execution heads after mounted surfaces flush and freeze. Creation and reference-guarded recursive tombstoning commit through the same receipt boundary. The CLI and renderer API submit this same envelope, and committed heads repair through the registered engine's ordinary realtime resync path rather than a second ownership channel.
 
 Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 
@@ -126,7 +126,7 @@ Historical schema v69 made stable Block/Document identity, rather than the curre
 
 A structured property mutation is a versioned, project/store-scoped field-intent batch with one immutable `mutationId`. Scalar fields compare their own property revision rather than a whole-Card revision; set-like values apply add/remove intent against the current set. The property values, any coupled View grouping, one `metadataRevision` advance per affected Card, full Card/schedule projections, change-log cursor, and accepted or rejected receipt are one SQLite transaction. Retrying the same canonical request replays its prior outcome; the same ID can never name different intent.
 
-Scheduler and Calendar reads begin with `scheduled_card_index`, never the wide Card row. An index row is visible only when its source metadata revision equals the current Card Block revision; title/body additionally require the ready `ydoc_primary` Document's exact current materialization. Invalid or stale index/content coordinates fail closed, and the index can be rebuilt completely from Database plus intrinsic Block properties.
+Scheduler and Calendar reads begin with `scheduled_card_index`, never the wide Card row. An index row is visible only when its source metadata revision equals the current Card Block revision; title/body additionally require the ready Card Document's exact current Yjs materialization. Invalid or stale index/content coordinates fail closed, and the index can be rebuilt completely from Database plus intrinsic Block properties.
 
 The materialization committed with each Card Document head supplies title, NFM, preview, references, and assets to Card-named read models. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes a projection back into content or metadata authority.
 
@@ -158,7 +158,7 @@ Schema v64 stores the immutable relocation request/result, moved-member set, sou
 
 ### Card Project transfer
 
-A Card Project transfer moves one active top-level Card plus the complete recursively owned Document/Block closure. Traversal follows `block_documents` ownership only; Card, Database View, Synced Block, Template, and Canvas references remain external targets and are never pulled into the new Space. Every Block ID, Document ID, Y.Doc generation/head, state vector, persisted update, and internal Yjs identity is preserved.
+A Card Project transfer moves one active top-level Card plus the complete recursively owned Document/Block closure. Traversal follows `block_documents` ownership only; Card, Database View, Synced Block, Template, and Canvas references remain external targets and are never pulled into the new Space. Every Block ID, Document ID, generation/head, and engine-specific authority identity is preserved; Yjs state vectors and internal identities remain unchanged for `block_tree` Documents.
 
 Electron, browser, renderer, and CLI callers submit only logical intent: operation ID, source/target Project, Card, target Database/View/status, and optional placement anchors. The FIFO writer first checks that intent against an immutable receipt, then compiles one exact snapshot of Block revisions, every recursively owned Document head, active Card memberships, root placement, and target schema. The realtime Hub leases every Document in that closure, lets mounted editors finish IME/flush/freeze, and asks the same FIFO to compile again; the second snapshot must retain the same logical intent/Document closure and observe every resolved head before commit.
 
@@ -176,6 +176,7 @@ The writer requires target properties to represent every source value, tombstone
 | Card title and body content | Card Y.Doc |
 | Synced Block source body | body-only Synced Block Y.Doc |
 | Ordinary Block hierarchy, order, and content | nearest Card Y.Doc |
+| Canvas elements, durable app state, and managed-file metadata | normalized Canvas scene rows |
 | Document ownership | `block_documents` |
 | Top-level Space placement | `top_level_block_placements` |
 | Database definitions, membership, property values, and shared views | Database relational records |
@@ -192,10 +193,10 @@ The writer requires target properties to represent every source value, tombstone
 3. Every Card owns exactly one active Document. Registered Synced Block, Template, Large Document/Code, and Canvas owners use their registered Document schema; ordinary body Blocks do not own Documents.
 4. One active Card has at most one owning Database membership.
 5. A reference never changes the target's location or membership and never embeds the target's body in the host Y.Doc.
-6. A committed Document update is unique by `(documentId, updateId)` and is acknowledged only after its SQLite transaction commits. Its immutable receipt outlives compactable binary tail payloads, so late retries retain the original committed sequence. An update whose Yjs dependencies are not yet present is rejected for retry and does not advance the durable head.
-7. `headSeq` orders local persistence; a Yjs state vector represents causal content state. Neither substitutes for the other.
-8. Each mounted writable surface creates an independent Yjs client identity, including two surfaces opened by the same user in different windows.
-9. Restoring history creates a new forward update in the current Document. It never rewinds or replaces the Yjs update log.
+6. A committed engine mutation is idempotent by its Document-scoped mutation identity and is acknowledged only after its SQLite transaction commits. Yjs update receipts outlive compactable binary tails; Canvas mutation receipts bind the canonical scene request to its first durable outcome.
+7. `headSeq` orders local persistence for every engine. A Yjs state vector represents only `yjs` causal content state; a Canvas scene hash protects only canonical scene content. None substitutes for another.
+8. Each mounted writable surface creates an independent engine client session, including two surfaces opened by the same user in different windows.
+9. Restoring history creates a new forward mutation in the current engine. It never rewinds a Yjs update log or replaces Canvas authority with an old snapshot.
 10. Deletion first tombstones identity. Ordinary create/import never reuses it; explicit history restore may reactivate the same Block and owned Document. Physical collection keeps the newest configured tombstone count and proceeds only after exact reference/history/recovery reachability permits the entire ownership closure.
 11. Cross-Document relocation commits source update, target update, registry changes, indexes, ledger, history, and change log in one SQLite transaction.
 12. NFM and all other projections can be rebuilt from authority. Authority is never rebuilt from an existing projection except during one-time genesis migration.
@@ -206,7 +207,9 @@ The writer requires target properties to represent every source value, tombstone
 
 ### Edit
 
-A local editor transaction updates its live Y.Doc immediately. Its provider sends an idempotent binary update with the current store epoch, Document generation, client session, and declared touched Block IDs. Declared IDs are bounded diagnostics, not authority; relocation safety uses writer-derived changes. The writer tentatively applies the update against a cloned or reloadable Document, rejects unresolved dependencies, validates the resulting schema and global identity set, commits the update and derived registry/index changes, then acknowledges and fans it out. Remote-origin transactions do not echo and do not enter the local undo stack.
+A local BlockNote editor transaction updates its live Y.Doc immediately. Its provider sends an idempotent binary update with the current store epoch, Document generation, client session, and declared touched Block IDs. Declared IDs are bounded diagnostics, not authority; relocation safety uses writer-derived changes. The writer tentatively applies the update against a cloned or reloadable Document, rejects unresolved dependencies, validates the resulting schema and global identity set, commits the update and derived registry/index changes, then acknowledges and fans it out. Remote-origin transactions do not echo and do not enter the local undo stack.
+
+A local Canvas edit updates Excalidraw and its undo stack immediately. The scene provider coalesces observations, normalizes runtime values, uploads referenced assets, persists the exact mutation to its outbox, and sends element candidates plus app-state intent through the same durable FIFO boundary. Remote canonical scenes reconcile with `CaptureUpdateAction.NEVER`; gaps and reconnects load one full canonical scene rather than replaying guessed snapshots.
 
 Card title undo and body undo are local to the mounted surface's tracked transaction origins. Awareness is ephemeral and window/session-specific rather than an edit lock. Surface close/deactivation persistence is bounded: content remains pending until durable acknowledgement or a disposable local checkpoint, and a close path must not wait forever on an offline transport. Normal fast acknowledgements render no sync chrome; only sustained pending, offline, error, or reset states become visible.
 
@@ -234,7 +237,7 @@ Presence, cursors, selections, open toggles, search terms, focus, and relocation
 
 - Say **Card** in product surfaces, CLI commands, and Card read models.
 - Say **Block** when an operation applies to all content identities.
-- Say **Document** only for the independently synchronized Y.Doc owned by a document-bearing Block.
+- Say **Document** for independently synchronized content owned by a document-bearing Block; name the `yjs` or `canvas_scene` engine when encoding matters.
 - Say **Database membership**, not row copy or embedded Card.
 - Say **reference**, not embed snapshot, when a host Block points to foreign content.
 - Say **projection** for derived NFM, preview, search, asset, schedule, and read-model data.
@@ -252,3 +255,4 @@ Shared Block/Document Interfaces live under `src/shared/`, persistence Implement
 - `docs/adr/0002-document-bearing-blocks-yjs.md`: per-Card Y.Doc and the distinction between first-class Blocks and Document ownership.
 - `docs/adr/0003-database-membership-and-views.md`: Database capability, zero-or-one Card membership, and durable views.
 - `docs/adr/0004-atomic-block-relocation.md`: atomic cross-Document moves with stable application identity.
+- `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Owned Documents and normalized scene-native Canvas authority.
