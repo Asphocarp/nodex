@@ -32,6 +32,8 @@ export const MAX_CANVAS_SHARED_TEXT_LENGTH = 4_000_000;
 const MAX_CANVAS_PROJECTION_JSON_LENGTH = 128 * 1024 * 1024;
 const MAX_CANVAS_PROJECTION_JSON_NODES = 2_000_000;
 const MAX_CANVAS_PROJECTION_JSON_DEPTH = 64;
+const MAX_CANVAS_ELEMENT_JSON_NODES = 100_000;
+const MAX_CANVAS_ELEMENT_JSON_DEPTH = 32;
 
 const CANVAS_ROOT_NAMES = [
   CANVAS_ELEMENTS_ROOT,
@@ -370,6 +372,83 @@ export const canonicalizeCanvasElement = (
   return canonicalizeCardReference(record);
 };
 
+interface CanvasObservationNormalizationState {
+  readonly seen: WeakSet<object>;
+  nodes: number;
+}
+
+/**
+ * Excalidraw's live element objects are JSON-serializable rather than literal
+ * JSON: optional object fields such as `customData` are present with an
+ * `undefined` value and disappear at Excalidraw's own JSON save boundary.
+ * Normalize only that runtime representation here. Stored Y.Doc values still
+ * pass through `canonicalizeCanvasElement` without this compatibility rule.
+ */
+const normalizeObservedCanvasJson = (
+  value: unknown,
+  field: string,
+  depth: number,
+  state: CanvasObservationNormalizationState,
+): unknown => {
+  state.nodes += 1;
+  if (state.nodes > MAX_CANVAS_ELEMENT_JSON_NODES) {
+    throw new CanvasDocumentSchemaError(
+      `${field} exceeds the JSON node limit`,
+    );
+  }
+  if (depth > MAX_CANVAS_ELEMENT_JSON_DEPTH) {
+    throw new CanvasDocumentSchemaError(
+      `${field} exceeds the JSON depth limit`,
+    );
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (state.seen.has(value)) {
+    throw new CanvasDocumentSchemaError(`${field} must not be cyclic`);
+  }
+  state.seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry, index) =>
+        normalizeObservedCanvasJson(
+          entry,
+          `${field}[${index}]`,
+          depth + 1,
+          state,
+        ),
+      );
+    }
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new CanvasDocumentSchemaError(
+        `${field} must contain only plain JSON objects`,
+      );
+    }
+    const normalized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (entry === undefined) continue;
+      normalized[key] = normalizeObservedCanvasJson(
+        entry,
+        `${field}.${key}`,
+        depth + 1,
+        state,
+      );
+    }
+    return normalized;
+  } finally {
+    state.seen.delete(value);
+  }
+};
+
+const canonicalizeObservedCanvasElement = (
+  value: unknown,
+): CanvasElementSnapshot =>
+  canonicalizeCanvasElement(
+    normalizeObservedCanvasJson(value, "Canvas element", 0, {
+      seen: new WeakSet<object>(),
+      nodes: 0,
+    }),
+  );
+
 const canonicalizeCanvasFile = (
   value: unknown,
   expectedId: string,
@@ -512,6 +591,7 @@ export const createCanvasDocument = (input: {
 
 const canonicalCanvasElements = (
   elements: readonly unknown[],
+  source: "stored" | "observation" = "stored",
 ): readonly CanvasElementSnapshot[] => {
   if (elements.length > MAX_CANVAS_ELEMENTS) {
     throw new CanvasDocumentSchemaError(
@@ -519,7 +599,9 @@ const canonicalCanvasElements = (
     );
   }
   const canonical = elements.map((element) =>
-    canonicalizeCanvasElement(element),
+    source === "observation"
+      ? canonicalizeObservedCanvasElement(element)
+      : canonicalizeCanvasElement(element),
   );
   const ids = canonical.map((element) => element.id as string);
   if (new Set(ids).size !== ids.length) {
@@ -716,6 +798,7 @@ export const applyRebasedCanvasSceneObservation = (
 ): void => {
   const canonicalElements = canonicalCanvasElements(
     input.elementsIncludingDeleted,
+    "observation",
   );
   if (Object.keys(input.fileAdditions).length > MAX_CANVAS_FILES) {
     throw new CanvasDocumentSchemaError(

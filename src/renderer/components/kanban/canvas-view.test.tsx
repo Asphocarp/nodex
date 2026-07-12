@@ -431,6 +431,36 @@ describe("CanvasView", () => {
     expect(textContent(view.container).includes("placed:card-1,card-2")).toBe(true);
   });
 
+  test("Retry sync resubmits the current visible scene after a persistence failure", async () => {
+    const view = await renderCanvas();
+    await view.findByTestId("excalidraw");
+    mockSceneElements = [
+      { ...makePlacedElement("card-1", 2), customData: () => undefined },
+    ];
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "emit change" }));
+      await Promise.resolve();
+    });
+    await view.findByRole("button", { name: "Retry sync" });
+
+    mockSceneElements = [
+      { ...makePlacedElement("card-1", 3), x: 320 },
+    ];
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Retry sync" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        inspectCanvasDocument(mockEnvelope.document).materialization.elements[0]
+          ?.x,
+      ).toBe(320);
+    });
+    expect(view.queryByRole("button", { name: "Retry sync" })).toBeNull();
+  });
+
   test("remote Y.Doc transactions reconcile through Excalidraw without entering local undo", async () => {
     const view = await renderCanvas();
     await view.findByTestId("excalidraw");

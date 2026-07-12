@@ -230,7 +230,21 @@ function CanvasEditor({
     }
 
     const retry = (): void => {
-      void presentScene(binding.getCurrentScene());
+      void (async () => {
+        const api = excalidrawApiRef.current;
+        if (api && !runtime.getWriteFrozen()) {
+          await binding.submitLocalScene({
+            getSceneElementsIncludingDeleted: () =>
+              api.getSceneElementsIncludingDeleted(),
+            appState: api.getAppState() as unknown as Record<string, unknown>,
+            binaryFiles: api.getFiles() as unknown as CanvasBinaryFiles,
+          });
+        }
+        await presentScene(binding.getCurrentScene());
+      })().catch((error: unknown) => {
+        if (!active) return;
+        setSceneError(error instanceof Error ? error.message : String(error));
+      });
     };
     retrySceneRef.current = retry;
     retry();

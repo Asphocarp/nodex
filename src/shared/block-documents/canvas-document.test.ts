@@ -319,6 +319,21 @@ describe("Canvas scene_graph Document", () => {
     expect(keyError instanceof CanvasDocumentSchemaError).toBe(true);
   });
 
+  test("keeps stored Canvas elements strictly portable", () => {
+    let error: unknown;
+    try {
+      createCanvasDocument({
+        documentId: "document:canvas:stored-undefined",
+        initialScene: {
+          elements: [{ ...element("undefined"), customData: undefined }],
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof CanvasDocumentSchemaError).toBe(true);
+  });
+
   test("rejects inline file payloads before they can enter the Y.Doc", () => {
     let error: unknown;
     try {

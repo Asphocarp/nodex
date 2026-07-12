@@ -24,6 +24,39 @@ const element = (
 });
 
 describe("CanvasSceneBinding", () => {
+  test("normalizes Excalidraw runtime-only undefined fields before persistence", async () => {
+    const envelope = createCanvasDocument({
+      documentId: "document:canvas:binding-runtime-json",
+    });
+    const binding = new CanvasSceneBinding({
+      envelope,
+      onRemoteScene: () => undefined,
+    });
+
+    await binding.submitLocalScene({
+      getSceneElementsIncludingDeleted: () => [
+        {
+          ...element("rectangle", "", 1),
+          type: "rectangle",
+          customData: undefined,
+          roundness: { type: 3, value: undefined },
+        },
+      ],
+      appState: {},
+      binaryFiles: {},
+    });
+
+    const persisted = binding.getCurrentScene().elements[0];
+    expect(Object.hasOwn(persisted ?? {}, "customData")).toBe(false);
+    expect(
+      Object.hasOwn(
+        (persisted?.roundness as Readonly<Record<string, unknown>>) ?? {},
+        "value",
+      ),
+    ).toBe(false);
+    binding.destroy();
+  });
+
   test("requires the including-deleted getter and suppresses local echo", async () => {
     const envelope = createCanvasDocument({
       documentId: "document:canvas:binding",
