@@ -112,7 +112,7 @@ export interface InstantiateTemplateOperation {
   readonly beforeBlockId?: string;
   /**
    * The command deliberately carries no destination Block IDs. Every copied
-   * identity is derived from operationId by the authoritative kernel.
+   * identity is allocated as a fresh UUID-v7 by the authoritative kernel.
    */
 }
 

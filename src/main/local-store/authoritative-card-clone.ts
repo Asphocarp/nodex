@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import {
   createDetachedCardDocumentFromBlockTree,
@@ -13,7 +14,7 @@ import type {
   BlockId,
   DocumentId,
 } from "../../shared/block-documents/contracts";
-import { createUuidV7 } from "../../shared/card-id";
+import { assertUuidV7, createUuidV7 } from "../../shared/card-id";
 import type { CardStatus } from "../../shared/card-status";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 import {
@@ -450,7 +451,7 @@ const persistRelationalProperties = (
   viewPositions: readonly SourceViewPositionRow[],
   createdAt: string,
 ): string => {
-  const membershipId = `membership:${input.newCardId}`;
+  const membershipId = randomUUID();
   const databaseOverrides = input.propertyOverrides?.database;
   const intrinsicOverrides = input.propertyOverrides?.intrinsic;
   requireOverrideKeys(
@@ -597,6 +598,7 @@ export const cloneAuthoritativeCardInTransaction = (
       "topLevelRankKey",
     ),
   };
+  assertUuidV7(input.newCardId, "new Card Block id");
   if (input.newCardId === input.sourceCardId) {
     throw new AuthoritativeCardCloneError(
       "A Card clone requires a fresh Card ID",

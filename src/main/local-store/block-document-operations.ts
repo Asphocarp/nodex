@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import { createUuidV7 } from "../../shared/card-id";
 import * as Y from "yjs";
 import {
   canonicalizeDocumentOperationIntent,
@@ -994,20 +995,12 @@ const prepareOperationBatch = (
 const prepareNfmReplacement = (
   request: ReplaceDocumentFromNfm,
   document: Parameters<typeof materializeCardDocument>[0],
-  requestHash: string,
 ): PreparedMutation => {
   const before = materializeCardDocument(document);
-  let allocationOrdinal = 0;
   const replacement = replaceCardDocumentBodyFromNfm({
     document,
     nfm: request.nfm,
-    allocateBlockId: () => {
-      const blockId = `block:nfm:${sha256(
-        `${requestHash}\0${allocationOrdinal}`,
-      )}`;
-      allocationOrdinal += 1;
-      return blockId;
-    },
+    allocateBlockId: createUuidV7,
   });
   if (!replacement.changed) {
     reject(
@@ -1506,7 +1499,6 @@ const applyMutationInTransaction = (
         prepared = prepareNfmReplacement(
           request as ReplaceDocumentFromNfm,
           loaded.document,
-          evidence.requestHash,
         );
         assertCreatedIdsNeverExisted(database, request, prepared.createdBlockIds);
       } else {

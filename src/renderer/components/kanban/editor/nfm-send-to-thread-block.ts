@@ -1,3 +1,5 @@
+import { createUuidV7 } from "../../../../shared/card-id";
+
 export interface NfmSendToThreadToggleBlock {
   id: string;
   type: "toggleListItem";
@@ -15,7 +17,7 @@ export function createSendToThreadToggleBlock(input: {
   blockId?: string;
 }): NfmSendToThreadToggleBlock {
   return {
-    id: input.blockId ?? crypto.randomUUID(),
+    id: input.blockId ?? createUuidV7(),
     type: "toggleListItem",
     props: {},
     content: [

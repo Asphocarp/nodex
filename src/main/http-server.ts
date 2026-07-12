@@ -32,6 +32,7 @@ import {
 } from "./git-branch-service";
 import type {
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   CardSearchInput,
   CardsDetailsInput,
@@ -569,6 +570,13 @@ function parseOccurrenceOperationId(value: unknown): string {
     return value;
   }
   throw new Error("Missing or invalid operationId");
+}
+
+function parseOccurrenceCreatedCardId(value: unknown): string {
+  if (typeof value === "string" && value.length > 0 && value === value.trim()) {
+    return value;
+  }
+  throw new Error("Missing or invalid createdCardId");
 }
 
 function parseOccurrenceSource(
@@ -1368,8 +1376,9 @@ app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
   try {
     if (!isRecord(body)) throw new Error("Invalid request body");
     if (typeof body.cardId !== "string") throw new Error("Missing cardId");
-    const input: CardOccurrenceActionInput = {
+    const input: CardOccurrenceCompleteInput = {
       operationId: parseOccurrenceOperationId(body.operationId),
+      createdCardId: parseOccurrenceCreatedCardId(body.createdCardId),
       cardId: body.cardId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
@@ -1419,14 +1428,21 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
     if (typeof body.scope !== "string") throw new Error("Missing scope");
     if (!isRecord(body.updates)) throw new Error("Missing updates");
     const updates = normalizeCardBody(body.updates);
+    const scope = parseOccurrenceScope(body.scope);
+    if (scope === "all" && "createdCardId" in body) {
+      throw new Error("Occurrence scope all must not include createdCardId");
+    }
     const input: CardOccurrenceUpdateInput = {
       operationId: parseOccurrenceOperationId(body.operationId),
       cardId: body.cardId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
-      scope: parseOccurrenceScope(body.scope),
+      scope,
+      ...(scope === "all"
+        ? {}
+        : { createdCardId: parseOccurrenceCreatedCardId(body.createdCardId) }),
       updates: updates as CardOccurrenceUpdateInput["updates"],
-    };
+    } as CardOccurrenceUpdateInput;
     const { result } = await blockMutationWriter.updateCardOccurrence(
       projectId,
       input,

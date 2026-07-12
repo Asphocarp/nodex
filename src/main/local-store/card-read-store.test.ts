@@ -103,7 +103,10 @@ const updateDatabaseValue = (
     UPDATE database_property_values
     SET value_json = ?, revision = revision + 1,
         updated_at = '2026-07-11T00:00:00.000Z'
-    WHERE membership_id = 'membership:' || ?
+    WHERE membership_id = (
+        SELECT id FROM database_memberships
+        WHERE card_block_id = ? AND removed_at IS NULL
+      )
       AND property_id = database_block_id || ':property:' || ?
   `,
     )

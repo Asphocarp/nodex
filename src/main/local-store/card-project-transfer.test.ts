@@ -162,6 +162,8 @@ describe("Card Project transfer authority kernel", () => {
     async () => {
       await withFixture((fixture) => {
         const cardId = createUuidV7();
+        const largeBlockId = createUuidV7();
+        const largeParagraphId = createUuidV7();
         const root = createAuthorityCard(fixture, cardId, "create-transfer-root");
         const large = createExplicitDocumentBearingBlock(fixture.database, {
           version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
@@ -172,10 +174,10 @@ describe("Card Project transfer authority kernel", () => {
           clientSessionId: "transfer-test",
           actor: { kind: "test" },
           blockKind: "large_document",
-          blockId: "large:transfer-shell",
+          blockId: largeBlockId,
           documentId: "document:large-transfer-shell",
           displayName: "Independent source",
-          blockTree: [paragraph("large:transfer-paragraph", "Nested body")],
+          blockTree: [paragraph(largeParagraphId, "Nested body")],
           location: {
             kind: "document",
             hostDocumentId: root.documentId,
@@ -189,7 +191,7 @@ describe("Card Project transfer authority kernel", () => {
         expect(request.expectedDocuments.length).toBe(2);
         expect(
           request.expectedBlocks.some(
-            (block) => block.blockId === "large:transfer-paragraph",
+            (block) => block.blockId === largeParagraphId,
           ),
         ).toBe(true);
         const updateHashesBefore = fixture.database

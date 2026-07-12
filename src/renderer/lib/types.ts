@@ -23,6 +23,7 @@ export type {
   CardCreatePlacement,
   CalendarOccurrence,
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   OccurrenceActionSource,
   OccurrenceEditScope,

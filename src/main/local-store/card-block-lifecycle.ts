@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   CARD_LIFECYCLE_CONTRACT_VERSION,
   CardLifecycleContractError,
@@ -30,6 +30,7 @@ import {
 } from "../../shared/block-documents/card-document";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 import { isCardStatus, type CardStatus } from "../../shared/card-status";
+import { isUuidV7 } from "../../shared/card-id";
 import {
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
@@ -919,9 +920,9 @@ const assertIdentityAvailable = (
   request: CardLifecycleMutationRequest & {
     readonly operation: CreateCardBlockOperation;
   },
+  membershipId: string,
 ): void => {
   const documentId = `document:${request.operation.cardId}`;
-  const membershipId = `membership:${request.operation.cardId}`;
   const collision = database
     .prepare(
       `
@@ -949,7 +950,15 @@ const createCard = (
   now: string,
   options: ApplyCardLifecycleMutationOptions,
 ): AuthorityCommit => {
-  assertIdentityAvailable(database, request);
+  if (!isUuidV7(request.operation.cardId)) {
+    reject(
+      "invalid_card_lifecycle_request",
+      "New Card Block id must be a canonical lowercase UUID-v7",
+      request,
+    );
+  }
+  const membershipId = randomUUID();
+  assertIdentityAvailable(database, request, membershipId);
   const primary = readPrimaryDatabase(database, request);
   const properties = new Map(
     readRequiredDatabaseProperties(
@@ -986,7 +995,6 @@ const createCard = (
   });
   const cardId = request.operation.cardId;
   const documentId = `document:${cardId}`;
-  const membershipId = `membership:${cardId}`;
   const genesis = createCardDocumentGenesis({
     documentId,
     title: request.operation.title,

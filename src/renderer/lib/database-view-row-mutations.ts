@@ -12,7 +12,6 @@ import type {
   GeneralDatabasePropertyDefinition,
   GeneralDatabaseRow,
 } from "../../shared/database-query";
-import { createUuidV7 } from "../../shared/card-id";
 import { mutateDatabase } from "./api";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
@@ -210,7 +209,7 @@ export const commitDatabaseViewOperations = async (input: {
   if (input.operations.length === 0) return null;
   const request = parseDatabaseMutationRequest({
     version: DATABASE_MUTATION_CONTRACT_VERSION,
-    operationId: input.operationId ?? createUuidV7(),
+    operationId: input.operationId ?? crypto.randomUUID(),
     projectId: input.model.projectId,
     storeEpoch: input.model.storeEpoch,
     ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),

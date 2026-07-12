@@ -5,6 +5,7 @@ import path from "node:path";
 import type {
   CardInput,
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
 } from "../../shared/types";
 import { createUuidV7 } from "../../shared/card-id";
@@ -23,11 +24,22 @@ import {
   updateCardOccurrence as updateStoredCardOccurrence,
 } from "./card-occurrences";
 
+type TestOccurrenceComplete = Omit<
+  CardOccurrenceCompleteInput,
+  "operationId" | "createdCardId"
+> & {
+  readonly operationId?: string;
+  readonly createdCardId?: string;
+};
 type TestOccurrenceAction = Omit<CardOccurrenceActionInput, "operationId"> & {
   readonly operationId?: string;
 };
-type TestOccurrenceUpdate = Omit<CardOccurrenceUpdateInput, "operationId"> & {
+type TestOccurrenceUpdate = Omit<
+  CardOccurrenceUpdateInput,
+  "operationId" | "createdCardId"
+> & {
   readonly operationId?: string;
+  readonly createdCardId?: string;
 };
 
 let testOperationSequence = 0;
@@ -37,12 +49,16 @@ const nextTestOperationId = (): string =>
 
 const completeCardOccurrence = (
   targetProjectId: string,
-  input: TestOccurrenceAction,
+  input: TestOccurrenceComplete,
   sessionId?: string,
 ) =>
   completeStoredCardOccurrence(
     targetProjectId,
-    { ...input, operationId: input.operationId ?? nextTestOperationId() },
+    {
+      ...input,
+      operationId: input.operationId ?? nextTestOperationId(),
+      createdCardId: input.createdCardId ?? createUuidV7(),
+    },
     sessionId,
   );
 
@@ -61,12 +77,32 @@ const updateCardOccurrence = (
   targetProjectId: string,
   input: TestOccurrenceUpdate,
   sessionId?: string,
-) =>
-  updateStoredCardOccurrence(
+) => {
+  const operationId = input.operationId ?? nextTestOperationId();
+  if (input.scope === "all") {
+    return updateStoredCardOccurrence(
+      targetProjectId,
+      {
+        operationId,
+        cardId: input.cardId,
+        occurrenceStart: input.occurrenceStart,
+        source: input.source,
+        scope: "all",
+        updates: input.updates,
+      },
+      sessionId,
+    );
+  }
+  return updateStoredCardOccurrence(
     targetProjectId,
-    { ...input, operationId: input.operationId ?? nextTestOperationId() },
+    {
+      ...input,
+      operationId,
+      createdCardId: input.createdCardId ?? createUuidV7(),
+    } as CardOccurrenceUpdateInput,
     sessionId,
   );
+};
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -364,8 +400,10 @@ describe("occurrence actions", () => {
       const detachedStartIso = "2026-03-01T12:00:00.000Z";
       const detachedEndIso = "2026-03-01T13:00:00.000Z";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const createdCardId = createUuidV7();
 
       const result = await updateCardOccurrence(projectId, {
+        createdCardId,
         cardId: card.id,
         occurrenceStart: new Date(startIso),
         source: "calendar",
@@ -376,6 +414,7 @@ describe("occurrence actions", () => {
         },
       });
       expect(result.success).toBe(true);
+      expect(result.createdCardId).toBe(createdCardId);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
@@ -396,7 +435,7 @@ describe("occurrence actions", () => {
       const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(2);
       const detachedRow = rows.find((row) => row.id !== card.id);
-      expect(Boolean(detachedRow)).toBe(true);
+      expect(detachedRow?.id).toBe(createdCardId);
       expect(toIso(detachedRow?.scheduled_start)).toBe(detachedStartIso);
       expect(toIso(detachedRow?.scheduled_end)).toBe(detachedEndIso);
       expect(detachedRow?.recurrence_json).toBe("null");
@@ -477,8 +516,10 @@ describe("occurrence actions", () => {
       const splitStartIso = "2026-03-03T15:00:00.000Z";
       const splitEndIso = "2026-03-03T16:00:00.000Z";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const createdCardId = createUuidV7();
 
       const result = await updateCardOccurrence(projectId, {
+        createdCardId,
         cardId: card.id,
         occurrenceStart: new Date(splitOccurrenceIso),
         source: "calendar",
@@ -489,6 +530,7 @@ describe("occurrence actions", () => {
         },
       });
       expect(result.success).toBe(true);
+      expect(result.createdCardId).toBe(createdCardId);
 
       const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
@@ -502,7 +544,7 @@ describe("occurrence actions", () => {
       expect(rows.length).toBe(2);
 
       const splitRow = rows.find((row) => row.id !== card.id);
-      expect(Boolean(splitRow)).toBe(true);
+      expect(splitRow?.id).toBe(createdCardId);
       expect(toIso(splitRow?.scheduled_start)).toBe(splitStartIso);
       expect(toIso(splitRow?.scheduled_end)).toBe(splitEndIso);
       const splitRecurrence =
@@ -705,6 +747,7 @@ describe("occurrence actions", () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
       const operationId = "occurrence-complete-restart-test";
+      const createdCardId = createUuidV7();
       const card = await createCard(
         projectId,
         "in_progress",
@@ -715,6 +758,7 @@ describe("occurrence actions", () => {
         projectId,
         {
           operationId,
+          createdCardId,
           cardId: card.id,
           occurrenceStart: new Date(startIso),
           source: "calendar",
@@ -734,6 +778,7 @@ describe("occurrence actions", () => {
         projectId,
         {
           operationId,
+          createdCardId,
           cardId: card.id,
           occurrenceStart: new Date(startIso),
           source: "api",
@@ -743,6 +788,7 @@ describe("occurrence actions", () => {
       expect(retry.success).toBe(true);
       expect(retry.duplicate).toBe(true);
       expect(retry.createdCardId).toBe(first.createdCardId);
+      expect(retry.createdCardId).toBe(createdCardId);
       expect(retry.changeLogSeq).toBe(first.changeLogSeq);
       expect(
         executeReadOnlyQuery(
@@ -753,6 +799,7 @@ describe("occurrence actions", () => {
 
       const collision = await completeCardOccurrence(projectId, {
         operationId,
+        createdCardId: createUuidV7(),
         cardId: card.id,
         occurrenceStart: new Date("2026-03-02T10:00:00.000Z"),
         source: "notification",
@@ -778,10 +825,12 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const operationId = "occurrence-rejected-restart-test";
       const missingCardId = "019bc123-4567-7000-8000-000000000001";
+      const createdCardId = createUuidV7();
       const first = await completeCardOccurrence(
         projectId,
         {
           operationId,
+          createdCardId,
           cardId: missingCardId,
           occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
           source: "calendar",
@@ -812,6 +861,7 @@ describe("occurrence actions", () => {
         projectId,
         {
           operationId,
+          createdCardId,
           cardId: missingCardId,
           occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
           source: "api",
@@ -831,6 +881,81 @@ describe("occurrence actions", () => {
       });
       expect(collision.success).toBe(false);
       expect(collision.code).toBe("operation_id_collision");
+    });
+
+    if (!ran) {
+      expect(true).toBe(true);
+    }
+  });
+
+  test("durably rejects a non-v7 created Card identity", async () => {
+    const ran = await withTempDatabase(async () => {
+      const operationId = "occurrence-invalid-created-card-id";
+      const card = await createCard(
+        projectId,
+        "in_progress",
+        recurringInput(
+          "2026-03-01T10:00:00.000Z",
+          "2026-03-01T11:00:00.000Z",
+        ),
+      );
+      const command = {
+        operationId,
+        createdCardId: crypto.randomUUID(),
+        cardId: card.id,
+        occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
+        source: "calendar" as const,
+      };
+
+      const first = await completeStoredCardOccurrence(projectId, command);
+      expect(first.success).toBe(false);
+      expect(first.duplicate).toBe(false);
+      expect(first.code).toBe("invalid_occurrence_request");
+
+      const retry = await completeStoredCardOccurrence(projectId, {
+        ...command,
+        source: "api",
+      });
+      expect(retry.success).toBe(false);
+      expect(retry.duplicate).toBe(true);
+      expect(retry.code).toBe("invalid_occurrence_request");
+    });
+
+    if (!ran) {
+      expect(true).toBe(true);
+    }
+  });
+
+  test("durably rejects a created Card identity for scope all", async () => {
+    const ran = await withTempDatabase(async () => {
+      const operationId = "occurrence-all-rejects-created-card-id";
+      const card = await createCard(
+        projectId,
+        "in_progress",
+        recurringInput(
+          "2026-03-01T10:00:00.000Z",
+          "2026-03-01T11:00:00.000Z",
+        ),
+      );
+      const invalidCommand = {
+        operationId,
+        createdCardId: createUuidV7(),
+        cardId: card.id,
+        occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
+        source: "calendar" as const,
+        scope: "all" as const,
+        updates: { title: "Updated" },
+      } as unknown as CardOccurrenceUpdateInput;
+
+      const first = await updateStoredCardOccurrence(projectId, invalidCommand);
+      expect(first.success).toBe(false);
+      expect(first.duplicate).toBe(false);
+      expect(first.code).toBe("invalid_occurrence_request");
+
+      const retry = await updateStoredCardOccurrence(projectId, invalidCommand);
+      expect(retry.success).toBe(false);
+      expect(retry.duplicate).toBe(true);
+      expect(retry.code).toBe("invalid_occurrence_request");
     });
 
     if (!ran) {

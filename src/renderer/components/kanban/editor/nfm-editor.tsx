@@ -36,6 +36,7 @@ import { NfmTextActionMenuRuntimeProvider } from "./nfm-text-action-menu-runtime
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
+import { createUuidV7 } from "../../../../shared/card-id";
 import {
   NodexPopover,
   NodexPopoverAnchor,
@@ -502,6 +503,7 @@ function NfmEditorInstance({
     {
       schema: nfmSchema,
       ...editorModeOptions,
+      generateBlockId: createUuidV7,
       tabBehavior: "prefer-indent",
       placeholders: {
         default: placeholder,
@@ -1761,7 +1763,7 @@ function NfmEditorInstance({
           ? { hostCardId: sourceCardContext.cardId }
           : {}),
         ancestorCardIds: parentBlockReferenceRuntime?.ancestorCardIds ?? [],
-        allocateBlockId: () => crypto.randomUUID(),
+        allocateBlockId: createUuidV7,
       },
     }),
     [

@@ -69,6 +69,7 @@ import type { ProjectDeletionResult } from "./local-store/project-deletion";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
 } from "../shared/types";
 
@@ -94,7 +95,7 @@ export type BlockMutationWorkerRequest =
       type: "completeCardOccurrence";
       payload: {
         projectId: string;
-        input: CardOccurrenceActionInput;
+        input: CardOccurrenceCompleteInput;
         sessionId?: string;
       };
     })

@@ -36,7 +36,7 @@ export function makeRemoteCardStageHandlers(projectId: string): CardStageHandler
       return await commitCardMetadataPropertyPatch({
         projectId,
         cardBlockId: cardId,
-        mutationId: createUuidV7(),
+        mutationId: crypto.randomUUID(),
         patch: updates,
       });
     },
@@ -45,7 +45,7 @@ export function makeRemoteCardStageHandlers(projectId: string): CardStageHandler
       await commitCardLifecycleIntent({
         kind: "delete",
         projectId,
-        operationId: createUuidV7(),
+        operationId: crypto.randomUUID(),
         cardId,
       });
     },
@@ -55,15 +55,26 @@ export function makeRemoteCardStageHandlers(projectId: string): CardStageHandler
       }
       await commitPrimaryDatabaseCardDrag({
         projectId,
-        operationId: createUuidV7(),
+        operationId: crypto.randomUUID(),
         move: { cardId, fromStatus, toStatus },
       });
     },
     onCompleteOccurrence: async (cardId: string, occurrenceStart: Date) => {
-      await invoke("card:occurrence:complete", projectId, { cardId, occurrenceStart });
+      await invoke("card:occurrence:complete", projectId, {
+        operationId: crypto.randomUUID(),
+        createdCardId: createUuidV7(),
+        cardId,
+        occurrenceStart,
+        source: "card-stage",
+      });
     },
     onSkipOccurrence: async (cardId: string, occurrenceStart: Date) => {
-      await invoke("card:occurrence:skip", projectId, { cardId, occurrenceStart });
+      await invoke("card:occurrence:skip", projectId, {
+        operationId: crypto.randomUUID(),
+        cardId,
+        occurrenceStart,
+        source: "card-stage",
+      });
     },
   };
 }

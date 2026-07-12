@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
+import { createUuidV7 } from "../../shared/card-id";
 import { ADDITIONAL_DOCUMENT_COMMAND_VERSION } from "../../shared/additional-document-commands";
 import {
   createDetachedCardDocumentFromBlockTree,
@@ -194,12 +195,17 @@ describe("additional Document authoritative command kernel", () => {
     "promotes and demotes a Synced source with stable content identities and exact receipts",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const hostCardId = createUuidV7();
+        const rootBlockId = createUuidV7();
+        const childBlockId = createUuidV7();
+        const referenceBlockId = createUuidV7();
+        const sourceBlockId = createUuidV7();
         seedCardDocument(database, {
           projectId,
-          cardId: "card:sync-host",
+          cardId: hostCardId,
           documentId: "document:sync-host",
           blockTree: [
-            paragraph("sync:root", "root", [paragraph("sync:child", "child")]),
+            paragraph(rootBlockId, "root", [paragraph(childBlockId, "child")]),
           ],
         });
         const flushed = loadPrimaryBlockDocument(
@@ -219,7 +225,7 @@ describe("additional Document authoritative command kernel", () => {
           updateId: "command:promote:flush",
           clientSessionId: "test:mounted-surface",
           baseHeadSeq: 1,
-          touchedBlockIds: ["sync:root"],
+          touchedBlockIds: [rootBlockId],
           update: Y.encodeStateAsUpdate(flushed.document, vector),
         });
         flushed.document.destroy();
@@ -236,9 +242,9 @@ describe("additional Document authoritative command kernel", () => {
                 documentId: "document:sync-host",
                 generation: 1,
               },
-              rootBlockId: "sync:root",
-              referenceBlockId: "sync:reference",
-              sourceBlockId: "sync:source",
+              rootBlockId,
+              referenceBlockId,
+              sourceBlockId,
               sourceDocumentId: "document:sync-source",
             },
             lease("lease:promote", [
@@ -253,10 +259,10 @@ describe("additional Document authoritative command kernel", () => {
         expect(promoted.ok).toBe(true);
         if (!promoted.ok) return;
         expect(promoted.value.effect.createdBlockIds.join(",")).toBe(
-          "sync:reference,sync:source",
+          [referenceBlockId, sourceBlockId].sort().join(","),
         );
         expect(promoted.value.effect.preservedBlockIds.join(",")).toBe(
-          "sync:child,sync:root",
+          [childBlockId, rootBlockId].sort().join(","),
         );
         const host = promoted.value.effect.documentHeads.find(
           (head) => head.documentId === "document:sync-host",
@@ -300,8 +306,8 @@ describe("additional Document authoritative command kernel", () => {
                 documentId: source.documentId,
                 generation: source.generation,
               },
-              referenceBlockId: "sync:reference",
-              sourceBlockId: "sync:source",
+              referenceBlockId,
+              sourceBlockId,
             },
             lease("lease:demote", [host, source]),
           ),
@@ -309,10 +315,10 @@ describe("additional Document authoritative command kernel", () => {
         expect(demoted.ok).toBe(true);
         if (!demoted.ok) return;
         expect(demoted.value.effect.deletedBlockIds.join(",")).toBe(
-          "sync:reference,sync:source",
+          [referenceBlockId, sourceBlockId].sort().join(","),
         );
         expect(demoted.value.effect.preservedBlockIds.join(",")).toBe(
-          "sync:child,sync:root",
+          [childBlockId, rootBlockId].sort().join(","),
         );
 
         const replay = applyAdditionalDocumentCommand(database, {
@@ -330,8 +336,8 @@ describe("additional Document authoritative command kernel", () => {
                 documentId: source.documentId,
                 generation: source.generation,
               },
-              referenceBlockId: "sync:reference",
-              sourceBlockId: "sync:source",
+              referenceBlockId,
+              sourceBlockId,
             },
             { kind: "receipt_replay" },
           ),
@@ -360,8 +366,8 @@ describe("additional Document authoritative command kernel", () => {
                 documentId: source.documentId,
                 generation: source.generation,
               },
-              referenceBlockId: "sync:different-reference",
-              sourceBlockId: "sync:source",
+              referenceBlockId: createUuidV7(),
+              sourceBlockId,
             },
             { kind: "receipt_replay" },
           ),
@@ -379,20 +385,26 @@ describe("additional Document authoritative command kernel", () => {
     "creates Template instances and Large Document owners through one receipt contract",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const targetCardId = createUuidV7();
+        const targetAnchorId = createUuidV7();
+        const templateSourceId = createUuidV7();
+        const templateRootId = createUuidV7();
+        const largeOwnerId = createUuidV7();
+        const largeBodyId = createUuidV7();
         seedCardDocument(database, {
           projectId,
-          cardId: "card:target",
+          cardId: targetCardId,
           documentId: "document:target",
-          blockTree: [paragraph("target:anchor", "anchor")],
+          blockTree: [paragraph(targetAnchorId, "anchor")],
         });
         const createdTemplate = applyAdditionalDocumentCommand(
           database,
           command(projectId, storeEpoch, "command:template", {
             kind: "create_template",
-            sourceBlockId: "template:source",
+            sourceBlockId: templateSourceId,
             documentId: "document:template",
             displayName: "Review",
-            initialBlocks: [paragraph("template:root", "review")],
+            initialBlocks: [paragraph(templateRootId, "review")],
             placement: { kind: "space" },
           }),
         );
@@ -406,7 +418,7 @@ describe("additional Document authoritative command kernel", () => {
             "command:instantiate",
             {
               kind: "instantiate_template",
-              sourceBlockId: "template:source",
+              sourceBlockId: templateSourceId,
               source: {
                 documentId: "document:template",
                 generation: 1,
@@ -433,13 +445,13 @@ describe("additional Document authoritative command kernel", () => {
         expect(instantiated.ok).toBe(true);
         if (instantiated.ok) {
           expect(instantiated.value.effect.preservedBlockIds[0]).toBe(
-            "template:source",
+            templateSourceId,
           );
           expect(
-            instantiated.value.effect.createdBlockIds.includes("template:root"),
+            instantiated.value.effect.createdBlockIds.includes(templateRootId),
           ).toBe(false);
           expect(
-            instantiated.value.effect.createdBlockIds.includes("card:target"),
+            instantiated.value.effect.createdBlockIds.includes(targetCardId),
           ).toBe(false);
 
           const freshHeadReplay = applyAdditionalDocumentCommand(
@@ -450,7 +462,7 @@ describe("additional Document authoritative command kernel", () => {
               "command:instantiate",
               {
                 kind: "instantiate_template",
-                sourceBlockId: "template:source",
+                  sourceBlockId: templateSourceId,
                 source: {
                   documentId: "document:template",
                   generation: 1,
@@ -490,7 +502,7 @@ describe("additional Document authoritative command kernel", () => {
               "command:instantiate",
               {
                 kind: "instantiate_template",
-                sourceBlockId: "template:source",
+                  sourceBlockId: templateSourceId,
                 source: {
                   documentId: "document:template",
                   generation: 1,
@@ -499,7 +511,7 @@ describe("additional Document authoritative command kernel", () => {
                   documentId: "document:target",
                   generation: 1,
                 },
-                beforeBlockId: "target:anchor",
+                beforeBlockId: targetAnchorId,
               },
               lease("lease:instantiate-anchor-collision", [
                 {
@@ -529,12 +541,12 @@ describe("additional Document authoritative command kernel", () => {
             "command:large",
             {
               kind: "create_large_document",
-              blockId: "large:owner",
+              blockId: largeOwnerId,
               documentId: "document:large",
               displayName: "Architecture",
               content: {
                 kind: "large_document",
-                initialBlocks: [paragraph("large:body", "body")],
+                initialBlocks: [paragraph(largeBodyId, "body")],
               },
               location: {
                 kind: "document",
@@ -556,7 +568,7 @@ describe("additional Document authoritative command kernel", () => {
         expect(large.ok).toBe(true);
         if (large.ok) {
           expect(large.value.effect.createdBlockIds.join(",")).toBe(
-            "large:body,large:owner",
+            [largeBodyId, largeOwnerId].sort().join(","),
           );
           expect(large.value.effect.documentHeads.length).toBe(2);
         }
@@ -568,6 +580,8 @@ describe("additional Document authoritative command kernel", () => {
     "durably rejects stale space anchors and never executes a missing receipt replay",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const staleSourceId = createUuidV7();
+        const staleBodyId = createUuidV7();
         const anchor = database
           .prepare(
             `
@@ -588,9 +602,9 @@ describe("additional Document authoritative command kernel", () => {
           database,
           command(projectId, storeEpoch, "command:stale-anchor", {
             kind: "create_synced_source",
-            sourceBlockId: "sync:stale",
+            sourceBlockId: staleSourceId,
             documentId: "document:sync-stale",
-            initialBlocks: [paragraph("sync:stale:body", "stale")],
+            initialBlocks: [paragraph(staleBodyId, "stale")],
             placement: {
               kind: "space",
               before: {
@@ -610,8 +624,8 @@ describe("additional Document authoritative command kernel", () => {
         expect(rejection.outcome).toBe("rejected");
         expect(
           database
-            .prepare("SELECT 1 FROM blocks WHERE id = 'sync:stale'")
-            .get() === undefined,
+            .prepare("SELECT 1 FROM blocks WHERE id = ?")
+            .get(staleSourceId) === undefined,
         ).toBe(true);
 
         const missingReplay = applyAdditionalDocumentCommand(
@@ -654,16 +668,20 @@ describe("additional Document authoritative command kernel", () => {
     "fails closed when another exact-head Document references an owned source",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const referencedOwnerId = createUuidV7();
+        const referencedBodyId = createUuidV7();
+        const referenceHostCardId = createUuidV7();
+        const referenceBlockId = createUuidV7();
         const created = applyAdditionalDocumentCommand(
           database,
           command(projectId, storeEpoch, "command:referenced-large", {
             kind: "create_large_document",
-            blockId: "large:referenced",
+            blockId: referencedOwnerId,
             documentId: "document:large-referenced",
             displayName: "Referenced",
             content: {
               kind: "large_document",
-              initialBlocks: [paragraph("large:referenced-body", "body")],
+              initialBlocks: [paragraph(referencedBodyId, "body")],
             },
             location: { kind: "space" },
           }),
@@ -671,14 +689,14 @@ describe("additional Document authoritative command kernel", () => {
         if (!created.ok) throw new Error(created.error.message);
         seedCardDocument(database, {
           projectId,
-          cardId: "card:reference-host",
+          cardId: referenceHostCardId,
           documentId: "document:reference-host",
           blockTree: [
             {
-              id: "reference:large",
+              id: referenceBlockId,
               type: "cardRef",
               props: {
-                targetBlockId: "large:referenced",
+                targetBlockId: referencedOwnerId,
                 displayHint: "Referenced",
               },
               children: [],
@@ -689,7 +707,7 @@ describe("additional Document authoritative command kernel", () => {
           .prepare(
             `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
           )
-          .get("large:referenced") as {
+          .get(referencedOwnerId) as {
           readonly metadata_revision: number;
           readonly location_revision: number;
         };
@@ -705,7 +723,7 @@ describe("additional Document authoritative command kernel", () => {
               kind: "delete_owned_source",
               ownerKind: "large_document",
               owner: {
-                ownerBlockId: "large:referenced",
+                ownerBlockId: referencedOwnerId,
                 documentId: head.documentId,
                 generation: head.generation,
                 metadataRevision: owner.metadata_revision,
@@ -721,8 +739,8 @@ describe("additional Document authoritative command kernel", () => {
         expect(
           (
             database
-              .prepare("SELECT lifecycle FROM blocks WHERE id = 'large:referenced'")
-              .get() as { readonly lifecycle: string }
+              .prepare("SELECT lifecycle FROM blocks WHERE id = ?")
+              .get(referencedOwnerId) as { readonly lifecycle: string }
           ).lifecycle,
         ).toBe("active");
       });
@@ -733,12 +751,18 @@ describe("additional Document authoritative command kernel", () => {
     "rolls nested writes back and atomically creates then tombstones a non-primary Canvas",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const faultSourceId = createUuidV7();
+        const faultBodyId = createUuidV7();
+        const canvasBlockId = createUuidV7();
+        const largeSourceId = createUuidV7();
+        const largeRootId = createUuidV7();
+        const largeChildId = createUuidV7();
         const request = command(projectId, storeEpoch, "command:fault", {
           kind: "create_template",
-          sourceBlockId: "template:fault",
+          sourceBlockId: faultSourceId,
           documentId: "document:template-fault",
           displayName: "Fault",
-          initialBlocks: [paragraph("template:fault:body", "rollback")],
+          initialBlocks: [paragraph(faultBodyId, "rollback")],
           placement: { kind: "space" },
         });
         const failed = applyAdditionalDocumentCommand(database, request, {
@@ -749,7 +773,7 @@ describe("additional Document authoritative command kernel", () => {
         expect(failed.ok).toBe(false);
         if (!failed.ok) expect(failed.error.code).toBe("unknown");
         for (const [table, identity] of [
-          ["blocks", "template:fault"],
+          ["blocks", faultSourceId],
           ["documents", "document:template-fault"],
           ["block_mutations", "command:fault"],
         ] as const) {
@@ -771,7 +795,7 @@ describe("additional Document authoritative command kernel", () => {
             {
               kind: "create_canvas_owner",
               scope: "non_primary",
-              blockId: "canvas:secondary",
+              blockId: canvasBlockId,
               documentId: "document:canvas-secondary",
               displayName: "Sketch",
               placement: { kind: "space" },
@@ -781,13 +805,13 @@ describe("additional Document authoritative command kernel", () => {
         if (!createdCanvas.ok) throw new Error(createdCanvas.error.message);
         expect(createdCanvas.ok).toBe(true);
         expect(createdCanvas.value.effect.createdBlockIds.join(",")).toBe(
-          "canvas:secondary",
+          canvasBlockId,
         );
         const owner = database
           .prepare(
             `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
           )
-          .get("canvas:secondary") as {
+          .get(canvasBlockId) as {
           readonly metadata_revision: number;
           readonly location_revision: number;
         };
@@ -795,7 +819,7 @@ describe("additional Document authoritative command kernel", () => {
           getDocumentBearingBlockSummary(
             database,
             projectId,
-            "canvas:secondary",
+            canvasBlockId,
           ).ownerType,
         ).toBe("canvas");
         const canvasHead = createdCanvas.value.effect.documentHeads[0];
@@ -810,7 +834,7 @@ describe("additional Document authoritative command kernel", () => {
               kind: "delete_canvas_owner",
               scope: "non_primary",
               owner: {
-                ownerBlockId: "canvas:secondary",
+                ownerBlockId: canvasBlockId,
                 documentId: canvasHead.documentId,
                 generation: canvasHead.generation,
                 metadataRevision: owner.metadata_revision,
@@ -824,13 +848,13 @@ describe("additional Document authoritative command kernel", () => {
         expect(deletedCanvas.ok).toBe(true);
         if (!deletedCanvas.ok) throw new Error(deletedCanvas.error.message);
         expect(deletedCanvas.value.effect.deletedBlockIds.join(",")).toBe(
-          "canvas:secondary",
+          canvasBlockId,
         );
         expect(
           (
             database
-              .prepare("SELECT lifecycle FROM blocks WHERE id = 'canvas:secondary'")
-              .get() as { readonly lifecycle: string }
+              .prepare("SELECT lifecycle FROM blocks WHERE id = ?")
+              .get(canvasBlockId) as { readonly lifecycle: string }
           ).lifecycle,
         ).toBe("deleted");
         expect(
@@ -848,7 +872,7 @@ describe("additional Document authoritative command kernel", () => {
               kind: "delete_canvas_owner",
               scope: "non_primary",
               owner: {
-                ownerBlockId: "canvas:secondary",
+                ownerBlockId: canvasBlockId,
                 documentId: canvasHead.documentId,
                 generation: canvasHead.generation,
                 metadataRevision: owner.metadata_revision,
@@ -866,14 +890,14 @@ describe("additional Document authoritative command kernel", () => {
           database,
           command(projectId, storeEpoch, "command:large-source", {
             kind: "create_large_document",
-            blockId: "large:deletable",
+            blockId: largeSourceId,
             documentId: "document:large-deletable",
             displayName: "Temporary source",
             content: {
               kind: "large_document",
               initialBlocks: [
-                paragraph("large:delete-root", "root", [
-                  paragraph("large:delete-child", "child"),
+                paragraph(largeRootId, "root", [
+                  paragraph(largeChildId, "child"),
                 ]),
               ],
             },
@@ -885,7 +909,7 @@ describe("additional Document authoritative command kernel", () => {
           .prepare(
             `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
           )
-          .get("large:deletable") as {
+          .get(largeSourceId) as {
           readonly metadata_revision: number;
           readonly location_revision: number;
         };
@@ -901,7 +925,7 @@ describe("additional Document authoritative command kernel", () => {
               kind: "delete_owned_source",
               ownerKind: "large_document",
               owner: {
-                ownerBlockId: "large:deletable",
+                ownerBlockId: largeSourceId,
                 documentId: largeHead.documentId,
                 generation: largeHead.generation,
                 metadataRevision: largeOwner.metadata_revision,
@@ -914,17 +938,17 @@ describe("additional Document authoritative command kernel", () => {
         );
         if (!deletedLarge.ok) throw new Error(deletedLarge.error.message);
         expect(deletedLarge.value.effect.deletedBlockIds.join(",")).toBe(
-          "large:deletable,large:delete-child,large:delete-root",
+          [largeSourceId, largeRootId, largeChildId].sort().join(","),
         );
         expect(
           (
             database
               .prepare(
                 `SELECT COUNT(*) AS count FROM blocks
-                 WHERE id IN ('large:deletable', 'large:delete-root', 'large:delete-child')
+                 WHERE id IN (?, ?, ?)
                    AND lifecycle = 'deleted'`,
               )
-              .get() as { readonly count: number }
+              .get(largeSourceId, largeRootId, largeChildId) as { readonly count: number }
           ).count,
         ).toBe(3);
       });

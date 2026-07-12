@@ -1,10 +1,12 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import { createUuidV7 } from "../../shared/card-id";
 import * as Y from "yjs";
 import {
   stableStringifyBlockPropertyJson,
   type BlockPropertyJsonValue,
 } from "../../shared/block-property-mutations";
+import { isUuidV7 } from "../../shared/card-id";
 import {
   populateBlockDocumentBodyFromBlockTree,
   populateBlockDocumentBodyFromNfm,
@@ -200,9 +202,6 @@ const stableStringify = (value: unknown): string => {
 
 const sha256 = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
-
-const deterministicBlockId = (operationId: string, namespace: string): string =>
-  `block:${sha256(stableStringify([operationId, namespace]))}`;
 
 interface StoredSyncedMutationRow {
   readonly project_id: string;
@@ -754,9 +753,8 @@ const buildSyncedDocument = (input: CreateSyncedBlockSourceInput): Y.Doc => {
     if (input.blockTree) {
       populateBlockDocumentBodyFromBlockTree(envelope.body, input.blockTree);
     } else {
-      let ordinal = 0;
       populateBlockDocumentBodyFromNfm(envelope.body, input.nfm, () =>
-        deterministicBlockId(input.operationId, `genesis:${ordinal++}`),
+        createUuidV7(),
       );
     }
     inspectOwnedBlockDocument(envelope.document, {
@@ -781,6 +779,12 @@ const stageSyncedBlockSourceIdentity = (
 } => {
   const projectId = requireIdentity(input.projectId, "projectId");
   const sourceBlockId = requireIdentity(input.sourceBlockId, "sourceBlockId");
+  if (!isUuidV7(sourceBlockId)) {
+    throw new SyncedBlockGroupError(
+      "invalid_request",
+      "New Synced Block source id must be a canonical lowercase UUID-v7",
+    );
+  }
   const documentId = requireIdentity(input.documentId, "documentId");
   requireIdentity(input.operationId, "operationId");
   requireIdentity(input.clientSessionId, "clientSessionId");
@@ -946,10 +950,9 @@ const clonePortable = <T extends BlockTreeValue>(value: T): T =>
 
 const remapBlockTree = (
   blocks: readonly BlockTreeNode[],
-  operationId: string,
 ): readonly BlockTreeNode[] => {
   const visit = (block: BlockTreeNode): BlockTreeNode => {
-    const id = deterministicBlockId(operationId, `copy:${block.id}`);
+    const id = createUuidV7();
     return {
       id: requireIdentity(id, "allocated blockId"),
       type: block.type,
@@ -1114,7 +1117,7 @@ export const copySyncedBlockSource = (
         clientSessionId: input.clientSessionId,
         actor: input.actor,
         beforeBlockId: input.beforeBlockId,
-        blockTree: remapBlockTree(source.blockTree, input.operationId),
+        blockTree: remapBlockTree(source.blockTree),
       });
       return {
         value,

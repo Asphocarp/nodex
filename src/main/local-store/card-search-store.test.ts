@@ -101,7 +101,10 @@ describe("authoritative Card search", () => {
             `
         UPDATE database_property_values
         SET value_json = '"done"', revision = revision + 1
-        WHERE membership_id = 'membership:' || ?
+        WHERE membership_id = (
+            SELECT id FROM database_memberships
+            WHERE card_block_id = ? AND removed_at IS NULL
+          )
           AND property_id = database_block_id || ':property:status'
       `,
           )

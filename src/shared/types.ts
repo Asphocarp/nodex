@@ -105,10 +105,25 @@ export interface CardOccurrenceActionInput {
   source: OccurrenceActionSource;
 }
 
-export interface CardOccurrenceUpdateInput extends CardOccurrenceActionInput {
-  scope: OccurrenceEditScope;
-  updates: OccurrenceTimingUpdates;
+export interface CardOccurrenceCompleteInput extends CardOccurrenceActionInput {
+  /** Preallocated identity for the archived Card created by completion. */
+  createdCardId: string;
 }
+
+export type CardOccurrenceUpdateInput = CardOccurrenceActionInput &
+  (
+    | {
+        scope: "all";
+        createdCardId?: never;
+        updates: OccurrenceTimingUpdates;
+      }
+    | {
+        scope: Exclude<OccurrenceEditScope, "all">;
+        /** Preallocated identity if this command needs to detach or split a Card. */
+        createdCardId: string;
+        updates: OccurrenceTimingUpdates;
+      }
+  );
 
 export interface Card {
   id: string;

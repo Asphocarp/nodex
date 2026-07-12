@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
-import { createUuidV7 } from "../../../shared/card-id";
 import {
   CARD_HISTORY_CONTRACT_VERSION,
   DEFAULT_CARD_HISTORY_PAGE_SIZE,
@@ -316,7 +315,7 @@ export function HistoryPanel({
           entryId: selectedEntry.id,
           request: {
             version: DOCUMENT_VERSION_CONTRACT_VERSION,
-            mutationId: createUuidV7(),
+            mutationId: crypto.randomUUID(),
             projectId,
             storeEpoch: descriptor.storeEpoch,
             documentId: descriptor.documentId,

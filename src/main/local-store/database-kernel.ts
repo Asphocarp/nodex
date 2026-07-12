@@ -23,6 +23,7 @@ import {
   type GeneralDatabaseViewConfig,
 } from "../../shared/database-kernel";
 import { rebuildCardReadModelProjection } from "./card-read-store";
+import { isUuidV7 } from "../../shared/card-id";
 import {
   DatabaseFractionalRankError,
   planDatabaseFractionalRank,
@@ -822,6 +823,13 @@ const createDatabase = (
   now: string,
 ): AuthorityCommit => {
   const operation = request.operation;
+  if (!isUuidV7(operation.databaseBlockId)) {
+    reject(
+      "invalid_database_mutation_request",
+      "New Database Block id must be a canonical lowercase UUID-v7",
+      request,
+    );
+  }
   const blockCollision = database
     .prepare("SELECT 1 AS present FROM blocks WHERE id = ?")
     .get(operation.databaseBlockId);

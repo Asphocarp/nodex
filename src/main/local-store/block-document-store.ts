@@ -23,6 +23,7 @@ import {
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
 import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
+import { assertUuidV7 } from "../../shared/card-id";
 import {
   BlockDocumentSchemaError,
   getRegisteredBlockDocumentSchemaAdapter,
@@ -916,6 +917,14 @@ const reconcileDocumentBlocks = (
     const registered = (currentById.get(block.id) ??
       readBlock.get(block.id)) as RegisteredBlockRow | undefined;
     if (!registered) {
+      try {
+        assertUuidV7(block.id, "new Block id");
+      } catch (error) {
+        throw new BlockDocumentStoreError(
+          "invalid_document_update",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
       if (TYPED_CREATION_BLOCK_TYPES.has(block.blockType)) {
         throw new BlockDocumentStoreError(
           "invalid_document_update",

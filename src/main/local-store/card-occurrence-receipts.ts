@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type {
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
 } from "../../shared/types";
 import {
@@ -137,7 +138,10 @@ export const prepareCardOccurrenceOperation = (
   input: {
     readonly operationKind: CardOccurrenceOperationKind;
     readonly projectId: string;
-    readonly request: CardOccurrenceActionInput | CardOccurrenceUpdateInput;
+    readonly request:
+      | CardOccurrenceActionInput
+      | CardOccurrenceCompleteInput
+      | CardOccurrenceUpdateInput;
     readonly clientSessionId?: string;
   },
 ): PreparedCardOccurrenceOperation => {
@@ -148,6 +152,9 @@ export const prepareCardOccurrenceOperation = (
     projectId: input.projectId,
     cardId: input.request.cardId,
     occurrenceStart: canonicalDate(input.request.occurrenceStart),
+    ...("createdCardId" in input.request
+      ? { createdCardId: input.request.createdCardId }
+      : {}),
     ...(input.operationKind === "update" && "scope" in input.request
       ? {
           scope: input.request.scope,

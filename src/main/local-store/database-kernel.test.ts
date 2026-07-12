@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createUuidV7, isUuidV7 } from "../../shared/card-id";
 import type {
   DatabaseMutationOperation,
   DatabaseMutationRequest,
@@ -30,6 +31,38 @@ interface Fixture {
   readonly projectId: string;
   readonly storeEpoch: string;
 }
+
+const databaseIds = new Map<string, string>();
+
+const testDatabaseId = (value: string): string => {
+  if (isUuidV7(value)) return value;
+  const existing = databaseIds.get(value);
+  if (existing) return existing;
+  const created = createUuidV7();
+  databaseIds.set(value, created);
+  return created;
+};
+
+const normalizeOperationDatabaseId = (
+  operation: DatabaseMutationOperation,
+): DatabaseMutationOperation => {
+  if ("databaseBlockId" in operation) {
+    return {
+      ...operation,
+      databaseBlockId: testDatabaseId(operation.databaseBlockId),
+    } as DatabaseMutationOperation;
+  }
+  if (operation.kind !== "transfer_membership" || !operation.target) {
+    return operation;
+  }
+  return {
+    ...operation,
+    target: {
+      ...operation.target,
+      databaseBlockId: testDatabaseId(operation.target.databaseBlockId),
+    },
+  };
+};
 
 const isUnsupportedSqliteError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
@@ -108,7 +141,7 @@ const request = (
   storeEpoch: fixture.storeEpoch,
   clientSessionId: audit.session ?? "test-session",
   actor: { kind: audit.actor ?? "test" },
-  operations: [operation],
+  operations: [normalizeOperationDatabaseId(operation)],
 });
 
 const batchRequest = (
@@ -122,7 +155,7 @@ const batchRequest = (
   storeEpoch: fixture.storeEpoch,
   clientSessionId: "test-session",
   actor: { kind: "test" },
-  operations,
+  operations: operations.map(normalizeOperationDatabaseId),
 });
 
 const createDatabaseOperation = (
@@ -133,7 +166,7 @@ const createDatabaseOperation = (
   { readonly kind: "create_database" }
 > => ({
   kind: "create_database",
-  databaseBlockId,
+  databaseBlockId: testDatabaseId(databaseBlockId),
   name: "Research",
   isPrimary: false,
   initialView: {
@@ -242,7 +275,9 @@ describe("general Database kernel", () => {
       expect(primary.ok).toBe(true);
       if (!primary.ok || !primary.value.value) return;
       expect(primary.value.value.database.isPrimary).toBe(true);
-      expect(primary.value.value.database.blockId === "database-secondary").toBe(false);
+      expect(
+        primary.value.value.database.blockId === testDatabaseId("database-secondary"),
+      ).toBe(false);
       expect(primary.value.storeEpoch).toBe(fixture.storeEpoch);
     });
   });
@@ -270,7 +305,8 @@ describe("general Database kernel", () => {
       expect(
         snapshot.value.value.databases.some(
           (descriptor) =>
-            descriptor.database.blockId === "database-catalog-secondary" &&
+            descriptor.database.blockId ===
+              testDatabaseId("database-catalog-secondary") &&
             descriptor.views.some((view) => view.id === "view-catalog-secondary"),
         ),
       ).toBe(true);
@@ -329,10 +365,10 @@ describe("general Database kernel", () => {
       );
       expect(snapshot.value.query.value?.view.id).toBe("view-secondary");
       expect(snapshot.value.descriptor.value?.database.blockId).toBe(
-        "database-secondary",
+        testDatabaseId("database-secondary"),
       );
       expect(snapshot.value.query.value?.database.blockId).toBe(
-        "database-secondary",
+        testDatabaseId("database-secondary"),
       );
     });
   });
@@ -373,7 +409,7 @@ describe("general Database kernel", () => {
                   fixture.projectId,
                   fixture.storeEpoch,
                   "concurrent-snapshot-write",
-                  JSON.stringify(["database-isolated"]),
+                  JSON.stringify([testDatabaseId("database-isolated")]),
                   "2026-07-12T01:00:00.000Z",
                 );
               }).immediate();
@@ -412,7 +448,7 @@ describe("general Database kernel", () => {
         expect(resultCode(first)).toBe("ok");
         const descriptor = readGeneralDatabaseDescriptor(
           fixture.projectId,
-          "database-research",
+          testDatabaseId("database-research"),
           fixture.database,
         );
         expect(descriptor?.database.name).toBe("Research");
@@ -492,8 +528,8 @@ describe("general Database kernel", () => {
         ).toBe(true);
         expect(
           fixture.database
-            .prepare("SELECT 1 FROM blocks WHERE id = 'database-fault'")
-            .get() === undefined,
+            .prepare("SELECT 1 FROM blocks WHERE id = ?")
+            .get(testDatabaseId("database-fault")) === undefined,
         ).toBe(true);
         expect(
           fixture.database
@@ -541,7 +577,7 @@ describe("general Database kernel", () => {
           operationThrows(() =>
             readGeneralDatabaseDescriptor(
               fixture.projectId,
-              "database-research",
+              testDatabaseId("database-research"),
               fixture.database,
             ),
           ),

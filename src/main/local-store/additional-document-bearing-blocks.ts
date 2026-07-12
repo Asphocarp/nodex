@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
-import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
+import { assertUuidV7, createUuidV7 } from "../../shared/card-id";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
   CANVAS_BLOCK_TYPE,
@@ -475,20 +475,14 @@ const assertIdentityAvailable = (
   );
 };
 
-const hashIdentity = (operationId: string, sourceId: string): string =>
-  `block:${createHash("sha256")
-    .update(stableStringifyBlockPropertyJson([operationId, sourceId]))
-    .digest("hex")}`;
-
 const clonePortable = <T extends BlockTreeValue>(value: T): T =>
   structuredClone(value);
 
 const remapTemplateBlockTree = (
   blocks: readonly BlockTreeNode[],
-  operationId: string,
 ): readonly BlockTreeNode[] => {
   const visit = (block: BlockTreeNode): BlockTreeNode => ({
-    id: hashIdentity(operationId, block.id),
+    id: createUuidV7(),
     type: block.type,
     props: clonePortable(block.props),
     ...(block.content === undefined
@@ -607,6 +601,7 @@ const stageOwnedDocument = (
   database: Database.Database,
   input: StageOwnedDocumentInput,
 ): void => {
+  assertUuidV7(input.blockId, "new document-bearing Block id");
   assertIdentityAvailable(database, "blocks", input.blockId);
   assertIdentityAvailable(database, "documents", input.documentId);
   if (input.location.kind === "space") {
@@ -1387,7 +1382,6 @@ export const instantiateReusableTemplate = (
       });
       const instantiated = remapTemplateBlockTree(
         source.blockTree,
-        input.operationId,
       );
       const target = applyHostInsertions(database, {
         ...input,
@@ -1462,7 +1456,7 @@ const resolveExplicitBlockTree = (
   const code = requireBoundedText(input.code ?? "", "code", 2_000_000, true);
   return [
     {
-      id: hashIdentity(input.operationId, "large-code-content"),
+      id: createUuidV7(),
       type: "codeBlock",
       props: { language },
       content: [{ type: "text", text: code, styles: {} }],

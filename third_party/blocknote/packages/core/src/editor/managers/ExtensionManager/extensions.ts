@@ -71,6 +71,9 @@ export function getDefaultTiptapExtensions(
     UniqueID.configure({
       // everything from bnBlock group (nodes that represent a BlockNote block should have an id)
       types: ["blockContainer", "columnList", "column"],
+      ...(options.generateBlockId
+        ? { generateID: options.generateBlockId }
+        : {}),
       setIdAttribute: options.setIdAttribute,
       isWithinEditor: editor.isWithinEditor,
       // y-prosemirror renders authoritative Yjs changes by replacing the

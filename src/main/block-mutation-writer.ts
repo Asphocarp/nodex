@@ -79,6 +79,7 @@ import type { ProjectDeletionResult } from "./local-store/project-deletion";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
 } from "../shared/types";
 import type {
@@ -165,7 +166,7 @@ export class BlockMutationWriter {
 
   async completeCardOccurrence(
     projectId: string,
-    input: CardOccurrenceActionInput,
+    input: CardOccurrenceCompleteInput,
     sessionId?: string,
   ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
     return await this.executeTyped<CardOccurrenceMutationResult>({

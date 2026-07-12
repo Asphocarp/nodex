@@ -1,10 +1,11 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { createUuidV7FromTimestamp } from "../../shared/card-id";
+import { isUuidV7 } from "../../shared/card-id";
 import type {
   CalendarOccurrence,
   Card,
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   RecurrenceConfig,
   ReminderConfig,
@@ -217,7 +218,10 @@ const prepareOccurrenceReceipt = (
   database: Database.Database,
   operationKind: "complete" | "skip" | "update",
   projectId: string,
-  input: CardOccurrenceActionInput | CardOccurrenceUpdateInput,
+  input:
+    | CardOccurrenceActionInput
+    | CardOccurrenceCompleteInput
+    | CardOccurrenceUpdateInput,
   sessionId?: string,
 ): OccurrenceReceiptPreparation => {
   try {
@@ -245,7 +249,10 @@ const prepareOccurrenceReceipt = (
 
 const validateOccurrenceRequest = (
   operationKind: "complete" | "skip" | "update",
-  input: CardOccurrenceActionInput | CardOccurrenceUpdateInput,
+  input:
+    | CardOccurrenceActionInput
+    | CardOccurrenceCompleteInput
+    | CardOccurrenceUpdateInput,
 ): string | null => {
   if (
     !(input.occurrenceStart instanceof Date) ||
@@ -253,9 +260,28 @@ const validateOccurrenceRequest = (
   ) {
     return "occurrenceStart must be a valid Date";
   }
-  if (operationKind !== "update") return null;
+  if (operationKind === "complete") {
+    if (
+      !("createdCardId" in input) ||
+      typeof input.createdCardId !== "string" ||
+      !isUuidV7(input.createdCardId)
+    ) {
+      return "createdCardId must be a canonical lowercase UUID-v7";
+    }
+    return null;
+  }
+  if (operationKind === "skip") return null;
   if (!("scope" in input) || !OCCURRENCE_UPDATE_SCOPES.has(input.scope)) {
     return "scope must be this, this-and-future, or all";
+  }
+  if (input.scope === "all" && "createdCardId" in input) {
+    return "createdCardId must be omitted for scope all";
+  }
+  if (
+    input.scope !== "all" &&
+    (!("createdCardId" in input) || !isUuidV7(input.createdCardId))
+  ) {
+    return "createdCardId must be a canonical lowercase UUID-v7 for this scope";
   }
   if (
     typeof input.updates !== "object" ||
@@ -336,23 +362,6 @@ const occurrenceNestedOperationId = (
 ): string => {
   const digest = createHash("sha256").update(operationId).digest("hex");
   return `card-occurrence-${operationKind}:${digest}`;
-};
-
-const deriveOccurrenceCardId = (
-  operationKind: string,
-  operationId: string,
-  occurrenceStart: Date,
-): string => {
-  const digest = createHash("sha256")
-    .update(operationKind)
-    .update("\0")
-    .update(operationId)
-    .digest();
-  return createUuidV7FromTimestamp(
-    occurrenceStart.getTime(),
-    digest.readUInt32BE(0),
-    digest,
-  );
 };
 
 const persistOccurrenceReceipt = (
@@ -463,7 +472,7 @@ export async function listCalendarOccurrences(
 
 export async function completeCardOccurrence(
   projectId: string,
-  input: CardOccurrenceActionInput,
+  input: CardOccurrenceCompleteInput,
   sessionId?: string,
 ): Promise<CardOccurrenceMutationResult> {
   projectId = requireProjectId(projectId);
@@ -516,11 +525,7 @@ export async function completeCardOccurrence(
   const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
   const shouldAdvance = occurrenceStart.getTime() <= target.scheduledStart.getTime();
   const nowIso = new Date().toISOString();
-  const archiveCardId = deriveOccurrenceCardId(
-    "complete",
-    prepared.operationId,
-    occurrenceStart,
-  );
+  const archiveCardId = input.createdCardId;
   const sourceScope = readOccurrenceAuthorityScope(database, projectId, target.id);
   const cloneOverrides: AuthoritativeCardClonePropertyOverrides = {
     database: {
@@ -811,11 +816,7 @@ export async function updateCardOccurrence(
       input.occurrenceStart,
       input.updates,
     );
-    const detachedCardId = deriveOccurrenceCardId(
-      "detach",
-      prepared.operationId,
-      input.occurrenceStart,
-    );
+    const detachedCardId = input.createdCardId;
     const detachedReminders = input.updates.reminders ?? target.reminders ?? [];
     const detachedTimezone = input.updates.scheduleTimezone === undefined
       ? target.scheduleTimezone
@@ -964,11 +965,7 @@ export async function updateCardOccurrence(
     input.occurrenceStart,
     input.updates,
   );
-  const nextCardId = deriveOccurrenceCardId(
-    "split",
-    prepared.operationId,
-    input.occurrenceStart,
-  );
+  const nextCardId = input.createdCardId;
   const nextReminders = input.updates.reminders ?? target.reminders ?? [];
   const nextTimezone = input.updates.scheduleTimezone === undefined
     ? target.scheduleTimezone

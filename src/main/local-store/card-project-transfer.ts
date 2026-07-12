@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   CARD_PROJECT_TRANSFER_CONTRACT_VERSION,
   cardProjectTransferIntentFromRequest,
@@ -852,14 +852,6 @@ const readSourceValuesForMembership = (
       sourceProjectId,
     ) as readonly SourceValueRow[];
 
-const deterministicMembershipId = (
-  operationId: string,
-  cardBlockId: string,
-): string =>
-  `membership:transfer:${createHash("sha256")
-    .update(`${operationId}\0${cardBlockId}`)
-    .digest("hex")}`;
-
 const prepareTargetMemberships = (
   database: Database.Database,
   request: CardProjectTransferRequest,
@@ -960,10 +952,7 @@ const prepareTargetMemberships = (
         request,
       );
     }
-    const targetMembershipId = deterministicMembershipId(
-      request.operationId,
-      cardBlockId,
-    );
+    const targetMembershipId = randomUUID();
     const collision = database
       .prepare("SELECT 1 FROM database_memberships WHERE id = ?")
       .get(targetMembershipId);

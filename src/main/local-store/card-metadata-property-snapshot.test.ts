@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createUuidV7 } from "../../shared/card-id";
 
 import { compileCardMetadataPropertyMutation } from "../../shared/card-metadata-property-compiler";
 import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
@@ -62,7 +63,8 @@ const withFixture = async (
     const store = database
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .get() as { readonly store_epoch: string };
-    const cardId = "metadata-compiler-card";
+    const cardId = createUuidV7();
+    const bodyBlockId = createUuidV7();
     const created = applyCardLifecycleMutation(
       database,
       parseCardLifecycleMutationRequest({
@@ -79,7 +81,7 @@ const withFixture = async (
           status: "draft",
         },
       }),
-      { allocateBodyBlockId: () => "metadata-body" },
+      { allocateBodyBlockId: () => bodyBlockId },
     );
     if (!created.ok) throw new Error(created.error.message);
     await run({

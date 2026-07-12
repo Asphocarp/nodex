@@ -203,18 +203,22 @@ describe("selected Database View row mutations", () => {
     const receipt = await commitDatabaseViewOperations({
       model: model(),
       operations,
-      operationId: "operation-1",
       dependencies: {
         mutate: async (_projectId, request) => {
           requests.push(JSON.stringify(request));
           calls += 1;
           if (calls === 1) throw new Error("transport lost ACK");
-          return result;
+          return {
+            ...result,
+            value: { ...result.value, operationId: request.operationId },
+          };
         },
       },
     });
     expect(requests.length).toBe(2);
     expect(requests[0]).toBe(requests[1]);
-    expect(receipt?.operationId).toBe("operation-1");
+    expect(receipt?.operationId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 });

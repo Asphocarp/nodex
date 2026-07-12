@@ -223,6 +223,9 @@ describe("authoritative Card lifecycle kernel", () => {
           ...createOperation(cardId, "Title only"),
           nfm: "",
         });
+        expect(created.membershipId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
         const materialization = fixture.database
           .prepare(
             `
@@ -431,7 +434,11 @@ describe("authoritative Card lifecycle kernel", () => {
     async () => {
       await withFixture((fixture) => {
         const cardId = createUuidV7();
-        const cardBodyId = "lifecycle:card-body";
+        const cardBodyId = createUuidV7();
+        const nestedOneId = createUuidV7();
+        const nestedOneBodyId = createUuidV7();
+        const nestedTwoId = createUuidV7();
+        const nestedTwoBodyId = createUuidV7();
         committed(
           fixture,
           "create-closure",
@@ -447,10 +454,10 @@ describe("authoritative Card lifecycle kernel", () => {
           clientSessionId: "card-lifecycle-test",
           actor: { kind: "test" },
           blockKind: "large_document",
-          blockId: "lifecycle:nested-one",
+          blockId: nestedOneId,
           documentId: "document:lifecycle:nested-one",
           displayName: "Nested one",
-          blockTree: [paragraph("lifecycle:nested-one-body", "First body")],
+          blockTree: [paragraph(nestedOneBodyId, "First body")],
           location: {
             kind: "document",
             hostDocumentId: `document:${cardId}`,
@@ -467,10 +474,10 @@ describe("authoritative Card lifecycle kernel", () => {
           clientSessionId: "card-lifecycle-test",
           actor: { kind: "test" },
           blockKind: "large_document",
-          blockId: "lifecycle:nested-two",
+          blockId: nestedTwoId,
           documentId: "document:lifecycle:nested-two",
           displayName: "Nested two",
-          blockTree: [paragraph("lifecycle:nested-two-body", "Second body")],
+          blockTree: [paragraph(nestedTwoBodyId, "Second body")],
           location: {
             kind: "document",
             hostDocumentId: "document:lifecycle:nested-one",
@@ -501,10 +508,10 @@ describe("authoritative Card lifecycle kernel", () => {
         const closureBlockIds = [
           cardId,
           cardBodyId,
-          "lifecycle:nested-one",
-          "lifecycle:nested-one-body",
-          "lifecycle:nested-two",
-          "lifecycle:nested-two-body",
+          nestedOneId,
+          nestedOneBodyId,
+          nestedTwoId,
+          nestedTwoBodyId,
         ].sort((left, right) => left.localeCompare(right));
         const closureDocumentIds = [
           `document:${cardId}`,
@@ -614,11 +621,12 @@ describe("authoritative Card lifecycle kernel", () => {
     async () => {
       await withFixture((fixture) => {
         const cardId = createUuidV7();
+        const bodyId = createUuidV7();
         committed(
           fixture,
           "create-closure-drift",
           createOperation(cardId),
-          { allocateBodyBlockId: () => "closure-drift:body" },
+          { allocateBodyBlockId: () => bodyId },
         );
         const deleted = committed(fixture, "delete-closure-drift", {
           kind: "delete_card",
@@ -671,9 +679,7 @@ describe("authoritative Card lifecycle kernel", () => {
         if (!restore.ok) expect(restore.error.code).toBe("delete_evidence_invalid");
         expect(readBlock(fixture, cardId).lifecycle).toBe("deleted");
         expect(
-          readBlockLifecycles(fixture, ["closure-drift:body"])[
-            "closure-drift:body"
-          ]?.lifecycle,
+          readBlockLifecycles(fixture, [bodyId])[bodyId]?.lifecycle,
         ).toBe("deleted");
       });
     },
@@ -684,7 +690,7 @@ describe("authoritative Card lifecycle kernel", () => {
     async () => {
       await withFixture((fixture) => {
         const cardId = createUuidV7();
-        const bodyId = "closure-fault:body";
+        const bodyId = createUuidV7();
         committed(fixture, "create-closure-fault", createOperation(cardId), {
           allocateBodyBlockId: () => bodyId,
         });

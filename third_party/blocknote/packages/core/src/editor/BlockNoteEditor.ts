@@ -253,6 +253,9 @@ export interface BlockNoteEditorOptions<
    */
   schema: CustomBlockNoteSchema<BSchema, ISchema, SSchema>;
 
+  /** Allocates application identities for newly inserted Blocks. */
+  generateBlockId?: () => string;
+
   /**
    * A flag indicating whether to set an HTML ID for every block
    *

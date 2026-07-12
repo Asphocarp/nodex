@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import { createUuidV7 } from "../../shared/card-id";
 import * as Y from "yjs";
 import {
   assertValidBlockDocument,
@@ -507,7 +508,6 @@ const readMemberRows = (
 const ensureRelocationSourceEditableRoot = (
   sourceDocument: Y.Doc,
   sourceRow: RelocationDocumentRow,
-  relocationId: string,
 ): BlockId | null => {
   const inspection = inspectOwnedBlockDocument(sourceDocument, {
     ownerType: sourceRow.owner_type,
@@ -516,9 +516,7 @@ const ensureRelocationSourceEditableRoot = (
   });
   if (inspection.blocks.length > 0) return null;
 
-  const blockId = `block:relocation-empty:${sha256(
-    `${relocationId}\0${sourceRow.document_id}`,
-  )}`;
+  const blockId = createUuidV7();
   populateBlockDocumentBodyFromBlockTree(inspection.envelope.body, [
     createCanonicalEmptyParagraphBlock(blockId),
   ]);
@@ -1674,7 +1672,6 @@ export const relocateBlocksAtomically = (
         : ensureRelocationSourceEditableRoot(
             sourceDocument,
             sourceRow,
-            input.relocationId,
           );
 
       const memberRows = readMemberRows(

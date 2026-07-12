@@ -132,7 +132,7 @@ export function DatabaseManagementDialogController({
     try {
       const next = await commitDatabaseManagementIntent({
         projectId,
-        operationId: createUuidV7(),
+        operationId: crypto.randomUUID(),
         clientSessionId,
         buildIntent,
       });
@@ -150,7 +150,7 @@ export function DatabaseManagementDialogController({
 
   const createDatabase = async (draft: CreateDatabaseDraft) => {
     const databaseBlockId = createUuidV7();
-    const viewId = createUuidV7();
+    const viewId = crypto.randomUUID();
     await mutate(
       () => ({
         kind: "create_database",
@@ -168,7 +168,7 @@ export function DatabaseManagementDialogController({
   };
 
   const createProperty = async (draft: CreateDatabasePropertyDraft) => {
-    const propertyId = createUuidV7();
+    const propertyId = crypto.randomUUID();
     await mutate((authority) => ({
       kind: "put_property",
       mode: "create",
@@ -195,7 +195,7 @@ export function DatabaseManagementDialogController({
   };
 
   const createView = async (draft: CreateDatabaseViewDraft) => {
-    const viewId = createUuidV7();
+    const viewId = crypto.randomUUID();
     await mutate((authority) => ({
       kind: "put_view",
       mode: "create",
@@ -245,7 +245,7 @@ export function DatabaseManagementDialogController({
   };
 
   const setMembership = async (draft: SetDatabaseMembershipDraft) => {
-    const membershipId = draft.databaseBlockId ? createUuidV7() : null;
+    const membershipId = draft.databaseBlockId ? crypto.randomUUID() : null;
     await mutate((authority) => {
       const targetDescriptor = draft.databaseBlockId
         ? authority.descriptor(draft.databaseBlockId).value

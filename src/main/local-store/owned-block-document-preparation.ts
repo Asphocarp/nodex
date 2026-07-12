@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
+import { createUuidV7 } from "../../shared/card-id";
 import { createCanonicalEmptyParagraphBlock } from "../../shared/block-documents/block-document-codec";
 import {
   DOCUMENT_OPERATION_CONTRACT_VERSION,
@@ -96,9 +97,7 @@ export const prepareEditableOwnedBlockDocument = (
     operations: [
       {
         kind: "insert_block",
-        block: createCanonicalEmptyParagraphBlock(
-          `block:editable-root:${digest}`,
-        ),
+        block: createCanonicalEmptyParagraphBlock(createUuidV7()),
       },
     ],
   };

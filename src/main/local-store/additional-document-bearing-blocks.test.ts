@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
+import { createUuidV7 } from "../../shared/card-id";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
   DOCUMENT_OPERATION_CONTRACT_VERSION,
@@ -120,7 +121,7 @@ const seedPrimaryCardDocument = (
   const detached = createDetachedCardDocumentFromBlockTree({
     documentId: input.documentId,
     title: "Host",
-    blockTree: input.blockTree ?? [paragraph(`${input.cardId}:anchor`, "anchor")],
+    blockTree: input.blockTree ?? [paragraph(createUuidV7(), "anchor")],
   });
   try {
     const storeEpoch = (
@@ -203,9 +204,14 @@ describe("additional registered document-bearing Blocks", () => {
     "keeps a Template source independent while references stay childless and instances renew IDs",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const hostCardId = createUuidV7();
+        const sourceBlockId = createUuidV7();
+        const templateRootId = createUuidV7();
+        const templateChildId = createUuidV7();
+        const referenceBlockId = createUuidV7();
         seedPrimaryCardDocument(database, {
           projectId,
-          cardId: "template-host",
+          cardId: hostCardId,
           documentId: "document:template-host",
         });
         const source = createReusableTemplateSource(database, {
@@ -216,12 +222,12 @@ describe("additional registered document-bearing Blocks", () => {
           storeEpoch,
           clientSessionId: "surface:template-create",
           actor: ACTOR,
-          sourceBlockId: "template:source",
+          sourceBlockId,
           documentId: "document:template-source",
           displayName: "Decision review",
           blockTree: [
-            paragraph("template-root", "Review", [
-              paragraph("template-child", "Decision"),
+            paragraph(templateRootId, "Review", [
+              paragraph(templateChildId, "Decision"),
             ]),
           ],
         });
@@ -229,7 +235,7 @@ describe("additional registered document-bearing Blocks", () => {
         const summary = getDocumentBearingBlockSummary(
           database,
           projectId,
-          "template:source",
+          sourceBlockId,
         );
         expect(summary.displayName).toBe("Decision review");
         expect(summary.preview).toBe("Review Decision");
@@ -241,12 +247,12 @@ describe("additional registered document-bearing Blocks", () => {
           storeEpoch,
           clientSessionId: "surface:lost-response",
           actor: { retry: true },
-          sourceBlockId: "template:source",
+          sourceBlockId,
           documentId: "document:template-source",
           displayName: "Decision review",
           blockTree: [
-            paragraph("template-root", "Review", [
-              paragraph("template-child", "Decision"),
+            paragraph(templateRootId, "Review", [
+              paragraph(templateChildId, "Decision"),
             ]),
           ],
         });
@@ -260,14 +266,14 @@ describe("additional registered document-bearing Blocks", () => {
           storeEpoch,
           clientSessionId: "surface:reference",
           actor: ACTOR,
-          sourceBlockId: "template:source",
+          sourceBlockId,
           sourceDocumentId: "document:template-source",
           expectedSourceGeneration: 1,
           expectedSourceHeadSeq: 1,
           hostDocumentId: "document:template-host",
           expectedHostGeneration: 1,
           expectedHostHeadSeq: 1,
-          referenceBlockId: "template:reference",
+          referenceBlockId,
         });
         const afterReference = readMaterialization(
           database,
@@ -289,7 +295,7 @@ describe("additional registered document-bearing Blocks", () => {
           storeEpoch,
           clientSessionId: "surface:instantiate",
           actor: ACTOR,
-          sourceBlockId: "template:source",
+          sourceBlockId,
           sourceDocumentId: "document:template-source",
           expectedSourceGeneration: 1,
           expectedSourceHeadSeq: 1,
@@ -301,13 +307,13 @@ describe("additional registered document-bearing Blocks", () => {
         const host = readMaterialization(database, "document:template-host");
         const instance = host.blockTree[2];
         expect(instance?.type).toBe("paragraph");
-        expect(instance?.id === "template-root").toBe(false);
-        expect(instance?.children[0]?.id === "template-child").toBe(false);
+        expect(instance?.id === templateRootId).toBe(false);
+        expect(instance?.children[0]?.id === templateChildId).toBe(false);
         const sourceAfter = readMaterialization(
           database,
           "document:template-source",
         );
-        expect(sourceAfter.blockTree[0]?.id).toBe("template-root");
+        expect(sourceAfter.blockTree[0]?.id).toBe(templateRootId);
 
         const checkpoint = createDocumentVersionCheckpoint(database, {
           version: DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -329,9 +335,13 @@ describe("additional registered document-bearing Blocks", () => {
     "creates visible Large Document/Code shells without embedding their bodies",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const hostCardId = createUuidV7();
+        const largeDocumentBlockId = createUuidV7();
+        const largeParagraphId = createUuidV7();
+        const largeCodeBlockId = createUuidV7();
         seedPrimaryCardDocument(database, {
           projectId,
-          cardId: "large-host",
+          cardId: hostCardId,
           documentId: "document:large-host",
         });
         const largeDocument = createExplicitDocumentBearingBlock(database, {
@@ -343,10 +353,10 @@ describe("additional registered document-bearing Blocks", () => {
           clientSessionId: "surface:large-document",
           actor: ACTOR,
           blockKind: "large_document",
-          blockId: "large:document",
+          blockId: largeDocumentBlockId,
           documentId: "document:large-document",
           displayName: "Architecture",
-          blockTree: [paragraph("large:paragraph", "Independent body")],
+          blockTree: [paragraph(largeParagraphId, "Independent body")],
           location: {
             kind: "document",
             hostDocumentId: "document:large-host",
@@ -356,7 +366,7 @@ describe("additional registered document-bearing Blocks", () => {
         });
         expect(largeDocument.duplicate).toBe(false);
         const host = readMaterialization(database, "document:large-host");
-        expect(host.blockTree[1]?.id).toBe("large:document");
+        expect(host.blockTree[1]?.id).toBe(largeDocumentBlockId);
         expect(host.blockTree[1]?.type).toBe(LARGE_DOCUMENT_BLOCK_TYPE);
         expect(host.blockTree[1]?.children.length).toBe(0);
         expect(host.plainText.includes("Independent body")).toBe(false);
@@ -368,10 +378,10 @@ describe("additional registered document-bearing Blocks", () => {
             FROM blocks owner
             INNER JOIN document_block_index entry ON entry.block_id = owner.id
             INNER JOIN block_documents ownership ON ownership.block_id = owner.id
-            WHERE owner.id = 'large:document'
+            WHERE owner.id = ?
           `,
           )
-          .get() as {
+          .get(largeDocumentBlockId) as {
           readonly owner_type: string;
           readonly shell_type: string;
           readonly containing_document_id: string;
@@ -396,7 +406,7 @@ describe("additional registered document-bearing Blocks", () => {
           clientSessionId: "surface:large-code",
           actor: ACTOR,
           blockKind: "large_code",
-          blockId: "large:code",
+          blockId: largeCodeBlockId,
           documentId: "document:large-code",
           displayName: "Sync adapter",
           code: "export const sync = true;",
@@ -409,9 +419,9 @@ describe("additional registered document-bearing Blocks", () => {
         expect(code.blockTree[0]?.type).toBe("codeBlock");
         const owner = database
           .prepare(
-            `SELECT type, location_kind FROM blocks WHERE id = 'large:code'`,
+            `SELECT type, location_kind FROM blocks WHERE id = ?`,
           )
-          .get() as { readonly type: string; readonly location_kind: string };
+          .get(largeCodeBlockId) as { readonly type: string; readonly location_kind: string };
         expect(owner.type).toBe(LARGE_CODE_BLOCK_TYPE);
         expect(owner.location_kind).toBe("space");
       });
@@ -422,9 +432,12 @@ describe("additional registered document-bearing Blocks", () => {
     "rejects ordinary manufacture and schema drift for typed owners",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const hostCardId = createUuidV7();
+        const forgedBlockId = createUuidV7();
+        const strictCodeBlockId = createUuidV7();
         seedPrimaryCardDocument(database, {
           projectId,
-          cardId: "typed-host",
+          cardId: hostCardId,
           documentId: "document:typed-host",
         });
         const manufactured = applyDocumentOperationBatch(database, {
@@ -440,7 +453,7 @@ describe("additional registered document-bearing Blocks", () => {
             {
               kind: "insert_block",
               block: {
-                id: "large:forged",
+                id: forgedBlockId,
                 type: LARGE_DOCUMENT_BLOCK_TYPE,
                 props: { displayName: "Forged" },
                 children: [],
@@ -451,8 +464,8 @@ describe("additional registered document-bearing Blocks", () => {
         expect(manufactured.ok).toBe(false);
         expect(
           database
-            .prepare("SELECT 1 AS present FROM blocks WHERE id = 'large:forged'")
-            .get() === undefined,
+            .prepare("SELECT 1 AS present FROM blocks WHERE id = ?")
+            .get(forgedBlockId) === undefined,
         ).toBe(true);
 
         createExplicitDocumentBearingBlock(database, {
@@ -464,7 +477,7 @@ describe("additional registered document-bearing Blocks", () => {
           clientSessionId: "surface:strict-code",
           actor: ACTOR,
           blockKind: "large_code",
-          blockId: "large:strict-code",
+          blockId: strictCodeBlockId,
           documentId: "document:strict-code",
           displayName: "Strict",
           code: "before",
@@ -512,9 +525,12 @@ describe("additional registered document-bearing Blocks", () => {
 
   sqliteTest("rolls owner, Document, and host shell back at every fault", async () => {
     await withDatabase((database, projectId, storeEpoch) => {
+      const hostCardId = createUuidV7();
+      const faultBlockId = createUuidV7();
+      const faultBodyId = createUuidV7();
       seedPrimaryCardDocument(database, {
         projectId,
-        cardId: "fault-host",
+        cardId: hostCardId,
         documentId: "document:fault-host",
       });
       let error: unknown;
@@ -530,10 +546,10 @@ describe("additional registered document-bearing Blocks", () => {
             clientSessionId: "surface:fault",
             actor: ACTOR,
             blockKind: "large_document",
-            blockId: "large:fault",
+            blockId: faultBlockId,
             documentId: "document:large-fault",
             displayName: "Fault",
-            blockTree: [paragraph("large:fault:body", "rollback")],
+            blockTree: [paragraph(faultBodyId, "rollback")],
             location: {
               kind: "document",
               hostDocumentId: "document:fault-host",
@@ -553,8 +569,8 @@ describe("additional registered document-bearing Blocks", () => {
       expect(error instanceof Error).toBe(true);
       expect(
         database
-          .prepare("SELECT 1 AS present FROM blocks WHERE id = 'large:fault'")
-          .get() === undefined,
+          .prepare("SELECT 1 AS present FROM blocks WHERE id = ?")
+          .get(faultBlockId) === undefined,
       ).toBe(true);
       expect(
         database
@@ -571,6 +587,8 @@ describe("additional registered document-bearing Blocks", () => {
 
   sqliteTest("binds operation identity to semantic intent", async () => {
     await withDatabase((database, projectId, storeEpoch) => {
+      const sourceBlockId = createUuidV7();
+      const bodyBlockId = createUuidV7();
       createReusableTemplateSource(database, {
         version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
         kind: "create_reusable_template_source",
@@ -579,10 +597,10 @@ describe("additional registered document-bearing Blocks", () => {
         storeEpoch,
         clientSessionId: "surface:first",
         actor: ACTOR,
-        sourceBlockId: "template:identity",
+        sourceBlockId,
         documentId: "document:template-identity",
         displayName: "Identity",
-        blockTree: [paragraph("identity-body", "one")],
+        blockTree: [paragraph(bodyBlockId, "one")],
       });
       let error: unknown;
       try {
@@ -594,10 +612,10 @@ describe("additional registered document-bearing Blocks", () => {
           storeEpoch,
           clientSessionId: "surface:second",
           actor: { retry: true },
-          sourceBlockId: "template:identity",
+          sourceBlockId,
           documentId: "document:template-identity",
           displayName: "Identity",
-          blockTree: [paragraph("identity-body", "different")],
+          blockTree: [paragraph(bodyBlockId, "different")],
         });
       } catch (caught) {
         error = caught;

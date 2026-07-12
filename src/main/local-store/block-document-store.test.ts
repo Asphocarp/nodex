@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
+import { createUuidV7, isUuidV7 } from "../../shared/card-id";
 import {
   createCardDocument,
   openCardDocument,
@@ -273,7 +274,10 @@ describe("BlockDocumentStore", () => {
             ? repairedBlock.getAttribute("id")
             : null;
         expect(repairedBlock instanceof Y.XmlElement).toBe(true);
-        expect(repairedBlockId).toMatch(/^block:editable-root:/);
+        if (typeof repairedBlockId !== "string") {
+          throw new TypeError("Expected the repaired root to have a Block id");
+        }
+        expect(isUuidV7(repairedBlockId)).toBe(true);
         loaded.document.destroy();
 
         const materialization = database
@@ -323,6 +327,108 @@ describe("BlockDocumentStore", () => {
         expect(
           getBlockDocumentRuntimeIdentity(database, documentId).head.headSeq,
         ).toBe(2);
+        database.close();
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  sqliteTest(
+    "accepts a registered historical Block id but rejects a new non-v7 Block id",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-block-id-boundary-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+
+      try {
+        await initializeDatabase();
+        closeDatabase();
+
+        const database = new Database(getDatabasePath(), { readonly: false });
+        database.pragma("foreign_keys = ON");
+        const { documentId, projectId, storeEpoch } =
+          seedPendingCardDocument(database);
+        const historicalBlockId = "historical-paragraph-id";
+        const now = new Date().toISOString();
+        database
+          .prepare(
+            `INSERT INTO blocks (
+              id, project_id, type, lifecycle, location_kind,
+              containing_document_id, location_revision, metadata_revision,
+              created_at, updated_at
+            ) VALUES (?, ?, 'paragraph', 'active', 'document', ?, 1, 1, ?, ?)`,
+          )
+          .run(historicalBlockId, projectId, documentId, now, now);
+
+        const genesis = createCardDocument({
+          documentId,
+          initialTitle: "Historical Block",
+        });
+        rootBlockGroup(genesis.document).insert(0, [
+          createParagraphBlock(historicalBlockId, "Before"),
+        ]);
+        initializeCardDocumentGenesis(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "historical-block-genesis",
+          clientSessionId: "migration",
+          update: Y.encodeStateAsUpdate(genesis.document),
+        });
+        genesis.document.destroy();
+        database
+          .prepare("UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?")
+          .run(documentId);
+
+        const historicalReplica = loadBlockDocument(database, documentId);
+        const historicalUpdate = captureOneUpdate(
+          historicalReplica.document,
+          () => {
+            firstBlockText(
+              findBlockContainer(historicalReplica.document, historicalBlockId),
+            ).insert(6, " updated");
+          },
+        );
+        const accepted = applyBlockDocumentUpdate(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "historical-block-update",
+          clientSessionId: "historical-client",
+          baseHeadSeq: 1,
+          touchedBlockIds: [historicalBlockId],
+          update: historicalUpdate,
+        });
+        expect(accepted.headSeq).toBe(2);
+        historicalReplica.document.destroy();
+
+        const invalidReplica = loadBlockDocument(database, documentId);
+        const nonV7BlockId = crypto.randomUUID();
+        const invalidUpdate = captureOneUpdate(invalidReplica.document, () => {
+          rootBlockGroup(invalidReplica.document).insert(1, [
+            createParagraphBlock(nonV7BlockId, "New"),
+          ]);
+        });
+        expectThrowsCode(
+          () =>
+            applyBlockDocumentUpdate(database, {
+              documentId,
+              storeEpoch,
+              generation: 1,
+              updateId: "non-v7-block-update",
+              clientSessionId: "modern-client",
+              baseHeadSeq: 2,
+              touchedBlockIds: [nonV7BlockId],
+              update: invalidUpdate,
+            }),
+          "invalid_document_update",
+        );
+        invalidReplica.document.destroy();
+        expect(getBlockDocumentRuntimeIdentity(database, documentId).head.headSeq).toBe(2);
         database.close();
       } finally {
         closeDatabase();
@@ -844,10 +950,13 @@ describe("BlockDocumentStore", () => {
             documentId: source.documentId,
             initialTitle: "Source",
           });
+          const movingRootId = createUuidV7();
+          const laterDeletedId = createUuidV7();
+          const remainingRootId = createUuidV7();
           rootBlockGroup(sourceGenesis.document).insert(0, [
-            createParagraphBlock("moving-root", "Move me"),
-            createParagraphBlock("later-deleted", "Delete me later"),
-            createParagraphBlock("remaining-root", "Remain"),
+            createParagraphBlock(movingRootId, "Move me"),
+            createParagraphBlock(laterDeletedId, "Delete me later"),
+            createParagraphBlock(remainingRootId, "Remain"),
           ]);
           const sourceGenesisUpdate = Y.encodeStateAsUpdate(
             sourceGenesis.document,
@@ -888,11 +997,11 @@ describe("BlockDocumentStore", () => {
             relocationId: "recovery-relocation",
             projectId: source.projectId,
             storeEpoch: source.storeEpoch,
-            rootBlockIds: ["moving-root"],
+            rootBlockIds: [movingRootId],
             sourceDocumentId: source.documentId,
             sourceGeneration: 1,
             expectedSourceHeadSeq: 1,
-            expectedLocationRevisions: { "moving-root": 1 },
+            expectedLocationRevisions: { [movingRootId]: 1 },
             target: {
               kind: "document",
               documentId: target.documentId,
@@ -924,7 +1033,7 @@ describe("BlockDocumentStore", () => {
           const derivedHitReplica = makeStaleReplica();
           const derivedHitUpdate = captureOneUpdate(derivedHitReplica, () => {
             const text = firstBlockText(
-              findBlockContainer(derivedHitReplica, "moving-root"),
+              findBlockContainer(derivedHitReplica, movingRootId),
             );
             text.insert(text.length, " while offline");
           });
@@ -964,7 +1073,7 @@ describe("BlockDocumentStore", () => {
           expect(
             JSON.parse(
               derivedArtifact.derived_touched_block_ids_json ?? "[]",
-            ).includes("moving-root"),
+            ).includes(movingRootId),
           ).toBe(true);
           expect(derivedArtifact.relocation_ids_json).toBe(
             '["recovery-relocation"]',
@@ -984,7 +1093,7 @@ describe("BlockDocumentStore", () => {
           const collision = captureStoreError(() =>
             applyBlockDocumentUpdate(database, {
               ...derivedHitInput,
-              touchedBlockIds: ["remaining-root"],
+              touchedBlockIds: [remainingRootId],
             }),
           );
           expect(collision.code).toBe("update_id_collision");
@@ -1018,7 +1127,7 @@ describe("BlockDocumentStore", () => {
               updateId: "stale-declared-relocated",
               clientSessionId: "offline-declared",
               baseHeadSeq: 1,
-              touchedBlockIds: ["moving-root"],
+              touchedBlockIds: [movingRootId],
               update: declaredHitUpdate,
             }),
           );
@@ -1043,7 +1152,7 @@ describe("BlockDocumentStore", () => {
               .findIndex(
                 (node) =>
                   node instanceof Y.XmlElement &&
-                  node.getAttribute("id") === "later-deleted",
+                  node.getAttribute("id") === laterDeletedId,
               );
             if (index < 0) throw new Error("Expected later-deleted Block");
             group.delete(index, 1);
@@ -1056,7 +1165,7 @@ describe("BlockDocumentStore", () => {
             updateId: "delete-after-relocation",
             clientSessionId: "online-source",
             baseHeadSeq: 2,
-            touchedBlockIds: ["later-deleted"],
+            touchedBlockIds: [laterDeletedId],
             update: deleteUpdate,
           });
           expect(deleteAck.headSeq).toBe(3);
@@ -1064,7 +1173,7 @@ describe("BlockDocumentStore", () => {
           const opaqueReplica = makeStaleReplica();
           const opaqueUpdate = captureOneUpdate(opaqueReplica, () => {
             const text = firstBlockText(
-              findBlockContainer(opaqueReplica, "later-deleted"),
+              findBlockContainer(opaqueReplica, laterDeletedId),
             );
             text.insert(text.length, " invisible offline edit");
           });

@@ -116,7 +116,10 @@ const main = async (): Promise<void> => {
           `
           UPDATE database_property_values
           SET value_json = '["relational"]', revision = revision + 1
-          WHERE membership_id = 'membership:' || ?
+          WHERE membership_id = (
+              SELECT id FROM database_memberships
+              WHERE card_block_id = ? AND removed_at IS NULL
+            )
             AND property_id = database_block_id || ':property:tags'
         `,
         )
@@ -126,7 +129,10 @@ const main = async (): Promise<void> => {
           `
           UPDATE database_property_values
           SET value_json = '"2031-02-03T10:00:00.000Z"', revision = revision + 1
-          WHERE membership_id = 'membership:' || ?
+          WHERE membership_id = (
+              SELECT id FROM database_memberships
+              WHERE card_block_id = ? AND removed_at IS NULL
+            )
             AND property_id = database_block_id || ':property:scheduled_start'
         `,
         )
@@ -136,7 +142,10 @@ const main = async (): Promise<void> => {
           `
           UPDATE database_property_values
           SET value_json = '"2031-02-03T11:00:00.000Z"', revision = revision + 1
-          WHERE membership_id = 'membership:' || ?
+          WHERE membership_id = (
+              SELECT id FROM database_memberships
+              WHERE card_block_id = ? AND removed_at IS NULL
+            )
             AND property_id = database_block_id || ':property:scheduled_end'
         `,
         )
@@ -173,7 +182,10 @@ const main = async (): Promise<void> => {
             `
             UPDATE database_property_values
             SET value_json = 'null', revision = revision + 1
-            WHERE membership_id = 'membership:' || ?
+            WHERE membership_id = (
+                SELECT id FROM database_memberships
+                WHERE card_block_id = ? AND removed_at IS NULL
+              )
               AND property_id = database_block_id || ':property:scheduled_end'
           `,
           )

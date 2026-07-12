@@ -204,6 +204,7 @@ import type {
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   Card,
   CardSummary,
@@ -740,7 +741,7 @@ export interface IpcApi {
   "card:occurrence:complete": {
     args: [
       projectId: string,
-      input: CardOccurrenceActionInput,
+      input: CardOccurrenceCompleteInput,
       sessionId?: string,
     ];
     result: { success: boolean; error?: string };

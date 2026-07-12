@@ -29,6 +29,7 @@ import type {
   CardUpdateMutationResult,
   CardUpdateResult,
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   MoveCardInput,
   MoveCardsInput,
@@ -60,9 +61,13 @@ type NewCardOccurrenceAction = Omit<
   CardOccurrenceActionInput,
   "operationId"
 >;
+type NewCardOccurrenceComplete = Omit<
+  CardOccurrenceCompleteInput,
+  "operationId" | "createdCardId"
+>;
 type NewCardOccurrenceUpdate = Omit<
   CardOccurrenceUpdateInput,
-  "operationId"
+  "operationId" | "createdCardId"
 >;
 
 interface MoveCardToProjectIntentInput {
@@ -154,7 +159,7 @@ export function useKanban(options: UseKanbanOptions) {
       }
       const createInput = ensureCreateInputId(input);
       const optimisticCard = createOptimisticCard(createInput);
-      const operationId = createUuidV7();
+      const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<Card>({
         kind: "card:create",
         conflictKeys: conflictKeysForCreate(columnId, optimisticCard.id),
@@ -208,7 +213,7 @@ export function useKanban(options: UseKanbanOptions) {
         return { status: "error", error: "No mutable Card metadata was specified" };
       }
       const conflictKeys = conflictKeysForPatch(cardId, updates);
-      const metadataMutationId = createUuidV7();
+      const metadataMutationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<CardUpdateResult>({
         kind: "block:properties",
         conflictKeys,
@@ -290,7 +295,7 @@ export function useKanban(options: UseKanbanOptions) {
   const deleteCard = useCallback(
     async (columnId: string, cardId: string): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const operationId = createUuidV7();
+      const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "card:delete",
         conflictKeys: conflictKeysForDelete(cardId),
@@ -320,7 +325,7 @@ export function useKanban(options: UseKanbanOptions) {
   const moveCard = useCallback(
     async (input: MoveCardInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const operationId = createUuidV7();
+      const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "database:position",
         conflictKeys: conflictKeysForMove(input),
@@ -346,7 +351,7 @@ export function useKanban(options: UseKanbanOptions) {
   const moveCards = useCallback(
     async (input: MoveCardsInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const operationId = createUuidV7();
+      const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "database:position-many",
         conflictKeys: conflictKeysForMoveMany(input),
@@ -392,7 +397,7 @@ export function useKanban(options: UseKanbanOptions) {
         return null;
       }
 
-      const operationId = createUuidV7();
+      const operationId = crypto.randomUUID();
       const outcome =
         await store.runOptimisticMutation<CardProjectTransferReceipt>({
           kind: "card:project-transfer",
@@ -455,11 +460,12 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const completeOccurrence = useCallback(
-    async (input: NewCardOccurrenceAction): Promise<boolean> => {
+    async (input: NewCardOccurrenceComplete): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const command: CardOccurrenceActionInput = {
+      const command: CardOccurrenceCompleteInput = {
         ...input,
-        operationId: createUuidV7(),
+        operationId: crypto.randomUUID(),
+        createdCardId: createUuidV7(),
       };
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
         kind: "card:occurrence:complete",
@@ -489,7 +495,7 @@ export function useKanban(options: UseKanbanOptions) {
       if (!requireWritableSelectedView()) return false;
       const command: CardOccurrenceActionInput = {
         ...input,
-        operationId: createUuidV7(),
+        operationId: crypto.randomUUID(),
       };
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
         kind: "card:occurrence:skip",
@@ -517,10 +523,11 @@ export function useKanban(options: UseKanbanOptions) {
   const updateOccurrence = useCallback(
     async (input: NewCardOccurrenceUpdate): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const command: CardOccurrenceUpdateInput = {
+      const command = {
         ...input,
-        operationId: createUuidV7(),
-      };
+        operationId: crypto.randomUUID(),
+        ...(input.scope === "all" ? {} : { createdCardId: createUuidV7() }),
+      } as CardOccurrenceUpdateInput;
       const optimisticPatch = normalizeOccurrenceUpdatesToCardPatch(command);
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
         kind: "card:occurrence:update",

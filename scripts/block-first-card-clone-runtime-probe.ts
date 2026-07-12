@@ -205,10 +205,12 @@ const main = async (): Promise<void> => {
 
     const missingCardId = createUuidV7();
     const rejectedOperationId = "occurrence-rejected-exact-retry";
+    const rejectedCreatedCardId = createUuidV7();
     const rejected = await completeCardOccurrence(
       project.id,
       {
         operationId: rejectedOperationId,
+        createdCardId: rejectedCreatedCardId,
         cardId: missingCardId,
         occurrenceStart: new Date("2026-07-12T10:00:00.000Z"),
         source: "calendar",
@@ -261,6 +263,7 @@ const main = async (): Promise<void> => {
       project.id,
       {
         operationId: rejectedOperationId,
+        createdCardId: rejectedCreatedCardId,
         cardId: missingCardId,
         occurrenceStart: new Date("2026-07-12T10:00:00.000Z"),
         source: "api",
@@ -513,10 +516,12 @@ const main = async (): Promise<void> => {
     );
 
     const completeOperationId = "occurrence-complete-exact-retry";
+    const completedCardId = createUuidV7();
     const completed = await completeCardOccurrence(
       project.id,
       {
         operationId: completeOperationId,
+        createdCardId: completedCardId,
         cardId: source.id,
         occurrenceStart: new Date("2026-07-12T10:00:00.000Z"),
         source: "calendar",
@@ -537,6 +542,7 @@ const main = async (): Promise<void> => {
       project.id,
       {
         operationId: completeOperationId,
+        createdCardId: completedCardId,
         cardId: source.id,
         occurrenceStart: new Date("2026-07-12T10:00:00.000Z"),
         source: "api",
@@ -558,6 +564,7 @@ const main = async (): Promise<void> => {
     );
     const completeCollision = await completeCardOccurrence(project.id, {
       operationId: completeOperationId,
+      createdCardId: completedCardId,
       cardId: source.id,
       occurrenceStart: new Date("2026-07-13T10:00:00.000Z"),
       source: "notification",
@@ -611,6 +618,7 @@ const main = async (): Promise<void> => {
     const splitOperationId = "occurrence-update-split-exact-retry";
     const splitRequest = {
       operationId: splitOperationId,
+      createdCardId: createUuidV7(),
       cardId: source.id,
       occurrenceStart: new Date("2026-07-15T10:00:00.000Z"),
       source: "calendar" as const,

@@ -18,6 +18,11 @@ import type {
   ProjectSessionsChangeEvent,
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
+import type {
+  CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
+  CardOccurrenceUpdateInput,
+} from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
 import {
@@ -1033,12 +1038,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "card:occurrence:complete": {
       const [projectId, input, sessionId] = args as [
         string,
-        {
-          operationId: string;
-          cardId: string;
-          occurrenceStart: Date;
-          source: string;
-        },
+        CardOccurrenceCompleteInput,
         string?,
       ];
       const res = await fetch(
@@ -1058,12 +1058,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "card:occurrence:skip": {
       const [projectId, input, sessionId] = args as [
         string,
-        {
-          operationId: string;
-          cardId: string;
-          occurrenceStart: Date;
-          source: string;
-        },
+        CardOccurrenceActionInput,
         string?,
       ];
       const res = await fetch(
@@ -1083,14 +1078,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "card:occurrence:update": {
       const [projectId, input, sessionId] = args as [
         string,
-        {
-          operationId: string;
-          cardId: string;
-          occurrenceStart: Date;
-          source: string;
-          scope: string;
-          updates: Record<string, unknown>;
-        },
+        CardOccurrenceUpdateInput,
         string?,
       ];
       const res = await fetch(

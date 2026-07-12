@@ -55,6 +55,7 @@ import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import type {
   CardOccurrenceActionInput,
+  CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   CodexBackgroundProcessRunActionInput,
   CodexHeartbeatAutomationThreadStateChangedInput,
@@ -478,6 +479,19 @@ function assertValidOccurrenceIpcInput(
   }
 }
 
+function assertValidOccurrenceCompleteIpcInput(
+  input: CardOccurrenceCompleteInput,
+): void {
+  assertValidOccurrenceIpcInput(input);
+  if (
+    typeof input.createdCardId !== "string" ||
+    input.createdCardId.length === 0 ||
+    input.createdCardId !== input.createdCardId.trim()
+  ) {
+    throw new Error("Missing or invalid occurrence createdCardId");
+  }
+}
+
 function assertValidOccurrenceUpdateIpcInput(
   input: CardOccurrenceUpdateInput,
 ): void {
@@ -488,6 +502,17 @@ function assertValidOccurrenceUpdateIpcInput(
     input.scope !== "all"
   ) {
     throw new Error("Missing or invalid occurrence scope");
+  }
+  if (input.scope === "all" && "createdCardId" in input) {
+    throw new Error("Occurrence scope all must not include createdCardId");
+  }
+  if (
+    input.scope !== "all" &&
+    (typeof input.createdCardId !== "string" ||
+      input.createdCardId.length === 0 ||
+      input.createdCardId !== input.createdCardId.trim())
+  ) {
+    throw new Error("Missing or invalid occurrence createdCardId");
   }
   if (
     typeof input.updates !== "object" ||
@@ -1536,7 +1561,7 @@ export function registerIpcHandlers(
   registerHandle(
     "card:occurrence:complete",
     async (_, projectId: string, input, sessionId?: string) => {
-      assertValidOccurrenceIpcInput(input);
+      assertValidOccurrenceCompleteIpcInput(input);
       const envelope = await blockMutationWriter.completeCardOccurrence(
         projectId,
         input,

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
+import { createUuidV7 } from "../../shared/card-id";
 import {
   createDetachedCardDocumentFromBlockTree,
   type BlockTreeNode,
@@ -222,26 +223,28 @@ describe("Synced Block document-bearing ownership", () => {
     "uses one body-only Y.Doc and converges independent clients across restart/history",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const sourceBlockId = createUuidV7();
+        const paragraphBlockId = createUuidV7();
         const created = createSyncedBlockSource(database, {
           operationId: "synced:create:convergence",
           projectId,
           storeEpoch,
-          sourceBlockId: "synced-source-convergence",
+          sourceBlockId,
           documentId: "document:synced-source-convergence",
           clientSessionId: "surface:create",
           actor: ACTOR,
-          blockTree: [paragraph("synced-paragraph", "base")],
+          blockTree: [paragraph(paragraphBlockId, "base")],
         });
         expect(created.duplicate).toBe(false);
         const retry = createSyncedBlockSource(database, {
           operationId: "synced:create:convergence",
           projectId,
           storeEpoch,
-          sourceBlockId: "synced-source-convergence",
+          sourceBlockId,
           documentId: "document:synced-source-convergence",
           clientSessionId: "surface:retry",
           actor: { test: "retry" },
-          blockTree: [paragraph("synced-paragraph", "base")],
+          blockTree: [paragraph(paragraphBlockId, "base")],
         });
         expect(retry.duplicate).toBe(true);
 
@@ -264,7 +267,7 @@ describe("Synced Block document-bearing ownership", () => {
           updateId: "synced:update:left",
           clientSessionId: "surface:left",
           baseHeadSeq: 1,
-          touchedBlockIds: ["synced-paragraph"],
+          touchedBlockIds: [paragraphBlockId],
           update: Y.encodeStateAsUpdate(left, leftVector),
         });
         applyBlockDocumentUpdate(database, {
@@ -274,7 +277,7 @@ describe("Synced Block document-bearing ownership", () => {
           updateId: "synced:update:right",
           clientSessionId: "surface:right",
           baseHeadSeq: 1,
-          touchedBlockIds: ["synced-paragraph"],
+          touchedBlockIds: [paragraphBlockId],
           update: Y.encodeStateAsUpdate(right, rightVector),
         });
         left.destroy();
@@ -306,7 +309,7 @@ describe("Synced Block document-bearing ownership", () => {
           updateId: "synced:update:later",
           clientSessionId: "surface:later",
           baseHeadSeq: 3,
-          touchedBlockIds: ["synced-paragraph"],
+          touchedBlockIds: [paragraphBlockId],
           update: Y.encodeStateAsUpdate(replica.document, vector),
         });
         replica.document.destroy();
@@ -345,13 +348,19 @@ describe("Synced Block document-bearing ownership", () => {
     "promotion/demotion preserve moved IDs while copy renews IDs and keeps targets",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const hostCardId = createUuidV7();
+        const promotedRootId = createUuidV7();
+        const promotedChildId = createUuidV7();
+        const referenceBlockId = createUuidV7();
+        const sourceBlockId = createUuidV7();
+        const copiedSourceBlockId = createUuidV7();
         seedPrimaryCardDocument(database, {
           projectId,
-          cardId: "host-card",
+          cardId: hostCardId,
           documentId: "document:host-card",
           blockTree: [
-            paragraph("promoted-root", "root", [
-              paragraph("promoted-child", "child"),
+            paragraph(promotedRootId, "root", [
+              paragraph(promotedChildId, "child"),
             ]),
           ],
         });
@@ -362,9 +371,9 @@ describe("Synced Block document-bearing ownership", () => {
           hostDocumentId: "document:host-card",
           expectedGeneration: 1,
           expectedHeadSeq: 1,
-          rootBlockId: "promoted-root",
-          referenceBlockId: "synced-reference",
-          sourceBlockId: "synced-source",
+          rootBlockId: promotedRootId,
+          referenceBlockId,
+          sourceBlockId,
           sourceDocumentId: "document:synced-source",
           clientSessionId: "surface:promote",
           actor: ACTOR,
@@ -377,27 +386,29 @@ describe("Synced Block document-bearing ownership", () => {
         expect(promoted.duplicate).toBe(false);
         const source = readMaterialization(database, "document:synced-source");
         expect(JSON.stringify(source.blockTree.map((block) => block.id))).toBe(
-          '["promoted-root"]',
+          JSON.stringify([promotedRootId]),
         );
-        expect(source.blockTree[0]?.children[0]?.id).toBe("promoted-child");
+        expect(source.blockTree[0]?.children[0]?.id).toBe(promotedChildId);
         const host = readMaterialization(database, "document:host-card");
-        expect(host.blockTree[0]?.id).toBe("synced-reference");
+        expect(host.blockTree[0]?.id).toBe(referenceBlockId);
         expect(host.blockTree[0]?.type).toBe(SYNCED_BLOCK_REFERENCE_TYPE);
         const locations = database
           .prepare(
             `SELECT id, containing_document_id FROM blocks WHERE id IN (?, ?, ?) ORDER BY id`,
           )
           .all(
-            "promoted-root",
-            "promoted-child",
-            "synced-reference",
+            promotedRootId,
+            promotedChildId,
+            referenceBlockId,
           ) as readonly {
           readonly id: string;
           readonly containing_document_id: string;
         }[];
-        expect(JSON.stringify(locations)).toBe(
-          '[{"id":"promoted-child","containing_document_id":"document:synced-source"},{"id":"promoted-root","containing_document_id":"document:synced-source"},{"id":"synced-reference","containing_document_id":"document:host-card"}]',
-        );
+        expect(locations).toEqual([
+          { id: promotedChildId, containing_document_id: "document:synced-source" },
+          { id: promotedRootId, containing_document_id: "document:synced-source" },
+          { id: referenceBlockId, containing_document_id: "document:host-card" },
+        ].sort((left, right) => left.id.localeCompare(right.id)));
         const retry = promoteBlockToSyncedSource(database, {
           operationId: "synced:promote",
           projectId,
@@ -405,9 +416,9 @@ describe("Synced Block document-bearing ownership", () => {
           hostDocumentId: "document:host-card",
           expectedGeneration: 1,
           expectedHeadSeq: 1,
-          rootBlockId: "promoted-root",
-          referenceBlockId: "synced-reference",
-          sourceBlockId: "synced-source",
+          rootBlockId: promotedRootId,
+          referenceBlockId,
+          sourceBlockId,
           sourceDocumentId: "document:synced-source",
           clientSessionId: "surface:retry",
           actor: { test: "retry" },
@@ -423,19 +434,19 @@ describe("Synced Block document-bearing ownership", () => {
           operationId: "synced:copy",
           projectId,
           storeEpoch,
-          sourceBlockId: "synced-source",
+          sourceBlockId,
           sourceDocumentId: "document:synced-source",
           expectedSourceGeneration: 1,
           expectedSourceHeadSeq: 1,
-          newSourceBlockId: "synced-source-copy",
+          newSourceBlockId: copiedSourceBlockId,
           newDocumentId: "document:synced-source-copy",
           clientSessionId: "surface:copy",
           actor: ACTOR,
         });
         const copy = readMaterialization(database, copied.documentId);
-        expect(copy.blockTree[0]?.id === "promoted-root").toBe(false);
+        expect(copy.blockTree[0]?.id === promotedRootId).toBe(false);
         expect(
-          copy.blockTree[0]?.children[0]?.id === "promoted-child",
+          copy.blockTree[0]?.children[0]?.id === promotedChildId,
         ).toBe(false);
 
         const demoted = demoteSyncedBlockSource(database, {
@@ -447,8 +458,8 @@ describe("Synced Block document-bearing ownership", () => {
           expectedHeadSeq: promoted.hostMutation.headSeq,
           expectedSourceGeneration: 1,
           expectedSourceHeadSeq: 1,
-          referenceBlockId: "synced-reference",
-          sourceBlockId: "synced-source",
+          referenceBlockId,
+          sourceBlockId,
           sourceDocumentId: "document:synced-source",
           clientSessionId: "surface:demote",
           actor: ACTOR,
@@ -468,15 +479,15 @@ describe("Synced Block document-bearing ownership", () => {
         });
         expect(demoted.duplicate).toBe(false);
         const inlined = readMaterialization(database, "document:host-card");
-        expect(inlined.blockTree[0]?.id).toBe("promoted-root");
-        expect(inlined.blockTree[0]?.children[0]?.id).toBe("promoted-child");
+        expect(inlined.blockTree[0]?.id).toBe(promotedRootId);
+        expect(inlined.blockTree[0]?.children[0]?.id).toBe(promotedChildId);
         const lifecycle = database
           .prepare("SELECT lifecycle FROM blocks WHERE id = ?")
-          .get("synced-source") as { readonly lifecycle: string };
+          .get(sourceBlockId) as { readonly lifecycle: string };
         expect(lifecycle.lifecycle).toBe("deleted");
         const reference = database
           .prepare("SELECT lifecycle FROM blocks WHERE id = ?")
-          .get("synced-reference") as { readonly lifecycle: string };
+          .get(referenceBlockId) as { readonly lifecycle: string };
         expect(reference.lifecycle).toBe("deleted");
       });
     },
@@ -486,11 +497,17 @@ describe("Synced Block document-bearing ownership", () => {
     "faults roll back ownership and stale/shared reference evidence fails closed",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
+        const hostCardId = createUuidV7();
+        const faultRootId = createUuidV7();
+        const faultReferenceId = createUuidV7();
+        const faultSourceId = createUuidV7();
+        const staleSourceId = createUuidV7();
+        const staleBodyId = createUuidV7();
         seedPrimaryCardDocument(database, {
           projectId,
-          cardId: "fault-host",
+          cardId: hostCardId,
           documentId: "document:fault-host",
-          blockTree: [paragraph("fault-root", "fault")],
+          blockTree: [paragraph(faultRootId, "fault")],
         });
         let failed = false;
         try {
@@ -501,9 +518,9 @@ describe("Synced Block document-bearing ownership", () => {
             hostDocumentId: "document:fault-host",
             expectedGeneration: 1,
             expectedHeadSeq: 1,
-            rootBlockId: "fault-root",
-            referenceBlockId: "fault-reference",
-            sourceBlockId: "fault-source",
+            rootBlockId: faultRootId,
+            referenceBlockId: faultReferenceId,
+            sourceBlockId: faultSourceId,
             sourceDocumentId: "document:fault-source",
             clientSessionId: "surface:fault",
             actor: ACTOR,
@@ -522,21 +539,21 @@ describe("Synced Block document-bearing ownership", () => {
         expect(failed).toBe(true);
         const residual = database
           .prepare("SELECT COUNT(*) AS count FROM blocks WHERE id IN (?, ?)")
-          .get("fault-source", "fault-reference") as { readonly count: number };
+          .get(faultSourceId, faultReferenceId) as { readonly count: number };
         expect(residual.count).toBe(0);
         expect(
           readMaterialization(database, "document:fault-host").blockTree[0]?.id,
-        ).toBe("fault-root");
+        ).toBe(faultRootId);
 
         const created = createSyncedBlockSource(database, {
           operationId: "synced:create:stale",
           projectId,
           storeEpoch,
-          sourceBlockId: "stale-source",
+          sourceBlockId: staleSourceId,
           documentId: "document:stale-source",
           clientSessionId: "surface:create",
           actor: ACTOR,
-          blockTree: [paragraph("stale-body", "body")],
+          blockTree: [paragraph(staleBodyId, "body")],
         });
         database
           .prepare(
@@ -555,7 +572,7 @@ describe("Synced Block document-bearing ownership", () => {
             expectedSourceGeneration: 1,
             expectedSourceHeadSeq: 1,
             referenceBlockId: "missing-reference",
-            sourceBlockId: "stale-source",
+            sourceBlockId: staleSourceId,
             sourceDocumentId: "document:stale-source",
             clientSessionId: "surface:demote",
             actor: ACTOR,
@@ -586,11 +603,12 @@ describe("Synced Block document-bearing ownership", () => {
 
   sqliteTest("owner/schema pairs fail closed", async () => {
     await withDatabase((database, projectId, storeEpoch) => {
+      const sourceBlockId = createUuidV7();
       const created = createSyncedBlockSource(database, {
         operationId: "synced:create:schema",
         projectId,
         storeEpoch,
-        sourceBlockId: "schema-source",
+        sourceBlockId,
         documentId: "document:schema-source",
         clientSessionId: "surface:create",
         actor: ACTOR,

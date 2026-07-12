@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- New user/content Blocks now receive time-ordered UUID-v7 identities, while Views, properties, memberships, and retry-operation identities use UUID-v4. Existing stored identities remain readable without migration, and occurrence commands now carry the identity of any Card they may create.
 - Moving a Card to another Project now atomically transfers its complete owned-document closure and Database membership after all open editors flush, preserving collaborative identities while both Projects refresh immediately.
 - Synced Blocks, Reusable Templates, Large Documents, and Large Code Blocks now open their independently synchronized content inline on demand, while collapsed/offscreen shells create no editor or provider and Canvas scenes remain in Canvas view.
 - Database management now adds, transfers, and removes a Card's single owning membership without relying on filtered View visibility, targets a chosen durable View and logical position anchor, and authors each View's layout, filters, sorts, grouping, displayed properties, and order without silently overwriting a concurrent window.

@@ -211,6 +211,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Single `nodex.db` file in the local store directory
 - Schema v70 stores Block identity, owned Yjs Documents, Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. The content-bearing Card/history/description snapshot tables are absent.
 - One asynchronous `BlockMutationWriter` serializes Block/Card-domain `better-sqlite3` transactions outside the Electron main event loop.
+- New user/content Block identities use canonical lowercase UUID-v7 and are validated only at creation. Existing IDs remain opaque. View, property, membership, operation, mutation, and other non-Block identities default to UUID-v4 when they do not have a stronger domain-derived identity; explicit timestamps, ranks, and sequences remain the only ordering authority.
 
 #### 5. Card Properties
 
@@ -406,7 +407,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Users can complete or skip a specific occurrence from Calendar quick actions and from Card Stage.
 - Completing an occurrence creates a new current-content Card with status `done` and `archived=true`; archived events remain visible on Calendar with muted styling.
 - Complete, skip, and scoped update are idempotent logical commands. Every caller supplies and retains an `operationId`; retrying the same command after a lost response, app restart, or IPC/HTTP switch returns the first committed or rejected result without cloning or advancing again. Reusing that ID for a different Card, occurrence, scope, update, or command kind returns a typed collision.
-- Missing/unscheduled targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Card, schedule, exception, projection, or change-log entry is written. Cards created by complete/detach/split use a deterministic command-derived UUID-v7 and clone the source's current collaborative title/body and relational properties without creating another storage aggregate.
+- Missing/unscheduled targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Card, schedule, exception, projection, or change-log entry is written. Complete and clone-capable update commands preallocate a UUID-v7 `createdCardId` as part of their canonical intent; complete/detach/split clone the source's current collaborative title/body and relational properties into that identity without creating another storage aggregate.
 - Recurrence logs are not exposed in product UI or API.
 - Occurrence schedule edits support scope: `this`, `this-and-future` (series split), and `all`.
 - For recurring event drag/resize from Calendar, the app prompts with explicit scope choices before persisting. On the first occurrence in the current series, it shows `Only this occurrence` and `All occurrences`; on non-first occurrences, it shows `Only this occurrence` and `This and future`.
@@ -726,9 +727,9 @@ nodex/
 | POST | `/api/projects/[sourceProjectId]/card-transfers` | Atomically transfer a top-level Card and recursively owned Document closure to another Project |
 | POST | `/api/cards/search` | Search exact-head Block/Document units across selected Projects and return bounded excerpts |
 | GET | `/api/projects/[projectId]/calendar/occurrences` | List calendar occurrences in a time window (`?start=ISO&end=ISO&search=...`) |
-| POST | `/api/projects/[projectId]/card-occurrence/complete` | Complete one occurrence (body: `{operationId, cardId, occurrenceStart, source, sessionId?}`) |
+| POST | `/api/projects/[projectId]/card-occurrence/complete` | Complete one occurrence (body: `{operationId, createdCardId, cardId, occurrenceStart, source, sessionId?}`) |
 | POST | `/api/projects/[projectId]/card-occurrence/skip` | Skip one occurrence (body: `{operationId, cardId, occurrenceStart, source, sessionId?}`) |
-| PUT | `/api/projects/[projectId]/card-occurrence` | Update occurrence timing with scope (body: `{operationId, cardId, occurrenceStart, source, scope, updates, sessionId?}`) |
+| PUT | `/api/projects/[projectId]/card-occurrence` | Update occurrence timing with scope (body: `{operationId, createdCardId?, cardId, occurrenceStart, source, scope, updates, sessionId?}`; `createdCardId` is required for `this` and `this-and-future`) |
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
 | GET | `/api/projects/[projectId]/cards/[cardBlockId]/history` | Cursor-paginated canonical Card timeline merged from Document checkpoints and Block mutation/relocation evidence |
 | POST | `/api/projects/[projectId]/query` | Execute read-only SQL query |
