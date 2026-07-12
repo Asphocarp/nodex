@@ -6,7 +6,7 @@ import {
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
   SYNCED_BLOCK_SOURCE_TYPE,
-  type OwnedBlockDocumentDescriptor,
+  type OwnedDocumentDescriptor,
 } from "../../../shared/block-documents";
 import { render } from "@/test/dom";
 import { TestQueryProvider } from "@/test/query";
@@ -15,7 +15,7 @@ import {
   RegisteredOwnedBlockDocumentBoundary,
 } from "./owned-block-document-boundary";
 
-const descriptor = (): OwnedBlockDocumentDescriptor => ({
+const descriptor = (): OwnedDocumentDescriptor => ({
   projectId: "project-1",
   ownerBlockId: "card-1",
   ownerType: "card",
@@ -27,8 +27,7 @@ const descriptor = (): OwnedBlockDocumentDescriptor => ({
   schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
   schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
-  authority: "ydoc_primary",
-  stateVector: new Uint8Array([0]),
+  sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
 });
 
 describe("OwnedBlockDocumentBoundary", () => {
@@ -58,13 +57,13 @@ describe("OwnedBlockDocumentBoundary", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByTestId("authority").textContent).toBe("ydoc_primary");
+      expect(view.getByTestId("authority").textContent).toBe("ready");
     });
     expect(fetches).toBe(1);
 
     fireEvent.click(view.getByRole("button", { name: "Reload descriptor" }));
     await waitFor(() => expect(fetches).toBe(2));
-    expect(view.getByTestId("authority").textContent).toBe("ydoc_primary");
+    expect(view.getByTestId("authority").textContent).toBe("ready");
   });
 
   test("opens a registered non-Card document-bearing Block descriptor", async () => {
@@ -90,7 +89,7 @@ describe("OwnedBlockDocumentBoundary", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByTestId("authority").textContent).toBe("ydoc_primary");
+      expect(view.getByTestId("authority").textContent).toBe("ready");
     });
   });
 });

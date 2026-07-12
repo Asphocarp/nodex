@@ -8,9 +8,10 @@ import {
   listBlockDocumentSchemaAdapters,
   type RegisteredBlockDocumentSchemaAdapter,
 } from "../../shared/block-documents/document-schema-adapters";
+import { parsePortableCanvasScene } from "../../shared/block-documents/canvas-scene";
 import type { BlockDocumentReference } from "../../shared/block-documents/derived-records";
 import { parseProjectSessionTabConfig } from "../../shared/schemas/project-sessions";
-import { readCanvasSceneMaterialization } from "./canvas-scene-materializations";
+import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 
 export const BLOCK_RETENTION_GC_POLICY_VERSION = 1 as const;
 
@@ -162,8 +163,12 @@ const KNOWN_INBOUND_AUTHORITY_TABLES = new Set([
   "block_search_units",
   "blocks",
   "canvas_card_references",
+  "canvas_scene_elements",
   "canvas_scene_file_refs",
+  "canvas_scene_files",
   "canvas_scene_materializations",
+  "canvas_scene_mutation_receipts",
+  "canvas_scenes",
   "card_read_model",
   "database_capabilities",
   "database_memberships",
@@ -605,7 +610,7 @@ const analyzeDocumentProjectionRoots = (
       SELECT document.id, document.generation, document.head_seq,
         document.project_id,
         document.schema_key, document.schema_version,
-        document.readiness, document.authority,
+        document.readiness, document.authority, document.sync_engine,
         owner.id AS owner_block_id, owner.type AS owner_type
       FROM documents document
       INNER JOIN block_documents ownership
@@ -626,6 +631,7 @@ const analyzeDocumentProjectionRoots = (
     readonly schema_version: number;
     readonly readiness: string;
     readonly authority: string;
+    readonly sync_engine: "yjs" | "canvas_scene";
     readonly owner_block_id: string;
     readonly owner_type: string;
   }[];
@@ -644,7 +650,8 @@ const analyzeDocumentProjectionRoots = (
     }
     if (
       document.readiness !== "ready" ||
-      document.authority !== "ydoc_primary"
+      document.authority !== "ydoc_primary" ||
+      adapter.syncEngine !== document.sync_engine
     ) {
       addProjectionFailure(collector, document.id, "document_not_primary_ready");
       continue;
@@ -724,16 +731,12 @@ const analyzeDocumentProjectionRoots = (
       continue;
     }
     try {
-      const scene = readCanvasSceneMaterialization(database, document.id);
-      if (
-        !scene ||
-        scene.generation !== document.generation ||
-        scene.projectedSeq !== document.head_seq ||
-        scene.schemaVersion !== document.schema_version
-      ) {
-        addProjectionFailure(collector, document.id, "canvas_projection_stale");
-        continue;
-      }
+      const authority = readCanvasSceneAuthoritySnapshot(database, {
+        documentId: document.id,
+        generation: document.generation,
+        headSeq: document.head_seq,
+        schemaVersion: document.schema_version,
+      });
       const rows = database
         .prepare(
           `
@@ -753,7 +756,7 @@ const analyzeDocumentProjectionRoots = (
         readonly source_element_id: string;
         readonly target_block_id: string;
       }[];
-      const projected = scene.materialization.cardReferences
+      const projected = authority.scene.cardReferences
         .map((reference) => ({
           source_element_id: reference.sourceElementId,
           target_block_id: reference.targetBlockId,
@@ -900,7 +903,8 @@ const analyzeHistoricalDocumentVersionRoots = (
     .prepare(
       `
       SELECT version_id, document_id, project_id, schema_key, schema_version,
-        full_update_blob, state_vector, checkpoint_hash, byte_length
+        checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+        byte_length
       FROM document_versions
       ORDER BY version_id
     `,
@@ -911,6 +915,7 @@ const analyzeHistoricalDocumentVersionRoots = (
     readonly project_id: string;
     readonly schema_key: string;
     readonly schema_version: number;
+    readonly checkpoint_format: "yjs_update_v1" | "canvas_scene_json_v1";
     readonly full_update_blob: Buffer;
     readonly state_vector: Buffer;
     readonly checkpoint_hash: string;
@@ -943,6 +948,33 @@ const analyzeHistoricalDocumentVersionRoots = (
       sha256(version.full_update_blob) !== version.checkpoint_hash
     ) {
       corrupt("historical_checkpoint_metadata_corrupt");
+      continue;
+    }
+    if (version.checkpoint_format === "canvas_scene_json_v1") {
+      if (version.state_vector.byteLength !== 0 || adapter.syncEngine !== "canvas_scene") {
+        corrupt("historical_checkpoint_format_corrupt");
+        continue;
+      }
+      try {
+        const scene = parsePortableCanvasScene(
+          JSON.parse(version.full_update_blob.toString("utf8")) as unknown,
+        );
+        for (const reference of scene.cardReferences) {
+          if (!closure.blockIds.has(reference.targetBlockId)) continue;
+          collector.add("canvas_card_reference", {
+            source: "document_versions",
+            identity: version.version_id,
+            relation: `historical_canvas:${reference.sourceElementId}`,
+            documentId: version.document_id,
+          });
+        }
+      } catch {
+        corrupt("historical_checkpoint_schema_corrupt");
+      }
+      continue;
+    }
+    if (adapter.syncEngine !== "yjs") {
+      corrupt("historical_checkpoint_format_corrupt");
       continue;
     }
     const document = new Y.Doc({ guid: version.document_id });

@@ -3,9 +3,7 @@ import {
   MAX_CARD_DOCUMENT_STATE_BYTES,
   MAX_CARD_DOCUMENT_UPDATE_BYTES,
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
-  type DocumentAuthority,
   type DocumentReadiness,
-  type OwnedBlockDocumentDescriptor,
   type OwnedDocumentDescriptor,
 } from "./contracts";
 import {
@@ -106,22 +104,6 @@ interface EncodedRealtimeEvent {
   readonly expectedHeadSeq?: number;
   readonly deadlineAt?: number;
   readonly reason?: string;
-}
-
-interface EncodedOwnedBlockDocumentDescriptor extends VersionedMetadata {
-  readonly projectId: string;
-  readonly ownerBlockId: string;
-  readonly ownerType: string;
-  readonly ownerLifecycle: OwnedBlockDocumentDescriptor["ownerLifecycle"];
-  readonly documentId: string;
-  readonly storeEpoch: string;
-  readonly generation: number;
-  readonly headSeq: number;
-  readonly schemaKey: string;
-  readonly schemaVersion: number;
-  readonly readiness: DocumentReadiness;
-  readonly authority: DocumentAuthority;
-  readonly stateVector: string;
 }
 
 type EncodedOwnedDocumentSyncEngine =
@@ -326,39 +308,6 @@ const parseAwarenessRequestMetadata = (
   };
 };
 
-const parseOwnedBlockDocumentDescriptor = (
-  value: unknown,
-): EncodedOwnedBlockDocumentDescriptor => {
-  const record = readRecord(value);
-  return {
-    version: readVersion(record),
-    projectId: readString(record, "projectId"),
-    ownerBlockId: readString(record, "ownerBlockId"),
-    ownerType: readString(record, "ownerType"),
-    ownerLifecycle: readEnum(record, "ownerLifecycle", [
-      "active",
-      "archived",
-      "deleted",
-    ] as const),
-    documentId: readString(record, "documentId"),
-    storeEpoch: readString(record, "storeEpoch"),
-    generation: readInteger(record, "generation", 1),
-    headSeq: readInteger(record, "headSeq", 0),
-    schemaKey: readString(record, "schemaKey"),
-    schemaVersion: readInteger(record, "schemaVersion", 1),
-    readiness: readEnum(record, "readiness", [
-      "pending_genesis",
-      "ready",
-      "failed",
-    ] as const),
-    authority: readEnum(record, "authority", [
-      "legacy_shadow",
-      "ydoc_primary",
-    ] as const),
-    stateVector: readString(record, "stateVector"),
-  };
-};
-
 const parseOwnedDocumentSyncEngine = (
   value: unknown,
 ): EncodedOwnedDocumentSyncEngine => {
@@ -495,51 +444,6 @@ export const decodeOwnedDocumentDescriptorHttp = (
     schemaVersion: descriptor.schemaVersion,
     readiness: descriptor.readiness,
     sync,
-  };
-};
-
-/** @deprecated Migration-only v1 Yjs descriptor codec. */
-export const encodeOwnedBlockDocumentDescriptorHttp = (
-  descriptor: OwnedBlockDocumentDescriptor,
-): string =>
-  JSON.stringify({
-    version: 1,
-    ...descriptor,
-    stateVector: documentBytesToBase64(descriptor.stateVector),
-  } satisfies EncodedOwnedBlockDocumentDescriptor);
-
-export const decodeOwnedBlockDocumentDescriptorHttp = (
-  serialized: string,
-): OwnedBlockDocumentDescriptor => {
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(serialized);
-  } catch (error) {
-    throw new DocumentHttpWireError(
-      "Owned Document descriptor is not valid JSON",
-      {
-        cause: error,
-      },
-    );
-  }
-  const descriptor = parseOwnedBlockDocumentDescriptor(decoded);
-  return {
-    projectId: descriptor.projectId,
-    ownerBlockId: descriptor.ownerBlockId,
-    ownerType: descriptor.ownerType,
-    ownerLifecycle: descriptor.ownerLifecycle,
-    documentId: descriptor.documentId,
-    storeEpoch: descriptor.storeEpoch,
-    generation: descriptor.generation,
-    headSeq: descriptor.headSeq,
-    schemaKey: descriptor.schemaKey,
-    schemaVersion: descriptor.schemaVersion,
-    readiness: descriptor.readiness,
-    authority: descriptor.authority,
-    stateVector: documentBytesFromBase64(
-      descriptor.stateVector,
-      MAX_CARD_DOCUMENT_STATE_BYTES,
-    ),
   };
 };
 

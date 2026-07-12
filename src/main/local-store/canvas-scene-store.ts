@@ -2,12 +2,9 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import type Database from "better-sqlite3";
 import {
-  CANVAS_SCENE_SCHEMA_VERSION,
   CANVAS_SCENE_SYNC_VERSION,
   canonicalPortableCanvasSceneFingerprint,
   canonicalStringifyCanvasScene,
-  canonicalizeCanvasSceneElement,
-  canonicalizeCanvasSceneFile,
   canvasSceneElementOrderKey,
   chooseCanvasSceneElementWinner,
   materializePortableCanvasScene,
@@ -36,6 +33,10 @@ import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents
 import { persistCanvasSceneMaterialization } from "./canvas-scene-materializations";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { resolveAssetPath } from "./assets";
+import {
+  CanvasSceneAuthorityReadError,
+  readCanvasSceneAuthoritySnapshot,
+} from "./canvas-scene-authority-reader";
 
 interface CanvasDocumentRow {
   readonly document_id: string;
@@ -44,41 +45,11 @@ interface CanvasDocumentRow {
   readonly head_seq: number;
   readonly schema_key: string;
   readonly schema_version: number;
+  readonly sync_engine: "yjs" | "canvas_scene";
   readonly readiness: string;
   readonly authority: string;
   readonly owner_block_id: string;
   readonly owner_type: string;
-}
-
-interface CanvasSceneRow {
-  readonly document_id: string;
-  readonly generation: number;
-  readonly head_seq: number;
-  readonly schema_version: number;
-  readonly app_state_json: string;
-  readonly scene_hash: string;
-  readonly updated_at: string;
-}
-
-interface CanvasElementRow {
-  readonly element_id: string;
-  readonly version: number;
-  readonly version_nonce: number;
-  readonly order_key: string;
-  readonly is_deleted: number;
-  readonly element_json: string;
-  readonly element_hash: string;
-  readonly updated_at: string;
-}
-
-interface CanvasFileRow {
-  readonly file_id: string;
-  readonly mime_type: string;
-  readonly asset_uri: string;
-  readonly created_ms: number | null;
-  readonly file_json: string;
-  readonly file_hash: string;
-  readonly updated_at: string;
 }
 
 interface CanvasReceiptRow {
@@ -99,7 +70,7 @@ interface CanvasReceiptRow {
 interface LoadedCanvasAuthority {
   readonly document: CanvasDocumentRow;
   readonly storeEpoch: string;
-  readonly sceneRow: CanvasSceneRow;
+  readonly sceneRow: { readonly scene_hash: string; readonly updated_at: string };
   readonly scene: PortableCanvasScene;
   readonly elementsById: ReadonlyMap<
     string,
@@ -203,7 +174,8 @@ const readDocument = (
       `
       SELECT document.id AS document_id, document.project_id,
         document.generation, document.head_seq, document.schema_key,
-        document.schema_version, document.readiness, document.authority,
+        document.schema_version, document.sync_engine, document.readiness,
+        document.authority,
         ownership.block_id AS owner_block_id, owner.type AS owner_type
       FROM documents document
       INNER JOIN block_documents ownership
@@ -252,130 +224,16 @@ const readDocument = (
       { cause: error },
     );
   }
-  if (registration.syncEngine === "canvas_scene") return row;
+  if (
+    registration.syncEngine === "canvas_scene" &&
+    row.sync_engine === "canvas_scene"
+  ) return row;
   throw new CanvasSceneStoreError(
     "document_engine_mismatch",
-    `Document ${documentId} uses ${registration.syncEngine}, not canvas_scene`,
+    `Document ${documentId} stores ${row.sync_engine} but its schema requires ${registration.syncEngine}`,
     false,
     true,
   );
-};
-
-const readSceneRow = (
-  database: Database.Database,
-  document: CanvasDocumentRow,
-): CanvasSceneRow => {
-  const row = database
-    .prepare(
-      `SELECT document_id, generation, head_seq, schema_version,
-        app_state_json, scene_hash, updated_at
-       FROM canvas_scenes WHERE document_id = ?`,
-    )
-    .get(document.document_id) as CanvasSceneRow | undefined;
-  if (!row) {
-    throw new CanvasSceneStoreError(
-      "document_not_ready",
-      `Canvas scene authority is not initialized: ${document.document_id}`,
-      true,
-    );
-  }
-  if (
-    row.generation !== document.generation ||
-    row.head_seq !== document.head_seq ||
-    row.schema_version !== document.schema_version ||
-    row.schema_version !== CANVAS_SCENE_SCHEMA_VERSION
-  ) {
-    throw new CanvasSceneStoreError(
-      "canvas_scene_corrupt",
-      `Canvas scene ${document.document_id} does not match its Document head`,
-      false,
-      true,
-    );
-  }
-  return row;
-};
-
-const readElements = (
-  database: Database.Database,
-  documentId: string,
-): {
-  readonly ordered: readonly CanvasSceneElement[];
-  readonly byId: ReadonlyMap<
-    string,
-    { readonly element: CanvasSceneElement; readonly orderKey: string }
-  >;
-} => {
-  const rows = database
-    .prepare(
-      `SELECT element_id, version, version_nonce, order_key, is_deleted,
-        element_json, element_hash, updated_at
-       FROM canvas_scene_elements
-       WHERE document_id = ?
-       ORDER BY order_key, element_id`,
-    )
-    .all(documentId) as readonly CanvasElementRow[];
-  const byId = new Map<
-    string,
-    { readonly element: CanvasSceneElement; readonly orderKey: string }
-  >();
-  for (const row of rows) {
-    const element = canonicalizeCanvasSceneElement(
-      parseJson(row.element_json, `element ${row.element_id}`),
-      { expectedId: row.element_id },
-    );
-    const canonical = canonicalStringifyCanvasScene(element);
-    if (
-      sha256(canonical) !== row.element_hash ||
-      element.version !== row.version ||
-      element.versionNonce !== row.version_nonce ||
-      (element.isDeleted === true ? 1 : 0) !== row.is_deleted ||
-      (typeof element.index === "string" && element.index !== row.order_key)
-    ) {
-      throw new CanvasSceneStoreError(
-        "canvas_scene_corrupt",
-        `Stored Canvas element evidence diverges: ${row.element_id}`,
-        false,
-        true,
-      );
-    }
-    byId.set(row.element_id, { element, orderKey: row.order_key });
-  }
-  return { ordered: [...byId.values()].map(({ element }) => element), byId };
-};
-
-const readFiles = (
-  database: Database.Database,
-  documentId: string,
-): ReadonlyMap<string, CanvasSceneFile> => {
-  const rows = database
-    .prepare(
-      `SELECT file_id, mime_type, asset_uri, created_ms, file_json,
-        file_hash, updated_at
-       FROM canvas_scene_files WHERE document_id = ? ORDER BY file_id`,
-    )
-    .all(documentId) as readonly CanvasFileRow[];
-  const files = new Map<string, CanvasSceneFile>();
-  for (const row of rows) {
-    const file = canonicalizeCanvasSceneFile(
-      parseJson(row.file_json, `file ${row.file_id}`),
-      row.file_id,
-    );
-    if (
-      sha256(canonicalStringifyCanvasScene(file)) !== row.file_hash ||
-      file.mimeType !== row.mime_type ||
-      file.source !== row.asset_uri ||
-      (file.created ?? null) !== row.created_ms
-    ) {
-      throw new CanvasSceneStoreError(
-        "canvas_scene_corrupt",
-        `Stored Canvas file evidence diverges: ${row.file_id}`,
-        false,
-        true,
-      );
-    }
-    files.set(row.file_id, file);
-  }
-  return files;
 };
 
 const loadAuthority = (
@@ -384,39 +242,35 @@ const loadAuthority = (
   documentId: string,
 ): LoadedCanvasAuthority => {
   const document = readDocument(database, projectId, documentId);
-  const sceneRow = readSceneRow(database, document);
-  const elements = readElements(database, documentId);
-  const filesById = readFiles(database, documentId);
-  const appState = parseJson(sceneRow.app_state_json, "appState");
-  if (typeof appState !== "object" || appState === null || Array.isArray(appState)) {
+  let snapshot;
+  try {
+    snapshot = readCanvasSceneAuthoritySnapshot(database, {
+      documentId,
+      generation: document.generation,
+      headSeq: document.head_seq,
+      schemaVersion: document.schema_version,
+    });
+  } catch (error) {
+    if (!(error instanceof CanvasSceneAuthorityReadError)) throw error;
     throw new CanvasSceneStoreError(
       "canvas_scene_corrupt",
-      "Stored Canvas appState must be an object",
+      error.message,
       false,
       true,
-    );
-  }
-  const scene = materializePortableCanvasScene({
-    elements: elements.ordered,
-    appState: appState as Readonly<Record<string, unknown>>,
-    files: Object.fromEntries(filesById),
-  });
-  const sceneHash = sha256(canonicalPortableCanvasSceneFingerprint(scene));
-  if (sceneHash !== sceneRow.scene_hash) {
-    throw new CanvasSceneStoreError(
-      "canvas_scene_corrupt",
-      `Stored Canvas scene hash diverges: ${documentId}`,
-      false,
-      true,
+      undefined,
+      { cause: error },
     );
   }
   return {
     document,
     storeEpoch: readStoreEpoch(database),
-    sceneRow,
-    scene,
-    elementsById: elements.byId,
-    filesById,
+    sceneRow: {
+      scene_hash: snapshot.sceneHash,
+      updated_at: snapshot.updatedAt,
+    },
+    scene: snapshot.scene,
+    elementsById: snapshot.elementsById,
+    filesById: snapshot.filesById,
   };
 };
 

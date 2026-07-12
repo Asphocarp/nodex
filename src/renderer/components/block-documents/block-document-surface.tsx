@@ -10,7 +10,7 @@ import {
 import type { Awareness } from "y-protocols/awareness";
 import type {
   CardDocumentEnvelope,
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
 } from "../../../shared/block-documents";
 import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/document-schema-adapters";
 import { NodexButton } from "@/components/ui/button";
@@ -27,16 +27,13 @@ import type {
   ReadyCardBlockDocumentDescriptor,
 } from "@/lib/owned-block-document";
 
-export type PrimaryCardBlockDocumentDescriptor =
-  ReadyCardBlockDocumentDescriptor & {
-    readonly authority: "ydoc_primary";
-  };
+export type PrimaryCardBlockDocumentDescriptor = ReadyCardBlockDocumentDescriptor;
 
 export type PrimaryOwnedBlockDocumentDescriptor =
-  OwnedBlockDocumentDescriptor & {
+  OwnedDocumentDescriptor & {
     readonly ownerLifecycle: "active";
     readonly readiness: "ready";
-    readonly authority: "ydoc_primary";
+    readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
   };
 
 export type BlockDocumentLocalAwarenessState = Readonly<
@@ -526,5 +523,5 @@ export const isPrimaryOwnedBlockDocumentModel = (
   model: OwnedBlockDocumentModel,
 ): model is Extract<
   OwnedBlockDocumentModel,
-  { readonly status: "ydoc_primary" }
-> => model.status === "ydoc_primary";
+  { readonly status: "ready" }
+> => model.status === "ready";

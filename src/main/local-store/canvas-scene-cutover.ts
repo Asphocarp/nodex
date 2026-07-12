@@ -8,7 +8,7 @@ import {
   materializePortableCanvasScene,
   type PortableCanvasScene,
 } from "../../shared/block-documents";
-import { loadPrimaryBlockDocument } from "./block-document-store";
+import { loadLegacyCanvasYjsDocumentForCutover } from "./block-document-store";
 import {
   initializeCanvasSceneAuthority,
   syncCanvasScene,
@@ -62,7 +62,7 @@ const readLiveCanvasScene = (
   database: Database.Database,
   documentId: string,
 ): PortableCanvasScene => {
-  const loaded = loadPrimaryBlockDocument(database, documentId);
+  const loaded = loadLegacyCanvasYjsDocumentForCutover(database, documentId);
   try {
     const materialization = inspectCanvasDocument(
       loaded.document,

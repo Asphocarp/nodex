@@ -91,7 +91,7 @@ export function createCardStageStoryDocument(input: {
 
   return {
     authority: {
-      kind: "ydoc_primary",
+      kind: "yjs",
       descriptor: {
         projectId: input.projectId,
         ownerBlockId: input.cardId,
@@ -104,8 +104,7 @@ export function createCardStageStoryDocument(input: {
         schemaKey: "nodex.card",
         schemaVersion: 1,
         readiness: "ready",
-        authority: "ydoc_primary",
-        stateVector: Y.encodeStateVector(envelope.document),
+        sync: { kind: "yjs", stateVector: Y.encodeStateVector(envelope.document) },
       },
       reload: async () => undefined,
       surfaceDependencies: {

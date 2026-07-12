@@ -8,13 +8,13 @@ import {
 import type {
   BlockId,
   DocumentId,
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
   CARD_DOCUMENT_SCHEMA_VERSION,
-  getRegisteredBlockDocumentSchemaAdapter,
-  type RegisteredBlockDocumentSchemaAdapter,
+  getYjsDocumentSchemaAdapter,
+  type BlockDocumentSchemaAdapter,
 } from "../../shared/block-documents";
 import type {
   DocumentAwarenessPublishAck,
@@ -131,7 +131,7 @@ export interface NodexYProviderOptions {
   readonly localCheckpointStore?: DocumentLocalCheckpointStore | null;
   /** Registered schema identity used to validate disposable local recovery state. */
   readonly documentSchema?: Pick<
-    OwnedBlockDocumentDescriptor,
+    OwnedDocumentDescriptor,
     "ownerType" | "schemaKey" | "schemaVersion"
   >;
 }
@@ -308,7 +308,7 @@ export class NodexYProvider {
   private readonly now: () => number;
   private readonly scheduleRelocationDeadline: NodexYProviderRelocationDeadlineScheduler;
   private readonly localCheckpointStore: DocumentLocalCheckpointStore | null;
-  private readonly documentSchemaAdapter: RegisteredBlockDocumentSchemaAdapter;
+  private readonly documentSchemaAdapter: BlockDocumentSchemaAdapter;
   private readonly statusListeners = new Set<() => void>();
   private readonly flushWaiters = new Set<FlushWaiter>();
 
@@ -440,7 +440,7 @@ export class NodexYProvider {
       options.localCheckpointStore === undefined
         ? createDefaultDocumentLocalCheckpointStore()
         : options.localCheckpointStore;
-    this.documentSchemaAdapter = getRegisteredBlockDocumentSchemaAdapter(
+    this.documentSchemaAdapter = getYjsDocumentSchemaAdapter(
       options.documentSchema ?? DEFAULT_CARD_DOCUMENT_SCHEMA,
     );
     this.awareness = new Awareness(this.document);

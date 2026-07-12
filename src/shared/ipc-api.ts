@@ -23,7 +23,7 @@ import type {
   CanvasSceneSyncRequest,
 } from "./block-documents/canvas-scene-sync";
 import type {
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
   RelocationCommandResult,
 } from "./block-documents/contracts";
 import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
@@ -531,11 +531,11 @@ export interface IpcApi {
   };
   "block-document:owned:get": {
     args: [projectId: string, ownerBlockId: string];
-    result: OwnedBlockDocumentDescriptor;
+    result: OwnedDocumentDescriptor;
   };
   "block-document:owned:prepare": {
     args: [projectId: string, ownerBlockId: string];
-    result: DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>;
+    result: DocumentSyncCommandResult<OwnedDocumentDescriptor>;
   };
   "document-sync:subscribe": {
     args: [request: DocumentSyncSubscribeRequest];

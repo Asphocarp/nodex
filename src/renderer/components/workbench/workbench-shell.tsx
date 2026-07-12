@@ -11983,11 +11983,11 @@ function CardStageSessionTab({
             />
           );
         }
-        if (documentModel.status !== "ydoc_primary") {
+        if (documentModel.status !== "ready") {
           return (
             <CardStageSessionNotice
               title="Card content is not ready"
-              description="This Card must finish its Document migration before it can be edited."
+              description="This Card content is not ready to edit."
               actionLabel="Retry"
               onAction={() => {
                 void documentControls.reload();
@@ -11997,7 +11997,7 @@ function CardStageSessionTab({
         }
 
         const documentAuthority = {
-          kind: "ydoc_primary" as const,
+          kind: "yjs" as const,
           descriptor: documentModel.descriptor,
           reload: documentControls.reload,
         };

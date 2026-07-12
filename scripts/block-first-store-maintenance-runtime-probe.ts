@@ -344,7 +344,7 @@ const run = async (): Promise<void> => {
     invariant(!fs.existsSync(path.join(assetsPath, "after.txt")), "New asset crossed restore");
 
     const restoredDescriptor = (
-      await blockMutationWriter.getOwnedBlockDocumentDescriptor(project.id, card.id)
+      await blockMutationWriter.getOwnedDocumentDescriptor(project.id, card.id)
     ).result;
     invariant(
       restoredDescriptor.storeEpoch !== descriptor.storeEpoch,
@@ -382,7 +382,7 @@ const run = async (): Promise<void> => {
     }
     invariant(rollbackRejected, "Corrupt restore unexpectedly committed");
     const afterFailure = (
-      await blockMutationWriter.getOwnedBlockDocumentDescriptor(project.id, card.id)
+      await blockMutationWriter.getOwnedDocumentDescriptor(project.id, card.id)
     ).result;
     invariant(
       afterFailure.storeEpoch === restoredDescriptor.storeEpoch,

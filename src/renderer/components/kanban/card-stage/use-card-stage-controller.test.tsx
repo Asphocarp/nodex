@@ -61,7 +61,7 @@ function updatedResult(
 
 function documentAuthority(): CardStageProps["documentAuthority"] {
   return {
-    kind: "ydoc_primary",
+    kind: "yjs",
     descriptor: {
       projectId: "project-1",
       ownerBlockId: "card-1",
@@ -74,8 +74,7 @@ function documentAuthority(): CardStageProps["documentAuthority"] {
       schemaKey: "nodex.card",
       schemaVersion: 1,
       readiness: "ready",
-      authority: "ydoc_primary",
-      stateVector: new Uint8Array(),
+      sync: { kind: "yjs", stateVector: new Uint8Array() },
     },
     reload: async () => undefined,
   };

@@ -8,7 +8,7 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
   DocumentWriteFenceProof,
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
   RelocateBlocks,
   RelocationCommandResult,
   RelocationIntent,
@@ -193,7 +193,7 @@ export type BlockMutationWorkerRequest =
       payload: { readonly documentId: string };
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "getOwnedBlockDocumentDescriptor";
+      type: "getOwnedDocumentDescriptor";
       payload: {
         readonly projectId: string;
         readonly ownerBlockId: string;
@@ -273,7 +273,7 @@ export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
   | CanvasSceneSyncCommandResult
   | CanvasSceneMutationCommandResult
-  | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
+  | DocumentSyncCommandResult<OwnedDocumentDescriptor>
   | DocumentSyncCommandResult<string>
   | DocumentOperationCommandResult
   | DocumentHistoryCommandResult<CreatedDocumentVersionSummary>
@@ -289,7 +289,7 @@ export type BlockDocumentWorkerResult =
 export type BlockMutationWorkerResult =
   | CardOccurrenceMutationResult
   | BlockDocumentWorkerResult
-  | OwnedBlockDocumentDescriptor
+  | OwnedDocumentDescriptor
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
   | DatabaseMutationCommandResult

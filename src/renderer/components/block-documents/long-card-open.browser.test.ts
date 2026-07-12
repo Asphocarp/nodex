@@ -160,8 +160,7 @@ describe("long Card collaborative open lifecycle", () => {
       schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
       schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
       readiness: "ready",
-      authority: "ydoc_primary",
-      stateVector: Y.encodeStateVector(serverDocument),
+      sync: { kind: "yjs", stateVector: Y.encodeStateVector(serverDocument) },
     };
     const errors: string[] = [];
 

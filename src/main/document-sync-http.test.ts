@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
   decodeDocumentHttpError,
-  decodeOwnedBlockDocumentDescriptorHttp,
+  decodeOwnedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentRealtimeSseEvent,
   decodeDocumentSyncHttpResponse,
@@ -121,7 +121,7 @@ const createApp = (options?: {
   const app = new Hono();
   registerDocumentSyncHttpRoutes(app, {
     hub,
-    getOwnedBlockDocumentDescriptor: async (projectId, ownerBlockId) => ({
+    getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
       projectId,
       ownerBlockId,
       ownerType: "card",
@@ -133,8 +133,7 @@ const createApp = (options?: {
       schemaKey: "nodex.card",
       schemaVersion: 1,
       readiness: "ready",
-      authority: "ydoc_primary",
-      stateVector: new Uint8Array([1]),
+      sync: { kind: "yjs", stateVector: new Uint8Array([1]) },
     }),
     prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
       options?.prepareError
@@ -151,8 +150,7 @@ const createApp = (options?: {
             schemaKey: "nodex.card",
             schemaVersion: 1,
             readiness: "ready",
-            authority: "ydoc_primary",
-            stateVector: new Uint8Array([2]),
+            sync: { kind: "yjs", stateVector: new Uint8Array([2]) },
           }),
     getDocumentProjectId: async (documentId) =>
       documentId === "document-1" || documentId === "canvas-1"
@@ -231,13 +229,15 @@ describe("Document sync HTTP routes", () => {
       "/api/projects/project-1/blocks/card-1/document",
     );
     expect(response.status).toBe(200);
-    const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
+    const descriptor = decodeOwnedDocumentDescriptorHttp(
       await response.text(),
     );
     expect(descriptor.projectId).toBe("project-1");
     expect(descriptor.ownerBlockId).toBe("card-1");
-    expect(descriptor.authority).toBe("ydoc_primary");
-    expect(Array.from(descriptor.stateVector).join(",")).toBe("1");
+    expect(descriptor.sync.kind).toBe("yjs");
+    if (descriptor.sync.kind === "yjs") {
+      expect(Array.from(descriptor.sync.stateVector).join(",")).toBe("1");
+    }
   });
 
   test("prepares an eligible owned Document through the writer boundary", async () => {
@@ -247,11 +247,13 @@ describe("Document sync HTTP routes", () => {
       { method: "POST" },
     );
     expect(response.status).toBe(200);
-    const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
+    const descriptor = decodeOwnedDocumentDescriptorHttp(
       await response.text(),
     );
-    expect(descriptor.authority).toBe("ydoc_primary");
-    expect(Array.from(descriptor.stateVector).join(",")).toBe("2");
+    expect(descriptor.sync.kind).toBe("yjs");
+    if (descriptor.sync.kind === "yjs") {
+      expect(Array.from(descriptor.sync.stateVector).join(",")).toBe("2");
+    }
   });
 
   test("preserves typed preparation errors on the HTTP transport", async () => {

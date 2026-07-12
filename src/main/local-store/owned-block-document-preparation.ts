@@ -10,18 +10,20 @@ import {
   getRegisteredBlockDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
 } from "../../shared/block-documents/document-schema-adapters";
-import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents";
-import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
+import {
+  getOwnedBlockDocumentDescriptor,
+  type LegacyOwnedBlockDocumentDescriptor,
+} from "./block-document-cutover";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { loadBlockDocument } from "./block-document-store";
 
 export interface PreparedEditableOwnedBlockDocument {
-  readonly descriptor: OwnedBlockDocumentDescriptor;
+  readonly descriptor: LegacyOwnedBlockDocumentDescriptor;
   readonly repairedEmptyRoot: boolean;
 }
 
 const coordinateDigest = (
-  descriptor: OwnedBlockDocumentDescriptor,
+  descriptor: LegacyOwnedBlockDocumentDescriptor,
 ): string =>
   createHash("sha256")
     .update(descriptor.storeEpoch)

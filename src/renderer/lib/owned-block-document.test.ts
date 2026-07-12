@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
+import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
 import {
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
@@ -29,8 +29,8 @@ const REQUEST: OwnedBlockDocumentRequest = {
 };
 
 const makeDescriptor = (
-  overrides: Partial<OwnedBlockDocumentDescriptor> = {},
-): OwnedBlockDocumentDescriptor => ({
+  overrides: Partial<OwnedDocumentDescriptor> = {},
+): OwnedDocumentDescriptor => ({
   projectId: REQUEST.projectId,
   ownerBlockId: REQUEST.ownerBlockId,
   ownerType: "card",
@@ -42,8 +42,7 @@ const makeDescriptor = (
   schemaKey: "nodex.card",
   schemaVersion: 1,
   readiness: "ready",
-  authority: "ydoc_primary",
-  stateVector: new Uint8Array([1, 2, 3]),
+  sync: { kind: "yjs", stateVector: new Uint8Array([1, 2, 3]) },
   ...overrides,
 });
 
@@ -65,7 +64,7 @@ describe("owned Block Document renderer boundary", () => {
       makeDescriptor(),
     );
     expect(descriptor.documentId).toBe("opaque-owned-document-id");
-    expect(descriptor.authority).toBe("ydoc_primary");
+    expect(descriptor.sync.kind).toBe("yjs");
     expect(JSON.stringify(ownedBlockDocumentIdentity(descriptor))).toBe(
       JSON.stringify({
         documentId: "opaque-owned-document-id",
@@ -163,14 +162,14 @@ describe("owned Block Document renderer boundary", () => {
         calls.push(`${projectId}/${ownerBlockId}`);
         return makeDescriptor({
           documentId: "server-owned-document",
-          authority: "legacy_shadow",
+          sync: { kind: "yjs", stateVector: new Uint8Array([4]) },
         });
       },
     );
 
     expect(JSON.stringify(calls)).toBe(JSON.stringify(["project-a/card-a"]));
     expect(descriptor.documentId).toBe("server-owned-document");
-    expect(descriptor.authority).toBe("legacy_shadow");
+    expect(descriptor.sync.kind).toBe("yjs");
   });
 
   test("preserves typed preparation failures from both renderer transports", () => {
@@ -239,7 +238,6 @@ describe("owned Block Document renderer boundary", () => {
         ownedBlockDocumentQueryOptions(REQUEST, {
           fetchDescriptor: async () =>
             makeDescriptor({
-              authority: "ydoc_primary",
               readiness: "failed",
             }),
         }),
@@ -253,33 +251,21 @@ describe("owned Block Document renderer boundary", () => {
     expect(invalidPrimaryCode).toBe("document_not_ready");
   });
 
-  test("models loading, errors, shadow, and primary as distinct states", () => {
+  test("models loading, errors, and ready descriptors as distinct states", () => {
     const loading = makeOwnedBlockDocumentModel(REQUEST, { status: "pending" });
     const error = makeOwnedBlockDocumentModel(REQUEST, {
       status: "error",
       error: new Error("offline"),
     });
-    const legacy = validateOwnedBlockDocumentDescriptor(
-      REQUEST,
-      makeDescriptor({ authority: "legacy_shadow" }),
-    );
-    const primary = validateOwnedBlockDocumentDescriptor(
-      REQUEST,
-      makeDescriptor({ authority: "ydoc_primary" }),
-    );
-    const legacyModel = makeOwnedBlockDocumentModel(REQUEST, {
+    const ready = validateOwnedBlockDocumentDescriptor(REQUEST, makeDescriptor());
+    const readyModel = makeOwnedBlockDocumentModel(REQUEST, {
       status: "success",
-      data: legacy,
-    });
-    const primaryModel = makeOwnedBlockDocumentModel(REQUEST, {
-      status: "success",
-      data: primary,
+      data: ready,
     });
 
     expect(loading.status).toBe("loading");
     expect(error.status).toBe("error");
-    expect(legacyModel.status).toBe("legacy_shadow");
-    expect(primaryModel.status).toBe("ydoc_primary");
+    expect(readyModel.status).toBe("ready");
   });
 
   test("query keys include both authority scope identifiers", () => {

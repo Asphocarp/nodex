@@ -99,7 +99,7 @@ function buildUpdateAck(card: Card = buildCard({ revision: 2 })): CardUpdateMuta
 
 function documentAuthority() {
   return {
-    kind: "ydoc_primary" as const,
+    kind: "yjs" as const,
     descriptor: {
       projectId: "default",
       ownerBlockId: "card-1",
@@ -112,8 +112,7 @@ function documentAuthority() {
       schemaKey: "nodex.card" as const,
       schemaVersion: 1 as const,
       readiness: "ready" as const,
-      authority: "ydoc_primary" as const,
-      stateVector: new Uint8Array(),
+      sync: { kind: "yjs" as const, stateVector: new Uint8Array() },
     },
     reload: async () => undefined,
   };

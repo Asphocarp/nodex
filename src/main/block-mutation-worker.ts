@@ -7,7 +7,7 @@ import {
 } from "./local-store/notifier";
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
-import { getOwnedBlockDocumentDescriptor } from "./local-store/block-document-cutover";
+import { getOwnedDocumentDescriptor } from "./local-store/block-document-cutover";
 import { prepareEditableOwnedBlockDocument } from "./local-store/owned-block-document-preparation";
 import {
   applyCanvasSceneMutation,
@@ -746,14 +746,20 @@ async function runRequest(
       return runDocumentCommand(() =>
         blockDocumentRuntime.getProjectId(request.payload.documentId),
       );
-    case "getOwnedBlockDocumentDescriptor":
-      return getOwnedBlockDocumentDescriptor(
+    case "getOwnedDocumentDescriptor":
+      return getOwnedDocumentDescriptor(
         getDb(),
         request.payload.projectId,
         request.payload.ownerBlockId,
       );
     case "prepareOwnedBlockDocument": {
       return runDocumentCommand(() => {
+        const descriptor = getOwnedDocumentDescriptor(
+          getDb(),
+          request.payload.projectId,
+          request.payload.ownerBlockId,
+        );
+        if (descriptor.sync.kind === "canvas_scene") return descriptor;
         const prepared = prepareEditableOwnedBlockDocument(
           getDb(),
           request.payload.projectId,
@@ -762,7 +768,11 @@ async function runRequest(
         if (prepared.repairedEmptyRoot) {
           blockDocumentRuntime.invalidate(prepared.descriptor.documentId);
         }
-        return prepared.descriptor;
+        return getOwnedDocumentDescriptor(
+          getDb(),
+          request.payload.projectId,
+          request.payload.ownerBlockId,
+        );
       });
     }
     case "applyBlockDocumentUpdate": {

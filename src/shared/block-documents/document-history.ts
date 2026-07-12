@@ -5,7 +5,7 @@ import type {
 import type {
   RegisteredOwnedDocumentMaterialization,
 } from "./document-schema-adapters";
-import type { CanvasForwardRestorePlan } from "./canvas-document";
+import type { CanvasSceneForwardRestorePlan } from "./canvas-scene";
 import type { BlockId, DocumentId } from "./contracts";
 import type { DocumentBlockOperation } from "./document-operations";
 
@@ -28,7 +28,7 @@ export interface CreateDocumentVersionCheckpoint {
   readonly actor: DocumentVersionActor;
 }
 
-export interface DocumentVersionSummary {
+interface DocumentVersionSummaryBase {
   readonly versionId: string;
   readonly documentId: DocumentId;
   readonly projectId: string;
@@ -40,7 +40,6 @@ export interface DocumentVersionSummary {
   readonly label: string | null;
   readonly actor: DocumentVersionActor;
   readonly checkpointHash: string;
-  readonly stateVectorHash: string;
   readonly materializationHash: string;
   readonly byteLength: number;
   readonly materializationKind: RegisteredOwnedDocumentMaterialization["kind"];
@@ -50,11 +49,40 @@ export interface DocumentVersionSummary {
   readonly createdAt: string;
 }
 
-export interface DocumentVersionCheckpoint extends DocumentVersionSummary {
-  readonly fullUpdate: Uint8Array;
-  readonly stateVector: Uint8Array;
-  readonly materialization: RegisteredOwnedDocumentMaterialization;
-}
+export type DocumentVersionCheckpointMetadata =
+  | {
+      readonly format: "yjs_update_v1";
+      readonly stateVectorHash: string;
+    }
+  | {
+      readonly format: "canvas_scene_json_v1";
+    };
+
+export type DocumentVersionSummary = DocumentVersionSummaryBase & {
+  readonly checkpointMetadata: DocumentVersionCheckpointMetadata;
+};
+
+export type DocumentVersionCheckpoint =
+  | (DocumentVersionSummaryBase & {
+      readonly checkpointMetadata: Extract<
+        DocumentVersionCheckpointMetadata,
+        { readonly format: "yjs_update_v1" }
+      >;
+      readonly fullUpdate: Uint8Array;
+      readonly stateVector: Uint8Array;
+      readonly materialization: RegisteredOwnedDocumentMaterialization;
+    })
+  | (DocumentVersionSummaryBase & {
+      readonly checkpointMetadata: Extract<
+        DocumentVersionCheckpointMetadata,
+        { readonly format: "canvas_scene_json_v1" }
+      >;
+      readonly sceneJson: Uint8Array;
+      readonly materialization: Extract<
+        RegisteredOwnedDocumentMaterialization,
+        { readonly kind: "canvas_scene" }
+      >;
+    });
 
 export interface CreatedDocumentVersionCheckpoint {
   readonly checkpoint: DocumentVersionCheckpoint;
@@ -129,7 +157,7 @@ export interface BlockTreeDocumentVersionRestorePlan
 export interface CanvasDocumentVersionRestorePlan
   extends DocumentVersionRestorePlanBase {
   readonly contentModel: "scene_graph";
-  readonly forwardRestore: CanvasForwardRestorePlan;
+  readonly forwardRestore: CanvasSceneForwardRestorePlan;
 }
 
 export type DocumentVersionRestorePlan =

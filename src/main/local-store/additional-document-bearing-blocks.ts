@@ -45,7 +45,10 @@ import {
   persistAuthoritativeOperationRejection,
   prepareAuthoritativeOperation,
 } from "./authoritative-operation-receipts";
-import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
+import {
+  getOwnedBlockDocumentDescriptor,
+  getOwnedDocumentDescriptor,
+} from "./block-document-cutover";
 import {
   BlockDocumentStoreError,
   initializeBlockDocumentGenesis,
@@ -54,6 +57,7 @@ import {
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { planDatabaseFractionalRank } from "./database-fractional-rank";
 import { initializeCanvasSceneAuthority } from "./canvas-scene-store";
+import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 
 export type AdditionalDocumentBearingBlockErrorCode =
   | "invalid_request"
@@ -263,7 +267,7 @@ export const getDocumentBearingBlockSummary = (
       `
       SELECT owner.type AS owner_type, owner.lifecycle, property.value_json,
         document.id AS document_id, document.generation, document.head_seq,
-        document.schema_key, document.schema_version,
+        document.schema_key, document.schema_version, document.sync_engine,
         COALESCE(materialization.projected_seq, scene.projected_seq)
           AS projected_seq,
         COALESCE(materialization.preview, scene.preview) AS preview
@@ -299,26 +303,27 @@ export const getDocumentBearingBlockSummary = (
         readonly head_seq: number;
         readonly schema_key: string;
         readonly schema_version: number;
+        readonly sync_engine: "yjs" | "canvas_scene";
         readonly projected_seq: number | null;
         readonly preview: string | null;
       }
     | undefined;
-  if (
-    !row ||
-    row.projected_seq !== row.head_seq ||
-    row.preview === null
-  ) {
+  if (!row) {
     throw new AdditionalDocumentBearingBlockError(
       "source_not_found",
       `Document-bearing Block ${ownerId} has no exact-head summary in Project ${scope}`,
     );
   }
+  let adapter;
   try {
-    getRegisteredBlockDocumentSchemaAdapter({
+    adapter = getRegisteredBlockDocumentSchemaAdapter({
       ownerType: row.owner_type,
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
     });
+    if (adapter.syncEngine !== row.sync_engine) {
+      throw new TypeError("sync engine mismatch");
+    }
   } catch (error) {
     throw new AdditionalDocumentBearingBlockError(
       "document_state_corrupt",
@@ -338,6 +343,23 @@ export const getDocumentBearingBlockSummary = (
       `Document-bearing Block ${ownerId} has an invalid display name`,
     );
   }
+  const preview = adapter.syncEngine === "canvas_scene"
+    ? readCanvasSceneAuthoritySnapshot(database, {
+        documentId: row.document_id,
+        generation: row.generation,
+        headSeq: row.head_seq,
+        schemaVersion: row.schema_version,
+      }).scene.preview
+    : row.preview;
+  if (
+    preview === null ||
+    (adapter.syncEngine === "yjs" && row.projected_seq !== row.head_seq)
+  ) {
+    throw new AdditionalDocumentBearingBlockError(
+      "source_not_found",
+      `Document-bearing Block ${ownerId} has no exact-head summary in Project ${scope}`,
+    );
+  }
   return {
     projectId: scope,
     blockId: ownerId,
@@ -349,7 +371,7 @@ export const getDocumentBearingBlockSummary = (
     headSeq: row.head_seq,
     schemaKey: row.schema_key,
     schemaVersion: row.schema_version,
-    preview: row.preview,
+    preview,
   };
 };
 
@@ -1620,11 +1642,15 @@ const collectOwnedDocumentClosure = (
       .prepare(
         `
         SELECT document.id, document.generation, document.head_seq,
-          document.readiness, document.authority
+          document.readiness, document.authority, document.sync_engine,
+          document.schema_key, document.schema_version, owner.type AS owner_type
         FROM block_documents ownership
         INNER JOIN documents document
           ON document.id = ownership.document_id
           AND document.project_id = ownership.project_id
+        INNER JOIN blocks owner
+          ON owner.id = ownership.block_id
+          AND owner.project_id = ownership.project_id
         WHERE ownership.block_id = ? AND ownership.project_id = ?
       `,
       )
@@ -1635,6 +1661,10 @@ const collectOwnedDocumentClosure = (
           readonly head_seq: number;
           readonly readiness: string;
           readonly authority: string;
+          readonly sync_engine: "yjs" | "canvas_scene";
+          readonly schema_key: string;
+          readonly schema_version: number;
+          readonly owner_type: string;
         }
       | undefined;
     if (!document) continue;
@@ -1646,6 +1676,17 @@ const collectOwnedDocumentClosure = (
       throw new AdditionalDocumentBearingBlockError(
         "document_state_corrupt",
         `Owned Document ${document.id} is not ready primary authority`,
+      );
+    }
+    const registration = getRegisteredBlockDocumentSchemaAdapter({
+      ownerType: document.owner_type,
+      schemaKey: document.schema_key,
+      schemaVersion: document.schema_version,
+    });
+    if (registration.syncEngine !== document.sync_engine) {
+      throw new AdditionalDocumentBearingBlockError(
+        "document_state_corrupt",
+        `Owned Document ${document.id} sync engine does not match its schema`,
       );
     }
     if (documentHeads.has(document.id)) continue;
@@ -1689,6 +1730,7 @@ const assertNoExternalBlockReferences = (
     .prepare(
       `
       SELECT document.id, document.generation, document.head_seq,
+        document.project_id, document.sync_engine,
         document.schema_key, document.schema_version, owner.type AS owner_type,
         owner.lifecycle AS owner_lifecycle,
         materialization.generation AS materialized_generation,
@@ -1714,6 +1756,8 @@ const assertNoExternalBlockReferences = (
     readonly head_seq: number;
     readonly schema_key: string;
     readonly schema_version: number;
+    readonly project_id: string;
+    readonly sync_engine: "yjs" | "canvas_scene";
     readonly owner_type: string;
     readonly owner_lifecycle: string;
     readonly materialized_generation: number | null;
@@ -1722,13 +1766,16 @@ const assertNoExternalBlockReferences = (
   }[];
   for (const document of documents) {
     if (ownedDocumentIds.has(document.id)) continue;
-    let contentModel: "block_tree" | "scene_graph";
+    let adapter;
     try {
-      contentModel = getRegisteredBlockDocumentSchemaAdapter({
+      adapter = getRegisteredBlockDocumentSchemaAdapter({
         ownerType: document.owner_type,
         schemaKey: document.schema_key,
         schemaVersion: document.schema_version,
-      }).contentModel;
+      });
+      if (adapter.syncEngine !== document.sync_engine) {
+        throw new TypeError("sync engine mismatch");
+      }
     } catch (error) {
       throw new AdditionalDocumentBearingBlockError(
         "document_state_corrupt",
@@ -1736,7 +1783,25 @@ const assertNoExternalBlockReferences = (
         { cause: error },
       );
     }
-    if (contentModel !== "block_tree") continue;
+    if (adapter.contentModel === "scene_graph") {
+      const authority = readCanvasSceneAuthoritySnapshot(database, {
+        documentId: document.id,
+        generation: document.generation,
+        headSeq: document.head_seq,
+        schemaVersion: document.schema_version,
+      });
+      if (
+        authority.scene.cardReferences.some((reference) =>
+          targetBlockIds.has(reference.targetBlockId),
+        )
+      ) {
+        throw new AdditionalDocumentBearingBlockError(
+          "source_referenced",
+          `Owned source ${closure.blockIds[0]} is still referenced by Canvas ${document.id}`,
+        );
+      }
+      continue;
+    }
     if (
       document.materialized_generation !== document.generation ||
       document.projected_seq !== document.head_seq ||
@@ -1776,30 +1841,6 @@ const assertNoExternalBlockReferences = (
     }
   }
 
-  if (closure.blockIds.length === 0) return;
-  const placeholders = closure.blockIds.map(() => "?").join(", ");
-  const externalCanvasReference = database
-    .prepare(
-      `
-      SELECT reference.document_id
-      FROM canvas_card_references reference
-      INNER JOIN blocks owner ON owner.id = reference.owner_block_id
-      WHERE reference.target_block_id IN (${placeholders})
-        AND owner.lifecycle <> 'deleted'
-        AND reference.document_id NOT IN (${[...ownedDocumentIds]
-          .map(() => "?")
-          .join(", ") || "NULL"})
-      LIMIT 1
-    `,
-    )
-    .get(...closure.blockIds, ...ownedDocumentIds) as
-    | { readonly document_id: string }
-    | undefined;
-  if (!externalCanvasReference) return;
-  throw new AdditionalDocumentBearingBlockError(
-    "source_referenced",
-    `Owned source ${closure.blockIds[0]} is still referenced by Canvas ${externalCanvasReference.document_id}`,
-  );
 };
 
 const withoutDeleteExecutionHead = (
@@ -1951,7 +1992,7 @@ export const deleteOwnedDocumentSource = (
           `Owned source ${ownerBlockId} changed before deletion`,
         );
       }
-      const descriptor = getOwnedBlockDocumentDescriptor(
+      const descriptor = getOwnedDocumentDescriptor(
         database,
         input.projectId,
         ownerBlockId,
@@ -1960,8 +2001,7 @@ export const deleteOwnedDocumentSource = (
         descriptor.documentId !== documentId ||
         descriptor.generation !== input.expectedGeneration ||
         descriptor.headSeq !== input.expectedHeadSeq ||
-        descriptor.readiness !== "ready" ||
-        descriptor.authority !== "ydoc_primary"
+        descriptor.readiness !== "ready"
       ) {
         throw new AdditionalDocumentBearingBlockError(
           "document_head_conflict",

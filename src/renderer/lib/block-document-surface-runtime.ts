@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import {
   type DocumentSyncRealtimeEvent,
-  type OwnedBlockDocumentDescriptor,
+  type OwnedDocumentDescriptor,
 } from "../../shared/block-documents";
 import {
   getRegisteredBlockDocumentSchemaAdapter,
@@ -42,7 +42,7 @@ export interface BlockDocumentSurfaceStatus {
   readonly ready: boolean;
   readonly reloadRequired: boolean;
   readonly writeFrozen: boolean;
-  readonly descriptor: OwnedBlockDocumentDescriptor;
+  readonly descriptor: OwnedDocumentDescriptor;
   readonly provider: NodexYProviderStatus;
   readonly error?: Error;
 }
@@ -80,7 +80,7 @@ export interface BlockDocumentSurfacePersistResult {
 }
 
 export interface BlockDocumentSurfaceReloadContext {
-  readonly descriptor: OwnedBlockDocumentDescriptor;
+  readonly descriptor: OwnedDocumentDescriptor;
   readonly reason: "fatal" | "reset-required";
   readonly error: Error;
 }
@@ -103,12 +103,12 @@ export type BlockDocumentSurfaceProviderFactory = (
 ) => BlockDocumentSurfaceProvider;
 
 export type BlockDocumentSurfaceDocumentFactory = (
-  descriptor: OwnedBlockDocumentDescriptor,
+  descriptor: OwnedDocumentDescriptor,
 ) => Y.Doc;
 
 export type BlockDocumentSurfaceOpenDocument = (
   document: Y.Doc,
-  descriptor: OwnedBlockDocumentDescriptor,
+  descriptor: OwnedDocumentDescriptor,
 ) => OwnedDocumentEnvelope;
 
 export type BlockDocumentSurfaceCloseTimeoutScheduler = (
@@ -117,7 +117,7 @@ export type BlockDocumentSurfaceCloseTimeoutScheduler = (
 ) => () => void;
 
 export interface BlockDocumentSurfaceRuntimeOptions {
-  readonly descriptor: OwnedBlockDocumentDescriptor;
+  readonly descriptor: OwnedDocumentDescriptor;
   readonly adapter: DocumentSyncAdapter;
   readonly createDocument?: BlockDocumentSurfaceDocumentFactory;
   readonly createProvider?: BlockDocumentSurfaceProviderFactory;
@@ -152,8 +152,8 @@ const requirePositiveTimeout = (value: number | undefined): number => {
 };
 
 const validateDescriptor = (
-  descriptor: OwnedBlockDocumentDescriptor,
-): OwnedBlockDocumentDescriptor => {
+  descriptor: OwnedDocumentDescriptor,
+): OwnedDocumentDescriptor => {
   if (!descriptor.documentId || descriptor.documentId !== descriptor.documentId.trim()) {
     throw new TypeError("Block Document descriptor has an invalid documentId");
   }
@@ -166,17 +166,20 @@ const validateDescriptor = (
   if (descriptor.readiness !== "ready") {
     throw new TypeError("Block Document surface requires a ready Document");
   }
-  if (descriptor.authority !== "ydoc_primary") {
-    throw new TypeError("Block Document surface requires Y.Doc primary authority");
+  if (descriptor.sync.kind !== "yjs") {
+    throw new TypeError("Block Document surface requires the Yjs sync engine");
   }
   if (descriptor.ownerLifecycle !== "active") {
     throw new TypeError("Block Document surface requires an active owner");
   }
-  getRegisteredBlockDocumentSchemaAdapter({
+  const adapter = getRegisteredBlockDocumentSchemaAdapter({
     ownerType: descriptor.ownerType,
     schemaKey: descriptor.schemaKey,
     schemaVersion: descriptor.schemaVersion,
   });
+  if (adapter.syncEngine !== "yjs") {
+    throw new TypeError("Block Document schema is not registered for Yjs");
+  }
   return descriptor;
 };
 
@@ -282,7 +285,7 @@ class IsolatedDocumentCheckpointStore implements DocumentLocalCheckpointStore {
 }
 
 export class BlockDocumentSurfaceRuntime {
-  readonly descriptor: OwnedBlockDocumentDescriptor;
+  readonly descriptor: OwnedDocumentDescriptor;
   readonly document: Y.Doc;
   readonly provider: BlockDocumentSurfaceProvider;
 

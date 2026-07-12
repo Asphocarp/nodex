@@ -2176,6 +2176,15 @@ export class DocumentSyncHub {
       headSeq: result.headSeq,
       reason: "event-gap",
     });
+    this.fanoutCanvasScene(result.documentId, {
+      type: "canvas_scene_resync_required",
+      version: CANVAS_SCENE_SYNC_VERSION,
+      projectId: result.projectId,
+      documentId: result.documentId,
+      storeEpoch: result.storeEpoch,
+      generation: result.generation,
+      headSeq: result.headSeq,
+    });
   }
 
   private fanoutAdditionalDocumentResync(

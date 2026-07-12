@@ -14,7 +14,7 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
   DocumentWriteFenceProof,
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
   RelocateBlocks,
   RelocationCommandResult,
   RelocationIntent,
@@ -420,12 +420,12 @@ export class BlockMutationWriter {
     return envelope.result;
   }
 
-  async getOwnedBlockDocumentDescriptor(
+  async getOwnedDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<BlockMutationEnvelope<OwnedBlockDocumentDescriptor>> {
-    return await this.executeTyped<OwnedBlockDocumentDescriptor>({
-      type: "getOwnedBlockDocumentDescriptor",
+  ): Promise<BlockMutationEnvelope<OwnedDocumentDescriptor>> {
+    return await this.executeTyped<OwnedDocumentDescriptor>({
+      type: "getOwnedDocumentDescriptor",
       payload: { projectId, ownerBlockId },
     });
   }
@@ -433,9 +433,9 @@ export class BlockMutationWriter {
   async prepareOwnedBlockDocument(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>> {
+  ): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>> {
     const envelope = await this.executeTyped<
-      DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
+      DocumentSyncCommandResult<OwnedDocumentDescriptor>
     >({
       type: "prepareOwnedBlockDocument",
       payload: { projectId, ownerBlockId },

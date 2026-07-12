@@ -65,16 +65,6 @@ export function EmbeddedOwnedBlockDocument({
             </div>
           );
         }
-        if (model.status === "legacy_shadow") {
-          return (
-            <div
-              role="status"
-              className="py-2 text-sm text-token-description-foreground"
-            >
-              Finishing collaboration migration…
-            </div>
-          );
-        }
         if (resolveOwnedDocumentInlineMode(model.descriptor) === "scene_view") {
           return (
             <div
@@ -87,11 +77,18 @@ export function EmbeddedOwnedBlockDocument({
             </div>
           );
         }
+        if (model.descriptor.sync.kind !== "yjs") {
+          return (
+            <div role="alert" className="py-2 text-sm text-token-error-foreground">
+              This embedded Document does not use the Yjs editor engine.
+            </div>
+          );
+        }
 
         return (
           <OwnedBlockDocumentSurface
             projectId={projectId}
-            descriptor={model.descriptor}
+            descriptor={{ ...model.descriptor, sync: model.descriptor.sync }}
             isActive={isActive}
             onReload={controls.reload}
             localAwarenessState={{

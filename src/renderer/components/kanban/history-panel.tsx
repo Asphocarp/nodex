@@ -40,7 +40,7 @@ import { ReadonlyNfmBlockNotePreview } from "./editor/readonly-nfm-blocknote-pre
 import { mergeCardHistoryEntries } from "./card-history-view-model";
 import {
   getDocumentVersion,
-  getOwnedBlockDocumentDescriptor,
+  getOwnedDocumentDescriptor,
   listCardHistory,
   restoreDocumentVersion,
 } from "./history-panel-deps";
@@ -304,7 +304,7 @@ export function HistoryPanel({
     try {
       let pendingRestore = pendingRestoreRef.current;
       if (!pendingRestore || pendingRestore.entryId !== selectedEntry.id) {
-        const descriptor = await getOwnedBlockDocumentDescriptor(projectId, cardId);
+        const descriptor = await getOwnedDocumentDescriptor(projectId, cardId);
         if (descriptor.readiness !== "ready") {
           throw new Error("This Card must finish syncing before it can be restored.");
         }

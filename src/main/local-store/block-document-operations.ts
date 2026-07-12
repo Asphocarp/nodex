@@ -1,7 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { createUuidV7 } from "../../shared/card-id";
-import * as Y from "yjs";
 import {
   canonicalizeDocumentOperationIntent,
   canonicalizeDocumentVersionRestoreIntent,
@@ -23,7 +22,10 @@ import {
   type DocumentWriteFenceProof,
   type ReplaceDocumentFromNfm,
 } from "../../shared/block-documents/document-operations";
-import type { PrepareDocumentVersionRestore } from "../../shared/block-documents/document-history";
+import type {
+  PrepareDocumentVersionRestore,
+  PreparedDocumentVersionRestore,
+} from "../../shared/block-documents/document-history";
 import {
   compileBlockTreeReplacementOperations,
   DocumentOperationEngineError,
@@ -31,9 +33,10 @@ import {
 } from "../../shared/block-documents/document-operation-engine";
 import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
 import {
-  applyCanvasForwardRestorePlan,
-  openCanvasDocument,
-} from "../../shared/block-documents/canvas-document";
+  CANVAS_SCENE_SYNC_VERSION,
+  type CanvasSceneAppStateIntent,
+  type CanvasSceneOptionalJson,
+} from "../../shared/block-documents/canvas-scene-sync";
 import {
   getRegisteredBlockDocumentSchemaAdapter,
   inspectOwnedBlockDocument,
@@ -55,6 +58,10 @@ import {
   DocumentVersionStoreError,
   prepareDocumentVersionRestore,
 } from "./document-versions";
+import {
+  applyCanvasSceneMutation,
+  syncCanvasScene,
+} from "./canvas-scene-store";
 
 const CHANGE_LOG_KIND = "block_mutation";
 const EMPTY_ARRAY_JSON = "[]";
@@ -1041,48 +1048,6 @@ const prepareNfmReplacement = (
   };
 };
 
-const prepareCanvasVersionRestore = (
-  document: Y.Doc,
-  ownerBlockId: string,
-  trustedMaxUpdateBytes: number,
-  restore: Extract<
-    import("../../shared/block-documents/document-history").DocumentVersionRestorePlan,
-    { readonly contentModel: "scene_graph" }
-  >,
-): PreparedMutation => {
-  const sourceState = Y.encodeStateAsUpdate(document);
-  const sourceStateVector = Y.encodeStateVector(document);
-  const working = new Y.Doc({ guid: document.guid });
-  try {
-    Y.applyUpdate(working, sourceState);
-    applyCanvasForwardRestorePlan(
-      openCanvasDocument({ documentId: document.guid, document: working }),
-      restore.forwardRestore,
-      `canvas-history-restore:${restore.mutationId}`,
-    );
-    const update = Y.encodeStateAsUpdate(working, sourceStateVector);
-    if (update.byteLength <= 2) {
-      throw new DocumentOperationEngineError(
-        "no_change",
-        "Canvas history restore produced no forward update",
-      );
-    }
-    return {
-      update,
-      createdBlockIds: [],
-      deletedBlockIds: [],
-      updatedBlockIds: [ownerBlockId],
-      movedBlockIds: [],
-      writeFenceBlockIds: [ownerBlockId],
-      titleChanged: false,
-      coordination: "write_fence",
-      trustedMaxUpdateBytes,
-    };
-  } finally {
-    working.destroy();
-  }
-};
-
 const persistChangeLog = (
   database: Database.Database,
   request: MutationRequestBase,
@@ -1512,11 +1477,9 @@ const applyMutationInTransaction = (
           );
         }
         if (restore.plan.contentModel === "scene_graph") {
-          prepared = prepareCanvasVersionRestore(
-            loaded.document,
-            loaded.head.ownerBlockId,
-            adapter.limits.maxStateBytes,
-            restore.plan,
+          throw new BlockDocumentStoreError(
+            "document_state_corrupt",
+            "Scene-graph restore entered the Yjs Document operation engine",
           );
         } else {
           prepared = prepareOperationBatch(
@@ -1612,6 +1575,196 @@ const applyMutation = (
   return result;
 };
 
+const canvasOptionalJson = (
+  value: import("../../shared/block-documents/canvas-scene").CanvasSceneJsonValue | undefined,
+): CanvasSceneOptionalJson =>
+  value === undefined ? { kind: "absent" } : { kind: "value", value };
+
+const applyCanvasVersionRestore = (
+  database: Database.Database,
+  request: PrepareDocumentVersionRestore,
+  evidence: MutationEvidence,
+  options: ApplyDocumentOperationOptions,
+): DocumentOperationCommandResult => {
+  const apply = database.transaction((): DocumentOperationCommandResult => {
+    const existing = readStoredMutation(database, request.mutationId);
+    if (existing) return loadStoredOutcome(database, existing, request, evidence);
+
+    const fence = options.writeFence;
+    if (
+      !fence ||
+      fence.leaseId.length === 0 ||
+      fence.leaseId.length > 512 ||
+      fence.leaseId !== fence.leaseId.trim() ||
+      fence.documentId !== request.documentId ||
+      fence.generation !== request.generation ||
+      fence.headSeq !== request.expectedHeadSeq
+    ) {
+      return {
+        ok: false,
+        error: {
+          ...makeError(
+            "write_fence_required",
+            "Canvas history restore requires a trusted current-head write fence",
+            request,
+            {
+              expectedGeneration: request.generation,
+              expectedHeadSeq: request.expectedHeadSeq,
+            },
+          ),
+          retryable: true,
+        },
+      };
+    }
+
+    let prepared: PreparedDocumentVersionRestore;
+    try {
+      prepared = prepareDocumentVersionRestore(database, request);
+    } catch (error) {
+      if (error instanceof DocumentVersionStoreError) {
+        return { ok: false, error: mapVersionStoreError(error, request) };
+      }
+      throw error;
+    }
+    if (prepared.kind === "already_current") {
+      return {
+        ok: false,
+        error: makeError(
+          "no_change",
+          `Document is already equal to version ${prepared.sourceVersion.versionId}`,
+          request,
+        ),
+      };
+    }
+    if (prepared.plan.contentModel !== "scene_graph") {
+      throw new BlockDocumentStoreError(
+        "document_state_corrupt",
+        "Canvas restore preparation returned a block-tree plan",
+      );
+    }
+    const current = syncCanvasScene(database, {
+      version: CANVAS_SCENE_SYNC_VERSION,
+      projectId: request.projectId,
+      documentId: request.documentId,
+      clientSessionId: request.clientSessionId ?? "document-history:restore",
+      knownStoreEpoch: request.storeEpoch,
+      knownGeneration: request.generation,
+      knownHeadSeq: request.expectedHeadSeq,
+    });
+    if (!current.ok) {
+      return {
+        ok: false,
+        error: makeError("document_state_corrupt", current.error.message, request),
+      };
+    }
+
+    createDocumentVersionCheckpoint(database, {
+      version: DOCUMENT_OPERATION_CONTRACT_VERSION,
+      projectId: request.projectId,
+      storeEpoch: request.storeEpoch,
+      documentId: request.documentId,
+      expectedGeneration: request.generation,
+      expectedHeadSeq: request.expectedHeadSeq,
+      cause: "before_restore",
+      label: `Before restore ${request.versionId}`,
+      actor: {
+        ...request.actor,
+        restoreMutationId: request.mutationId,
+        sourceVersionId: request.versionId,
+      },
+    });
+
+    const appStateIntents: Record<string, CanvasSceneAppStateIntent> = {};
+    for (const key of new Set([
+      ...Object.keys(current.value.scene.appState),
+      ...Object.keys(prepared.plan.forwardRestore.appState),
+    ])) {
+      appStateIntents[key] = {
+        expected: canvasOptionalJson(current.value.scene.appState[key]),
+        value: canvasOptionalJson(prepared.plan.forwardRestore.appState[key]),
+      };
+    }
+    const restored = applyCanvasSceneMutation(database, {
+      version: CANVAS_SCENE_SYNC_VERSION,
+      mutationId: request.mutationId,
+      projectId: request.projectId,
+      documentId: request.documentId,
+      storeEpoch: request.storeEpoch,
+      generation: request.generation,
+      baseHeadSeq: request.expectedHeadSeq,
+      clientSessionId: request.clientSessionId ?? "document-history:restore",
+      elementCandidates: prepared.plan.forwardRestore.elementCandidates,
+      appStateIntents,
+      fileAdditions: prepared.plan.forwardRestore.files,
+    });
+    if (!restored.ok) {
+      return {
+        ok: false,
+        error: makeError(
+          restored.error.code === "document_generation_mismatch"
+            ? "document_generation_conflict"
+            : restored.error.code === "document_not_found"
+              ? "document_not_found"
+              : "document_state_corrupt",
+          restored.error.message,
+          request,
+        ),
+      };
+    }
+    if (restored.value.outcome !== "committed") {
+      return {
+        ok: false,
+        error: makeError("no_change", "Canvas restore produced no scene change", request),
+      };
+    }
+
+    const owner = database.prepare(
+      "SELECT block_id FROM block_documents WHERE document_id = ?",
+    ).get(request.documentId) as { readonly block_id: string } | undefined;
+    if (!owner) {
+      throw new BlockDocumentStoreError(
+        "document_state_corrupt",
+        `Canvas Document ${request.documentId} has no owner Block`,
+      );
+    }
+    const semanticTouchedBlockIds = [owner.block_id];
+    const preparedMutation: PreparedMutation = {
+      update: new Uint8Array(),
+      createdBlockIds: [],
+      deletedBlockIds: [],
+      updatedBlockIds: semanticTouchedBlockIds,
+      movedBlockIds: [],
+      writeFenceBlockIds: semanticTouchedBlockIds,
+      titleChanged: false,
+      coordination: "write_fence",
+    };
+    const result = persistCommittedMutation(
+      database,
+      request,
+      evidence,
+      {
+        projectId: request.projectId,
+        ownerBlockId: owner.block_id,
+        documentId: request.documentId,
+        storeEpoch: request.storeEpoch,
+        generation: request.generation,
+        baseHeadSeq: request.expectedHeadSeq,
+        headSeq: restored.value.headSeq,
+        updateId: `canvas-history-restore:${request.mutationId}`,
+        derivedTouchedBlockIds: semanticTouchedBlockIds,
+        committedAt: restored.value.committedAt,
+      },
+      preparedMutation,
+      () => undefined,
+      semanticTouchedBlockIds,
+    );
+    return { ok: true, value: result };
+  });
+  const result = apply.immediate();
+  options.faultInjector?.("after_commit");
+  return result;
+};
+
 /** Apply an ordered stable-ID body/title batch through one strict Y.Doc CAS. */
 export const applyDocumentOperationBatch = (
   database: Database.Database,
@@ -1657,6 +1810,12 @@ export const restoreDocumentVersion = (
     "document_version_restore",
     canonicalRequest,
   );
+  const engine = database.prepare(
+    "SELECT sync_engine FROM documents WHERE id = ?",
+  ).get(request.documentId) as { readonly sync_engine: string } | undefined;
+  if (engine?.sync_engine === "canvas_scene") {
+    return applyCanvasVersionRestore(database, request, evidence, options);
+  }
   return applyMutation(database, request, evidence, options);
 };
 

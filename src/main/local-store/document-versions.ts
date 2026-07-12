@@ -9,11 +9,12 @@ import {
   type RegisteredOwnedDocumentMaterialization,
 } from "../../shared/block-documents/document-schema-adapters";
 import {
-  canonicalCanvasSceneFingerprint,
-  canonicalCanvasSceneSemanticFingerprint,
-  compileCanvasForwardRestorePlan,
-} from "../../shared/block-documents/canvas-document";
-import { parsePortableCanvasScene } from "../../shared/block-documents/canvas-scene";
+  canonicalPortableCanvasSceneFingerprint,
+  canonicalPortableCanvasSceneSemanticFingerprint,
+  canonicalStringifyCanvasScene,
+  compilePortableCanvasSceneForwardRestore,
+  parsePortableCanvasScene,
+} from "../../shared/block-documents/canvas-scene";
 import { compileBlockTreeReplacementOperations } from "../../shared/block-documents/document-operation-engine";
 import {
   DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -40,6 +41,7 @@ import {
   BlockDocumentStoreError,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
+import { syncCanvasScene } from "./canvas-scene-store";
 
 const MAX_SCOPE_ID_LENGTH = 512;
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -128,6 +130,17 @@ interface StoredBlockChangeRow {
   readonly client_session_id: string | null;
   readonly field_intents_json: string | null;
   readonly mutation_outcome: string | null;
+}
+
+interface DocumentHistoryAuthorityRow {
+  readonly project_id: string;
+  readonly generation: number;
+  readonly head_seq: number;
+  readonly schema_key: string;
+  readonly schema_version: number;
+  readonly sync_engine: "yjs" | "canvas_scene";
+  readonly readiness: string;
+  readonly owner_block_id: string;
 }
 
 const hashBytes = (value: Uint8Array): string =>
@@ -320,6 +333,27 @@ const readStoreEpoch = (database: Database.Database): string => {
   );
 };
 
+const readDocumentHistoryAuthority = (
+  database: Database.Database,
+  documentId: string,
+): DocumentHistoryAuthorityRow => {
+  const row = database.prepare(
+    `SELECT document.project_id, document.generation, document.head_seq,
+      document.schema_key, document.schema_version, document.sync_engine,
+      document.readiness, ownership.block_id AS owner_block_id
+     FROM documents document
+     INNER JOIN block_documents ownership
+       ON ownership.document_id = document.id
+       AND ownership.project_id = document.project_id
+     WHERE document.id = ?`,
+  ).get(documentId) as DocumentHistoryAuthorityRow | undefined;
+  if (row) return row;
+  throw new DocumentVersionStoreError(
+    "document_not_found",
+    `Document does not exist: ${documentId}`,
+  );
+};
+
 const assertStoreEpoch = (
   database: Database.Database,
   expected: string,
@@ -337,7 +371,7 @@ const materializationHash = (
 ): string => {
   const canonical =
     materialization.kind === "canvas_scene"
-      ? canonicalCanvasSceneFingerprint(materialization)
+      ? canonicalPortableCanvasSceneFingerprint(materialization)
       : stableStringifyTrustedValue({
           schemaVersion: materialization.schemaVersion,
           kind: materialization.kind,
@@ -462,7 +496,7 @@ const decodeVersionRow = (
       label: row.label,
       actor,
       checkpointHash: row.checkpoint_hash,
-      stateVectorHash: hashBytes(row.state_vector),
+      checkpointMetadata: { format: "canvas_scene_json_v1" },
       materializationHash: materializationHash(materialization),
       byteLength: row.byte_length,
       materializationKind: materialization.kind,
@@ -470,8 +504,7 @@ const decodeVersionRow = (
       preview: materialization.preview,
       blockCount: materialization.elements.length,
       createdAt: row.created_at,
-      fullUpdate: asBytes(row.full_update_blob),
-      stateVector: asBytes(row.state_vector),
+      sceneJson: asBytes(row.full_update_blob),
       materialization,
     };
   }
@@ -542,7 +575,10 @@ const decodeVersionRow = (
       label: row.label,
       actor,
       checkpointHash: row.checkpoint_hash,
-      stateVectorHash: hashBytes(stateVector),
+      checkpointMetadata: {
+        format: "yjs_update_v1",
+        stateVectorHash: hashBytes(stateVector),
+      },
       materializationHash: materializationHash(materialization),
       byteLength: row.byte_length,
       materializationKind: materialization.kind,
@@ -576,7 +612,7 @@ const toSummary = (
   label: checkpoint.label,
   actor: checkpoint.actor,
   checkpointHash: checkpoint.checkpointHash,
-  stateVectorHash: checkpoint.stateVectorHash,
+  checkpointMetadata: checkpoint.checkpointMetadata,
   materializationHash: checkpoint.materializationHash,
   byteLength: checkpoint.byteLength,
   materializationKind: checkpoint.materializationKind,
@@ -598,7 +634,7 @@ const createVersionId = (input: {
   readonly label: string | null;
   readonly actor: DocumentVersionActor;
   readonly checkpointHash: string;
-  readonly stateVectorHash: string;
+  readonly checkpointMetadata: DocumentVersionCheckpoint["checkpointMetadata"];
   readonly materializationHash: string;
 }): string => {
   const identityJson = stableStringifyBlockPropertyJson({
@@ -657,7 +693,7 @@ const readIdempotentCheckpoint = (
       label: request.label,
       actor: request.actor,
       checkpointHash: checkpoint.checkpointHash,
-      stateVectorHash: checkpoint.stateVectorHash,
+      checkpointMetadata: checkpoint.checkpointMetadata,
       materializationHash: checkpoint.materializationHash,
     });
     if (expectedVersionId === checkpoint.versionId) return checkpoint;
@@ -753,7 +789,8 @@ const assertStoredVersionMatches = (
     readonly cause: string;
     readonly label: string | null;
     readonly actorJson: string;
-    readonly fullUpdate: Uint8Array;
+    readonly checkpointFormat: StoredDocumentVersionRow["checkpoint_format"];
+    readonly checkpointBytes: Uint8Array;
     readonly stateVector: Uint8Array;
     readonly checkpointHash: string;
   },
@@ -770,8 +807,16 @@ const assertStoredVersionMatches = (
     stored.label === expected.label &&
     stableStringifyBlockPropertyJson(stored.actor) === expected.actorJson &&
     stored.checkpointHash === expected.checkpointHash &&
-    bytesEqual(stored.fullUpdate, expected.fullUpdate) &&
-    bytesEqual(stored.stateVector, expected.stateVector)
+    stored.checkpointMetadata.format === expected.checkpointFormat &&
+    bytesEqual(
+      "fullUpdate" in stored
+        ? stored.fullUpdate
+        : stored.sceneJson,
+      expected.checkpointBytes,
+    ) &&
+    (!("stateVector" in stored)
+      ? expected.stateVector.byteLength === 0
+      : bytesEqual(stored.stateVector, expected.stateVector))
   ) {
     return;
   }
@@ -791,63 +836,104 @@ export const createDocumentVersionCheckpoint = (
     assertStoreEpoch(database, input.storeEpoch);
     const existing = readIdempotentCheckpoint(database, input, request);
     if (existing) return { checkpoint: existing, duplicate: true };
-    let loaded;
-    try {
-      loaded = loadPrimaryBlockDocument(database, input.documentId);
-    } catch (error) {
-      if (error instanceof BlockDocumentStoreError) return mapLoadError(error);
-      throw error;
+    const authority = readDocumentHistoryAuthority(database, input.documentId);
+    if (authority.project_id !== input.projectId) {
+      throw new DocumentVersionStoreError(
+        "project_scope_mismatch",
+        `Document ${input.documentId} does not belong to Project ${input.projectId}`,
+      );
     }
-    try {
-      if (loaded.head.ownerBlockId.length === 0) {
+    if (authority.readiness !== "ready" || authority.owner_block_id.length === 0) {
+      throw new DocumentVersionStoreError(
+        "document_not_ready",
+        `Document ${input.documentId} is not ready for checkpointing`,
+      );
+    }
+    assertHead(input, {
+      generation: authority.generation,
+      headSeq: authority.head_seq,
+    });
+    options.faultInjector?.("after_authority_load");
+
+    let checkpointFormat: StoredDocumentVersionRow["checkpoint_format"];
+    let checkpointBytes: Uint8Array;
+    let stateVector: Uint8Array;
+    let materialization: RegisteredOwnedDocumentMaterialization;
+    if (authority.sync_engine === "canvas_scene") {
+      const synced = syncCanvasScene(database, {
+        version: 1,
+        projectId: input.projectId,
+        documentId: input.documentId,
+        clientSessionId: "document-history:checkpoint",
+        knownStoreEpoch: input.storeEpoch,
+        knownGeneration: input.expectedGeneration,
+        knownHeadSeq: input.expectedHeadSeq,
+      });
+      if (!synced.ok) {
         throw new DocumentVersionStoreError(
-          "document_version_corrupt",
-          `Document ${input.documentId} has no owner Block`,
+          synced.error.code === "document_not_found"
+            ? "document_not_found"
+            : synced.error.code === "document_not_ready"
+              ? "document_not_ready"
+              : "document_version_corrupt",
+          synced.error.message,
         );
       }
-      if (
-        input.projectId !== getDocumentProjectId(database, input.documentId)
-      ) {
-        throw new DocumentVersionStoreError(
-          "project_scope_mismatch",
-          `Document ${input.documentId} does not belong to Project ${input.projectId}`,
-        );
+      checkpointFormat = "canvas_scene_json_v1";
+      checkpointBytes = Buffer.from(
+        canonicalStringifyCanvasScene(synced.value.scene),
+        "utf8",
+      );
+      stateVector = new Uint8Array();
+      materialization = synced.value.scene;
+    } else {
+      let loaded;
+      try {
+        loaded = loadPrimaryBlockDocument(database, input.documentId);
+      } catch (error) {
+        if (error instanceof BlockDocumentStoreError) return mapLoadError(error);
+        throw error;
       }
-      assertHead(input, loaded.head);
-      options.faultInjector?.("after_authority_load");
-      const fullUpdate = Y.encodeStateAsUpdate(loaded.document);
-      const stateVector = Y.encodeStateVector(loaded.document);
-      if (!bytesEqual(stateVector, loaded.head.stateVector)) {
-        throw new DocumentVersionStoreError(
-          "document_version_corrupt",
-          `Document ${input.documentId} state changed while checkpointing`,
-        );
+      try {
+        checkpointFormat = "yjs_update_v1";
+        checkpointBytes = Y.encodeStateAsUpdate(loaded.document);
+        stateVector = Y.encodeStateVector(loaded.document);
+        if (!bytesEqual(stateVector, loaded.head.stateVector)) {
+          throw new DocumentVersionStoreError(
+            "document_version_corrupt",
+            `Document ${input.documentId} state changed while checkpointing`,
+          );
+        }
+        materialization = inspectRegisteredOwnedBlockDocument(
+          loaded.document,
+          {
+            ownerType: loaded.ownerType,
+            schemaKey: loaded.head.schemaKey,
+            schemaVersion: loaded.head.schemaVersion,
+          },
+        ).materialization;
+      } finally {
+        loaded.document.destroy();
       }
-      const ownerType = loaded.ownerType;
-      const materialization = inspectRegisteredOwnedBlockDocument(
-        loaded.document,
-        {
-        ownerType,
-        schemaKey: loaded.head.schemaKey,
-        schemaVersion: loaded.head.schemaVersion,
-        },
-      ).materialization;
-      const checkpointHash = hashBytes(fullUpdate);
-      const stateVectorHash = hashBytes(stateVector);
+    }
+      const checkpointHash = hashBytes(checkpointBytes);
+      const checkpointMetadata = checkpointFormat === "yjs_update_v1"
+        ? { format: "yjs_update_v1" as const, stateVectorHash: hashBytes(stateVector) }
+        : { format: "canvas_scene_json_v1" as const };
       const semanticHash = materializationHash(materialization);
       const versionId = createVersionId({
         projectId: input.projectId,
         storeEpoch: input.storeEpoch,
         documentId: input.documentId,
-        generation: loaded.head.generation,
-        baseHeadSeq: loaded.head.headSeq,
-        schemaKey: loaded.head.schemaKey,
-        schemaVersion: loaded.head.schemaVersion,
+        generation: authority.generation,
+        baseHeadSeq: authority.head_seq,
+        schemaKey: authority.schema_key,
+        schemaVersion: authority.schema_version,
         cause: request.cause,
         label: request.label,
         actor: request.actor,
         checkpointHash,
-        stateVectorHash,
+        checkpointMetadata,
         materializationHash: semanticHash,
       });
       const createdAt = (options.now ?? (() => new Date().toISOString()))();
@@ -859,8 +945,9 @@ export const createDocumentVersionCheckpoint = (
           INSERT INTO document_versions (
             version_id, document_id, project_id, generation, base_head_seq,
             schema_key, schema_version, cause, label, actor_json,
-            full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+            byte_length, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(version_id) DO NOTHING
         `,
         )
@@ -868,17 +955,18 @@ export const createDocumentVersionCheckpoint = (
           versionId,
           input.documentId,
           input.projectId,
-          loaded.head.generation,
-          loaded.head.headSeq,
-          loaded.head.schemaKey,
-          loaded.head.schemaVersion,
+          authority.generation,
+          authority.head_seq,
+          authority.schema_key,
+          authority.schema_version,
           request.cause,
           request.label,
           request.actorJson,
-          Buffer.from(fullUpdate),
+          checkpointFormat,
+          Buffer.from(checkpointBytes),
           Buffer.from(stateVector),
           checkpointHash,
-          fullUpdate.byteLength,
+          checkpointBytes.byteLength,
           createdAt,
         );
       options.faultInjector?.("after_insert");
@@ -898,22 +986,20 @@ export const createDocumentVersionCheckpoint = (
         versionId,
         documentId: input.documentId,
         projectId: input.projectId,
-        generation: loaded.head.generation,
-        baseHeadSeq: loaded.head.headSeq,
-        schemaKey: loaded.head.schemaKey,
-        schemaVersion: loaded.head.schemaVersion,
+        generation: authority.generation,
+        baseHeadSeq: authority.head_seq,
+        schemaKey: authority.schema_key,
+        schemaVersion: authority.schema_version,
         cause: request.cause,
         label: request.label,
         actorJson: request.actorJson,
-        fullUpdate,
+        checkpointFormat,
+        checkpointBytes,
         stateVector,
         checkpointHash,
       });
       options.faultInjector?.("before_commit");
       return { checkpoint, duplicate: inserted.changes === 0 };
-    } finally {
-      loaded.document.destroy();
-    }
   });
   return create.immediate();
 };
@@ -1073,6 +1159,84 @@ export const prepareDocumentVersionRestore = (
       );
     }
     const version = getDocumentVersionCheckpoint(database, input);
+    const authority = readDocumentHistoryAuthority(database, input.documentId);
+    assertHead(
+      {
+        expectedGeneration: input.generation,
+        expectedHeadSeq: input.expectedHeadSeq,
+      },
+      { generation: authority.generation, headSeq: authority.head_seq },
+    );
+    if (
+      version.schemaKey !== authority.schema_key ||
+      version.schemaVersion !== authority.schema_version
+    ) {
+      throw new DocumentVersionStoreError(
+        "document_version_schema_mismatch",
+        `Version ${version.versionId} does not match the current Document schema`,
+      );
+    }
+    const sourceVersion = toSummary(version);
+    const planBase = {
+      version: DOCUMENT_VERSION_CONTRACT_VERSION,
+      kind: "document_version_restore" as const,
+      mutationId: input.mutationId,
+      projectId: input.projectId,
+      storeEpoch: input.storeEpoch,
+      documentId: input.documentId,
+      generation: input.generation,
+      expectedHeadSeq: input.expectedHeadSeq,
+      ...(input.clientSessionId
+        ? { clientSessionId: input.clientSessionId }
+        : {}),
+      actor,
+      sourceVersion,
+      requiresWriteFence: true as const,
+    } as const;
+    if (authority.sync_engine === "canvas_scene") {
+      if (
+        version.checkpointMetadata.format !== "canvas_scene_json_v1" ||
+        version.materialization.kind !== "canvas_scene"
+      ) {
+        throw new DocumentVersionStoreError(
+          "document_version_schema_mismatch",
+          "Canvas restore requires a scene-native checkpoint",
+        );
+      }
+      const synced = syncCanvasScene(database, {
+        version: 1,
+        projectId: input.projectId,
+        documentId: input.documentId,
+        clientSessionId: input.clientSessionId ?? "document-history:restore",
+        knownStoreEpoch: input.storeEpoch,
+        knownGeneration: input.generation,
+        knownHeadSeq: input.expectedHeadSeq,
+      });
+      if (!synced.ok) {
+        throw new DocumentVersionStoreError(
+          "document_version_corrupt",
+          synced.error.message,
+        );
+      }
+      if (
+        canonicalPortableCanvasSceneSemanticFingerprint(synced.value.scene) ===
+        canonicalPortableCanvasSceneSemanticFingerprint(version.materialization)
+      ) {
+        return { kind: "already_current", sourceVersion };
+      }
+      return {
+        kind: "operation_plan",
+        plan: {
+          ...planBase,
+          contentModel: "scene_graph",
+          forwardRestore: compilePortableCanvasSceneForwardRestore({
+            current: synced.value.scene,
+            target: version.materialization,
+            restoreIdentity: input.mutationId,
+          }),
+        },
+      };
+    }
     let loaded;
     try {
       loaded = loadPrimaryBlockDocument(database, input.documentId);
@@ -1119,50 +1283,6 @@ export const prepareDocumentVersionRestore = (
           "document_version_schema_mismatch",
           `Version ${version.versionId} materialization kind does not match the current Document`,
         );
-      }
-      const sourceVersion = toSummary(version);
-      const planBase = {
-        version: DOCUMENT_VERSION_CONTRACT_VERSION,
-        kind: "document_version_restore" as const,
-        mutationId: input.mutationId,
-        projectId: input.projectId,
-        storeEpoch: input.storeEpoch,
-        documentId: input.documentId,
-        generation: input.generation,
-        expectedHeadSeq: input.expectedHeadSeq,
-        ...(input.clientSessionId
-          ? { clientSessionId: input.clientSessionId }
-          : {}),
-        actor,
-        sourceVersion,
-        requiresWriteFence: true as const,
-      } as const;
-      if (
-        current.kind === "canvas_scene" &&
-        version.materialization.kind === "canvas_scene"
-      ) {
-        if (registeredAdapter.contentModel !== "scene_graph") {
-          throw new DocumentVersionStoreError(
-            "document_version_schema_mismatch",
-            `Canvas version ${version.versionId} is registered through a non-scene Document Adapter`,
-          );
-        }
-        if (
-          canonicalCanvasSceneSemanticFingerprint(current) ===
-          canonicalCanvasSceneSemanticFingerprint(version.materialization)
-        ) {
-          return { kind: "already_current", sourceVersion };
-        }
-        const plan: DocumentVersionRestorePlan = {
-          ...planBase,
-          contentModel: "scene_graph",
-          forwardRestore: compileCanvasForwardRestorePlan({
-            current,
-            target: version.materialization,
-            restoreIdentity: input.mutationId,
-          }),
-        };
-        return { kind: "operation_plan", plan };
       }
       if (
         registeredAdapter.contentModel === "scene_graph" ||

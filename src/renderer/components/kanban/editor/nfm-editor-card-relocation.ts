@@ -1,5 +1,5 @@
 import type {
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
   RelocationCommandResult,
   RelocationIntent,
 } from "../../../../shared/block-documents/contracts";
@@ -12,7 +12,7 @@ export interface BuildCardBlockRelocationRequestInput {
   readonly sourceCardId: string;
   readonly rootBlockIds: readonly string[];
   readonly targetCardId: string;
-  readonly target: OwnedBlockDocumentDescriptor;
+  readonly target: OwnedDocumentDescriptor;
   readonly createRelocationId: () => string;
 }
 
@@ -46,7 +46,7 @@ export const buildCardBlockRelocationRequest = (
     input.target.ownerType !== "card" ||
     input.target.ownerLifecycle !== "active" ||
     input.target.readiness !== "ready" ||
-    input.target.authority !== "ydoc_primary"
+    input.target.sync.kind !== "yjs"
   ) {
     throw new TypeError("Destination Card is not an editable Block Document");
   }

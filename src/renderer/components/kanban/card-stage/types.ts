@@ -31,10 +31,8 @@ export interface CardStageSessionSnapshot {
  * descriptor; a Card read-model projection is never an editor input.
  */
 export interface CardStageDocumentAuthority {
-  readonly kind: "ydoc_primary";
-  readonly descriptor: ReadyCardBlockDocumentDescriptor & {
-    readonly authority: "ydoc_primary";
-  };
+  readonly kind: "yjs";
+  readonly descriptor: ReadyCardBlockDocumentDescriptor;
   readonly reload: () => Promise<void>;
   /** In-memory transport seam for isolated fixtures and tests. */
   readonly surfaceDependencies?: BlockDocumentSurfaceDependencies;

@@ -6,8 +6,6 @@ export type DocumentReadiness = "pending_genesis" | "ready" | "failed";
  * Migration-only authority state from the pre-engine-neutral Document model.
  * Runtime surfaces must dispatch through `OwnedDocumentDescriptor.sync` instead.
  */
-export type DocumentAuthority = "legacy_shadow" | "ydoc_primary";
-
 export type BlockLifecycle = "active" | "archived" | "deleted";
 
 export interface OwnedDocumentIdentity {
@@ -90,26 +88,6 @@ export interface DocumentHead {
   readonly headSeq: number;
   readonly schemaKey: string;
   readonly schemaVersion: number;
-  readonly stateVector: Uint8Array;
-}
-
-/**
- * @deprecated Migration compatibility for call sites that have not yet moved
- * to the engine-neutral `OwnedDocumentDescriptor`.
- */
-export interface OwnedBlockDocumentDescriptor {
-  readonly projectId: string;
-  readonly ownerBlockId: BlockId;
-  readonly ownerType: string;
-  readonly ownerLifecycle: BlockLifecycle;
-  readonly documentId: DocumentId;
-  readonly storeEpoch: string;
-  readonly generation: number;
-  readonly headSeq: number;
-  readonly schemaKey: string;
-  readonly schemaVersion: number;
-  readonly readiness: DocumentReadiness;
-  readonly authority: DocumentAuthority;
   readonly stateVector: Uint8Array;
 }
 

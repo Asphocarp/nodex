@@ -13,7 +13,7 @@ import {
   parseAssetSource,
 } from "../../shared/assets";
 import { CURRENT_SCHEMA_VERSION } from "./schema";
-import { readCanvasSceneMaterialization } from "./canvas-scene-materializations";
+import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 import { MAX_IMAGE_UPLOAD_BYTES } from "./assets";
 
 export interface ValidatedBackupStore {
@@ -318,9 +318,9 @@ const validateOpenDatabase = (
   const primaryDocuments = database
     .prepare(
       `
-      SELECT document.id, document.generation, document.head_seq,
+      SELECT document.id, document.project_id, document.generation, document.head_seq,
         document.schema_key, document.schema_version, document.readiness,
-        owner.type AS owner_type
+        document.sync_engine, owner.type AS owner_type
       FROM documents document
       INNER JOIN block_documents ownership
         ON ownership.document_id = document.id
@@ -334,11 +334,13 @@ const validateOpenDatabase = (
     )
     .all() as readonly {
     readonly id: string;
+    readonly project_id: string;
     readonly generation: number;
     readonly head_seq: number;
     readonly schema_key: string;
     readonly schema_version: number;
     readonly readiness: string;
+    readonly sync_engine: "yjs" | "canvas_scene";
     readonly owner_type: string;
   }[];
   let stalePrimaryProjections = 0;
@@ -349,7 +351,10 @@ const validateOpenDatabase = (
         schemaKey: document.schema_key,
         schemaVersion: document.schema_version,
       });
-      if (adapter.ownerType !== document.owner_type) {
+      if (
+        adapter.ownerType !== document.owner_type ||
+        adapter.syncEngine !== document.sync_engine
+      ) {
         stalePrimaryProjections += 1;
         continue;
       }
@@ -367,13 +372,48 @@ const validateOpenDatabase = (
       | undefined;
     try {
       if (contentModel === "scene_graph") {
-        const scene = readCanvasSceneMaterialization(database, document.id);
-        projection = scene
-          ? {
-              generation: scene.generation,
-              projected_seq: scene.projectedSeq,
-            }
-          : undefined;
+        const authority = readCanvasSceneAuthoritySnapshot(database, {
+          documentId: document.id,
+          generation: document.generation,
+          headSeq: document.head_seq,
+          schemaVersion: document.schema_version,
+        });
+        projection = database
+          .prepare(
+            `SELECT generation, projected_seq
+             FROM canvas_scene_materializations WHERE document_id = ?`,
+          )
+          .get(document.id) as
+          | { readonly generation: number; readonly projected_seq: number }
+          | undefined;
+        const projectedReferences = database
+          .prepare(
+            `SELECT source_element_id, target_block_id
+             FROM canvas_card_references
+             WHERE document_id = ? AND project_id = ?
+               AND document_generation = ? AND projected_seq = ?
+             ORDER BY source_element_id`,
+          )
+          .all(
+            document.id,
+            document.project_id,
+            document.generation,
+            document.head_seq,
+          ) as readonly {
+          readonly source_element_id: string;
+          readonly target_block_id: string;
+        }[];
+        const expectedReferences = authority.scene.cardReferences
+          .map((reference) => ({
+            source_element_id: reference.sourceElementId,
+            target_block_id: reference.targetBlockId,
+          }))
+          .sort((left, right) =>
+            left.source_element_id.localeCompare(right.source_element_id),
+          );
+        if (JSON.stringify(projectedReferences) !== JSON.stringify(expectedReferences)) {
+          projection = undefined;
+        }
       } else {
         projection = database
           .prepare(
@@ -398,6 +438,28 @@ const validateOpenDatabase = (
   if (stalePrimaryProjections > 0) {
     throw new BackupStoreValidationError(
       `Backup database has ${stalePrimaryProjections} stale primary Document projection(s)`,
+    );
+  }
+
+  const canvasYjsRowCount = (
+    database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM document_updates update_row
+            INNER JOIN documents document ON document.id = update_row.document_id
+            WHERE document.sync_engine = 'canvas_scene') +
+          (SELECT COUNT(*) FROM document_snapshots snapshot
+            INNER JOIN documents document ON document.id = snapshot.document_id
+            WHERE document.sync_engine = 'canvas_scene') +
+          (SELECT COUNT(*) FROM document_update_receipts receipt
+            INNER JOIN documents document ON document.id = receipt.document_id
+            WHERE document.sync_engine = 'canvas_scene') AS count`,
+      )
+      .get() as { readonly count: number }
+  ).count;
+  if (canvasYjsRowCount > 0) {
+    throw new BackupStoreValidationError(
+      `Backup database has ${canvasYjsRowCount} Canvas row(s) in Yjs authority tables`,
     );
   }
 

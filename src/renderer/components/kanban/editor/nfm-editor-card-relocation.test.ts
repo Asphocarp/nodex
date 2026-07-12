@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import type { OwnedBlockDocumentDescriptor } from "../../../../shared/block-documents/contracts";
+import type { OwnedDocumentDescriptor } from "../../../../shared/block-documents/contracts";
 import type { NfmEditorCollaborativeDocumentSource } from "./nfm-editor-source";
 import {
   buildCardBlockRelocationRequest,
@@ -17,7 +17,7 @@ const source: NfmEditorCollaborativeDocumentSource = {
   fragment: sourceDocument.getXmlFragment("body"),
   user: { name: "You", color: "blue" },
 };
-const target: OwnedBlockDocumentDescriptor = {
+const target: OwnedDocumentDescriptor = {
   projectId: "project-1",
   ownerBlockId: "card-2",
   ownerType: "card",
@@ -29,8 +29,7 @@ const target: OwnedBlockDocumentDescriptor = {
   schemaKey: "nodex.card",
   schemaVersion: 1,
   readiness: "ready",
-  authority: "ydoc_primary",
-  stateVector: new Uint8Array([0]),
+  sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
 };
 
 const build = (

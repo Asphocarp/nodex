@@ -6,7 +6,7 @@ import type { IpcApi } from "../../shared/ipc-api";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type {
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
   RelocationCommandResult,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
@@ -116,11 +116,11 @@ export function createCanvasSceneSyncAdapter(
   throw new Error("Canvas scene sync is unavailable for this renderer transport");
 }
 
-export function getOwnedBlockDocumentDescriptor(
+export function getOwnedDocumentDescriptor(
   projectId: string,
   ownerBlockId: string,
-): Promise<OwnedBlockDocumentDescriptor> {
-  return resolveRendererTransport().getOwnedBlockDocumentDescriptor(
+): Promise<OwnedDocumentDescriptor> {
+  return resolveRendererTransport().getOwnedDocumentDescriptor(
     projectId,
     ownerBlockId,
   );
@@ -129,7 +129,7 @@ export function getOwnedBlockDocumentDescriptor(
 export function prepareOwnedBlockDocument(
   projectId: string,
   ownerBlockId: string,
-): Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>> {
+): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>> {
   return resolveRendererTransport().prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,

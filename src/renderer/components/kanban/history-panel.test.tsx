@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 
-import type { OwnedBlockDocumentDescriptor } from "../../../shared/block-documents/contracts";
+import type { OwnedDocumentDescriptor } from "../../../shared/block-documents/contracts";
 import type { DocumentVersionDetail } from "../../../shared/block-documents/document-history";
 import type { CardHistoryEntry, CardHistoryPage } from "../../../shared/card-history";
 import { render, textContent } from "../../test/dom";
@@ -12,7 +12,7 @@ import { HistoryPanel } from "./history-panel";
 type HistoryPanelApiOperation =
   | "listCardHistory"
   | "getDocumentVersion"
-  | "getOwnedBlockDocumentDescriptor"
+  | "getOwnedDocumentDescriptor"
   | "restoreDocumentVersion";
 
 const callHistoryPanelApi = async (
@@ -32,8 +32,8 @@ const callHistoryPanelApi = async (
 vi.mock("./history-panel-deps", () => ({
   listCardHistory: (...args: unknown[]) => callHistoryPanelApi("listCardHistory", ...args),
   getDocumentVersion: (...args: unknown[]) => callHistoryPanelApi("getDocumentVersion", ...args),
-  getOwnedBlockDocumentDescriptor: (...args: unknown[]) =>
-    callHistoryPanelApi("getOwnedBlockDocumentDescriptor", ...args),
+  getOwnedDocumentDescriptor: (...args: unknown[]) =>
+    callHistoryPanelApi("getOwnedDocumentDescriptor", ...args),
   restoreDocumentVersion: (...args: unknown[]) =>
     callHistoryPanelApi("restoreDocumentVersion", ...args),
 }));
@@ -57,7 +57,7 @@ describe("canonical Card history panel", () => {
       if (operation === "getDocumentVersion") {
         return { ok: true, value: makeVersionDetail() };
       }
-      if (operation === "getOwnedBlockDocumentDescriptor") {
+      if (operation === "getOwnedDocumentDescriptor") {
         return makeDescriptor();
       }
       restoreRequests.push(args[2] as Record<string, unknown>);
@@ -124,7 +124,7 @@ describe("canonical Card history panel", () => {
       if (operation === "getDocumentVersion") {
         return { ok: true, value: makeVersionDetail() };
       }
-      if (operation === "getOwnedBlockDocumentDescriptor") {
+      if (operation === "getOwnedDocumentDescriptor") {
         return makeDescriptor();
       }
       restoreCount += 1;
@@ -177,7 +177,7 @@ describe("canonical Card history panel", () => {
       if (operation === "getDocumentVersion") {
         return { ok: true, value: makeVersionDetail() };
       }
-      if (operation === "getOwnedBlockDocumentDescriptor") {
+      if (operation === "getOwnedDocumentDescriptor") {
         descriptorCount += 1;
         return makeDescriptor();
       }
@@ -263,7 +263,7 @@ describe("canonical Card history panel", () => {
       if (operation === "getDocumentVersion") {
         return { ok: true, value: makeVersionDetail() };
       }
-      if (operation === "getOwnedBlockDocumentDescriptor") {
+      if (operation === "getOwnedDocumentDescriptor") {
         descriptorCount += 1;
         return makeDescriptor();
       }
@@ -522,7 +522,10 @@ function makeVersionDetail(): DocumentVersionDetail {
       label: "Before restructure",
       actor: { kind: "renderer" },
       checkpointHash: HASH,
-      stateVectorHash: HASH,
+      checkpointMetadata: {
+        format: "yjs_update_v1",
+        stateVectorHash: HASH,
+      },
       materializationHash: HASH,
       byteLength: 1_024,
       materializationKind: "card",
@@ -545,7 +548,7 @@ function makeVersionDetail(): DocumentVersionDetail {
   };
 }
 
-function makeDescriptor(): OwnedBlockDocumentDescriptor {
+function makeDescriptor(): OwnedDocumentDescriptor {
   return {
     projectId: "project-1",
     ownerBlockId: "card-1",
@@ -558,7 +561,6 @@ function makeDescriptor(): OwnedBlockDocumentDescriptor {
     schemaKey: "nodex.card",
     schemaVersion: 1,
     readiness: "ready",
-    authority: "ydoc_primary",
-    stateVector: new Uint8Array(),
+    sync: { kind: "yjs", stateVector: new Uint8Array() },
   };
 }

@@ -13,7 +13,6 @@ import {
   type CanvasSceneMaterialization,
   type DocumentHead,
   type DocumentId,
-  type DocumentAuthority,
   type DocumentReadiness,
   type DocumentSyncApplyAck,
   type DocumentSyncCommandError,
@@ -22,6 +21,7 @@ import {
   type DocumentSyncResponse,
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
+import type { LegacyDocumentAuthority } from "./legacy-document-authority";
 import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
 import { assertUuidV7 } from "../../shared/card-id";
 import {
@@ -73,8 +73,9 @@ interface DocumentRow {
   readonly schema_version: number;
   readonly state_vector: Buffer;
   readonly state_hash: string;
+  readonly sync_engine: "yjs" | "canvas_scene";
   readonly readiness: DocumentReadiness;
-  readonly authority: DocumentAuthority;
+  readonly authority: LegacyDocumentAuthority;
 }
 
 interface StoredDocumentUpdateReceiptRow {
@@ -264,7 +265,7 @@ export const toDocumentSyncCommandError = (
 
 export interface LoadedBlockDocument {
   readonly storeEpoch: string;
-  readonly authority: DocumentAuthority;
+  readonly authority: LegacyDocumentAuthority;
   readonly ownerType: string;
   readonly head: DocumentHead;
   readonly document: Y.Doc;
@@ -272,7 +273,7 @@ export interface LoadedBlockDocument {
 
 export interface BlockDocumentRuntimeIdentity {
   readonly storeEpoch: string;
-  readonly authority: DocumentAuthority;
+  readonly authority: LegacyDocumentAuthority;
   readonly head: DocumentHead;
   readonly stateHash: string;
 }
@@ -285,7 +286,7 @@ export interface InitializeBlockDocumentGenesis {
   readonly clientSessionId: string;
   readonly update: Uint8Array;
   /** New non-legacy schemas become primary in the same genesis transaction. */
-  readonly finalAuthority?: DocumentAuthority;
+  readonly finalAuthority?: LegacyDocumentAuthority;
 }
 
 export type InitializeCardDocumentGenesis = InitializeBlockDocumentGenesis;
@@ -359,6 +360,7 @@ const LOAD_DOCUMENT_ROW_SQL = `
     document.schema_version,
     document.state_vector,
     document.state_hash,
+    document.sync_engine,
     document.readiness,
     document.authority
   FROM documents document
@@ -467,7 +469,7 @@ const assertReady = (row: DocumentRow): void => {
 
 const assertDocumentAuthority = (
   row: DocumentRow,
-  authority: DocumentAuthority,
+  authority: LegacyDocumentAuthority,
 ): void => {
   if (row.authority === authority) return;
   throw new BlockDocumentStoreError(
@@ -503,6 +505,15 @@ const getSchemaAdapter = (
       `Document ${row.document_id} uses unsupported owner/schema ${row.owner_type}/${row.schema_key}@${row.schema_version}`,
     );
   }
+};
+
+const assertYjsDocumentEngine = (row: DocumentRow): void => {
+  const adapter = getSchemaAdapter(row);
+  if (row.sync_engine === "yjs" && adapter.syncEngine === "yjs") return;
+  throw new BlockDocumentStoreError(
+    "unsupported_document_schema",
+    `Document ${row.document_id} uses the ${row.sync_engine} sync engine and cannot enter the Yjs runtime`,
+  );
 };
 
 const assertSupportedCardSchema = (row: DocumentRow): void => {
@@ -1875,7 +1886,7 @@ export const loadBlockDocument = (
     const storeEpoch = readStoreEpoch(database);
     const row = readDocumentRow(database, documentId);
     assertReady(row);
-    getSchemaAdapter(row);
+    assertYjsDocumentEngine(row);
     assertReadableDocumentOwner(row);
 
     return {
@@ -1896,7 +1907,7 @@ export const loadBlockDocument = (
 const loadBlockDocumentWithAuthority = (
   database: Database.Database,
   documentId: DocumentId,
-  authority: DocumentAuthority,
+  authority: LegacyDocumentAuthority,
   options: {
     readonly allowAbsentActiveBlockIds?: readonly BlockId[];
   } = {},
@@ -1919,6 +1930,35 @@ export const loadPrimaryBlockDocument = (
 ): LoadedBlockDocument =>
   loadBlockDocumentWithAuthority(database, documentId, "ydoc_primary", options);
 
+/** One-way v71 cutover seam for reading the former Canvas Y.Doc authority. */
+export const loadLegacyCanvasYjsDocumentForCutover = (
+  database: Database.Database,
+  documentId: DocumentId,
+): LoadedBlockDocument => {
+  const load = database.transaction((): LoadedBlockDocument => {
+    const storeEpoch = readStoreEpoch(database);
+    const row = readDocumentRow(database, documentId);
+    const adapter = getSchemaAdapter(row);
+    assertReady(row);
+    assertDocumentAuthority(row, "ydoc_primary");
+    assertReadableDocumentOwner(row);
+    if (row.sync_engine !== "yjs" || adapter.syncEngine !== "canvas_scene") {
+      throw new BlockDocumentStoreError(
+        "unsupported_document_schema",
+        `Document ${documentId} is not a legacy Canvas Yjs authority awaiting cutover`,
+      );
+    }
+    return {
+      storeEpoch,
+      authority: row.authority,
+      ownerType: row.owner_type,
+      head: toDocumentHead(row),
+      document: loadDocumentFromRow(database, row),
+    };
+  });
+  return load();
+};
+
 export const loadLegacyShadowBlockDocument = (
   database: Database.Database,
   documentId: DocumentId,
@@ -1934,6 +1974,7 @@ export const loadLegacyShadowBlockDocumentForMigration = (
     const storeEpoch = readStoreEpoch(database);
     const row = readDocumentRow(database, documentId);
     assertReady(row);
+    assertYjsDocumentEngine(row);
     assertSupportedCardSchema(row);
     assertCardOwnerForInternalMigration(row);
     assertDocumentAuthority(row, "legacy_shadow");
@@ -2268,11 +2309,15 @@ export const initializeBlockDocumentGenesis = (
         input.documentId,
         input.generation,
       );
-    replaceDocumentSecondaryProjections(database, {
-      documentId: input.documentId,
-      expectedGeneration: input.generation,
-      expectedProjectedSeq: 1,
-    });
+    // Legacy Canvas genesis exists only as v70 cutover input. Its normalized
+    // v71 authority rebuilds secondary projections after the engine switch.
+    if (genesisMaterialization.kind !== "canvas_scene") {
+      replaceDocumentSecondaryProjections(database, {
+        documentId: input.documentId,
+        expectedGeneration: input.generation,
+        expectedProjectedSeq: 1,
+      });
+    }
 
     return makeAck(
       {
@@ -2305,7 +2350,7 @@ export const initializeCardDocumentGenesis = (
 const applyBlockDocumentUpdateForAuthority = (
   database: Database.Database,
   input: ApplyDocumentUpdate,
-  authority: DocumentAuthority,
+  authority: LegacyDocumentAuthority,
   allowInactiveOwner: boolean,
   allowReservedUpdateId: boolean,
   strictCommitPolicy?: StrictDocumentUpdateCommitPolicy,
@@ -2339,6 +2384,7 @@ const applyBlockDocumentUpdateForAuthority = (
     assertReady(row);
     assertGeneration(row, input.generation);
     const documentAdapter = getSchemaAdapter(row);
+    assertYjsDocumentEngine(row);
     if (allowInactiveOwner) {
       assertCardOwnerForInternalMigration(row);
     } else {
@@ -2754,7 +2800,7 @@ export const compactBlockDocument = (
   const compact = database.transaction((): CompactBlockDocumentResult => {
     const row = readDocumentRow(database, input.documentId);
     assertReady(row);
-    getSchemaAdapter(row);
+    assertYjsDocumentEngine(row);
     assertReadableDocumentOwner(row);
     if (
       input.expectedGeneration !== undefined &&

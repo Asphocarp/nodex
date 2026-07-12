@@ -129,7 +129,7 @@ const run = async (): Promise<void> => {
       card.id,
     );
     invariant(
-      prepared.ok && prepared.value.authority === "ydoc_primary",
+      prepared.ok && prepared.value.sync.kind === "yjs",
       "Card is not backed by Y.Doc authority",
     );
     const descriptor = prepared.value;

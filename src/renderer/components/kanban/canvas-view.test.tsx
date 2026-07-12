@@ -249,8 +249,7 @@ const descriptor = {
   schemaKey: "nodex.canvas",
   schemaVersion: 1,
   readiness: "ready",
-  authority: "ydoc_primary",
-  stateVector: new Uint8Array(),
+  sync: { kind: "canvas_scene" },
 } as const;
 
 vi.mock("@excalidraw/excalidraw/index.css", () => ({}));

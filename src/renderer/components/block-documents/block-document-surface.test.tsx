@@ -41,8 +41,7 @@ const descriptor = (
   schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
   schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
-  authority: "ydoc_primary",
-  stateVector: new Uint8Array([0]),
+  sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
   ...overrides,
 });
 

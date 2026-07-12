@@ -10,7 +10,7 @@ import {
   assertValidCardDocumentRoots,
   createCardDocument,
   type DocumentSyncCommandError,
-  type OwnedBlockDocumentDescriptor,
+  type OwnedDocumentDescriptor,
 } from "../../shared/block-documents";
 import type {
   DocumentLocalCheckpoint,
@@ -27,8 +27,8 @@ import {
 } from "./block-document-surface-runtime";
 
 const descriptor = (
-  overrides: Partial<OwnedBlockDocumentDescriptor> = {},
-): OwnedBlockDocumentDescriptor => ({
+  overrides: Partial<OwnedDocumentDescriptor> = {},
+): OwnedDocumentDescriptor => ({
   projectId: "project-1",
   ownerBlockId: "card-1",
   ownerType: "card",
@@ -40,8 +40,7 @@ const descriptor = (
   schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
   schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
-  authority: "ydoc_primary",
-  stateVector: new Uint8Array([0]),
+  sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
   ...overrides,
 });
 

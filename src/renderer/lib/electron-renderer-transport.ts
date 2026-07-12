@@ -19,7 +19,7 @@ import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
-  OwnedBlockDocumentDescriptor,
+  OwnedDocumentDescriptor,
   RelocationCommandResult,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
@@ -80,19 +80,19 @@ export function createElectronRendererTransport(
         request,
       ) as Promise<CardHistoryCommandResult>;
     },
-    getOwnedBlockDocumentDescriptor(projectId: string, ownerBlockId: string) {
+    getOwnedDocumentDescriptor(projectId: string, ownerBlockId: string) {
       return bridge.invoke(
         "block-document:owned:get",
         projectId,
         ownerBlockId,
-      ) as Promise<OwnedBlockDocumentDescriptor>;
+      ) as Promise<OwnedDocumentDescriptor>;
     },
     prepareOwnedBlockDocument(projectId: string, ownerBlockId: string) {
       return bridge.invoke(
         "block-document:owned:prepare",
         projectId,
         ownerBlockId,
-      ) as Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>>;
+      ) as Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
     },
     createDocumentSyncAdapter(projectId: string) {
       void projectId;

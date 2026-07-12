@@ -271,7 +271,7 @@ describe("Document sync transport parity", () => {
     const app = new Hono();
     registerDocumentSyncHttpRoutes(app, {
       hub,
-      getOwnedBlockDocumentDescriptor: async (projectId, ownerBlockId) => ({
+      getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
         projectId,
         ownerBlockId,
         ownerType: "card",
@@ -283,8 +283,7 @@ describe("Document sync transport parity", () => {
         schemaKey: "nodex.card",
         schemaVersion: 1,
         readiness: "ready",
-        authority: "ydoc_primary",
-        stateVector: new Uint8Array(),
+        sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),
       prepareOwnedBlockDocument: async (projectId, ownerBlockId) => success({
         projectId,
@@ -298,8 +297,7 @@ describe("Document sync transport parity", () => {
         schemaKey: "nodex.card",
         schemaVersion: 1,
         readiness: "ready",
-        authority: "ydoc_primary",
-        stateVector: new Uint8Array(),
+        sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),
       getDocumentProjectId: async () => success("project-1"),
     });

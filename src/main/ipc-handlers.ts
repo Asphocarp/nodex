@@ -747,7 +747,7 @@ export function registerIpcHandlers(
     "block-document:owned:get",
     async (_, projectId, ownerBlockId) =>
       (
-        await blockMutationWriter.getOwnedBlockDocumentDescriptor(
+        await blockMutationWriter.getOwnedDocumentDescriptor(
           projectId,
           ownerBlockId,
         )

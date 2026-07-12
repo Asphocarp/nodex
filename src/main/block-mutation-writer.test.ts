@@ -1310,12 +1310,12 @@ describe("BlockMutationWriter", () => {
     expect(applyResult.error.code).toBe("document_update_missing_dependencies");
     expect(applyResult.error.retryable).toBe(true);
 
-    const descriptorPending = writer.getOwnedBlockDocumentDescriptor(
+    const descriptorPending = writer.getOwnedDocumentDescriptor(
       "project-1",
       "card-1",
     );
     const descriptorRequest = worker.messages[3];
-    expect(descriptorRequest?.type).toBe("getOwnedBlockDocumentDescriptor");
+    expect(descriptorRequest?.type).toBe("getOwnedDocumentDescriptor");
     if (!descriptorRequest) return;
     worker.emitMessage({
       id: descriptorRequest.id,
@@ -1332,15 +1332,14 @@ describe("BlockMutationWriter", () => {
         schemaKey: "nodex.card",
         schemaVersion: 1,
         readiness: "ready",
-        authority: "ydoc_primary",
-        stateVector: new Uint8Array([1, 2]),
+        sync: { kind: "yjs", stateVector: new Uint8Array([1, 2]) },
       },
       events: [],
       metrics: makeMetrics(descriptorRequest.mutationId),
     });
     const descriptor = await descriptorPending;
     expect(descriptor.result.ownerBlockId).toBe("card-1");
-    expect(descriptor.result.authority).toBe("ydoc_primary");
+    expect(descriptor.result.sync.kind).toBe("yjs");
   });
 
   test("preserves typed relocation binaries and compacted null replay through the FIFO", async () => {

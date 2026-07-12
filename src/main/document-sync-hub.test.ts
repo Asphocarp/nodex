@@ -1211,6 +1211,47 @@ describe("DocumentSyncHub", () => {
     expect(proofs[1]?.headSeq).toBe(0);
   });
 
+  test("repairs Canvas subscribers with scene-native resync after a durable restore", async () => {
+    const request: DocumentMutationRequest = {
+      version: 1,
+      mutationId: "canvas-version-restore",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: { kind: "test" },
+      clientSessionId: "canvas-agent",
+      documentId: "canvas-1",
+      versionId: `document-version:${"b".repeat(64)}`,
+      generation: 1,
+      expectedHeadSeq: 2,
+    };
+    const target = new FakeTarget(91);
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      applyDocumentMutation: async (received) =>
+        documentMutationCommitted(received, { fenced: true }),
+    });
+    expect(hub.subscribeCanvasScene(target, {
+      version: 1,
+      projectId: "project-1",
+      documentId: "canvas-1",
+      clientSessionId: "canvas-window",
+    }).ok).toBe(true);
+
+    const result = await hub.applyDocumentMutation(request);
+    expect(result.ok).toBe(true);
+    expect(target.sent).toContainEqual(expect.objectContaining({
+      value: expect.objectContaining({
+        type: "canvas_scene_resync_required",
+        projectId: "project-1",
+        documentId: "canvas-1",
+        headSeq: 3,
+      }),
+    }));
+    expect(target.sent.some(({ value }) =>
+      (value as { readonly kind?: string }).kind === "resync-required"
+    )).toBe(false);
+  });
+
   test("structural Document mutation flushes and freezes every mounted surface", async () => {
     const request = documentMutationRequest("document-mutation-fenced", true);
     const proofs: Array<DocumentWriteFenceProof | undefined> = [];

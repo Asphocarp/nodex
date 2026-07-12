@@ -6,7 +6,7 @@ import {
   makeOwnedBlockDocumentModel,
   makeRegisteredOwnedBlockDocumentModel,
   unwrapOwnedBlockDocumentPreparationResult,
-  type OwnedBlockDocumentDescriptorFetcher,
+  type OwnedDocumentDescriptorFetcher,
   type OwnedBlockDocumentModel,
   type OwnedBlockDocumentRequest,
   type RegisteredOwnedBlockDocumentModel,
@@ -14,10 +14,10 @@ import {
 import { queryKeys } from "./query-keys";
 
 export interface OwnedBlockDocumentQueryDependencies {
-  readonly fetchDescriptor?: OwnedBlockDocumentDescriptorFetcher;
+  readonly fetchDescriptor?: OwnedDocumentDescriptorFetcher;
 }
 
-const defaultFetcher: OwnedBlockDocumentDescriptorFetcher = (
+const defaultFetcher: OwnedDocumentDescriptorFetcher = (
   projectId,
   ownerBlockId,
 ) =>
@@ -28,7 +28,7 @@ const defaultFetcher: OwnedBlockDocumentDescriptorFetcher = (
 const makeOwnedBlockDocumentQueryFn =
   (
     request: OwnedBlockDocumentRequest,
-    fetcher: OwnedBlockDocumentDescriptorFetcher,
+    fetcher: OwnedDocumentDescriptorFetcher,
   ) =>
   () =>
     fetchOwnedBlockDocumentDescriptor(request, fetcher);
@@ -36,7 +36,7 @@ const makeOwnedBlockDocumentQueryFn =
 const makeRegisteredOwnedBlockDocumentQueryFn =
   (
     request: OwnedBlockDocumentRequest,
-    fetcher: OwnedBlockDocumentDescriptorFetcher,
+    fetcher: OwnedDocumentDescriptorFetcher,
   ) =>
   () =>
     fetchRegisteredOwnedBlockDocumentDescriptor(request, fetcher);

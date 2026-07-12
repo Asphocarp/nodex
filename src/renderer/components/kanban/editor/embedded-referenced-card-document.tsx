@@ -52,14 +52,6 @@ export function EmbeddedReferencedCardDocument({
             </div>
           );
         }
-        if (model.status === "legacy_shadow") {
-          return (
-            <div className="py-2 text-sm text-token-description-foreground">
-              Finishing collaboration migration…
-            </div>
-          );
-        }
-
         return (
           <BlockDocumentSurface
             projectId={projectId}

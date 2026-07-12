@@ -5,14 +5,18 @@ import {
   type CardDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
 import type {
-  DocumentAuthority,
   DocumentReadiness,
-  OwnedBlockDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents/document-schema-adapters";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import { loadLegacyShadowBlockDocument } from "./block-document-store";
+import type {
+  LegacyDocumentAuthority,
+  LegacyOwnedBlockDocumentDescriptor,
+} from "./legacy-document-authority";
+
+export type { LegacyOwnedBlockDocumentDescriptor } from "./legacy-document-authority";
 
 export type BlockDocumentCutoverErrorCode =
   | "owned_document_not_found"
@@ -61,7 +65,7 @@ interface OwnedDocumentRow {
   readonly schema_key: string;
   readonly schema_version: number;
   readonly readiness: DocumentReadiness;
-  readonly authority: DocumentAuthority;
+  readonly authority: LegacyDocumentAuthority;
   readonly state_vector: Buffer;
   readonly sync_engine: "yjs" | "canvas_scene";
 }
@@ -154,7 +158,7 @@ const readOwnedDocumentRow = (
 const toDescriptor = (
   row: OwnedDocumentRow,
   storeEpoch: string,
-): OwnedBlockDocumentDescriptor => ({
+): LegacyOwnedBlockDocumentDescriptor => ({
   projectId: row.project_id,
   ownerBlockId: row.owner_block_id,
   ownerType: row.owner_type,
@@ -246,7 +250,7 @@ export const getOwnedBlockDocumentDescriptor = (
   database: Database.Database,
   projectId: string,
   ownerBlockId: string,
-): OwnedBlockDocumentDescriptor => {
+): LegacyOwnedBlockDocumentDescriptor => {
   const normalizedProjectId = requireIdentity(projectId, "projectId");
   const normalizedOwnerBlockId = requireIdentity(ownerBlockId, "ownerBlockId");
   const read = database.transaction(() =>
@@ -469,10 +473,10 @@ const assertNotLegacyForeignBodyParticipant = (
 export const cutoverCardDocumentToPrimary = (
   database: Database.Database,
   input: CutoverCardDocumentInput,
-): OwnedBlockDocumentDescriptor => {
+): LegacyOwnedBlockDocumentDescriptor => {
   const projectId = requireIdentity(input.projectId, "projectId");
   const ownerBlockId = requireIdentity(input.ownerBlockId, "ownerBlockId");
-  const cutover = database.transaction((): OwnedBlockDocumentDescriptor => {
+  const cutover = database.transaction((): LegacyOwnedBlockDocumentDescriptor => {
     const storeEpoch = readStoreEpoch(database);
     const row = readOwnedDocumentRow(database, projectId, ownerBlockId);
     if (row.owner_type !== "card" || row.owner_lifecycle === "deleted") {
@@ -593,7 +597,7 @@ export const cutoverEligibleCardDocumentsToPrimary = (
     readonly document_id: string;
     readonly generation: number;
     readonly head_seq: number;
-    readonly authority: DocumentAuthority;
+    readonly authority: LegacyDocumentAuthority;
   }[];
 
   const cutoverDocumentIds: string[] = [];

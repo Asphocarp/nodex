@@ -5,7 +5,7 @@ import type {
   BlockId,
   DocumentId,
 } from "../../shared/block-documents/contracts";
-import type { CanvasFileSnapshot } from "../../shared/block-documents/canvas-document";
+import type { CanvasSceneFile } from "../../shared/block-documents/canvas-scene";
 import {
   getBlockDocumentSchemaAdapter,
   getRegisteredBlockDocumentSchemaAdapter,
@@ -13,7 +13,7 @@ import {
 import { parseAssetSource } from "../../shared/assets";
 import { tokenizeSearchQuery } from "../../shared/search-text";
 import { MAX_IMAGE_UPLOAD_BYTES, resolveAssetPath } from "./assets";
-import { readCanvasSceneMaterialization } from "./canvas-scene-materializations";
+import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 
 const DOCUMENT_PROJECTION_VERSION = 1;
 const MAX_SEARCH_LIMIT = 200;
@@ -675,6 +675,7 @@ interface RegisteredProjectionSourceRow {
   readonly schema_version: number;
   readonly generation: number;
   readonly head_seq: number;
+  readonly sync_engine: "yjs" | "canvas_scene";
   readonly readiness: string;
   readonly owner_block_id: string | null;
   readonly owner_type: string | null;
@@ -696,7 +697,7 @@ const readRegisteredProjectionSource = (
       `
       SELECT document.id AS document_id, document.project_id,
         document.schema_key, document.schema_version, document.generation,
-        document.head_seq, document.readiness,
+        document.head_seq, document.sync_engine, document.readiness,
         ownership.block_id AS owner_block_id, owner.type AS owner_type
       FROM documents document
       LEFT JOIN block_documents ownership
@@ -745,6 +746,12 @@ const readRegisteredProjectionSource = (
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
     });
+    if (adapter.syncEngine !== row.sync_engine) {
+      throw new DocumentSecondaryProjectionError(
+        "projection_source_corrupt",
+        `Document ${documentId} stores ${row.sync_engine} but its schema requires ${adapter.syncEngine}`,
+      );
+    }
     return {
       row: row as RegisteredProjectionSourceRow & {
         readonly owner_block_id: string;
@@ -781,7 +788,7 @@ export interface CanvasSceneFileProjectionPlanEntry {
 
 /** Managed asset names are immutable, so unchanged refs reuse prior evidence. */
 export const planCanvasSceneFileProjections = (
-  files: Readonly<Record<string, CanvasFileSnapshot>>,
+  files: Readonly<Record<string, CanvasSceneFile>>,
   existing: readonly ExistingCanvasSceneFileProjection[],
 ): readonly CanvasSceneFileProjectionPlanEntry[] => {
   const existingByFileId = new Map(existing.map((row) => [row.file_id, row]));
@@ -816,21 +823,25 @@ const replaceCanvasSceneSecondaryProjections = (
     readonly owner_type: string;
   },
 ): DocumentSecondaryProjectionResult => {
-  const stored = readCanvasSceneMaterialization(
-    database,
-    source.document_id,
-  );
-  if (
-    !stored ||
-    stored.ownerBlockId !== source.owner_block_id ||
-    stored.projectId !== source.project_id ||
-    stored.generation !== source.generation ||
-    stored.projectedSeq !== source.head_seq ||
-    stored.schemaVersion !== source.schema_version
-  ) {
+  if (source.sync_engine !== "canvas_scene") {
+    throw new DocumentSecondaryProjectionError(
+      "projection_source_corrupt",
+      `Canvas Document ${source.document_id} does not use scene authority`,
+    );
+  }
+  let authority;
+  try {
+    authority = readCanvasSceneAuthoritySnapshot(database, {
+      documentId: source.document_id,
+      generation: source.generation,
+      headSeq: source.head_seq,
+      schemaVersion: source.schema_version,
+    });
+  } catch (error) {
     throw new DocumentSecondaryProjectionError(
       "projection_source_stale",
-      `Canvas Document ${source.document_id} materialization does not match its durable head`,
+      `Canvas Document ${source.document_id} authority does not match its durable head`,
+      { cause: error },
     );
   }
   const existingFileProjections = database
@@ -844,7 +855,7 @@ const replaceCanvasSceneSecondaryProjections = (
     )
     .all(source.document_id) as readonly ExistingCanvasSceneFileProjection[];
   const fileProjectionPlan = planCanvasSceneFileProjections(
-    stored.materialization.files,
+    authority.scene.files,
     existingFileProjections,
   );
   database
@@ -885,9 +896,9 @@ const replaceCanvasSceneSecondaryProjections = (
       source.generation,
       source.head_seq,
       DOCUMENT_PROJECTION_VERSION,
-      stored.materialization.plainText,
-      sha256(stored.materialization.plainText),
-      stored.updatedAt,
+      authority.scene.plainText,
+      sha256(authority.scene.plainText),
+      authority.updatedAt,
     );
   const insertFile = database.prepare(`
     INSERT INTO canvas_scene_file_refs (
@@ -938,7 +949,7 @@ const replaceCanvasSceneSecondaryProjections = (
       file.managedFileName,
       assetHash,
       byteLength,
-      stored.updatedAt,
+      authority.updatedAt,
     );
   }
   const insertCardReference = database.prepare(`
@@ -947,7 +958,7 @@ const replaceCanvasSceneSecondaryProjections = (
       project_id, document_generation, projected_seq, title_hint, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const reference of stored.materialization.cardReferences) {
+  for (const reference of authority.scene.cardReferences) {
     insertCardReference.run(
       source.document_id,
       reference.sourceElementId,
@@ -957,7 +968,7 @@ const replaceCanvasSceneSecondaryProjections = (
       source.generation,
       source.head_seq,
       reference.titleHint ?? null,
-      stored.updatedAt,
+      authority.updatedAt,
     );
   }
   return {
@@ -967,7 +978,7 @@ const replaceCanvasSceneSecondaryProjections = (
     generation: source.generation,
     projectedSeq: source.head_seq,
     searchUnitCount: 1,
-    assetRefCount: Object.keys(stored.materialization.files).length,
+    assetRefCount: Object.keys(authority.scene.files).length,
   };
 };
 
@@ -1076,11 +1087,15 @@ export const repairDocumentSecondaryProjections = (
       const documents = database
         .prepare(
           `
-          SELECT document.id, marker.unit_key
+          SELECT document.id, document.schema_key, document.schema_version,
+            document.sync_engine, owner.type AS owner_type, marker.unit_key
           FROM documents document
           INNER JOIN block_documents ownership
             ON ownership.document_id = document.id
             AND ownership.project_id = document.project_id
+          INNER JOIN blocks owner
+            ON owner.id = ownership.block_id
+            AND owner.project_id = ownership.project_id
           LEFT JOIN block_search_units marker
             ON marker.document_id = document.id
             AND marker.owner_block_id = ownership.block_id
@@ -1095,10 +1110,22 @@ export const repairDocumentSecondaryProjections = (
         )
         .all() as readonly {
         readonly id: string;
+        readonly schema_key: string;
+        readonly schema_version: number;
+        readonly sync_engine: "yjs" | "canvas_scene";
+        readonly owner_type: string;
         readonly unit_key: string | null;
       }[];
       const repairs = documents
-        .filter((document) => document.unit_key === null)
+        .filter((document) => {
+          if (document.unit_key !== null) return false;
+          const adapter = getRegisteredBlockDocumentSchemaAdapter({
+            ownerType: document.owner_type,
+            schemaKey: document.schema_key,
+            schemaVersion: document.schema_version,
+          });
+          return adapter.syncEngine === document.sync_engine;
+        })
         .map((document) =>
           replaceDocumentSecondaryProjections(database, {
             documentId: document.id,

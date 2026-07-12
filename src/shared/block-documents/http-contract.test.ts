@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  decodeOwnedBlockDocumentDescriptorHttp,
   decodeOwnedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
@@ -16,7 +15,6 @@ import {
   encodeDocumentRealtimeSseEvent,
   encodeDocumentSyncHttpRequest,
   encodeDocumentSyncHttpResponse,
-  encodeOwnedBlockDocumentDescriptorHttp,
   encodeOwnedDocumentDescriptorHttp,
 } from "./http-contract";
 
@@ -80,30 +78,6 @@ describe("Document HTTP contract", () => {
     expect(() => decodeOwnedDocumentDescriptorHttp(serialized)).toThrow(
       "Canvas scene sync descriptor has unsupported fields",
     );
-  });
-
-  test("round-trips owned Document identity boundaries", () => {
-    const descriptor = decodeOwnedBlockDocumentDescriptorHttp(
-      encodeOwnedBlockDocumentDescriptorHttp({
-        projectId: "project-1",
-        ownerBlockId: "card-1",
-        ownerType: "card",
-        ownerLifecycle: "active",
-        documentId: "document-1",
-        storeEpoch: "store-1",
-        generation: 2,
-        headSeq: 7,
-        schemaKey: "nodex.card",
-        schemaVersion: 1,
-        readiness: "ready",
-        authority: "ydoc_primary",
-        stateVector: bytes(0, 128, 255),
-      }),
-    );
-    expect(descriptor.documentId).toBe("document-1");
-    expect(descriptor.generation).toBe(2);
-    expect(descriptor.headSeq).toBe(7);
-    expect(Array.from(descriptor.stateVector).join(",")).toBe("0,128,255");
   });
 
   test("round-trips sync and apply commands without JSON-encoding binary updates", () => {

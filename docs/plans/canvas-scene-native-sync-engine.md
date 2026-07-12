@@ -12,13 +12,13 @@ The architectural outcome is equally important: an Owned Document means independ
 
 - [x] (2026-07-13 01:20Z) Confirmed the current Canvas/Yjs revision-register state grows with edit history rather than effective scene size and documented the replacement decision in ADR 0005.
 - [x] (2026-07-13 01:20Z) Mapped descriptor, adapter, renderer, provider, Hub, writer, store, history, projection, backup, retention, and migration coupling.
-- [ ] (2026-07-13 02:31Z) Introduce engine-neutral Owned Document descriptors, heads, schema registration, and checkpoint formats while keeping block-tree Yjs behavior green (completed: additive descriptor discriminant, strict v2 HTTP codec, engine metadata/Yjs-only lookup, pure Canvas scene contracts, and additive renderer provider/outbox; remaining: call-site migration, history format, removal of legacy public types).
+- [x] (2026-07-13 03:18Z) Introduced engine-neutral Owned Document descriptors, heads, schema registration, and checkpoint formats; migrated runtime/transport/renderer call sites and removed public authority/state-vector compatibility contracts while isolating v69 authority shapes locally.
 - [x] (2026-07-13 03:05Z) Added schema v71 and an atomic, retryable v70→v71 cutover that converts current Canvas scenes and retained checkpoints, verifies them, then removes Canvas Yjs updates/snapshots/receipts; fresh primary and additional Canvas owners initialize scene-native authority directly.
-- [ ] (2026-07-13 02:46Z) Implement the Canvas scene store kernel, exact receipts, projections, history, backup, retention, transfer, and additional-owner operations (completed: normalized current-scene authority, deterministic merge, app-state CAS, immutable files, exact receipts, canonical full sync/deltas, and transitional exact-head projection refresh; remaining: history, backup, retention, transfer, owner creation/deletion, and removal of the transitional projection).
+- [ ] (2026-07-13 03:18Z) Implemented the Canvas scene store kernel, exact receipts, engine-native history/restore, backup validation, retention/GC, transfer/deletion routing, and primary/additional owner creation (remaining: remove the transitional duplicated whole-scene materialization table).
 - [x] (2026-07-13 03:00Z) Added engine-discriminated IPC/HTTP/realtime contracts and routed Canvas through the sole writer and one engine-neutral Hub subscription/lease lifecycle; durable canonical deltas fan out only after commit.
 - [x] (2026-07-13 03:00Z) Replaced the renderer Canvas Y.Doc surface with a Canvas scene provider, durable IndexedDB outbox, coalescing, reconnect/gap repair, exact write-lease flush/freeze/resync, and bounded app-close flush.
 - [ ] Delete Canvas Yjs roots/adapters/probes and remove public `ydoc_primary`/universal-state-vector assumptions.
-- [ ] Update domain, architecture, reliability, security, product, engineering-learning, changelog, and Storybook documentation where behavior changes.
+- [x] (2026-07-13 03:00Z) Updated domain, architecture, reliability, product, engineering-learning, ADR supersession, and changelog sources; no security contract or visual Storybook behavior changed.
 - [ ] Complete multi-angle code review, targeted tests, full typecheck/lint/test, runtime probes, and atomic conventional commits.
 
 ## Surprises & Discoveries

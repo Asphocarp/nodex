@@ -103,7 +103,7 @@ const run = async (): Promise<void> => {
       card.id,
     );
     invariant(
-      prepared.ok && prepared.value.authority === "ydoc_primary",
+      prepared.ok && prepared.value.sync.kind === "yjs",
       "Worker did not expose Card Document authority",
     );
 

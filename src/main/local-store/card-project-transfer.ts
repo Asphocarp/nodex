@@ -24,6 +24,7 @@ import {
   type BlockPropertyJsonValue,
 } from "../../shared/block-property-mutations";
 import type { CardStatus } from "../../shared/card-status";
+import { getRegisteredBlockDocumentSchemaAdapter } from "../../shared/block-documents/document-schema-adapters";
 import {
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
@@ -92,6 +93,7 @@ interface DocumentRow {
   readonly schema_version: number;
   readonly readiness: "pending_genesis" | "ready" | "failed";
   readonly authority: "legacy_shadow" | "ydoc_primary";
+  readonly sync_engine: "yjs" | "canvas_scene";
 }
 
 interface MembershipRow {
@@ -319,6 +321,7 @@ const readAuthorityClosure = (
          document.head_seq,
          document.schema_key,
          document.schema_version,
+         document.sync_engine,
          document.readiness,
          document.authority
        FROM closure
@@ -341,11 +344,30 @@ const readAuthorityClosure = (
       document.project_id !== sourceProjectId ||
       document.readiness !== "ready" ||
       document.authority !== "ydoc_primary" ||
-      document.head_seq < 1
+      document.head_seq < 0
     ) {
       throw new CardProjectTransferCompilationError(
         "document_authority_conflict",
-        `Owned Document ${document.document_id} is not a ready Y.Doc-primary authority`,
+        `Owned Document ${document.document_id} is not a ready primary authority`,
+      );
+    }
+    let adapter;
+    try {
+      adapter = getRegisteredBlockDocumentSchemaAdapter({
+        ownerType: blocks.find((block) => block.id === document.owner_block_id)?.type ?? "",
+        schemaKey: document.schema_key,
+        schemaVersion: document.schema_version,
+      });
+    } catch {
+      throw new CardProjectTransferCompilationError(
+        "document_authority_conflict",
+        `Owned Document ${document.document_id} uses an unregistered schema`,
+      );
+    }
+    if (adapter.syncEngine !== document.sync_engine) {
+      throw new CardProjectTransferCompilationError(
+        "document_authority_conflict",
+        `Owned Document ${document.document_id} sync engine does not match its schema`,
       );
     }
   }

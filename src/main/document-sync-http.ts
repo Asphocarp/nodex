@@ -7,7 +7,7 @@ import {
   decodeDocumentSyncHttpRequest,
   encodeDocumentApplyHttpAck,
   encodeDocumentHttpError,
-  encodeOwnedBlockDocumentDescriptorHttp,
+  encodeOwnedDocumentDescriptorHttp,
   encodeDocumentRealtimeSseEvent,
   encodeDocumentSyncHttpResponse,
 } from "../shared/block-documents/http-contract";
@@ -15,7 +15,7 @@ import {
   MAX_CARD_DOCUMENT_STATE_BYTES,
   MAX_CARD_DOCUMENT_UPDATE_BYTES,
 } from "../shared/block-documents/contracts";
-import type { OwnedBlockDocumentDescriptor } from "../shared/block-documents/contracts";
+import type { OwnedDocumentDescriptor } from "../shared/block-documents/contracts";
 import type {
   RelocationCommandError,
   RelocationCommandResult,
@@ -71,14 +71,14 @@ export interface DocumentSyncHttpDependencies {
   readonly getDocumentProjectId: (
     documentId: string,
   ) => Promise<DocumentSyncCommandResult<string>>;
-  readonly getOwnedBlockDocumentDescriptor: (
+  readonly getOwnedDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,
-  ) => Promise<OwnedBlockDocumentDescriptor>;
+  ) => Promise<OwnedDocumentDescriptor>;
   readonly prepareOwnedBlockDocument: (
     projectId: string,
     ownerBlockId: string,
-  ) => Promise<DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>>;
+  ) => Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
 }
 
 const commandError = (
@@ -434,7 +434,7 @@ export const registerDocumentSyncHttpRoutes = (
         return invalidRequest("Project and owner Block are required");
       }
       try {
-        const descriptor = await dependencies.getOwnedBlockDocumentDescriptor(
+        const descriptor = await dependencies.getOwnedDocumentDescriptor(
           projectId,
           ownerBlockId,
         );
@@ -450,7 +450,7 @@ export const registerDocumentSyncHttpRoutes = (
           );
         }
         return new Response(
-          encodeOwnedBlockDocumentDescriptorHttp(descriptor),
+          encodeOwnedDocumentDescriptorHttp(descriptor),
           {
             headers: {
               "Content-Type": "application/json",
@@ -498,7 +498,7 @@ export const registerDocumentSyncHttpRoutes = (
           );
         }
         return new Response(
-          encodeOwnedBlockDocumentDescriptorHttp(descriptor),
+          encodeOwnedDocumentDescriptorHttp(descriptor),
           {
             headers: {
               "Content-Type": "application/json",

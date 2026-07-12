@@ -28,7 +28,7 @@ import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
 import { createHttpCanvasSceneSyncAdapter } from "./http-canvas-scene-sync-adapter";
 import {
   decodeDocumentHttpError,
-  decodeOwnedBlockDocumentDescriptorHttp,
+  decodeOwnedDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
 import type { RelocationCommandResult } from "../../shared/block-documents/contracts";
 import {
@@ -2406,7 +2406,7 @@ export const browserRendererTransport = {
     );
     return parseCardHistoryCommandResult(await response.json());
   },
-  async getOwnedBlockDocumentDescriptor(
+  async getOwnedDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
   ) {
@@ -2421,7 +2421,7 @@ export const browserRendererTransport = {
         `Owned Document lookup failed with status ${response.status}`,
       );
     }
-    return decodeOwnedBlockDocumentDescriptorHttp(await response.text());
+    return decodeOwnedDocumentDescriptorHttp(await response.text());
   },
   async prepareOwnedBlockDocument(projectId: string, ownerBlockId: string) {
     const response = await fetch(
@@ -2453,7 +2453,7 @@ export const browserRendererTransport = {
     }
     return {
       ok: true as const,
-      value: decodeOwnedBlockDocumentDescriptorHttp(await response.text()),
+      value: decodeOwnedDocumentDescriptorHttp(await response.text()),
     };
   },
   createDocumentSyncAdapter(projectId: string) {

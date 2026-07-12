@@ -26,18 +26,18 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/card-history-transport").CardHistoryCommandResult
   >;
-  getOwnedBlockDocumentDescriptor: (
+  getOwnedDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,
   ) => Promise<
-    import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor
+    import("../../shared/block-documents/contracts").OwnedDocumentDescriptor
   >;
   prepareOwnedBlockDocument: (
     projectId: string,
     ownerBlockId: string,
   ) => Promise<
     import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
-      import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor
+      import("../../shared/block-documents/contracts").OwnedDocumentDescriptor
     >
   >;
   relocateBlocks: (

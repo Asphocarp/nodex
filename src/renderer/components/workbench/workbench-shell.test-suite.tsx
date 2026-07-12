@@ -480,10 +480,10 @@ const MockOwnedBlockDocumentBoundary = ({
   const fetchDescriptor = dependencies?.fetchDescriptor;
   const [model, setModel] = useState<Record<string, unknown>>(() => {
     if (fetchDescriptor) {
-      return { status: "legacy_shadow", projectId, ownerBlockId };
+      return { status: "loading", projectId, ownerBlockId };
     }
     return {
-      status: "ydoc_primary",
+      status: "ready",
       projectId,
       ownerBlockId,
       descriptor: {
@@ -498,8 +498,7 @@ const MockOwnedBlockDocumentBoundary = ({
         schemaKey: "nodex.card",
         schemaVersion: 1,
         readiness: "ready",
-        authority: "ydoc_primary",
-        stateVector: new Uint8Array([0]),
+        sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
       },
     };
   });
@@ -507,8 +506,8 @@ const MockOwnedBlockDocumentBoundary = ({
     if (!fetchDescriptor) return;
     const descriptor = await fetchDescriptor(projectId, ownerBlockId);
     setModel({
-      ...descriptor,
-      status: descriptor.authority,
+      descriptor,
+      status: "ready",
       projectId,
       ownerBlockId,
     });
@@ -10214,7 +10213,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(cardStageProps?.projectId).toBe("beta");
     expect(card?.id).toBe("card-beta");
     expect(card?.projectId).toBe("beta");
-    expect(documentAuthority?.kind).toBe("ydoc_primary");
+    expect(documentAuthority?.kind).toBe("yjs");
     expect(documentAuthority?.descriptor?.projectId).toBe("beta");
     expect(documentAuthority?.descriptor?.ownerBlockId).toBe("card-beta");
   });

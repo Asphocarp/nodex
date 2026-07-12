@@ -83,7 +83,7 @@ export function CanvasView({ projectId, databaseViewId, openCardStage, cardStage
       ownerBlockId={primaryCanvasBlockId(projectId)}
     >
       {(model, controls) => {
-        if (model.status === "loading" || model.status === "legacy_shadow") {
+        if (model.status === "loading") {
           return <CanvasDocumentState status="loading" label="Opening canvas…" />;
         }
         if (model.status === "error") {
@@ -95,12 +95,22 @@ export function CanvasView({ projectId, databaseViewId, openCardStage, cardStage
             />
           );
         }
+        const descriptor = model.descriptor;
+        if (descriptor.sync.kind !== "canvas_scene") {
+          return (
+            <CanvasDocumentState
+              status="error"
+              message="Canvas requires the scene-native sync engine"
+              onRetry={() => void controls.reload()}
+            />
+          );
+        }
         return (
           <CanvasEditor
             key={model.descriptor.documentId}
             projectId={projectId}
             databaseViewId={databaseViewId}
-            descriptor={model.descriptor}
+            descriptor={{ ...descriptor, sync: descriptor.sync }}
             onReload={controls.reload}
             openCardStage={openCardStage}
             cardStageCardId={cardStageCardId}
@@ -113,7 +123,9 @@ export function CanvasView({ projectId, databaseViewId, openCardStage, cardStage
 }
 
 interface CanvasEditorProps extends CanvasViewProps {
-  readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor;
+  readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor & {
+    readonly sync: { readonly kind: "canvas_scene" };
+  };
   readonly onReload: () => Promise<void>;
 }
 

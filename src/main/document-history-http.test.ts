@@ -22,7 +22,10 @@ const summary: DocumentVersionSummary = {
   label: null,
   actor: {},
   checkpointHash: "b".repeat(64),
-  stateVectorHash: "c".repeat(64),
+  checkpointMetadata: {
+    format: "yjs_update_v1" as const,
+    stateVectorHash: "c".repeat(64),
+  },
   materializationHash: "d".repeat(64),
   byteLength: 42,
   materializationKind: "card",

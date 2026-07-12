@@ -11,6 +11,7 @@ import {
   type CanvasSceneMutationRequest,
 } from "../../shared/block-documents";
 import { getOwnedDocumentDescriptor } from "./block-document-cutover";
+import { loadPrimaryBlockDocument } from "./block-document-store";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
 import {
@@ -18,6 +19,11 @@ import {
   initializeCanvasSceneAuthority,
   syncCanvasScene,
 } from "./canvas-scene-store";
+import {
+  createDocumentVersionCheckpoint,
+  getDocumentVersionDetail,
+} from "./document-versions";
+import { restoreDocumentVersion } from "./block-document-operations";
 import {
   materializeInlineCanvasImage,
   resetAssetPathCacheForTests,
@@ -131,6 +137,110 @@ afterEach(() => {
 });
 
 describe("Canvas scene SQLite authority", () => {
+  sqliteTest("checkpoints and forward-restores Canvas through scene-native history", async () => {
+    const fixture = await createFixture("Canvas history");
+    const first = applyCanvasSceneMutation(
+      fixture.database,
+      mutation(fixture, {
+        mutationId: "history-first",
+        elementCandidates: [shape(1, 1, 10)],
+      }),
+    );
+    if (!first.ok) throw new Error(first.error.message);
+    const checkpoint = createDocumentVersionCheckpoint(fixture.database, {
+      version: 1,
+      projectId: fixture.projectId,
+      storeEpoch: fixture.storeEpoch,
+      documentId: fixture.documentId,
+      expectedGeneration: fixture.generation,
+      expectedHeadSeq: first.value.headSeq,
+      cause: "manual",
+      actor: { kind: "test" },
+    });
+    expect(checkpoint.checkpoint.checkpointMetadata).toEqual({
+      format: "canvas_scene_json_v1",
+    });
+    expect("fullUpdate" in checkpoint.checkpoint).toBe(false);
+    expect("stateVector" in checkpoint.checkpoint).toBe(false);
+    expect("sceneJson" in checkpoint.checkpoint).toBe(true);
+    expect(
+      getDocumentVersionDetail(fixture.database, {
+        projectId: fixture.projectId,
+        documentId: fixture.documentId,
+        versionId: checkpoint.checkpoint.versionId,
+      }).materialization,
+    ).toMatchObject({ kind: "canvas_scene", elements: [expect.objectContaining({ x: 10 })] });
+
+    const second = applyCanvasSceneMutation(
+      fixture.database,
+      mutation(fixture, {
+        mutationId: "history-second",
+        baseHeadSeq: first.value.headSeq,
+        elementCandidates: [shape(2, 2, 20)],
+      }),
+    );
+    if (!second.ok) throw new Error(second.error.message);
+    const restoreRequest = {
+      version: 1 as const,
+      mutationId: "history-restore",
+      projectId: fixture.projectId,
+      storeEpoch: fixture.storeEpoch,
+      actor: { kind: "test" },
+      clientSessionId: "canvas-history-test",
+      documentId: fixture.documentId,
+      versionId: checkpoint.checkpoint.versionId,
+      generation: fixture.generation,
+      expectedHeadSeq: second.value.headSeq,
+    };
+    expect(restoreDocumentVersion(fixture.database, restoreRequest)).toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: "write_fence_required" }),
+    });
+    const restored = restoreDocumentVersion(fixture.database, restoreRequest, {
+      writeFence: {
+        leaseId: "canvas-history-lease",
+        documentId: fixture.documentId,
+        generation: fixture.generation,
+        headSeq: second.value.headSeq,
+      },
+    });
+    expect(restored).toEqual({
+      ok: true,
+      value: expect.objectContaining({
+        mutationKind: "document_version_restore",
+        coordination: "write_fence",
+        baseHeadSeq: second.value.headSeq,
+        headSeq: second.value.headSeq + 1,
+        duplicate: false,
+      }),
+    });
+    const synced = syncCanvasScene(fixture.database, {
+      version: 1,
+      projectId: fixture.projectId,
+      documentId: fixture.documentId,
+      clientSessionId: "history-read",
+    });
+    if (!synced.ok) throw new Error(synced.error.message);
+    expect(synced.value.scene.elements[0]).toMatchObject({ x: 10, isDeleted: false });
+    expect(synced.value.scene.elements[0]?.version).toBeGreaterThan(2);
+    expect(
+      fixture.database.prepare(
+        "SELECT checkpoint_format, length(state_vector) AS state_vector_bytes FROM document_versions WHERE version_id = ?",
+      ).get(checkpoint.checkpoint.versionId),
+    ).toEqual({ checkpoint_format: "canvas_scene_json_v1", state_vector_bytes: 0 });
+    expect(restoreDocumentVersion(fixture.database, restoreRequest, {
+      writeFence: {
+        leaseId: "canvas-history-lease",
+        documentId: fixture.documentId,
+        generation: fixture.generation,
+        headSeq: second.value.headSeq,
+      },
+    })).toEqual({
+      ok: true,
+      value: expect.objectContaining({ duplicate: true }),
+    });
+  });
+
   sqliteTest("initializes and returns a canonical full scene without Yjs state", async () => {
     const fixture = await createFixture("Canvas full sync");
     const result = syncCanvasScene(fixture.database, {
@@ -155,6 +265,20 @@ describe("Canvas scene SQLite authority", () => {
         .prepare("SELECT COUNT(*) AS count FROM canvas_scenes WHERE document_id = ?")
         .get(fixture.documentId),
     ).toEqual({ count: 1 });
+    expect(() =>
+      loadPrimaryBlockDocument(fixture.database, fixture.documentId),
+    ).toThrow(/cannot enter the Yjs runtime/u);
+    expect(
+      fixture.database
+        .prepare(
+          `SELECT
+            (SELECT COUNT(*) FROM document_updates WHERE document_id = ?) +
+            (SELECT COUNT(*) FROM document_snapshots WHERE document_id = ?) +
+            (SELECT COUNT(*) FROM document_update_receipts WHERE document_id = ?)
+              AS count`,
+        )
+        .get(fixture.documentId, fixture.documentId, fixture.documentId),
+    ).toEqual({ count: 0 });
   });
 
   sqliteTest("converges opposite delivery orders through version and nonce winners", async () => {
