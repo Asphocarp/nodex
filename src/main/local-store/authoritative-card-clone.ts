@@ -74,6 +74,18 @@ export interface AuthoritativeCardCloneResult {
 
 export interface CloneAuthoritativeCardOptions {
   readonly allocateBlockId?: () => BlockId;
+  /**
+   * Trusted outer ownership-copy seam. Called after the root Card/Document
+   * identities exist but before root genesis validates document-bearing shell
+   * IDs. Implementations may stage the recursively owned rows/Documents in the
+   * same SQLite transaction; they must not commit or publish independently.
+   */
+  readonly stageNestedOwnership?: (input: {
+    readonly sourceDocumentId: DocumentId;
+    readonly targetDocumentId: DocumentId;
+    readonly rootDocumentBlockIdMap: Readonly<Record<BlockId, BlockId>>;
+    readonly createdAt: string;
+  }) => void;
   readonly faultInjector?: (point: AuthoritativeCardCloneFaultPoint) => void;
 }
 
@@ -671,6 +683,12 @@ export const cloneAuthoritativeCardInTransaction = (
       source.database_block_id,
       createdAt,
     );
+    options.stageNestedOwnership?.({
+      sourceDocumentId: source.document_id,
+      targetDocumentId: documentId,
+      rootDocumentBlockIdMap: remapped.idMap,
+      createdAt,
+    });
     inject("after_identity");
     const membershipId = persistRelationalProperties(
       database,

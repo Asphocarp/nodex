@@ -13,6 +13,8 @@ import type {
 import type { BlockTransferRequest } from "../../shared/block-transfer";
 import { initializeCardDocumentGenesis } from "./block-document-store";
 import { applyBlockTransfer } from "./block-transfers";
+import { applyAdditionalDocumentCommand } from "./additional-document-command-kernel";
+import { applyDocumentOperationBatch } from "./block-document-operations";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { applyDatabaseMutation } from "./database-kernel";
 import { createProject } from "./projects";
@@ -382,10 +384,112 @@ describe("BlockTransfer store", () => {
         containing_database_id: primary.database_block_id,
       });
 
+      const nestedSourceDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-nested-copy-source",
+        title: "Nested copy source",
+        rankKey: "60000000000000000000000000000000",
+      });
+      const nestForCopy = applyBlockTransfer(database, {
+        version: 1,
+        operationId: "nest-card-before-copy",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["card-nested-copy-source"],
+        expectedLocationRevisions: { "card-nested-copy-source": 1 },
+        source: { kind: "space" },
+        target: {
+          kind: "document",
+          documentId: sourceDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+      });
+      expect(nestForCopy.ok).toBe(true);
+      const createNestedLargeDocument = applyAdditionalDocumentCommand(
+        database,
+        {
+          version: 1,
+          operationId: "create-large-document-before-copy",
+          projectId: project.id,
+          storeEpoch: metadata.store_epoch,
+          clientSessionId: "test-session",
+          actor: { kind: "test" },
+          coordination: {
+            kind: "hub_lease",
+            leaseId: "lease:create-large-document-before-copy",
+            documents: [
+              {
+                documentId: sourceDocumentId,
+                generation: 1,
+                headSeq: 2,
+              },
+            ],
+          },
+          operation: {
+            kind: "create_large_document",
+            blockId: "large-document-copy-source",
+            documentId: "document:large-document-copy-source",
+            displayName: "Nested large document",
+            content: {
+              kind: "large_document",
+              initialBlocks: [
+                {
+                  id: "large-document-body-source",
+                  type: "paragraph",
+                  props: {},
+                  content: [
+                    {
+                      type: "text",
+                      text: "Nested large body",
+                      styles: {},
+                    },
+                  ],
+                  children: [],
+                },
+              ],
+            },
+            location: {
+              kind: "document",
+              host: { documentId: sourceDocumentId, generation: 1 },
+            },
+          },
+        },
+      );
+      expect(createNestedLargeDocument.ok).toBe(true);
+      const insertExternalReference = applyDocumentOperationBatch(database, {
+        version: 1,
+        mutationId: "insert-reference-before-copy",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        documentId: sourceDocumentId,
+        generation: 1,
+        expectedHeadSeq: 3,
+        operations: [
+          {
+            kind: "insert_block",
+            block: {
+              id: "external-reference-copy-source",
+              type: "cardRef",
+              props: {
+                targetBlockId: "card-host",
+                displayHint: "Host",
+              },
+              children: [],
+            },
+          },
+        ],
+      });
+      expect(insertExternalReference.ok).toBe(true);
+
       const copyTargetHead = database
         .prepare("SELECT head_seq FROM documents WHERE id = ?")
         .get(hostDocumentId) as { readonly head_seq: number };
-      const copied = applyBlockTransfer(database, {
+      const copyRequest: BlockTransferRequest = {
         version: 1,
         operationId: "copy-source-card-into-host",
         projectId: project.id,
@@ -410,12 +514,51 @@ describe("BlockTransfer store", () => {
           generation: 1,
           expectedHeadSeq: copyTargetHead.head_seq,
         },
-      });
+      };
+      const copyCountsBeforeFault = database
+        .prepare(
+          `SELECT (SELECT COUNT(*) FROM blocks) AS blocks,
+                  (SELECT COUNT(*) FROM documents) AS documents,
+                  (SELECT COUNT(*) FROM database_memberships) AS memberships`,
+        )
+        .get();
+      expect(() =>
+        applyBlockTransfer(
+          database,
+          { ...copyRequest, operationId: "copy-source-card-fault" },
+          {
+            faultInjector: (point) => {
+              if (point === "after_ledger") {
+                throw new Error("injected recursive copy fault");
+              }
+            },
+          },
+        ),
+      ).toThrow("injected recursive copy fault");
+      expect(
+        database
+          .prepare(
+            `SELECT (SELECT COUNT(*) FROM blocks) AS blocks,
+                    (SELECT COUNT(*) FROM documents) AS documents,
+                    (SELECT COUNT(*) FROM database_memberships) AS memberships`,
+          )
+          .get(),
+      ).toEqual(copyCountsBeforeFault);
+      const copied = applyBlockTransfer(database, copyRequest);
       expect(copied.ok).toBe(true);
       if (copied.ok) {
         const copiedCardId = copied.value.resultRootBlockIds[0];
         expect(copiedCardId).toMatch(/^block:copy:/u);
         expect(copied.value.copiedBlockIds["card-source"]).toBe(copiedCardId);
+        const copiedNestedCardId =
+          copied.value.copiedBlockIds["card-nested-copy-source"];
+        const copiedLargeDocumentId =
+          copied.value.copiedBlockIds["large-document-copy-source"];
+        const copiedReferenceId =
+          copied.value.copiedBlockIds["external-reference-copy-source"];
+        expect(copiedNestedCardId).toMatch(/^block:copy:/u);
+        expect(copiedLargeDocumentId).toMatch(/^block:copy:/u);
+        expect(copiedReferenceId).toMatch(/^block:copy:/u);
         expect(copied.value.finalLocations[copiedCardId ?? ""]).toEqual({
           kind: "document",
           documentId: hostDocumentId,
@@ -434,6 +577,91 @@ describe("BlockTransfer store", () => {
             )
             .get(copiedCardId),
         ).toEqual({ document_id: `document:${copiedCardId}` });
+        const copiedNestedDocument = database
+          .prepare(
+            `SELECT ownership.document_id, owner.location_kind,
+                    owner.containing_document_id
+             FROM block_documents ownership
+             JOIN blocks owner ON owner.id = ownership.block_id
+             WHERE ownership.block_id = ?`,
+          )
+          .get(copiedNestedCardId) as {
+          readonly document_id: string;
+          readonly location_kind: string;
+          readonly containing_document_id: string | null;
+        };
+        expect(copiedNestedDocument.location_kind).toBe("document");
+        expect(copiedNestedDocument.containing_document_id).toBe(
+          `document:${copiedCardId}`,
+        );
+        expect(copiedNestedDocument.document_id).not.toBe(
+          nestedSourceDocumentId,
+        );
+        expect(
+          database
+            .prepare(
+              "SELECT title FROM document_materializations WHERE document_id = ?",
+            )
+            .get(copiedNestedDocument.document_id),
+        ).toEqual({ title: "Nested copy source" });
+        const copiedLargeDocument = database
+          .prepare(
+            `SELECT ownership.document_id, owner.location_kind,
+                    owner.containing_document_id,
+                    materialization.nfm
+             FROM block_documents ownership
+             JOIN blocks owner ON owner.id = ownership.block_id
+             JOIN document_materializations materialization
+               ON materialization.document_id = ownership.document_id
+             WHERE ownership.block_id = ?`,
+          )
+          .get(copiedLargeDocumentId) as {
+          readonly document_id: string;
+          readonly location_kind: string;
+          readonly containing_document_id: string;
+          readonly nfm: string;
+        };
+        expect(copiedLargeDocument.location_kind).toBe("document");
+        expect(copiedLargeDocument.containing_document_id).toBe(
+          `document:${copiedCardId}`,
+        );
+        expect(copiedLargeDocument.nfm).toContain("Nested large body");
+        const copiedRootMaterialization = database
+          .prepare(
+            "SELECT block_tree_json FROM document_materializations WHERE document_id = ?",
+          )
+          .get(`document:${copiedCardId}`) as {
+          readonly block_tree_json: string;
+        };
+        const copiedRootTree = JSON.parse(
+          copiedRootMaterialization.block_tree_json,
+        ) as readonly {
+          readonly id: string;
+          readonly props: Readonly<Record<string, unknown>>;
+        }[];
+        expect(
+          copiedRootTree.find((block) => block.id === copiedReferenceId)?.props
+            .targetBlockId,
+        ).toBe("card-host");
+        expect(copied.value.copiedBlockIds["card-host"]).toBeUndefined();
+      }
+      const duplicateCopy = applyBlockTransfer(database, {
+        ...copyRequest,
+        clientSessionId: "copy-reconnected-window",
+      });
+      expect(duplicateCopy.ok && duplicateCopy.value.duplicate).toBe(true);
+      if (copied.ok && duplicateCopy.ok) {
+        expect(duplicateCopy.value.copiedBlockIds).toEqual(
+          copied.value.copiedBlockIds,
+        );
+        const clonedIds = Object.values(copied.value.copiedBlockIds);
+        const placeholders = clonedIds.map(() => "?").join(", ");
+        const count = database
+          .prepare(
+            `SELECT COUNT(*) AS count FROM blocks WHERE id IN (${placeholders})`,
+          )
+          .get(...clonedIds) as { readonly count: number };
+        expect(count.count).toBe(clonedIds.length);
       }
 
       const standaloneDocumentId = seedCard(database, {

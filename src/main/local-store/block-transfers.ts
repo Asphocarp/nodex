@@ -29,6 +29,7 @@ import type {
 } from "../../shared/block-documents/contracts";
 import {
   createCanonicalEmptyParagraphBlock,
+  populateBlockDocumentBodyFromBlockTree,
 } from "../../shared/block-documents/block-document-codec";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
@@ -43,10 +44,17 @@ import {
 import {
   allocateBlockOwnershipCopyIdentities,
   planBlockOwnershipClosure,
+  type BlockOwnershipClosure,
+  type BlockOwnershipCopyIdentityMap,
 } from "../../shared/block-ownership-copy-plan";
+import { getBlockDocumentSchemaAdapter } from "../../shared/block-documents/document-schema-adapters";
 import { planFractionalRank } from "../../shared/fractional-rank";
+import { isCardStatus } from "../../shared/card-status";
 import { applyDocumentOperationBatch } from "./block-document-operations";
-import { initializeCardDocumentGenesis } from "./block-document-store";
+import {
+  initializeBlockDocumentGenesis,
+  initializeCardDocumentGenesis,
+} from "./block-document-store";
 import {
   BlockRelocationStoreError,
   relocateBlocksAtomically,
@@ -1036,6 +1044,230 @@ const wrapDocumentRootInDatabaseCard = (
   };
 };
 
+const remapCopiedBlockTree = (
+  blocks: readonly BlockTreeNode[],
+  blockIds: Readonly<Record<string, string>>,
+): readonly BlockTreeNode[] =>
+  blocks.map((block) => {
+    const targetId = blockIds[block.id];
+    if (!targetId) {
+      throw new Error(`Ownership copy plan omitted Block ${block.id}`);
+    }
+    return {
+      ...block,
+      id: targetId,
+      // Props/content are semantic copies. Reference target IDs deliberately
+      // remain unchanged because they are not ownership edges.
+      children: remapCopiedBlockTree(block.children, blockIds),
+    };
+  });
+
+const stageNestedOwnershipClosure = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  closure: BlockOwnershipClosure,
+  identities: BlockOwnershipCopyIdentityMap,
+  rootDocumentId: string,
+  createdAt: string,
+): void => {
+  const readOwner = database.prepare(`
+    SELECT type, lifecycle, containing_document_id
+    FROM blocks WHERE id = ? AND project_id = ?
+  `);
+  const insertOwner = database.prepare(`
+    INSERT INTO blocks (
+      id, project_id, type, lifecycle, location_kind,
+      containing_document_id, containing_database_id,
+      location_revision, metadata_revision, created_at, updated_at
+    ) VALUES (?, ?, ?, 'active', 'document', ?, NULL, 1, 1, ?, ?)
+  `);
+  const insertDocument = database.prepare(`
+    INSERT INTO documents (
+      id, project_id, generation, head_seq, schema_key, schema_version,
+      state_vector, state_hash, readiness, authority, created_at, updated_at
+    ) VALUES (?, ?, 1, 0, ?, ?, X'', '',
+              'pending_genesis', 'legacy_shadow', ?, ?)
+  `);
+  const insertOwnership = database.prepare(`
+    INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+    VALUES (?, ?, ?, ?)
+  `);
+  const copyProperty = database.prepare(`
+    INSERT INTO block_properties (
+      block_id, project_id, property_key, value_type,
+      value_json, revision, updated_at
+    )
+    SELECT ?, project_id, property_key, value_type,
+           value_json, 1, ?
+    FROM block_properties
+    WHERE block_id = ? AND project_id = ?
+  `);
+  for (const document of closure.documents) {
+    if (document.documentId === rootDocumentId) continue;
+    const sourceOwner = readOwner.get(
+      document.ownerBlockId,
+      request.projectId,
+    ) as
+      | {
+          readonly type: string;
+          readonly lifecycle: string;
+          readonly containing_document_id: string | null;
+        }
+      | undefined;
+    const targetOwnerId = identities.blockIds[document.ownerBlockId];
+    const targetDocumentId = identities.documentIds[document.documentId];
+    const targetContainingDocumentId = sourceOwner?.containing_document_id
+      ? identities.documentIds[sourceOwner.containing_document_id]
+      : undefined;
+    if (
+      !sourceOwner ||
+      sourceOwner.lifecycle !== "active" ||
+      !targetOwnerId ||
+      !targetDocumentId ||
+      !targetContainingDocumentId
+    ) {
+      return reject(
+        request,
+        "recovery_required",
+        `Nested owner ${document.ownerBlockId} has incomplete copy coordinates`,
+      );
+    }
+    const collision = database
+      .prepare(
+        `SELECT 'block' AS kind FROM blocks WHERE id = ?
+         UNION ALL SELECT 'document' FROM documents WHERE id = ? LIMIT 1`,
+      )
+      .get(targetOwnerId, targetDocumentId);
+    if (collision) {
+      return reject(
+        request,
+        "invalid_target",
+        `Nested ownership copy identity already exists for ${document.ownerBlockId}`,
+      );
+    }
+    insertOwner.run(
+      targetOwnerId,
+      request.projectId,
+      sourceOwner.type,
+      targetContainingDocumentId,
+      createdAt,
+      createdAt,
+    );
+    insertDocument.run(
+      targetDocumentId,
+      request.projectId,
+      document.schemaKey,
+      document.schemaVersion,
+      createdAt,
+      createdAt,
+    );
+    insertOwnership.run(
+      targetOwnerId,
+      targetDocumentId,
+      request.projectId,
+      createdAt,
+    );
+    copyProperty.run(
+      targetOwnerId,
+      createdAt,
+      document.ownerBlockId,
+      request.projectId,
+    );
+  }
+};
+
+const initializeNestedOwnershipDocuments = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  closure: BlockOwnershipClosure,
+  identities: BlockOwnershipCopyIdentityMap,
+  rootDocumentId: string,
+): readonly RelocationDocumentCommit[] => {
+  const commits: RelocationDocumentCommit[] = [];
+  for (const sourceDocument of closure.documents) {
+    if (sourceDocument.documentId === rootDocumentId) continue;
+    const targetDocumentId = identities.documentIds[sourceDocument.documentId];
+    if (!targetDocumentId) {
+      throw new Error(
+        `Ownership copy plan omitted Document ${sourceDocument.documentId}`,
+      );
+    }
+    const adapter = getBlockDocumentSchemaAdapter({
+      ownerType:
+        closure.blocks.find(
+          (block) => block.blockId === sourceDocument.ownerBlockId,
+        )?.blockType ?? "",
+      schemaKey: sourceDocument.schemaKey,
+      schemaVersion: sourceDocument.schemaVersion,
+    });
+    if (adapter.contentModel !== "block_tree") {
+      return reject(
+        request,
+        "unsupported_transfer",
+        `Scene Document ${sourceDocument.documentId} needs its registered Copy adapter`,
+      );
+    }
+    const materialization = database
+      .prepare(
+        `SELECT materialization.title, materialization.block_tree_json
+         FROM document_materializations materialization
+         JOIN documents document ON document.id = materialization.document_id
+         WHERE materialization.document_id = ?
+           AND materialization.generation = document.generation
+           AND materialization.projected_seq = document.head_seq`,
+      )
+      .get(sourceDocument.documentId) as
+      | { readonly title: string; readonly block_tree_json: string }
+      | undefined;
+    if (!materialization) {
+      return reject(
+        request,
+        "recovery_required",
+        `Owned Document ${sourceDocument.documentId} lacks a current materialization`,
+      );
+    }
+    const envelope = adapter.create(targetDocumentId);
+    try {
+      populateBlockDocumentBodyFromBlockTree(
+        envelope.body,
+        remapCopiedBlockTree(
+          JSON.parse(materialization.block_tree_json) as readonly BlockTreeNode[],
+          identities.blockIds,
+        ),
+      );
+      if (envelope.kind === "card") {
+        envelope.title.insert(0, materialization.title);
+      }
+      const updateId = deterministicSubOperationId(
+        requestHash,
+        `nested-genesis:${sha256(sourceDocument.documentId)}`,
+      );
+      const ack = initializeBlockDocumentGenesis(database, {
+        documentId: targetDocumentId,
+        storeEpoch: request.storeEpoch,
+        generation: 1,
+        updateId,
+        clientSessionId:
+          request.clientSessionId ?? "block-transfer:recursive-copy",
+        update: Y.encodeStateAsUpdate(envelope.document),
+        finalAuthority: "ydoc_primary",
+      });
+      commits.push(
+        readDocumentCommitAt(
+          database,
+          targetDocumentId,
+          1,
+          ack.headSeq,
+        ),
+      );
+    } finally {
+      envelope.document.destroy();
+    }
+  }
+  return commits;
+};
+
 const copyDatabaseCard = (
   database: Database.Database,
   request: BlockTransferRequest,
@@ -1117,19 +1349,29 @@ const copyDatabaseCard = (
     },
     [sourceCardId],
   );
-  if (closure.documents.length !== 1) {
-    return reject(
-      request,
-      "unsupported_transfer",
-      "Nested document-bearing Copy requires the recursive clone compiler",
-    );
-  }
-  const identities = allocateBlockOwnershipCopyIdentities(
+  const allocatedIdentities = allocateBlockOwnershipCopyIdentities(
     request.operationId,
     closure,
   );
-  const newCardId = identities.blockIds[sourceCardId];
+  const newCardId = allocatedIdentities.blockIds[sourceCardId];
   if (!newCardId) throw new Error("Copy identity plan omitted its root Card");
+  const rootOwnedDocument = closure.documents.find(
+    (document) => document.ownerBlockId === sourceCardId,
+  );
+  if (!rootOwnedDocument) {
+    return reject(
+      request,
+      "recovery_required",
+      `Card ${sourceCardId} has no owned Document in its closure`,
+    );
+  }
+  const identities: BlockOwnershipCopyIdentityMap = {
+    blockIds: allocatedIdentities.blockIds,
+    documentIds: {
+      ...allocatedIdentities.documentIds,
+      [rootOwnedDocument.documentId]: `document:${newCardId}`,
+    },
+  };
   const source = database
     .prepare(
       `SELECT membership.database_block_id, membership.id AS membership_id,
@@ -1167,9 +1409,24 @@ const copyDatabaseCard = (
       `Card ${sourceCardId} has no complete source Database placement`,
     );
   }
-  const allocatedContentIds = closure.blocks
-    .filter((block) => block.blockId !== sourceCardId)
-    .map((block) => identities.blockIds[block.blockId])
+  const sourceStatus = JSON.parse(source.status_json) as unknown;
+  if (!isCardStatus(sourceStatus)) {
+    return reject(
+      request,
+      "recovery_required",
+      `Card ${sourceCardId} has an invalid source status`,
+    );
+  }
+  const allocatedContentIds = (
+    database
+      .prepare(
+        `SELECT block_id FROM document_block_index
+         WHERE document_id = ? ORDER BY ordinal, block_id`,
+      )
+      .pluck()
+      .all(rootOwnedDocument.documentId) as string[]
+  )
+    .map((blockId) => identities.blockIds[blockId])
     .filter((blockId): blockId is string => typeof blockId === "string");
   let allocationIndex = 0;
   const cloned = cloneAuthoritativeCardInTransaction(
@@ -1179,7 +1436,7 @@ const copyDatabaseCard = (
       sourceCardId,
       newCardId,
       lifecycle: "active",
-      status: JSON.parse(source.status_json) as never,
+      status: sourceStatus,
       primaryViewRankKey: source.rank_key,
       operationId: deterministicSubOperationId(requestHash, "clone-card"),
       clientSessionId: request.clientSessionId,
@@ -1193,7 +1450,24 @@ const copyDatabaseCard = (
         if (blockId) return blockId;
         throw new Error("Copy identity plan exhausted Block IDs");
       },
+      stageNestedOwnership: ({ createdAt }) =>
+        stageNestedOwnershipClosure(
+          database,
+          request,
+          closure,
+          identities,
+          rootOwnedDocument.documentId,
+          createdAt,
+        ),
     },
+  );
+  const nestedDocumentCommits = initializeNestedOwnershipDocuments(
+    database,
+    request,
+    requestHash,
+    closure,
+    identities,
+    rootOwnedDocument.documentId,
   );
   const cloneRow = database
     .prepare(
@@ -1235,6 +1509,7 @@ const copyDatabaseCard = (
   }
   const documentCommits: RelocationDocumentCommit[] = [
     readDocumentCommitAt(database, cloned.documentId, 1, cloned.documentHeadSeq),
+    ...nestedDocumentCommits,
   ];
   if (request.target.kind === "document") {
     documentCommits.push(
@@ -1269,9 +1544,9 @@ const copyDatabaseCard = (
   return {
     documentCommits,
     affectedDatabaseBlockIds,
-    resultBlockIds: [newCardId, ...Object.values(cloned.blockIdMap)],
+    resultBlockIds: Object.values(identities.blockIds),
     resultRootBlockIds: [newCardId],
-    copiedBlockIds: { [sourceCardId]: newCardId, ...cloned.blockIdMap },
+    copiedBlockIds: identities.blockIds,
   };
 };
 
