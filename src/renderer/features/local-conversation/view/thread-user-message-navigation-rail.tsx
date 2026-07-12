@@ -13,7 +13,7 @@ import {
   collectMarkerNavigationObservationTargets,
   ensureMarkerNavigationRowVisible,
   escapeMarkerNavigationAttributeSelectorValue,
-  hasEnoughMarkerNavigationLeftSpace,
+  hasEnoughMarkerNavigationSideSpace,
   markerNavigationMutationsIncludeContainer,
   MarkerNavigationRail,
   type MarkerNavigationObservationTarget,
@@ -120,7 +120,11 @@ export function hasEnoughThreadUserMessageNavigationLeftSpace({
   scrollElement: HTMLElement;
   contentElement: HTMLElement;
 }): boolean {
-  return hasEnoughMarkerNavigationLeftSpace({ scrollElement, contentElement });
+  return hasEnoughMarkerNavigationSideSpace({
+    scrollElement,
+    contentElement,
+    side: "left",
+  });
 }
 
 function resolveOutputIcon(

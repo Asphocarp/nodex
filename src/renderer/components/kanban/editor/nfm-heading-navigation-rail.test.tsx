@@ -36,7 +36,7 @@ function makeRect(input: Partial<DOMRectReadOnly>): DOMRect {
   } as DOMRect;
 }
 
-function installHeadingRailGeometry(leftGapPx = 64) {
+function installHeadingRailGeometry(rightGapPx = 64) {
   Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
     configurable: true,
     get(this: HTMLElement) {
@@ -51,7 +51,7 @@ function installHeadingRailGeometry(leftGapPx = 64) {
         return makeRect({ left: 0, width: 1000, height: 700 });
       }
       if (this.matches("[data-card-stage-body='true']")) {
-        return makeRect({ left: leftGapPx, width: 720, height: 1600 });
+        return makeRect({ left: 1000 - 720 - rightGapPx, width: 720, height: 1600 });
       }
       return originalGetBoundingClientRect.call(this);
     },
@@ -211,12 +211,23 @@ describe("NfmHeadingNavigationRail", () => {
     const rows = container.querySelectorAll("[data-marker-navigation-item-id]");
 
     expect(Boolean(nav)).toBe(true);
+    expect(nav?.getAttribute("data-marker-navigation-rail-side")).toBe("right");
+    expect(nav?.classList.contains("right-3")).toBe(true);
+    expect(nav?.classList.contains("left-3")).toBe(false);
     expect(rows.length).toBe(4);
     expect(rows[0]?.getAttribute("aria-label")).toBe("Jump to heading 1: Heading 1");
   });
 
   test("stays hidden below the four-heading threshold", async () => {
     const { container } = render(<HeadingRailHarness headingCount={3} />);
+    await settleHeadingRail();
+
+    expect(Boolean(container.querySelector('nav[aria-label="Headings"]'))).toBe(false);
+  });
+
+  test("stays hidden when the right gutter cannot fit the rail", async () => {
+    installHeadingRailGeometry(47);
+    const { container } = render(<HeadingRailHarness headingCount={4} />);
     await settleHeadingRail();
 
     expect(Boolean(container.querySelector('nav[aria-label="Headings"]'))).toBe(false);

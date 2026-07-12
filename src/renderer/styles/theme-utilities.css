@@ -214,6 +214,11 @@ diffs-container {
   transition: transform 160ms linear(0, .398 10%, .682 20%, .843 30%, .925 40%, .972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
 }
 
+[data-marker-navigation-rail-side="right"] .marker-navigation-marker,
+[data-marker-navigation-rail-side="right"] .thread-user-message-navigation-marker {
+  transform-origin: 100%;
+}
+
 [data-marker-navigation-item-id]:focus-visible .marker-navigation-marker,
 [data-marker-navigation-item-id][data-scrub-target] .marker-navigation-marker,
 [data-thread-user-message-navigation-item-id]:focus-visible .thread-user-message-navigation-marker,

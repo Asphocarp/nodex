@@ -173,6 +173,7 @@ export function NfmHeadingNavigationRail({
       scrollTargetIntoView={scrollHeadingIntoView}
       renderTooltipContent={(item) => <HeadingTooltipContent item={item} />}
       highlightTarget={highlightHeading}
+      side="right"
     />
   );
 }

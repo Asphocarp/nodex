@@ -26,10 +26,12 @@ export interface MarkerNavigationObservationTarget {
   itemId: string;
 }
 
-export const MARKER_NAVIGATION_LEFT_INSET_PX = 12;
+export type MarkerNavigationRailSide = "left" | "right";
+
+export const MARKER_NAVIGATION_SIDE_INSET_PX = 12;
 export const MARKER_NAVIGATION_ROW_WIDTH_PX = 36;
-export const MARKER_NAVIGATION_MIN_LEFT_SPACE_PX =
-  MARKER_NAVIGATION_LEFT_INSET_PX + MARKER_NAVIGATION_ROW_WIDTH_PX;
+export const MARKER_NAVIGATION_MIN_SIDE_SPACE_PX =
+  MARKER_NAVIGATION_SIDE_INSET_PX + MARKER_NAVIGATION_ROW_WIDTH_PX;
 
 export function escapeMarkerNavigationAttributeSelectorValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -143,20 +145,25 @@ export function ensureMarkerNavigationRowVisible(
   }
 }
 
-export function hasEnoughMarkerNavigationLeftSpace({
+export function hasEnoughMarkerNavigationSideSpace({
   scrollElement,
   contentElement,
+  side,
 }: {
   scrollElement: HTMLElement;
   contentElement: HTMLElement;
+  side: MarkerNavigationRailSide;
 }): boolean {
   const scrollRect = scrollElement.getBoundingClientRect();
   const contentRect = contentElement.getBoundingClientRect();
   const scale = scrollElement.offsetWidth > 0
     ? scrollRect.width / scrollElement.offsetWidth
     : 1;
-  const normalizedLeftSpace = (contentRect.left - scrollRect.left) / (scale > 0 ? scale : 1);
-  return normalizedLeftSpace >= MARKER_NAVIGATION_MIN_LEFT_SPACE_PX;
+  const sideSpace = side === "left"
+    ? contentRect.left - scrollRect.left
+    : scrollRect.right - contentRect.right;
+  const normalizedSideSpace = sideSpace / (scale > 0 ? scale : 1);
+  return normalizedSideSpace >= MARKER_NAVIGATION_MIN_SIDE_SPACE_PX;
 }
 
 export function sameMarkerNavigationSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
@@ -234,6 +241,7 @@ export interface MarkerNavigationRailProps<TItem extends MarkerNavigationItem> {
   listDataAttributes?: Record<string, string | undefined>;
   markerClassName?: string;
   navClassName?: string;
+  side?: MarkerNavigationRailSide;
   tooltipSide?: "top" | "right" | "bottom" | "left";
 }
 
@@ -256,7 +264,8 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
   listDataAttributes,
   markerClassName,
   navClassName,
-  tooltipSide = "right",
+  side = "left",
+  tooltipSide,
 }: MarkerNavigationRailProps<TItem>) {
   const reducedMotion = Boolean(useReducedMotion());
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -309,9 +318,10 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
       if (frameId !== null) return;
       frameId = window.requestAnimationFrame(() => {
         frameId = null;
-        const nextCanRender = hasEnoughMarkerNavigationLeftSpace({
+        const nextCanRender = hasEnoughMarkerNavigationSideSpace({
           scrollElement,
           contentElement,
+          side,
         });
         setCanRender((current) => current === nextCanRender ? current : nextCanRender);
         ensureMarkerNavigationRowVisible(listRef.current, currentPrimaryItemId);
@@ -342,7 +352,7 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
       mutationObserver?.disconnect();
       window.removeEventListener("resize", syncLayoutState);
     };
-  }, [contentElement, currentPrimaryItemId, portalTarget, scrollElement]);
+  }, [contentElement, currentPrimaryItemId, portalTarget, scrollElement, side]);
 
   const revealItem = useCallback(
     async (
@@ -549,10 +559,17 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
 
   if (!canRender || !portalTarget || items.length === 0) return null;
 
+  const resolvedTooltipSide = tooltipSide ?? (side === "left" ? "right" : "left");
+
   return createPortal(
     <motion.nav
       aria-label={ariaLabel}
-      className={cn("absolute top-1/2 left-3 z-20 -translate-y-1/2 electron:left-4", navClassName)}
+      data-marker-navigation-rail-side={side}
+      className={cn(
+        "absolute top-1/2 z-20 -translate-y-1/2",
+        side === "left" ? "left-3 electron:left-4" : "right-3 electron:right-4",
+        navClassName,
+      )}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: reducedMotion ? 0 : 0.15 }}
@@ -571,7 +588,7 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
             <NodexTooltip
               key={item.id}
               tooltipContent={renderTooltipContent(item)}
-              side={tooltipSide}
+              side={resolvedTooltipSide}
               align="center"
               sideOffset={0}
               delayOpen
@@ -587,7 +604,10 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
                 data-scrub-target={isScrubTarget ? "true" : undefined}
                 aria-label={rowAriaLabel(item)}
                 aria-current={isCurrent ? "true" : undefined}
-                className="group/navigation-row flex h-2.5 w-9 shrink-0 cursor-interaction items-center outline-none"
+                className={cn(
+                  "group/navigation-row flex h-2.5 w-9 shrink-0 cursor-interaction items-center outline-none",
+                  side === "right" && "justify-end",
+                )}
                 onPointerDown={(event) => handlePointerDown(item, event)}
                 onPointerMove={handlePointerMove}
                 onPointerUp={clearPointerScrub}
