@@ -3756,11 +3756,9 @@ function createCanvasSceneAuthoritySchema(db: Database.Database): void {
         SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
       END;
 
-    CREATE TRIGGER IF NOT EXISTS canvas_scene_mutation_receipts_immutable_delete
-      BEFORE DELETE ON canvas_scene_mutation_receipts
-      BEGIN
-        SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
-      END;
+    -- Receipts are immutable while their Document exists. Do not block DELETE:
+    -- physical Document retention must be able to cascade the owned evidence.
+    DROP TRIGGER IF EXISTS canvas_scene_mutation_receipts_immutable_delete;
   `);
 }
 

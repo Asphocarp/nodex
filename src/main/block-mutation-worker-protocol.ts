@@ -15,6 +15,12 @@ import type {
   RelocationResult,
 } from "../shared/block-documents";
 import type {
+  CanvasSceneMutationCommandResult,
+  CanvasSceneMutationRequest,
+  CanvasSceneSyncRequest,
+  CanvasSceneSyncCommandResult,
+} from "../shared/block-documents/canvas-scene-sync";
+import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
   DocumentVersionDetail,
@@ -179,6 +185,10 @@ export type BlockMutationWorkerRequest =
       payload: DocumentSyncRequest;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "syncCanvasScene";
+      payload: CanvasSceneSyncRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "getBlockDocumentProjectId";
       payload: { readonly documentId: string };
     })
@@ -199,6 +209,10 @@ export type BlockMutationWorkerRequest =
   | (BlockMutationWorkerRequestBase & {
       type: "applyBlockDocumentUpdate";
       payload: DocumentSyncApplyRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "applyCanvasSceneMutation";
+      payload: CanvasSceneMutationRequest;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyDocumentMutation";
@@ -257,6 +271,8 @@ export type BlockMutationWorkerRequest =
 export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentSyncResponse>
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
+  | CanvasSceneSyncCommandResult
+  | CanvasSceneMutationCommandResult
   | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
   | DocumentSyncCommandResult<string>
   | DocumentOperationCommandResult

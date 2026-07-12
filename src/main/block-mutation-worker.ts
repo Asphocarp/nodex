@@ -9,6 +9,11 @@ import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import { getOwnedBlockDocumentDescriptor } from "./local-store/block-document-cutover";
 import { prepareEditableOwnedBlockDocument } from "./local-store/owned-block-document-preparation";
+import {
+  applyCanvasSceneMutation,
+  syncCanvasScene,
+  toCanvasSceneCommandError,
+} from "./local-store/canvas-scene-store";
 import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
   BlockRelocationStoreError,
@@ -69,6 +74,10 @@ import type {
   RelocationCommandResult,
   RelocationResult,
 } from "../shared/block-documents";
+import type {
+  CanvasSceneMutationCommandResult,
+  CanvasSceneSyncCommandResult,
+} from "../shared/block-documents/canvas-scene-sync";
 import {
   parseCardProjectTransferIntent,
   type CardProjectTransferCommandError,
@@ -128,6 +137,30 @@ function runDocumentCommand<T>(
     return { ok: false, error: toDocumentSyncCommandError(error) };
   }
 }
+
+const runCanvasSceneSyncCommand = (
+  operation: () => CanvasSceneSyncCommandResult,
+): CanvasSceneSyncCommandResult => {
+  try {
+    return operation();
+  } catch (error) {
+    return { ok: false, error: toCanvasSceneCommandError(error) };
+  }
+};
+
+const runCanvasSceneMutationCommand = (
+  mutationId: string,
+  operation: () => CanvasSceneMutationCommandResult,
+): CanvasSceneMutationCommandResult => {
+  try {
+    return operation();
+  } catch (error) {
+    return {
+      ok: false,
+      error: toCanvasSceneCommandError(error, mutationId),
+    };
+  }
+};
 
 const toDocumentHistoryCommandError = (
   error: unknown,
@@ -705,6 +738,10 @@ async function runRequest(
       return runDocumentCommand(() =>
         blockDocumentRuntime.sync(request.payload),
       );
+    case "syncCanvasScene":
+      return runCanvasSceneSyncCommand(() =>
+        syncCanvasScene(getDb(), request.payload),
+      );
     case "getBlockDocumentProjectId":
       return runDocumentCommand(() =>
         blockDocumentRuntime.getProjectId(request.payload.documentId),
@@ -771,6 +808,10 @@ async function runRequest(
       }
       return result;
     }
+    case "applyCanvasSceneMutation":
+      return runCanvasSceneMutationCommand(request.payload.mutationId, () =>
+        applyCanvasSceneMutation(getDb(), request.payload),
+      );
     case "applyDocumentMutation": {
       const mutation = request.payload.request;
       const options = request.payload.writeFence

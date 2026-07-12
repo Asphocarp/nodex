@@ -21,6 +21,12 @@ import type {
   RelocationResult,
 } from "../shared/block-documents";
 import type {
+  CanvasSceneMutationCommandResult,
+  CanvasSceneMutationRequest,
+  CanvasSceneSyncRequest,
+  CanvasSceneSyncCommandResult,
+} from "../shared/block-documents/canvas-scene-sync";
+import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
   DocumentVersionDetail,
@@ -392,6 +398,16 @@ export class BlockMutationWriter {
     return envelope.result;
   }
 
+  async syncCanvasScene(
+    request: CanvasSceneSyncRequest,
+  ): Promise<CanvasSceneSyncCommandResult> {
+    const envelope = await this.executeTyped<CanvasSceneSyncCommandResult>({
+      type: "syncCanvasScene",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
   async getBlockDocumentProjectId(
     documentId: string,
   ): Promise<DocumentSyncCommandResult<string>> {
@@ -434,6 +450,16 @@ export class BlockMutationWriter {
       DocumentSyncCommandResult<DocumentSyncApplyAck>
     >({
       type: "applyBlockDocumentUpdate",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
+  async applyCanvasSceneMutation(
+    request: CanvasSceneMutationRequest,
+  ): Promise<CanvasSceneMutationCommandResult> {
+    const envelope = await this.executeTyped<CanvasSceneMutationCommandResult>({
+      type: "applyCanvasSceneMutation",
       payload: request,
     });
     return envelope.result;

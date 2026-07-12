@@ -14,6 +14,10 @@ import type { DatabaseChangeEvent } from "../shared/database-events";
 import type { CardLifecycleMutationRequest } from "../shared/card-lifecycle";
 import type { AdditionalDocumentCommandRequest } from "../shared/additional-document-commands";
 import type { CardProjectTransferRequest } from "../shared/card-project-transfer";
+import type {
+  CanvasSceneMutationRequest,
+  CanvasSceneSyncRequest,
+} from "../shared/block-documents/canvas-scene-sync";
 
 class FakeWorker implements BlockMutationWorkerLike {
   readonly messages: BlockMutationWorkerRequest[] = [];
@@ -113,6 +117,109 @@ function makeMetrics(mutationId: string): BlockMutationMetrics {
 }
 
 describe("BlockMutationWriter", () => {
+  test("keeps Canvas scene sync and mutation commands outside the Yjs command path", async () => {
+    const worker = new FakeWorker();
+    const writer = new BlockMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const syncRequest: CanvasSceneSyncRequest = {
+      version: 1,
+      projectId: "project-1",
+      documentId: "canvas-document-1",
+      clientSessionId: "window-1",
+      knownStoreEpoch: "store-1",
+      knownGeneration: 1,
+      knownHeadSeq: 2,
+    };
+    const syncPending = writer.syncCanvasScene(syncRequest);
+    const syncCommand = worker.messages[0];
+    expect(syncCommand?.type).toBe("syncCanvasScene");
+    if (!syncCommand || syncCommand.type !== "syncCanvasScene") return;
+    expect("stateVector" in syncCommand.payload).toBe(false);
+    worker.emitMessage({
+      id: syncCommand.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          projectId: "project-1",
+          documentId: "canvas-document-1",
+          storeEpoch: "store-1",
+          generation: 1,
+          headSeq: 2,
+          sceneHash: "a".repeat(64),
+          scene: {
+            kind: "canvas_scene",
+            schemaVersion: 1,
+            elements: [],
+            appState: {},
+            files: {},
+            cardReferences: [],
+            plainText: "",
+            preview: "",
+          },
+        },
+      },
+      events: [],
+      metrics: makeMetrics(syncCommand.mutationId),
+    });
+    const synced = await syncPending;
+    expect(synced.ok).toBe(true);
+    if (synced.ok) expect(synced.value.headSeq).toBe(2);
+
+    const mutationRequest: CanvasSceneMutationRequest = {
+      version: 1,
+      mutationId: "canvas-mutation-1",
+      projectId: "project-1",
+      documentId: "canvas-document-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      baseHeadSeq: 2,
+      clientSessionId: "window-1",
+      elementCandidates: [],
+      appStateIntents: {},
+      fileAdditions: {},
+    };
+    const mutationPending = writer.applyCanvasSceneMutation(mutationRequest);
+    const mutationCommand = worker.messages[1];
+    expect(mutationCommand?.type).toBe("applyCanvasSceneMutation");
+    if (!mutationCommand || mutationCommand.type !== "applyCanvasSceneMutation") {
+      return;
+    }
+    expect("update" in mutationCommand.payload).toBe(false);
+    worker.emitMessage({
+      id: mutationCommand.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          mutationId: mutationRequest.mutationId,
+          projectId: mutationRequest.projectId,
+          documentId: mutationRequest.documentId,
+          storeEpoch: mutationRequest.storeEpoch,
+          generation: mutationRequest.generation,
+          baseHeadSeq: mutationRequest.baseHeadSeq,
+          headSeq: 2,
+          duplicate: false,
+          outcome: "no_change",
+          sceneHash: "a".repeat(64),
+          changedElementIds: [],
+          appliedAppStateKeys: [],
+          skippedAppStateKeys: [],
+          addedFileIds: [],
+          removedFileIds: [],
+          committedAt: "2026-07-13T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(mutationCommand.mutationId),
+    });
+    expect((await mutationPending).ok).toBe(true);
+  });
+
   test("publishes source and target Database invalidations once for a Card transfer", async () => {
     const worker = new FakeWorker();
     const databaseEvents: DatabaseChangeEvent[] = [];

@@ -73,6 +73,7 @@ export type CanvasSceneMutationErrorCode =
   | "document_not_ready"
   | "document_engine_mismatch"
   | "document_generation_mismatch"
+  | "future_base_head"
   | "mutation_id_collision"
   | "canvas_scene_corrupt"
   | "unknown";
@@ -86,7 +87,38 @@ export interface CanvasSceneMutationError {
 }
 
 export type CanvasSceneMutationCommandResult =
-  | { readonly ok: true; readonly value: CanvasSceneMutationResult }
+  | {
+      readonly ok: true;
+      readonly value: CanvasSceneMutationResult;
+      /** Present only for a first effective commit; safe to fan out after ACK. */
+      readonly event?: CanvasSceneCommittedEvent;
+    }
+  | { readonly ok: false; readonly error: CanvasSceneMutationError };
+
+export type CanvasSceneSyncCommandResult =
+  | { readonly ok: true; readonly value: CanvasSceneSyncResponse }
+  | { readonly ok: false; readonly error: CanvasSceneMutationError };
+
+export interface CanvasSceneSubscribeRequest {
+  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
+  readonly projectId: string;
+  readonly documentId: string;
+  readonly clientSessionId: string;
+}
+
+export interface CanvasSceneSubscriptionAck {
+  readonly subscribed: true;
+}
+
+export interface CanvasSceneUnsubscribeAck {
+  readonly unsubscribed: true;
+}
+
+export type CanvasSceneSubscriptionCommandResult =
+  | {
+      readonly ok: true;
+      readonly value: CanvasSceneSubscriptionAck | CanvasSceneUnsubscribeAck;
+    }
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
 export interface CanvasSceneSyncRequest {
