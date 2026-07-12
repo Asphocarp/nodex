@@ -268,12 +268,12 @@ describe("BlockDocumentStore", () => {
         const loaded = loadBlockDocument(database, documentId);
         const root = rootBlockGroup(loaded.document);
         const repairedBlock = root.get(0);
-        expect(repairedBlock instanceof Y.XmlElement).toBe(true);
-        expect(
+        const repairedBlockId =
           repairedBlock instanceof Y.XmlElement
             ? repairedBlock.getAttribute("id")
-            : null,
-        ).toMatch(/^block:editable-root:/);
+            : null;
+        expect(repairedBlock instanceof Y.XmlElement).toBe(true);
+        expect(repairedBlockId).toMatch(/^block:editable-root:/);
         loaded.document.destroy();
 
         const materialization = database
@@ -312,7 +312,7 @@ describe("BlockDocumentStore", () => {
             updateId: "delete-final-editable-root",
             clientSessionId: "window-destructive",
             baseHeadSeq: 2,
-            touchedBlockIds: [blockTree[0]?.id ?? ""],
+            touchedBlockIds: [repairedBlockId ?? ""],
             update: Y.encodeStateAsUpdate(destructiveReplica, beforeDelete),
           });
         } catch {
