@@ -66,6 +66,18 @@ interface ColumnProps {
   activePanelCardStageCardIds?: ReadonlySet<string>;
   selectedCardIds?: ReadonlySet<string>;
   contextMenuProjects?: CardContextMenuProjectSummary[];
+  onExternalBlockDragOver?: (
+    columnId: CardType["status"],
+    event: React.DragEvent<HTMLDivElement>,
+  ) => void;
+  onExternalBlockDragLeave?: (
+    columnId: CardType["status"],
+    event: React.DragEvent<HTMLDivElement>,
+  ) => void;
+  onExternalBlockDrop?: (
+    columnId: CardType["status"],
+    event: React.DragEvent<HTMLDivElement>,
+  ) => void;
 }
 
 export const Column = memo(function Column({
@@ -97,6 +109,9 @@ export const Column = memo(function Column({
   activePanelCardStageCardIds,
   selectedCardIds = new Set<string>(),
   contextMenuProjects = [],
+  onExternalBlockDragOver,
+  onExternalBlockDragLeave,
+  onExternalBlockDrop,
 }: ColumnProps) {
   const [showCreator, setShowCreator] = useState(false);
   const columnRef = useRef<HTMLDivElement | null>(null);
@@ -157,6 +172,9 @@ export const Column = memo(function Column({
       ref={columnRef}
       data-kanban-column-id={column.id}
       data-kanban-column-collapsed={isCollapsed ? "true" : "false"}
+      onDragOver={(event) => onExternalBlockDragOver?.(column.id, event)}
+      onDragLeave={(event) => onExternalBlockDragLeave?.(column.id, event)}
+      onDrop={(event) => onExternalBlockDrop?.(column.id, event)}
       className="flex shrink-0 flex-col overflow-clip pr-3"
       style={{
         width: isCollapsed ? COLLAPSED_KANBAN_COLUMN_WIDTH : layout.width,

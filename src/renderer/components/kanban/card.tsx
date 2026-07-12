@@ -26,6 +26,10 @@ import {
   isKanbanCardDragData,
   type KanbanCardDragData,
 } from "./pragmatic-drag-data";
+import {
+  encodeCardReferenceDragPayload,
+  NODEX_CARD_REFERENCES_DRAG_MIME,
+} from "./cross-surface-drag";
 
 type CardEditableProperty = "priority" | "estimate";
 type CardPropertyBadgeLayout = "stacked" | "inline";
@@ -626,6 +630,19 @@ export function Card({
         const dragData = activeDragDataRef.current ?? buildDragData(card, columnId);
         activeDragDataRef.current = dragData;
         return dragData;
+      },
+      getInitialDataForExternal: () => {
+        const dragData = activeDragDataRef.current ?? buildDragData(card, columnId);
+        activeDragDataRef.current = dragData;
+        return {
+          [NODEX_CARD_REFERENCES_DRAG_MIME]: encodeCardReferenceDragPayload(
+            dragData.dragItems.map((item) => ({
+              projectId: dragData.projectId,
+              cardId: item.card.id,
+              title: item.card.title,
+            })),
+          ),
+        };
       },
       onGenerateDragPreview: ({ location, nativeSetDragImage, source }) => {
         const dragData = isKanbanCardDragData(source.data)

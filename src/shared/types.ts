@@ -277,7 +277,10 @@ export interface CommandPaletteThreadContentSearchResult {
   snippetSegments?: CommandPaletteSearchSnippetSegment[];
 }
 
-export type CardCreatePlacement = "top" | "bottom";
+export type CardCreatePlacement =
+  | "top"
+  | "bottom"
+  | { readonly beforeCardId: string };
 
 export interface MoveCardInput {
   cardId: string;

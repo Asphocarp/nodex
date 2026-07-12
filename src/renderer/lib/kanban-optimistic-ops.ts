@@ -99,9 +99,16 @@ function insertCardIntoColumn(
   if (!column) return board;
 
   const nextCards = [...column.cards];
+  const beforeCardIndex = typeof placement === "object"
+    ? nextCards.findIndex((candidate) => candidate.id === placement.beforeCardId)
+    : -1;
   const index = insertIndex !== undefined
     ? clamp(insertIndex, 0, nextCards.length)
-    : (placement === "top" ? 0 : nextCards.length);
+    : placement === "top"
+      ? 0
+      : beforeCardIndex >= 0
+        ? beforeCardIndex
+        : nextCards.length;
   nextCards.splice(index, 0, card);
   return replaceColumnCards(board, columnIndex, nextCards);
 }

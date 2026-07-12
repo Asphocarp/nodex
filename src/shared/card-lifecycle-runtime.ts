@@ -13,7 +13,7 @@ import type {
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
 } from "./database-query";
-import type { Card, CardCreateInput } from "./types";
+import type { Card, CardCreateInput, CardCreatePlacement } from "./types";
 
 export const CARD_LIFECYCLE_PREFLIGHT_VERSION = 1 as const;
 
@@ -100,7 +100,7 @@ export type CardLifecycleIntent =
       readonly cardId: string;
       readonly status: CardStatus;
       readonly input: CardCreateInput;
-      readonly placement?: "top" | "bottom";
+      readonly placement?: CardCreatePlacement;
     })
   | (CardLifecycleIntentBase & {
       readonly kind: "archive";
@@ -252,7 +252,9 @@ const createOperation = (
     intent.placement === "top"
       ? query.rows.find((row) => row.effectiveGroupKey === intent.status)?.card
           .blockId
-      : undefined;
+      : typeof intent.placement === "object"
+        ? intent.placement.beforeCardId
+        : undefined;
   const input = intent.input;
   return {
     kind: "create_card" as const,

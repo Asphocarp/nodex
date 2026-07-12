@@ -1752,9 +1752,29 @@ function NfmEditorInstance({
     ],
   );
 
+  const crossSurfaceDrag = useMemo(
+    () => ({
+      projectId,
+      cardReferenceDrop: {
+        projectId,
+        ...(sourceCardContext?.cardId
+          ? { hostCardId: sourceCardContext.cardId }
+          : {}),
+        ancestorCardIds: parentBlockReferenceRuntime?.ancestorCardIds ?? [],
+        allocateBlockId: () => crypto.randomUUID(),
+      },
+    }),
+    [
+      parentBlockReferenceRuntime?.ancestorCardIds,
+      projectId,
+      sourceCardContext?.cardId,
+    ],
+  );
+
   useEditorDragBehaviors({
     editor,
     containerRef,
+    crossSurface: crossSurfaceDrag,
   });
   const sideMenuSelectionGuardActive = useSideMenuSelectionGuard(containerRef);
   const sideMenuFloatingOptions = useMemo(

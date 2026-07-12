@@ -49,6 +49,15 @@ import {
 } from "./kanban-card-drop-strategy";
 import { resolveKanbanDropCapabilities } from "./kanban-drop-capabilities";
 import { resolveKanbanDropFeedback } from "./drop-feedback";
+import { computeNativeDropIndexFromSurface } from "./native-drop-index";
+import {
+  hasDragType,
+  NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
+  NODEX_CARD_REFERENCES_DRAG_MIME,
+  parseBlockCardCopyDragPayload,
+  parseCardReferenceDragPayload,
+} from "./cross-surface-drag";
+import { toast } from "@/components/ui/toast";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenCardStageOptions["openMode"]>;
@@ -247,6 +256,130 @@ export function KanbanBoard({
     setBlockedDropMessage(null);
     setActiveDraggedCardIds(new Set());
   }, []);
+
+  const handleExternalBlockDragOver = useCallback(
+    (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+      const copiesBlocks = hasDragType(
+        event.dataTransfer,
+        NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
+      );
+      const movesReference = hasDragType(
+        event.dataTransfer,
+        NODEX_CARD_REFERENCES_DRAG_MIME,
+      );
+      if (!copiesBlocks && !movesReference) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = movesReference ? "move" : "copy";
+      const index = computeNativeDropIndexFromSurface(
+        event.currentTarget,
+        event.clientY,
+      );
+      setActiveDropColumnId(columnId);
+      setDropIndicator({
+        columnId,
+        index,
+        label: movesReference ? "Move referenced Card" : "Copy as Card",
+      });
+      setBlockedDropMessage(null);
+    },
+    [],
+  );
+
+  const handleExternalBlockDragLeave = useCallback(
+    (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && event.currentTarget.contains(next)) return;
+      setActiveDropColumnId((current) =>
+        current === columnId ? null : current,
+      );
+      setDropIndicator((current) =>
+        current?.columnId === columnId ? null : current,
+      );
+    },
+    [],
+  );
+
+  const handleExternalBlockDrop = useCallback(
+    async (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+      const referencePayload = parseCardReferenceDragPayload(
+        event.dataTransfer.getData(NODEX_CARD_REFERENCES_DRAG_MIME),
+      );
+      const payload = parseBlockCardCopyDragPayload(
+        event.dataTransfer.getData(NODEX_BLOCK_CARD_COPIES_DRAG_MIME),
+      );
+      if (!referencePayload && !payload) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const destinationIndex = computeNativeDropIndexFromSurface(
+        event.currentTarget,
+        event.clientY,
+      );
+      setActiveDropColumnId(null);
+      setDropIndicator(null);
+      setBlockedDropMessage(null);
+
+      if (referencePayload) {
+        for (const reference of referencePayload.cards) {
+          const source = board?.columns
+            .flatMap((column) =>
+              column.cards.map((card) => ({ card, columnId: column.id })),
+            )
+            .find((entry) => entry.card.id === reference.cardId);
+          if (!source) {
+            toast.danger(
+              "That referenced Card is not a member of this Database.",
+            );
+            continue;
+          }
+          const dropIntent = resolveKanbanCardDropIntent({
+            board,
+            visibleBoard: filteredBoard,
+            rules: viewPrefs.rules,
+            destinationColumnId: columnId,
+            destinationIndex,
+            dragItems: [source],
+          });
+          if (dropIntent.kind === "blocked") {
+            toast.danger(dropIntent.message);
+            continue;
+          }
+          const newOrder = dropIntent.kind === "reorder"
+            || dropIntent.kind === "reorder-with-patch"
+            ? dropIntent.newOrder
+            : undefined;
+          const fieldPatch = dropIntent.kind === "reorder-with-patch"
+            ? dropIntent.fieldPatch
+            : undefined;
+          await moveCard({
+            cardId: reference.cardId,
+            fromStatus: source.columnId,
+            toStatus: columnId,
+            ...(typeof newOrder === "number" ? { newOrder } : {}),
+            ...(fieldPatch ? { fieldPatch } : {}),
+          });
+        }
+        return;
+      }
+
+      const destinationCards = filteredBoard?.columns.find(
+        (column) => column.id === columnId,
+      )?.cards ?? [];
+      const beforeCardId = destinationCards[destinationIndex]?.id;
+      const placement: CardCreatePlacement =
+        resolveKanbanCardDragMode({ rules: viewPrefs.rules }).kind === "manual-rank"
+          && beforeCardId
+          ? { beforeCardId }
+          : "bottom";
+      for (const card of payload!.cards) {
+        const created = await createCard(columnId, card, placement);
+        if (!created) break;
+      }
+    },
+    [board, createCard, filteredBoard, moveCard, viewPrefs.rules],
+  );
 
   const performCardDrop = useCallback(async (
     dragData: KanbanCardDragData,
@@ -719,6 +852,11 @@ export function KanbanBoard({
               activePanelCardStageCardIds={activePanelCardStageCardIds}
               selectedCardIds={selectedCardIds}
               contextMenuProjects={contextMenuProjects}
+              onExternalBlockDragOver={handleExternalBlockDragOver}
+              onExternalBlockDragLeave={handleExternalBlockDragLeave}
+              onExternalBlockDrop={(columnId, event) => {
+                void handleExternalBlockDrop(columnId, event);
+              }}
             />
           ))}
         </div>

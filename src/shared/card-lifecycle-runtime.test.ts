@@ -224,6 +224,26 @@ describe("Card lifecycle runtime", () => {
     expect("beforeBlockId" in request.operation).toBe(false);
   });
 
+  test("preserves an explicit primary View anchor for pointer-position creation", () => {
+    const request = compileCardLifecycleRequest({
+      intent: {
+        kind: "create",
+        projectId: "project-1",
+        operationId: "operation-1",
+        cardId: "card-1",
+        status: "draft",
+        input: { title: "Card" },
+        placement: { beforeCardId: "draft-second" },
+      },
+      preflight: preflight(null),
+    });
+    if (request.operation.kind !== "create_card") {
+      throw new Error("Expected create_card");
+    }
+    expect(request.operation.beforeViewCardId).toBe("draft-second");
+    expect("beforeBlockId" in request.operation).toBe(false);
+  });
+
   test("compiles exact revision/evidence fences for existing Cards", () => {
     const deleted = preflight(authority("deleted"));
     const restored = compileCardLifecycleRequest({

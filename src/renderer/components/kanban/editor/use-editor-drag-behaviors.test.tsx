@@ -3,6 +3,10 @@ import { act, fireEvent } from "@testing-library/react";
 import { createRef, type RefObject } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
+import {
+  NODEX_BLOCK_CARD_COPIES_DRAG_MIME,
+  parseBlockCardCopyDragPayload,
+} from "../cross-surface-drag";
 
 type DragBehaviorEditor = Parameters<typeof useEditorDragBehaviors>[0]["editor"];
 
@@ -33,13 +37,28 @@ function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
 function DragBehaviorHarness({
   editor,
   containerRef,
+  crossSurface = false,
 }: {
   editor: DragBehaviorEditor;
   containerRef: RefObject<HTMLDivElement | null>;
+  crossSurface?: boolean;
 }) {
   useEditorDragBehaviors({
     editor,
     containerRef,
+    ...(crossSurface
+      ? {
+          crossSurface: {
+            projectId: "project-a",
+            cardReferenceDrop: {
+              projectId: "project-1",
+              hostCardId: "card-host",
+              ancestorCardIds: [],
+              allocateBlockId: () => "reference-a",
+            },
+          },
+        }
+      : {}),
   });
   return <div ref={containerRef} data-testid="editor-container" />;
 }
@@ -84,5 +103,41 @@ describe("useEditorDragBehaviors", () => {
 
     expect(editor.prosemirrorView?.dragging).toBe(null);
     expect(blockDragEndCount).toBe(1);
+  });
+
+  test("publishes an editor Block only as new-Card genesis copy data", async () => {
+    const editor = makeEditor(() => undefined);
+    const containerRef = createRef<HTMLDivElement>();
+    const view = render(
+      <DragBehaviorHarness
+        editor={editor}
+        containerRef={containerRef}
+        crossSurface
+      />,
+    );
+    await settleAsyncRender();
+    const container = view.getByTestId("editor-container");
+    container.classList.add("nfm-editor");
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      types: [],
+      effectAllowed: "uninitialized",
+      setData: (type: string, value: string) => data.set(type, value),
+    } as unknown as DataTransfer;
+    const dragStart = new Event("dragstart", { bubbles: true });
+    Object.defineProperty(dragStart, "dataTransfer", { value: dataTransfer });
+
+    await act(async () => {
+      container.dispatchEvent(dragStart);
+      await Promise.resolve();
+    });
+
+    const payload = parseBlockCardCopyDragPayload(
+      data.get(NODEX_BLOCK_CARD_COPIES_DRAG_MIME) ?? "",
+    );
+    expect(payload?.sourceProjectId).toBe("project-a");
+    expect(payload?.cards).toEqual([
+      { title: "Block", description: "" },
+    ]);
   });
 });

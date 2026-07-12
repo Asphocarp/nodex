@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildCreateCardTransform,
   buildMoveCardTransform,
   buildMoveCardsTransform,
   createOptimisticCard,
@@ -61,6 +62,25 @@ describe("kanban optimistic ops", () => {
     });
 
     expect(card.priority ?? null).toBe(null);
+  });
+
+  test("creates a Card before the stable View anchor used by the mutation", () => {
+    const board = createBoard();
+    const card = createCardSummary("new", 0);
+
+    const nextBoard = buildCreateCardTransform(
+      "in_progress",
+      card,
+      { beforeCardId: "c" },
+    )(board);
+
+    expect(nextBoard.columns[2]?.cards.map((item) => item.id)).toEqual([
+      "a",
+      "b",
+      "new",
+      "c",
+      "d",
+    ]);
   });
 
   test("move-card uses post-removal insertion indices for same-column reorders", () => {

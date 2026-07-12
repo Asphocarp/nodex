@@ -192,6 +192,9 @@ export const createCard = async (
           | { readonly block_id: string }
           | undefined
     : undefined;
+  const explicitViewAnchor = typeof placement === "object"
+    ? placement.beforeCardId
+    : undefined;
   const viewAnchor = placement === "top"
     ? database
         .prepare(
@@ -210,7 +213,9 @@ export const createCard = async (
         .get(canonicalProjectId, status) as
           | { readonly block_id: string }
           | undefined
-    : undefined;
+    : explicitViewAnchor
+      ? { block_id: explicitViewAnchor }
+      : undefined;
 
   const result = applyCardLifecycleMutation(database, {
     version: 1,
