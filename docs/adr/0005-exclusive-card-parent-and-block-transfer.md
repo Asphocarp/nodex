@@ -62,7 +62,7 @@ Returning the Card to the same Database reactivates the most recent matching mem
 
 Moving to another Database leaves the source membership dormant. The target reuses its own dormant membership if one exists. Otherwise it creates a membership and maps only compatible source values. Compatibility is determined by a stable semantic property key plus value type, with option values mapped by stable option identity or normalized option name when unambiguous. Incompatible source values remain dormant in the source Database and are never coerced silently.
 
-Card title is not a Database property value. Database APIs expose a virtual title field backed by the Card's `Y.Text("title")`, avoiding a second title authority.
+Card title is not a Database property value. Database Interfaces expose a virtual title field backed by the Card's rich `Y.Text("title")`, avoiding a second title authority. ADR 0006 defines its validated portable-rich-text contract.
 
 ### One versioned `TransferBlocks` command owns cross-surface semantics
 
@@ -81,7 +81,7 @@ The authority classifies the roots and applies these rules:
 
 1. Ordinary Block to Document preserves its Block ID on move. Existing cross-Document Y.Xml relocation remains the low-level primitive. Space has no body container, so an ordinary content root leaving a Document for Space is compiled into a Card parent just like a Database target: text-like roots promote in place and other roots receive a wrapper Card.
 2. Card between Space, Document, and Database preserves the Card ID and owned Document. The transaction changes only its parent shell/placement/membership and derived projections.
-3. A compatible text-like Block moved to Space or a Database is promoted to a Card using the same root Block ID. Its primary text becomes the Card title and its remaining content/children become the new owned Card body.
+3. A compatible text-like Block moved to Space or a Database is promoted to a Card using the same root Block ID. Its primary rich inline content becomes the Card title and its children become the new owned Card body. The source root is consumed as the Card owner and is not copied into the body; ADR 0006 defines exact lossless capability checks.
 4. Media, reference, void, or already document-bearing roots moved to Space or a Database are wrapped by a new Card. The original subtree keeps its IDs and becomes content of the new Card's owned Document.
 5. Copy leaves every source unchanged and allocates canonical UUID-v7 Block IDs for the copied ownership closure inside the committing transaction. Coercion then runs on those fresh identities: a promotable source root maps directly to the fresh Card ID, while only wrapper-required roots receive an additional Card. Reference target IDs remain unchanged.
 

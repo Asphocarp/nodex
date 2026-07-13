@@ -34,7 +34,7 @@ Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)`
 
 A Document is an independently loaded, persisted, synchronized, and history-scoped content owner. Its identity is `documentId`; its registered schema selects a content-specific sync engine. A `block_tree` Card Document uses Yjs and has exactly two named shared roots:
 
-- `Y.Text("title")` for the Card title.
+- `Y.Text("title")` for the Card's canonical rich title. Its validated Delta preserves supported styles, links, and inline application objects; plain title text is only a rebuildable projection.
 - `Y.XmlFragment("body")` for the BlockNote-compatible body tree.
 
 No additional named shared roots are valid. The body fragment contains one canonical root `blockGroup` so every persisted ready Document can be mounted by the editor schema.
@@ -150,6 +150,8 @@ Every logical operation that may be retried after losing its response has a call
 Occurrence complete/skip/update is another operation family. It mutates schedule/recurrence through typed Block/Database property authority and, when it can create an archived, detached, or future Card, carries a preallocated UUID-v7 `createdCardId` in the canonical command intent. Exact retry therefore targets the same identity while cloning the current source Y.Doc plus relational properties without creating another Card storage aggregate.
 
 A Document operation batch addresses application Block IDs, not Yjs struct IDs. It may set the title or insert, update, delete, and move Blocks in order. The writer validates the entire batch on a detached current-head clone before committing one relative Yjs update and its registry, projections, mutation receipt, and change-log evidence atomically. Operations that replace or remove existing Yjs structs require a short trusted write fence and record every invalidated Block/subtree ID; an offline update that crosses such a barrier may merge only when its derived touched IDs are disjoint. Otherwise Nodex persists a recovery artifact and requires reload. A tombstoned Block ID is never a valid create/import identity.
+
+Block-to-Card transformation reads one semantic shape from exact Yjs authority: the source root's primary rich inline content and its ordered children. A losslessly promotable Move consumes the root as the Card owner, preserves that root ID as the Card ID, writes the primary content to the owned rich title, and makes the original children the Card body roots. Copy first allocates the recursive fresh-ID map and applies the same transformation. The source root is never cloned into body. Roots with unsupported inline objects or unmapped type-specific state receive a wrapper Card or a typed rejection rather than losing content.
 
 ### Relocation
 
