@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import type { PanelDestination } from "./panel-destination-picker-model";
 import { PanelDestinationPickerSurface } from "./panel-destination-picker";
 
@@ -28,6 +29,7 @@ function makeCard(id: string, title: string, status: CardSummary["status"], orde
     status,
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     tags: [],
     agentBlocked: false,
     created: STORY_DATE,

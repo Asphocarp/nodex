@@ -9,6 +9,7 @@ import type {
 import { filterDbViewCards } from "../../lib/db-view-prefs";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 import { summarizeCardDescription } from "../../../shared/card-summary";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 type CardInputWithDefaults = CardInput & {
   tags: string[];
@@ -111,6 +112,7 @@ function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: Car
     columnName: CARD_STATUS_NAMES[targetColumnId],
     archived: false,
     title: card.title,
+    richTitle: plainTextToPortableRichText(card.title),
     ...summarizeCardDescription(card.description ?? ""),
     priority: hasOwn(card, "priority") ? card.priority ?? undefined : undefined,
     estimate: hasOwn(card, "estimate") ? card.estimate ?? undefined : undefined,

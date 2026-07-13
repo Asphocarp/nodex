@@ -11,6 +11,8 @@ import {
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
 import { ensurePrimaryCanvasDocuments } from "./primary-canvas-document";
 import { finalizeRichCardTitleSchema } from "./rich-title-schema-finalization";
+import { assertLegacyCardPromotionCutoverReady } from "./legacy-card-promotion-cutover";
+import { repairDocumentSecondaryProjections } from "./block-document-projections";
 
 let db: Database.Database | null = null;
 const DATABASE_MAINTENANCE_LEASE_ENV =
@@ -106,6 +108,7 @@ export async function initializeDatabase(options?: EnsureDatabaseOptions): Promi
   if (schemaVersion === CURRENT_SCHEMA_VERSION) {
     ensurePrimaryCanvasDocuments(database);
     finalizeRichCardTitleSchema(database);
+    assertLegacyCardPromotionCutoverReady(database);
     return;
   }
   if (schemaVersion !== 69) {
@@ -132,4 +135,6 @@ export async function initializeDatabase(options?: EnsureDatabaseOptions): Promi
   }
   ensurePrimaryCanvasDocuments(migratedDatabase);
   finalizeRichCardTitleSchema(migratedDatabase);
+  assertLegacyCardPromotionCutoverReady(migratedDatabase);
+  repairDocumentSecondaryProjections(migratedDatabase);
 }

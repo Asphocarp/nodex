@@ -16,9 +16,11 @@ import {
   encodeXmlSubtree,
   insertPortableXmlSubtree,
   getRegisteredBlockDocumentSchemaAdapter,
+  getHistoricalBlockDocumentSchemaAdapterForSchema,
   getOwnedDocumentSchemaRegistration,
   getYjsDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
+  inspectHistoricalOwnedBlockDocument,
   LARGE_CODE_BLOCK_TYPE,
   LARGE_CODE_DOCUMENT_SCHEMA_KEY,
   LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
@@ -206,7 +208,7 @@ describe("Card block document envelope", () => {
 describe("registered document-bearing Block envelopes", () => {
   test("keeps every owner/schema registration exact and unambiguous", () => {
     const adapters = listBlockDocumentSchemaAdapters();
-    expect(adapters.length).toBe(6);
+    expect(adapters.length).toBe(5);
     expect(
       adapters
         .map(
@@ -217,7 +219,6 @@ describe("registered document-bearing Block envelopes", () => {
         .join(","),
     ).toBe(
       [
-        "card/nodex.card@1:block_tree/yjs",
         "card/nodex.card@2:block_tree/yjs",
         "largeCode/nodex.large-code@1:block_tree/yjs",
         "largeDocument/nodex.large-document@1:block_tree/yjs",
@@ -225,6 +226,40 @@ describe("registered document-bearing Block envelopes", () => {
         "synced_block_source/nodex.synced-block@1:block_tree/yjs",
       ].join(","),
     );
+  });
+
+  test("keeps the retired plain Card schema historical-only", () => {
+    const legacy = createCardDocument({
+      documentId: "document-legacy-card-history",
+      initialTitle: "Legacy plain title",
+    });
+    expect(() =>
+      getRegisteredBlockDocumentSchemaAdapter({
+        ownerType: "card",
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+      }),
+    ).toThrow("No owned Document Adapter is registered");
+    expect(
+      getHistoricalBlockDocumentSchemaAdapterForSchema({
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+      }).ownerType,
+    ).toBe("card");
+    expect(
+      inspectHistoricalOwnedBlockDocument(legacy.document, {
+        ownerType: "card",
+        schemaKey: "nodex.card",
+        schemaVersion: 1,
+      }).materialization,
+    ).toMatchObject({
+      kind: "card",
+      schemaVersion: 1,
+      title: "Legacy plain title",
+      richTitle: [
+        { type: "text", text: "Legacy plain title", styles: {} },
+      ],
+    });
   });
 
   test("separates Canvas registration metadata from Yjs inspection", () => {

@@ -8,12 +8,15 @@ import {
 } from "./command-palette-card-search";
 import { useCommandPaletteCardSearchIndex } from "./use-command-palette-card-search-index";
 import type { CardSummary } from "./types";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Shared picker search.";
+  const title = overrides.title ?? "Mention search card";
   return {
     id: overrides.id ?? "card-1",
-    title: overrides.title ?? "Mention search card",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,

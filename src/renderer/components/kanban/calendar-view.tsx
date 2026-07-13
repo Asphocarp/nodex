@@ -18,6 +18,7 @@ import {
   ARCHIVED_CARD_OPTION_NAME,
 } from "@/lib/kanban-options";
 import { createUuidV7 } from "../../../shared/card-id";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 interface CalendarViewProps {
   projectId: string;
@@ -261,6 +262,7 @@ export function CalendarView({
             columnId: "draft",
             columnName: "Draft",
             title,
+            richTitle: plainTextToPortableRichText(title),
             description: "",
             tags: [],
             agentBlocked: false,

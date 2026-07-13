@@ -4,6 +4,7 @@ import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   TEXT_ACTION_RECENT_COLOR_STORAGE_KEY,
   writeTextActionRecentColors,
@@ -39,6 +40,7 @@ function makeCard(id: string, title: string, status: CardSummary["status"], orde
     status,
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     tags: [],
     agentBlocked: false,
     created: TEST_DATE,

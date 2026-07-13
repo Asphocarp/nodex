@@ -672,7 +672,7 @@ export const cloneAuthoritativeCardInTransaction = (
     );
     detached = createDetachedCardDocumentFromBlockTree({
       documentId,
-      title: materialization.title,
+      richTitle: materialization.richTitle,
       blockTree: remapped.blockTree,
     });
 

@@ -18,7 +18,6 @@ import {
   assertValidCardDocumentRoots,
   CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
-  openCardDocument,
 } from "./card-document";
 import type { BlockId, DocumentId } from "./contracts";
 import {
@@ -34,8 +33,10 @@ import {
   type BlockNoteBlockValue,
 } from "./nfm-blocknote-adapter";
 import {
+  canonicalizePortableRichText,
   portableRichTextPlainText,
   readPortableRichTextFromYText,
+  replaceYTextWithPortableRichText,
   type PortableRichText,
 } from "./portable-rich-text";
 
@@ -86,7 +87,9 @@ export interface CardDocumentMaterialization extends BlockDocumentMaterializatio
 
 export interface CreateCardDocumentGenesisInput {
   readonly documentId: DocumentId;
-  readonly title: string;
+  /** Plain convenience seam; richTitle is the canonical authority input. */
+  readonly title?: string;
+  readonly richTitle?: PortableRichText;
   readonly nfm: string;
   readonly allocateBlockId?: () => BlockId;
 }
@@ -101,19 +104,13 @@ export interface CardDocumentGenesis {
 export interface CreateDetachedCardDocumentFromBlockTreeInput {
   readonly documentId: DocumentId;
   readonly title?: string;
+  readonly richTitle?: PortableRichText;
   readonly blockTree: readonly BlockTreeNode[];
 }
 
 export interface DetachedCardDocumentFromBlockTree {
   readonly document: Y.Doc;
   readonly materialization: CardDocumentMaterialization;
-}
-
-export interface CardDocumentMigrationResult {
-  readonly fromVersion: number;
-  readonly toVersion: number;
-  readonly changed: boolean;
-  readonly update: Uint8Array;
 }
 
 export class BlockDocumentCodecError extends Error {
@@ -452,16 +449,28 @@ export const materializeCardDocument = (
 
 export const createCardDocumentGenesis = ({
   documentId,
-  title,
+  title = "",
+  richTitle,
   nfm,
   allocateBlockId = createUuidV7,
 }: CreateCardDocumentGenesisInput): CardDocumentGenesis => {
+  if (richTitle !== undefined && title.length > 0) {
+    throw new BlockDocumentCodecError(
+      "Card genesis accepts richTitle or plain title, not both",
+    );
+  }
   const envelope = createCardDocument({
     documentId,
     initialTitle: title,
     initializeBody: false,
   });
   try {
+    if (richTitle !== undefined) {
+      replaceYTextWithPortableRichText(
+        envelope.title,
+        canonicalizePortableRichText(richTitle),
+      );
+    }
     populateBlockDocumentBodyFromNfm(envelope.body, nfm, allocateBlockId);
     const materialization = materializeCardDocument(envelope.document);
     return {
@@ -488,14 +497,26 @@ export const createCardDocumentGenesis = ({
 export const createDetachedCardDocumentFromBlockTree = ({
   documentId,
   title = "",
+  richTitle,
   blockTree,
 }: CreateDetachedCardDocumentFromBlockTreeInput): DetachedCardDocumentFromBlockTree => {
+  if (richTitle !== undefined && title.length > 0) {
+    throw new BlockDocumentCodecError(
+      "Detached Card accepts richTitle or plain title, not both",
+    );
+  }
   const envelope = createCardDocument({
     documentId,
     initialTitle: title,
     initializeBody: false,
   });
   try {
+    if (richTitle !== undefined) {
+      replaceYTextWithPortableRichText(
+        envelope.title,
+        canonicalizePortableRichText(richTitle),
+      );
+    }
     populateBlockDocumentBodyFromBlockTree(envelope.body, blockTree);
     const materialization = materializeCardDocument(envelope.document);
     const requested = flattenBlockTree(blockTree);
@@ -525,45 +546,4 @@ export const createDetachedCardDocumentFromBlockTree = ({
       { cause: error },
     );
   }
-};
-
-export const migrateCardDocument = (
-  document: Y.Doc,
-  fromVersion: number,
-  toVersion = CARD_DOCUMENT_SCHEMA_VERSION,
-): CardDocumentMigrationResult => {
-  if (fromVersion !== 1 && fromVersion !== CARD_DOCUMENT_SCHEMA_VERSION) {
-    throw new BlockDocumentCodecError(
-      `No Card Document migration is registered from schema version ${fromVersion}`,
-    );
-  }
-  if (toVersion !== CARD_DOCUMENT_SCHEMA_VERSION) {
-    throw new BlockDocumentCodecError(
-      `Unsupported Card Document target schema version ${toVersion}`,
-    );
-  }
-
-  if (fromVersion === 1) {
-    const legacyTitle = openCardDocument(document).title;
-    const hasLegacyIncompatibleAttributes = legacyTitle
-      .toDelta()
-      .some(
-        (operation: { readonly attributes?: Readonly<Record<string, unknown>> }) =>
-          operation.attributes !== undefined &&
-          Object.keys(operation.attributes).length > 0,
-      );
-    if (hasLegacyIncompatibleAttributes) {
-      throw new BlockDocumentCodecError(
-        "Card Document schema version 1 title contains rich attributes",
-      );
-    }
-  }
-
-  materializeCardDocument(document);
-  return {
-    fromVersion,
-    toVersion,
-    changed: false,
-    update: new Uint8Array(),
-  };
 };

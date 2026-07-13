@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { emptyCardSelection, toggleCardSelection } from "./card-selection";
 import {
   buildKanbanCardDragData,
@@ -17,6 +18,7 @@ const board: BoardSummary = {
           status: "in_progress",
           archived: false,
           title: "Task",
+          richTitle: plainTextToPortableRichText("Task"),
           descriptionPreview: "Persisted body",
           descriptionLength: "Persisted body".length,
           hasDescription: true,
@@ -31,6 +33,7 @@ const board: BoardSummary = {
           status: "in_progress",
           archived: false,
           title: "Peer",
+          richTitle: plainTextToPortableRichText("Peer"),
           descriptionPreview: "Peer body",
           descriptionLength: "Peer body".length,
           hasDescription: true,

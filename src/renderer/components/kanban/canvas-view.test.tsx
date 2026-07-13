@@ -10,6 +10,7 @@ import {
   materializePortableCanvasScene,
   primaryCanvasBlockId,
   primaryCanvasDocumentId,
+  plainTextToPortableRichText,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
   type PortableCanvasScene,
@@ -65,6 +66,7 @@ function makeCardSummary(id: string, title: string): CardSummary {
   return {
     id,
     title,
+    richTitle: plainTextToPortableRichText(title),
     status: "draft",
     archived: false,
     priority: undefined,

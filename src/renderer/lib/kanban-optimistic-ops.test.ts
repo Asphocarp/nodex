@@ -6,6 +6,7 @@ import {
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import type { BoardSummary, CardSummary } from "./types";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 function createCardSummary(id: string, order: number): CardSummary {
   return {
@@ -13,6 +14,7 @@ function createCardSummary(id: string, order: number): CardSummary {
     status: "in_progress",
     archived: false,
     title: id,
+    richTitle: plainTextToPortableRichText(id),
     descriptionPreview: "",
     descriptionLength: 0,
     hasDescription: false,

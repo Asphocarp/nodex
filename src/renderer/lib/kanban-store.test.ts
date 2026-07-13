@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import {
   buildCreateCardTransform,
   buildDeleteCardTransform,
@@ -112,6 +113,7 @@ function createDatabaseViewSnapshot(
         content: {
           projectedSeq: 1,
           title,
+          richTitle: plainTextToPortableRichText(title),
           preview: "",
           plainText: "",
         },
@@ -146,6 +148,7 @@ function createCardSummary(title = "Initial title"): CardSummary {
     status: "draft",
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     descriptionPreview: "Initial description",
     descriptionLength: "Initial description".length,
     hasDescription: true,
@@ -566,6 +569,7 @@ describe("kanban store", () => {
       status: "draft",
       archived: false,
       title: "Remote title",
+      richTitle: plainTextToPortableRichText("Remote title"),
       description: "Remote full body that should only become preview metadata",
       tags: [],
       agentBlocked: false,
@@ -580,6 +584,7 @@ describe("kanban store", () => {
       status: "draft",
       archived: false,
       title: "Remote title",
+      richTitle: plainTextToPortableRichText("Remote title"),
       description: "Remote full body that should only become preview metadata",
       tags: [],
       agentBlocked: false,
@@ -608,6 +613,7 @@ describe("kanban store", () => {
       status: "draft",
       archived: false,
       title: "Ack title",
+      richTitle: plainTextToPortableRichText("Ack title"),
       tags: [],
       agentBlocked: false,
       revision: 2,

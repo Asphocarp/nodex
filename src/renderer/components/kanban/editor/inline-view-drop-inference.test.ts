@@ -1,17 +1,20 @@
 import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "../../../lib/toggle-list/settings";
 import type { BoardSummary, CardSummary } from "../../../lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   inferInlineViewDropImport,
   type InlineViewProjectedRow,
 } from "./inline-view-drop-inference";
 
 function makeCard(id: string, overrides: Partial<CardSummary> = {}): CardSummary {
+  const title = overrides.title ?? `Card ${id}`;
   return {
     id,
     status: "draft",
     archived: false,
-    title: `Card ${id}`,
+    title,
+    richTitle: plainTextToPortableRichText(title),
     descriptionPreview: "",
     descriptionLength: 0,
     hasDescription: false,

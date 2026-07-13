@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import type { GeneralDatabaseCatalog } from "../../../shared/database-query";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { render } from "../../test/dom";
 
 const catalog: GeneralDatabaseCatalog = {
@@ -98,6 +99,7 @@ const cardState = (
     content: {
       projectedSeq: 1,
       title,
+      richTitle: plainTextToPortableRichText(title),
       preview: "",
       plainText: "",
     },

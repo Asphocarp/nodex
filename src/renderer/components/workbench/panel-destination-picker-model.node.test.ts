@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   buildPanelDestinationSections,
   flattenPanelDestinationRows,
@@ -36,6 +37,7 @@ function makeCard(
     status,
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     tags: [],
     agentBlocked: false,
     created: TEST_DATE,

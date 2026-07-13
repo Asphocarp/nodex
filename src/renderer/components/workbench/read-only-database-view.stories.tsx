@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { ReadOnlyDatabaseView } from "./read-only-database-view";
 
 const model: DatabaseViewRenderModel = {
@@ -95,6 +96,7 @@ const model: DatabaseViewRenderModel = {
         content: {
           projectedSeq: 1,
           title: "Unify Database View rendering",
+          richTitle: plainTextToPortableRichText("Unify Database View rendering"),
           preview: "",
           plainText: "",
         },

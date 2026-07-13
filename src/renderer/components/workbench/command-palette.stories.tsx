@@ -10,13 +10,16 @@ import { createCommandPaletteCardSearchIndex } from "@/lib/command-palette-card-
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import { buildCommandPaletteCommands } from "@/lib/command-palette-commands";
 import type { CardSummary } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { CommandPaletteSurface } from "./command-palette-surface";
 
 function makeStoryCard(overrides: Partial<CardSummary> = {}): CardSummary {
+  const title = overrides.title ?? "Command palette shell refresh";
   return {
     id: overrides.id ?? "palette-card",
     status: overrides.status ?? "in_progress",
-    title: overrides.title ?? "Command palette shell refresh",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     tags: overrides.tags ?? ["palette", "shell"],
     archived: false,
     agentBlocked: false,

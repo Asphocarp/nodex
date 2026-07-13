@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { render } from "../../test/dom";
 import { ReadOnlyDatabaseView } from "./read-only-database-view";
 
@@ -80,7 +81,13 @@ const model: DatabaseViewRenderModel = {
         documentGeneration: 1,
         documentHeadSeq: 1,
         documentAuthority: "ydoc_primary",
-        content: { projectedSeq: 1, title: "Focused Card", preview: "", plainText: "" },
+        content: {
+          projectedSeq: 1,
+          title: "Focused Card",
+          richTitle: plainTextToPortableRichText("Focused Card"),
+          preview: "",
+          plainText: "",
+        },
         createdAt: "2026-07-12T00:00:00.000Z",
         updatedAt: "2026-07-12T00:00:00.000Z",
       },

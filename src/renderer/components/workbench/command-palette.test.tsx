@@ -13,6 +13,7 @@ import {
   type CommandPaletteShellCommandContext,
 } from "@/lib/command-palette-commands";
 import type { CardSummary } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import { createCommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
@@ -178,9 +179,11 @@ describe("buildCommandPaletteCommands", () => {
 
 function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Rebuild the fuzzy search indxer for the palette.";
+  const title = overrides.title ?? "Misc task";
   return {
     id: overrides.id ?? "card-1",
-    title: overrides.title ?? "Misc task",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,

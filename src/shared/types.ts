@@ -132,7 +132,7 @@ export interface Card {
   archived: boolean;
   title: string;
   /** Canonical collaborative title authority; title is its plain-text projection. */
-  richTitle?: PortableRichText;
+  richTitle: PortableRichText;
   description: string;
   priority?: Priority;
   estimate?: Estimate;

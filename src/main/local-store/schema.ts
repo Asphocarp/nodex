@@ -8335,6 +8335,20 @@ function migrateSchema73To74(db: Database.Database): void {
         WHERE document.schema_key = 'nodex.card'
           AND document.schema_version = 2
       );
+
+      UPDATE document_snapshots
+      SET schema_version = 2
+      WHERE schema_version = 1
+        AND document_id IN (
+          SELECT document.id
+          FROM documents document
+          JOIN block_documents ownership
+            ON ownership.document_id = document.id
+          JOIN blocks owner ON owner.id = ownership.block_id
+          WHERE document.schema_key = 'nodex.card'
+            AND document.schema_version = 2
+            AND owner.type = 'card'
+        );
     `);
     setUserVersion(db, 74);
   });

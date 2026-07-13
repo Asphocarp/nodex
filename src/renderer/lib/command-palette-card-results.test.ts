@@ -7,12 +7,15 @@ import {
 } from "./command-palette-card-results";
 import { createCommandPaletteCardSearchIndex } from "./command-palette-card-search";
 import type { BoardSummary, CardSearchResult, CardSummary, Project } from "./types";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Add quick card switching and commands.";
+  const title = overrides.title ?? "Polish command palette";
   return {
     id: overrides.id ?? "card-1",
-    title: overrides.title ?? "Polish command palette",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,

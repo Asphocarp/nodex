@@ -80,7 +80,7 @@ describe("Card Document CLI", () => {
       generation: 1,
       headSeq: 7,
       schemaKey: "nodex.card",
-      schemaVersion: 1,
+      schemaVersion: 2,
       readiness: "ready",
       authority: "ydoc_primary",
       storeEpoch: "epoch-1",

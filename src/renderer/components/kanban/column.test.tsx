@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
 import { Column } from "./column";
 import { render } from "@/test/dom";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 
 describe("Column", () => {
   test("renders the blocked-sort feedback message in the header", () => {
@@ -18,6 +19,7 @@ describe("Column", () => {
             status: "in_progress",
             archived: false,
             title: "Task",
+            richTitle: plainTextToPortableRichText("Task"),
             descriptionPreview: "",
             descriptionLength: 0,
             hasDescription: false,
@@ -83,6 +85,7 @@ describe("Column", () => {
             status: "in_progress",
             archived: false,
             title: "Task",
+            richTitle: plainTextToPortableRichText("Task"),
             descriptionPreview: "",
             descriptionLength: 0,
             hasDescription: false,

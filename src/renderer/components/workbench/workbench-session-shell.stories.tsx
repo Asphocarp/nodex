@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { BoardSummary, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import type { SidebarPinnedOrganizationMode, WorkbenchView } from "@/lib/use-workbench-state";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   writeWorkbenchShellNavigationHistoryState,
   type WorkbenchShellNavigationSnapshot,
@@ -152,6 +153,7 @@ const STORY_BOARD: BoardSummary = {
           status: "in_progress",
           archived: false,
           title: "Workbench redesign",
+          richTitle: plainTextToPortableRichText("Workbench redesign"),
           descriptionPreview: "",
           descriptionLength: 0,
           hasDescription: false,

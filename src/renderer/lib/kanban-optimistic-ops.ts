@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { DEFAULT_CARD_STATUS } from "../../shared/card-status";
 import { cardInputToSummaryPatch, summarizeCardDescription } from "../../shared/card-summary";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
 export type BoardTransform = (board: BoardSummary) => BoardSummary;
 
@@ -170,6 +171,7 @@ export function createOptimisticCard(input: CardCreateInput): CardSummary {
     status: input.status ?? DEFAULT_CARD_STATUS,
     archived: false,
     title: input.title,
+    richTitle: plainTextToPortableRichText(input.title),
     ...summarizeCardDescription(input.description ?? ""),
     priority: input.priority ?? undefined,
     estimate: input.estimate ?? undefined,

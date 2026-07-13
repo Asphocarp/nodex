@@ -5,13 +5,16 @@ import {
   tokenizeSearchQuery,
 } from "./card-search";
 import type { CardSummary } from "./types";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+  const title = overrides.title ?? "Improve NFM search";
   return {
     id: "abc1234",
     status: "draft",
     archived: false,
-    title: "Improve NFM search",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview: "Use token based matching for board search.",
     descriptionLength: "Use token based matching for board search.".length,
     hasDescription: true,

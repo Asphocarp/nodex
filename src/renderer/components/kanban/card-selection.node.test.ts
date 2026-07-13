@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   emptyCardSelection,
   normalizeCardSelection,
@@ -19,6 +20,7 @@ const board: BoardSummary = {
           status: "in_progress",
           archived: false,
           title: "A",
+          richTitle: plainTextToPortableRichText("A"),
           descriptionPreview: "",
           descriptionLength: 0,
           hasDescription: false,
@@ -33,6 +35,7 @@ const board: BoardSummary = {
           status: "in_progress",
           archived: false,
           title: "B",
+          richTitle: plainTextToPortableRichText("B"),
           descriptionPreview: "",
           descriptionLength: 0,
           hasDescription: false,
@@ -53,6 +56,7 @@ const board: BoardSummary = {
           status: "in_review",
           archived: false,
           title: "C",
+          richTitle: plainTextToPortableRichText("C"),
           descriptionPreview: "",
           descriptionLength: 0,
           hasDescription: false,
@@ -67,6 +71,7 @@ const board: BoardSummary = {
           status: "in_review",
           archived: false,
           title: "D",
+          richTitle: plainTextToPortableRichText("D"),
           descriptionPreview: "",
           descriptionLength: 0,
           hasDescription: false,

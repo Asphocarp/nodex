@@ -114,7 +114,7 @@ const seedOwnedDocument = (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority,
         genesis_source_revision, created_at, updated_at
-      ) VALUES (?, ?, 1, ?, 'nodex.card', 1, X'', '',
+      ) VALUES (?, ?, 1, ?, 'nodex.card', 2, X'', '',
         'ready', 'ydoc_primary', NULL, ?, ?)
     `,
     )
@@ -150,7 +150,7 @@ const seedBlockTreeProjection = (
         document_id, generation, projected_seq, schema_version,
         title, nfm, plain_text, preview, block_tree_json,
         references_json, asset_refs_json, updated_at
-      ) VALUES (?, 1, ?, 1, '', '', '', '', ?, ?, '[]', ?)
+      ) VALUES (?, 1, ?, 2, '', '', '', '', ?, ?, '[]', ?)
     `,
     )
     .run(
@@ -324,7 +324,7 @@ describe("Block retention GC kernel", () => {
             version_id, document_id, project_id, generation, base_head_seq,
             schema_key, schema_version, cause, label, actor_json,
             full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
-          ) VALUES (?, ?, ?, 1, 0, 'nodex.card', 1, 'test', NULL, '{}',
+          ) VALUES (?, ?, ?, 1, 0, 'nodex.card', 2, 'test', NULL, '{}',
             X'01', X'', ?, 1, ?)`,
         )
         .run("version:gc-evidence", "document:gc-evidence", projectId, hash, now);
@@ -538,7 +538,7 @@ describe("Block retention GC kernel", () => {
               version_id, document_id, project_id, generation, base_head_seq,
               schema_key, schema_version, cause, label, actor_json,
               full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
-            ) VALUES (?, ?, ?, 1, 0, 'nodex.card', 1, 'test', NULL, '{}',
+            ) VALUES (?, ?, ?, 1, 0, 'nodex.card', 2, 'test', NULL, '{}',
               ?, ?, ?, ?, ?)`,
           )
           .run(

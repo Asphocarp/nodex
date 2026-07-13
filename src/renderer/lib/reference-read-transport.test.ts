@@ -4,6 +4,7 @@ import {
   resolveCardReference,
 } from "./api";
 import { ReferenceReadHttpBoundaryError } from "../../shared/reference-read-http-contract";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
 
 const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   id: "card-target",
@@ -121,7 +122,7 @@ describe("reference read renderer transport", () => {
           readiness: "ready",
           authority: "ydoc_primary",
           schemaKey: "nodex.card",
-          schemaVersion: 1,
+          schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         },
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
       new Response(JSON.stringify({
@@ -189,7 +190,7 @@ describe("reference read renderer transport", () => {
           readiness: "ready",
           authority: "ydoc_primary",
           schemaKey: "nodex.card",
-          schemaVersion: 1,
+          schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         },
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
     });

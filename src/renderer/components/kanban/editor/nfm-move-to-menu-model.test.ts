@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   buildNfmMoveToSections,
   flattenNfmMoveToRows,
@@ -33,11 +34,13 @@ function makeCard(
   order: number,
   overrides: Partial<CardSummary> = {},
 ): CardSummary {
+  const effectiveTitle = overrides.title ?? title;
   return {
     id,
     status,
     archived: false,
-    title,
+    title: effectiveTitle,
+    richTitle: plainTextToPortableRichText(effectiveTitle),
     tags: [],
     agentBlocked: false,
     created: TEST_DATE,

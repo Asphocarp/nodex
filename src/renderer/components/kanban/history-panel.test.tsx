@@ -3,6 +3,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 
 import type { OwnedDocumentDescriptor } from "../../../shared/block-documents/contracts";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents";
 import type { DocumentVersionDetail } from "../../../shared/block-documents/document-history";
 import type { CardHistoryEntry, CardHistoryPage } from "../../../shared/card-history";
 import { render, textContent } from "../../test/dom";
@@ -562,7 +563,7 @@ function makeDescriptor(): OwnedDocumentDescriptor {
     generation: 1,
     headSeq: 14,
     schemaKey: "nodex.card",
-    schemaVersion: 1,
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
     readiness: "ready",
     sync: { kind: "yjs", stateVector: new Uint8Array() },
   };

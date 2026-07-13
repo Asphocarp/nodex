@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { DatabaseViewReadModel } from "../../../../shared/database-views";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import type { CardSummary } from "@/lib/types";
 import { DatabaseViewReferenceSurface } from "@/components/block-documents/reference-block-surfaces";
 import {
@@ -17,6 +18,7 @@ const makeCard = (
   status,
   archived: false,
   title,
+  richTitle: plainTextToPortableRichText(title),
   priority: "p2-medium",
   estimate: "s",
   tags: [],

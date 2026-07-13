@@ -113,7 +113,7 @@ export interface CardContentSummary {
   readonly content: null | {
     readonly projectedSeq: number;
     readonly title: string;
-    readonly richTitle?: PortableRichText;
+    readonly richTitle: PortableRichText;
     readonly preview: string;
     readonly plainText: string;
   };

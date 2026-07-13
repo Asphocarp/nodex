@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import { Hono } from "hono";
 import * as Y from "yjs";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -281,7 +282,7 @@ describe("Document sync transport parity", () => {
         generation: 1,
         headSeq: 0,
         schemaKey: "nodex.card",
-        schemaVersion: 1,
+        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),
@@ -295,7 +296,7 @@ describe("Document sync transport parity", () => {
         generation: 1,
         headSeq: 0,
         schemaKey: "nodex.card",
-        schemaVersion: 1,
+        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),

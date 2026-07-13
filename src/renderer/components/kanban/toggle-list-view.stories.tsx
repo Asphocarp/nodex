@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DbViewCardRecord } from "@/lib/db-view-prefs";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { ToggleListReferenceRows } from "./toggle-list-view";
 
 const CARDS: DbViewCardRecord[] = [
@@ -8,6 +9,7 @@ const CARDS: DbViewCardRecord[] = [
     status: "in_progress",
     archived: false,
     title: "Define the Card document sync contract",
+    richTitle: plainTextToPortableRichText("Define the Card document sync contract"),
     priority: "p0-critical",
     estimate: "l",
     tags: ["sync", "architecture"],
@@ -26,6 +28,7 @@ const CARDS: DbViewCardRecord[] = [
     status: "in_review",
     archived: false,
     title: "Verify foreign-body migration",
+    richTitle: plainTextToPortableRichText("Verify foreign-body migration"),
     priority: "p1-high",
     estimate: "m",
     tags: ["migration"],

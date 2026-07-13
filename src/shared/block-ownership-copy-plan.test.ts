@@ -7,6 +7,7 @@ import {
   type OwnershipClosureDocument,
 } from "./block-ownership-copy-plan";
 import { isUuidV7 } from "./card-id";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
 
 const blocks = new Map<string, OwnershipClosureBlock>([
   ["card-a", { blockId: "card-a", blockType: "card", containingDocumentId: null }],
@@ -20,10 +21,10 @@ const blocks = new Map<string, OwnershipClosureBlock>([
 ]);
 
 const documents = new Map<string, OwnershipClosureDocument>([
-  ["card-a", { documentId: "document-a", ownerBlockId: "card-a", schemaKey: "nodex.card", schemaVersion: 1 }],
-  ["card-b", { documentId: "document-b", ownerBlockId: "card-b", schemaKey: "nodex.card", schemaVersion: 1 }],
+  ["card-a", { documentId: "document-a", ownerBlockId: "card-a", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
+  ["card-b", { documentId: "document-b", ownerBlockId: "card-b", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
   ["large-document", { documentId: "document-large", ownerBlockId: "large-document", schemaKey: "nodex.large-document", schemaVersion: 1 }],
-  ["external-target", { documentId: "document-external", ownerBlockId: "external-target", schemaKey: "nodex.card", schemaVersion: 1 }],
+  ["external-target", { documentId: "document-external", ownerBlockId: "external-target", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
 ]);
 
 const reader: BlockOwnershipGraphReader = {

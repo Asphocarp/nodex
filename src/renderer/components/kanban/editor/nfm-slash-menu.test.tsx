@@ -24,6 +24,7 @@ import {
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
 import type { CardSummary, CodexThreadSummary, Project } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 
 function makeItems(): DefaultReactSuggestionItem[] {
   return [
@@ -120,9 +121,11 @@ function createMentionProject(): Project {
 
 function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Add shared mention search.";
+  const title = overrides.title ?? "Mention search card";
   return {
     id: overrides.id ?? "card-1",
-    title: overrides.title ?? "Mention search card",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,

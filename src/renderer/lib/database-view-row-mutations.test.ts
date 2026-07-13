@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { DatabaseMutationCommandResult } from "../../shared/database-kernel";
 import type {
   GeneralDatabasePropertyDefinition,
@@ -93,7 +94,13 @@ const model = (): DatabaseViewRenderModel => {
       documentGeneration: 1,
       documentHeadSeq: 1,
       documentAuthority: "ydoc_primary" as const,
-      content: { projectedSeq: 1, title: blockId, preview: "", plainText: "" },
+      content: {
+        projectedSeq: 1,
+        title: blockId,
+        richTitle: plainTextToPortableRichText(blockId),
+        preview: "",
+        plainText: "",
+      },
       createdAt: timestamp,
       updatedAt: timestamp,
     },

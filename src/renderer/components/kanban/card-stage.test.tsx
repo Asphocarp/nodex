@@ -12,6 +12,7 @@ import { render, textContent } from "@/test/dom";
 import {
   CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
+  plainTextToPortableRichText,
 } from "../../../shared/block-documents";
 import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 
@@ -68,11 +69,13 @@ vi.mock("./card-stage/properties-section", () => ({
 }));
 
 function buildCard(overrides: Partial<Card> = {}): Card {
+  const title = overrides.title ?? "Stale projected title";
   return {
     id: "card-1",
     status: "in_progress",
     archived: false,
-    title: "Stale projected title",
+    title,
+    richTitle: plainTextToPortableRichText(title),
     description: "Stale projected body",
     tags: [],
     agentBlocked: false,

@@ -1,6 +1,10 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import type { CardReferenceReadModel } from "../../../shared/block-references";
+import {
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  plainTextToPortableRichText,
+} from "../../../shared/block-documents";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import type { CardSummary } from "@/lib/types";
 import {
@@ -18,6 +22,7 @@ const makeCard = (id: string, title: string): CardSummary => ({
   status: "in_progress",
   archived: false,
   title,
+  richTitle: plainTextToPortableRichText(title),
   priority: "p1-high",
   estimate: "m",
   tags: [],
@@ -45,7 +50,7 @@ const availableReference = (
     readiness: "ready",
     authority: "ydoc_primary",
     schemaKey: "nodex.card",
-    schemaVersion: 1,
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   },
 });
 

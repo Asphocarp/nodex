@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ComponentProps } from "react";
 import { useState } from "react";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { CalendarGrid } from "./calendar-grid";
 
 const meta = {
@@ -47,6 +48,7 @@ function buildEvent({
     id,
     cardId: id,
     title,
+    richTitle: plainTextToPortableRichText(title),
     description: "",
     status: "draft",
     archived: false,

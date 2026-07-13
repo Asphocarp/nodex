@@ -7,7 +7,6 @@ import {
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import { createUuidV7 } from "../../shared/card-id";
 import { cutoverEligibleCardDocumentsToPrimary } from "./block-document-cutover";
-import { repairDocumentSecondaryProjections } from "./block-document-projections";
 import {
   initializeBlockDocumentGenesis,
   loadLegacyShadowBlockDocument,
@@ -358,7 +357,6 @@ export const finalizeBlockFirstAuthority = async (
 
   const finalizedDeletedDocuments = finalizeDeletedCardDocuments(database);
   assertCanonicalCardDocuments(database);
-  const repaired = repairDocumentSecondaryProjections(database);
   const droppedTables = dropLegacyBlockFirstTables(
     database,
     targetSchemaVersion,
@@ -369,7 +367,10 @@ export const finalizeBlockFirstAuthority = async (
     foreignDocumentsProcessed,
     cutoverDocuments,
     finalizedDeletedDocuments,
-    repairedDocumentProjections: repaired.repairedDocuments,
+    // Retired schemas are deliberately absent from the live projection
+    // registry. initializeDatabase repairs these projections after the
+    // synchronous schema edges advance every Card to the current descriptor.
+    repairedDocumentProjections: 0,
     droppedTables,
   };
 };

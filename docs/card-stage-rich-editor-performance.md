@@ -4,9 +4,9 @@ This document defines the performance and durability contract for Card Stage aft
 
 ## Authority Boundary
 
-Every Card owns one registered `nodex.card@1` Document with exactly:
+Every Card owns one registered `nodex.card@2` Document with exactly:
 
-- `Y.Text("title")` for the title.
+- `Y.Text("title")` for the canonical rich title, using the validated portable-rich Delta subset.
 - `Y.XmlFragment("body")` for the BlockNote-compatible body tree.
 
 `CardStage` prepares the exact `(projectId, cardBlockId)` owned descriptor and mounts `BlockDocumentSurface` only when the descriptor is ready, schema-compatible, and `ydoc_primary`. `NfmEditor` receives the live body fragment; `CollaborativeCardTitle` receives the live title. Neither component receives a serialized body callback for persistence.

@@ -22,6 +22,7 @@ import { buildComposerShellModel } from "../projection/build-composer-shell-mode
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -299,6 +300,7 @@ function buildStoryCard(): Card {
     status: "in_progress",
     archived: false,
     title: "Add Storybook coverage for thread surfaces",
+    richTitle: plainTextToPortableRichText("Add Storybook coverage for thread surfaces"),
     description: [
       "## Storybook rollout",
       "",

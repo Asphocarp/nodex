@@ -4,6 +4,7 @@ import { TextActionLinkIcon } from "@/components/shared/icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import { writeNfmSendToThreadMode } from "./nfm-send-to-thread-mode-settings";
@@ -41,6 +42,7 @@ function makeStoryCard(id: string, title: string, status: CardSummary["status"],
     status,
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     tags: [],
     agentBlocked: false,
     created: STORY_DATE,

@@ -4,6 +4,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { createTestQueryClient, TestQueryProvider } from "@/test/query";
 import { installWindowApi } from "@/test/browser-globals";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { BoardSummary, CardSummary, Project } from "./types";
 import { useAllBoards, useBoardsForProjects } from "./use-all-boards";
 
@@ -53,6 +54,7 @@ function makeCardSummary(): CardSummary {
     status: "in_progress",
     archived: false,
     title: "Event card",
+    richTitle: plainTextToPortableRichText("Event card"),
     priority: undefined,
     estimate: undefined,
     tags: [],

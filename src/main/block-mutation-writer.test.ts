@@ -256,7 +256,7 @@ describe("BlockMutationWriter", () => {
           generation: 1,
           headSeq: 2,
           schemaKey: "nodex.card",
-          schemaVersion: 1,
+          schemaVersion: 2,
         },
       ],
       expectedMemberships: [
@@ -1420,7 +1420,7 @@ describe("BlockMutationWriter", () => {
         generation: 1,
         headSeq: 3,
         schemaKey: "nodex.card",
-        schemaVersion: 1,
+        schemaVersion: 2,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array([1, 2]) },
       },

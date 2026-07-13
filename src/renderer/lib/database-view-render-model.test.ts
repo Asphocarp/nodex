@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
   DatabaseReadSnapshot,
   DatabaseViewSnapshot,
@@ -125,6 +126,7 @@ const makeSnapshot = (input: {
         content: {
           projectedSeq: 5,
           title: input.title ?? "Canonical Card",
+          richTitle: plainTextToPortableRichText(input.title ?? "Canonical Card"),
           preview: "One line",
           plainText: "One line body",
         },

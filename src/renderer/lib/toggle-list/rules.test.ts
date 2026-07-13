@@ -2,13 +2,16 @@ import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "./settings";
 import type { ToggleListCard, ToggleListRulesV2, ToggleListSettings } from "./types";
 import { filterCards, rankCards } from "./rules";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 
 function makeCard(overrides: Partial<ToggleListCard>): ToggleListCard {
+  const title = overrides.title ?? "Card title";
   return {
     id: "card-1",
     status: "backlog",
     archived: false,
-    title: "Card title",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     description: "",
     priority: "p2-medium",
     estimate: "m",

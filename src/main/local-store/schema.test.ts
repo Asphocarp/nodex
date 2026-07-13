@@ -4,12 +4,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import * as Y from "yjs";
 
 import { createUuidV7 } from "../../shared/card-id";
 import { parseGeneralDatabaseViewConfig } from "../../shared/database-kernel";
 import { createCard, getCard } from "./cards";
 import { getDatabasePath } from "./config";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
+import { loadPrimaryBlockDocument } from "./block-document-store";
+import { applyDocumentOperationBatch } from "./block-document-operations";
+import { prepareDocumentVersionRestore } from "./document-versions";
 import {
   LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER,
 } from "./block-first-legacy-schema";
@@ -325,6 +329,14 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
       readonly state_vector: string;
       readonly state_hash: string;
     };
+    const beforeDocument = loadPrimaryBlockDocument(database, before.id);
+    const legacyCheckpointUpdate = Y.encodeStateAsUpdate(
+      beforeDocument.document,
+    );
+    const legacyCheckpointStateVector = Y.encodeStateVector(
+      beforeDocument.document,
+    );
+    beforeDocument.document.destroy();
     closeDatabase();
 
     const legacy = new Database(getDatabasePath());
@@ -357,6 +369,37 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
       WHERE schema_key = 'nodex.card';
       PRAGMA user_version = 73;
     `);
+    legacy
+      .prepare(
+        "UPDATE document_snapshots SET schema_version = 1 WHERE document_id = ?",
+      )
+      .run(before.id);
+    const legacyCheckpointHash = createHash("sha256")
+      .update(legacyCheckpointUpdate)
+      .digest("hex");
+    legacy
+      .prepare(
+        `INSERT INTO document_versions (
+           version_id, document_id, project_id, generation, base_head_seq,
+           schema_key, schema_version, cause, label, actor_json,
+           checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+           byte_length, created_at
+         ) VALUES (?, ?, ?, ?, ?, 'nodex.card', 1, 'legacy_checkpoint',
+                   'Legacy plain checkpoint', '{}', 'yjs_update_v1',
+                   ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "document-version:legacy-card-v1",
+        before.id,
+        project.id,
+        before.generation,
+        before.head_seq,
+        Buffer.from(legacyCheckpointUpdate),
+        Buffer.from(legacyCheckpointStateVector),
+        legacyCheckpointHash,
+        legacyCheckpointUpdate.byteLength,
+        new Date().toISOString(),
+      );
     legacy.close();
 
     await initializeDatabase();
@@ -382,6 +425,13 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
 
     expect(migrated.pragma("user_version", { simple: true })).toBe(74);
     expect(after.schema_version).toBe(2);
+    expect(
+      migrated
+        .prepare(
+          "SELECT DISTINCT schema_version FROM document_snapshots WHERE document_id = ?",
+        )
+        .all(before.id),
+    ).toEqual([{ schema_version: 2 }]);
     expect({
       generation: after.generation,
       head_seq: after.head_seq,
@@ -397,7 +447,91 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
       { type: "text", text: "Migration title", styles: {} },
     ]);
     expect(after.title_rich_hash).toMatch(/^[a-f0-9]{64}$/u);
-    assertHealthy(migrated);
+    const loaded = loadPrimaryBlockDocument(migrated, before.id);
+    try {
+      expect(loaded.head.schemaVersion).toBe(2);
+    } finally {
+      loaded.document.destroy();
+    }
+    migrated
+      .prepare(
+        "UPDATE document_snapshots SET schema_version = 1 WHERE document_id = ?",
+      )
+      .run(before.id);
+    closeDatabase();
+    await initializeDatabase();
+    const recovered = getDb();
+    expect(
+      recovered
+        .prepare(
+          "SELECT DISTINCT schema_version FROM document_snapshots WHERE document_id = ?",
+        )
+        .all(before.id),
+    ).toEqual([{ schema_version: 2 }]);
+    const reloaded = loadPrimaryBlockDocument(recovered, before.id);
+    reloaded.document.destroy();
+    const currentHead = recovered
+      .prepare("SELECT generation, head_seq FROM documents WHERE id = ?")
+      .get(before.id) as {
+      readonly generation: number;
+      readonly head_seq: number;
+    };
+    const storeEpoch = (
+      recovered
+        .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
+        .get() as { readonly store_epoch: string }
+    ).store_epoch;
+    const changedTitle = applyDocumentOperationBatch(
+      recovered,
+      {
+        version: 1,
+        mutationId: "schema-v74-change-title-before-legacy-restore",
+        projectId: project.id,
+        storeEpoch,
+        actor: { kind: "test" },
+        documentId: before.id,
+        generation: currentHead.generation,
+        expectedHeadSeq: currentHead.head_seq,
+        operations: [{ kind: "set_title", title: "Changed after migration" }],
+      },
+      {
+        writeFence: {
+          leaseId: "schema-v74-change-title-before-legacy-restore:lease",
+          documentId: before.id,
+          generation: currentHead.generation,
+          headSeq: currentHead.head_seq,
+        },
+      },
+    );
+    expect(changedTitle.ok).toBe(true);
+    if (!changedTitle.ok) throw new Error(changedTitle.error.message);
+    const restore = prepareDocumentVersionRestore(recovered, {
+      version: 1,
+      mutationId: "restore-legacy-card-v1-checkpoint",
+      projectId: project.id,
+      storeEpoch,
+      documentId: before.id,
+      versionId: "document-version:legacy-card-v1",
+      generation: currentHead.generation,
+      expectedHeadSeq: changedTitle.value.headSeq,
+      actor: { kind: "test" },
+    });
+    expect(restore.kind).toBe("operation_plan");
+    if (
+      restore.kind === "operation_plan" &&
+      restore.plan.contentModel === "block_tree"
+    ) {
+      expect(restore.plan.targetRichTitle).toEqual([
+        { type: "text", text: "Migration title", styles: {} },
+      ]);
+      expect(restore.plan.operations[0]).toEqual({
+        kind: "set_rich_title",
+        richTitle: [
+          { type: "text", text: "Migration title", styles: {} },
+        ],
+      });
+    }
+    assertHealthy(recovered);
   });
 
   test("migrates a v71 Database Card from dual placement to one Database parent", async () => {

@@ -1,6 +1,7 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import type { DbViewCardRecord } from "@/lib/db-view-prefs";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   ReferenceExpansionStore,
   ReferenceSurfaceActivationBudget,
@@ -10,25 +11,29 @@ import { ToggleListReferenceRows } from "./toggle-list-view";
 
 const makeCard = (
   overrides: Partial<DbViewCardRecord> = {},
-): DbViewCardRecord => ({
-  id: "card-1",
-  status: "in_progress",
-  archived: false,
-  title: "Collaborative Card",
-  priority: "p1-high",
-  estimate: "m",
-  tags: ["sync"],
-  agentBlocked: false,
-  created: new Date("2026-01-01T00:00:00.000Z"),
-  order: 0,
-  descriptionPreview: "Summary preview is not an editable body.",
-  descriptionLength: 40,
-  hasDescription: true,
-  columnId: "in_progress",
-  columnName: "In Progress",
-  boardIndex: 0,
-  ...overrides,
-});
+): DbViewCardRecord => {
+  const title = overrides.title ?? "Collaborative Card";
+  return {
+    id: "card-1",
+    status: "in_progress",
+    archived: false,
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
+    priority: "p1-high",
+    estimate: "m",
+    tags: ["sync"],
+    agentBlocked: false,
+    created: new Date("2026-01-01T00:00:00.000Z"),
+    order: 0,
+    descriptionPreview: "Summary preview is not an editable body.",
+    descriptionLength: 40,
+    hasDescription: true,
+    columnId: "in_progress",
+    columnName: "In Progress",
+    boardIndex: 0,
+    ...overrides,
+  };
+};
 
 describe("ToggleListReferenceRows", () => {
   test("mounts a Card's independent document only while its visible row is expanded", async () => {

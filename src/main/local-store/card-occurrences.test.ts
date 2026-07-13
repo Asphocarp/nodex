@@ -9,6 +9,7 @@ import type {
   CardOccurrenceUpdateInput,
 } from "../../shared/types";
 import { createUuidV7 } from "../../shared/card-id";
+import type { PortableRichText } from "../../shared/block-documents";
 import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
 import { applyCardLifecycleMutation } from "./card-block-lifecycle";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -16,6 +17,7 @@ import { listBlockChangeHistory } from "./document-versions";
 import { readAuthoritativeCardById } from "./card-read-store";
 import { createProject } from "./projects";
 import { readBlockStoreEpoch } from "./block-store-metadata";
+import { applyDocumentOperationBatch } from "./block-document-operations";
 import { executeReadOnlyQuery } from "./sql-inspection";
 import {
   completeCardOccurrence as completeStoredCardOccurrence,
@@ -400,6 +402,57 @@ describe("occurrence actions", () => {
       const detachedStartIso = "2026-03-01T12:00:00.000Z";
       const detachedEndIso = "2026-03-01T13:00:00.000Z";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const database = getDb();
+      const richHead = database
+        .prepare(
+          `SELECT ownership.document_id, document.generation, document.head_seq
+           FROM block_documents ownership
+           JOIN documents document ON document.id = ownership.document_id
+           WHERE ownership.block_id = ?`,
+        )
+        .get(card.id) as {
+        readonly document_id: string;
+        readonly generation: number;
+        readonly head_seq: number;
+      };
+      const storeEpoch = readBlockStoreEpoch(database);
+      if (!storeEpoch) throw new Error("Card fixture has no Block store epoch");
+      const richTitle = [
+        {
+          type: "text" as const,
+          text: "Recurring ",
+          styles: { bold: true },
+        },
+        {
+          type: "link" as const,
+          text: "event",
+          href: "https://nodex.local/recurrence",
+          styles: {},
+        },
+      ] satisfies PortableRichText;
+      const titleUpdate = applyDocumentOperationBatch(
+        database,
+        {
+          version: 1,
+          mutationId: "occurrence-fixture:rich-title",
+          projectId,
+          storeEpoch,
+          actor: { kind: "test" },
+          documentId: richHead.document_id,
+          generation: richHead.generation,
+          expectedHeadSeq: richHead.head_seq,
+          operations: [{ kind: "set_rich_title", richTitle }],
+        },
+        {
+          writeFence: {
+            leaseId: "occurrence-fixture:rich-title:lease",
+            documentId: richHead.document_id,
+            generation: richHead.generation,
+            headSeq: richHead.head_seq,
+          },
+        },
+      );
+      expect(titleUpdate.ok).toBe(true);
       const createdCardId = createUuidV7();
 
       const result = await updateCardOccurrence(projectId, {
@@ -439,6 +492,9 @@ describe("occurrence actions", () => {
       expect(toIso(detachedRow?.scheduled_start)).toBe(detachedStartIso);
       expect(toIso(detachedRow?.scheduled_end)).toBe(detachedEndIso);
       expect(detachedRow?.recurrence_json).toBe("null");
+      expect((await getCard(projectId, createdCardId))?.richTitle).toEqual(
+        richTitle,
+      );
 
       const occurrences = await listCalendarOccurrences(
         projectId,

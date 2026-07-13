@@ -5,6 +5,7 @@ import {
   decodeDatabaseViewReadModelHttp,
   ReferenceReadHttpBoundaryError,
 } from "./reference-read-http-contract";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
 
 const CREATED = "2026-01-01T01:02:03.004Z";
 const DUE_DATE = "2026-01-02T05:06:07.008Z";
@@ -46,7 +47,7 @@ const makeAvailableCardReferenceWire = () => ({
     readiness: "ready",
     authority: "ydoc_primary",
     schemaKey: "nodex.card",
-    schemaVersion: 1,
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   },
 });
 

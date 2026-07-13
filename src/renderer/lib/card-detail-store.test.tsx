@@ -10,13 +10,16 @@ import {
   useCardDetail,
 } from "./card-detail-store";
 import type { Card } from "./types";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 function buildCard(overrides: Partial<Card> = {}): Card {
+  const title = overrides.title ?? "Persisted title";
   return {
     id: "card-1",
     status: "in_progress",
     archived: false,
-    title: "Persisted title",
+    title,
+    richTitle: plainTextToPortableRichText(title),
     description: "Persisted body",
     tags: [],
     agentBlocked: false,

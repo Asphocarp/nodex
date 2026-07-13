@@ -4,11 +4,16 @@ import * as Y from "yjs";
 import { type BlockTreeValue } from "../../shared/block-documents/block-document-codec";
 import {
   getOwnedDocumentSchemaRegistrationForSchema,
-  getRegisteredBlockDocumentSchemaAdapterForSchema,
+  getHistoricalBlockDocumentSchemaAdapterForSchema,
   getBlockDocumentSchemaAdapterForSchema,
+  inspectHistoricalOwnedBlockDocument,
   inspectRegisteredOwnedBlockDocument,
   type RegisteredOwnedDocumentMaterialization,
 } from "../../shared/block-documents/document-schema-adapters";
+import {
+  CARD_DOCUMENT_SCHEMA_KEY,
+  CARD_DOCUMENT_SCHEMA_VERSION,
+} from "../../shared/block-documents/card-document";
 import {
   canonicalPortableCanvasSceneFingerprint,
   canonicalPortableCanvasSceneSemanticFingerprint,
@@ -48,6 +53,19 @@ import { portableRichTextSemanticSource } from "../../shared/block-documents/por
 const MAX_SCOPE_ID_LENGTH = 512;
 const DEFAULT_HISTORY_LIMIT = 50;
 const VERSION_ID_PREFIX = "document-version:";
+
+const schemasSupportForwardRestore = (
+  historical: { readonly schemaKey: string; readonly schemaVersion: number },
+  current: { readonly schemaKey: string; readonly schemaVersion: number },
+): boolean => {
+  if (historical.schemaKey !== current.schemaKey) return false;
+  if (historical.schemaVersion === current.schemaVersion) return true;
+  return (
+    historical.schemaKey === CARD_DOCUMENT_SCHEMA_KEY &&
+    historical.schemaVersion === 1 &&
+    current.schemaVersion === CARD_DOCUMENT_SCHEMA_VERSION
+  );
+};
 
 export type DocumentVersionStoreErrorCode =
   | "invalid_document_version_request"
@@ -544,11 +562,11 @@ const decodeVersionRow = (
     }
     let materialization: RegisteredOwnedDocumentMaterialization;
     try {
-      const adapter = getRegisteredBlockDocumentSchemaAdapterForSchema({
+      const adapter = getHistoricalBlockDocumentSchemaAdapterForSchema({
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
       });
-      materialization = inspectRegisteredOwnedBlockDocument(document, {
+      materialization = inspectHistoricalOwnedBlockDocument(document, {
         ownerType: adapter.ownerType,
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
@@ -1166,10 +1184,10 @@ export const prepareDocumentVersionRestore = (
       },
       { generation: authority.generation, headSeq: authority.head_seq },
     );
-    if (
-      version.schemaKey !== authority.schema_key ||
-      version.schemaVersion !== authority.schema_version
-    ) {
+    if (!schemasSupportForwardRestore(version, {
+      schemaKey: authority.schema_key,
+      schemaVersion: authority.schema_version,
+    })) {
       throw new DocumentVersionStoreError(
         "document_version_schema_mismatch",
         `Version ${version.versionId} does not match the current Document schema`,
@@ -1251,17 +1269,14 @@ export const prepareDocumentVersionRestore = (
         },
         loaded.head,
       );
-      if (
-        version.schemaKey !== loaded.head.schemaKey ||
-        version.schemaVersion !== loaded.head.schemaVersion
-      ) {
+      if (!schemasSupportForwardRestore(version, loaded.head)) {
         throw new DocumentVersionStoreError(
           "document_version_schema_mismatch",
           `Version ${version.versionId} uses ${version.schemaKey}@${version.schemaVersion}; current Document uses ${loaded.head.schemaKey}@${loaded.head.schemaVersion}`,
         );
       }
       const registeredAdapter =
-        getRegisteredBlockDocumentSchemaAdapterForSchema({
+        getBlockDocumentSchemaAdapterForSchema({
           schemaKey: loaded.head.schemaKey,
           schemaVersion: loaded.head.schemaVersion,
         });

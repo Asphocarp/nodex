@@ -10,7 +10,10 @@ import {
   type PortableXmlSubtree,
   type PortableXmlValue,
 } from "../../shared/block-documents";
-import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
+import {
+  inspectHistoricalOwnedBlockDocument,
+  inspectOwnedBlockDocument,
+} from "../../shared/block-documents/document-schema-adapters";
 import {
   portableRichTextSemanticSource,
   readPortableRichTextFromYText,
@@ -116,9 +119,12 @@ export const captureBlockDocumentChangeState = (
     readonly schemaKey: string;
     readonly schemaVersion: number;
   },
+  schemaScope: "live" | "historical" = "live",
 ): BlockDocumentChangeState => {
   const inspection = schema
-    ? inspectOwnedBlockDocument(document, schema)
+    ? schemaScope === "historical"
+      ? inspectHistoricalOwnedBlockDocument(document, schema)
+      : inspectOwnedBlockDocument(document, schema)
     : null;
   const envelope = inspection?.envelope ?? assertValidCardDocumentRoots(document);
   const scannedBlocks = assertValidBlockDocument(envelope.body);

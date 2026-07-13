@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import {
   buildNfmSideMenuSections,
@@ -34,6 +35,7 @@ function makeCard(id: string, title: string, status: CardSummary["status"], orde
     status,
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     tags: [],
     agentBlocked: false,
     created: STORY_DATE,

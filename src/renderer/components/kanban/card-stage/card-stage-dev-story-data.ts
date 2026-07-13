@@ -1,5 +1,6 @@
 import type { CardStageCollapsibleProperty } from "../../../lib/card-stage-collapsed-properties";
 import type { Card, CardRunInTarget } from "../../../lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import type { CardStageLinkedThread } from "./types";
 
 export type CardStageStoryThreadDensity = "none" | "few" | "many";
@@ -166,6 +167,7 @@ export function buildCardStageStoryCard(controls: Pick<CardStageStoryControls, "
     status: "in_progress",
     archived: false,
     title: "Refine card stage thread property UI",
+    richTitle: plainTextToPortableRichText("Refine card stage thread property UI"),
     description: [
       "## Story intent",
       "",

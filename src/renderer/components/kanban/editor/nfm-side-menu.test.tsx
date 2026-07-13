@@ -3,6 +3,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { render } from "@/test/dom";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import {
@@ -44,6 +45,7 @@ function makeCard(id: string, title: string, status: CardSummary["status"], orde
     status,
     archived: false,
     title,
+    richTitle: plainTextToPortableRichText(title),
     tags: [],
     agentBlocked: false,
     created: TEST_DATE,

@@ -25,7 +25,9 @@ import { assertUuidV7 } from "../../shared/card-id";
 import {
   BlockDocumentSchemaError,
   getOwnedDocumentSchemaRegistration,
+  getHistoricalBlockDocumentSchemaAdapterForSchema,
   getRegisteredBlockDocumentSchemaAdapter,
+  inspectHistoricalOwnedBlockDocument,
   inspectRegisteredOwnedBlockDocument,
   toPersistedBlockDocumentMaterialization,
   type RegisteredBlockDocumentSchemaAdapter,
@@ -613,14 +615,28 @@ const validateOwnedDocumentContent = (
   document: Y.Doc,
   row: DocumentRow,
   code: DocumentValidationErrorCode,
+  schemaScope: "live" | "historical" = "live",
 ): OwnedDocumentInspection => {
   try {
-    const adapter = getSchemaAdapter(row);
-    const inspection = inspectRegisteredOwnedBlockDocument(document, {
-      ownerType: row.owner_type,
-      schemaKey: row.schema_key,
-      schemaVersion: row.schema_version,
-    });
+    const adapter =
+      schemaScope === "historical"
+        ? getHistoricalBlockDocumentSchemaAdapterForSchema({
+            schemaKey: row.schema_key,
+            schemaVersion: row.schema_version,
+          })
+        : getSchemaAdapter(row);
+    const inspection =
+      schemaScope === "historical"
+        ? inspectHistoricalOwnedBlockDocument(document, {
+            ownerType: row.owner_type,
+            schemaKey: row.schema_key,
+            schemaVersion: row.schema_version,
+          })
+        : inspectRegisteredOwnedBlockDocument(document, {
+            ownerType: row.owner_type,
+            schemaKey: row.schema_key,
+            schemaVersion: row.schema_version,
+          });
     if (
       inspection.envelope.body.toString().length >
       adapter.limits.maxBodyXmlLength
@@ -1146,13 +1162,15 @@ const loadDocumentFromRow = (
   database: Database.Database,
   row: DocumentRow,
   allowAbsentActiveBlockIds: ReadonlySet<BlockId> = new Set(),
+  schemaScope: "live" | "historical" = "live",
 ): Y.Doc => {
-  const document = loadDocumentAtSeq(database, row, row.head_seq);
+  const document = loadDocumentAtSeq(database, row, row.head_seq, false);
   try {
     const inspection = validateOwnedDocumentContent(
       document,
       row,
       "document_state_corrupt",
+      schemaScope,
     );
     validateRegisteredBlocks(
       database,
@@ -1996,8 +2014,39 @@ export const loadLegacyCanvasYjsDocumentForCutover = (
 export const loadLegacyShadowBlockDocument = (
   database: Database.Database,
   documentId: DocumentId,
-): LoadedBlockDocument =>
-  loadBlockDocumentWithAuthority(database, documentId, "legacy_shadow");
+): LoadedBlockDocument => {
+  const load = database.transaction((): LoadedBlockDocument => {
+    const storeEpoch = readStoreEpoch(database);
+    const row = readDocumentRow(database, documentId);
+    assertReady(row);
+    if (row.sync_engine !== "yjs") {
+      throw new BlockDocumentStoreError(
+        "unsupported_document_schema",
+        `Legacy Card ${documentId} does not use the Yjs sync engine`,
+      );
+    }
+    const adapter = getHistoricalBlockDocumentSchemaAdapterForSchema({
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+    if (adapter.kind !== "card" || row.owner_type !== "card") {
+      throw new BlockDocumentStoreError(
+        "unsupported_document_schema",
+        `Document ${documentId} is not a historical Card authority`,
+      );
+    }
+    assertDocumentAuthority(row, "legacy_shadow");
+    assertReadableOwnerLifecycle(row);
+    return {
+      storeEpoch,
+      authority: row.authority,
+      ownerType: row.owner_type,
+      head: toDocumentHead(row),
+      document: loadDocumentFromRow(database, row, new Set(), "historical"),
+    };
+  });
+  return load();
+};
 
 /** Internal BF-05 migration read; deleted hosts remain restorable tombstones. */
 export const loadLegacyShadowBlockDocumentForMigration = (
@@ -2008,8 +2057,22 @@ export const loadLegacyShadowBlockDocumentForMigration = (
     const storeEpoch = readStoreEpoch(database);
     const row = readDocumentRow(database, documentId);
     assertReady(row);
-    assertYjsDocumentEngine(row);
-    assertSupportedCardSchema(row);
+    if (row.sync_engine !== "yjs") {
+      throw new BlockDocumentStoreError(
+        "unsupported_document_schema",
+        `Legacy Card ${documentId} does not use the Yjs sync engine`,
+      );
+    }
+    const adapter = getHistoricalBlockDocumentSchemaAdapterForSchema({
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+    if (adapter.kind !== "card") {
+      throw new BlockDocumentStoreError(
+        "unsupported_document_schema",
+        `Document ${documentId} is not a historical Card authority`,
+      );
+    }
     assertCardOwnerForInternalMigration(row);
     assertDocumentAuthority(row, "legacy_shadow");
     return {
@@ -2017,7 +2080,7 @@ export const loadLegacyShadowBlockDocumentForMigration = (
       authority: row.authority,
       ownerType: row.owner_type,
       head: toDocumentHead(row),
-      document: loadDocumentFromRow(database, row),
+      document: loadDocumentFromRow(database, row, new Set(), "historical"),
     };
   });
   return load();
@@ -2110,7 +2173,7 @@ export const syncBlockDocument = (
 const initializeBlockDocumentGenesisWithMode = (
   database: Database.Database,
   input: InitializeBlockDocumentGenesis,
-  mode: "yjs" | "legacy_canvas_yjs",
+  mode: "yjs" | "legacy_card_yjs" | "legacy_canvas_yjs",
 ): DocumentUpdateAck => {
   requireNonEmpty(input.documentId, "documentId");
   requireNonEmpty(input.updateId, "updateId");
@@ -2120,22 +2183,31 @@ const initializeBlockDocumentGenesisWithMode = (
   assertGeneration(preflightRow, input.generation);
   const registration = mode === "yjs"
     ? getSchemaAdapter(preflightRow)
-    : getOwnedDocumentSchemaRegistration({
+    : mode === "legacy_card_yjs"
+      ? getHistoricalBlockDocumentSchemaAdapterForSchema({
+          schemaKey: preflightRow.schema_key,
+          schemaVersion: preflightRow.schema_version,
+        })
+      : getOwnedDocumentSchemaRegistration({
         ownerType: preflightRow.owner_type,
         schemaKey: preflightRow.schema_key,
         schemaVersion: preflightRow.schema_version,
       });
-  if (mode === "legacy_canvas_yjs" && registration.syncEngine !== "canvas_scene") {
+  if (
+    (mode === "legacy_canvas_yjs" && registration.syncEngine !== "canvas_scene") ||
+    (mode === "legacy_card_yjs" &&
+      (registration.syncEngine !== "yjs" || registration.kind !== "card"))
+  ) {
     throw new BlockDocumentStoreError(
       "unsupported_document_schema",
-      `Document ${input.documentId} is not a legacy Canvas genesis target`,
+      `Document ${input.documentId} is not a supported migration genesis target`,
     );
   }
   validateTrustedUpdate(input.update, MAX_CARD_DOCUMENT_STATE_BYTES);
-  if (mode === "legacy_canvas_yjs") {
-    assertReadableOwnerLifecycle(preflightRow);
-  } else {
+  if (mode === "yjs") {
     assertReadableDocumentOwner(preflightRow);
+  } else {
+    assertReadableOwnerLifecycle(preflightRow);
   }
   const finalAuthority = input.finalAuthority ?? "legacy_shadow";
   const genesisDocument = new Y.Doc({ guid: input.documentId });
@@ -2161,6 +2233,7 @@ const initializeBlockDocumentGenesisWithMode = (
           genesisDocument,
           preflightRow,
           "invalid_document_update",
+          mode === "legacy_card_yjs" ? "historical" : "live",
         );
         genesisBlocks = inspection.blocks;
         genesisOwnerTouched =
@@ -2205,7 +2278,12 @@ const initializeBlockDocumentGenesisWithMode = (
     assertGeneration(row, input.generation);
     const currentRegistration = mode === "yjs"
       ? getSchemaAdapter(row)
-      : getOwnedDocumentSchemaRegistration({
+      : mode === "legacy_card_yjs"
+        ? getHistoricalBlockDocumentSchemaAdapterForSchema({
+            schemaKey: row.schema_key,
+            schemaVersion: row.schema_version,
+          })
+        : getOwnedDocumentSchemaRegistration({
           ownerType: row.owner_type,
           schemaKey: row.schema_key,
           schemaVersion: row.schema_version,
@@ -2221,10 +2299,10 @@ const initializeBlockDocumentGenesisWithMode = (
         `Document ${input.documentId} changed schema during genesis`,
       );
     }
-    if (mode === "legacy_canvas_yjs") {
-      assertReadableOwnerLifecycle(row);
-    } else {
+    if (mode === "yjs") {
       assertReadableDocumentOwner(row);
+    } else {
+      assertReadableOwnerLifecycle(row);
     }
 
     const stored = findStoredUpdateReceipt(
@@ -2379,7 +2457,7 @@ const initializeBlockDocumentGenesisWithMode = (
       );
     // Legacy Canvas genesis exists only as v70 cutover input. Its normalized
     // v71 authority rebuilds secondary projections after the engine switch.
-    if (genesisMaterialization.kind !== "canvas_scene") {
+    if (mode === "yjs" && genesisMaterialization.kind !== "canvas_scene") {
       replaceDocumentSecondaryProjections(database, {
         documentId: input.documentId,
         expectedGeneration: input.generation,
@@ -2424,6 +2502,18 @@ export const initializeCardDocumentGenesis = (
   input: InitializeCardDocumentGenesis,
 ): DocumentUpdateAck => {
   const row = readDocumentRow(database, input.documentId);
+  if (
+    row.authority === "legacy_shadow" &&
+    row.owner_type === "card" &&
+    row.schema_key === "nodex.card" &&
+    row.schema_version === 1
+  ) {
+    return initializeBlockDocumentGenesisWithMode(
+      database,
+      input,
+      "legacy_card_yjs",
+    );
+  }
   assertSupportedCardSchema(row);
   return initializeBlockDocumentGenesis(database, input);
 };
@@ -2464,8 +2554,26 @@ const applyBlockDocumentUpdateForAuthority = (
     const row = readDocumentRow(database, input.documentId);
     assertReady(row);
     assertGeneration(row, input.generation);
-    const documentAdapter = getSchemaAdapter(row);
-    assertYjsDocumentEngine(row);
+    const schemaScope =
+      authority === "legacy_shadow" &&
+      row.owner_type === "card" &&
+      row.schema_key === "nodex.card" &&
+      row.schema_version === 1
+        ? "historical"
+        : "live";
+    const documentAdapter =
+      schemaScope === "historical"
+        ? getHistoricalBlockDocumentSchemaAdapterForSchema({
+            schemaKey: row.schema_key,
+            schemaVersion: row.schema_version,
+          })
+        : getSchemaAdapter(row);
+    if (row.sync_engine !== "yjs" || documentAdapter.syncEngine !== "yjs") {
+      throw new BlockDocumentStoreError(
+        "unsupported_document_schema",
+        `Document ${input.documentId} cannot enter the Yjs update pipeline`,
+      );
+    }
     if (allowInactiveOwner) {
       assertCardOwnerForInternalMigration(row);
     } else {
@@ -2571,6 +2679,7 @@ const applyBlockDocumentUpdateForAuthority = (
         ...(strictCommitPolicy?.allowStagedDocumentBearingBlockIds ?? []),
         ...(strictCommitPolicy?.allowStagedReparentedBlockIds ?? []),
       ]),
+      schemaScope,
     );
     try {
       const schema = {
@@ -2578,7 +2687,11 @@ const applyBlockDocumentUpdateForAuthority = (
         schemaKey: row.schema_key,
         schemaVersion: row.schema_version,
       };
-      const beforeChangeState = captureBlockDocumentChangeState(document, schema);
+      const beforeChangeState = captureBlockDocumentChangeState(
+        document,
+        schema,
+        schemaScope,
+      );
       let blocks: readonly ScannedDocumentBlock[];
       let derivedTouchedBlockIds: readonly BlockId[];
       let materialization: RegisteredOwnedDocumentMaterialization;
@@ -2592,6 +2705,7 @@ const applyBlockDocumentUpdateForAuthority = (
           document,
           row,
           "invalid_document_update",
+          schemaScope,
         );
         blocks = inspection.blocks;
         if (
@@ -2607,7 +2721,11 @@ const applyBlockDocumentUpdateForAuthority = (
         derivedTouchedBlockIds = deriveBlockDocumentTouchedIds({
           ownerBlockId: row.owner_block_id,
           before: beforeChangeState,
-          after: captureBlockDocumentChangeState(document, schema),
+          after: captureBlockDocumentChangeState(
+            document,
+            schema,
+            schemaScope,
+          ),
         });
         if (staleStructuralInspection) {
           const currentTouchedBlockIds = new Set(derivedTouchedBlockIds);
@@ -2753,11 +2871,13 @@ const applyBlockDocumentUpdateForAuthority = (
           input.generation,
           row.head_seq,
         );
-      replaceDocumentSecondaryProjections(database, {
-        documentId: input.documentId,
-        expectedGeneration: input.generation,
-        expectedProjectedSeq: nextHeadSeq,
-      });
+      if (schemaScope === "live") {
+        replaceDocumentSecondaryProjections(database, {
+          documentId: input.documentId,
+          expectedGeneration: input.generation,
+          expectedProjectedSeq: nextHeadSeq,
+        });
+      }
       strictCommitPolicy?.persistCommit(database, {
         projectId: row.project_id,
         ownerBlockId: row.owner_block_id,

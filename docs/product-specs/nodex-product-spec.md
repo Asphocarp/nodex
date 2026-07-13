@@ -209,7 +209,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
-- Schema v73 stores Block identity with one Space/Document/Database parent, engine-neutral Owned Documents, stable dormant Database membership/properties/Views, immutable mutation/history evidence, and rebuildable projections. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
+- Schema v74 stores Block identity with one Space/Document/Database parent, engine-neutral Owned Documents, stable dormant Database membership/properties/Views, immutable mutation/history evidence, rebuildable projections, and a validated portable-rich Card title projection. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
 - One asynchronous `BlockMutationWriter` serializes Block/Card-domain `better-sqlite3` transactions outside the Electron main event loop.
 - New user/content Block identities use canonical lowercase UUID-v7 and are validated only at creation. Existing IDs remain opaque. View, property, membership, operation, mutation, and other non-Block identities default to UUID-v4 when they do not have a stronger domain-derived identity; explicit timestamps, ranks, and sequences remain the only ordering authority.
 

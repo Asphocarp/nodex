@@ -1,12 +1,14 @@
 import { describe, expect, test } from "vitest";
 import type { ToggleListCard } from "./types";
 import { formatMeta } from "./meta";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 
 const baseCard: ToggleListCard = {
   id: "card-1",
   status: "backlog",
   archived: false,
   title: "Example",
+  richTitle: plainTextToPortableRichText("Example"),
   description: "",
   priority: "p0-critical",
   estimate: "l",

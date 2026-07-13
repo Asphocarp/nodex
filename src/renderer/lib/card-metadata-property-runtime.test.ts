@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 import type { CardMetadataPropertySnapshot } from "../../shared/card-metadata-property-compiler";
 import type {
@@ -40,6 +41,7 @@ const card = (priority: Card["priority"] = "p0-critical"): Card => ({
   status: "draft",
   archived: false,
   title: "Canonical title",
+  richTitle: plainTextToPortableRichText("Canonical title"),
   description: "Canonical body",
   priority,
   tags: [],

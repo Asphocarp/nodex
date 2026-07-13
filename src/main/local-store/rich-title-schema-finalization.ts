@@ -10,6 +10,35 @@ interface PendingRichTitleDocument {
 }
 
 /**
+ * Recovery for stores that crossed the original v74 edge before snapshot
+ * coordinates were included. The Yjs root constructors did not change, so
+ * only the relational schema coordinate advances; immutable history remains
+ * on its recorded schema.
+ */
+export const repairRichCardSnapshotSchemaCoordinates = (
+  database: Database.Database,
+): number => {
+  const repaired = database
+    .prepare(
+      `UPDATE document_snapshots
+       SET schema_version = 2
+       WHERE schema_version = 1
+         AND document_id IN (
+           SELECT document.id
+           FROM documents document
+           JOIN block_documents ownership
+             ON ownership.document_id = document.id
+           JOIN blocks owner ON owner.id = ownership.block_id
+           WHERE document.schema_key = 'nodex.card'
+             AND document.schema_version = 2
+             AND owner.type = 'card'
+         )`,
+    )
+    .run();
+  return repaired.changes;
+};
+
+/**
  * Rebuilds v2 rich-title projections from current Yjs authority. The v73→v74
  * DDL edge changes only schema coordinates and adds projection columns; this
  * writer-owned fixed point prevents SQL title projections from becoming a
@@ -18,6 +47,7 @@ interface PendingRichTitleDocument {
 export const finalizeRichCardTitleSchema = (
   database: Database.Database,
 ): number => {
+  repairRichCardSnapshotSchemaCoordinates(database);
   const rows = database
     .prepare(
       `

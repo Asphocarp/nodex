@@ -99,7 +99,7 @@ const seedPendingCardDocument = (
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, readiness, authority, created_at, updated_at
-    ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', 'pending_genesis', 'legacy_shadow', ?, ?)
+    ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', 'pending_genesis', 'legacy_shadow', ?, ?)
   `,
     )
     .run(documentId, project.id, now, now);

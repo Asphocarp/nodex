@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardStatus, CardSummary } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
 function createCard(id: string, status: CardStatus, order: number): CardSummary {
@@ -8,6 +9,7 @@ function createCard(id: string, status: CardStatus, order: number): CardSummary 
     status,
     archived: false,
     title: id,
+    richTitle: plainTextToPortableRichText(id),
     descriptionPreview: "",
     descriptionLength: 0,
     hasDescription: false,

@@ -1,4 +1,5 @@
 import type { Card, CardInput, CardSummary } from "./types";
+import { plainTextToPortableRichText } from "./block-documents/portable-rich-text";
 import { extractPlainText } from "./nfm";
 
 export const CARD_DESCRIPTION_PREVIEW_LENGTH = 240;
@@ -26,7 +27,11 @@ export function toCardSummary(card: Card): CardSummary {
 export function cardInputToSummaryPatch(updates: Partial<CardInput>): Partial<CardSummary> {
   const patch: Partial<CardSummary> = {};
 
-  if ("title" in updates) patch.title = updates.title ?? "";
+  if ("title" in updates) {
+    const title = updates.title ?? "";
+    patch.title = title;
+    patch.richTitle = plainTextToPortableRichText(title);
+  }
   if ("description" in updates) {
     Object.assign(patch, summarizeCardDescription(updates.description ?? ""));
   }

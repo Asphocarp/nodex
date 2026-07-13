@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { GeneralDatabaseCatalog } from "../../../shared/database-query";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { DatabaseManagementDialog } from "./database-management-dialog";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
@@ -137,6 +138,7 @@ const meta = {
           content: {
             projectedSeq: 8,
             title: "Finish Block-first authority",
+            richTitle: plainTextToPortableRichText("Finish Block-first authority"),
             preview: "Membership is durable and singular.",
             plainText: "Membership is durable and singular.",
           },

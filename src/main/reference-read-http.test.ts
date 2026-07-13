@@ -38,7 +38,7 @@ describe("canonical reference HTTP reads", () => {
             readiness: "ready",
             authority: "ydoc_primary",
             schemaKey: "nodex.card",
-            schemaVersion: 1,
+            schemaVersion: 2,
           },
         };
       },

@@ -51,7 +51,6 @@ import {
 } from "./database-views";
 import { getDb } from "./database";
 import * as descriptionRevisionService from "./description-revisions";
-import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
 
 /** Pre-v70 fixed-point migration only; v70 runtime never owns foreign bodies. */
@@ -224,10 +223,10 @@ const projectionMatches = (
   );
 
 /**
- * Rebuilds the disposable projection from every ready legacy Y.Doc before the
- * candidate query. This is the all-lifecycle integrity gate: archived and
- * deleted owners cannot disappear merely because a stale/old references_json
- * claimed the Document was clean.
+ * Rebuilds the exact materialization from every ready legacy Y.Doc before the
+ * candidate query. Search/asset secondary projections intentionally wait for
+ * the current-schema startup repair; their live registry rejects retired
+ * schemas by design.
  */
 const synchronizeLegacyMaterializations = (
   database: Database.Database,
@@ -262,11 +261,6 @@ const synchronizeLegacyMaterializations = (
         generation: loaded.head.generation,
         projectedSeq: loaded.head.headSeq,
         materialization,
-      });
-      replaceDocumentSecondaryProjections(database, {
-        documentId: candidate.document_id,
-        expectedGeneration: loaded.head.generation,
-        expectedProjectedSeq: loaded.head.headSeq,
       });
     } finally {
       loaded.document.destroy();

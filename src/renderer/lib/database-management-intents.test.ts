@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
   DatabaseMutationOperation,
   GeneralDatabaseViewConfig,
@@ -185,6 +186,7 @@ const card = (
   content: {
     projectedSeq: 1,
     title: blockId,
+    richTitle: plainTextToPortableRichText(blockId),
     preview: "",
     plainText: "",
   },

@@ -142,6 +142,18 @@ export interface BlockDocumentSchemaAdapter {
 
 export type RegisteredBlockDocumentSchemaAdapter = BlockDocumentSchemaAdapter;
 
+export type HistoricalBlockDocumentSchemaAdapter = Pick<
+  BlockDocumentSchemaAdapter,
+  | "kind"
+  | "contentModel"
+  | "syncEngine"
+  | "ownerType"
+  | "schemaKey"
+  | "schemaVersion"
+  | "limits"
+  | "inspect"
+>;
+
 export interface OwnedDocumentSchemaRegistration {
   readonly kind: BlockTreeOwnedDocumentEnvelope["kind"] | "scene_graph";
   readonly contentModel: "block_tree" | "scene_graph";
@@ -269,9 +281,14 @@ const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
   },
 };
 
-const legacyCardDocumentAdapter: BlockDocumentSchemaAdapter = {
-  ...cardDocumentAdapter,
+const legacyCardDocumentAdapter: HistoricalBlockDocumentSchemaAdapter = {
+  kind: "card",
+  contentModel: "block_tree",
+  syncEngine: "yjs",
+  ownerType: "card",
+  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
   schemaVersion: 1,
+  limits: DEFAULT_BLOCKNOTE_LIMITS,
   inspect: (document) => {
     const envelope = assertValidLegacyCardDocumentRoots(document);
     const richTitle = plainTextToPortableRichText(envelope.title.toString());
@@ -395,12 +412,27 @@ const canvasDocumentRegistration: OwnedDocumentSchemaRegistration = {
 };
 
 const schemaAdapters: readonly BlockDocumentSchemaAdapter[] = [
-  legacyCardDocumentAdapter,
   cardDocumentAdapter,
   syncedBlockDocumentAdapter,
   reusableTemplateDocumentAdapter,
   largeDocumentAdapter,
   largeCodeDocumentAdapter,
+] as const;
+
+const historicalSchemaAdapters: readonly HistoricalBlockDocumentSchemaAdapter[] = [
+  legacyCardDocumentAdapter,
+  ...schemaAdapters.map(
+    ({ kind, contentModel, syncEngine, ownerType, schemaKey, schemaVersion, limits, inspect }) => ({
+      kind,
+      contentModel,
+      syncEngine,
+      ownerType,
+      schemaKey,
+      schemaVersion,
+      limits,
+      inspect,
+    }),
+  ),
 ] as const;
 
 const schemaRegistrations: readonly OwnedDocumentSchemaRegistration[] = [
@@ -521,6 +553,22 @@ export const getRegisteredBlockDocumentSchemaAdapterForSchema = (input: {
   );
 };
 
+/** Historical checkpoints may name retired schemas that live authority rejects. */
+export const getHistoricalBlockDocumentSchemaAdapterForSchema = (input: {
+  readonly schemaKey: string;
+  readonly schemaVersion: number;
+}): HistoricalBlockDocumentSchemaAdapter => {
+  const matches = historicalSchemaAdapters.filter(
+    (candidate) =>
+      candidate.schemaKey === input.schemaKey &&
+      candidate.schemaVersion === input.schemaVersion,
+  );
+  if (matches.length === 1 && matches[0]) return matches[0];
+  throw new BlockDocumentSchemaError(
+    `Historical Document schema ${input.schemaKey}@${input.schemaVersion} is ${matches.length === 0 ? "not registered" : "ambiguous without an owner type"}`,
+  );
+};
+
 export const inspectOwnedBlockDocument = (
   document: Y.Doc,
   input: {
@@ -540,6 +588,26 @@ export const inspectRegisteredOwnedBlockDocument = (
   },
 ): OwnedDocumentInspection =>
   getRegisteredBlockDocumentSchemaAdapter(input).inspect(document);
+
+export const inspectHistoricalOwnedBlockDocument = (
+  document: Y.Doc,
+  input: {
+    readonly ownerType: string;
+    readonly schemaKey: string;
+    readonly schemaVersion: number;
+  },
+): OwnedDocumentInspection => {
+  const adapter = historicalSchemaAdapters.find(
+    (candidate) =>
+      candidate.ownerType === input.ownerType &&
+      candidate.schemaKey === input.schemaKey &&
+      candidate.schemaVersion === input.schemaVersion,
+  );
+  if (adapter) return adapter.inspect(document);
+  throw new BlockDocumentSchemaError(
+    `No historical Document Adapter is registered for ${input.ownerType}/${input.schemaKey}@${input.schemaVersion}`,
+  );
+};
 
 /** Relational persistence keeps a non-null title column for Card compatibility. */
 export const toPersistedBlockDocumentMaterialization = (

@@ -471,7 +471,7 @@ const cardProjectTransferRequest = (
       generation: 1,
       headSeq: rootHeadSeq,
       schemaKey: "nodex.card",
-      schemaVersion: 1,
+      schemaVersion: 2,
     },
     {
       ownerBlockId: "large-owned",

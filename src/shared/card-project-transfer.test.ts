@@ -6,6 +6,7 @@ import {
   parseCardProjectTransferIntent,
   parseCardProjectTransferRequest,
 } from "./card-project-transfer";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
 
 const request = () => ({
   version: 2,
@@ -39,7 +40,7 @@ const request = () => ({
       generation: 1,
       headSeq: 5,
       schemaKey: "nodex.card",
-      schemaVersion: 1,
+      schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
     },
   ],
   expectedMemberships: [

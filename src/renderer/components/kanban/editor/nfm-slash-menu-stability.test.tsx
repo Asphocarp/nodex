@@ -5,6 +5,7 @@ import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
 import type { CommandPaletteCardSearchIndex } from "@/lib/command-palette-card-search";
 import type { NfmMentionGetItemsLoaders } from "./nfm-slash-menu";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { useNfmMentionGetItems } from "./nfm-slash-menu";
 
 type GetItems = (query: string) => Promise<DefaultReactSuggestionItem[]>;
@@ -32,6 +33,7 @@ function makePaletteCard(): CommandPaletteCard {
     card: {
       id: "card-1",
       title: "Mention card",
+      richTitle: plainTextToPortableRichText("Mention card"),
       descriptionPreview,
       descriptionLength: descriptionPreview.length,
       hasDescription: true,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { BoardSummary, CardSummary } from "./types";
 import { applyBoardChangeEventToBoard } from "./board-summary-events";
 
@@ -9,6 +10,7 @@ function makeCard(id: string, status: CardSummary["status"], order: number): Car
     status,
     archived: false,
     title: id,
+    richTitle: plainTextToPortableRichText(id),
     priority: undefined,
     estimate: undefined,
     tags: [],

@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { CardReferenceReadModel } from "../../../../shared/block-references";
+import {
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  plainTextToPortableRichText,
+} from "../../../../shared/block-documents";
 import type { CardSummary } from "@/lib/types";
 import { CardReferenceSurface } from "@/components/block-documents/reference-block-surfaces";
 import {
@@ -13,6 +17,7 @@ const CARD: CardSummary = {
   status: "in_progress",
   archived: false,
   title: "Make Card documents independently collaborative",
+  richTitle: plainTextToPortableRichText("Make Card documents independently collaborative"),
   priority: "p1-high",
   estimate: "m",
   tags: ["sync"],
@@ -37,7 +42,7 @@ const AVAILABLE: CardReferenceReadModel = {
     readiness: "ready",
     authority: "ydoc_primary",
     schemaKey: "nodex.card",
-    schemaVersion: 1,
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   },
 };
 

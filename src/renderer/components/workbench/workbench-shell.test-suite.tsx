@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents";
 import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
@@ -505,7 +506,7 @@ const MockOwnedBlockDocumentBoundary = ({
         generation: 1,
         headSeq: 1,
         schemaKey: "nodex.card",
-        schemaVersion: 1,
+        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
       },

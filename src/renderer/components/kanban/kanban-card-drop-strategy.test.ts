@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, CardStatus, CardSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   resolveKanbanCardDragMode,
   resolveKanbanCardDropIntent,
@@ -12,11 +13,13 @@ function makeCard(
   order: number,
   overrides: Partial<CardSummary> = {},
 ): CardSummary {
+  const title = overrides.title ?? id;
   return {
     id,
     status,
     archived: false,
-    title: id,
+    title,
+    richTitle: plainTextToPortableRichText(title),
     descriptionPreview: "",
     descriptionLength: 0,
     hasDescription: false,

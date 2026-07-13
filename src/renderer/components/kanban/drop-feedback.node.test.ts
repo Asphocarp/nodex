@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary } from "@/lib/types";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { resolveKanbanDropFeedback } from "./drop-feedback";
 
 const EMPTY_BOARD: BoardSummary = {
@@ -23,6 +24,7 @@ const FILLED_BOARD: BoardSummary = {
           status: "backlog",
           archived: false,
           title: "Task",
+          richTitle: plainTextToPortableRichText("Task"),
           descriptionPreview: "",
           descriptionLength: 0,
           hasDescription: false,

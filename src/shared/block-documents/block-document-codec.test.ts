@@ -1,11 +1,9 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  BlockDocumentCodecError,
   canonicalizeNfmForBlockDocument,
   createCardDocumentGenesis,
   materializeCardDocument,
-  migrateCardDocument,
 } from "./block-document-codec";
 
 const FULL_NFM_FIXTURE = [
@@ -172,26 +170,4 @@ describe("CardDocumentCodec", () => {
     expect(genesis.materialization.plainText).toBe("");
   });
 
-  test("validates no-op schema migration and rejects unknown versions", () => {
-    const genesis = createCardDocumentGenesis({
-      documentId: "document-codec-migrate",
-      title: "Migrate",
-      nfm: "Body",
-    });
-    const result = migrateCardDocument(genesis.document, 1);
-    expect(result.changed).toBe(false);
-    expect(result.update.byteLength).toBe(0);
-
-    let message = "";
-    try {
-      migrateCardDocument(genesis.document, 0);
-    } catch (error) {
-      if (error instanceof BlockDocumentCodecError) {
-        message = error.message;
-      }
-    }
-    expect(message).toBe(
-      "No Card Document migration is registered from schema version 0",
-    );
-  });
 });

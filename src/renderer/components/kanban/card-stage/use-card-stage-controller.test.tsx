@@ -10,7 +10,10 @@ import type {
   CardUpdateMutationResult,
 } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../../../shared/block-documents";
+import {
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  plainTextToPortableRichText,
+} from "../../../../shared/block-documents";
 import {
   useCardStageController,
   type CardStageControllerDependencies,
@@ -20,11 +23,13 @@ import type { CardStageProps } from "./types";
 type CardStageController = ReturnType<typeof useCardStageController>;
 
 function buildCard(overrides: Partial<Card> = {}): Card {
+  const title = overrides.title ?? "Projected title";
   return {
     id: "card-1",
     status: "in_progress",
     archived: false,
-    title: "Projected title",
+    title,
+    richTitle: plainTextToPortableRichText(title),
     description: "Projected body",
     tags: [],
     agentBlocked: false,

@@ -7,13 +7,16 @@ import {
   sortDbViewCards,
   type DbViewCardRecord,
 } from "./db-view-prefs";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 
 function makeCard(overrides: Partial<DbViewCardRecord>): DbViewCardRecord {
+  const title = overrides.title ?? "Card title";
   return {
     id: "card-1",
     status: "backlog",
     archived: false,
-    title: "Card title",
+    title,
+    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview: "",
     descriptionLength: 0,
     hasDescription: false,
