@@ -8,7 +8,7 @@ import {
   type CardLifecycleMutationRequest,
 } from "../../shared/card-lifecycle";
 import { createUuidV7 } from "../../shared/card-id";
-import { readAuthoritativeCardById } from "./card-read-store";
+import { readDatabaseCardById } from "./card-read-store";
 import {
   applyCardLifecycleMutation,
   readCardLifecyclePreflightSnapshot,
@@ -312,7 +312,7 @@ describe("authoritative Card lifecycle kernel", () => {
             )
             .get() === undefined,
         ).toBe(true);
-        const card = readAuthoritativeCardById(
+        const card = readDatabaseCardById(
           fixture.database,
           fixture.projectId,
           firstId,
@@ -337,7 +337,7 @@ describe("authoritative Card lifecycle kernel", () => {
         });
         expect(deleted.lifecycle).toBe("deleted");
         expect(
-          readAuthoritativeCardById(
+          readDatabaseCardById(
             fixture.database,
             fixture.projectId,
             firstId,
@@ -387,7 +387,7 @@ describe("authoritative Card lifecycle kernel", () => {
           )?.title,
         ).toBe(continuityBefore?.title);
         expect(
-          readAuthoritativeCardById(
+          readDatabaseCardById(
             fixture.database,
             fixture.projectId,
             firstId,

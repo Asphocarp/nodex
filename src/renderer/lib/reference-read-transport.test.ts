@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   readDatabaseViewReference,
-  resolveCardReference,
+  resolveCardTarget,
 } from "./api";
 import { ReferenceReadHttpBoundaryError } from "../../shared/reference-read-http-contract";
 import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
@@ -25,6 +25,37 @@ const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   descriptionPreview: "",
   descriptionLength: 0,
   hasDescription: false,
+});
+
+const makeCardTargetWire = (updatedAt = "2026-01-02T00:00:00.000Z") => ({
+  status: "available",
+  targetBlockId: "card-target",
+  card: {
+    blockId: "card-target",
+    projectId: "target-project",
+    lifecycle: "active",
+    location: { kind: "document", documentId: "document-host" },
+    locationRevision: 1,
+    metadataRevision: 1,
+    documentId: "document-target",
+    documentGeneration: 1,
+    documentHeadSeq: 3,
+    documentAuthority: "ydoc_primary",
+    content: {
+      projectedSeq: 3,
+      title: "Target Card",
+      richTitle: makeCardSummaryWire().richTitle,
+      preview: "",
+      plainText: "",
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt,
+  },
+  document: {
+    readiness: "ready",
+    schemaKey: "nodex.card",
+    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  },
 });
 
 describe("reference read renderer transport", () => {
@@ -65,7 +96,7 @@ describe("reference read renderer transport", () => {
       },
     });
 
-    const card = await resolveCardReference({
+    const card = await resolveCardTarget({
       requestingProjectId: "host/project",
       targetBlockId: "card/target",
     });
@@ -82,7 +113,7 @@ describe("reference read renderer transport", () => {
     });
     expect(absent === null).toBe(true);
     expect(requestedUrls[0]).toBe(
-      "http://localhost:51283/api/projects/host%2Fproject/references/cards/card%2Ftarget",
+      "http://localhost:51283/api/projects/host%2Fproject/card-targets/card%2Ftarget",
     );
     expect(requestedUrls[1]).toBe(
       "http://localhost:51283/api/projects/host%2Fproject/references/database-views/view%2Fone?hostBlockId=host%2Fcard",
@@ -97,34 +128,22 @@ describe("reference read renderer transport", () => {
     });
     let message = "";
     try {
-      await resolveCardReference({
+      await resolveCardTarget({
         requestingProjectId: "host-project",
         targetBlockId: "target",
       });
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    expect(message).toBe("Card reference lookup failed with status 400");
+    expect(message).toBe("Card target lookup failed with status 400");
   });
 
-  test("revives Card summary dates for both browser reference routes", async () => {
+  test("decodes membership-free Card targets separately from Database rows", async () => {
     const responses = [
-      new Response(JSON.stringify({
-        status: "available",
-        targetBlockId: "card-target",
-        projectId: "target-project",
-        lifecycle: "active",
-        summary: makeCardSummaryWire(),
-        document: {
-          documentId: "document-target",
-          generation: 1,
-          headSeq: 3,
-          readiness: "ready",
-          authority: "ydoc_primary",
-          schemaKey: "nodex.card",
-          schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
-        },
-      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      new Response(JSON.stringify(makeCardTargetWire()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
       new Response(JSON.stringify({
         view: {
           id: "view-one",
@@ -154,7 +173,7 @@ describe("reference read renderer transport", () => {
       },
     });
 
-    const card = await resolveCardReference({
+    const card = await resolveCardTarget({
       requestingProjectId: "host-project",
       targetBlockId: "card-target",
     });
@@ -165,10 +184,12 @@ describe("reference read renderer transport", () => {
 
     expect(card?.status).toBe("available");
     if (!card || card.status !== "available") return;
-    expect(card.summary.created instanceof Date).toBe(true);
-    expect(card.summary.dueDate instanceof Date).toBe(true);
-    expect(card.summary.scheduledStart instanceof Date).toBe(true);
-    expect(card.summary.scheduledEnd instanceof Date).toBe(true);
+    expect(card.card.location).toEqual({
+      kind: "document",
+      documentId: "document-host",
+    });
+    expect(card.card.content?.title).toBe("Target Card");
+    expect(card.card.createdAt).toBe("2026-01-01T00:00:00.000Z");
     expect(view?.rows[0]?.card.created instanceof Date).toBe(true);
     expect(view?.rows[0]?.card.scheduledEnd instanceof Date).toBe(true);
   });
@@ -177,27 +198,15 @@ describe("reference read renderer transport", () => {
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,
       writable: true,
-      value: async () => new Response(JSON.stringify({
-        status: "available",
-        targetBlockId: "card-target",
-        projectId: "target-project",
-        lifecycle: "active",
-        summary: makeCardSummaryWire("not-an-iso-date"),
-        document: {
-          documentId: "document-target",
-          generation: 1,
-          headSeq: 3,
-          readiness: "ready",
-          authority: "ydoc_primary",
-          schemaKey: "nodex.card",
-          schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
-        },
-      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      value: async () => new Response(
+        JSON.stringify(makeCardTargetWire("not-an-iso-date")),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     });
     let caught: unknown;
 
     try {
-      await resolveCardReference({
+      await resolveCardTarget({
         requestingProjectId: "host-project",
         targetBlockId: "card-target",
       });

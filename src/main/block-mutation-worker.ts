@@ -67,7 +67,7 @@ import {
   CardHistoryStoreError,
   listCardHistory,
 } from "./local-store/card-history";
-import { readAuthoritativeCardSummaryById } from "./local-store/card-read-store";
+import { readDatabaseCardSummaryById } from "./local-store/card-read-store";
 import {
   BlockDocumentRuntime,
   createSqliteBlockDocumentRuntimeAuthority,
@@ -390,7 +390,7 @@ const publishCardProjectTransferBoardEvents = (
     request.cardId,
     { mutationId: request.operationId },
   );
-  const summary = readAuthoritativeCardSummaryById(getDb(), request.cardId);
+  const summary = readDatabaseCardSummaryById(getDb(), request.cardId);
   if (!summary) {
     postLog("error", "Committed Card Project transfer has no target summary", {
       operationId: request.operationId,
@@ -481,7 +481,7 @@ async function readEventSummary(
   if (!shouldReadSummary(event)) return undefined;
   const cardId = event.cardId;
   if (!cardId) return undefined;
-  const summary = cardsStore.readCardSummaryById(cardId);
+  const summary = cardsStore.readDatabaseCardSummaryById(cardId);
   return summary ?? undefined;
 }
 
@@ -556,7 +556,7 @@ async function runRequest(
       // create a second semantic board event.
       for (const cardId of Object.keys(result.value.blockMetadataRevisions)) {
         try {
-          const summary = readAuthoritativeCardSummaryById(getDb(), cardId);
+          const summary = readDatabaseCardSummaryById(getDb(), cardId);
           if (!summary) {
             postLog("error", "Committed Card properties have no read model", {
               projectId: request.payload.projectId,
@@ -604,7 +604,7 @@ async function runRequest(
       ].sort();
       for (const cardId of cardIds) {
         try {
-          const summary = readAuthoritativeCardSummaryById(getDb(), cardId);
+          const summary = readDatabaseCardSummaryById(getDb(), cardId);
           if (!summary) {
             postLog("error", "Committed Database mutation has no Card read model", {
               projectId: request.payload.projectId,
@@ -647,7 +647,7 @@ async function runRequest(
       let previousSummary: CardSummary | null = null;
       if (request.payload.operation.kind === "delete_card") {
         try {
-          previousSummary = readAuthoritativeCardSummaryById(
+          previousSummary = readDatabaseCardSummaryById(
             getDb(),
             request.payload.operation.cardId,
           );
@@ -678,7 +678,7 @@ async function runRequest(
           return result;
         }
 
-        const summary = readAuthoritativeCardSummaryById(
+        const summary = readDatabaseCardSummaryById(
           getDb(),
           result.value.cardId,
         );

@@ -3,11 +3,9 @@ import {
   Archive,
   ChevronRight,
   ExternalLink,
-  Link2,
   Rows3,
   TriangleAlert,
 } from "lucide-react";
-import type { CardReferenceReadModel } from "../../../shared/block-references";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import { isInlineCardCycle } from "./block-reference-runtime-context";
 import type { CardSummary } from "@/lib/types";
@@ -232,115 +230,6 @@ const ReferenceMessage = ({
     <span className="min-w-0 truncate">{children}</span>
   </div>
 );
-
-export interface CardReferenceSurfaceProps extends ReferenceSurfaceStateDependencies {
-  readonly referenceKey: string;
-  readonly displayHint: string;
-  readonly model: CardReferenceReadModel | null;
-  readonly loading?: boolean;
-  readonly error?: Error | null;
-  readonly legacy?: boolean;
-  readonly hostCardId?: string | null;
-  readonly ancestorCardIds?: readonly string[];
-  readonly renderDocument?: ReferencedCardDocumentRenderer;
-  readonly onOpenCard?: ReferencedCardRowProps["onOpenCard"];
-}
-
-export function CardReferenceSurface({
-  referenceKey,
-  displayHint,
-  model,
-  loading = false,
-  error = null,
-  legacy = false,
-  hostCardId = null,
-  ancestorCardIds = [],
-  renderDocument,
-  onOpenCard,
-  expansionStore,
-  activationBudget,
-  visibilityOverride,
-}: CardReferenceSurfaceProps) {
-  if (loading) {
-    return (
-      <ReferenceMessage
-        icon={<Link2 aria-hidden="true" className="size-3.5 shrink-0" />}
-      >
-        Loading Card…
-      </ReferenceMessage>
-    );
-  }
-  if (error) {
-    return (
-      <ReferenceMessage
-        tone="danger"
-        icon={
-          <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-        }
-      >
-        {error.message || "Couldn’t load this Card"}
-      </ReferenceMessage>
-    );
-  }
-  if (!model || model.status === "missing") {
-    return (
-      <ReferenceMessage
-        icon={<Link2 aria-hidden="true" className="size-3.5 shrink-0" />}
-      >
-        {displayHint.trim() || "Card unavailable"}
-      </ReferenceMessage>
-    );
-  }
-  if (model.status === "invalid_target") {
-    return (
-      <ReferenceMessage
-        tone="danger"
-        icon={
-          <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-        }
-      >
-        Reference points to a {model.actualBlockType} Block
-      </ReferenceMessage>
-    );
-  }
-  if (model.status === "deleted") {
-    return (
-      <ReferenceMessage
-        icon={<Archive aria-hidden="true" className="size-3.5 shrink-0" />}
-      >
-        {displayHint.trim() || "Deleted Card"}
-      </ReferenceMessage>
-    );
-  }
-
-  // Mounting the target boundary is what initializes/cuts over an eligible
-  // legacy or newly created Card. Gating expansion on already-primary state
-  // would deadlock that preparation path.
-  const canEdit = model.lifecycle === "active";
-  const referencesHost = hostCardId === model.targetBlockId;
-  const referencesAncestor = isInlineCardCycle(
-    ancestorCardIds,
-    model.targetBlockId,
-  );
-  return (
-    <ReferencedCardRow
-      activationKey={referenceKey}
-      projectId={model.projectId}
-      card={model.summary}
-      canEdit={canEdit && !referencesAncestor}
-      archived={model.lifecycle === "archived"}
-      legacy={legacy}
-      inlineEditingDisabledReason={
-        referencesHost ? "Self" : referencesAncestor ? "Cycle" : undefined
-      }
-      renderDocument={renderDocument}
-      onOpenCard={onOpenCard}
-      expansionStore={expansionStore}
-      activationBudget={activationBudget}
-      visibilityOverride={visibilityOverride}
-    />
-  );
-}
 
 export interface DatabaseViewReferenceSurfaceProps extends ReferenceSurfaceStateDependencies {
   readonly referenceKey: string;

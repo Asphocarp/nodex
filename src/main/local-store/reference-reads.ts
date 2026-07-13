@@ -1,14 +1,14 @@
 import type Database from "better-sqlite3";
 import type {
-  CardReferenceReadModel,
-  ResolveCardReferenceInput,
-} from "../../shared/block-references";
+  CardTargetReadModel,
+  ResolveCardTargetInput,
+} from "../../shared/card-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
 import { evaluateDatabaseViewRows } from "../../shared/database-views";
-import { resolveCardReference } from "./block-references";
+import { resolveCardTarget } from "./card-targets";
 import { getDb } from "./database";
 import { readDatabaseViewById } from "./database-views";
 
@@ -35,12 +35,12 @@ const projectScopeExists = (
  * remote authority one place to enforce ACLs without putting Project hints
  * back into canonical reference Blocks.
  */
-export const resolveProjectScopedCardReference = (
-  input: ResolveCardReferenceInput,
+export const resolveProjectScopedCardTarget = (
+  input: ResolveCardTargetInput,
   database: Database.Database = getDb(),
-): CardReferenceReadModel | null => {
+): CardTargetReadModel | null => {
   if (!projectScopeExists(input.requestingProjectId, database)) return null;
-  return resolveCardReference(input.targetBlockId, database);
+  return resolveCardTarget(input.targetBlockId, database);
 };
 
 /**

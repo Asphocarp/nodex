@@ -3,7 +3,7 @@ import {
   CARD_STATUS_ORDER,
   type CardSummary,
 } from "./types";
-import type { CardReferenceReadModel } from "./block-references";
+import type { CardTargetReadModel } from "./card-targets";
 import type {
   DatabaseViewJsonValue,
   DatabaseViewReadModel,
@@ -105,7 +105,36 @@ const CardSummaryHttpSchema = z.object({
   hasDescription: z.boolean(),
 }).passthrough();
 
-const CardReferenceReadModelHttpSchema = z.discriminatedUnion("status", [
+const CardContentSummaryHttpSchema = z.object({
+  blockId: z.string(),
+  projectId: z.string(),
+  lifecycle: z.enum(["active", "archived", "deleted"]),
+  location: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("space"), rankKey: z.string().nullable() }),
+    z.object({ kind: z.literal("document"), documentId: z.string() }),
+    z.object({ kind: z.literal("database"), databaseBlockId: z.string() }),
+  ]),
+  locationRevision: z.number().int().positive(),
+  metadataRevision: z.number().int().positive(),
+  documentId: z.string(),
+  documentGeneration: z.number().int().positive(),
+  documentHeadSeq: z.number().int().nonnegative(),
+  documentAuthority: z.enum(["legacy_shadow", "ydoc_primary"]),
+  content: z.object({
+    projectedSeq: z.number().int().nonnegative(),
+    title: z.string(),
+    richTitle: PortableRichTextHttpSchema,
+    preview: z.string(),
+    plainText: z.string(),
+  }).nullable(),
+  createdAt: HttpIsoDateStringSchema,
+  updatedAt: HttpIsoDateStringSchema,
+});
+const ActiveCardContentSummaryHttpSchema = CardContentSummaryHttpSchema.extend({
+  lifecycle: z.enum(["active", "archived"]),
+});
+
+const CardTargetReadModelHttpSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("missing"),
     targetBlockId: z.string(),
@@ -123,15 +152,9 @@ const CardReferenceReadModelHttpSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("available"),
     targetBlockId: z.string(),
-    projectId: z.string(),
-    lifecycle: z.enum(["active", "archived"]),
-    summary: CardSummaryHttpSchema,
+    card: ActiveCardContentSummaryHttpSchema,
     document: z.object({
-      documentId: z.string(),
-      generation: z.number().int().nonnegative(),
-      headSeq: z.number().int().nonnegative(),
       readiness: z.enum(["pending_genesis", "ready", "failed"]),
-      authority: z.enum(["legacy_shadow", "ydoc_primary"]),
       schemaKey: z.string(),
       schemaVersion: z.number().int().nonnegative(),
     }),
@@ -196,13 +219,13 @@ const decode = <T>(
 export const decodeCardSummaryHttp = (value: unknown): CardSummary =>
   decode(CardSummaryHttpSchema, value, "Card summary");
 
-export const decodeCardReferenceReadModelHttp = (
+export const decodeCardTargetReadModelHttp = (
   value: unknown,
-): CardReferenceReadModel =>
+): CardTargetReadModel =>
   decode(
-    CardReferenceReadModelHttpSchema,
+    CardTargetReadModelHttpSchema,
     value,
-    "Card reference read model",
+    "Card target read model",
   );
 
 export const decodeDatabaseViewReadModelHttp = (

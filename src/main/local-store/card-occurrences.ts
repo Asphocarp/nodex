@@ -22,7 +22,7 @@ import {
   type CardOccurrenceMutationResult,
   type PreparedCardOccurrenceOperation,
 } from "./card-occurrence-receipts";
-import { readAuthoritativeCardById } from "./card-read-store";
+import { readDatabaseCardById } from "./card-read-store";
 import { applyAuthoritativeCardSchedulePatchInTransaction } from "./card-schedule-authority";
 import { assertValidCardInput } from "./card-input-validation";
 import { getDb } from "./database";
@@ -449,7 +449,7 @@ const readCard = (
   database: Database.Database,
   projectId: string,
   cardId: string,
-): Card | null => readAuthoritativeCardById(database, projectId, cardId);
+): Card | null => readDatabaseCardById(database, projectId, cardId);
 
 export async function listCalendarOccurrences(
   projectId: string,

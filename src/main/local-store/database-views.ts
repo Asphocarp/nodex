@@ -11,7 +11,7 @@ import {
   createGeneralInlineDatabaseViewConfig,
   inlineDatabaseViewId,
 } from "../../shared/database-views";
-import { readCardSummariesByIds } from "./cards";
+import { readDatabaseCardSummariesByIds } from "./cards";
 import { getDb } from "./database";
 
 const MAX_ID_LENGTH = 512;
@@ -390,7 +390,7 @@ const readDatabaseViewRows = (
     view.databaseBlockId,
     view.projectId,
   ) as PositionedCardRow[];
-  const summaries = readCardSummariesByIds(
+  const summaries = readDatabaseCardSummariesByIds(
     positionedCards.map((row) => row.block_id),
     database,
   );

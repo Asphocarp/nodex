@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { FileText, LayoutTemplate, RefreshCw } from "lucide-react";
+import { LayoutTemplate, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { DocumentBearingShellVisual } from "./document-bearing-shell-block";
 import {
@@ -34,14 +34,6 @@ function InteractiveShells() {
         </p>
         <DocumentBearingShellVisual
           {...sharedState}
-          icon={FileText}
-          label="Card"
-          detail="Nested implementation notes"
-          identity="card:nested-notes"
-          referenceKey="story:card"
-        />
-        <DocumentBearingShellVisual
-          {...sharedState}
           icon={RefreshCw}
           label="Synced block"
           detail="Shared launch notes"
@@ -73,8 +65,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    icon: FileText,
-    label: "Card",
-    detail: "Nested implementation notes",
+    icon: RefreshCw,
+    label: "Synced block",
+    detail: "Shared launch notes",
   },
 };

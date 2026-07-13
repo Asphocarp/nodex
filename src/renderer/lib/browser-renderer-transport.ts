@@ -31,7 +31,7 @@ import {
   decodeOwnedDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
 import {
-  decodeCardReferenceReadModelHttp,
+  decodeCardTargetReadModelHttp,
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
 import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
@@ -920,7 +920,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         await response.json(),
       );
     }
-    case "block-reference:card:resolve": {
+    case "card-target:resolve": {
       const [input] = args as [
         {
           requestingProjectId: string;
@@ -930,16 +930,16 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const res = await fetch(
         toApiUrl(
           `/api/projects/${encodeURIComponent(input.requestingProjectId)}` +
-            `/references/cards/${encodeURIComponent(input.targetBlockId)}`,
+            `/card-targets/${encodeURIComponent(input.targetBlockId)}`,
         ),
       );
       if (res.status === 404) return null;
       if (!res.ok) {
         throw new Error(
-          `Card reference lookup failed with status ${res.status}`,
+          `Card target lookup failed with status ${res.status}`,
         );
       }
-      return decodeCardReferenceReadModelHttp(await res.json());
+      return decodeCardTargetReadModelHttp(await res.json());
     }
     case "database-view:reference:get": {
       const [input] = args as [

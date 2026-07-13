@@ -333,8 +333,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Slash menu (`/`) for inserting block types
 - `@Card` inserts a fully resolved canonical Card reference with `targetBlockId` plus a bounded display hint. `/card` stays hidden until its picker can choose a target before the Y.Doc transaction; no writable surface may create an unresolved Card reference. Legacy `Toggle List Inline View` insertion is unavailable; migrated inline queries use `databaseViewRef` and a durable View definition.
 - `Database View Reference` is a childless custom Block that stores `databaseViewId` and renders the durable query's ordered summary rows.
-- Reference row headers reuse existing property chip styles (`priority`, `estimate`, `status`) on the same title line.
-- Reference Blocks render full-width with shallow, chrome-light rows; expansion indents the independently mounted target Document without changing the host Block tree.
+- Child Card and Card-reference rows share one full-width native-toggle outliner geometry: a stable hollow disclosure caret with the native 200-millisecond rotation, a 32-pixel row, 16/24 rich-title typography, one 24-pixel child indentation, and a hover/focus-only open action. Loading or activating the independent target Document replaces only title/body slots, so the caret can animate without being remounted. Relationship type is not shown as permanent File/Link chrome. Database property chips appear only when a Database View explicitly renders its row; a generic Card target does not invent or require Database membership.
+- Card targets resolve from Block/Document content authority even when the Card belongs to no Database. Collapsed rows mount no target provider. Expansion keeps one observed row frame and one title row, replaces its projected title with the collaborative Y.Text title from one target surface, and renders only the target body at standard Block child indentation. There is no nested panel, second title, or vertical divider, and the host Block tree never changes.
+- Card expansion keeps the projected title row stable while the target boundary or first sync is pending and uses a body skeleton instead of replacing the row with opening text. Runtime failures keep that row and expose in-place retry below it.
 - Canonical Card/Database View reference owners remain ordinary stable-ID Blocks for BlockNote selection and drag operations. Result rows are renderer projections and cannot be dragged as if they were host Document children.
 - Migrated inline rules compile into the canonical durable Database View schema before v70 cutover. Project-scoped reads validate and execute filter/sort/include-host semantics over memberships, including negative set membership and creation-time sorts, use view rank plus Card ID as stable tie-breakers, and safely show all rows when a malformed legacy rule cannot be interpreted. No active View retains a legacy compatibility config.
 - `cardRef` / `databaseViewRef` are childless persistence shapes. Parser, codec, and primary storage validation reject foreign Card bodies; legacy `cardToggle` / `toggleListInlineView` shapes exist only as migration inputs and inert diagnostics.
@@ -606,7 +607,7 @@ nodex/
 │       │   │       ├── nfm-formatting-toolbar.tsx # Shared formatting toolbar composition
 │       │   │       ├── callout-block.tsx  # Shared custom callout block spec (used by multiple schemas)
 │       │   │       ├── database-view-ref-block.tsx # Canonical durable Database View reference
-│       │   │       ├── card-ref-block.tsx # Canonical Card reference + lazy target surface
+│       │   │       ├── card-outliner-block.tsx # Child/reference Card outliner + lazy target surface
 │       │   │       ├── copy-image.ts      # Clipboard helpers for image block copy action
 │       │   │       ├── copy-image-button.tsx # Custom image floating toolbar action
 │       │   │       ├── search-extension.ts # ProseMirror decoration plugin for in-editor find

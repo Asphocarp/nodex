@@ -1,15 +1,20 @@
-import type { CardSummary } from "./types";
+import type { CardContentSummary } from "./database-query";
 
-export interface ResolveCardReferenceInput {
+export interface ResolveCardTargetInput {
   /**
-   * The Project containing the reference surface. Targets remain globally
-   * addressable, so this need not equal the target Card's Project.
+   * The Project containing the surface that resolves this target. Card IDs are
+   * globally stable, but the explicit scope is the future authorization seam.
    */
   readonly requestingProjectId: string;
   readonly targetBlockId: string;
 }
 
-export type CardReferenceReadModel =
+/**
+ * Membership-independent read model for opening or previewing a Card Block.
+ * Database properties and View position deliberately do not participate: a
+ * Card may live in a Space or another Document without being a Database row.
+ */
+export type CardTargetReadModel =
   | {
       readonly status: "missing";
       readonly targetBlockId: string;
@@ -27,15 +32,11 @@ export type CardReferenceReadModel =
   | {
       readonly status: "available";
       readonly targetBlockId: string;
-      readonly projectId: string;
-      readonly lifecycle: "active" | "archived";
-      readonly summary: CardSummary;
+      readonly card: CardContentSummary & {
+        readonly lifecycle: "active" | "archived";
+      };
       readonly document: {
-        readonly documentId: string;
-        readonly generation: number;
-        readonly headSeq: number;
         readonly readiness: "pending_genesis" | "ready" | "failed";
-        readonly authority: "legacy_shadow" | "ydoc_primary";
         readonly schemaKey: string;
         readonly schemaVersion: number;
       };

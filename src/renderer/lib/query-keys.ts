@@ -32,13 +32,14 @@ export const queryKeys = {
     owned: (projectId: string, ownerBlockId: string) =>
       ["blockDocuments", "owned", projectId, ownerBlockId] as const,
   },
-  blockReferences: {
-    card: (requestingProjectId: string, targetBlockId: string) => [
-      "blockReferences",
-      "card",
+  cardTargets: {
+    byId: (requestingProjectId: string, targetBlockId: string) => [
+      "cardTargets",
       requestingProjectId,
       targetBlockId,
     ] as const,
+  },
+  blockReferences: {
     databaseView: (
       requestingProjectId: string,
       databaseViewId: string,

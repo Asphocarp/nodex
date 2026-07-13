@@ -103,7 +103,7 @@ export function EmbeddedReferencedCardDocument({
                     user: { name: "You", color: "#3b82f6" },
                     provider: { awareness: surface.awareness },
                   }}
-                  sourceCardContext={{ cardId: card.id, columnId: card.status }}
+                  sourceCardContext={{ cardId: card.id }}
                   surfaceWriteFence={surface.runtime}
                   onOpenCard={hostRuntime?.openCard}
                   isActivePanelTab={isActive}

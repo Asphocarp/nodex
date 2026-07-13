@@ -82,7 +82,7 @@ import { registerCardProjectTransferHttpRoute } from "./card-project-transfer-ht
 import { registerBlockTransferHttpRoute } from "./block-transfer-http";
 import {
   readProjectScopedDatabaseViewReference,
-  resolveProjectScopedCardReference,
+  resolveProjectScopedCardTarget,
 } from "./local-store/reference-reads";
 
 /** SSE keep-alive ping interval (ms) */
@@ -242,7 +242,7 @@ registerDocumentSyncHttpRoutes(app, {
 });
 
 registerReferenceReadHttpRoutes(app, {
-  resolveCardReference: resolveProjectScopedCardReference,
+  resolveCardTarget: resolveProjectScopedCardTarget,
   readDatabaseViewReference: readProjectScopedDatabaseViewReference,
 });
 

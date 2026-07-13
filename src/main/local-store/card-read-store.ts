@@ -121,7 +121,7 @@ interface CardContent {
 
 interface AssembledCard {
   readonly card: Card | null;
-  readonly compatibilityError:
+  readonly databaseRowError:
     "card_database_membership_missing" | "card_view_position_invalid" | null;
   readonly row: CardAuthorityRow;
   readonly content: CardContent;
@@ -517,7 +517,7 @@ const assembleCard = (
       row,
       content,
       card: null,
-      compatibilityError: "card_database_membership_missing",
+      databaseRowError: "card_database_membership_missing",
       databaseValues: {},
       intrinsicValues: intrinsic.values,
       propertyRevisions: {
@@ -559,7 +559,7 @@ const assembleCard = (
       row,
       content,
       card: null,
-      compatibilityError: "card_view_position_invalid",
+      databaseRowError: "card_view_position_invalid",
       databaseValues: database.values,
       intrinsicValues: intrinsic.values,
       propertyRevisions: {
@@ -733,7 +733,7 @@ const assembleCard = (
   return {
     row,
     content,
-    compatibilityError: null,
+    databaseRowError: null,
     databaseValues: database.values,
     intrinsicValues: intrinsic.values,
     propertyRevisions: {
@@ -744,9 +744,9 @@ const assembleCard = (
   };
 };
 
-const requireCompatibilityCard = (assembled: AssembledCard): Card => {
+const requireDatabaseRowCard = (assembled: AssembledCard): Card => {
   if (assembled.card) return assembled.card;
-  if (assembled.compatibilityError === "card_view_position_invalid") {
+  if (assembled.databaseRowError === "card_view_position_invalid") {
     return throwReadError(
       "card_view_position_invalid",
       assembled.row.card_block_id,
@@ -756,12 +756,12 @@ const requireCompatibilityCard = (assembled: AssembledCard): Card => {
   return throwReadError(
     "card_database_membership_missing",
     assembled.row.card_block_id,
-    "has no active Database membership for the legacy Card adapter",
+    "is not an active Database row",
   );
 };
 
-const requireCompatibilitySummary = (assembled: AssembledCard): CardSummary => {
-  const card = requireCompatibilityCard(assembled);
+const requireDatabaseRowSummary = (assembled: AssembledCard): CardSummary => {
+  const card = requireDatabaseRowCard(assembled);
   const { description: ignoredDescription, ...summary } = card;
   void ignoredDescription;
   return {
@@ -940,7 +940,7 @@ const readRowsByGlobalIds = (
     .all(...cardIds) as CardAuthorityRow[];
 };
 
-export function readAuthoritativeCardById(
+export function readDatabaseCardById(
   database: Database.Database,
   projectId: string,
   cardId: string,
@@ -949,11 +949,11 @@ export function readAuthoritativeCardById(
     const row = readRowsByIds(database, projectId, [cardId])[0];
     if (!row) return null;
     const assembled = assembleRows(database, [row])[0];
-    return assembled ? requireCompatibilityCard(assembled) : null;
+    return assembled ? requireDatabaseRowCard(assembled) : null;
   })();
 }
 
-export function readAuthoritativeCardsByIds(
+export function readDatabaseCardsByIds(
   database: Database.Database,
   projectId: string,
   cardIds: readonly string[],
@@ -965,7 +965,7 @@ export function readAuthoritativeCardsByIds(
     );
     const cardsById = new Map(
       assembleRows(database, rows).map((assembled) => {
-        const card = requireCompatibilityCard(assembled);
+        const card = requireDatabaseRowCard(assembled);
         return [card.id, card] as const;
       }),
     );
@@ -976,7 +976,7 @@ export function readAuthoritativeCardsByIds(
   })();
 }
 
-export function readAuthoritativeProjectCards(
+export function readProjectDatabaseCards(
   database: Database.Database,
   projectId: string,
 ): Card[] {
@@ -994,7 +994,7 @@ export function readAuthoritativeProjectCards(
       database,
       rows.filter((row) => row.membership_id !== null),
     )
-      .map(requireCompatibilityCard)
+      .map(requireDatabaseRowCard)
       .sort((left, right) => {
         if (left.status !== right.status)
           return left.status.localeCompare(right.status);
@@ -1004,12 +1004,12 @@ export function readAuthoritativeProjectCards(
   })();
 }
 
-export function readAuthoritativeCardColumn(
+export function readDatabaseCardColumn(
   database: Database.Database,
   projectId: string,
   status: CardStatus,
 ): Card[] {
-  return readAuthoritativeProjectCards(database, projectId)
+  return readProjectDatabaseCards(database, projectId)
     .filter((card) => card.status === status)
     .sort(
       (left, right) =>
@@ -1017,14 +1017,14 @@ export function readAuthoritativeCardColumn(
     );
 }
 
-export interface AuthoritativeCardDocumentSummary {
+export interface DatabaseCardDocumentSummary {
   readonly projectId: string;
   readonly cardId: string;
   readonly status: CardStatus;
   readonly summary: CardSummary;
 }
 
-export function readAuthoritativeCardSummaryById(
+export function readDatabaseCardSummaryById(
   database: Database.Database,
   cardId: string,
 ): CardSummary | null {
@@ -1032,11 +1032,11 @@ export function readAuthoritativeCardSummaryById(
     const row = readRowsByGlobalIds(database, [cardId])[0];
     if (!row) return null;
     const assembled = assembleRows(database, [row])[0];
-    return assembled ? requireCompatibilitySummary(assembled) : null;
+    return assembled ? requireDatabaseRowSummary(assembled) : null;
   })();
 }
 
-export function readAuthoritativeCardSummariesByIds(
+export function readDatabaseCardSummariesByIds(
   database: Database.Database,
   cardIds: readonly string[],
 ): CardSummary[] {
@@ -1045,7 +1045,7 @@ export function readAuthoritativeCardSummariesByIds(
     const summariesById = new Map(
       assembleRows(database, readRowsByGlobalIds(database, uniqueCardIds)).map(
         (assembled) => {
-          const summary = requireCompatibilitySummary(assembled);
+          const summary = requireDatabaseRowSummary(assembled);
           return [summary.id, summary] as const;
         },
       ),
@@ -1057,7 +1057,7 @@ export function readAuthoritativeCardSummariesByIds(
   })();
 }
 
-export function readAuthoritativeProjectCardSummaries(
+export function readProjectDatabaseCardSummaries(
   database: Database.Database,
   projectId: string,
 ): CardSummary[] {
@@ -1075,7 +1075,7 @@ export function readAuthoritativeProjectCardSummaries(
       database,
       rows.filter((row) => row.membership_id !== null),
     )
-      .map(requireCompatibilitySummary)
+      .map(requireDatabaseRowSummary)
       .sort((left, right) => {
         if (left.status !== right.status) {
           return left.status.localeCompare(right.status);
@@ -1086,12 +1086,12 @@ export function readAuthoritativeProjectCardSummaries(
   })();
 }
 
-export function readAuthoritativeCardSummaryColumn(
+export function readDatabaseCardSummaryColumn(
   database: Database.Database,
   projectId: string,
   status: CardStatus,
 ): CardSummary[] {
-  return readAuthoritativeProjectCardSummaries(database, projectId)
+  return readProjectDatabaseCardSummaries(database, projectId)
     .filter((card) => card.status === status)
     .sort(
       (left, right) =>
@@ -1099,10 +1099,10 @@ export function readAuthoritativeCardSummaryColumn(
     );
 }
 
-export function readAuthoritativeCardSummaryByDocumentId(
+export function readDatabaseCardSummaryByDocumentId(
   database: Database.Database,
   documentId: string,
-): AuthoritativeCardDocumentSummary | null {
+): DatabaseCardDocumentSummary | null {
   return database.transaction(() => {
     const row = database
       .prepare(
@@ -1118,7 +1118,7 @@ export function readAuthoritativeCardSummaryByDocumentId(
     if (!row) return null;
     const assembled = assembleRows(database, [row])[0];
     if (!assembled) return null;
-    const summary = requireCompatibilitySummary(assembled);
+    const summary = requireDatabaseRowSummary(assembled);
     return {
       projectId: row.project_id,
       cardId: summary.id,

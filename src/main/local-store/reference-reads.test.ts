@@ -9,7 +9,7 @@ import { closeDatabase, initializeDatabase } from "./database";
 import { createProject } from "./projects";
 import {
   readProjectScopedDatabaseViewReference,
-  resolveProjectScopedCardReference,
+  resolveProjectScopedCardTarget,
 } from "./reference-reads";
 
 const supportsBetterSqlite = (() => {
@@ -84,13 +84,13 @@ describe("Project-scoped canonical reference reads", () => {
         insertPosition.run(targetCard.id, targetProject.id, "a", now, now);
         insertPosition.run(siblingCard.id, targetProject.id, "b", now, now);
 
-        const card = resolveProjectScopedCardReference({
+        const card = resolveProjectScopedCardTarget({
           requestingProjectId: hostProject.id,
           targetBlockId: targetCard.id,
         }, database);
         expect(card?.status).toBe("available");
         if (card?.status === "available") {
-          expect(card.projectId).toBe(targetProject.id);
+          expect(card.card.projectId).toBe(targetProject.id);
         }
         const view = readProjectScopedDatabaseViewReference({
           requestingProjectId: hostProject.id,
@@ -106,7 +106,7 @@ describe("Project-scoped canonical reference reads", () => {
         expect(withoutHost?.rows.map((row) => row.card.id).join(",")).toBe(
           siblingCard.id,
         );
-        expect(resolveProjectScopedCardReference({
+        expect(resolveProjectScopedCardTarget({
           requestingProjectId: "missing-project",
           targetBlockId: targetCard.id,
         }, database) === null).toBe(true);

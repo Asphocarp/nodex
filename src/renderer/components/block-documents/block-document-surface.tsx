@@ -84,6 +84,10 @@ export interface BlockDocumentSurfaceProps {
   readonly runtimeRef?: MutableRefObject<BlockDocumentSurfaceRuntime | null>;
   /** Surface-specific first-sync placeholder; defaults to the generic status text. */
   readonly pendingFallback?: ReactNode;
+  /** Surface-specific error composition; defaults to the generic recovery panel. */
+  readonly failureFallback?: (
+    failure: BlockDocumentSurfaceFailureStateProps,
+  ) => ReactNode;
   readonly children: (surface: BlockDocumentSurfaceValue) => ReactNode;
 }
 
@@ -324,6 +328,7 @@ interface ReadySurfaceProps {
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
   readonly pendingFallback?: ReactNode;
+  readonly failureFallback?: OwnedBlockDocumentSurfaceProps["failureFallback"];
   readonly children: OwnedBlockDocumentSurfaceProps["children"];
 }
 
@@ -336,6 +341,7 @@ function ReadySurface({
   startupError,
   onReload,
   pendingFallback,
+  failureFallback,
   children,
 }: ReadySurfaceProps) {
   const status = useSyncExternalStore(
@@ -383,16 +389,17 @@ function ReadySurface({
 
   const failure = startupError ?? status.error;
   if (failure) {
-    return (
-      <BlockDocumentSurfaceFailureState
-        descriptor={descriptor}
-        error={failure}
-        reason={
-          status.phase === "reset-required" ? "reset-required" : "fatal"
-        }
-        reloading={reloading}
-        reload={reload}
-      />
+    const failureState: BlockDocumentSurfaceFailureStateProps = {
+      descriptor,
+      error: failure,
+      reason: status.phase === "reset-required" ? "reset-required" : "fatal",
+      reloading,
+      reload,
+    };
+    return failureFallback ? (
+      failureFallback(failureState)
+    ) : (
+      <BlockDocumentSurfaceFailureState {...failureState} />
     );
   }
 
@@ -434,6 +441,7 @@ function RuntimeOwner({
   dependencies = DEFAULT_DEPENDENCIES,
   runtimeRef,
   pendingFallback,
+  failureFallback,
   children,
   restart,
 }: RuntimeOwnerProps) {
@@ -511,14 +519,17 @@ function RuntimeOwner({
 
   if (!runtime) {
     if (startupError) {
-      return (
-        <BlockDocumentSurfaceFailureState
-          descriptor={descriptor}
-          error={startupError}
-          reason="startup"
-          reloading={false}
-          reload={reloadWithoutRuntime}
-        />
+      const failureState: BlockDocumentSurfaceFailureStateProps = {
+        descriptor,
+        error: startupError,
+        reason: "startup",
+        reloading: false,
+        reload: reloadWithoutRuntime,
+      };
+      return failureFallback ? (
+        failureFallback(failureState)
+      ) : (
+        <BlockDocumentSurfaceFailureState {...failureState} />
       );
     }
     return <SurfacePending fallback={pendingFallback} />;
@@ -544,6 +555,7 @@ function RuntimeOwner({
       startupError={startupError}
       onReload={handleReload}
       pendingFallback={pendingFallback}
+      failureFallback={failureFallback}
     >
       {children}
     </ReadySurface>

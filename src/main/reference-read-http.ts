@@ -1,22 +1,22 @@
 import type { Hono } from "hono";
 import type {
-  CardReferenceReadModel,
-  ResolveCardReferenceInput,
-} from "../shared/block-references";
+  CardTargetReadModel,
+  ResolveCardTargetInput,
+} from "../shared/card-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "../shared/database-views";
 import {
-  HttpCardReferenceParamsSchema,
+  HttpCardTargetParamsSchema,
   HttpDatabaseViewReferenceParamsSchema,
   HttpDatabaseViewReferenceQuerySchema,
 } from "../shared/schemas/http";
 
 export interface ReferenceReadHttpDependencies {
-  readonly resolveCardReference: (
-    input: ResolveCardReferenceInput,
-  ) => CardReferenceReadModel | null | Promise<CardReferenceReadModel | null>;
+  readonly resolveCardTarget: (
+    input: ResolveCardTargetInput,
+  ) => CardTargetReadModel | null | Promise<CardTargetReadModel | null>;
   readonly readDatabaseViewReference: (
     input: ReadDatabaseViewReferenceInput,
   ) => DatabaseViewReadModel | null | Promise<DatabaseViewReadModel | null>;
@@ -27,13 +27,13 @@ export const registerReferenceReadHttpRoutes = (
   dependencies: ReferenceReadHttpDependencies,
 ): void => {
   app.get(
-    "/api/projects/:projectId/references/cards/:targetBlockId",
+    "/api/projects/:projectId/card-targets/:targetBlockId",
     async (context) => {
-      const parsed = HttpCardReferenceParamsSchema.safeParse(context.req.param());
+      const parsed = HttpCardTargetParamsSchema.safeParse(context.req.param());
       if (!parsed.success) {
-        return context.json({ error: "Invalid Card reference request" }, 400);
+        return context.json({ error: "Invalid Card target request" }, 400);
       }
-      const result = await dependencies.resolveCardReference({
+      const result = await dependencies.resolveCardTarget({
         requestingProjectId: parsed.data.projectId,
         targetBlockId: parsed.data.targetBlockId,
       });

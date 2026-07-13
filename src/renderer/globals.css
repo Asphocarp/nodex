@@ -505,6 +505,12 @@
   margin-top: 0.25em;
 }
 
+/* Card Documents keep their own Y.Doc but use the editor's native toggle gutter. */
+.nfm-editor [data-card-outliner-caret]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.835 3.25a.8.8 0 0 0-.69 1.203l5.164 8.854a.8.8 0 0 0 1.382 0l5.165-8.854a.8.8 0 0 0-.691-1.203z' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.835 3.25a.8.8 0 0 0-.69 1.203l5.164 8.854a.8.8 0 0 0 1.382 0l5.165-8.854a.8.8 0 0 0-.691-1.203z' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+
 /* ===== Side Menu ===== */
 
 /*
@@ -1243,7 +1249,8 @@
   color: var(--vscode-terminal-foreground);
 }
 
-/* ===== CardRef Block ===== */
+/* ===== Card outliner Blocks ===== */
+.nfm-editor .bn-block-content[data-content-type="card"],
 .nfm-editor .bn-block-content[data-content-type="cardRef"] {
   width: 100%;
   max-width: 100%;
@@ -1251,24 +1258,17 @@
   padding: 0;
 }
 
-/* Card-ref shell border (mirrors inline-view-shell) */
+/* The host editor already supplies the Card body's one native Block indent. */
 .nfm-editor
-  .bn-block:has(
-    > .react-renderer
-      .bn-block-content[data-content-type="cardRef"]
-      [data-card-ref-shell]
-  ) {
-  border-radius: 10px;
-  box-shadow: 0 0 0 1px transparent;
+  [data-embedded-card-document]
+  .bn-editor
+  > .bn-block-group {
+  margin-left: 0;
 }
 
-.nfm-editor
-  .bn-block:has(
-    > .react-renderer
-      .bn-block-content[data-content-type="cardRef"]
-      [data-card-ref-shell][data-active="true"]
-  ) {
-  box-shadow: 0 0 0 1px var(--border);
+/* A nested Card body is already editable; omit BlockNote's extra tail gutter. */
+.nfm-editor [data-embedded-card-document] .bn-trailing-block {
+  display: none;
 }
 
 /* ===== Codex Threads: Markdown + Tool Cards ===== */

@@ -1,10 +1,10 @@
 import { useEffect, useEffectEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { CardReferenceReadModel } from "../../shared/block-references";
+import type { CardTargetReadModel } from "../../shared/card-targets";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
 import {
   readDatabaseViewReference,
-  resolveCardReference,
+  resolveCardTarget,
 } from "./api";
 import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
@@ -43,24 +43,24 @@ const useBoardChangeRefresh = (
   }, [consumerKey, projectId]);
 };
 
-export const useCardReferenceReadModel = (
+export const useCardTargetReadModel = (
   requestingProjectId: string,
   targetBlockId: string,
-): ReferenceQueryResult<CardReferenceReadModel> => {
+): ReferenceQueryResult<CardTargetReadModel> => {
   const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
-  const queryKey = queryKeys.blockReferences.card(
+  const queryKey = queryKeys.cardTargets.byId(
     requestingProjectId,
     targetBlockId,
   );
   const query = useQuery({
     queryKey,
-    queryFn: () => resolveCardReference({ requestingProjectId, targetBlockId }),
+    queryFn: () => resolveCardTarget({ requestingProjectId, targetBlockId }),
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
   });
   const targetProjectId = query.data?.status === "available"
-    ? query.data.projectId
+    ? query.data.card.projectId
     : null;
   useBoardChangeRefresh(targetProjectId, JSON.stringify(queryKey), query.refetch);
   return {

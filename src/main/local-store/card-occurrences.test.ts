@@ -14,7 +14,7 @@ import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
 import { applyCardLifecycleMutation } from "./card-block-lifecycle";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { listBlockChangeHistory } from "./document-versions";
-import { readAuthoritativeCardById } from "./card-read-store";
+import { readDatabaseCardById } from "./card-read-store";
 import { createProject } from "./projects";
 import { readBlockStoreEpoch } from "./block-store-metadata";
 import { applyDocumentOperationBatch } from "./block-document-operations";
@@ -210,13 +210,13 @@ async function createCard(targetProjectId: string, status: "in_progress", input:
     },
   }));
   if (!created.ok) throw new Error(created.error.message);
-  const primary = readAuthoritativeCardById(database, targetProjectId, cardId);
+  const primary = readDatabaseCardById(database, targetProjectId, cardId);
   if (!primary) throw new Error("Authoritative Card disappeared after creation");
   return primary;
 }
 
 const getCard = (targetProjectId: string, cardId: string) =>
-  readAuthoritativeCardById(getDb(), targetProjectId, cardId);
+  readDatabaseCardById(getDb(), targetProjectId, cardId);
 
 function recurringInputWithUntilDate(startIso: string, endIso: string, untilDate: string): CardInput {
   return {

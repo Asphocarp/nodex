@@ -7,7 +7,7 @@ import type {
   ReminderConfig,
 } from "../../shared/types";
 import { assertValidCardInput } from "./card-input-validation";
-import { readAuthoritativeCardSummariesByIds } from "./card-read-store";
+import { readDatabaseCardSummariesByIds } from "./card-read-store";
 import { expandCardOccurrences, type RecurrenceException } from "./recurrence";
 
 export type ScheduledCardReadErrorCode =
@@ -620,7 +620,7 @@ export const readAuthoritativeScheduledCards = (
     for (const row of rows) validateScheduledRow(row);
     if (rows.length === 0) return [];
 
-    const summaries = readAuthoritativeCardSummariesByIds(
+    const summaries = readDatabaseCardSummariesByIds(
       database,
       rows.map((row) => row.card_block_id),
     );

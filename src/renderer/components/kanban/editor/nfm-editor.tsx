@@ -186,7 +186,6 @@ interface NfmEditorCommonProps {
   projectWorkspacePath?: string | null;
   sourceCardContext?: {
     cardId: string;
-    columnId: string;
   };
   /** The independently synchronized owner whose body this editor renders. */
   documentOwnerBlockId?: string;

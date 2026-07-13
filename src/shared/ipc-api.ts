@@ -71,9 +71,9 @@ import type { CardMetadataPropertySnapshotCommandResult } from "./card-metadata-
 import type { AdditionalDocumentCommandResult } from "./additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "./additional-document-command-transport";
 import type {
-  CardReferenceReadModel,
-  ResolveCardReferenceInput,
-} from "./block-references";
+  CardTargetReadModel,
+  ResolveCardTargetInput,
+} from "./card-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
@@ -521,9 +521,9 @@ export interface IpcApi {
     args: [projectId: string, viewId: string];
     result: DatabaseReadCommandResult<GeneralDatabaseViewQuery>;
   };
-  "block-reference:card:resolve": {
-    args: [input: ResolveCardReferenceInput];
-    result: CardReferenceReadModel | null;
+  "card-target:resolve": {
+    args: [input: ResolveCardTargetInput];
+    result: CardTargetReadModel | null;
   };
   "database-view:reference:get": {
     args: [input: ReadDatabaseViewReferenceInput];

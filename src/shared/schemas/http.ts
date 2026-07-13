@@ -88,7 +88,7 @@ const ProjectScopedReferenceIdSchema = z.string().min(1).max(512).refine(
   "Reference identifiers must not contain surrounding whitespace",
 );
 
-export const HttpCardReferenceParamsSchema = z.object({
+export const HttpCardTargetParamsSchema = z.object({
   projectId: ProjectScopedReferenceIdSchema,
   targetBlockId: ProjectScopedReferenceIdSchema,
 });

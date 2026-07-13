@@ -21,7 +21,7 @@ import { getDb } from "./local-store/database";
 import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
 import {
   readProjectScopedDatabaseViewReference,
-  resolveProjectScopedCardReference,
+  resolveProjectScopedCardTarget,
 } from "./local-store/reference-reads";
 import {
   readPersistedAtomState,
@@ -737,8 +737,8 @@ export function registerIpcHandlers(
     }
     return documentSyncHub.subscribe(target, request);
   });
-  registerHandle("block-reference:card:resolve", (_, input) =>
-    resolveProjectScopedCardReference(input),
+  registerHandle("card-target:resolve", (_, input) =>
+    resolveProjectScopedCardTarget(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
     readProjectScopedDatabaseViewReference(input),

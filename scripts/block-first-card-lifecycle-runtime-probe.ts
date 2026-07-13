@@ -6,7 +6,7 @@ import {
   type CardLifecycleMutationRequest,
 } from "../src/shared/card-lifecycle";
 import { createUuidV7 } from "../src/shared/card-id";
-import { readAuthoritativeCardById } from "../src/main/local-store/card-read-store";
+import { readDatabaseCardById } from "../src/main/local-store/card-read-store";
 import {
   applyCardLifecycleMutation,
   verifyCardDocumentContinuity,
@@ -161,7 +161,7 @@ const main = async (): Promise<void> => {
         .get() === undefined,
       "Authoritative create wrote a compatibility cards row",
     );
-    const card = readAuthoritativeCardById(getDb(), project.id, cardId);
+    const card = readDatabaseCardById(getDb(), project.id, cardId);
     invariant(
       card?.title === "Block authority" &&
         card.description === "Durable body paragraph",

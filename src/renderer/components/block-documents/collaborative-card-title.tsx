@@ -15,12 +15,12 @@ import {
   portableRichTextPlainText,
   readPortableRichTextFromYText,
   type PortableRichText,
-  type PortableRichTextItem,
-  type PortableRichTextStyles,
 } from "../../../shared/block-documents/portable-rich-text";
-import { formatDateMentionPlainText } from "../../../shared/nfm/date-mention";
-import type { NfmColor } from "../../../shared/nfm/types";
 import { cn } from "@/lib/utils";
+import {
+  portableRichTitleAtomLabel,
+  portableRichTitleStyleClass,
+} from "@/lib/portable-rich-title-presentation";
 import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
 import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import { reconcileYTextInputValues } from "@/lib/y-text-input";
@@ -95,46 +95,6 @@ const FORMAT_BUTTON_CLASS_NAME = cn(
   "aria-pressed:bg-token-foreground/10 aria-pressed:text-token-text-primary",
 );
 
-const titleColorClass = (color: NfmColor | undefined): string | undefined => {
-  if (!color) return undefined;
-  const classes: Record<NfmColor, string> = {
-    gray: "text-[var(--gray-text)]",
-    brown: "text-[var(--brown-text,#64473a)]",
-    orange: "text-[var(--orange-text,#d9730d)]",
-    yellow: "text-[var(--yellow-text,#cb8a00)]",
-    green: "text-[var(--green-text,#448361)]",
-    blue: "text-[var(--blue-text)]",
-    purple: "text-[var(--purple-text,#9065b0)]",
-    pink: "text-[var(--pink-text,#ad1a72)]",
-    red: "text-[var(--red-text,#e03e3e)]",
-    gray_bg: "bg-[var(--gray-bg)] text-[var(--gray-text)]",
-    brown_bg: "bg-[var(--brown-bg,#e9e5e3)] text-[var(--brown-text,#64473a)]",
-    orange_bg: "bg-[var(--orange-bg,#faebdd)] text-[var(--orange-text,#d9730d)]",
-    yellow_bg: "bg-[var(--yellow-bg,#fbf3db)] text-[var(--yellow-text,#cb8a00)]",
-    green_bg: "bg-[var(--green-bg,#ddedea)] text-[var(--green-text,#448361)]",
-    blue_bg: "bg-[var(--blue-bg)] text-[var(--blue-text)]",
-    purple_bg: "bg-[var(--purple-bg,#e8deee)] text-[var(--purple-text,#9065b0)]",
-    pink_bg: "bg-[var(--pink-bg,#f4dfeb)] text-[var(--pink-text,#ad1a72)]",
-    red_bg: "bg-[var(--red-bg,#fbe4e4)] text-[var(--red-text,#e03e3e)]",
-  };
-  return classes[color];
-};
-
-const titleStyleClass = (styles: PortableRichTextStyles): string => cn(
-  styles.bold && "font-bold",
-  styles.italic && "italic",
-  styles.underline && "underline",
-  styles.strikethrough && "line-through",
-  styles.code && "rounded-sm bg-token-foreground/5 px-0.5 font-mono text-[0.9em]",
-  titleColorClass(styles.color),
-);
-
-const atomLabel = (item: PortableRichTextItem): string => {
-  if (item.type === "threadMention") return `@${item.uuid.slice(0, 8)}`;
-  if (item.type === "dateMention") return formatDateMentionPlainText(item);
-  return "";
-};
-
 const renderRichTitleDom = (
   root: HTMLDivElement,
   value: PortableRichText,
@@ -161,8 +121,8 @@ const renderRichTitleDom = (
       element.dataset.richTitleAtom = item.type;
       element.contentEditable = "false";
       element.className = "mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.72em] font-medium text-token-text-secondary";
-      element.title = item.type === "threadMention" ? item.uuid : atomLabel(item);
-      element.textContent = atomLabel(item);
+      element.title = item.type === "threadMention" ? item.uuid : portableRichTitleAtomLabel(item);
+      element.textContent = portableRichTitleAtomLabel(item);
       nodes.push(element);
       return;
     }
@@ -170,7 +130,7 @@ const renderRichTitleDom = (
     element.className = cn(
       item.type === "link"
         && "underline decoration-current/40 underline-offset-2",
-      titleStyleClass(item.styles),
+      portableRichTitleStyleClass(item.styles),
     );
     if (item.type === "link") element.dataset.richTitleLink = item.href;
     element.textContent = item.text;

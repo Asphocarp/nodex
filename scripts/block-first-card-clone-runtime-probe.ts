@@ -25,7 +25,7 @@ import {
   updateCardOccurrence,
 } from "../src/main/local-store/card-occurrences";
 import { applyCardLifecycleMutation } from "../src/main/local-store/card-block-lifecycle";
-import { readAuthoritativeCardById } from "../src/main/local-store/card-read-store";
+import { readDatabaseCardById } from "../src/main/local-store/card-read-store";
 import {
   closeDatabase,
   getDb,
@@ -154,13 +154,13 @@ const createCard = (
     }),
   );
   if (!result.ok) throw new Error(result.error.message);
-  const card = readAuthoritativeCardById(database, projectId, cardId);
+  const card = readDatabaseCardById(database, projectId, cardId);
   assert(card, "Created Card is missing from authority");
   return card;
 };
 
 const getCard = (projectId: string, cardId: string) =>
-  readAuthoritativeCardById(getDb(), projectId, cardId);
+  readDatabaseCardById(getDb(), projectId, cardId);
 
 const main = async (): Promise<void> => {
   const tempDir = fs.mkdtempSync(

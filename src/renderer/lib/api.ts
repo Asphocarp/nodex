@@ -10,9 +10,9 @@ import type {
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type {
-  CardReferenceReadModel,
-  ResolveCardReferenceInput,
-} from "../../shared/block-references";
+  CardTargetReadModel,
+  ResolveCardTargetInput,
+} from "../../shared/card-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
@@ -211,10 +211,10 @@ export function restoreDocumentVersion(
   );
 }
 
-export function resolveCardReference(
-  input: ResolveCardReferenceInput,
-): Promise<CardReferenceReadModel | null> {
-  return invoke("block-reference:card:resolve", input);
+export function resolveCardTarget(
+  input: ResolveCardTargetInput,
+): Promise<CardTargetReadModel | null> {
+  return invoke("card-target:resolve", input);
 }
 
 export function readDatabaseViewReference(

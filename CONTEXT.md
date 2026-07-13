@@ -61,7 +61,7 @@ A Reusable Template is also a library source with an authoritative human display
 
 A Block shell is the representation of a Block inside its containing Document. For an ordinary Block, the shell and its content live together in the host Document. For a document-bearing Block, the host Document stores only its shell identity and presentation fields; the owned Document remains separate and is loaded independently.
 
-An inline document-bearing shell is window-local UI over that ownership boundary. Collapsed or offscreen Synced and Template shells create no provider or editor. Expanding a visible shell mounts the owner through the registered owned-Document boundary and the shared window activation budget; collapsing unmounts it. The inherited open-owner path blocks recursive Card/body-only Document cycles. A `scene_graph` owner never mounts a BlockNote body editor and remains a Canvas-view concern.
+An inline document-bearing shell is window-local UI over that ownership boundary. Collapsed or offscreen Synced and Template shells create no provider or editor. Expanding a visible shell mounts the owner through the registered owned-Document boundary and the shared window activation budget; collapsing unmounts it. Card is Page-like rather than a generic body-only shell: child `card` and non-owning `cardRef` Blocks share one flat outliner presentation. The collapsed row reads portable-rich title from the exact-head summary; the expanded row mounts one target runtime whose Y.Text title remains in the row and whose body appears at normal child indentation. The provider boundary never creates a nested visual card or a second title. The inherited open-owner path blocks recursive Card/body-only Document cycles. A `scene_graph` owner never mounts a BlockNote body editor and remains a Canvas-view concern.
 
 ### Placement
 
@@ -103,7 +103,7 @@ An inline Database View Block stores only its own `blockId` and a `databaseViewI
 
 ### Reference Block
 
-A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`. It presents another Block without changing that target's placement or membership. A collapsed Card reference reads a rebuildable summary. An expanded visible Card reference mounts the target Card's independent Document surface; the foreign body never becomes content of the host Document.
+A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`. It presents another Block without changing that target's placement or membership. A collapsed Card reference reads a rebuildable portable-rich Card-content summary that is valid whether the Card belongs to a Database, Space, or containing Document. Database-row properties and View position are not part of target resolution. An expanded visible Card reference mounts exactly one target Card surface for both the collaborative title row and body editor; the foreign body never becomes content of the host Document. Its hollow-caret outliner appearance is the same as an exclusively nested Card Block because relationship semantics do not create another visual container.
 
 A `syncedBlockRef` follows the same foreign-body rule and targets a `synced_block_source`. Promotion moves the selected subtree IDs into that source's body and allocates a new reference ID at the host location. Copy allocates fresh IDs recursively. Demotion is permitted only when exact-head projections prove a sole reference; one dual-Document fence then relocates the original IDs back, empties the source Y.Doc/projection at a new durable head, and tombstones the source resource and reference atomically.
 
@@ -111,7 +111,7 @@ A `templateRef` follows the same foreign-body rule but has copy-on-instantiate s
 
 Synced source, Template, and non-primary Canvas ownership changes use one versioned Additional Document command. The Project route and actor/session are trusted transport evidence and are rebound by Electron main or loopback HTTP. Logical intent retains `operationId`, `storeEpoch`, application identities, generations, and requested placement; only the Document Hub may renew execution heads after mounted surfaces flush and freeze. Creation and reference-guarded recursive tombstoning commit through the same receipt boundary. The CLI and renderer API submit this same envelope, and committed heads repair through the registered engine's ordinary realtime resync path rather than a second ownership channel.
 
-Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
+Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. A mounted Card row owns one stable observed DOM frame; projected, loading, and active content are slots inside it, so provider admission cannot invalidate its own visibility observation. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 
 ### Projection
 
@@ -259,3 +259,5 @@ Shared Block/Document Interfaces live under `src/shared/`, persistence Implement
 - `docs/adr/0003-database-membership-and-views.md`: Database capability, zero-or-one Card membership, and durable views.
 - `docs/adr/0004-atomic-block-relocation.md`: atomic cross-Document moves with stable application identity.
 - `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Owned Documents and normalized scene-native Canvas authority.
+- `docs/adr/0006-rich-card-title-and-semantic-block-promotion.md`: rich Card-title authority and semantic Block-to-Card promotion.
+- `docs/adr/0007-card-outliner-independent-document-surface.md`: one flat Card outliner presentation over an independently synchronized target Document.

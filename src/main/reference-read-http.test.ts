@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
+import type { CardContentSummary } from "../shared/database-query";
 import type { CardSummary } from "../shared/types";
 import { registerReferenceReadHttpRoutes } from "./reference-read-http";
 
@@ -18,25 +19,44 @@ const summary = (id: string, title: string): CardSummary => ({
   hasDescription: false,
 });
 
+const cardTarget = (
+  id: string,
+  title: string,
+): CardContentSummary & { readonly lifecycle: "active" } => ({
+  blockId: id,
+  projectId: "target-project",
+  lifecycle: "active",
+  location: { kind: "space", rankKey: "a" },
+  locationRevision: 1,
+  metadataRevision: 1,
+  documentId: `document:${id}`,
+  documentGeneration: 1,
+  documentHeadSeq: 7,
+  documentAuthority: "ydoc_primary",
+  content: {
+    projectedSeq: 7,
+    title,
+    richTitle: [{ type: "text", text: title, styles: {} }],
+    preview: "",
+    plainText: "",
+  },
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
+
 describe("canonical reference HTTP reads", () => {
   test("keeps the host scope separate from a cross-Project Card target", async () => {
     const app = new Hono();
     let capturedScope = "";
     registerReferenceReadHttpRoutes(app, {
-      resolveCardReference: (input) => {
+      resolveCardTarget: (input) => {
         capturedScope = input.requestingProjectId;
         return {
           status: "available",
           targetBlockId: input.targetBlockId,
-          projectId: "target-project",
-          lifecycle: "active",
-          summary: summary(input.targetBlockId, "Cross-project Card"),
+          card: cardTarget(input.targetBlockId, "Cross-project Card"),
           document: {
-            documentId: `document:${input.targetBlockId}`,
-            generation: 1,
-            headSeq: 7,
             readiness: "ready",
-            authority: "ydoc_primary",
             schemaKey: "nodex.card",
             schemaVersion: 2,
           },
@@ -46,16 +66,16 @@ describe("canonical reference HTTP reads", () => {
     });
 
     const response = await app.request(
-      "/api/projects/host-project/references/cards/card%3Atarget",
+      "/api/projects/host-project/card-targets/card%3Atarget",
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.json() as {
-      projectId?: string;
+      card?: { projectId?: string };
       targetBlockId?: string;
     };
     expect(capturedScope).toBe("host-project");
-    expect(body.projectId).toBe("target-project");
+    expect(body.card?.projectId).toBe("target-project");
     expect(body.targetBlockId).toBe("card:target");
   });
 
@@ -63,7 +83,7 @@ describe("canonical reference HTTP reads", () => {
     const app = new Hono();
     let capturedHostBlockId = "";
     registerReferenceReadHttpRoutes(app, {
-      resolveCardReference: () => null,
+      resolveCardTarget: () => null,
       readDatabaseViewReference: (input) => {
         capturedHostBlockId = input.hostBlockId ?? "";
         return {
@@ -103,16 +123,16 @@ describe("canonical reference HTTP reads", () => {
   test("rejects invalid identities and maps absent scopes or Views to 404", async () => {
     const app = new Hono();
     registerReferenceReadHttpRoutes(app, {
-      resolveCardReference: () => null,
+      resolveCardTarget: () => null,
       readDatabaseViewReference: () => null,
     });
 
     const invalid = await app.request(
-      "/api/projects/host-project/references/cards/%20card%20",
+      "/api/projects/host-project/card-targets/%20card%20",
     );
     expect(invalid.status).toBe(400);
     const absentCardScope = await app.request(
-      "/api/projects/missing/references/cards/card-1",
+      "/api/projects/missing/card-targets/card-1",
     );
     expect(absentCardScope.status).toBe(404);
     const absentView = await app.request(

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  decodeCardReferenceReadModelHttp,
+  decodeCardTargetReadModelHttp,
   decodeCardSummaryHttp,
   decodeDatabaseViewReadModelHttp,
   ReferenceReadHttpBoundaryError,
@@ -34,18 +34,32 @@ const makeCardSummaryWire = () => ({
   hasDescription: true,
 });
 
-const makeAvailableCardReferenceWire = () => ({
+const makeAvailableCardTargetWire = () => ({
   status: "available",
   targetBlockId: "card-1",
-  projectId: "target-project",
-  lifecycle: "active",
-  summary: makeCardSummaryWire(),
-  document: {
+  card: {
+    blockId: "card-1",
+    projectId: "target-project",
+    lifecycle: "active",
+    location: { kind: "document", documentId: "document-host" },
+    locationRevision: 2,
+    metadataRevision: 3,
     documentId: "document-1",
-    generation: 1,
-    headSeq: 9,
+    documentGeneration: 1,
+    documentHeadSeq: 9,
+    documentAuthority: "ydoc_primary",
+    content: {
+      projectedSeq: 9,
+      title: "HTTP Card",
+      richTitle: makeCardSummaryWire().richTitle,
+      preview: "Preview",
+      plainText: "Body",
+    },
+    createdAt: CREATED,
+    updatedAt: DUE_DATE,
+  },
+  document: {
     readiness: "ready",
-    authority: "ydoc_primary",
     schemaKey: "nodex.card",
     schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   },
@@ -89,17 +103,26 @@ describe("reference read HTTP contract", () => {
     expect(summary.scheduledEnd?.toISOString()).toBe(SCHEDULED_END);
   });
 
-  test("uses the same Card summary decoder for Card and Database View reads", () => {
-    const cardReference = decodeCardReferenceReadModelHttp(
-      makeAvailableCardReferenceWire(),
+  test("keeps Card target content independent from Database row summaries", () => {
+    const cardTarget = decodeCardTargetReadModelHttp(
+      makeAvailableCardTargetWire(),
     );
     const databaseView = decodeDatabaseViewReadModelHttp(
       makeDatabaseViewWire(),
     );
 
-    expect(cardReference.status).toBe("available");
-    if (cardReference.status !== "available") return;
-    expect(cardReference.summary.created instanceof Date).toBe(true);
+    expect(cardTarget.status).toBe("available");
+    if (cardTarget.status !== "available") return;
+    expect(cardTarget.card.location).toEqual({
+      kind: "document",
+      documentId: "document-host",
+    });
+    expect(cardTarget.card.content?.richTitle[1]).toEqual({
+      type: "text",
+      text: "Card",
+      styles: { bold: true },
+    });
+    expect(cardTarget.card.createdAt).toBe(CREATED);
     expect(databaseView.rows[0]?.card.created instanceof Date).toBe(true);
     expect(databaseView.rows[0]?.card.scheduledEnd?.toISOString()).toBe(
       SCHEDULED_END,

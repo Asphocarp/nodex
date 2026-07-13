@@ -18,15 +18,15 @@ import { type CardStatus } from "../../shared/card-status";
 import { applyCardLifecycleMutation } from "./card-block-lifecycle";
 import { assertValidCardInput } from "./card-input-validation";
 import {
-  readAuthoritativeCardById,
-  readAuthoritativeCardColumn,
-  readAuthoritativeCardSummariesByIds,
-  readAuthoritativeCardSummaryByDocumentId,
-  readAuthoritativeCardSummaryById,
-  readAuthoritativeCardSummaryColumn,
-  readAuthoritativeCardsByIds,
-  readAuthoritativeProjectCardSummaries,
-  readAuthoritativeProjectCards,
+  readDatabaseCardById,
+  readDatabaseCardColumn,
+  readDatabaseCardSummariesByIds as readDatabaseCardSummariesFromStore,
+  readDatabaseCardSummaryByDocumentId,
+  readDatabaseCardSummaryById as readDatabaseCardSummaryFromStore,
+  readDatabaseCardSummaryColumn,
+  readDatabaseCardsByIds,
+  readProjectDatabaseCardSummaries,
+  readProjectDatabaseCards,
 } from "./card-read-store";
 import { searchAuthoritativeCards } from "./card-search-store";
 import { getDb } from "./database";
@@ -41,20 +41,20 @@ const normalizeCardIdInput = (value: string | undefined): string | null => {
   return assertUuidV7(normalized);
 };
 
-export const readCardSummaryById = (
+export const readDatabaseCardSummaryById = (
   cardId: string,
   database: Database.Database = getDb(),
-): CardSummary | null => readAuthoritativeCardSummaryById(database, cardId);
+): CardSummary | null => readDatabaseCardSummaryFromStore(database, cardId);
 
 /**
- * Read a bounded set of Card summaries in caller order with one SQL query.
- * Database Views and references already carry ordered Block identities, so
- * this boundary keeps those consumers independent from storage details.
+ * Read a bounded set of Database-row Card summaries in caller order with one
+ * SQL query. Database View consumers already carry ordered Block identities,
+ * so this boundary keeps those consumers independent from storage details.
  */
-export const readCardSummariesByIds = (
+export const readDatabaseCardSummariesByIds = (
   cardIds: readonly string[],
   database: Database.Database = getDb(),
-): CardSummary[] => readAuthoritativeCardSummariesByIds(database, cardIds);
+): CardSummary[] => readDatabaseCardSummariesFromStore(database, cardIds);
 
 export interface CardDocumentBoardProjection {
   readonly projectId: string;
@@ -68,7 +68,7 @@ export const readCardDocumentBoardProjection = (
   database: Database.Database,
   documentId: string,
 ): CardDocumentBoardProjection | null =>
-  readAuthoritativeCardSummaryByDocumentId(database, documentId);
+  readDatabaseCardSummaryByDocumentId(database, documentId);
 
 export const readColumn = async (
   projectId: string,
@@ -80,7 +80,7 @@ export const readColumn = async (
   return {
     id: columnId,
     name: column.name,
-    cards: readAuthoritativeCardColumn(getDb(), canonicalProjectId, columnId),
+    cards: readDatabaseCardColumn(getDb(), canonicalProjectId, columnId),
   };
 };
 
@@ -94,7 +94,7 @@ export const readSummaryColumn = async (
   return {
     id: columnId,
     name: column.name,
-    cards: readAuthoritativeCardSummaryColumn(
+    cards: readDatabaseCardSummaryColumn(
       getDb(),
       canonicalProjectId,
       columnId,
@@ -104,7 +104,7 @@ export const readSummaryColumn = async (
 
 export const getBoard = async (projectId: string): Promise<Board> => {
   const canonicalProjectId = requireProjectId(projectId);
-  const cards = readAuthoritativeProjectCards(getDb(), canonicalProjectId);
+  const cards = readProjectDatabaseCards(getDb(), canonicalProjectId);
   return {
     columns: COLUMNS.map((column) => ({
       id: column.id,
@@ -118,7 +118,7 @@ export const getBoardSummary = async (
   projectId: string,
 ): Promise<BoardSummary> => {
   const canonicalProjectId = requireProjectId(projectId);
-  const cards = readAuthoritativeProjectCardSummaries(
+  const cards = readProjectDatabaseCardSummaries(
     getDb(),
     canonicalProjectId,
   );
@@ -140,7 +140,7 @@ export const getCardsDetails = async (
     new Set(input.cardIds.map((cardId) => cardId.trim()).filter(Boolean)),
   );
   if (cardIds.length === 0) return [];
-  return readAuthoritativeCardsByIds(getDb(), canonicalProjectId, cardIds);
+  return readDatabaseCardsByIds(getDb(), canonicalProjectId, cardIds);
 };
 
 export const searchCards = async (
@@ -254,7 +254,7 @@ export const createCard = async (
   });
   if (!result.ok) throw new Error(result.error.message);
 
-  const card = readAuthoritativeCardById(
+  const card = readDatabaseCardById(
     database,
     canonicalProjectId,
     result.value.cardId,
@@ -263,7 +263,7 @@ export const createCard = async (
     throw new Error(`Created Card ${result.value.cardId} has no read model`);
   }
   dbNotifier.notifyChange(canonicalProjectId, "create", status, card.id, {
-    summary: readAuthoritativeCardSummaryById(database, card.id) ?? undefined,
+    summary: readDatabaseCardSummaryFromStore(database, card.id) ?? undefined,
     mutationId: result.value.operationId,
   });
   return card;
@@ -275,7 +275,7 @@ export const getCard = async (
   columnId?: CardStatus,
 ): Promise<Card | null> => {
   const canonicalProjectId = requireProjectId(projectId);
-  const card = readAuthoritativeCardById(getDb(), canonicalProjectId, cardId);
+  const card = readDatabaseCardById(getDb(), canonicalProjectId, cardId);
   if (!card || !columnId) return card;
   return card.status === columnId ? card : null;
 };
@@ -291,7 +291,7 @@ export const findCardLocationById = (
     )
     .get(cardId) as { readonly project_id: string } | undefined;
   if (!block) return null;
-  const summary = readAuthoritativeCardSummaryById(database, cardId);
+  const summary = readDatabaseCardSummaryFromStore(database, cardId);
   if (!summary) return null;
   return { projectId: block.project_id, columnId: summary.status };
 };
@@ -301,7 +301,7 @@ export const getCardSync = (
   cardId: string,
 ): { title: string } | null => {
   const canonicalProjectId = requireProjectId(projectId);
-  const card = readAuthoritativeCardById(getDb(), canonicalProjectId, cardId);
+  const card = readDatabaseCardById(getDb(), canonicalProjectId, cardId);
   return card ? { title: card.title } : null;
 };
 

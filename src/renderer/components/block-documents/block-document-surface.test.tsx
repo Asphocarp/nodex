@@ -463,6 +463,38 @@ describe("BlockDocumentSurface", () => {
     }
   });
 
+  test("lets an embedding surface preserve its own shell around startup recovery", async () => {
+    const adapter = new SurfaceTestAdapter();
+    const view = render(
+      <BlockDocumentSurface
+        projectId="project-1"
+        descriptor={descriptor({ projectId: "other-project" })}
+        isActive
+        dependencies={{ createAdapter: () => adapter }}
+        failureFallback={({ error, reload }) => (
+          <section data-testid="embedding-shell">
+            <span>{error.message}</span>
+            <button type="button" onClick={() => void reload()}>
+              Retry in place
+            </button>
+          </section>
+        )}
+      >
+        {() => <div>Should not render</div>}
+      </BlockDocumentSurface>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("embedding-shell")).toBeTruthy();
+      expect(view.getByRole("button", { name: "Retry in place" })).toBeTruthy();
+    });
+    expect(
+      view.queryByText("Couldn’t open this collaborative content."),
+    ).toBeNull();
+    view.unmount();
+    adapter.destroy();
+  });
+
   test("automatically recreates a mounted surface after a whole-store reset", async () => {
     const adapter = new SurfaceTestAdapter();
     let reloads = 0;

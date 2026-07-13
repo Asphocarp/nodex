@@ -40,7 +40,6 @@ interface CardStageDescriptionEditorProps {
   readonly projectName?: string | null;
   readonly projectWorkspacePath?: string | null;
   readonly cardId: string;
-  readonly columnId: string;
   readonly showRawContent: boolean;
   readonly documentId: string;
   readonly generation: number;
@@ -90,7 +89,6 @@ const CardStageDescriptionEditor = memo(
     projectName,
     projectWorkspacePath,
     cardId,
-    columnId,
     showRawContent,
     documentId,
     generation,
@@ -129,7 +127,7 @@ const CardStageDescriptionEditor = memo(
           user: { name: "You", color: "#3b82f6" },
           provider: { awareness },
         }}
-        sourceCardContext={{ cardId, columnId }}
+        sourceCardContext={{ cardId }}
         surfaceWriteFence={surfaceWriteFence}
         sessionId={sessionId}
         sessionThread={sessionThread}
@@ -301,7 +299,6 @@ export function CardStage(props: CardStageProps) {
                       projectName={props.projectName}
                       projectWorkspacePath={props.projectWorkspacePath}
                       cardId={card.id}
-                      columnId={controller.currentColumnId}
                       showRawContent={controller.showRawContent}
                       documentId={surface.documentId}
                       generation={surface.descriptor.generation}

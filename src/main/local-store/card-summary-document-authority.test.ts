@@ -13,7 +13,7 @@ import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
 import {
   createCard,
   getBoardSummary,
-  readCardSummaryById,
+  readDatabaseCardSummaryById,
 } from "./cards";
 import {
   closeDatabase,
@@ -76,7 +76,7 @@ describe("Card summary Document authority", () => {
         assignee: "Ada",
       });
 
-      const initialById = readCardSummaryById(card.id);
+      const initialById = readDatabaseCardSummaryById(card.id);
       const initialBoard = await readBoardCard(project.id, card.id);
       expect(initialById?.title).toBe("Legacy title");
       expect(initialById?.descriptionPreview).toBe("Legacy body");
@@ -122,7 +122,7 @@ describe("Card summary Document authority", () => {
       closeDatabase();
       await initializeDatabase();
 
-      const restartedById = readCardSummaryById(card.id);
+      const restartedById = readDatabaseCardSummaryById(card.id);
       const restartedBoard = await readBoardCard(project.id, card.id);
       expect(restartedById?.title).toBe("Primary title");
       expect(restartedById?.descriptionPreview).toBe(
