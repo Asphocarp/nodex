@@ -20,6 +20,7 @@ import {
 import { UnreachableCaseError } from "../../util/typescript.js";
 import { getBlockInfoWithManualOffset } from "../getBlockInfoFromPos.js";
 import {
+  getBlockIdGenerator,
   getBlockCache,
   getBlockSchema,
   getInlineContentSchema,
@@ -399,6 +400,7 @@ export function nodeToBlock<
   inlineContentSchema: I = getInlineContentSchema(schema) as I,
   styleSchema: S = getStyleSchema(schema) as S,
   blockCache = getBlockCache(schema),
+  generateBlockId?: () => string,
 ): Block<BSchema, I, S> {
   if (!node.type.isInGroup("bnBlock")) {
     throw Error("Node should be a bnBlock, but is instead: " + node.type.name);
@@ -416,7 +418,11 @@ export function nodeToBlock<
 
   // Only used for blocks converted from other formats.
   if (id === null) {
-    id = UniqueID.options.generateID();
+    id = (
+      generateBlockId ??
+      getBlockIdGenerator(schema) ??
+      UniqueID.options.generateID
+    )();
   }
 
   const blockSpec = blockSchema[blockInfo.blockNoteType];
@@ -452,6 +458,7 @@ export function nodeToBlock<
         inlineContentSchema,
         styleSchema,
         blockCache,
+        generateBlockId,
       ),
     );
   });

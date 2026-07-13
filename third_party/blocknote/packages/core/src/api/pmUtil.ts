@@ -21,6 +21,18 @@ function getBlockNoteEditor<
   return schema.cached.blockNoteEditor as BlockNoteEditor<BSchema, I, S>;
 }
 
+export function getBlockIdGenerator(
+  schema: Schema,
+): (() => string) | undefined {
+  const editor = schema.cached.blockNoteEditor as
+    | { readonly generateBlockId?: unknown }
+    | undefined;
+  if (typeof editor?.generateBlockId !== "function") {
+    return undefined;
+  }
+  return editor.generateBlockId as () => string;
+}
+
 export function getBlockNoteSchema<
   BSchema extends BlockSchema,
   I extends InlineContentSchema,

@@ -124,6 +124,7 @@ export const canonicalizeNfmForBlockDocument = (nfm: string): string =>
 
 const headlessEditor = BlockNoteEditor.create({
   schema: headlessBlockDocumentSchema,
+  generateBlockId: createUuidV7,
 });
 
 const ensureCanonicalBodyRoot = (body: Y.XmlFragment): void => {

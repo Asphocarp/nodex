@@ -19,7 +19,7 @@ import {
 import { getColspan, isPartialTableCell } from "../../util/table.js";
 import { UnreachableCaseError } from "../../util/typescript.js";
 import { getAbsoluteTableCells } from "../blockManipulation/tables/tables.js";
-import { getStyleSchema } from "../pmUtil.js";
+import { getBlockIdGenerator, getStyleSchema } from "../pmUtil.js";
 
 /**
  * Convert a StyledText inline element to a
@@ -325,18 +325,25 @@ export function blockToNode(
   block: PartialBlock<any, any, any>,
   schema: Schema,
   styleSchema: StyleSchema = getStyleSchema(schema),
+  generateBlockId?: () => string,
 ) {
+  const allocateBlockId =
+    generateBlockId ??
+    getBlockIdGenerator(schema) ??
+    UniqueID.options.generateID;
   let id = block.id;
 
   if (id === undefined) {
-    id = UniqueID.options.generateID();
+    id = allocateBlockId();
   }
 
   const children: Node[] = [];
 
   if (block.children) {
     for (const child of block.children) {
-      children.push(blockToNode(child, schema, styleSchema));
+      children.push(
+        blockToNode(child, schema, styleSchema, allocateBlockId),
+      );
     }
   }
 

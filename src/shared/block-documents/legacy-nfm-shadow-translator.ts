@@ -79,6 +79,7 @@ interface IdentityForest {
 
 const headlessEditor = BlockNoteEditor.create({
   schema: headlessBlockDocumentSchema,
+  generateBlockId: createUuidV7,
 });
 
 const EMPTY_UPDATE = new Uint8Array();

@@ -29,6 +29,45 @@ it("creates an editor", () => {
   expect(info.blockNoteType).toEqual("paragraph");
 });
 
+it("uses the configured block ID allocator for programmatic insertions", () => {
+  let allocation = 0;
+  const editor = BlockNoteEditor.create({
+    initialContent: [
+      {
+        id: "existing-block",
+        type: "paragraph",
+        content: "Existing content",
+      },
+    ],
+    generateBlockId: () => `allocated-block-${++allocation}`,
+  });
+  editorsToCleanup.push(editor);
+  editor.mount(document.createElement("div"));
+
+  const trailingBlock = editor.domElement?.querySelector(".bn-trailing-block");
+  expect(trailingBlock).not.toBeNull();
+  trailingBlock?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+
+  expect(editor.document.map((block) => block.id)).toEqual([
+    "existing-block",
+    "allocated-block-1",
+  ]);
+
+  const [inserted] = editor.insertBlocks(
+    [
+      {
+        type: "paragraph",
+        children: [{ type: "paragraph" }],
+      },
+    ],
+    editor.document.at(-1)!,
+    "after",
+  );
+
+  expect(inserted.id).toBe("allocated-block-2");
+  expect(inserted.children[0]?.id).toBe("allocated-block-3");
+});
+
 it("immediately replaces doc", async () => {
   const editor = BlockNoteEditor.create();
   editorsToCleanup.push(editor);

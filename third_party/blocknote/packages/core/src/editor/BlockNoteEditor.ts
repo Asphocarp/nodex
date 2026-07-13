@@ -414,6 +414,10 @@ export class BlockNoteEditor<
   private onUploadEndCallbacks: ((blockId?: string) => void)[] = [];
 
   public readonly resolveFileUrl?: (url: string) => Promise<string>;
+
+  /** Allocates identities for every Block created by this editor instance. */
+  public readonly generateBlockId: () => string;
+
   /**
    * Editor settings
    */
@@ -469,6 +473,8 @@ export class BlockNoteEditor<
           SSchema
         >),
       ...options,
+      generateBlockId:
+        options.generateBlockId ?? UniqueID.options.generateID,
       placeholders: {
         ...this.dictionary.placeholders,
         ...options.placeholders,
@@ -476,6 +482,7 @@ export class BlockNoteEditor<
     };
 
     this.schema = newOptions.schema;
+    this.generateBlockId = newOptions.generateBlockId;
     this.blockImplementations = newOptions.schema.blockSpecs;
     this.inlineContentImplementations = newOptions.schema.inlineContentSpecs;
     this.styleImplementations = newOptions.schema.styleSpecs;
@@ -553,7 +560,7 @@ export class BlockNoteEditor<
           : [
               {
                 type: "paragraph",
-                id: UniqueID.options.generateID(),
+                id: this.generateBlockId(),
               },
             ]);
 
@@ -565,7 +572,12 @@ export class BlockNoteEditor<
       }
       const schema = getSchema(tiptapOptions.extensions!);
       const pmNodes = initialContent.map((b) =>
-        blockToNode(b, schema, this.schema.styleSchema).toJSON(),
+        blockToNode(
+          b,
+          schema,
+          this.schema.styleSchema,
+          this.generateBlockId,
+        ).toJSON(),
       );
       const doc = createDocument(
         {
