@@ -710,6 +710,7 @@ describe("BlockMutationWriter", () => {
           sourceRootBlockIds: ["card-1"],
           resultRootBlockIds: ["card-1"],
           copiedBlockIds: {},
+          transformationEvidence: [],
           finalLocations: {
             "card-1": { kind: "document", documentId: "document-1" },
           },

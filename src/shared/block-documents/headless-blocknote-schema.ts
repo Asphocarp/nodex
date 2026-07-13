@@ -52,8 +52,7 @@ const createHeadlessInlineContentSpec = <
  * may use the ProseMirror schema, `blocksToYDoc`, and
  * `yXmlFragmentToBlocks`, but DOM export belongs to a renderer adapter.
  */
-export const headlessBlockDocumentSchema = BlockNoteSchema.create({
-  blockSpecs: {
+const headlessBlockDocumentBlockSpecs = {
     paragraph: defaultBlockSpecs.paragraph,
     heading: defaultBlockSpecs.heading,
     bulletListItem: defaultBlockSpecs.bulletListItem,
@@ -76,7 +75,14 @@ export const headlessBlockDocumentSchema = BlockNoteSchema.create({
     templateRef: createHeadlessBlockSpec(reusableTemplateRefBlockConfig),
     largeDocument: createHeadlessBlockSpec(largeDocumentBlockConfig),
     largeCode: createHeadlessBlockSpec(largeCodeBlockConfig),
-  },
+} as const;
+
+export const HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES = Object.freeze(
+  Object.keys(headlessBlockDocumentBlockSpecs),
+);
+
+export const headlessBlockDocumentSchema = BlockNoteSchema.create({
+  blockSpecs: headlessBlockDocumentBlockSpecs,
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     agentConfig: createHeadlessInlineContentSpec(agentConfigInlineContentConfig),

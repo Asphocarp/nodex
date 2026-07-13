@@ -414,6 +414,7 @@ const blockTransferReceipt = (
   sourceRootBlockIds: ["card-source"],
   resultRootBlockIds: ["card-copy"],
   copiedBlockIds: { "card-source": "card-copy" },
+  transformationEvidence: [],
   finalLocations: {
     "card-copy": { kind: "document", documentId: "doc-target" },
   },

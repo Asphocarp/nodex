@@ -301,6 +301,7 @@ describe("Database management runtime", () => {
               sourceRootBlockIds: ["card-1"],
               resultRootBlockIds: ["card-1"],
               copiedBlockIds: {},
+              transformationEvidence: [],
               finalLocations: {
                 "card-1": {
                   kind: "database",

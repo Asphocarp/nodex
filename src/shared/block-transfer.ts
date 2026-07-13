@@ -119,6 +119,21 @@ export interface BlockTransferRequest {
   readonly target: BlockTransferTarget;
 }
 
+export interface BlockTransferTransformationEvidence {
+  readonly sourceBlockId: BlockId;
+  readonly resultCardId: BlockId;
+  readonly kind: "promote" | "wrap";
+  readonly sourceBlockType: string;
+  readonly semanticTitleHash: string;
+  readonly consumedPropertyKeys: readonly string[];
+  readonly wrapperReason?:
+    | "type_requires_wrapper"
+    | "unsupported_primary_content"
+    | "unmapped_type_state";
+  readonly bodyRootBlockIds: readonly BlockId[];
+  readonly sourceToResultBlockIds: Readonly<Record<BlockId, BlockId>>;
+}
+
 export interface BlockTransferReceipt {
   readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
   readonly operationId: string;
@@ -129,6 +144,7 @@ export interface BlockTransferReceipt {
   readonly sourceRootBlockIds: readonly BlockId[];
   readonly resultRootBlockIds: readonly BlockId[];
   readonly copiedBlockIds: Readonly<Record<BlockId, BlockId>>;
+  readonly transformationEvidence: readonly BlockTransferTransformationEvidence[];
   readonly finalLocations: Readonly<Record<BlockId, BlockLocation>>;
   readonly finalLocationRevisions: Readonly<Record<BlockId, number>>;
   readonly documentCommits: readonly RelocationDocumentCommit[];

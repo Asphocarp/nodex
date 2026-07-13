@@ -38,6 +38,7 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
     sourceRootBlockIds: ["card-a"],
     resultRootBlockIds: ["card-a"],
     copiedBlockIds: {},
+    transformationEvidence: [],
     finalLocations: {
       "card-a": { kind: "document", documentId: "document-host" },
     },

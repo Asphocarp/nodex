@@ -7,7 +7,13 @@ import {
   assessBlockSemanticContentForCard,
   type BlockSemanticContentAssessment,
 } from "./block-semantic-content";
-import type { PortableRichText } from "./portable-rich-text";
+import {
+  canonicalizePortableRichText,
+  plainTextToPortableRichText,
+  portableRichTextPlainText,
+  type PortableRichText,
+} from "./portable-rich-text";
+import { blockNoteInlineToNfm } from "./nfm-blocknote-adapter";
 
 export type BlockToCardTransformation =
   | {
@@ -23,6 +29,7 @@ export type BlockToCardTransformation =
       readonly kind: "wrap";
       readonly cardId: BlockId;
       readonly wrappedRoot: BlockTreeNode;
+      readonly richTitle: PortableRichText;
       readonly reason: Extract<BlockSemanticContentAssessment, { kind: "wrap" }>[
         "reason"
       ];
@@ -44,10 +51,24 @@ export const planBlockToCardTransformation = (input: {
     return { kind: "already_card", cardId: input.resultRootId };
   }
   if (assessment.kind === "wrap") {
+    let richTitle: PortableRichText = plainTextToPortableRichText(
+      input.root.type,
+    );
+    try {
+      const candidate = canonicalizePortableRichText(
+        blockNoteInlineToNfm(input.root.content),
+      );
+      if (portableRichTextPlainText(candidate).trim().length > 0) {
+        richTitle = candidate;
+      }
+    } catch {
+      // The complete wrapped root remains authority; a type label is lossless.
+    }
     return {
       kind: "wrap",
       cardId: input.wrapperCardId,
       wrappedRoot: input.root,
+      richTitle,
       reason: assessment.reason,
       detail: assessment.detail,
     };

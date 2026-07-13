@@ -94,6 +94,7 @@ describe("Kanban Card Block transfer drop", () => {
             sourceRootBlockIds: ["card-target"],
             resultRootBlockIds: ["card-target"],
             copiedBlockIds: {},
+            transformationEvidence: [],
             finalLocations: {
               "card-target": {
                 kind: "document" as const,

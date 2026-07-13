@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BlockTreeNode } from "./block-document-codec";
-import { BLOCK_TRANSFER_COERCION_BLOCK_TYPES } from "../block-transfer-coercion";
 import { BLOCK_TO_CARD_TYPE_CAPABILITIES } from "./block-semantic-content";
+import { HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES } from "./headless-blocknote-schema";
 import { planBlockToCardTransformation } from "./block-to-card-transformation";
 
 const paragraph = (
@@ -23,7 +23,7 @@ const paragraph = (
 describe("BlockToCardTransformation", () => {
   test("keeps the registered Block schema capability matrix exhaustive", () => {
     expect(Object.keys(BLOCK_TO_CARD_TYPE_CAPABILITIES).sort()).toEqual(
-      [...BLOCK_TRANSFER_COERCION_BLOCK_TYPES].sort(),
+      [...HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES].sort(),
     );
   });
 
@@ -119,18 +119,21 @@ describe("BlockToCardTransformation", () => {
       type: "checkListItem",
       props: { checked: true },
     };
-    expect(
-      planBlockToCardTransformation({
-        root: checklist,
-        resultRootId: checklist.id,
-        wrapperCardId: "wrapper-check",
-        allocateEmptyBodyBlockId: () => "unused",
-      }),
-    ).toMatchObject({
+    const checklistPlan = planBlockToCardTransformation({
+      root: checklist,
+      resultRootId: checklist.id,
+      wrapperCardId: "wrapper-check",
+      allocateEmptyBodyBlockId: () => "unused",
+    });
+    expect(checklistPlan).toMatchObject({
       kind: "wrap",
       cardId: "wrapper-check",
       wrappedRoot: checklist,
       reason: "type_requires_wrapper",
     });
+    if (checklistPlan.kind !== "wrap") return;
+    expect(checklistPlan.richTitle).toEqual([
+      { type: "text", text: "Done", styles: {} },
+    ]);
   });
 });

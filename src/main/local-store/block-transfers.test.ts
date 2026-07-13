@@ -6,6 +6,7 @@ import * as Y from "yjs";
 import {
   createCardDocument,
   openCardDocument,
+  planBlockToCardTransformation,
 } from "../../shared/block-documents";
 import type {
   DatabaseMutationRequest,
@@ -877,10 +878,164 @@ describe("BlockTransfer store", () => {
           .get("card-standalone"),
       ).toEqual({ lifecycle: "active", location_kind: "space" });
 
-      const promotionSourceHead = database
+      const prePromotionHead = database
         .prepare("SELECT head_seq FROM documents WHERE id = ?")
         .get(secondHostDocumentId) as { readonly head_seq: number };
-      const promoted = applyBlockTransfer(database, {
+      const promotedChildId = createUuidV7();
+      const prepareRichPromotion = applyDocumentOperationBatch(
+        database,
+        {
+          version: 1,
+          mutationId: "prepare-rich-nested-promotion",
+          projectId: project.id,
+          storeEpoch: metadata.store_epoch,
+          clientSessionId: "test:promotion-author",
+          actor: { kind: "test" },
+          documentId: secondHostDocumentId,
+          generation: 1,
+          expectedHeadSeq: prePromotionHead.head_seq,
+          operations: [
+            {
+              kind: "update_block",
+              blockId: "paragraph:card-second-host",
+              patch: {
+                content: [
+                  {
+                    type: "text",
+                    text: "Second host ",
+                    styles: { bold: true },
+                  },
+                  {
+                    type: "link",
+                    href: "https://nodex.local/promotion",
+                    content: [
+                      { type: "text", text: "body", styles: {} },
+                    ],
+                  },
+                ],
+              },
+            },
+            {
+              kind: "insert_block",
+              parentBlockId: "paragraph:card-second-host",
+              block: {
+                id: promotedChildId,
+                type: "paragraph",
+                props: {
+                  backgroundColor: "default",
+                  textColor: "default",
+                  textAlignment: "left",
+                },
+                content: [
+                  {
+                    type: "text",
+                    text: "Promoted child body",
+                    styles: {},
+                  },
+                ],
+                children: [],
+              },
+            },
+          ],
+        },
+        {
+          writeFence: {
+            leaseId: "lease:prepare-rich-nested-promotion",
+            documentId: secondHostDocumentId,
+            generation: 1,
+            headSeq: prePromotionHead.head_seq,
+          },
+        },
+      );
+      expect(prepareRichPromotion.ok).toBe(true);
+      if (!prepareRichPromotion.ok) return;
+      const promotionSourceHead = {
+        head_seq: prepareRichPromotion.value.headSeq,
+      };
+      const promotionSourceTree = JSON.parse(
+        database
+          .prepare(
+            "SELECT block_tree_json FROM document_materializations WHERE document_id = ?",
+          )
+          .pluck()
+          .get(secondHostDocumentId) as string,
+      ) as readonly Parameters<typeof planBlockToCardTransformation>[0]["root"][];
+      const promotionSourceRoot = promotionSourceTree[0];
+      if (!promotionSourceRoot) throw new Error("Promotion source root is missing");
+      const promotionProbe = planBlockToCardTransformation({
+          root: promotionSourceRoot,
+          resultRootId: promotionSourceRoot.id,
+          wrapperCardId: "unused-wrapper",
+          allocateEmptyBodyBlockId: createUuidV7,
+        });
+      if (promotionProbe.kind !== "promote") {
+        throw new Error(JSON.stringify(promotionProbe));
+      }
+      for (const point of [
+        "after_source_document",
+        "after_card_owner_staged",
+        "after_card_children_reparented",
+        "after_card_genesis",
+        "after_parent_transition",
+      ] as const) {
+        expect(() =>
+          applyBlockTransfer(
+            database,
+            {
+              version: 1,
+              operationId: `promote-paragraph-fault-${point}`,
+              projectId: project.id,
+              storeEpoch: metadata.store_epoch,
+              actor: { kind: "test" },
+              mode: "move",
+              rootBlockIds: ["paragraph:card-second-host"],
+              expectedLocationRevisions: {
+                "paragraph:card-second-host": 1,
+              },
+              source: {
+                kind: "document",
+                documentId: secondHostDocumentId,
+                generation: 1,
+                expectedHeadSeq: promotionSourceHead.head_seq,
+              },
+              target: {
+                kind: "database",
+                databaseBlockId: primary.database_block_id,
+                viewId: primary.view_id,
+                groupKey: "backlog",
+              },
+            },
+            {
+              faultInjector: (candidate) => {
+                if (candidate === point) throw new Error(`injected ${point}`);
+              },
+            },
+          ),
+        ).toThrow(`injected ${point}`);
+        expect(
+          database
+            .prepare(
+              `SELECT type, location_kind, containing_document_id
+               FROM blocks WHERE id = ?`,
+            )
+            .get("paragraph:card-second-host"),
+        ).toEqual({
+          type: "paragraph",
+          location_kind: "document",
+          containing_document_id: secondHostDocumentId,
+        });
+        expect(
+          database
+            .prepare("SELECT head_seq FROM documents WHERE id = ?")
+            .get(secondHostDocumentId),
+        ).toEqual(promotionSourceHead);
+        expect(
+          database
+            .prepare("SELECT 1 AS present FROM block_documents WHERE block_id = ?")
+            .get("paragraph:card-second-host"),
+        ).toBeUndefined();
+      }
+      const promotionRequest: BlockTransferRequest = {
         version: 1,
         operationId: "promote-paragraph-to-card",
         projectId: project.id,
@@ -901,8 +1056,30 @@ describe("BlockTransfer store", () => {
           viewId: primary.view_id,
           groupKey: "backlog",
         },
-      });
+      };
+      const promoted = applyBlockTransfer(database, promotionRequest);
       expect(promoted.ok, JSON.stringify(promoted)).toBe(true);
+      if (promoted.ok) {
+        expect(promoted.value.transformationEvidence).toEqual([
+          {
+            sourceBlockId: "paragraph:card-second-host",
+            resultCardId: "paragraph:card-second-host",
+            kind: "promote",
+            sourceBlockType: "paragraph",
+            semanticTitleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+            consumedPropertyKeys: [
+              "backgroundColor",
+              "textAlignment",
+              "textColor",
+            ],
+            bodyRootBlockIds: [promotedChildId],
+            sourceToResultBlockIds: {
+              "paragraph:card-second-host": "paragraph:card-second-host",
+              [promotedChildId]: promotedChildId,
+            },
+          },
+        ]);
+      }
       expect(
         database
           .prepare(
@@ -919,7 +1096,7 @@ describe("BlockTransfer store", () => {
       const promotedDocument = database
         .prepare(
           `SELECT ownership.document_id, materialization.title,
-                  materialization.nfm
+                  materialization.title_rich_json, materialization.nfm
            FROM block_documents ownership
            JOIN document_materializations materialization
              ON materialization.document_id = ownership.document_id
@@ -928,13 +1105,40 @@ describe("BlockTransfer store", () => {
         .get("paragraph:card-second-host") as {
         readonly document_id: string;
         readonly title: string;
+        readonly title_rich_json: string;
         readonly nfm: string;
       };
       expect(promotedDocument.document_id).toBe(
         "document:paragraph:card-second-host",
       );
       expect(promotedDocument.title).toBe("Second host body");
-      expect(promotedDocument.nfm).toContain("Second host body");
+      expect(JSON.parse(promotedDocument.title_rich_json)).toEqual([
+        {
+          type: "text",
+          text: "Second host ",
+          styles: { bold: true },
+        },
+        {
+          type: "link",
+          text: "body",
+          href: "https://nodex.local/promotion",
+          styles: {},
+        },
+      ]);
+      expect(promotedDocument.nfm).toBe("Promoted child body");
+      expect(
+        database
+          .prepare(
+            "SELECT block_id, block_type, text FROM document_block_index WHERE document_id = ?",
+          )
+          .all(promotedDocument.document_id),
+      ).toEqual([
+        {
+          block_id: promotedChildId,
+          block_type: "paragraph",
+          text: "Promoted child body",
+        },
+      ]);
       expect(
         database
           .prepare(
@@ -942,6 +1146,14 @@ describe("BlockTransfer store", () => {
           )
           .get(secondHostDocumentId, "paragraph:card-second-host"),
       ).toBeUndefined();
+      const repeatedPromotion = applyBlockTransfer(database, promotionRequest);
+      expect(repeatedPromotion.ok).toBe(true);
+      if (promoted.ok && repeatedPromotion.ok) {
+        expect(repeatedPromotion.value.duplicate).toBe(true);
+        expect(repeatedPromotion.value.transformationEvidence).toEqual(
+          promoted.value.transformationEvidence,
+        );
+      }
 
       const wrapperHostDocumentId = seedCard(database, {
         projectId: project.id,
@@ -951,7 +1163,7 @@ describe("BlockTransfer store", () => {
         rankKey: "a0000000000000000000000000000000",
         bodyType: "quote",
       });
-      const wrapped = applyBlockTransfer(database, {
+      const promotedQuote = applyBlockTransfer(database, {
         version: 1,
         operationId: "wrap-quote-in-card",
         projectId: project.id,
@@ -973,32 +1185,133 @@ describe("BlockTransfer store", () => {
           groupKey: "backlog",
         },
       });
-      expect(wrapped.ok).toBe(true);
-      if (wrapped.ok) {
-        const wrapperCardId = wrapped.value.resultRootBlockIds[0];
-        expect(isUuidV7(wrapperCardId)).toBe(true);
-        expect(wrapped.value.sourceRootBlockIds).toEqual([
+      expect(promotedQuote.ok).toBe(true);
+      if (promotedQuote.ok) {
+        const promotedCardId = promotedQuote.value.resultRootBlockIds[0];
+        expect(promotedCardId).toBe("paragraph:card-wrapper-host");
+        expect(promotedQuote.value.sourceRootBlockIds).toEqual([
           "paragraph:card-wrapper-host",
         ]);
         expect(
-          wrapped.value.finalLocations["paragraph:card-wrapper-host"],
+          promotedQuote.value.finalLocations["paragraph:card-wrapper-host"],
         ).toEqual({
-          kind: "document",
-          documentId: `document:${wrapperCardId}`,
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
         });
-        expect(wrapped.value.finalLocations[wrapperCardId ?? ""]?.kind).toBe(
-          "database",
-        );
         expect(
           database
             .prepare(
-              "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
+              "SELECT title, nfm FROM document_materializations WHERE document_id = ?",
             )
-            .get(
-              `document:${wrapperCardId}`,
-              "paragraph:card-wrapper-host",
-            ),
-        ).toEqual({ block_type: "quote" });
+            .get(`document:${promotedCardId}`),
+        ).toEqual({ title: "Wrapper host body", nfm: "" });
+      }
+
+      const checklistHostDocumentId = seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: "card-checklist-wrapper-host",
+        title: "Checklist wrapper",
+        rankKey: "a1000000000000000000000000000000",
+        bodyType: "checkListItem",
+      });
+      const checklistTransferRequest: BlockTransferRequest = {
+        version: 1,
+        operationId: "wrap-checklist-in-card",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: ["paragraph:card-checklist-wrapper-host"],
+        expectedLocationRevisions: {
+          "paragraph:card-checklist-wrapper-host": 1,
+        },
+        source: {
+          kind: "document",
+          documentId: checklistHostDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          viewId: primary.view_id,
+          groupKey: "backlog",
+        },
+      };
+      const checklistCountsBeforeFault = database
+        .prepare(
+          `SELECT (SELECT COUNT(*) FROM blocks) AS blocks,
+                  (SELECT COUNT(*) FROM documents) AS documents,
+                  (SELECT COUNT(*) FROM block_documents) AS ownerships`,
+        )
+        .get();
+      expect(() =>
+        applyBlockTransfer(
+          database,
+          {
+            ...checklistTransferRequest,
+            operationId: "wrap-checklist-body-fault",
+          },
+          {
+            faultInjector: (point) => {
+              if (point === "after_card_body") {
+                throw new Error("injected after_card_body");
+              }
+            },
+          },
+        ),
+      ).toThrow("injected after_card_body");
+      expect(
+        database
+          .prepare(
+            `SELECT (SELECT COUNT(*) FROM blocks) AS blocks,
+                    (SELECT COUNT(*) FROM documents) AS documents,
+                    (SELECT COUNT(*) FROM block_documents) AS ownerships`,
+          )
+          .get(),
+      ).toEqual(checklistCountsBeforeFault);
+      const wrappedChecklist = applyBlockTransfer(
+        database,
+        checklistTransferRequest,
+      );
+      expect(wrappedChecklist.ok).toBe(true);
+      if (wrappedChecklist.ok) {
+        const wrapperCardId = wrappedChecklist.value.resultRootBlockIds[0];
+        expect(isUuidV7(wrapperCardId)).toBe(true);
+        expect(wrappedChecklist.value.transformationEvidence).toEqual([
+          {
+            sourceBlockId: "paragraph:card-checklist-wrapper-host",
+            resultCardId: wrapperCardId,
+            kind: "wrap",
+            sourceBlockType: "checkListItem",
+            semanticTitleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+            consumedPropertyKeys: [],
+            wrapperReason: "type_requires_wrapper",
+            bodyRootBlockIds: ["paragraph:card-checklist-wrapper-host"],
+            sourceToResultBlockIds: {
+              "paragraph:card-checklist-wrapper-host":
+                "paragraph:card-checklist-wrapper-host",
+            },
+          },
+        ]);
+        expect(
+          database
+            .prepare(
+              "SELECT block_type, text FROM document_block_index WHERE document_id = ?",
+            )
+            .get(`document:${wrapperCardId}`),
+        ).toEqual({
+          block_type: "checkListItem",
+          text: "Checklist wrapper body",
+        });
+        expect(
+          database
+            .prepare(
+              "SELECT title FROM document_materializations WHERE document_id = ?",
+            )
+            .get(`document:${wrapperCardId}`),
+        ).toEqual({ title: "Checklist wrapper body" });
       }
 
       const copyBlockHostDocumentId = seedCard(database, {
@@ -1008,6 +1321,62 @@ describe("BlockTransfer store", () => {
         title: "Copy Block host",
         rankKey: "b0000000000000000000000000000000",
       });
+      const copyChildSourceId = createUuidV7();
+      const prepareCopyPromotion = applyDocumentOperationBatch(
+        database,
+        {
+          version: 1,
+          mutationId: "prepare-rich-nested-copy-promotion",
+          projectId: project.id,
+          storeEpoch: metadata.store_epoch,
+          actor: { kind: "test" },
+          documentId: copyBlockHostDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+          operations: [
+            {
+              kind: "update_block",
+              blockId: "paragraph:card-copy-block-host",
+              patch: {
+                content: [
+                  {
+                    type: "text",
+                    text: "Copy Block host body",
+                    styles: { italic: true },
+                  },
+                ],
+              },
+            },
+            {
+              kind: "insert_block",
+              parentBlockId: "paragraph:card-copy-block-host",
+              block: {
+                id: copyChildSourceId,
+                type: "paragraph",
+                props: {
+                  backgroundColor: "default",
+                  textColor: "default",
+                  textAlignment: "left",
+                },
+                content: [
+                  { type: "text", text: "Copied child", styles: {} },
+                ],
+                children: [],
+              },
+            },
+          ],
+        },
+        {
+          writeFence: {
+            leaseId: "lease:prepare-rich-nested-copy-promotion",
+            documentId: copyBlockHostDocumentId,
+            generation: 1,
+            headSeq: 1,
+          },
+        },
+      );
+      expect(prepareCopyPromotion.ok).toBe(true);
+      if (!prepareCopyPromotion.ok) return;
       const copiedBlockToDatabase = applyBlockTransfer(database, {
         version: 1,
         operationId: "copy-paragraph-to-database",
@@ -1023,7 +1392,7 @@ describe("BlockTransfer store", () => {
           kind: "document",
           documentId: copyBlockHostDocumentId,
           generation: 1,
-          expectedHeadSeq: 1,
+          expectedHeadSeq: prepareCopyPromotion.value.headSeq,
         },
         target: {
           kind: "database",
@@ -1039,8 +1408,30 @@ describe("BlockTransfer store", () => {
           copiedBlockToDatabase.value.copiedBlockIds[
             "paragraph:card-copy-block-host"
           ];
+        const copiedChildId =
+          copiedBlockToDatabase.value.copiedBlockIds[copyChildSourceId];
         expect(isUuidV7(wrapperCardId)).toBe(true);
         expect(copiedParagraphId).toBe(wrapperCardId);
+        expect(isUuidV7(copiedChildId)).toBe(true);
+        expect(copiedBlockToDatabase.value.transformationEvidence).toEqual([
+          {
+            sourceBlockId: "paragraph:card-copy-block-host",
+            resultCardId: wrapperCardId,
+            kind: "promote",
+            sourceBlockType: "paragraph",
+            semanticTitleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+            consumedPropertyKeys: [
+              "backgroundColor",
+              "textAlignment",
+              "textColor",
+            ],
+            bodyRootBlockIds: [copiedChildId],
+            sourceToResultBlockIds: {
+              "paragraph:card-copy-block-host": wrapperCardId,
+              [copyChildSourceId]: copiedChildId,
+            },
+          },
+        ]);
         expect(
           database
             .prepare(
@@ -1063,14 +1454,30 @@ describe("BlockTransfer store", () => {
         });
         const copiedBody = database
           .prepare(
-            "SELECT block_id, text FROM document_block_index WHERE document_id = ? AND text = ?",
+            "SELECT block_id, text FROM document_block_index WHERE document_id = ?",
           )
-          .get(`document:${wrapperCardId}`, "Copy Block host body") as {
+          .get(`document:${wrapperCardId}`) as {
           readonly block_id: string;
           readonly text: string;
         };
-        expect(isUuidV7(copiedBody.block_id)).toBe(true);
-        expect(copiedBody.text).toBe("Copy Block host body");
+        expect(copiedBody.block_id).toBe(copiedChildId);
+        expect(copiedBody.text).toBe("Copied child");
+        expect(
+          database
+            .prepare(
+              "SELECT title, title_rich_json FROM document_materializations WHERE document_id = ?",
+            )
+            .get(`document:${wrapperCardId}`),
+        ).toEqual({
+          title: "Copy Block host body",
+          title_rich_json: JSON.stringify([
+            {
+              type: "text",
+              text: "Copy Block host body",
+              styles: { italic: true },
+            },
+          ]),
+        });
       }
 
       const copyQuoteHostDocumentId = seedCard(database, {
@@ -1113,15 +1520,14 @@ describe("BlockTransfer store", () => {
             "paragraph:card-copy-quote-host"
           ];
         expect(isUuidV7(wrapperCardId)).toBe(true);
-        expect(isUuidV7(copiedQuoteId)).toBe(true);
-        expect(copiedQuoteId).not.toBe(wrapperCardId);
+        expect(copiedQuoteId).toBe(wrapperCardId);
         expect(
           database
             .prepare(
-              "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
+              "SELECT title, nfm FROM document_materializations WHERE document_id = ?",
             )
-            .get(`document:${wrapperCardId}`, copiedQuoteId),
-        ).toEqual({ block_type: "quote" });
+            .get(`document:${wrapperCardId}`),
+        ).toEqual({ title: "Copy quote host body", nfm: "" });
       }
 
       const spaceCopySourceDocumentId = seedCard(database, {
