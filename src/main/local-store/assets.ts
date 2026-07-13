@@ -112,8 +112,12 @@ export function getAssetsPathPrefix(): string {
   return getCachedAssetPaths().pathPrefix;
 }
 
-function assertAssetPathInsideRoot(targetPath: string): void {
-  const { pathPrefix, rootPath } = getCachedAssetPaths();
+function assertAssetPathInsideRoot(
+  targetPath: string,
+  assetsRootPath: string,
+): void {
+  const rootPath = path.resolve(assetsRootPath);
+  const pathPrefix = `${rootPath}${path.sep}`;
   if (targetPath === rootPath || targetPath.startsWith(pathPrefix)) {
     return;
   }
@@ -122,12 +126,19 @@ function assertAssetPathInsideRoot(targetPath: string): void {
 }
 
 function resolveFlatAssetPath(fileName: string): string {
+  return resolveAssetPathInRoot(getAssetsRootPath(), fileName);
+}
+
+export function resolveAssetPathInRoot(
+  assetsRootPath: string,
+  fileName: string,
+): string {
   if (!isSafeAssetFileName(fileName)) {
     throw new Error("Invalid file name");
   }
 
-  const resolvedPath = path.resolve(getAssetsRootPath(), fileName);
-  assertAssetPathInsideRoot(resolvedPath);
+  const resolvedPath = path.resolve(assetsRootPath, fileName);
+  assertAssetPathInsideRoot(resolvedPath, assetsRootPath);
   return resolvedPath;
 }
 
@@ -159,11 +170,19 @@ function resolveStoredExtension(fileName: string, mimeType: string): string {
   return textExtension ?? "";
 }
 
-function writeAssetBytes(fileName: string, bytes: Buffer): string {
-  const absolutePath = resolveFlatAssetPath(fileName);
-  fs.mkdirSync(getAssetsRootPath(), { recursive: true });
+function writeAssetBytesAtRoot(
+  assetsRootPath: string,
+  fileName: string,
+  bytes: Buffer,
+): string {
+  const absolutePath = resolveAssetPathInRoot(assetsRootPath, fileName);
+  fs.mkdirSync(assetsRootPath, { recursive: true });
   fs.writeFileSync(absolutePath, bytes);
   return absolutePath;
+}
+
+function writeAssetBytes(fileName: string, bytes: Buffer): string {
+  return writeAssetBytesAtRoot(getAssetsRootPath(), fileName, bytes);
 }
 
 const decodeInlineImageDataUrl = (
@@ -184,30 +203,47 @@ const decodeInlineImageDataUrl = (
   return { bytes, mimeType };
 };
 
-/** One-way legacy migration seam; managed filename is crash-idempotent. */
+/** One-way import seam; managed filename is content-addressed and idempotent. */
+export function materializeInlineImageAtRoot(
+  dataUrl: string,
+  options: {
+    readonly assetsRootPath: string;
+    readonly namespace: "canvas" | "legacy-card";
+  },
+): { readonly source: string; readonly fileName: string; readonly mimeType: string } {
+  const { bytes, mimeType } = decodeInlineImageDataUrl(dataUrl);
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
+  const fileName = `${options.namespace}-${hash}${extension}`;
+  const absolutePath = resolveAssetPathInRoot(
+    options.assetsRootPath,
+    fileName,
+  );
+  if (fs.existsSync(absolutePath)) {
+    const stats = fs.lstatSync(absolutePath);
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new Error("Managed inline image asset must be a regular file");
+    }
+    const existing = fs.readFileSync(absolutePath);
+    if (createHash("sha256").update(existing).digest("hex") !== hash) {
+      throw new Error("Managed inline image asset hash collision");
+    }
+  } else {
+    writeAssetBytesAtRoot(options.assetsRootPath, fileName, bytes);
+  }
+  return { source: getAssetSource(fileName), fileName, mimeType };
+}
+
+/** Live-store wrapper retained for non-staged call sites. */
 export function materializeInlineCanvasImage(
   dataUrl: string,
 ): { readonly source: string; readonly fileName: string; readonly mimeType: string } {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
-    const { bytes, mimeType } = decodeInlineImageDataUrl(dataUrl);
-    const hash = createHash("sha256").update(bytes).digest("hex");
-    const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
-    const fileName = `canvas-${hash}${extension}`;
-    const absolutePath = resolveFlatAssetPath(fileName);
-    if (fs.existsSync(absolutePath)) {
-      const stats = fs.lstatSync(absolutePath);
-      if (!stats.isFile() || stats.isSymbolicLink()) {
-        throw new Error("Managed Canvas asset must be a regular file");
-      }
-      const existing = fs.readFileSync(absolutePath);
-      if (createHash("sha256").update(existing).digest("hex") !== hash) {
-        throw new Error("Managed Canvas asset hash collision");
-      }
-    } else {
-      writeAssetBytes(fileName, bytes);
-    }
-    return { source: getAssetSource(fileName), fileName, mimeType };
+    return materializeInlineImageAtRoot(dataUrl, {
+      assetsRootPath: getAssetsRootPath(),
+      namespace: "canvas",
+    });
   } finally {
     mutation.release();
   }

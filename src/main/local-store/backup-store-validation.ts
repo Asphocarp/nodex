@@ -18,6 +18,10 @@ import {
 } from "../../shared/assets";
 import { CURRENT_SCHEMA_VERSION } from "./schema";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
+import {
+  isCanvasCardReferenceProjectionCurrent,
+  isCanvasFileProjectionCurrent,
+} from "./canvas-scene-projection-equivalence";
 import { MAX_IMAGE_UPLOAD_BYTES } from "./assets";
 
 export interface ValidatedBackupStore {
@@ -295,7 +299,6 @@ const validateManagedAssets = (
 const validateOpenDatabase = (
   database: Database.Database,
   options: {
-    readonly requireCurrentSchema: boolean;
     readonly assetsPath: string;
   },
 ): ValidatedBackupStore => {
@@ -305,16 +308,9 @@ const validateOpenDatabase = (
   const schemaVersion = database.pragma("user_version", {
     simple: true,
   }) as number;
-  const supportedBlockFirstSchema =
-    schemaVersion >= 59 && schemaVersion <= CURRENT_SCHEMA_VERSION;
-  if (
-    (options.requireCurrentSchema && schemaVersion !== CURRENT_SCHEMA_VERSION) ||
-    (!options.requireCurrentSchema && !supportedBlockFirstSchema)
-  ) {
+  if (schemaVersion !== CURRENT_SCHEMA_VERSION) {
     throw new BackupStoreValidationError(
-      options.requireCurrentSchema
-        ? `Backup schema v${schemaVersion} is not the current v${CURRENT_SCHEMA_VERSION}`
-        : `Restore journal schema v${schemaVersion} is outside the supported Block-first range`,
+      `Backup schema v${schemaVersion} is not the current v${CURRENT_SCHEMA_VERSION}`,
     );
   }
 
@@ -497,15 +493,12 @@ const validateOpenDatabase = (
           readonly source_element_id: string;
           readonly target_block_id: string;
         }[];
-        const expectedReferences = authority.scene.cardReferences
-          .map((reference) => ({
-            source_element_id: reference.sourceElementId,
-            target_block_id: reference.targetBlockId,
-          }))
-          .sort((left, right) =>
-            left.source_element_id.localeCompare(right.source_element_id),
-          );
-        if (JSON.stringify(projectedReferences) !== JSON.stringify(expectedReferences)) {
+        if (
+          !isCanvasCardReferenceProjectionCurrent(
+            authority.scene.cardReferences,
+            projectedReferences,
+          )
+        ) {
           projection = undefined;
         }
         const projectedFiles = database
@@ -526,14 +519,7 @@ const validateOpenDatabase = (
           readonly mime_type: string;
           readonly asset_uri: string;
         }[];
-        const expectedFiles = Object.entries(authority.scene.files)
-          .map(([fileId, file]) => ({
-            file_id: fileId,
-            mime_type: file.mimeType,
-            asset_uri: file.source,
-          }))
-          .sort((left, right) => left.file_id.localeCompare(right.file_id));
-        if (JSON.stringify(projectedFiles) !== JSON.stringify(expectedFiles)) {
+        if (!isCanvasFileProjectionCurrent(authority.scene.files, projectedFiles)) {
           projection = undefined;
         }
       } else {
@@ -598,7 +584,6 @@ const validateOpenDatabase = (
 export function validateBackupStore(
   databasePath: string,
   options: {
-    readonly requireCurrentSchema?: boolean;
     readonly assetsPath?: string;
   } = {},
 ): ValidatedBackupStore {
@@ -609,7 +594,6 @@ export function validateBackupStore(
       fileMustExist: true,
     });
     return validateOpenDatabase(database, {
-      requireCurrentSchema: options.requireCurrentSchema ?? true,
       assetsPath:
         options.assetsPath ?? path.join(path.dirname(databasePath), "assets"),
     });

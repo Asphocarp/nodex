@@ -10,7 +10,10 @@ import {
 } from "../../shared/block-documents";
 import { getAssetSource, parseAssetSource } from "../../shared/assets";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
-import { materializeInlineCanvasImage } from "./assets";
+import {
+  materializeInlineCanvasImage,
+  materializeInlineImageAtRoot,
+} from "./assets";
 import {
   getOwnedBlockDocumentDescriptor,
   getOwnedDocumentDescriptor,
@@ -23,6 +26,11 @@ import {
 } from "./legacy-canvas-ydoc-codec";
 
 const PRIMARY_CANVAS_RANK_KEY = "e0000000000000000000000000000000";
+
+export interface EnsurePrimaryCanvasDocumentOptions {
+  readonly mode?: "current" | "shipped_schema_import";
+  readonly assetsRootPath?: string;
+}
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -47,6 +55,7 @@ const hasLegacyCanvasTable = (database: Database.Database): boolean =>
 const readLegacyCanvasScene = (
   database: Database.Database,
   projectId: string,
+  options: EnsurePrimaryCanvasDocumentOptions,
 ): CanvasSceneSnapshot => {
   if (!hasLegacyCanvasTable(database)) {
     return { elements: [], appState: {}, files: {} };
@@ -95,7 +104,12 @@ const readLegacyCanvasScene = (
             mimeType: candidate.mimeType,
           }
         : typeof candidate.dataURL === "string"
-          ? materializeInlineCanvasImage(candidate.dataURL)
+          ? options.assetsRootPath
+            ? materializeInlineImageAtRoot(candidate.dataURL, {
+                assetsRootPath: options.assetsRootPath,
+                namespace: "canvas",
+              })
+            : materializeInlineCanvasImage(candidate.dataURL)
           : null;
     if (!managed) {
       throw new Error(`Legacy Canvas file ${fileId} has no recoverable data`);
@@ -126,9 +140,9 @@ const assertExistingPrimaryCanvas = (
   database: Database.Database,
   projectId: string,
   blockId: string,
+  options: EnsurePrimaryCanvasDocumentOptions,
 ) => {
-  const schemaVersion = database.pragma("user_version", { simple: true }) as number;
-  if (schemaVersion >= 71) {
+  if (options.mode !== "shipped_schema_import") {
     const descriptor = getOwnedDocumentDescriptor(database, projectId, blockId);
     const synced = syncCanvasScene(database, {
       version: 1,
@@ -173,6 +187,7 @@ const assertExistingPrimaryCanvas = (
 export const ensurePrimaryCanvasDocument = (
   database: Database.Database,
   projectId: string,
+  options: EnsurePrimaryCanvasDocumentOptions = {},
 ) => {
   const blockId = primaryCanvasBlockId(projectId);
   const documentId = primaryCanvasDocumentId(projectId);
@@ -180,15 +195,14 @@ export const ensurePrimaryCanvasDocument = (
     .prepare("SELECT 1 FROM blocks WHERE id = ?")
     .get(blockId);
   if (existingBlock) {
-    return assertExistingPrimaryCanvas(database, projectId, blockId);
+    return assertExistingPrimaryCanvas(database, projectId, blockId, options);
   }
   if (
     database.prepare("SELECT 1 FROM documents WHERE id = ?").get(documentId)
   ) {
     throw new Error(`Primary Canvas Document identity collision: ${documentId}`);
   }
-  const schemaVersion = database.pragma("user_version", { simple: true }) as number;
-  const scene = readLegacyCanvasScene(database, projectId);
+  const scene = readLegacyCanvasScene(database, projectId, options);
   const create = database.transaction(() => {
     const now = new Date().toISOString();
     database
@@ -226,7 +240,7 @@ export const ensurePrimaryCanvasDocument = (
       `,
       )
       .run(blockId, projectId, PRIMARY_CANVAS_RANK_KEY, now, now);
-    if (schemaVersion >= 71) {
+    if (options.mode !== "shipped_schema_import") {
       database
         .prepare(
           `INSERT INTO documents (
@@ -273,7 +287,7 @@ export const ensurePrimaryCanvasDocument = (
       `,
       )
       .run(blockId, documentId, projectId, now);
-    if (schemaVersion >= 71) {
+    if (options.mode !== "shipped_schema_import") {
       initializeCanvasSceneAuthority(database, {
         projectId,
         documentId,
@@ -303,17 +317,18 @@ export const ensurePrimaryCanvasDocument = (
     }
   });
   create.immediate();
-  return assertExistingPrimaryCanvas(database, projectId, blockId);
+  return assertExistingPrimaryCanvas(database, projectId, blockId, options);
 };
 
 export const ensurePrimaryCanvasDocuments = (
   database: Database.Database,
+  options: EnsurePrimaryCanvasDocumentOptions = {},
 ): number => {
   const projects = database
     .prepare("SELECT id FROM projects ORDER BY id")
     .all() as readonly { readonly id: string }[];
   projects.forEach((project) =>
-    ensurePrimaryCanvasDocument(database, project.id),
+    ensurePrimaryCanvasDocument(database, project.id, options),
   );
   if (hasLegacyCanvasTable(database)) {
     database.exec("DROP TABLE canvas");

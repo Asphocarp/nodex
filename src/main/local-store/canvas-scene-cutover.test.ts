@@ -13,7 +13,7 @@ import { getOwnedDocumentDescriptor } from "./block-document-cutover";
 import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
-import { migrateSchema70To71 } from "./schema";
+import { cutoverImportedCanvasAuthority } from "./schema";
 import { initializeLegacyCanvasYjsGenesis } from "./block-document-store";
 import { getDocumentVersionDetail } from "./document-versions";
 
@@ -25,7 +25,7 @@ const sha256 = (value: Uint8Array): string =>
 const useFreshStore = async (): Promise<Database.Database> => {
   closeDatabase();
   const directory = fs.mkdtempSync(
-    path.join(os.tmpdir(), "nodex-canvas-v71-cutover-"),
+    path.join(os.tmpdir(), "nodex-canvas-scene-cutover-"),
   );
   directories.push(directory);
   process.env.NODEX_DIR = directory;
@@ -33,7 +33,7 @@ const useFreshStore = async (): Promise<Database.Database> => {
   return getDb();
 };
 
-const seedV70CanvasYjsAuthority = (
+const seedLegacyCanvasYjsAuthority = (
   database: Database.Database,
   projectId: string,
   documentId: string,
@@ -84,8 +84,8 @@ const seedV70CanvasYjsAuthority = (
       documentId,
       storeEpoch,
       generation: 1,
-      updateId: "v70-canvas-genesis",
-      clientSessionId: "v70-fixture",
+      updateId: "legacy-canvas-genesis",
+      clientSessionId: "legacy-fixture",
       update,
       finalAuthority: "ydoc_primary",
     });
@@ -98,7 +98,7 @@ const seedV70CanvasYjsAuthority = (
           checkpoint_format, full_update_blob, state_vector,
           checkpoint_hash, byte_length, created_at
          ) VALUES (
-          'version:v70-canvas', ?, ?, 1, 1, 'nodex.canvas', 1,
+          'version:legacy-canvas', ?, ?, 1, 1, 'nodex.canvas', 1,
           'manual', NULL, '{}', 'yjs_update_v1', ?, ?, ?, ?, ?
          )`,
       )
@@ -111,7 +111,6 @@ const seedV70CanvasYjsAuthority = (
         update.byteLength,
         now,
       );
-    database.pragma("user_version = 70");
   } finally {
     envelope.document.destroy();
   }
@@ -125,8 +124,8 @@ afterEach(() => {
   }
 });
 
-describe("schema v71 Canvas scene cutover", () => {
-  test("rolls back a failed cutover and retries without losing v70 Yjs evidence", async () => {
+describe("Canvas scene authority import", () => {
+  test("rolls back a failed cutover and retries without losing legacy Yjs evidence", async () => {
     const database = await useFreshStore();
     const project = createProject({ name: "Canvas cutover rollback" });
     const descriptor = getOwnedDocumentDescriptor(
@@ -134,10 +133,10 @@ describe("schema v71 Canvas scene cutover", () => {
       project.id,
       primaryCanvasBlockId(project.id),
     );
-    seedV70CanvasYjsAuthority(database, project.id, descriptor.documentId);
+    seedLegacyCanvasYjsAuthority(database, project.id, descriptor.documentId);
 
     expect(() =>
-      migrateSchema70To71(database, {
+      cutoverImportedCanvasAuthority(database, {
         faultInjector: (point) => {
           if (point === "after_version_conversion") {
             throw new Error("injected Canvas cutover failure");
@@ -145,7 +144,6 @@ describe("schema v71 Canvas scene cutover", () => {
         },
       }),
     ).toThrow("injected Canvas cutover failure");
-    expect(database.pragma("user_version", { simple: true })).toBe(70);
     expect(
       database
         .prepare(
@@ -159,15 +157,14 @@ describe("schema v71 Canvas scene cutover", () => {
     expect(
       database
         .prepare(
-          "SELECT checkpoint_format FROM document_versions WHERE version_id = 'version:v70-canvas'",
+          "SELECT checkpoint_format FROM document_versions WHERE version_id = 'version:legacy-canvas'",
         )
         .get(),
     ).toEqual({ checkpoint_format: "yjs_update_v1" });
 
-    const migrated = migrateSchema70To71(database);
+    const migrated = cutoverImportedCanvasAuthority(database);
     expect(migrated.canvasDocumentIds).toContain(descriptor.documentId);
     expect(migrated.convertedVersionCount).toBe(1);
-    expect(database.pragma("user_version", { simple: true })).toBe(71);
   });
 
   test("removes only Canvas Yjs rows, converts checkpoints, and leaves Cards unchanged", async () => {
@@ -180,7 +177,7 @@ describe("schema v71 Canvas scene cutover", () => {
       project.id,
       primaryCanvasBlockId(project.id),
     );
-    seedV70CanvasYjsAuthority(
+    seedLegacyCanvasYjsAuthority(
       database,
       project.id,
       canvasDescriptor.documentId,
@@ -194,7 +191,7 @@ describe("schema v71 Canvas scene cutover", () => {
         .get(cardDescriptor.documentId) as { readonly count: number }
     ).count;
 
-    migrateSchema70To71(database);
+    cutoverImportedCanvasAuthority(database);
 
     expect(
       database
@@ -219,7 +216,7 @@ describe("schema v71 Canvas scene cutover", () => {
       .prepare(
         `SELECT checkpoint_format, length(state_vector) AS state_vector_bytes,
           checkpoint_hash, full_update_blob
-         FROM document_versions WHERE version_id = 'version:v70-canvas'`,
+         FROM document_versions WHERE version_id = 'version:legacy-canvas'`,
       )
       .get() as {
       readonly checkpoint_format: string;
@@ -246,7 +243,7 @@ describe("schema v71 Canvas scene cutover", () => {
       getDocumentVersionDetail(database, {
         projectId: project.id,
         documentId: canvasDescriptor.documentId,
-        versionId: "version:v70-canvas",
+        versionId: "version:legacy-canvas",
       }).materialization,
     ).toMatchObject({
       kind: "canvas_scene",

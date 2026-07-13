@@ -14,6 +14,7 @@ import { MAX_CARD_DOCUMENT_STATE_BYTES } from "../../shared/block-documents/cont
 import type { BlockDocumentReference } from "../../shared/block-documents/derived-records";
 import { parseProjectSessionTabConfig } from "../../shared/schemas/project-sessions";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
+import { isCanvasCardReferenceProjectionCurrent } from "./canvas-scene-projection-equivalence";
 
 export const BLOCK_RETENTION_GC_POLICY_VERSION = 1 as const;
 
@@ -150,35 +151,6 @@ interface BlockerCollector {
   ) => void;
   readonly finish: () => readonly BlockRetentionGcBlocker[];
 }
-
-interface CanvasCardReferenceProjection {
-  readonly source_element_id: string;
-  readonly target_block_id: string;
-}
-
-/** Compare reference identity as a keyed relation, independent of SQL/JS collation. */
-export const isCanvasCardReferenceProjectionCurrent = (
-  authorityReferences: readonly {
-    readonly sourceElementId: string;
-    readonly targetBlockId: string;
-  }[],
-  projectedReferences: readonly CanvasCardReferenceProjection[],
-): boolean => {
-  const expectedBySourceElement = new Map<string, string>();
-  for (const reference of authorityReferences) {
-    if (expectedBySourceElement.has(reference.sourceElementId)) return false;
-    expectedBySourceElement.set(
-      reference.sourceElementId,
-      reference.targetBlockId,
-    );
-  }
-  if (projectedReferences.length !== expectedBySourceElement.size) return false;
-  return projectedReferences.every(
-    (reference) =>
-      expectedBySourceElement.get(reference.source_element_id) ===
-      reference.target_block_id,
-  );
-};
 
 const MAX_RETAINED_TOMBSTONES = 100_000;
 const MAX_GC_CANDIDATES = 1_000;

@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { CanvasSceneMaterialization } from "./legacy-canvas-ydoc-codec";
 
-/** Persist the v68-v70 Canvas Y.Doc projection required only during cutover. */
+/** Persist the legacy Canvas Y.Doc projection required only during import. */
 export const persistLegacyCanvasYjsMaterialization = (
   database: Database.Database,
   input: {

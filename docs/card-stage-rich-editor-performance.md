@@ -81,7 +81,7 @@ NFM remains the public text interchange and read format. Full serialization is a
 - materialization/export after a validated Document transaction;
 - raw read-only display;
 - sending selected/current content to another product surface;
-- genesis import during creation or the v69→v70 finalizer;
+- genesis import during creation or shipped-store finalization;
 - explicit `ReplaceDocumentFromNfm` with current generation/head CAS.
 
 Explicit replacement parses NFM and compiles stable-ID operations against the current Y.Doc. It creates a forward Yjs update; it does not replace the Y.Doc, reset causal history, or write NFM directly as authority.

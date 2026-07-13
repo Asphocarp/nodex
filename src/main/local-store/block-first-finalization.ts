@@ -319,13 +319,13 @@ const assertCanonicalCardDocuments = (
  */
 export const finalizeBlockFirstAuthority = async (
   database: Database.Database,
-  targetSchemaVersion = 70,
+  prepareLegacyCards: () => void = () => undefined,
 ): Promise<BlockFirstFinalizationResult> => {
-  // Older v69 builds compared persisted toggle disclosure markers even though
-  // Card Documents deliberately keep disclosure state window-local. Retrying
-  // only that obsolete failure is safe: the failed attempt rolled back, the
-  // job remains fenced to the same source revision, and any current failure
-  // still fails closed below.
+  // Persisted import jobs may contain obsolete toggle-disclosure parity
+  // failures even though Card Documents keep disclosure state window-local.
+  // Retrying only that obsolete failure is safe: the failed attempt rolled
+  // back, the job remains fenced to the same source revision, and any current
+  // failure still fails closed below.
   const requeuedObsoleteParityFailures =
     requeueObsoleteToggleDisclosureParityFailures(database);
   let shadowJobsProcessed = 0;
@@ -334,6 +334,7 @@ export const finalizeBlockFirstAuthority = async (
   let reachedFixedPoint = false;
 
   for (let round = 0; round < MAX_FIXED_POINT_ROUNDS; round += 1) {
+    prepareLegacyCards();
     shadowJobsProcessed += drainLegacyShadows(database);
     const migrated = await migrateForeignReferences(database);
     foreignDocumentsProcessed += migrated;
@@ -357,10 +358,7 @@ export const finalizeBlockFirstAuthority = async (
 
   const finalizedDeletedDocuments = finalizeDeletedCardDocuments(database);
   assertCanonicalCardDocuments(database);
-  const droppedTables = dropLegacyBlockFirstTables(
-    database,
-    targetSchemaVersion,
-  );
+  const droppedTables = dropLegacyBlockFirstTables(database);
   return {
     requeuedObsoleteParityFailures,
     shadowJobsProcessed,

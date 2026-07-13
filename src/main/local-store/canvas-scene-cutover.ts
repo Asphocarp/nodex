@@ -21,6 +21,7 @@ export type CanvasSceneCutoverFaultPoint =
   | "after_yjs_prune";
 
 export interface CanvasSceneCutoverOptions {
+  readonly assetsRootPath?: string;
   readonly faultInjector?: (
     point: CanvasSceneCutoverFaultPoint,
     documentId: string,
@@ -83,7 +84,7 @@ const decodeCanvasVersion = (
 ): PortableCanvasScene => {
   const document = new Y.Doc({ guid: documentId });
   try {
-    Y.applyUpdate(document, version.full_update_blob, "canvas-v71-cutover");
+    Y.applyUpdate(document, version.full_update_blob, "canvas-scene-import");
     if (
       document.store.pendingStructs !== null ||
       document.store.pendingDs !== null
@@ -141,7 +142,7 @@ const convertCanvasVersions = (
 };
 
 /**
- * Convert every ready Canvas from its v70 Y.Doc into normalized scene-native
+ * Convert every ready Canvas from its legacy Y.Doc into normalized scene-native
  * authority. The caller must wrap this function and schema changes in one
  * IMMEDIATE transaction; no destructive step occurs before both live scene
  * and retained checkpoints have decoded and validated.
@@ -193,7 +194,7 @@ export const cutoverCanvasScenesFromYjs = (
         );
       if (changedEngine.changes !== 1) {
         throw new Error(
-          `Canvas Document changed before v71 import: ${document.document_id}`,
+          `Canvas Document changed before scene import: ${document.document_id}`,
         );
       }
       const initialized = initializeCanvasSceneAuthority(database, {
@@ -202,13 +203,14 @@ export const cutoverCanvasScenesFromYjs = (
         expectedGeneration: document.generation,
         expectedHeadSeq: document.head_seq,
         scene,
+        assetsRootPath: options.assetsRootPath,
       });
       if (
         canonicalPortableCanvasSceneFingerprint(initialized.scene) !==
         canonicalPortableCanvasSceneFingerprint(scene)
       ) {
         throw new Error(
-          `Canvas scene changed during v71 import: ${document.document_id}`,
+          `Canvas scene changed during scene import: ${document.document_id}`,
         );
       }
       options.faultInjector?.("after_canvas_import", document.document_id);
@@ -245,7 +247,7 @@ export const cutoverCanvasScenesFromYjs = (
         version: 1,
         projectId: document.project_id,
         documentId: document.document_id,
-        clientSessionId: "system:canvas-v71-cutover",
+        clientSessionId: "system:canvas-scene-import",
       });
       if (
         !verified.ok ||
@@ -253,7 +255,7 @@ export const cutoverCanvasScenesFromYjs = (
           canonicalPortableCanvasSceneFingerprint(scene)
       ) {
         throw new Error(
-          `Canvas scene failed v71 verification: ${document.document_id}`,
+          `Canvas scene failed scene-import verification: ${document.document_id}`,
         );
       }
       const remainingYjsRows = (
@@ -273,7 +275,7 @@ export const cutoverCanvasScenesFromYjs = (
       ).count;
       if (remainingYjsRows !== 0) {
         throw new Error(
-          `Canvas retained Yjs authority after v71 cutover: ${document.document_id}`,
+          `Canvas retained Yjs authority after scene cutover: ${document.document_id}`,
         );
       }
     }
@@ -314,18 +316,18 @@ export const cutoverCanvasScenesFromYjs = (
       document.authority !== "ydoc_primary"
     ) {
       throw new Error(
-        `Canvas Document did not reach v71 scene authority: ${document.document_id}`,
+        `Canvas Document did not reach scene authority: ${document.document_id}`,
       );
     }
     const synced = syncCanvasScene(database, {
       version: 1,
       projectId: document.project_id,
       documentId: document.document_id,
-      clientSessionId: "system:canvas-v71-final-verification",
+      clientSessionId: "system:canvas-scene-final-verification",
     });
     if (!synced.ok) {
       throw new Error(
-        `Canvas Document failed final v71 verification: ${document.document_id}`,
+        `Canvas Document failed final scene verification: ${document.document_id}`,
       );
     }
     const yjsRows = (
@@ -345,7 +347,7 @@ export const cutoverCanvasScenesFromYjs = (
     ).count;
     if (yjsRows === 0) continue;
     throw new Error(
-      `Canvas Document retained Yjs rows after v71 verification: ${document.document_id}`,
+      `Canvas Document retained Yjs rows after scene verification: ${document.document_id}`,
     );
   }
   return {

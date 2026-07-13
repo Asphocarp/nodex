@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { extractPlainText, parseNfm, serializeNfm } from "../../shared/nfm";
 
 /**
- * Pre-v70 migration codec only. Runtime Card history and editing use
+ * Shipped-store import codec only. Runtime Card history and editing use
  * Document versions/Yjs updates; no production mutation path may import this
  * Module after Block-first finalization.
  */

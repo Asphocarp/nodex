@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import Database from "better-sqlite3";
 import { getDatabasePath, getLocalStoreDir } from "./config";
 import { validateBackupStore } from "./backup-store-validation";
+import { CURRENT_SCHEMA_VERSION } from "./schema";
 
 const JOURNAL_FILE_NAME = ".store-restore-journal.json";
 const JOURNAL_VERSION = 1;
@@ -104,6 +106,116 @@ const movePath = (sourcePath: string, destinationPath: string): void => {
   }
 };
 
+const validateShippedMigrationRollbackSource = (
+  databasePath: string,
+): 26 | 57 => {
+  let database: Database.Database | null = null;
+  try {
+    database = new Database(databasePath, {
+      readonly: true,
+      fileMustExist: true,
+    });
+    const schemaVersion = database.pragma("user_version", {
+      simple: true,
+    }) as number;
+    if (schemaVersion !== 26 && schemaVersion !== 57) {
+      throw new Error(
+        `Expected shipped schema v26 or v57, received v${schemaVersion}`,
+      );
+    }
+    const quickCheck = database.pragma("quick_check") as readonly {
+      readonly quick_check: string;
+    }[];
+    if (quickCheck.length !== 1 || quickCheck[0]?.quick_check !== "ok") {
+      throw new Error(`Shipped v${schemaVersion} database quick_check failed`);
+    }
+    const foreignKeyViolations = database.pragma(
+      "foreign_key_check",
+    ) as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Shipped v${schemaVersion} database has ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    const requiredTables = database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name IN ('projects', 'cards')
+         ORDER BY name`,
+      )
+      .all() as readonly { readonly name: string }[];
+    if (requiredTables.length !== 2) {
+      throw new Error(
+        `Shipped v${schemaVersion} database is missing core tables`,
+      );
+    }
+    return schemaVersion;
+  } finally {
+    database?.close();
+  }
+};
+
+const validateJournalStorePath = (databasePath: string): number => {
+  let currentValidationError: unknown;
+  try {
+    const current = validateBackupStore(databasePath);
+    if (current.schemaVersion === CURRENT_SCHEMA_VERSION) {
+      return current.schemaVersion;
+    }
+  } catch (error) {
+    currentValidationError = error;
+  }
+
+  let database: Database.Database | null = null;
+  let schemaVersion: number;
+  try {
+    database = new Database(databasePath, {
+      readonly: true,
+      fileMustExist: true,
+    });
+    schemaVersion = database.pragma("user_version", {
+      simple: true,
+    }) as number;
+  } catch (error) {
+    throw currentValidationError ?? error;
+  } finally {
+    database?.close();
+  }
+  if (schemaVersion === 26 || schemaVersion === 57) {
+    return validateShippedMigrationRollbackSource(databasePath);
+  }
+  throw new Error(
+    `Restore journal store schema v${schemaVersion} is unsupported`,
+  );
+};
+
+export function installStagedStoreFiles(
+  stagingDirectoryPath: string,
+  rollbackDirectoryPath: string,
+  paths: StoreRestorePaths = defaultStoreRestorePaths(),
+): void {
+  const databasePath = paths.databasePath;
+  const assetsPath = path.join(
+    paths.localStoreDirectoryPath,
+    ASSETS_DIRECTORY_NAME,
+  );
+  fs.mkdirSync(rollbackDirectoryPath, { recursive: true });
+
+  movePath(databasePath, path.join(rollbackDirectoryPath, "nodex.db"));
+  movePath(`${databasePath}-wal`, path.join(rollbackDirectoryPath, "nodex.db-wal"));
+  movePath(`${databasePath}-shm`, path.join(rollbackDirectoryPath, "nodex.db-shm"));
+  movePath(
+    assetsPath,
+    path.join(rollbackDirectoryPath, ASSETS_DIRECTORY_NAME),
+  );
+  movePath(path.join(stagingDirectoryPath, "nodex.db"), databasePath);
+  movePath(
+    path.join(stagingDirectoryPath, ASSETS_DIRECTORY_NAME),
+    assetsPath,
+  );
+  fsyncDirectory(paths.localStoreDirectoryPath);
+}
+
 const assertJournalPath = (
   candidatePath: string,
   prefix: ".restore-" | ".rollback-",
@@ -188,13 +300,15 @@ export function createStoreRestoreJournal(input: {
     throw new Error("An interrupted whole-store restore must be recovered first");
   }
   const databasePath = paths.databasePath;
-  const sourceStore = validateBackupStore(databasePath, {
-    requireCurrentSchema: false,
-  });
-  const installedStore = validateBackupStore(
+  const sourceSchemaVersion = validateJournalStorePath(databasePath);
+  const installedSchemaVersion = validateJournalStorePath(
     path.join(input.stagingDirectoryPath, "nodex.db"),
-    { requireCurrentSchema: false },
   );
+  if (installedSchemaVersion !== CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `Staged store schema v${installedSchemaVersion} is not current v${CURRENT_SCHEMA_VERSION}`,
+    );
+  }
   const journal: StoreRestoreJournal = {
     version: 1,
     backupId: input.backupId,
@@ -214,8 +328,8 @@ export function createStoreRestoreJournal(input: {
     ),
     hadWal: fs.existsSync(`${databasePath}-wal`),
     hadShm: fs.existsSync(`${databasePath}-shm`),
-    sourceSchemaVersion: sourceStore.schemaVersion,
-    installedSchemaVersion: installedStore.schemaVersion,
+    sourceSchemaVersion,
+    installedSchemaVersion,
     updatedAt: new Date().toISOString(),
   };
   persistJournal(journal, paths);
@@ -307,12 +421,10 @@ const validateJournalStore = (
   expectedSchemaVersion: number,
   paths: StoreRestorePaths,
 ): void => {
-  const validated = validateBackupStore(paths.databasePath, {
-    requireCurrentSchema: false,
-  });
-  if (validated.schemaVersion !== expectedSchemaVersion) {
+  const schemaVersion = validateJournalStorePath(paths.databasePath);
+  if (schemaVersion !== expectedSchemaVersion) {
     throw new Error(
-      `Recovered store schema v${validated.schemaVersion} does not match journal v${expectedSchemaVersion}`,
+      `Recovered store schema v${schemaVersion} does not match journal v${expectedSchemaVersion}`,
     );
   }
 };

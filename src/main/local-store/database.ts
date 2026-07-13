@@ -2,17 +2,15 @@ import Database from "better-sqlite3";
 import * as fs from "fs";
 import { getDatabasePath, getLocalStoreDir } from "./config";
 import { migrateLegacyDatabaseFileName } from "./database-file-migration";
-import { finalizeBlockFirstAuthority } from "./block-first-finalization";
-import {
-  CURRENT_SCHEMA_VERSION,
-  ensureDatabase,
-  type EnsureDatabaseOptions,
-} from "./schema";
+import { ensureDatabase } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
 import { ensurePrimaryCanvasDocuments } from "./primary-canvas-document";
 import { finalizeRichCardTitleSchema } from "./rich-title-schema-finalization";
 import { assertLegacyCardPromotionCutoverReady } from "./legacy-card-promotion-cutover";
-import { repairDocumentSecondaryProjections } from "./block-document-projections";
+import {
+  migrateShippedSchemaStoreToCurrent,
+  type ShippedSchemaMigrationOptions,
+} from "./shipped-schema-migration";
 
 let db: Database.Database | null = null;
 const DATABASE_MAINTENANCE_LEASE_ENV =
@@ -98,43 +96,15 @@ export function closeDatabase(): void {
   db = null;
 }
 
-export async function initializeDatabase(options?: EnsureDatabaseOptions): Promise<void> {
+export async function initializeDatabase(
+  options?: ShippedSchemaMigrationOptions,
+): Promise<void> {
   recoverInterruptedStoreRestore();
-  ensureDatabase(options);
+  migrateLegacyDatabaseFileName(getLocalStoreDir());
+  await migrateShippedSchemaStoreToCurrent(options);
+  ensureDatabase();
   const database = getDb();
-  const schemaVersion = database.pragma("user_version", {
-    simple: true,
-  }) as number;
-  if (schemaVersion === CURRENT_SCHEMA_VERSION) {
-    ensurePrimaryCanvasDocuments(database);
-    finalizeRichCardTitleSchema(database);
-    assertLegacyCardPromotionCutoverReady(database);
-    return;
-  }
-  if (schemaVersion !== 69) {
-    throw new Error(
-      `Cannot finalize Block-first schema v${schemaVersion}; expected v69`,
-    );
-  }
-
-  // The asynchronous fixed point consumes the legacy v69 Canvas Y.Doc shape.
-  // Reopening through ensureDatabase then applies the two synchronous edges in
-  // order: scene-native authority (v71), followed by exclusive parents (v72).
   ensurePrimaryCanvasDocuments(database);
-  await finalizeBlockFirstAuthority(database, 70);
-  closeDatabase();
-  ensureDatabase(options);
-  const migratedDatabase = getDb();
-  const migratedVersion = migratedDatabase.pragma("user_version", {
-    simple: true,
-  }) as number;
-  if (migratedVersion !== CURRENT_SCHEMA_VERSION) {
-    throw new Error(
-      `Nodex database stopped at schema v${migratedVersion}; expected v${CURRENT_SCHEMA_VERSION}`,
-    );
-  }
-  ensurePrimaryCanvasDocuments(migratedDatabase);
-  finalizeRichCardTitleSchema(migratedDatabase);
-  assertLegacyCardPromotionCutoverReady(migratedDatabase);
-  repairDocumentSecondaryProjections(migratedDatabase);
+  finalizeRichCardTitleSchema(database);
+  assertLegacyCardPromotionCutoverReady(database);
 }

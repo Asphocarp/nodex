@@ -1979,7 +1979,7 @@ export const loadPrimaryBlockDocument = (
 ): LoadedBlockDocument =>
   loadBlockDocumentWithAuthority(database, documentId, "ydoc_primary", options);
 
-/** One-way v71 cutover seam for reading the former Canvas Y.Doc authority. */
+/** One-way import seam for reading the shipped Canvas Y.Doc authority. */
 export const loadLegacyCanvasYjsDocumentForCutover = (
   database: Database.Database,
   documentId: DocumentId,
@@ -2480,8 +2480,8 @@ const initializeBlockDocumentGenesisWithMode = (
         input.documentId,
         input.generation,
       );
-    // Legacy Canvas genesis exists only as v70 cutover input. Its normalized
-    // v71 authority rebuilds secondary projections after the engine switch.
+    // Legacy Canvas genesis exists only as shipped-store import input. Its
+    // normalized authority rebuilds projections after the engine switch.
     if (mode === "yjs" && genesisMaterialization.kind !== "canvas_scene") {
       replaceDocumentSecondaryProjections(database, {
         documentId: input.documentId,
@@ -2515,7 +2515,7 @@ export const initializeBlockDocumentGenesis = (
 ): DocumentUpdateAck =>
   initializeBlockDocumentGenesisWithMode(database, input, "yjs");
 
-/** v69/v70 import seam; new Canvas Documents initialize through scene storage. */
+/** Shipped-store import seam; new Canvas Documents use scene storage. */
 export const initializeLegacyCanvasYjsGenesis = (
   database: Database.Database,
   input: InitializeBlockDocumentGenesis,

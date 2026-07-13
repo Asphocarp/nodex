@@ -1,5 +1,5 @@
 /**
- * Migration-only codec for importing the pre-v71 Canvas Y.Doc representation.
+ * Import-only codec for the shipped Canvas Y.Doc representation.
  * Runtime Canvas code must use the portable scene contracts and scene store.
  */
 export {

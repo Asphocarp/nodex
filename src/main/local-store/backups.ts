@@ -28,6 +28,7 @@ import {
   createStoreRestoreJournal,
   fsyncDirectory,
   fsyncPathRecursively,
+  installStagedStoreFiles,
   rollbackStoreRestore,
   type StoreRestoreJournal,
   type StoreRestorePaths,
@@ -130,17 +131,6 @@ function ensureDirectory(directoryPath: string): void {
 function removePathIfExists(targetPath: string): void {
   if (!fs.existsSync(targetPath)) return;
   fs.rmSync(targetPath, { recursive: true, force: true });
-}
-
-function movePathIfExists(sourcePath: string, destinationPath: string): void {
-  if (!fs.existsSync(sourcePath)) return;
-  fs.renameSync(sourcePath, destinationPath);
-  const sourceParent = path.dirname(sourcePath);
-  const destinationParent = path.dirname(destinationPath);
-  fsyncDirectory(sourceParent);
-  if (destinationParent !== sourceParent) {
-    fsyncDirectory(destinationParent);
-  }
 }
 
 function copyPathIfExists(sourcePath: string, destinationPath: string): void {
@@ -318,39 +308,6 @@ function prepareRestoreStaging(
   }
 }
 
-function installStagedStore(
-  stagingDirectoryPath: string,
-  rollbackDirectoryPath: string,
-): void {
-  const databasePath = getDatabasePath();
-  const databaseWalPath = `${databasePath}-wal`;
-  const databaseShmPath = `${databasePath}-shm`;
-  const assetsPath = getAssetsRootPath();
-
-  movePathIfExists(databasePath, path.join(rollbackDirectoryPath, "nodex.db"));
-  movePathIfExists(
-    databaseWalPath,
-    path.join(rollbackDirectoryPath, "nodex.db-wal"),
-  );
-  movePathIfExists(
-    databaseShmPath,
-    path.join(rollbackDirectoryPath, "nodex.db-shm"),
-  );
-  movePathIfExists(
-    assetsPath,
-    path.join(rollbackDirectoryPath, BACKUP_ASSETS_DIR_NAME),
-  );
-
-  movePathIfExists(
-    path.join(stagingDirectoryPath, BACKUP_DB_FILE_NAME),
-    databasePath,
-  );
-  movePathIfExists(
-    path.join(stagingDirectoryPath, BACKUP_ASSETS_DIR_NAME),
-    assetsPath,
-  );
-}
-
 async function restoreBackupInternal(
   input: RestoreBackupInput,
 ): Promise<RestoreBackupResult> {
@@ -421,7 +378,11 @@ async function restoreBackupInternal(
           "rollback_started",
           restorePaths,
         );
-        installStagedStore(stagingDirectoryPath!, rollbackDirectoryPath);
+        installStagedStoreFiles(
+          stagingDirectoryPath!,
+          rollbackDirectoryPath,
+          restorePaths,
+        );
         journal = advanceStoreRestoreJournal(
           journal,
           "install_started",

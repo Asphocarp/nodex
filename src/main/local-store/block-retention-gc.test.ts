@@ -13,11 +13,14 @@ import {
 } from "./database";
 import { createProject } from "./projects";
 import {
-  isCanvasCardReferenceProjectionCurrent,
   planBlockRetentionGc,
   type BlockRetentionGcBlockerKind,
   type BlockRetentionGcCandidate,
 } from "./block-retention-gc";
+import {
+  isCanvasCardReferenceProjectionCurrent,
+  isCanvasFileProjectionCurrent,
+} from "./canvas-scene-projection-equivalence";
 
 const supportsBetterSqlite = (() => {
   try {
@@ -203,6 +206,39 @@ describe("Block retention GC kernel", () => {
       isCanvasCardReferenceProjectionCurrent(authority, [
         ...sqliteBinaryOrder.slice(0, 2),
         { source_element_id: "sIV", target_block_id: "another-card" },
+      ]),
+    ).toBe(false);
+  });
+
+  test("compares Canvas file projections without locale-dependent ordering", () => {
+    const authority = {
+      sIV: { mimeType: "image/png", source: "nodex://assets/c.png" },
+      "-Rf": { mimeType: "image/png", source: "nodex://assets/a.png" },
+      Xbq: { mimeType: "image/jpeg", source: "nodex://assets/b.jpg" },
+    };
+    const sqliteBinaryOrder = [
+      {
+        file_id: "-Rf",
+        mime_type: "image/png",
+        asset_uri: "nodex://assets/a.png",
+      },
+      {
+        file_id: "Xbq",
+        mime_type: "image/jpeg",
+        asset_uri: "nodex://assets/b.jpg",
+      },
+      {
+        file_id: "sIV",
+        mime_type: "image/png",
+        asset_uri: "nodex://assets/c.png",
+      },
+    ];
+
+    expect(isCanvasFileProjectionCurrent(authority, sqliteBinaryOrder)).toBe(true);
+    expect(
+      isCanvasFileProjectionCurrent(authority, [
+        ...sqliteBinaryOrder.slice(0, 2),
+        { ...sqliteBinaryOrder[2], asset_uri: "nodex://assets/other.png" },
       ]),
     ).toBe(false);
   });

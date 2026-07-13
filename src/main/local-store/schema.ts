@@ -6,12 +6,6 @@ import { getDatabasePath } from "./config";
 import { migrateLegacyDatabaseFileName } from "./database-file-migration";
 import type { DatabaseMigrationProgress } from "../../shared/app-startup";
 import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
-import {
-  makeProjectSessionPanelLayout,
-  normalizeProjectSessionPanelLayout,
-  pruneEmptyProjectSessionPanelLeaves,
-} from "../../shared/project-session-panel-layout";
-import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { deriveBlockDocumentRecordsFromNfm } from "../../shared/block-documents/derived-records";
 import {
@@ -19,10 +13,7 @@ import {
   type DatabaseViewFilterNode,
 } from "../../shared/database-kernel";
 import {
-  INITIAL_DATABASE_VIEW_SESSION_TITLE,
-  insertDatabaseViewTab,
   insertInitialDatabaseViewSession,
-  makeInitialDatabaseViewPanelStateJson,
   seededPrimaryDatabaseViewId,
 } from "./project-session-defaults";
 import { dropLegacyBlockFirstTables } from "./block-first-legacy-schema";
@@ -34,21 +25,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 74;
-const MIGRATION_TARGETS = [
-  31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-    51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
-  70, 71, 72, 73, 74,
-] as const;
+export const CURRENT_SCHEMA_VERSION = 58;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
-const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
-  "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder'";
-const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V33 =
-  "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder', 'side_chat_placeholder'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
-const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
-const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
   "retired_block_identities",
@@ -2892,22 +2872,8 @@ export function getSchemaMigrationTargets(
   currentVersion: number,
 ): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-
-  if (currentVersion === 26 || currentVersion === 30)
-    return [...MIGRATION_TARGETS];
-  if (currentVersion === 36)
-    return MIGRATION_TARGETS.slice(MIGRATION_TARGETS.indexOf(37));
-
-  const index = MIGRATION_TARGETS.indexOf(
-    currentVersion as (typeof MIGRATION_TARGETS)[number],
-  );
-  if (index >= 0) {
-    const targets = MIGRATION_TARGETS.slice(index + 1);
-    const blockFirstFinalizationIndex = targets.indexOf(70);
-    if (blockFirstFinalizationIndex >= 0) {
-      return targets.slice(0, blockFirstFinalizationIndex + 1);
-    }
-    return targets;
+  if (currentVersion === 26 || currentVersion === 57) {
+    return [CURRENT_SCHEMA_VERSION];
   }
   return null;
 }
@@ -2934,10 +2900,10 @@ const CARD_BEHAVIOR_RECORD_TABLES: CardBehaviorRecordTableNames = {
   reminderSnoozes: "reminder_snoozes",
 };
 
-const V66_CARD_BEHAVIOR_RECORD_TABLES: CardBehaviorRecordTableNames = {
-  recurrenceExceptions: "recurrence_exceptions_v66",
-  reminderReceipts: "reminder_receipts_v66",
-  reminderSnoozes: "reminder_snoozes_v66",
+const CARD_BEHAVIOR_IMPORT_SOURCE_TABLES: CardBehaviorRecordTableNames = {
+  recurrenceExceptions: "recurrence_exceptions_import_source",
+  reminderReceipts: "reminder_receipts_import_source",
+  reminderSnoozes: "reminder_snoozes_import_source",
 };
 
 const CARD_BEHAVIOR_OWNER_TRIGGER_DEFINITIONS = [
@@ -3172,12 +3138,7 @@ function createCardBehaviorRecordSchema(db: Database.Database): void {
   createCardBehaviorRecordIndexesAndTriggers(db);
 }
 
-/**
- * Build the complete v69 migration schema. Fresh stores immediately pass this
- * through the v70 legacy-table drop; the exported seam also lets the
- * content-aware finalizer be verified against the exact predecessor schema.
- */
-export function createBlockFirstPreFinalizationSchema(
+function createShippedV57Schema(
   db: Database.Database,
 ): void {
   db.exec(`
@@ -3605,6 +3566,82 @@ export function createBlockFirstPreFinalizationSchema(
       ON card_history_snapshots(project_id, card_id, history_id);
 
   `);
+}
+
+function createShippedV57BehaviorAndCanvasSchema(
+  db: Database.Database,
+): void {
+  db.exec(`
+    CREATE TABLE recurrence_exceptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      occurrence_start TEXT NOT NULL,
+      exception_type TEXT NOT NULL,
+      override_start TEXT,
+      override_end TEXT,
+      override_reminders_json TEXT,
+      created TEXT NOT NULL,
+      CHECK (exception_type IN ('skip', 'override_time'))
+    );
+    CREATE UNIQUE INDEX idx_recurrence_exceptions_unique
+      ON recurrence_exceptions(project_id, card_id, occurrence_start);
+    CREATE INDEX idx_recurrence_exceptions_lookup
+      ON recurrence_exceptions(project_id, card_id, occurrence_start);
+
+    CREATE TABLE reminder_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      occurrence_start TEXT NOT NULL,
+      reminder_offset_minutes INTEGER NOT NULL,
+      delivered_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX idx_reminder_receipts_unique
+      ON reminder_receipts(
+        project_id, card_id, occurrence_start, reminder_offset_minutes
+      );
+    CREATE INDEX idx_reminder_receipts_lookup
+      ON reminder_receipts(project_id, delivered_at DESC);
+
+    CREATE TABLE reminder_snoozes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      occurrence_start TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      consumed_at TEXT
+    );
+    CREATE INDEX idx_reminder_snoozes_lookup
+      ON reminder_snoozes(project_id, due_at, consumed_at);
+
+    CREATE TABLE canvas (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      elements TEXT NOT NULL DEFAULT '[]',
+      app_state TEXT NOT NULL DEFAULT '{}',
+      files TEXT NOT NULL DEFAULT '{}',
+      updated TEXT NOT NULL
+    );
+  `);
+}
+
+/** Test fixture builder for the shipped v57 migration input. */
+export function createShippedV57SchemaFixture(
+  db: Database.Database,
+): void {
+  createShippedV57Schema(db);
+  createShippedV57BehaviorAndCanvasSchema(db);
+  setUserVersion(db, 57);
+}
+
+/**
+ * Build the complete private pre-finalization schema used inside staging.
+ */
+export function createBlockFirstPreFinalizationSchema(
+  db: Database.Database,
+): void {
+  createShippedV57Schema(db);
   createBlockFoundationSchema(db);
   createRetiredBlockIdentitySchema(db);
   createCardBehaviorRecordSchema(db);
@@ -3616,7 +3653,7 @@ export function createBlockFirstPreFinalizationSchema(
   createCanvasSceneDerivedProjectionSchema(db);
 }
 
-/** v68-v70 compatibility projection; v71 drops it after scene cutover. */
+/** Temporary Canvas Y.Doc projection used only by the shipped-store import. */
 function createLegacyCanvasSceneMaterializationSchema(
   db: Database.Database,
 ): void {
@@ -4207,45 +4244,6 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
   }
 }
 
-function makeLegacyOverviewSessionId(projectId: string): string {
-  return `overview:${projectId}`;
-}
-
-function makeLegacyOverviewDbTabId(projectId: string): string {
-  return `overview:${projectId}:db`;
-}
-
-function makePanelLayout(tabIds: string[], activeTabId: string | null) {
-  return makeProjectSessionPanelLayout(tabIds, activeTabId);
-}
-
-function makePanelStateJson(input: {
-  rightTabIds: string[];
-  bottomTabIds: string[];
-  overview: boolean;
-}): string {
-  return JSON.stringify({
-    right: {
-      collapsed: false,
-      layout: makePanelLayout(input.rightTabIds, input.rightTabIds[0] ?? null),
-      size: {
-        widthPx: 600,
-        fullWidth: input.overview,
-      },
-    },
-    bottom: {
-      collapsed: input.bottomTabIds.length === 0,
-      layout: makePanelLayout(
-        input.bottomTabIds,
-        input.bottomTabIds[0] ?? null,
-      ),
-      size: {
-        heightPx: 280,
-      },
-    },
-  });
-}
-
 function tableHasColumn(
   db: Database.Database,
   tableName: string,
@@ -4258,2045 +4256,20 @@ function tableHasColumn(
   ).some((column) => column.name === columnName);
 }
 
-function tableExists(db: Database.Database, tableName: string): boolean {
-  return Boolean(
-    db
-      .prepare(
-        `
-    SELECT 1
-    FROM sqlite_master
-    WHERE type = 'table' AND name = ?
-  `,
-      )
-      .get(tableName),
-  );
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-function ensureProjectSessionsNoThreadFallbackTitle(
-  db: Database.Database,
-): void {
-  if (!tableExists(db, "project_sessions")) return;
-  if (tableHasColumn(db, "project_sessions", "no_thread_fallback_title"))
-    return;
-
-  const defaultTitle = sqlStringLiteral(DEFAULT_NO_THREAD_FALLBACK_TITLE);
-  db.exec(`
-    ALTER TABLE project_sessions
-      ADD COLUMN no_thread_fallback_title TEXT NOT NULL DEFAULT ${defaultTitle};
-  `);
-
-  if (tableHasColumn(db, "project_sessions", "title")) {
-    db.exec(`
-      UPDATE project_sessions
-      SET no_thread_fallback_title = COALESCE(NULLIF(TRIM(title), ''), ${defaultTitle});
-    `);
-  }
-}
-
-function projectSessionNoThreadFallbackSelectExpression(
-  db: Database.Database,
-): string {
-  const fallbackTitle = sqlStringLiteral(DEFAULT_NO_THREAD_FALLBACK_TITLE);
-  const candidates = [
-    tableHasColumn(db, "project_sessions", "no_thread_fallback_title")
-      ? "NULLIF(TRIM(no_thread_fallback_title), '')"
-      : null,
-    tableHasColumn(db, "project_sessions", "title")
-      ? "NULLIF(TRIM(title), '')"
-      : null,
-  ].filter((candidate): candidate is string => candidate !== null);
-
-  return candidates.length === 0
-    ? fallbackTitle
-    : `COALESCE(${candidates.join(", ")}, ${fallbackTitle})`;
-}
-
-interface LegacyCardThreadOwnershipRow {
-  threadId: string;
-  projectId: string | null;
-  cardId: string | null;
-  linkedAt: string | null;
-  threadName: string | null;
-  threadPreview: string | null;
-  cardTitle: string | null;
-}
-
-function firstPreviewLine(value: string | null): string {
-  return (
-    value
-      ?.split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? ""
-  );
-}
-
-function resolveMigratedThreadSessionTitle(
-  row: LegacyCardThreadOwnershipRow,
-): string {
-  return (
-    row.threadName?.trim() ||
-    firstPreviewLine(row.threadPreview) ||
-    row.cardTitle?.trim() ||
-    "Imported chat"
-  );
-}
-
-function readLegacyCardThreadOwnershipRows(
-  db: Database.Database,
-): LegacyCardThreadOwnershipRow[] {
-  const rows: LegacyCardThreadOwnershipRow[] = [];
-
-  if (
-    tableExists(db, "codex_thread_card_links") &&
-    tableHasColumn(db, "codex_thread_card_links", "thread_id") &&
-    tableHasColumn(db, "codex_thread_card_links", "card_id")
-  ) {
-    rows.push(
-      ...(db
-        .prepare(
-          `
-      SELECT
-        l.thread_id AS threadId,
-        COALESCE(l.project_id, t.project_id, c.project_id) AS projectId,
-        l.card_id AS cardId,
-        COALESCE(l.linked_at, t.linked_at) AS linkedAt,
-        t.thread_name AS threadName,
-        t.thread_preview AS threadPreview,
-        c.title AS cardTitle
-      FROM codex_thread_card_links l
-      LEFT JOIN codex_threads t ON t.thread_id = l.thread_id
-      LEFT JOIN cards c ON c.id = l.card_id
-    `,
-        )
-        .all() as LegacyCardThreadOwnershipRow[]),
-    );
-  }
-
-  if (
-    tableExists(db, "codex_threads") &&
-    tableHasColumn(db, "codex_threads", "card_id")
-  ) {
-    rows.push(
-      ...(db
-        .prepare(
-          `
-      SELECT
-        t.thread_id AS threadId,
-        COALESCE(t.project_id, c.project_id) AS projectId,
-        t.card_id AS cardId,
-        t.linked_at AS linkedAt,
-        t.thread_name AS threadName,
-        t.thread_preview AS threadPreview,
-        c.title AS cardTitle
-      FROM codex_threads t
-      LEFT JOIN cards c ON c.id = t.card_id
-      WHERE t.card_id IS NOT NULL
-    `,
-        )
-        .all() as LegacyCardThreadOwnershipRow[]),
-    );
-  }
-
-  if (tableExists(db, "codex_card_threads")) {
-    rows.push(
-      ...(db
-        .prepare(
-          `
-      SELECT
-        t.thread_id AS threadId,
-        COALESCE(t.project_id, c.project_id) AS projectId,
-        t.card_id AS cardId,
-        t.linked_at AS linkedAt,
-        t.thread_name AS threadName,
-        t.thread_preview AS threadPreview,
-        c.title AS cardTitle
-      FROM codex_card_threads t
-      LEFT JOIN cards c ON c.id = t.card_id
-    `,
-        )
-        .all() as LegacyCardThreadOwnershipRow[]),
-    );
-  }
-
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    if (!row.threadId || seen.has(row.threadId)) return false;
-    seen.add(row.threadId);
-    return true;
-  });
-}
-
-function migrateLegacyCardThreadOwnershipToSessions(
-  db: Database.Database,
-): void {
-  const rows = readLegacyCardThreadOwnershipRows(db);
-  if (rows.length === 0) return;
-
-  ensureProjectSessionsNoThreadFallbackTitle(db);
-
-  const projectExists = db.prepare("SELECT 1 FROM projects WHERE id = ?");
-  const threadExists = db.prepare(
-    "SELECT 1 FROM codex_threads WHERE thread_id = ?",
-  );
-  const existingThreadSession = db.prepare(
-    "SELECT session_id FROM project_session_threads WHERE thread_id = ?",
-  );
-  const maxOrder = db.prepare(
-    'SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?',
-  );
-  const hasNoThreadFallbackTitle = tableHasColumn(
-    db,
-    "project_sessions",
-    "no_thread_fallback_title",
-  );
-  const hasLegacyTitle = tableHasColumn(db, "project_sessions", "title");
-  const hasOverview = tableHasColumn(db, "project_sessions", "is_overview");
-  const sessionColumns = [
-    "id",
-    "project_id",
-    ...(hasNoThreadFallbackTitle ? ["no_thread_fallback_title"] : []),
-    ...(hasLegacyTitle ? ["title"] : []),
-    ...(hasOverview ? ["is_overview"] : []),
-    '"order"',
-    "pinned",
-    "pinned_order",
-    "archived",
-    "archived_at",
-    "unread",
-    "left_pane_collapsed",
-    "panel_state_json",
-    "created_at",
-    "updated_at",
-  ];
-  const sessionValuePlaceholders = [
-    "?",
-    "?",
-    ...(hasNoThreadFallbackTitle ? ["?"] : []),
-    ...(hasLegacyTitle ? ["?"] : []),
-    ...(hasOverview ? ["0"] : []),
-    "?",
-    "0",
-    "NULL",
-    "0",
-    "NULL",
-    "0",
-    "0",
-    "?",
-    "?",
-    "?",
-  ];
-  const insertSession = db.prepare(`
-    INSERT INTO project_sessions (${sessionColumns.join(", ")})
-    VALUES (${sessionValuePlaceholders.join(", ")})
-  `);
-  const insertLink = db.prepare(`
-    INSERT OR IGNORE INTO project_session_threads (session_id, thread_id, linked_at)
-    VALUES (?, ?, ?)
-  `);
-
-  const migrate = db.transaction(() => {
-    const nextOrderByProject = new Map<string, number>();
-    for (const row of rows) {
-      const projectId = row.projectId?.trim();
-      if (!projectId) continue;
-      if (!projectExists.get(projectId)) continue;
-      if (!threadExists.get(row.threadId)) continue;
-      if (existingThreadSession.get(row.threadId)) continue;
-
-      const sessionId = randomUUID();
-      const now = new Date().toISOString();
-      const linkedAt = row.linkedAt || now;
-      const order =
-        nextOrderByProject.get(projectId) ??
-        ((maxOrder.get(projectId) as { maxOrder: number | null } | undefined)
-          ?.maxOrder ?? -1) + 1;
-      nextOrderByProject.set(projectId, order + 1);
-      const sessionTitle = resolveMigratedThreadSessionTitle(row);
-      const sessionArgs = [
-        sessionId,
-        projectId,
-        ...(hasNoThreadFallbackTitle ? [sessionTitle] : []),
-        ...(hasLegacyTitle ? [sessionTitle] : []),
-        order,
-        makePanelStateJson({
-          rightTabIds: [],
-          bottomTabIds: [],
-          overview: false,
-        }),
-        now,
-        now,
-      ];
-      insertSession.run(...sessionArgs);
-      insertLink.run(sessionId, row.threadId, linkedAt);
-    }
-  });
-  migrate();
-}
-
-function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
-  if (
-    !tableExists(db, "codex_threads") ||
-    !tableHasColumn(db, "codex_threads", "card_id")
-  ) {
-    if (tableExists(db, "codex_thread_card_links")) {
-      db.exec("DROP TABLE IF EXISTS codex_thread_card_links");
-    }
-    return;
-  }
-
-  db.exec(`
-    DROP TABLE IF EXISTS codex_thread_card_links;
-    DROP TABLE IF EXISTS codex_threads_next;
-
-    CREATE TABLE codex_threads_next (
-      thread_id TEXT PRIMARY KEY,
-      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-      parent_thread_id TEXT,
-      thread_name TEXT,
-      thread_source TEXT,
-      agent_nickname TEXT,
-      agent_role TEXT,
-      thread_preview TEXT NOT NULL DEFAULT '',
-      model_provider TEXT NOT NULL DEFAULT '',
-      cwd TEXT,
-      status_type TEXT NOT NULL DEFAULT 'notLoaded',
-      status_active_flags_json TEXT NOT NULL DEFAULT '[]',
-      archived INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      linked_at TEXT NOT NULL
-    ) WITHOUT ROWID;
-
-    INSERT INTO codex_threads_next (
-      thread_id, project_id, parent_thread_id, thread_name, thread_source, agent_nickname, agent_role, thread_preview,
-      model_provider, cwd, status_type, status_active_flags_json, archived,
-      created_at, updated_at, linked_at
-    )
-    SELECT
-      thread_id, project_id, parent_thread_id, thread_name, NULL, NULL, NULL, thread_preview,
-      model_provider, cwd, status_type, status_active_flags_json, archived,
-      created_at, updated_at, linked_at
-    FROM codex_threads;
-
-    DROP TABLE codex_threads;
-    ALTER TABLE codex_threads_next RENAME TO codex_threads;
-
-    CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
-      ON codex_threads(project_id, updated_at DESC);
-  `);
-}
-
-function migrateMainSchema26To31(db: Database.Database): void {
-  createBlockFirstPreFinalizationSchema(db);
-
-  if (tableExists(db, "codex_card_threads")) {
-    if (!tableHasColumn(db, "codex_card_threads", "parent_thread_id")) {
-      db.exec(
-        "ALTER TABLE codex_card_threads ADD COLUMN parent_thread_id TEXT",
-      );
-    }
-
-    db.exec(`
-      INSERT OR IGNORE INTO codex_threads (
-        thread_id, project_id, parent_thread_id, thread_name, thread_preview,
-        model_provider, cwd, status_type, status_active_flags_json, archived,
-        created_at, updated_at, linked_at
-      )
-      SELECT
-        thread_id, project_id, parent_thread_id, thread_name, thread_preview,
-        model_provider, cwd, status_type, status_active_flags_json, archived,
-        created_at, updated_at, linked_at
-      FROM codex_card_threads;
-    `);
-    migrateLegacyCardThreadOwnershipToSessions(db);
-    db.exec("DROP TABLE codex_card_threads");
-  }
-
-  setUserVersion(db, 31);
-}
-
-function migrateSchema30To31(db: Database.Database): void {
-  if (!tableHasColumn(db, "project_sessions", "right_pane_collapsed")) {
-    setUserVersion(db, 31);
-    return;
-  }
-
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec(`
-      DROP TABLE IF EXISTS project_sessions_next;
-
-      CREATE TABLE project_sessions_next (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        is_overview INTEGER NOT NULL DEFAULT 0,
-        "order" INTEGER NOT NULL,
-        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
-        panel_state_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (is_overview IN (0, 1)),
-        CHECK (left_pane_collapsed IN (0, 1))
-      );
-
-      INSERT INTO project_sessions_next (
-        id, project_id, title, is_overview, "order", left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      )
-      SELECT
-        id, project_id, title, is_overview, "order", left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      FROM project_sessions;
-
-      DROP TABLE project_sessions;
-      ALTER TABLE project_sessions_next RENAME TO project_sessions;
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
-        ON project_sessions(project_id)
-        WHERE is_overview = 1;
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
-        ON project_sessions(project_id, "order", created_at);
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 31);
-}
-
-function migrateToSchema31(
-  db: Database.Database,
-  currentVersion: number,
-): void {
-  if (currentVersion === 26) {
-    migrateMainSchema26To31(db);
-    return;
-  }
-
-  if (currentVersion === 30) {
-    migrateSchema30To31(db);
-    return;
-  }
-
-  throw new Error(
-    `Unsupported Nodex database migration target 31 from ${currentVersion}`,
-  );
-}
-
-function migrateSchema31To32(db: Database.Database): void {
-  if (!tableHasColumn(db, "project_sessions", "pinned")) {
-    db.exec(
-      "ALTER TABLE project_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))",
-    );
-  }
-  if (!tableHasColumn(db, "project_sessions", "pinned_order")) {
-    db.exec("ALTER TABLE project_sessions ADD COLUMN pinned_order INTEGER");
-  }
-  if (!tableHasColumn(db, "project_sessions", "archived")) {
-    db.exec(
-      "ALTER TABLE project_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))",
-    );
-  }
-  if (!tableHasColumn(db, "project_sessions", "archived_at")) {
-    db.exec("ALTER TABLE project_sessions ADD COLUMN archived_at TEXT");
-  }
-  if (!tableHasColumn(db, "project_sessions", "unread")) {
-    db.exec(
-      "ALTER TABLE project_sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0, 1))",
-    );
-  }
-
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
-      ON project_sessions(project_id, archived, pinned, pinned_order, "order");
-  `);
-
-  setUserVersion(db, 32);
-}
-
-interface ProjectSessionTabMigrationRow {
-  id: string;
-  session_id: string;
-  project_id: string;
-  panel_id: string;
-  kind: string;
-  title: string;
-  config_json: string;
-  state_key: number;
-  state_json: string;
-  order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ProjectSessionPanelMigrationRow {
-  id: string;
-  is_overview: number;
-  panel_state_json: string;
-}
-
-function normalizeBrowserTabConfigJson(
-  projectId: string,
-  configJson: string,
-): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(configJson);
-  } catch {
-    parsed = {};
-  }
-
-  const config =
-    parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? { ...(parsed as Record<string, unknown>) }
-      : {};
-
-  const normalized: Record<string, unknown> = {
-    projectId,
-  };
-
-  if (typeof config.url === "string" && config.url.trim()) {
-    normalized.url = config.url;
-  }
-  if (typeof config.title === "string" && config.title.trim()) {
-    normalized.title = config.title;
-  }
-  if (typeof config.faviconUrl === "string" && config.faviconUrl.trim()) {
-    normalized.faviconUrl = config.faviconUrl;
-  }
-  if (typeof config.deviceToolbarVisible === "boolean") {
-    normalized.deviceToolbarVisible = config.deviceToolbarVisible;
-  }
-
-  return JSON.stringify(normalized);
-}
-
-function migrateSchema32To33(db: Database.Database): void {
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec(`
-      DROP TABLE IF EXISTS project_session_tabs_next;
-
-      CREATE TABLE project_session_tabs_next (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        panel_id TEXT NOT NULL DEFAULT 'right',
-        kind TEXT NOT NULL,
-        title TEXT NOT NULL,
-        config_json TEXT NOT NULL,
-        state_key INTEGER NOT NULL DEFAULT 0,
-        state_json TEXT NOT NULL DEFAULT '{}',
-        "order" INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V33})),
-        CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
-      );
-    `);
-
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
-        "order", created_at, updated_at
-      FROM project_session_tabs
-      ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
-    `,
-      )
-      .all() as ProjectSessionTabMigrationRow[];
-
-    const insert = db.prepare(`
-      INSERT INTO project_session_tabs_next (
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
-        "order", created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const row of rows) {
-      const kind = row.kind === LEGACY_BROWSER_TAB_KIND ? "browser" : row.kind;
-      const configJson =
-        row.kind === LEGACY_BROWSER_TAB_KIND
-          ? normalizeBrowserTabConfigJson(row.project_id, row.config_json)
-          : row.config_json;
-
-      insert.run(
-        row.id,
-        row.session_id,
-        row.project_id,
-        row.panel_id,
-        kind,
-        row.title,
-        configJson,
-        row.state_key,
-        row.state_json,
-        row.order,
-        row.created_at,
-        row.updated_at,
-      );
-    }
-
-    db.exec(`
-      DROP TABLE project_session_tabs;
-      ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
-
-      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
-        ON project_session_tabs(session_id, panel_id, "order", created_at);
-      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
-        ON project_session_tabs(project_id);
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 33);
-}
-
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function parseJsonRecord(value: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return isJsonRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function getSurvivingPanelTabIds(
-  survivingIdsBySessionPanel: Map<string, Map<PanelId, string[]>>,
-  sessionId: string,
-  panelId: PanelId,
-): string[] {
-  return survivingIdsBySessionPanel.get(sessionId)?.get(panelId) ?? [];
-}
-
-function normalizePanelStateAfterRemovedTabs(
-  value: unknown,
-  tabIds: readonly string[],
-  fallbackSize: Record<string, unknown>,
-): Record<string, unknown> {
-  const panel = isJsonRecord(value) ? value : {};
-  const rawCollapsed =
-    typeof panel.collapsed === "boolean"
-      ? panel.collapsed
-      : tabIds.length === 0;
-  const layout = pruneEmptyProjectSessionPanelLeaves(
-    normalizeProjectSessionPanelLayout(
-      isJsonRecord(panel.layout)
-        ? (panel.layout as unknown as ProjectSessionPanelLayout)
-        : null,
-      tabIds,
-    ),
-  );
-
-  return {
-    collapsed: tabIds.length === 0 ? true : rawCollapsed,
-    layout,
-    size: isJsonRecord(panel.size) ? panel.size : fallbackSize,
-  };
-}
-
-function pruneRemovedSideChatTabsFromPanelStateJson(
-  panelStateJson: string,
-  sessionId: string,
-  overview: boolean,
-  survivingIdsBySessionPanel: Map<string, Map<PanelId, string[]>>,
-): string {
-  const panels = parseJsonRecord(panelStateJson);
-  const rightTabIds = getSurvivingPanelTabIds(
-    survivingIdsBySessionPanel,
-    sessionId,
-    "right",
-  );
-  const bottomTabIds = getSurvivingPanelTabIds(
-    survivingIdsBySessionPanel,
-    sessionId,
-    "bottom",
-  );
-
-  return JSON.stringify({
-    right: normalizePanelStateAfterRemovedTabs(panels.right, rightTabIds, {
-      widthPx: 600,
-      fullWidth: overview,
-    }),
-    bottom: normalizePanelStateAfterRemovedTabs(panels.bottom, bottomTabIds, {
-      heightPx: 280,
-    }),
-  });
-}
-
-function migrateSchema33To34(db: Database.Database): void {
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec(`
-      DROP TABLE IF EXISTS project_session_tabs_next;
-
-      CREATE TABLE project_session_tabs_next (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        panel_id TEXT NOT NULL DEFAULT 'right',
-        kind TEXT NOT NULL,
-        title TEXT NOT NULL,
-        config_json TEXT NOT NULL,
-        state_key INTEGER NOT NULL DEFAULT 0,
-        state_json TEXT NOT NULL DEFAULT '{}',
-        "order" INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34})),
-        CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
-      );
-    `);
-
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
-        "order", created_at, updated_at
-      FROM project_session_tabs
-      ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
-    `,
-      )
-      .all() as ProjectSessionTabMigrationRow[];
-
-    const removedSessionIds = new Set<string>();
-    const survivingIdsBySessionPanel = new Map<
-      string,
-      Map<PanelId, string[]>
-    >();
-    const insert = db.prepare(`
-      INSERT INTO project_session_tabs_next (
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
-        "order", created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const row of rows) {
-      if (row.kind === "side_chat_placeholder") {
-        removedSessionIds.add(row.session_id);
-        continue;
-      }
-
-      insert.run(
-        row.id,
-        row.session_id,
-        row.project_id,
-        row.panel_id,
-        row.kind,
-        row.title,
-        row.config_json,
-        row.state_key,
-        row.state_json,
-        row.order,
-        row.created_at,
-        row.updated_at,
-      );
-
-      if (row.panel_id === "right" || row.panel_id === "bottom") {
-        const byPanel =
-          survivingIdsBySessionPanel.get(row.session_id) ??
-          new Map<PanelId, string[]>();
-        const tabIds = byPanel.get(row.panel_id) ?? [];
-        tabIds.push(row.id);
-        byPanel.set(row.panel_id, tabIds);
-        survivingIdsBySessionPanel.set(row.session_id, byPanel);
-      }
-    }
-
-    db.exec(`
-      DROP TABLE project_session_tabs;
-      ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
-
-      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
-        ON project_session_tabs(session_id, panel_id, "order", created_at);
-      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
-        ON project_session_tabs(project_id);
-    `);
-
-    if (removedSessionIds.size > 0) {
-      const sessionRows = db
-        .prepare(
-          `
-        SELECT id, is_overview, panel_state_json
-        FROM project_sessions
-      `,
-        )
-        .all() as ProjectSessionPanelMigrationRow[];
-      const updateSession = db.prepare(`
-        UPDATE project_sessions
-        SET panel_state_json = ?
-        WHERE id = ?
-      `);
-
-      for (const session of sessionRows) {
-        if (!removedSessionIds.has(session.id)) continue;
-        updateSession.run(
-          pruneRemovedSideChatTabsFromPanelStateJson(
-            session.panel_state_json,
-            session.id,
-            session.is_overview === 1,
-            survivingIdsBySessionPanel,
-          ),
-          session.id,
-        );
-      }
-    }
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 34);
-}
-
-function normalizeFilesTabConfigJson(
-  projectId: string,
-  configJson: string,
-): string {
-  const config = parseJsonRecord(configJson);
-  return JSON.stringify({
-    projectId,
-    hostId: "local",
-    workspaceRoot:
-      typeof config.workspaceRoot === "string" ? config.workspaceRoot : "",
-    ...(typeof config.path === "string" && config.path.trim()
-      ? { path: config.path }
-      : {}),
-  });
-}
-
-function migrateSchema34To35(db: Database.Database): void {
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec(`
-      DROP TABLE IF EXISTS project_session_tabs_next;
-
-      CREATE TABLE project_session_tabs_next (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        panel_id TEXT NOT NULL DEFAULT 'right',
-        kind TEXT NOT NULL,
-        title TEXT NOT NULL,
-        config_json TEXT NOT NULL,
-        state_key INTEGER NOT NULL DEFAULT 0,
-        state_json TEXT NOT NULL DEFAULT '{}',
-        "order" INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
-        CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
-      );
-    `);
-
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
-        "order", created_at, updated_at
-      FROM project_session_tabs
-      ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
-    `,
-      )
-      .all() as ProjectSessionTabMigrationRow[];
-
-    const insert = db.prepare(`
-      INSERT INTO project_session_tabs_next (
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
-        "order", created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const row of rows) {
-      const legacyFiles = row.kind === "files_placeholder";
-      insert.run(
-        row.id,
-        row.session_id,
-        row.project_id,
-        row.panel_id,
-        legacyFiles ? "files" : row.kind,
-        row.title,
-        legacyFiles
-          ? normalizeFilesTabConfigJson(row.project_id, row.config_json)
-          : row.config_json,
-        row.state_key,
-        row.state_json,
-        row.order,
-        row.created_at,
-        row.updated_at,
-      );
-    }
-
-    db.exec(`
-      DROP TABLE project_session_tabs;
-      ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
-
-      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
-        ON project_session_tabs(session_id, panel_id, "order", created_at);
-      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
-        ON project_session_tabs(project_id);
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 35);
-}
-
-interface ProjectIdMigrationRow {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  workspace_path: string | null;
-  created: string;
-}
-
-function normalizeMigratedSourceRoot(value: string | null): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  return path.resolve(trimmed);
-}
-
-function migratedSourceKey(root: string): string {
-  const resolved = path.resolve(root);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
-
-function rewriteProjectIdsInJson(
-  value: unknown,
-  idMap: Map<string, string>,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => rewriteProjectIdsInJson(item, idMap));
-  }
-  if (typeof value !== "object" || value === null) return value;
-
-  const next: Record<string, unknown> = {};
-  for (const [key, childValue] of Object.entries(value)) {
-    if (key === "projectId" && typeof childValue === "string") {
-      next[key] = idMap.get(childValue) ?? childValue;
-      continue;
-    }
-    next[key] = rewriteProjectIdsInJson(childValue, idMap);
-  }
-  return next;
-}
-
-function rewriteProjectIdsInConfigJson(
-  configJson: string,
-  idMap: Map<string, string>,
-): string {
-  try {
-    return JSON.stringify(
-      rewriteProjectIdsInJson(JSON.parse(configJson) as unknown, idMap),
-    );
-  } catch {
-    return configJson;
-  }
-}
-
-function migrateSchema35To37(db: Database.Database): void {
-  db.pragma("foreign_keys = OFF");
-  try {
-    const projects = db
-      .prepare(
-        `
-      SELECT id, name, description, icon, workspace_path, created
-      FROM projects
-      ORDER BY created ASC
-    `,
-      )
-      .all() as ProjectIdMigrationRow[];
-    const idMap = new Map(
-      projects.map((project) => [project.id, randomUUID()]),
-    );
-
-    db.exec(`
-      DROP TABLE IF EXISTS projects_next;
-      DROP TABLE IF EXISTS project_id_aliases;
-      DROP TABLE IF EXISTS project_sources;
-      DROP TABLE IF EXISTS project_order;
-
-      CREATE TABLE projects_next (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        icon TEXT NOT NULL DEFAULT '',
-        created TEXT NOT NULL,
-        updated TEXT NOT NULL
-      );
-
-      CREATE TABLE project_sources (
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        root TEXT NOT NULL,
-        root_key TEXT NOT NULL,
-        "order" INTEGER NOT NULL,
-        created TEXT NOT NULL,
-        updated TEXT NOT NULL,
-        PRIMARY KEY (project_id, root_key)
-      );
-
-      CREATE TABLE project_order (
-        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-        "order" INTEGER NOT NULL,
-        updated TEXT NOT NULL
-      );
-    `);
-
-    const insertProject = db.prepare(`
-      INSERT INTO projects_next (id, name, description, icon, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const insertSource = db.prepare(`
-      INSERT INTO project_sources (project_id, root, root_key, "order", created, updated)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const insertOrder = db.prepare(`
-      INSERT INTO project_order (project_id, "order", updated)
-      VALUES (?, ?, ?)
-    `);
-
-    projects.forEach((project, index) => {
-      const nextId = idMap.get(project.id);
-      if (!nextId) return;
-      insertProject.run(
-        nextId,
-        project.name,
-        project.description,
-        project.icon,
-        project.created,
-        project.created,
-      );
-      insertOrder.run(nextId, index, project.created);
-
-      const sourceRoot = normalizeMigratedSourceRoot(project.workspace_path);
-      if (sourceRoot) {
-        insertSource.run(
-          nextId,
-          sourceRoot,
-          migratedSourceKey(sourceRoot),
-          0,
-          project.created,
-          project.created,
-        );
-      }
-    });
-
-    const projectIdTables = [
-      "cards",
-      "history",
-      "canvas",
-      "recurrence_exceptions",
-      "reminder_receipts",
-      "reminder_snoozes",
-      "codex_threads",
-      "codex_thread_card_links",
-      "project_sessions",
-      "project_session_tabs",
-      "project_session_threads",
-    ].filter((tableName) => tableHasColumn(db, tableName, "project_id"));
-    for (const [oldId, nextId] of idMap) {
-      for (const tableName of projectIdTables) {
-        db.prepare(
-          `UPDATE ${tableName} SET project_id = ? WHERE project_id = ?`,
-        ).run(nextId, oldId);
-      }
-      const oldOverviewSessionId = makeLegacyOverviewSessionId(oldId);
-      const nextOverviewSessionId = makeLegacyOverviewSessionId(nextId);
-      const oldOverviewTabId = makeLegacyOverviewDbTabId(oldId);
-      const nextOverviewTabId = makeLegacyOverviewDbTabId(nextId);
-      db.prepare(
-        "UPDATE project_session_tabs SET session_id = ? WHERE session_id = ?",
-      ).run(nextOverviewSessionId, oldOverviewSessionId);
-      db.prepare(
-        "UPDATE project_session_threads SET session_id = ? WHERE session_id = ?",
-      ).run(nextOverviewSessionId, oldOverviewSessionId);
-      db.prepare("UPDATE project_session_tabs SET id = ? WHERE id = ?").run(
-        nextOverviewTabId,
-        oldOverviewTabId,
-      );
-      db.prepare(
-        "UPDATE project_sessions SET id = ?, panel_state_json = replace(panel_state_json, ?, ?) WHERE id = ?",
-      ).run(
-        nextOverviewSessionId,
-        oldOverviewTabId,
-        nextOverviewTabId,
-        oldOverviewSessionId,
-      );
-    }
-
-    const tabRows = db
-      .prepare("SELECT id, config_json FROM project_session_tabs")
-      .all() as Array<{
-      id: string;
-      config_json: string;
-    }>;
-    const updateTabConfig = db.prepare(
-      "UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?",
-    );
-    const now = new Date().toISOString();
-    for (const tab of tabRows) {
-      updateTabConfig.run(
-        rewriteProjectIdsInConfigJson(tab.config_json, idMap),
-        now,
-        tab.id,
-      );
-    }
-
-    db.exec(`
-      DROP TABLE projects;
-      ALTER TABLE projects_next RENAME TO projects;
-
-      CREATE INDEX IF NOT EXISTS idx_project_sources_project_order
-        ON project_sources(project_id, "order", created);
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 37);
-}
-
-function migrateSchema36To37(db: Database.Database): void {
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec("DROP TABLE IF EXISTS project_id_aliases");
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 37);
-}
-
-function migrateSchema37To38(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pinned_project_order (
-      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-      "order" INTEGER NOT NULL,
-      updated TEXT NOT NULL
-    );
-  `);
-
-  setUserVersion(db, 38);
-}
-
-function migrateSchema38To39(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS card_history_snapshots (
-      history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL,
-      status TEXT NOT NULL,
-      archived INTEGER NOT NULL DEFAULT 0,
-      card_snapshot TEXT NOT NULL,
-      description_revision_id INTEGER,
-      created_at TEXT NOT NULL,
-      CHECK (status IN ('draft', 'backlog', 'in_progress', 'in_review', 'done'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_card_history_snapshots_project_card_history
-      ON card_history_snapshots(project_id, card_id, history_id);
-  `);
-
-  setUserVersion(db, 39);
-}
-
-function migrateSchema39To40(db: Database.Database): void {
-  const rows = db
-    .prepare(
-      `
-    SELECT id, config_json
-    FROM project_session_tabs
-    WHERE kind = 'card_stage'
-  `,
-    )
-    .all() as Array<{ id: string; config_json: string }>;
-
-  const findCardProject = db.prepare(
-    "SELECT project_id FROM cards WHERE id = ?",
-  );
-  const updateTabConfig = db.prepare(
-    "UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?",
-  );
-  const now = new Date().toISOString();
-
-  const repair = db.transaction(() => {
-    for (const row of rows) {
-      const config = parseJsonRecord(row.config_json);
-      const cardId =
-        typeof config.cardId === "string" ? config.cardId.trim() : "";
-      if (!cardId) continue;
-
-      const card = findCardProject.get(cardId) as
-        { project_id: string } | undefined;
-      if (!card) continue;
-      if (config.projectId === card.project_id) continue;
-
-      updateTabConfig.run(
-        JSON.stringify({ ...config, projectId: card.project_id }),
-        now,
-        row.id,
-      );
-    }
-  });
-  repair();
-
-  setUserVersion(db, 40);
-}
-
-function migrateSchema40To41(db: Database.Database): void {
-  db.pragma("foreign_keys = OFF");
-  try {
-    ensureProjectSessionsNoThreadFallbackTitle(db);
-    migrateLegacyCardThreadOwnershipToSessions(db);
-    rebuildCodexThreadsWithoutCardId(db);
-    db.exec("DROP TABLE IF EXISTS codex_card_threads");
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 41);
-}
-
-function migrateSchema41To42(db: Database.Database): void {
-  const hasTitleColumn = tableHasColumn(db, "project_sessions", "title");
-  if (!hasTitleColumn) {
-    ensureProjectSessionsNoThreadFallbackTitle(db);
-    setUserVersion(db, 42);
-    return;
-  }
-
-  const fallbackTitleExpression =
-    projectSessionNoThreadFallbackSelectExpression(db);
-
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec(`
-      DROP TABLE IF EXISTS project_sessions_next;
-
-      CREATE TABLE project_sessions_next (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        no_thread_fallback_title TEXT NOT NULL,
-        is_overview INTEGER NOT NULL DEFAULT 0,
-        "order" INTEGER NOT NULL,
-        pinned INTEGER NOT NULL DEFAULT 0,
-        pinned_order INTEGER,
-        archived INTEGER NOT NULL DEFAULT 0,
-        archived_at TEXT,
-        unread INTEGER NOT NULL DEFAULT 0,
-        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
-        panel_state_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (is_overview IN (0, 1)),
-        CHECK (pinned IN (0, 1)),
-        CHECK (archived IN (0, 1)),
-        CHECK (unread IN (0, 1)),
-        CHECK (left_pane_collapsed IN (0, 1))
-      );
-
-      INSERT INTO project_sessions_next (
-        id, project_id, no_thread_fallback_title, is_overview, "order",
-        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      )
-      SELECT
-        id, project_id, ${fallbackTitleExpression}, is_overview, "order",
-        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      FROM project_sessions;
-
-      DROP TABLE project_sessions;
-      ALTER TABLE project_sessions_next RENAME TO project_sessions;
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
-        ON project_sessions(project_id)
-        WHERE is_overview = 1;
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
-        ON project_sessions(project_id, "order", created_at);
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
-        ON project_sessions(project_id, archived, pinned, pinned_order, "order");
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 42);
-}
-
-function migrateSchema42To43(db: Database.Database): void {
-  ensureProjectSessionsNoThreadFallbackTitle(db);
-
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.exec(`
-      DROP TABLE IF EXISTS project_sessions_next;
-
-      CREATE TABLE project_sessions_next (
-        id TEXT PRIMARY KEY,
-        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-        no_thread_fallback_title TEXT NOT NULL,
-        is_overview INTEGER NOT NULL DEFAULT 0,
-        "order" INTEGER NOT NULL,
-        pinned INTEGER NOT NULL DEFAULT 0,
-        pinned_order INTEGER,
-        archived INTEGER NOT NULL DEFAULT 0,
-        archived_at TEXT,
-        unread INTEGER NOT NULL DEFAULT 0,
-        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
-        panel_state_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (is_overview IN (0, 1)),
-        CHECK (pinned IN (0, 1)),
-        CHECK (archived IN (0, 1)),
-        CHECK (unread IN (0, 1)),
-        CHECK (left_pane_collapsed IN (0, 1)),
-        CHECK (is_overview = 0 OR project_id IS NOT NULL)
-      );
-
-      INSERT INTO project_sessions_next (
-        id, project_id, no_thread_fallback_title, is_overview, "order",
-        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      )
-      SELECT
-        id, project_id, no_thread_fallback_title, is_overview, "order",
-        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      FROM project_sessions;
-
-      DROP TABLE project_sessions;
-      ALTER TABLE project_sessions_next RENAME TO project_sessions;
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
-        ON project_sessions(project_id)
-        WHERE is_overview = 1;
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
-        ON project_sessions(project_id, "order", created_at);
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
-        ON project_sessions(project_id, archived, pinned, pinned_order, "order");
-
-      CREATE TABLE IF NOT EXISTS codex_pinned_threads (
-        thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-        pinned_order INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      ) WITHOUT ROWID;
-
-      CREATE INDEX IF NOT EXISTS idx_codex_pinned_threads_order
-        ON codex_pinned_threads(pinned_order, created_at);
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 43);
-}
-
-interface ProjectSessionOrderRow {
-  id: string;
-  pinned: number;
-  pinned_order: number | null;
-  order: number;
-  created_at: string;
-}
-
-interface LegacyOverviewSessionRow {
-  id: string;
-  project_id: string;
-}
-
-function normalizeProjectSessionOrders(
-  db: Database.Database,
-  projectId: string,
-  databaseViewSessionId: string,
-  now: string,
-): void {
-  const rows = db
-    .prepare(
-      `
-    SELECT id, pinned, pinned_order, "order", created_at
-    FROM project_sessions
-    WHERE project_id = ?
-    ORDER BY
-      CASE WHEN id = ? THEN 0 ELSE 1 END ASC,
-      CASE WHEN pinned = 1 THEN 0 ELSE 1 END ASC,
-      CASE WHEN pinned = 1 THEN COALESCE(pinned_order, 9223372036854775807) ELSE "order" END ASC,
-      created_at ASC
-  `,
-    )
-    .all(projectId, databaseViewSessionId) as ProjectSessionOrderRow[];
-
-  const updateOrder = db.prepare(
-    'UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ?',
-  );
-  rows.forEach((row, index) => updateOrder.run(index, now, row.id));
-
-  const pinnedRows = rows.filter((row) => row.pinned === 1);
-  const updatePinnedOrder = db.prepare(
-    "UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ?",
-  );
-  pinnedRows.forEach((row, index) => updatePinnedOrder.run(index, now, row.id));
-}
-
-function convertLegacyOverviewToDatabaseViewSession(
-  db: Database.Database,
-  overview: LegacyOverviewSessionRow,
-  now: string,
-): string {
-  const sessionId = randomUUID();
-  const tabId = randomUUID();
-
-  db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(
-    overview.id,
-  );
-  db.prepare("DELETE FROM project_session_threads WHERE session_id = ?").run(
-    overview.id,
-  );
-  db.prepare(
-    `
-    UPDATE project_sessions
-    SET id = ?,
-        no_thread_fallback_title = ?,
-        "order" = 0,
-        pinned = 1,
-        pinned_order = 0,
-        archived = 0,
-        archived_at = NULL,
-        unread = 0,
-        left_pane_collapsed = 1,
-        panel_state_json = ?,
-        updated_at = ?
-    WHERE id = ?
-  `,
-  ).run(
-    sessionId,
-    INITIAL_DATABASE_VIEW_SESSION_TITLE,
-    makeInitialDatabaseViewPanelStateJson(tabId),
-    now,
-    overview.id,
-  );
-  insertDatabaseViewTab(db, {
-    sessionId,
-    projectId: overview.project_id,
-    tabId,
-    now,
-  });
-
-  return sessionId;
-}
-
-function migrateSchema43To44(db: Database.Database): void {
-  ensureProjectSessionsNoThreadFallbackTitle(db);
-
-  db.pragma("foreign_keys = OFF");
-  try {
-    const now = new Date().toISOString();
-    const projects = db
-      .prepare("SELECT id FROM projects ORDER BY created ASC")
-      .all() as Array<{ id: string }>;
-    const overviewRows = tableHasColumn(db, "project_sessions", "is_overview")
-      ? (db
-          .prepare(
-            `
-        SELECT id, project_id
-        FROM project_sessions
-        WHERE is_overview = 1 AND project_id IS NOT NULL
-        ORDER BY project_id ASC, created_at ASC
-      `,
-          )
-          .all() as LegacyOverviewSessionRow[])
-      : [];
-    const overviewRowsByProject = new Map<string, LegacyOverviewSessionRow[]>();
-    for (const row of overviewRows) {
-      const rows = overviewRowsByProject.get(row.project_id) ?? [];
-      rows.push(row);
-      overviewRowsByProject.set(row.project_id, rows);
-    }
-
-    for (const project of projects) {
-      const [primaryOverview, ...duplicateOverviews] =
-        overviewRowsByProject.get(project.id) ?? [];
-      for (const duplicate of duplicateOverviews) {
-        db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(
-          duplicate.id,
-        );
-        db.prepare(
-          "DELETE FROM project_session_threads WHERE session_id = ?",
-        ).run(duplicate.id);
-        db.prepare("DELETE FROM project_sessions WHERE id = ?").run(
-          duplicate.id,
-        );
-      }
-
-      const databaseViewSessionId = primaryOverview
-        ? convertLegacyOverviewToDatabaseViewSession(db, primaryOverview, now)
-        : insertInitialDatabaseViewSession(db, project.id, now).sessionId;
-      normalizeProjectSessionOrders(db, project.id, databaseViewSessionId, now);
-    }
-
-    db.exec(`
-      DROP TABLE IF EXISTS project_sessions_next;
-
-      CREATE TABLE project_sessions_next (
-        id TEXT PRIMARY KEY,
-        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-        no_thread_fallback_title TEXT NOT NULL,
-        "order" INTEGER NOT NULL,
-        pinned INTEGER NOT NULL DEFAULT 0,
-        pinned_order INTEGER,
-        archived INTEGER NOT NULL DEFAULT 0,
-        archived_at TEXT,
-        unread INTEGER NOT NULL DEFAULT 0,
-        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
-        panel_state_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        CHECK (pinned IN (0, 1)),
-        CHECK (archived IN (0, 1)),
-        CHECK (unread IN (0, 1)),
-        CHECK (left_pane_collapsed IN (0, 1))
-      );
-
-      INSERT INTO project_sessions_next (
-        id, project_id, no_thread_fallback_title, "order",
-        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      )
-      SELECT
-        id, project_id, no_thread_fallback_title, "order",
-        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      FROM project_sessions;
-
-      DROP TABLE project_sessions;
-      ALTER TABLE project_sessions_next RENAME TO project_sessions;
-
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
-        ON project_sessions(project_id, "order", created_at);
-      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
-        ON project_sessions(project_id, archived, pinned, pinned_order, "order");
-    `);
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-
-  setUserVersion(db, 44);
-}
-
-function migrateSchema44To45(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS thread_search_units (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      unit_key TEXT NOT NULL UNIQUE,
-      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-      session_id TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
-      turn_id TEXT NOT NULL,
-      item_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      text TEXT NOT NULL,
-      text_hash TEXT NOT NULL,
-      source_updated_at INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      CHECK (role IN ('user', 'assistant'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_thread_search_units_thread
-      ON thread_search_units(thread_id);
-    CREATE INDEX IF NOT EXISTS idx_thread_search_units_project
-      ON thread_search_units(project_id);
-    CREATE INDEX IF NOT EXISTS idx_thread_search_units_session
-      ON thread_search_units(session_id);
-
-    CREATE TABLE IF NOT EXISTS thread_search_thread_state (
-      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      source_updated_at INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      index_version INTEGER NOT NULL DEFAULT 1,
-      unit_count INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      last_error TEXT,
-      failed_at INTEGER,
-      retry_after INTEGER,
-      CHECK (status IN ('ready', 'stale', 'failed'))
-    ) WITHOUT ROWID;
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS thread_search_units_fts USING fts5(
-      text,
-      content='thread_search_units',
-      content_rowid='rowid',
-      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
-      prefix='2 3 4'
-    );
-
-    CREATE TRIGGER IF NOT EXISTS thread_search_units_ai
-      AFTER INSERT ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS thread_search_units_ad
-      AFTER DELETE ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS thread_search_units_au
-      AFTER UPDATE ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-        INSERT INTO thread_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-  `);
-
-  setUserVersion(db, 45);
-}
-
-function migrateSchema45To46(db: Database.Database): void {
-  if (!tableHasColumn(db, "thread_search_thread_state", "index_version")) {
-    db.exec(
-      "ALTER TABLE thread_search_thread_state ADD COLUMN index_version INTEGER NOT NULL DEFAULT 1",
-    );
-  }
-  if (!tableHasColumn(db, "thread_search_thread_state", "last_error")) {
-    db.exec(
-      "ALTER TABLE thread_search_thread_state ADD COLUMN last_error TEXT",
-    );
-  }
-  if (!tableHasColumn(db, "thread_search_thread_state", "failed_at")) {
-    db.exec(
-      "ALTER TABLE thread_search_thread_state ADD COLUMN failed_at INTEGER",
-    );
-  }
-  if (!tableHasColumn(db, "thread_search_thread_state", "retry_after")) {
-    db.exec(
-      "ALTER TABLE thread_search_thread_state ADD COLUMN retry_after INTEGER",
-    );
-  }
-
-  setUserVersion(db, 46);
-}
-
-function migrateSchema46To47(db: Database.Database): void {
-  ensureProjectSessionsNoThreadFallbackTitle(db);
-  setUserVersion(db, 47);
-}
-
-function migrateSchema47To48(db: Database.Database): void {
-  if (!tableHasColumn(db, "cards", "description_preview")) {
-    db.exec(
-      "ALTER TABLE cards ADD COLUMN description_preview TEXT NOT NULL DEFAULT ''",
-    );
-  }
-  if (!tableHasColumn(db, "cards", "description_length")) {
-    db.exec(
-      "ALTER TABLE cards ADD COLUMN description_length INTEGER NOT NULL DEFAULT 0",
-    );
-  }
-  if (!tableHasColumn(db, "cards", "has_description")) {
-    db.exec(
-      "ALTER TABLE cards ADD COLUMN has_description INTEGER NOT NULL DEFAULT 0",
-    );
-  }
-  if (!tableHasColumn(db, "cards", "description_read_model_revision")) {
-    db.exec(
-      "ALTER TABLE cards ADD COLUMN description_read_model_revision INTEGER NOT NULL DEFAULT 0",
-    );
-  }
-
-  db.exec(`
-    UPDATE cards
-    SET
-      description_length = length(description),
-      has_description = CASE WHEN length(trim(description)) > 0 THEN 1 ELSE 0 END,
-      description_read_model_revision = 0
-    WHERE description_read_model_revision = 0;
-
-    CREATE TABLE IF NOT EXISTS card_search_units (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-      status TEXT NOT NULL,
-      text TEXT NOT NULL,
-      text_hash TEXT NOT NULL,
-      card_revision INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      UNIQUE(card_id),
-      CHECK (status IN ('draft', 'backlog', 'in_progress', 'in_review', 'done'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_card_search_units_project
-      ON card_search_units(project_id);
-    CREATE INDEX IF NOT EXISTS idx_card_search_units_card
-      ON card_search_units(card_id);
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS card_search_units_fts USING fts5(
-      text,
-      content='card_search_units',
-      content_rowid='rowid',
-      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
-      prefix='2 3 4'
-    );
-
-    CREATE TRIGGER IF NOT EXISTS card_search_units_ai
-      AFTER INSERT ON card_search_units
-      BEGIN
-        INSERT INTO card_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS card_search_units_ad
-      AFTER DELETE ON card_search_units
-      BEGIN
-        INSERT INTO card_search_units_fts(card_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS card_search_units_au
-      AFTER UPDATE ON card_search_units
-      BEGIN
-        INSERT INTO card_search_units_fts(card_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-        INSERT INTO card_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-  `);
-
-  setUserVersion(db, 48);
-}
-
-function migrateSchema48To49(db: Database.Database): void {
-  if (
-    tableExists(db, "codex_threads") &&
-    !tableHasColumn(db, "codex_threads", "thread_source")
-  ) {
-    db.exec("ALTER TABLE codex_threads ADD COLUMN thread_source TEXT");
-  }
-
-  setUserVersion(db, 49);
-}
-
-function migrateSchema49To50(db: Database.Database): void {
-  if (
-    tableExists(db, "codex_threads") &&
-    !tableHasColumn(db, "codex_threads", "agent_nickname")
-  ) {
-    db.exec("ALTER TABLE codex_threads ADD COLUMN agent_nickname TEXT");
-  }
-  if (
-    tableExists(db, "codex_threads") &&
-    !tableHasColumn(db, "codex_threads", "agent_role")
-  ) {
-    db.exec("ALTER TABLE codex_threads ADD COLUMN agent_role TEXT");
-  }
-
-  setUserVersion(db, 50);
-}
-
-function migrateSchema50To51(db: Database.Database): void {
-  if (
-    tableExists(db, "codex_threads") &&
-    !tableHasColumn(db, "codex_threads", "projectless_output_directory")
-  ) {
-    db.exec(
-      "ALTER TABLE codex_threads ADD COLUMN projectless_output_directory TEXT",
-    );
-  }
-
-  setUserVersion(db, 51);
-}
-
-function migrateSchema51To52(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
-      automation_id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL,
-      target_thread_id TEXT,
-      name TEXT NOT NULL,
-      rrule TEXT,
-      next_run_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      CHECK (kind IN ('cron', 'heartbeat')),
-      CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED'))
-    ) WITHOUT ROWID;
-
-    CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
-      ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
-  `);
-
-  setUserVersion(db, 52);
-}
-
-function migrateSchema52To53(db: Database.Database): void {
-  if (
-    tableExists(db, "codex_threads") &&
-    !tableHasColumn(db, "codex_threads", "managed_worktree_path")
-  ) {
-    db.exec("ALTER TABLE codex_threads ADD COLUMN managed_worktree_path TEXT");
-  }
-
-  setUserVersion(db, 53);
-}
-
-function migrateSchema53To54(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS codex_background_processes (
-      process_record_id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      thread_title TEXT,
-      item_id TEXT NOT NULL,
-      turn_id TEXT,
-      command TEXT NOT NULL,
-      cwd TEXT,
-      app_server_process_id TEXT,
-      os_pid INTEGER,
-      terminal_session_id TEXT,
-      source TEXT NOT NULL,
-      started_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      CHECK (source IN ('app-server', 'terminal-action'))
-    ) WITHOUT ROWID;
-
-    CREATE INDEX IF NOT EXISTS idx_codex_background_processes_thread_updated
-      ON codex_background_processes(thread_id, updated_at_ms DESC, process_record_id);
-  `);
-
-  setUserVersion(db, 54);
-}
-
-function migrateSchema54To55(db: Database.Database): void {
-  if (!tableExists(db, "codex_scheduled_automations")) {
-    db.exec(`
-      CREATE TABLE codex_scheduled_automations (
-        automation_id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        status TEXT NOT NULL,
-        target_thread_id TEXT,
-        name TEXT NOT NULL,
-        prompt TEXT NOT NULL DEFAULT '',
-        rrule TEXT,
-        model TEXT,
-        reasoning_effort TEXT,
-        cwds_json TEXT NOT NULL DEFAULT '[]',
-        execution_environment TEXT NOT NULL DEFAULT 'worktree',
-        local_environment_config_path TEXT,
-        next_run_at INTEGER,
-        last_run_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        CHECK (kind IN ('cron', 'heartbeat')),
-        CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED')),
-        CHECK (execution_environment IN ('local', 'worktree')),
-        CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))
-      ) WITHOUT ROWID;
-
-      CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
-        ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
-    `);
-    setUserVersion(db, 55);
-    return;
-  }
-
-  if (!tableHasColumn(db, "codex_scheduled_automations", "prompt")) {
-    db.exec(
-      "ALTER TABLE codex_scheduled_automations ADD COLUMN prompt TEXT NOT NULL DEFAULT ''",
-    );
-  }
-  if (!tableHasColumn(db, "codex_scheduled_automations", "model")) {
-    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN model TEXT");
-  }
-  if (!tableHasColumn(db, "codex_scheduled_automations", "reasoning_effort")) {
-    db.exec(
-      "ALTER TABLE codex_scheduled_automations ADD COLUMN reasoning_effort TEXT",
-    );
-  }
-  if (!tableHasColumn(db, "codex_scheduled_automations", "cwds_json")) {
-    db.exec(
-      "ALTER TABLE codex_scheduled_automations ADD COLUMN cwds_json TEXT NOT NULL DEFAULT '[]'",
-    );
-  }
-  if (
-    !tableHasColumn(db, "codex_scheduled_automations", "execution_environment")
-  ) {
-    db.exec(
-      "ALTER TABLE codex_scheduled_automations ADD COLUMN execution_environment TEXT NOT NULL DEFAULT 'worktree'",
-    );
-  }
-  if (
-    !tableHasColumn(
-      db,
-      "codex_scheduled_automations",
-      "local_environment_config_path",
-    )
-  ) {
-    db.exec(
-      "ALTER TABLE codex_scheduled_automations ADD COLUMN local_environment_config_path TEXT",
-    );
-  }
-  if (!tableHasColumn(db, "codex_scheduled_automations", "last_run_at")) {
-    db.exec(
-      "ALTER TABLE codex_scheduled_automations ADD COLUMN last_run_at INTEGER",
-    );
-  }
-
-  setUserVersion(db, 55);
-}
-
-function migrateSchema55To56(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS codex_automation_runs (
-      thread_id TEXT PRIMARY KEY,
-      automation_id TEXT NOT NULL,
-      status TEXT NOT NULL,
-      read_at INTEGER,
-      thread_title TEXT,
-      source_cwd TEXT,
-      inbox_title TEXT,
-      inbox_summary TEXT,
-      archived_user_message TEXT,
-      archived_assistant_message TEXT,
-      archived_reason TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      CHECK (status IN ('IN_PROGRESS', 'PENDING_REVIEW', 'ACCEPTED', 'ARCHIVED'))
-    ) WITHOUT ROWID;
-
-    CREATE INDEX IF NOT EXISTS idx_codex_automation_runs_automation_status_created
-      ON codex_automation_runs(automation_id, status, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_codex_automation_runs_unread
-      ON codex_automation_runs(read_at, status, updated_at);
-  `);
-
-  setUserVersion(db, 56);
-}
-
-function migrateSchema56To57(db: Database.Database): void {
-  if (
-    tableExists(db, "codex_threads") &&
-    !tableHasColumn(db, "codex_threads", "projectless_workspace_browser_root")
-  ) {
-    db.exec(
-      "ALTER TABLE codex_threads ADD COLUMN projectless_workspace_browser_root TEXT",
-    );
-  }
-
-  setUserVersion(db, 57);
-}
-
-function migrateSchema57To58(db: Database.Database): void {
+function addLegacyHistoryGroupIndex(db: Database.Database): void {
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_history_group_global ON history(group_id)",
   );
-  setUserVersion(db, 58);
 }
 
-function createSchemaMigrationSafetyBackup(
-  db: Database.Database,
-  fromVersion: number,
-  toVersion: number,
-): void {
-  const quickCheck = db.pragma("quick_check") as Array<{ quick_check: string }>;
-  if (quickCheck.length !== 1 || quickCheck[0]?.quick_check !== "ok") {
-    throw new Error(
-      `Cannot migrate schema v${fromVersion}: SQLite quick_check failed`,
-    );
-  }
-  const foreignKeyProblems = db.pragma("foreign_key_check") as unknown[];
-  if (foreignKeyProblems.length > 0) {
-    throw new Error(
-      `Cannot migrate schema v${fromVersion}: ${foreignKeyProblems.length} foreign-key violation(s)`,
-    );
-  }
-
-  const createdAt = new Date().toISOString();
-  const backupId = `schema-v${fromVersion}-to-v${toVersion}-${createdAt.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
-  const backupsRoot = path.join(
-    path.dirname(getDatabasePath()),
-    "migration-backups",
-  );
-  const finalDirectory = path.join(backupsRoot, backupId);
-  const temporaryDirectory = `${finalDirectory}.tmp`;
-  const databasePath = path.join(temporaryDirectory, "nodex.db");
-  const sourceAssetsPath = path.join(path.dirname(getDatabasePath()), "assets");
-  const backupAssetsPath = path.join(temporaryDirectory, "assets");
-
-  fs.mkdirSync(temporaryDirectory, { recursive: true });
-  try {
-    db.prepare("VACUUM INTO ?").run(databasePath);
-    const verificationDatabase = new Database(databasePath, { readonly: true });
-    try {
-      const backupVersion = getUserVersion(verificationDatabase);
-      if (backupVersion !== fromVersion) {
-        throw new Error(
-          `Safety backup reports schema v${backupVersion}; expected v${fromVersion}`,
-        );
-      }
-      const backupQuickCheck = verificationDatabase.pragma(
-        "quick_check",
-      ) as Array<{
-        quick_check: string;
-      }>;
-      if (
-        backupQuickCheck.length !== 1 ||
-        backupQuickCheck[0]?.quick_check !== "ok"
-      ) {
-        throw new Error("Safety backup quick_check failed");
-      }
-    } finally {
-      verificationDatabase.close();
-    }
-    if (fs.existsSync(sourceAssetsPath)) {
-      fs.cpSync(sourceAssetsPath, backupAssetsPath, { recursive: true });
-    }
-    const manifest = {
-      version: 1,
-      id: backupId,
-      createdAt,
-      sourceSchemaVersion: fromVersion,
-      targetSchemaVersion: toVersion,
-      databaseFile: "nodex.db",
-      includesAssets: fs.existsSync(backupAssetsPath),
-    };
-    fs.writeFileSync(
-      path.join(temporaryDirectory, "manifest.json"),
-      JSON.stringify(manifest, null, 2),
-      "utf8",
-    );
-    fs.renameSync(temporaryDirectory, finalDirectory);
-  } catch (error) {
-    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
-    throw new Error(
-      `Could not create schema v${fromVersion} safety backup: ${(error as Error).message}`,
-    );
-  }
-}
-
-function migrateSchema58To59(db: Database.Database): void {
+function createCardBlockImportFoundation(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createBlockFoundationSchema(db);
     seedLegacyCardBlockFoundation(db);
-    setUserVersion(db, 59);
   });
   migrate();
 }
@@ -6377,16 +4350,15 @@ function seedLegacyCardShadowOutbox(db: Database.Database): void {
   }
 }
 
-function migrateSchema59To60(db: Database.Database): void {
+function seedCardDocumentImportQueue(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createLegacyCardShadowOutboxSchema(db);
     seedLegacyCardShadowOutbox(db);
-    setUserVersion(db, 60);
   });
   migrate();
 }
 
-function migrateSchema60To61(db: Database.Database): void {
+function backfillDocumentUpdateReceipts(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createDocumentUpdateReceiptSchema(db);
     db.prepare(
@@ -6440,7 +4412,6 @@ function migrateSchema60To61(db: Database.Database): void {
         `Document update receipt migration diverged for ${missingReceipt.document_id}/${missingReceipt.update_id}`,
       );
     }
-    setUserVersion(db, 61);
   });
   migrate();
 }
@@ -6823,7 +4794,7 @@ function backfillExistingDocumentMaterializations(db: Database.Database): void {
   }
 }
 
-function recreateV62CardProjectionTriggers(db: Database.Database): void {
+function recreateImportedCardProjectionTriggers(db: Database.Database): void {
   db.exec(`
     DROP TRIGGER IF EXISTS cards_block_foundation_after_insert;
     DROP TRIGGER IF EXISTS cards_block_foundation_after_local_update;
@@ -6841,10 +4812,10 @@ function recreateV62CardProjectionTriggers(db: Database.Database): void {
   createLegacyCardShadowOutboxSchema(db);
 }
 
-function migrateSchema61To62(db: Database.Database): void {
+function materializeLegacyCardMetadata(db: Database.Database): void {
   const migrate = db.transaction(() => {
     addDocumentMaterializationProjectionColumns(db);
-    recreateV62CardProjectionTriggers(db);
+    recreateImportedCardProjectionTriggers(db);
 
     const projects = db
       .prepare("SELECT id, created FROM projects")
@@ -6859,47 +4830,43 @@ function migrateSchema61To62(db: Database.Database): void {
     seedLegacyCardMetadataProjection(db);
     backfillExistingDocumentMaterializations(db);
     assertLegacyCardMetadataProjectionParity(db);
-    setUserVersion(db, 62);
   });
   migrate();
 }
 
-function migrateSchema62To63(db: Database.Database): void {
+function createForeignReferenceImportLedger(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createForeignReferenceMigrationSchema(db);
     backfillExistingDocumentMaterializations(db);
-    setUserVersion(db, 63);
   });
   migrate();
 }
 
-function migrateSchema63To64(db: Database.Database): void {
+function createRelocationImportFoundation(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createAtomicBlockRelocationSchema(db);
-    setUserVersion(db, 64);
   });
   migrate();
 }
 
-function migrateSchema64To65(db: Database.Database): void {
+function createSecondaryProjectionImportFoundation(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createBlockSecondaryAuthorityFoundationSchema(db);
-    setUserVersion(db, 65);
   });
   migrate();
 }
 
-function migrateSchema65To66(db: Database.Database): void {
+function rebuildCardBehaviorOwnership(db: Database.Database): void {
   const migrate = db.transaction(() => {
     dropCardBehaviorRecordTriggers(db);
     db.exec(`
-      DROP TABLE IF EXISTS ${V66_CARD_BEHAVIOR_RECORD_TABLES.recurrenceExceptions};
-      DROP TABLE IF EXISTS ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderReceipts};
-      DROP TABLE IF EXISTS ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderSnoozes};
+      DROP TABLE IF EXISTS ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.recurrenceExceptions};
+      DROP TABLE IF EXISTS ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.reminderReceipts};
+      DROP TABLE IF EXISTS ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.reminderSnoozes};
     `);
-    createCardBehaviorRecordTables(db, V66_CARD_BEHAVIOR_RECORD_TABLES);
+    createCardBehaviorRecordTables(db, CARD_BEHAVIOR_IMPORT_SOURCE_TABLES);
     db.exec(`
-      INSERT INTO ${V66_CARD_BEHAVIOR_RECORD_TABLES.recurrenceExceptions} (
+      INSERT INTO ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.recurrenceExceptions} (
         id, project_id, card_id, occurrence_start, exception_type,
         override_start, override_end, override_reminders_json, created
       )
@@ -6908,7 +4875,7 @@ function migrateSchema65To66(db: Database.Database): void {
         override_start, override_end, override_reminders_json, created
       FROM recurrence_exceptions;
 
-      INSERT INTO ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderReceipts} (
+      INSERT INTO ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.reminderReceipts} (
         id, project_id, card_id, occurrence_start,
         reminder_offset_minutes, delivered_at
       )
@@ -6917,7 +4884,7 @@ function migrateSchema65To66(db: Database.Database): void {
         reminder_offset_minutes, delivered_at
       FROM reminder_receipts;
 
-      INSERT INTO ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderSnoozes} (
+      INSERT INTO ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.reminderSnoozes} (
         id, project_id, card_id, occurrence_start,
         due_at, created_at, consumed_at
       )
@@ -6926,29 +4893,28 @@ function migrateSchema65To66(db: Database.Database): void {
         due_at, created_at, consumed_at
       FROM reminder_snoozes;
     `);
-    assertCardBehaviorRecordOwners(db, V66_CARD_BEHAVIOR_RECORD_TABLES);
+    assertCardBehaviorRecordOwners(db, CARD_BEHAVIOR_IMPORT_SOURCE_TABLES);
 
     db.exec(`
       DROP TABLE recurrence_exceptions;
       DROP TABLE reminder_receipts;
       DROP TABLE reminder_snoozes;
 
-      ALTER TABLE ${V66_CARD_BEHAVIOR_RECORD_TABLES.recurrenceExceptions}
+      ALTER TABLE ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.recurrenceExceptions}
         RENAME TO recurrence_exceptions;
-      ALTER TABLE ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderReceipts}
+      ALTER TABLE ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.reminderReceipts}
         RENAME TO reminder_receipts;
-      ALTER TABLE ${V66_CARD_BEHAVIOR_RECORD_TABLES.reminderSnoozes}
+      ALTER TABLE ${CARD_BEHAVIOR_IMPORT_SOURCE_TABLES.reminderSnoozes}
         RENAME TO reminder_snoozes;
     `);
     createCardBehaviorRecordSchema(db);
     assertCardBehaviorRecordOwners(db, CARD_BEHAVIOR_RECORD_TABLES);
     assertCardBehaviorForeignKeys(db);
-    setUserVersion(db, 66);
   });
   migrate.immediate();
 }
 
-function rebuildV67DatabasePropertyTables(db: Database.Database): void {
+function rebuildImportedDatabasePropertyTables(db: Database.Database): void {
   db.exec(`
     DROP TRIGGER IF EXISTS database_property_values_require_matching_type;
     DROP TRIGGER IF EXISTS database_property_values_updates_require_matching_type;
@@ -6956,8 +4922,8 @@ function rebuildV67DatabasePropertyTables(db: Database.Database): void {
     DROP INDEX IF EXISTS idx_database_properties_active_key;
     DROP INDEX IF EXISTS idx_database_properties_order;
 
-    ALTER TABLE database_property_values RENAME TO database_property_values_v66;
-    ALTER TABLE database_properties RENAME TO database_properties_v66;
+    ALTER TABLE database_property_values RENAME TO database_property_values_import_source;
+    ALTER TABLE database_properties RENAME TO database_properties_import_source;
 
     CREATE TABLE database_properties (
       id TEXT PRIMARY KEY,
@@ -6999,7 +4965,7 @@ function rebuildV67DatabasePropertyTables(db: Database.Database): void {
     SELECT
       id, database_block_id, project_id, key, name, value_type,
       config_json, rank_key, lifecycle, schema_revision, created_at, updated_at
-    FROM database_properties_v66;
+    FROM database_properties_import_source;
 
     CREATE TABLE database_property_values (
       membership_id TEXT NOT NULL,
@@ -7043,10 +5009,10 @@ function rebuildV67DatabasePropertyTables(db: Database.Database): void {
     SELECT
       membership_id, property_id, database_block_id, project_id,
       value_type, value_json, revision, updated_at
-    FROM database_property_values_v66;
+    FROM database_property_values_import_source;
 
-    DROP TABLE database_property_values_v66;
-    DROP TABLE database_properties_v66;
+    DROP TABLE database_property_values_import_source;
+    DROP TABLE database_properties_import_source;
 
     CREATE TRIGGER database_property_values_require_matching_type
       BEFORE INSERT ON database_property_values
@@ -7081,16 +5047,16 @@ function rebuildV67DatabasePropertyTables(db: Database.Database): void {
   `);
 }
 
-interface V67DatabasePropertyOption {
+interface ImportedDatabasePropertyOption {
   readonly id: string;
   readonly name: string;
   readonly color?: string;
 }
 
-const parseV67DatabasePropertyOptions = (
+const parseImportedDatabasePropertyOptions = (
   configJson: string,
   propertyId: string,
-): readonly V67DatabasePropertyOption[] => {
+): readonly ImportedDatabasePropertyOption[] => {
   let value: unknown;
   try {
     value = JSON.parse(configJson) as unknown;
@@ -7150,7 +5116,7 @@ const parseV67DatabasePropertyOptions = (
   });
 };
 
-const v67DatabasePropertyUsedOptionIds = (
+const importedDatabasePropertyUsedOptionIds = (
   db: Database.Database,
   property: {
     readonly id: string;
@@ -7200,7 +5166,7 @@ const v67DatabasePropertyUsedOptionIds = (
   return [...ids].sort((left, right) => left.localeCompare(right));
 };
 
-function materializeV67DatabasePropertyConfigs(db: Database.Database): void {
+function materializeImportedDatabasePropertyConfigs(db: Database.Database): void {
   const properties = db
     .prepare(
       `
@@ -7235,18 +5201,18 @@ function materializeV67DatabasePropertyConfigs(db: Database.Database): void {
       (property.key === "status" ||
         property.key === "priority" ||
         property.key === "estimate")
-        ? parseV67DatabasePropertyOptions(
+        ? parseImportedDatabasePropertyOptions(
             JSON.stringify(seededDefinition.config),
             property.id,
           )
         : null;
     const existingOptions =
       fixedSeededOptions ??
-      parseV67DatabasePropertyOptions(property.config_json, property.id);
+      parseImportedDatabasePropertyOptions(property.config_json, property.id);
     const optionsById = new Map(
       existingOptions.map((option) => [option.id, option] as const),
     );
-    const usedOptionIds = v67DatabasePropertyUsedOptionIds(db, property);
+    const usedOptionIds = importedDatabasePropertyUsedOptionIds(db, property);
     for (const optionId of usedOptionIds) {
       if (optionsById.has(optionId)) continue;
       if (fixedSeededOptions) {
@@ -7270,7 +5236,7 @@ function materializeV67DatabasePropertyConfigs(db: Database.Database): void {
   }
 }
 
-function normalizeV67DatabaseRanks(db: Database.Database): void {
+function normalizeImportedDatabaseRanks(db: Database.Database): void {
   const groupBy = <T>(
     values: readonly T[],
     keyOf: (value: T) => string,
@@ -7396,7 +5362,7 @@ function normalizeV67DatabaseRanks(db: Database.Database): void {
   }
 }
 
-function materializeV67DatabaseViewConfigs(db: Database.Database): void {
+function materializeImportedDatabaseViewConfigs(db: Database.Database): void {
   const views = db
     .prepare(
       `
@@ -7435,14 +5401,14 @@ function materializeV67DatabaseViewConfigs(db: Database.Database): void {
   }
 }
 
-const v67ViewFilterPropertyIds = (
+const importedViewFilterPropertyIds = (
   filter: DatabaseViewFilterNode,
 ): readonly string[] => {
   if (filter.kind === "clause") return [filter.propertyId];
-  return filter.children.flatMap(v67ViewFilterPropertyIds);
+  return filter.children.flatMap(importedViewFilterPropertyIds);
 };
 
-function assertV67GeneralDatabaseIntegrity(db: Database.Database): void {
+function assertImportedDatabaseIntegrity(db: Database.Database): void {
   const invalidCapability = db
     .prepare(
       `
@@ -7561,7 +5527,7 @@ function assertV67GeneralDatabaseIntegrity(db: Database.Database): void {
     }
     const config = parseGeneralDatabaseViewConfig(rawConfig);
     const propertyIds = new Set([
-      ...v67ViewFilterPropertyIds(config.filter),
+      ...importedViewFilterPropertyIds(config.filter),
       ...config.sort.flatMap((sort) =>
         sort.field.kind === "property" ? [sort.field.propertyId] : [],
       ),
@@ -7587,33 +5553,33 @@ function assertV67GeneralDatabaseIntegrity(db: Database.Database): void {
   const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
   if (foreignKeyViolations.length > 0) {
     throw new Error(
-      "Database schema v67 migration left foreign-key violations",
+      "Shipped-store property import left foreign-key violations",
     );
   }
   const integrity = db.pragma("integrity_check") as Array<{
     readonly integrity_check: string;
   }>;
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
-    throw new Error("Database schema v67 migration failed integrity_check");
+    throw new Error("Shipped-store property import failed integrity_check");
   }
   const staleSchemaReference = db
     .prepare(
       `
       SELECT name
       FROM sqlite_schema
-      WHERE lower(sql) LIKE '%database_properties_v66%'
-         OR lower(sql) LIKE '%database_property_values_v66%'
+      WHERE lower(sql) LIKE '%database_properties_import_source%'
+         OR lower(sql) LIKE '%database_property_values_import_source%'
       LIMIT 1
     `,
     )
     .get() as { readonly name: string } | undefined;
   if (!staleSchemaReference) return;
   throw new Error(
-    `Database schema v67 retained a temporary-table reference in ${staleSchemaReference.name}`,
+    `Shipped-store property import retained a temporary-table reference in ${staleSchemaReference.name}`,
   );
 }
 
-function migrateSchema66To67(db: Database.Database): void {
+function normalizeDatabasePropertyAndViewSchema(db: Database.Database): void {
   const migrate = db.transaction(() => {
     if (!tableHasColumn(db, "database_capabilities", "name")) {
       db.exec(
@@ -7651,36 +5617,34 @@ function migrateSchema66To67(db: Database.Database): void {
       );
     }
 
-    rebuildV67DatabasePropertyTables(db);
-    materializeV67DatabasePropertyConfigs(db);
+    rebuildImportedDatabasePropertyTables(db);
+    materializeImportedDatabasePropertyConfigs(db);
     // SQLite rewrites trigger SQL when a referenced table is renamed. Rebuild
-    // the temporary Card migration seam so no trigger retains the v66 backup
-    // names after the authoritative property tables are swapped.
-    recreateV62CardProjectionTriggers(db);
+    // the temporary Card import seam so no trigger retains source-table names
+    // after the authoritative property tables are swapped.
+    recreateImportedCardProjectionTriggers(db);
     db.exec(`
       DROP INDEX IF EXISTS idx_database_views_primary;
       CREATE UNIQUE INDEX idx_database_views_primary
         ON database_views(database_block_id)
         WHERE is_primary = 1 AND lifecycle = 'active';
     `);
-    normalizeV67DatabaseRanks(db);
-    materializeV67DatabaseViewConfigs(db);
-    assertV67GeneralDatabaseIntegrity(db);
-    setUserVersion(db, 67);
+    normalizeImportedDatabaseRanks(db);
+    materializeImportedDatabaseViewConfigs(db);
+    assertImportedDatabaseIntegrity(db);
   });
   migrate.immediate();
 }
 
-function migrateSchema67To68(db: Database.Database): void {
+function createCanvasImportProjections(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createLegacyCanvasSceneMaterializationSchema(db);
     createCanvasSceneDerivedProjectionSchema(db);
-    setUserVersion(db, 68);
   });
   migrate.immediate();
 }
 
-const V69_PROJECT_TRANSFER_SCOPE_TABLES = [
+const PROJECT_TRANSFER_IMPORT_TABLES = [
   "database_memberships",
   "block_relocations",
   "document_recovery_artifacts",
@@ -7702,11 +5666,11 @@ const readTableColumnNames = (
   ).map((column) => column.name);
 
 /** Copy a rebuilt table by identity, never by migration-dependent ordinal. */
-const copyV69TableRowsByColumnName = (
+const copyImportedTableRowsByColumnName = (
   db: Database.Database,
-  tableName: (typeof V69_PROJECT_TRANSFER_SCOPE_TABLES)[number],
+  tableName: (typeof PROJECT_TRANSFER_IMPORT_TABLES)[number],
 ): void => {
-  const sourceTableName = `${tableName}_v68`;
+  const sourceTableName = `${tableName}_import_source`;
   const targetColumns = readTableColumnNames(db, tableName);
   const sourceColumns = new Set(readTableColumnNames(db, sourceTableName));
   if (
@@ -7715,7 +5679,7 @@ const copyV69TableRowsByColumnName = (
     targetColumns.some((column) => !sourceColumns.has(column))
   ) {
     throw new Error(
-      `Database schema v69 cannot copy ${sourceTableName}: column identities differ`,
+      `Shipped-store transfer import cannot copy ${sourceTableName}: column identities differ`,
     );
   }
   const columns = targetColumns.map(quoteSqlIdentifier).join(", ");
@@ -7726,44 +5690,43 @@ const copyV69TableRowsByColumnName = (
 };
 
 /**
- * v68 coupled immutable evidence to the current Project coordinate of the
- * referenced Block/Document. That made a stable-ID Card transfer impossible:
- * moving the authority would either rewrite historical provenance or violate
- * the composite foreign key. v69 keeps the historical Project columns intact
- * and makes only the identity edge global. Active Database membership remains
- * same-Project through its strict insert/update trigger.
+ * The shipped schema couples immutable evidence to the current Project
+ * coordinate of the referenced Block/Document. Preserve those historical
+ * Project columns while making only the identity edge global. Active Database
+ * membership remains same-Project through its strict insert/update trigger.
  */
-function rebuildV69ProjectTransferScopeTables(db: Database.Database): void {
+function rebuildImportedProjectTransferScopeTables(db: Database.Database): void {
   db.exec(`
     ALTER TABLE database_memberships
-      RENAME TO database_memberships_v68;
+      RENAME TO database_memberships_import_source;
     ALTER TABLE block_relocations
-      RENAME TO block_relocations_v68;
+      RENAME TO block_relocations_import_source;
     ALTER TABLE document_recovery_artifacts
-      RENAME TO document_recovery_artifacts_v68;
+      RENAME TO document_recovery_artifacts_import_source;
     ALTER TABLE document_versions
-      RENAME TO document_versions_v68;
+      RENAME TO document_versions_import_source;
     ALTER TABLE canvas_card_references
-      RENAME TO canvas_card_references_v68;
+      RENAME TO canvas_card_references_import_source;
   `);
 
   // These idempotent builders create only the five now-missing tables. Their
-  // old indexes/triggers still belong to the renamed v68 tables until swap.
+  // Existing indexes/triggers still belong to the renamed source tables until
+  // the swap completes.
   createBlockFoundationSchema(db);
   createAtomicBlockRelocationSchema(db);
   createBlockSecondaryAuthorityFoundationSchema(db);
   createCanvasSceneDerivedProjectionSchema(db);
 
-  for (const tableName of V69_PROJECT_TRANSFER_SCOPE_TABLES) {
-    copyV69TableRowsByColumnName(db, tableName);
+  for (const tableName of PROJECT_TRANSFER_IMPORT_TABLES) {
+    copyImportedTableRowsByColumnName(db, tableName);
   }
 
   db.exec(`
-    DROP TABLE database_memberships_v68;
-    DROP TABLE block_relocations_v68;
-    DROP TABLE document_recovery_artifacts_v68;
-    DROP TABLE document_versions_v68;
-    DROP TABLE canvas_card_references_v68;
+    DROP TABLE database_memberships_import_source;
+    DROP TABLE block_relocations_import_source;
+    DROP TABLE document_recovery_artifacts_import_source;
+    DROP TABLE document_versions_import_source;
+    DROP TABLE canvas_card_references_import_source;
   `);
 
   // Dropping the old tables also drops their attached indexes/triggers.
@@ -7773,40 +5736,40 @@ function rebuildV69ProjectTransferScopeTables(db: Database.Database): void {
   createCanvasSceneDerivedProjectionSchema(db);
 }
 
-function assertV69ProjectTransferScopeSchema(db: Database.Database): void {
+function assertImportedProjectTransferScope(db: Database.Database): void {
   const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
   if (foreignKeyViolations.length > 0) {
     throw new Error(
-      "Database schema v69 migration left foreign-key violations",
+      "Shipped-store transfer import left foreign-key violations",
     );
   }
   const integrity = db.pragma("integrity_check") as Array<{
     readonly integrity_check: string;
   }>;
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
-    throw new Error("Database schema v69 migration failed integrity_check");
+    throw new Error("Shipped-store transfer import failed integrity_check");
   }
   const staleReference = db
     .prepare(
       `
       SELECT name
       FROM sqlite_schema
-      WHERE lower(sql) LIKE '%database_memberships_v68%'
-         OR lower(sql) LIKE '%block_relocations_v68%'
-         OR lower(sql) LIKE '%document_recovery_artifacts_v68%'
-         OR lower(sql) LIKE '%document_versions_v68%'
-         OR lower(sql) LIKE '%canvas_card_references_v68%'
+      WHERE lower(sql) LIKE '%database_memberships_import_source%'
+         OR lower(sql) LIKE '%block_relocations_import_source%'
+         OR lower(sql) LIKE '%document_recovery_artifacts_import_source%'
+         OR lower(sql) LIKE '%document_versions_import_source%'
+         OR lower(sql) LIKE '%canvas_card_references_import_source%'
       LIMIT 1
     `,
     )
     .get() as { readonly name: string } | undefined;
   if (!staleReference) return;
   throw new Error(
-    `Database schema v69 retained a temporary-table reference in ${staleReference.name}`,
+    `Shipped-store transfer import retained a temporary-table reference in ${staleReference.name}`,
   );
 }
 
-function migrateSchema68To69(db: Database.Database): void {
+function rebuildTransferScopeForStableIdentity(db: Database.Database): void {
   // SQLite documents that foreign_keys cannot be toggled inside a transaction.
   // legacy_alter_table keeps child references pointed at the stable table name
   // while each parent is rebuilt under that name.
@@ -7818,10 +5781,9 @@ function migrateSchema68To69(db: Database.Database): void {
         DROP TRIGGER IF EXISTS cards_block_foundation_cross_project_requires_pending;
         DROP TRIGGER IF EXISTS cards_block_foundation_after_cross_project_update;
       `);
-      rebuildV69ProjectTransferScopeTables(db);
+      rebuildImportedProjectTransferScopeTables(db);
       createCardProjectTransferFenceSchema(db);
-      assertV69ProjectTransferScopeSchema(db);
-      setUserVersion(db, 69);
+      assertImportedProjectTransferScope(db);
     });
     migrate.immediate();
   } finally {
@@ -7830,9 +5792,9 @@ function migrateSchema68To69(db: Database.Database): void {
   }
 }
 
-export type MigrateSchema70To71Options = CanvasSceneCutoverOptions;
+export type CanvasAuthorityImportOptions = CanvasSceneCutoverOptions;
 
-function ensureV71DocumentEngineColumns(db: Database.Database): void {
+function ensureDocumentEngineColumns(db: Database.Database): void {
   if (!tableHasColumn(db, "documents", "sync_engine")) {
     db.exec(
       "ALTER TABLE documents ADD COLUMN sync_engine TEXT NOT NULL DEFAULT 'yjs' CHECK (sync_engine IN ('yjs', 'canvas_scene'))",
@@ -7845,7 +5807,7 @@ function ensureV71DocumentEngineColumns(db: Database.Database): void {
   }
 }
 
-function createV71OwnedDocumentEngineGuards(db: Database.Database): void {
+function createOwnedDocumentEngineGuards(db: Database.Database): void {
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS documents_sync_engine_immutable
       BEFORE UPDATE OF sync_engine ON documents
@@ -7898,23 +5860,22 @@ function createV71OwnedDocumentEngineGuards(db: Database.Database): void {
 }
 
 /**
- * The v71 edge is one atomic content migration. It is also exported so tests
- * can inject a fault and prove the v70 authority remains retryable.
+ * Canvas authority conversion is atomic. This is exported so tests can inject
+ * a fault and prove the legacy authority remains retryable.
  */
-export function migrateSchema70To71(
+export function cutoverImportedCanvasAuthority(
   db: Database.Database,
-  options: MigrateSchema70To71Options = {},
+  options: CanvasAuthorityImportOptions = {},
 ): CanvasSceneCutoverResult {
   const migrate = db.transaction(() => {
-    ensureV71DocumentEngineColumns(db);
+    ensureDocumentEngineColumns(db);
     createCanvasSceneAuthoritySchema(db);
     const result = cutoverCanvasScenesFromYjs(db, options);
     db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
-    createV71OwnedDocumentEngineGuards(db);
-    setUserVersion(db, 71);
+    createOwnedDocumentEngineGuards(db);
     const violations = db.pragma("foreign_key_check") as unknown[];
     if (violations.length > 0) {
-      throw new Error("Database schema v71 migration left foreign-key violations");
+      throw new Error("Canvas authority import left foreign-key violations");
     }
     return result;
   });
@@ -8025,7 +5986,7 @@ function assertExclusiveCardParentParity(db: Database.Database): void {
     .get() as { readonly id: string } | undefined;
   if (invalidLocation) {
     throw new Error(
-      `Database schema v72 found invalid Block location ${invalidLocation.id}`,
+      `Exclusive-parent import found invalid Block location ${invalidLocation.id}`,
     );
   }
 
@@ -8049,7 +6010,7 @@ function assertExclusiveCardParentParity(db: Database.Database): void {
     .get() as { readonly cardId: string } | undefined;
   if (mismatchedMembership) {
     throw new Error(
-      `Database schema v72 found mismatched membership for Card ${mismatchedMembership.cardId}`,
+      `Exclusive-parent import found mismatched membership for Card ${mismatchedMembership.cardId}`,
     );
   }
 
@@ -8075,7 +6036,7 @@ function assertExclusiveCardParentParity(db: Database.Database): void {
     .get() as { readonly id: string } | undefined;
   if (databaseCardWithoutMembership) {
     throw new Error(
-      `Database schema v72 found Database Card without active membership ${databaseCardWithoutMembership.id}`,
+      `Exclusive-parent import found Database Card without active membership ${databaseCardWithoutMembership.id}`,
     );
   }
 
@@ -8092,7 +6053,7 @@ function assertExclusiveCardParentParity(db: Database.Database): void {
     .get() as { readonly blockId: string } | undefined;
   if (misplacedTopLevel) {
     throw new Error(
-      `Database schema v72 found non-Space top-level placement ${misplacedTopLevel.blockId}`,
+      `Exclusive-parent import found non-Space top-level placement ${misplacedTopLevel.blockId}`,
     );
   }
 }
@@ -8116,7 +6077,7 @@ function rebuildBlocksForExclusiveCardParents(db: Database.Database): void {
     .all() as NamedSchemaSql[];
 
   db.exec(`
-    ALTER TABLE blocks RENAME TO blocks_v71;
+    ALTER TABLE blocks RENAME TO blocks_import_source;
 
     CREATE TABLE blocks (
       id TEXT PRIMARY KEY,
@@ -8169,12 +6130,12 @@ function rebuildBlocksForExclusiveCardParents(db: Database.Database): void {
         WHEN membership.id IS NOT NULL THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         ELSE block.updated_at
       END
-    FROM blocks_v71 block
+    FROM blocks_import_source block
     LEFT JOIN database_memberships membership
       ON membership.card_block_id = block.id
       AND membership.removed_at IS NULL;
 
-    DROP TABLE blocks_v71;
+    DROP TABLE blocks_import_source;
 
     CREATE INDEX idx_blocks_project_lifecycle_type
       ON blocks(project_id, lifecycle, type);
@@ -8190,7 +6151,7 @@ function rebuildBlocksForExclusiveCardParents(db: Database.Database): void {
   }
 }
 
-function migrateSchema71To72(db: Database.Database): void {
+function enforceExclusiveCardParents(db: Database.Database): void {
   const conflictingCard = db
     .prepare(
       `
@@ -8254,7 +6215,6 @@ function migrateSchema71To72(db: Database.Database): void {
       createExclusiveCardParentTriggers(db);
       createBlockSecondaryAuthorityFoundationSchema(db);
       assertExclusiveCardParentParity(db);
-      setUserVersion(db, 72);
     });
     migrate.immediate();
   } finally {
@@ -8264,17 +6224,17 @@ function migrateSchema71To72(db: Database.Database): void {
 
   const foreignKeys = db.pragma("foreign_key_check") as unknown[];
   if (foreignKeys.length > 0) {
-    throw new Error("Database schema v72 migration failed foreign_key_check");
+    throw new Error("Exclusive-parent import failed foreign_key_check");
   }
   const integrity = db.pragma("integrity_check") as Array<{
     readonly integrity_check: string;
   }>;
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
-    throw new Error("Database schema v72 migration failed integrity_check");
+    throw new Error("Exclusive-parent import failed integrity_check");
   }
 }
 
-function migrateSchema72To73(db: Database.Database): void {
+function stabilizeDatabaseMembershipHistory(db: Database.Database): void {
   const duplicate = db
     .prepare(
       `
@@ -8296,12 +6256,11 @@ function migrateSchema72To73(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createExclusiveCardParentTriggers(db);
     assertExclusiveCardParentParity(db);
-    setUserVersion(db, 73);
   });
   migrate.immediate();
 }
 
-function migrateSchema73To74(db: Database.Database): void {
+function upgradeImportedCardRichTitles(db: Database.Database): void {
   const migrate = db.transaction(() => {
     if (!tableHasColumn(db, "document_materializations", "title_rich_json")) {
       db.exec(
@@ -8350,470 +6309,67 @@ function migrateSchema73To74(db: Database.Database): void {
             AND owner.type = 'card'
         );
     `);
-    setUserVersion(db, 74);
   });
   migrate.immediate();
 }
 
-function runMigrations(
+const assertShippedImportSource = (db: Database.Database): void => {
+  const schemaVersion = getUserVersion(db);
+  if (schemaVersion === 26 || schemaVersion === 57) return;
+  throw new Error(
+    `The shipped-schema importer requires v26 or v57, received v${schemaVersion}`,
+  );
+};
+
+/** Build every Card-first import dependency without publishing a new schema. */
+export function prepareShippedSchemaImport(
   db: Database.Database,
-  currentVersion: number,
-  targets: number[],
-  options: EnsureDatabaseOptions,
 ): void {
-  let fromVersion = currentVersion;
-  for (const target of targets) {
-    options.onMigrationProgress?.({
-      type: "InProgress",
-      value: targets.indexOf(target) / targets.length,
-    });
-    if (target === 31) {
-      migrateToSchema31(db, fromVersion);
-      fromVersion = 31;
-      continue;
-    }
-    if (target === 32) {
-      if (fromVersion !== 31) {
-        throw new Error(
-          `Unsupported Nodex database migration target 32 from ${fromVersion}`,
-        );
-      }
-      migrateSchema31To32(db);
-      fromVersion = 32;
-      continue;
-    }
-    if (target === 33) {
-      if (fromVersion !== 32) {
-        throw new Error(
-          `Unsupported Nodex database migration target 33 from ${fromVersion}`,
-        );
-      }
-      migrateSchema32To33(db);
-      fromVersion = 33;
-      continue;
-    }
-    if (target === 34) {
-      if (fromVersion !== 33) {
-        throw new Error(
-          `Unsupported Nodex database migration target 34 from ${fromVersion}`,
-        );
-      }
-      migrateSchema33To34(db);
-      fromVersion = 34;
-      continue;
-    }
-    if (target === 35) {
-      if (fromVersion !== 34) {
-        throw new Error(
-          `Unsupported Nodex database migration target 35 from ${fromVersion}`,
-        );
-      }
-      migrateSchema34To35(db);
-      fromVersion = 35;
-      continue;
-    }
-    if (target === 37) {
-      if (fromVersion !== 35) {
-        if (fromVersion !== 36) {
-          throw new Error(
-            `Unsupported Nodex database migration target 37 from ${fromVersion}`,
-          );
-        }
-        migrateSchema36To37(db);
-        fromVersion = 37;
-        continue;
-      }
-      migrateSchema35To37(db);
-      fromVersion = 37;
-      continue;
-    }
-    if (target === 38) {
-      if (fromVersion !== 37) {
-        throw new Error(
-          `Unsupported Nodex database migration target 38 from ${fromVersion}`,
-        );
-      }
-      migrateSchema37To38(db);
-      fromVersion = 38;
-      continue;
-    }
-    if (target === 39) {
-      if (fromVersion !== 38) {
-        throw new Error(
-          `Unsupported Nodex database migration target 39 from ${fromVersion}`,
-        );
-      }
-      migrateSchema38To39(db);
-      fromVersion = 39;
-      continue;
-    }
-    if (target === 40) {
-      if (fromVersion !== 39) {
-        throw new Error(
-          `Unsupported Nodex database migration target 40 from ${fromVersion}`,
-        );
-      }
-      migrateSchema39To40(db);
-      fromVersion = 40;
-      continue;
-    }
-    if (target === 41) {
-      if (fromVersion !== 40) {
-        throw new Error(
-          `Unsupported Nodex database migration target 41 from ${fromVersion}`,
-        );
-      }
-      migrateSchema40To41(db);
-      fromVersion = 41;
-      continue;
-    }
-    if (target === 42) {
-      if (fromVersion !== 41) {
-        throw new Error(
-          `Unsupported Nodex database migration target 42 from ${fromVersion}`,
-        );
-      }
-      migrateSchema41To42(db);
-      fromVersion = 42;
-      continue;
-    }
-    if (target === 43) {
-      if (fromVersion !== 42) {
-        throw new Error(
-          `Unsupported Nodex database migration target 43 from ${fromVersion}`,
-        );
-      }
-      migrateSchema42To43(db);
-      fromVersion = 43;
-      continue;
-    }
-    if (target === 44) {
-      if (fromVersion !== 43) {
-        throw new Error(
-          `Unsupported Nodex database migration target 44 from ${fromVersion}`,
-        );
-      }
-      migrateSchema43To44(db);
-      fromVersion = 44;
-      continue;
-    }
-    if (target === 45) {
-      if (fromVersion !== 44) {
-        throw new Error(
-          `Unsupported Nodex database migration target 45 from ${fromVersion}`,
-        );
-      }
-      migrateSchema44To45(db);
-      fromVersion = 45;
-      continue;
-    }
-    if (target === 46) {
-      if (fromVersion !== 45) {
-        throw new Error(
-          `Unsupported Nodex database migration target 46 from ${fromVersion}`,
-        );
-      }
-      migrateSchema45To46(db);
-      fromVersion = 46;
-      continue;
-    }
-    if (target === 47) {
-      if (fromVersion !== 46) {
-        throw new Error(
-          `Unsupported Nodex database migration target 47 from ${fromVersion}`,
-        );
-      }
-      migrateSchema46To47(db);
-      fromVersion = 47;
-      continue;
-    }
-    if (target === 48) {
-      if (fromVersion !== 47) {
-        throw new Error(
-          `Unsupported Nodex database migration target 48 from ${fromVersion}`,
-        );
-      }
-      migrateSchema47To48(db);
-      fromVersion = 48;
-      continue;
-    }
-    if (target === 49) {
-      if (fromVersion !== 48) {
-        throw new Error(
-          `Unsupported Nodex database migration target 49 from ${fromVersion}`,
-        );
-      }
-      migrateSchema48To49(db);
-      fromVersion = 49;
-      continue;
-    }
-    if (target === 50) {
-      if (fromVersion !== 49) {
-        throw new Error(
-          `Unsupported Nodex database migration target 50 from ${fromVersion}`,
-        );
-      }
-      migrateSchema49To50(db);
-      fromVersion = 50;
-      continue;
-    }
-    if (target === 51) {
-      if (fromVersion !== 50) {
-        throw new Error(
-          `Unsupported Nodex database migration target 51 from ${fromVersion}`,
-        );
-      }
-      migrateSchema50To51(db);
-      fromVersion = 51;
-      continue;
-    }
-    if (target === 52) {
-      if (fromVersion !== 51) {
-        throw new Error(
-          `Unsupported Nodex database migration target 52 from ${fromVersion}`,
-        );
-      }
-      migrateSchema51To52(db);
-      fromVersion = 52;
-      continue;
-    }
-    if (target === 53) {
-      if (fromVersion !== 52) {
-        throw new Error(
-          `Unsupported Nodex database migration target 53 from ${fromVersion}`,
-        );
-      }
-      migrateSchema52To53(db);
-      fromVersion = 53;
-      continue;
-    }
-    if (target === 54) {
-      if (fromVersion !== 53) {
-        throw new Error(
-          `Unsupported Nodex database migration target 54 from ${fromVersion}`,
-        );
-      }
-      migrateSchema53To54(db);
-      fromVersion = 54;
-      continue;
-    }
-    if (target === 55) {
-      if (fromVersion !== 54) {
-        throw new Error(
-          `Unsupported Nodex database migration target 55 from ${fromVersion}`,
-        );
-      }
-      migrateSchema54To55(db);
-      fromVersion = 55;
-      continue;
-    }
-    if (target === 56) {
-      if (fromVersion !== 55) {
-        throw new Error(
-          `Unsupported Nodex database migration target 56 from ${fromVersion}`,
-        );
-      }
-      migrateSchema55To56(db);
-      fromVersion = 56;
-      continue;
-    }
-    if (target === 57) {
-      if (fromVersion !== 56) {
-        throw new Error(
-          `Unsupported Nodex database migration target 57 from ${fromVersion}`,
-        );
-      }
-      migrateSchema56To57(db);
-      fromVersion = 57;
-      continue;
-    }
-    if (target === 58) {
-      if (fromVersion !== 57) {
-        throw new Error(
-          `Unsupported Nodex database migration target 58 from ${fromVersion}`,
-        );
-      }
-      migrateSchema57To58(db);
-      fromVersion = 58;
-      continue;
-    }
-    if (target === 59) {
-      if (fromVersion !== 58) {
-        throw new Error(
-          `Unsupported Nodex database migration target 59 from ${fromVersion}`,
-        );
-      }
-      createSchemaMigrationSafetyBackup(db, 58, 59);
-      migrateSchema58To59(db);
-      fromVersion = 59;
-      continue;
-    }
-    if (target === 60) {
-      if (fromVersion !== 59) {
-        throw new Error(
-          `Unsupported Nodex database migration target 60 from ${fromVersion}`,
-        );
-      }
-      migrateSchema59To60(db);
-      fromVersion = 60;
-      continue;
-    }
-    if (target === 61) {
-      if (fromVersion !== 60) {
-        throw new Error(
-          `Unsupported Nodex database migration target 61 from ${fromVersion}`,
-        );
-      }
-      migrateSchema60To61(db);
-      fromVersion = 61;
-      continue;
-    }
-    if (target === 62) {
-      if (fromVersion !== 61) {
-        throw new Error(
-          `Unsupported Nodex database migration target 62 from ${fromVersion}`,
-        );
-      }
-      migrateSchema61To62(db);
-      fromVersion = 62;
-      continue;
-    }
-    if (target === 63) {
-      if (fromVersion !== 62) {
-        throw new Error(
-          `Unsupported Nodex database migration target 63 from ${fromVersion}`,
-        );
-      }
-      migrateSchema62To63(db);
-      fromVersion = 63;
-      continue;
-    }
-    if (target === 64) {
-      if (fromVersion !== 63) {
-        throw new Error(
-          `Unsupported Nodex database migration target 64 from ${fromVersion}`,
-        );
-      }
-      migrateSchema63To64(db);
-      fromVersion = 64;
-      continue;
-    }
-    if (target === 65) {
-      if (fromVersion !== 64) {
-        throw new Error(
-          `Unsupported Nodex database migration target 65 from ${fromVersion}`,
-        );
-      }
-      migrateSchema64To65(db);
-      fromVersion = 65;
-      continue;
-    }
-    if (target === 66) {
-      if (fromVersion !== 65) {
-        throw new Error(
-          `Unsupported Nodex database migration target 66 from ${fromVersion}`,
-        );
-      }
-      migrateSchema65To66(db);
-      fromVersion = 66;
-      continue;
-    }
-    if (target === 67) {
-      if (fromVersion !== 66) {
-        throw new Error(
-          `Unsupported Nodex database migration target 67 from ${fromVersion}`,
-        );
-      }
-      migrateSchema66To67(db);
-      fromVersion = 67;
-      continue;
-    }
-    if (target === 68) {
-      if (fromVersion !== 67) {
-        throw new Error(
-          `Unsupported Nodex database migration target 68 from ${fromVersion}`,
-        );
-      }
-      migrateSchema67To68(db);
-      fromVersion = 68;
-      continue;
-    }
-    if (target === 69) {
-      if (fromVersion !== 68) {
-        throw new Error(
-          `Unsupported Nodex database migration target 69 from ${fromVersion}`,
-        );
-      }
-      migrateSchema68To69(db);
-      fromVersion = 69;
-      continue;
-    }
-    if (target === 70) {
-      if (fromVersion !== 69) {
-        throw new Error(
-          `Unsupported Nodex database migration target 70 from ${fromVersion}`,
-        );
-      }
-      // v70 removes content-bearing compatibility tables only after the
-      // asynchronous shadow/reference/cutover fixed point. initializeDatabase
-      // performs that content migration on the opened authority connection and
-      // advances user_version atomically with the final table drop.
-      // Stage engine columns without installing v71 triggers: the v69
-      // finalizer still reads/writes legacy Canvas Yjs authority.
-      ensureV71DocumentEngineColumns(db);
-      createSchemaMigrationSafetyBackup(db, 69, 70);
-      fromVersion = 70;
-      // The durable store is still v69 here. The asynchronous finalizer must
-      // commit v70 before initializeDatabase invokes the synchronous v71 edge.
-      break;
-    }
-    if (target === 71) {
-      if (fromVersion !== 70 || getUserVersion(db) !== 70) {
-        throw new Error(
-          `Unsupported Nodex database migration target 71 from ${getUserVersion(db)}`,
-        );
-      }
-      createSchemaMigrationSafetyBackup(db, 70, 71);
-      migrateSchema70To71(db);
-      fromVersion = 71;
-      continue;
-    }
-    if (target === 72) {
-      if (fromVersion !== 71) {
-        throw new Error(
-          `Unsupported Nodex database migration target 72 from ${fromVersion}`,
-        );
-      }
-      createSchemaMigrationSafetyBackup(db, 71, 72);
-      migrateSchema71To72(db);
-      fromVersion = 72;
-      continue;
-    }
-    if (target === 73) {
-      if (fromVersion !== 72) {
-        throw new Error(
-          `Unsupported Nodex database migration target 73 from ${fromVersion}`,
-        );
-      }
-      createSchemaMigrationSafetyBackup(db, 72, 73);
-      migrateSchema72To73(db);
-      fromVersion = 73;
-      continue;
-    }
-    if (target === 74) {
-      if (fromVersion !== 73) {
-        throw new Error(
-          `Unsupported Nodex database migration target 74 from ${fromVersion}`,
-        );
-      }
-      createSchemaMigrationSafetyBackup(db, 73, 74);
-      migrateSchema73To74(db);
-      fromVersion = 74;
-      continue;
-    }
-    throw new Error(`Unsupported Nodex database migration target ${target}`);
+  assertShippedImportSource(db);
+  addLegacyHistoryGroupIndex(db);
+  createCardBlockImportFoundation(db);
+  seedCardDocumentImportQueue(db);
+  backfillDocumentUpdateReceipts(db);
+  materializeLegacyCardMetadata(db);
+  createForeignReferenceImportLedger(db);
+  createRelocationImportFoundation(db);
+  createSecondaryProjectionImportFoundation(db);
+  rebuildCardBehaviorOwnership(db);
+  normalizeDatabasePropertyAndViewSchema(db);
+  createCanvasImportProjections(db);
+  rebuildTransferScopeForStableIdentity(db);
+  ensureDocumentEngineColumns(db);
+}
+
+/** Complete the current shape after Card-first authority has been removed. */
+export function finishShippedSchemaImport(
+  db: Database.Database,
+  assetsRootPath?: string,
+): void {
+  assertShippedImportSource(db);
+  cutoverImportedCanvasAuthority(db, { assetsRootPath });
+  enforceExclusiveCardParents(db);
+  stabilizeDatabaseMembershipHistory(db);
+  upgradeImportedCardRichTitles(db);
+}
+
+export function publishShippedSchemaImport(
+  db: Database.Database,
+): void {
+  assertShippedImportSource(db);
+  const retainedLegacyTable = db
+    .prepare(
+      `SELECT name FROM sqlite_schema
+       WHERE type = 'table' AND name IN ('cards', 'history', 'canvas')
+       LIMIT 1`,
+    )
+    .get() as { readonly name: string } | undefined;
+  if (retainedLegacyTable) {
+    throw new Error(
+      `Cannot publish v58 while legacy table ${retainedLegacyTable.name} remains`,
+    );
   }
-  options.onMigrationProgress?.({ type: "Done" });
+  setUserVersion(db, CURRENT_SCHEMA_VERSION);
 }
 
 function resetDatabaseToLatestSchema(db: Database.Database): void {
@@ -8824,13 +6380,14 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     }
     db.pragma("auto_vacuum = INCREMENTAL");
     createBlockFirstPreFinalizationSchema(db);
-    dropLegacyBlockFirstTables(db, CURRENT_SCHEMA_VERSION);
+    dropLegacyBlockFirstTables(db);
     db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
-    ensureV71DocumentEngineColumns(db);
+    ensureDocumentEngineColumns(db);
     createCanvasSceneAuthoritySchema(db);
-    createV71OwnedDocumentEngineGuards(db);
+    createOwnedDocumentEngineGuards(db);
     createExclusiveCardParentTriggers(db);
     assertExclusiveCardParentParity(db);
+    setUserVersion(db, CURRENT_SCHEMA_VERSION);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -8858,7 +6415,7 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
   ensureBlockFoundationForProject(db, projectId, now);
 }
 
-export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
+export function ensureDatabase(): void {
   const dbPath = getDatabasePath();
   const dir = path.dirname(dbPath);
 
@@ -8878,25 +6435,19 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
     const currentVersion = getUserVersion(db);
     if (currentVersion === 0) {
       resetDatabaseToLatestSchema(db);
-    } else {
-      const targets = getSchemaMigrationTargets(currentVersion);
-      if (targets === null) {
-        throw new Error(
-          `Unsupported Nodex database schema version ${currentVersion}. Expected ${CURRENT_SCHEMA_VERSION}. Delete or recreate the local database if you want a fresh start.`,
-        );
-      }
-      runMigrations(db, currentVersion, targets, options);
+    } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
+      throw new Error(
+        currentVersion === 26 || currentVersion === 57
+          ? `Nodex database schema v${currentVersion} requires the staged startup migrator`
+          : `Unsupported Nodex database schema version ${currentVersion}. Expected ${CURRENT_SCHEMA_VERSION}. Delete or recreate the local database if you want a fresh start.`,
+      );
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
-    // v70 is unreleased and remains the one-way Block-first cutover version.
-    // Keep this additive invariant idempotent so databases produced by an
-    // earlier v70 development build receive the permanent identity registry.
+    // Keep additive current-schema invariants idempotent for fresh stores.
     createRetiredBlockIdentitySchema(db);
-    if (getUserVersion(db) >= 71) {
-      createCanvasSceneAuthoritySchema(db);
-      createV71OwnedDocumentEngineGuards(db);
-    }
+    createCanvasSceneAuthoritySchema(db);
+    createOwnedDocumentEngineGuards(db);
     seedDefaultProjectIfMissing(db);
     const projects = db
       .prepare("SELECT id, created FROM projects")

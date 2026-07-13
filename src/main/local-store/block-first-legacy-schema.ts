@@ -25,16 +25,10 @@ const tableExists = (
     )
     .get(tableName) !== undefined;
 
-/** Drop migration-only Card snapshot storage and advance the schema atomically. */
+/** Drop Card-first import storage after the staging candidate reaches parity. */
 export const dropLegacyBlockFirstTables = (
   database: Database.Database,
-  targetSchemaVersion: number,
 ): readonly string[] => {
-  if (!Number.isSafeInteger(targetSchemaVersion) || targetSchemaVersion < 1) {
-    throw new Error(
-      "The Block-first target schema version must be a positive integer",
-    );
-  }
   const dropped = LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER.filter((tableName) =>
     tableExists(database, tableName),
   );
@@ -59,9 +53,7 @@ export const dropLegacyBlockFirstTables = (
     if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
       throw new Error("Legacy cleanup failed SQLite integrity_check");
     }
-    database.pragma(`user_version = ${targetSchemaVersion}`);
   });
   drop.immediate();
   return dropped;
 };
-

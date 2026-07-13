@@ -4,13 +4,13 @@ import type {
 } from "../../shared/block-documents/contracts";
 
 /**
- * Persistence-only authority state retained while the v69 cutover tables are
+ * Persistence-only authority state retained while the shipped-store import tables are
  * removed. Runtime ownership and synchronization dispatch through
  * `OwnedDocumentDescriptor.sync` instead.
  */
 export type LegacyDocumentAuthority = "legacy_shadow" | "ydoc_primary";
 
-/** Yjs-shaped v69 cutover record; never expose across a runtime boundary. */
+/** Yjs-shaped import record; never expose across a runtime boundary. */
 export interface LegacyOwnedBlockDocumentDescriptor {
   readonly projectId: string;
   readonly ownerBlockId: string;

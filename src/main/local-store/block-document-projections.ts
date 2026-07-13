@@ -12,7 +12,11 @@ import {
 } from "../../shared/block-documents/document-schema-adapters";
 import { parseAssetSource } from "../../shared/assets";
 import { tokenizeSearchQuery } from "../../shared/search-text";
-import { MAX_IMAGE_UPLOAD_BYTES, resolveAssetPath } from "./assets";
+import {
+  MAX_IMAGE_UPLOAD_BYTES,
+  resolveAssetPath,
+  resolveAssetPathInRoot,
+} from "./assets";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 
 const DOCUMENT_PROJECTION_VERSION = 1;
@@ -45,6 +49,7 @@ export interface ReplaceDocumentSecondaryProjectionInput {
   readonly documentId: DocumentId;
   readonly expectedGeneration?: number;
   readonly expectedProjectedSeq?: number;
+  readonly assetsRootPath?: string;
 }
 
 export interface DocumentSecondaryProjectionResult {
@@ -822,6 +827,7 @@ const replaceCanvasSceneSecondaryProjections = (
     readonly owner_block_id: string;
     readonly owner_type: string;
   },
+  assetsRootPath?: string,
 ): DocumentSecondaryProjectionResult => {
   if (source.sync_engine !== "canvas_scene") {
     throw new DocumentSecondaryProjectionError(
@@ -910,7 +916,9 @@ const replaceCanvasSceneSecondaryProjections = (
   for (const file of fileProjectionPlan) {
     let assetHash = file.reusableAssetHash;
     let byteLength = file.reusableByteLength;
-    const assetPath = resolveAssetPath(file.managedFileName);
+    const assetPath = assetsRootPath
+      ? resolveAssetPathInRoot(assetsRootPath, file.managedFileName)
+      : resolveAssetPath(file.managedFileName);
     try {
       const stats = fs.lstatSync(assetPath);
       if (!stats.isFile() || stats.isSymbolicLink()) {
@@ -991,7 +999,11 @@ export const replaceDocumentSecondaryProjections = (
   if (source.contentModel === "block_tree") {
     return replaceBlockTreeDocumentSecondaryProjections(database, input);
   }
-  return replaceCanvasSceneSecondaryProjections(database, source.row);
+  return replaceCanvasSceneSecondaryProjections(
+    database,
+    source.row,
+    input.assetsRootPath,
+  );
 };
 
 /** Rebuild one disposable projection atomically from SQLite authority. */
@@ -1081,6 +1093,7 @@ export const rebuildProjectDocumentSecondaryProjections = (
  */
 export const repairDocumentSecondaryProjections = (
   database: Database.Database,
+  options: { readonly assetsRootPath?: string } = {},
 ): RepairDocumentSecondaryProjectionsResult =>
   database
     .transaction(() => {
@@ -1129,6 +1142,7 @@ export const repairDocumentSecondaryProjections = (
         .map((document) =>
           replaceDocumentSecondaryProjections(database, {
             documentId: document.id,
+            assetsRootPath: options.assetsRootPath,
           }),
         );
       return {

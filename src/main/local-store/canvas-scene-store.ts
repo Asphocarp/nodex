@@ -88,10 +88,12 @@ export interface InitializeCanvasSceneAuthorityInput {
   readonly expectedHeadSeq: number;
   readonly scene: PortableCanvasScene;
   readonly updatedAt?: string;
+  readonly assetsRootPath?: string;
 }
 
 export interface ApplyCanvasSceneMutationOptions {
   readonly now?: () => string;
+  readonly assetsRootPath?: string;
 }
 
 export class CanvasSceneStoreError extends Error {
@@ -360,11 +362,13 @@ const persistDerivedProjections = (
   database: Database.Database,
   authority: Pick<LoadedCanvasAuthority, "document">,
   headSeq: number,
+  assetsRootPath?: string,
 ): void => {
   replaceDocumentSecondaryProjections(database, {
     documentId: authority.document.document_id,
     expectedGeneration: authority.document.generation,
     expectedProjectedSeq: headSeq,
+    assetsRootPath,
   });
 };
 
@@ -486,7 +490,12 @@ export const initializeCanvasSceneAuthority = (
     for (const file of Object.values(scene.files)) {
       persistFile(database, input.documentId, file, updatedAt);
     }
-    persistDerivedProjections(database, { document }, document.head_seq);
+    persistDerivedProjections(
+      database,
+      { document },
+      document.head_seq,
+      input.assetsRootPath,
+    );
     return toSyncResponse(loadAuthority(database, input.projectId, input.documentId));
   });
   return initialize.immediate();
@@ -922,7 +931,12 @@ export const applyCanvasSceneMutation = (
             request.generation,
             document.head_seq,
           );
-        persistDerivedProjections(database, { document }, headSeq);
+        persistDerivedProjections(
+          database,
+          { document },
+          headSeq,
+          options.assetsRootPath,
+        );
       }
 
       const result: CanvasSceneMutationResult = {

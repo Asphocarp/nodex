@@ -22,7 +22,7 @@ Owned Document is the engine-neutral domain boundary. It owns identity, Project 
 - `block_tree` schemas use the `yjs` sync engine.
 - `scene_graph` Canvas schemas use the `canvas_scene` sync engine.
 
-The common descriptor carries an explicit sync-engine discriminant. Yjs state vectors and binary updates belong only to Yjs-specific heads, transports, stores, providers, checkpoints, and recovery data. Canvas scene snapshots, element candidate batches, and scene receipts belong only to the Canvas engine. Runtime legacy-shadow state remains isolated in the v69-to-v70 migration seam and is not a public authority variant.
+The common descriptor carries an explicit sync-engine discriminant. Yjs state vectors and binary updates belong only to Yjs-specific heads, transports, stores, providers, checkpoints, and recovery data. Canvas scene snapshots, element candidate batches, and scene receipts belong only to the Canvas engine. Legacy-shadow state remains isolated in the shipped-store import seam and is not a public authority variant.
 
 Canvas authority is normalized in SQLite:
 
@@ -55,4 +55,3 @@ Keeping Canvas in Yjs and adding debounce reduces update frequency but retains d
 Storing only a debounced whole-scene JSON snapshot is simpler but reintroduces lost updates between windows. It is rejected unless the writer performs element-wise reconciliation and retains immutable retry evidence, at which point normalized element authority is clearer and avoids rewriting unrelated large elements.
 
 Representing every Excalidraw field as nested Yjs shared types could enable finer merging, but Excalidraw itself consumes atomic element objects and owns its editing/undo semantics. Maintaining a parallel field-level scene model would couple Nodex to upstream internals and still require expensive conversion and repair. It is rejected.
-

@@ -394,7 +394,7 @@ describe("Block retention count maintenance", () => {
           });
           reused = true;
         } catch {
-          // The v71 retired-identity trigger is the final storage-level guard.
+          // The retired-identity trigger is the final storage-level guard.
         }
         expect(reused).toBe(false);
 

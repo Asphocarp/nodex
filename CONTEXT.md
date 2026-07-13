@@ -1,6 +1,6 @@
 # Nodex Domain Context
 
-This document defines the canonical Block-first domain language for Nodex. Schema v73 implements engine-neutral Owned Documents, scene-native Canvas authority, exclusive Card parents, and stable dormant Database memberships directly. Files that can still read the former Card snapshot schema exist only to finalize a supported v69 store through v70 before normal runtime begins; they are migration code, not an alternate authority.
+This document defines the canonical Block-first domain language for Nodex. Product schema v58 implements engine-neutral Owned Documents, scene-native Canvas authority, exclusive Card parents, and stable dormant Database memberships directly. Files that can still read the former Card snapshot schema exist only inside the shipped-schema staging importer; they are import code, not an alternate authority or supported intermediate schema. Product startup accepts shipped source schemas v26 and v57; both publish directly to v58.
 
 ## Product boundary
 
@@ -121,11 +121,11 @@ Reference disclosure is per-user local preference state. Each renderer hydrates 
 
 A projection is rebuildable data derived from the authoritative Block, Document, and Database records. NFM, plain text, previews, search units, asset references, Card read models, and scheduled-card indexes are projections. A projection can lag, be discarded, and be rebuilt. It must never be used to reconstruct an already-existing Yjs Document.
 
-The v70 property/projection foundation keeps Card-intrinsic agent/run/recurrence/reminder state in `block_properties`, Database membership values in typed relational records, and scheduler reads in `scheduled_card_index`. Recurrence exceptions and reminder evidence belong to the owning Card Block. Projection coordinates must match the current metadata revision or Document generation/head before a reader may use them.
+The v58 property/projection foundation keeps Card-intrinsic agent/run/recurrence/reminder state in `block_properties`, Database membership values in typed relational records, and scheduler reads in `scheduled_card_index`. Recurrence exceptions and reminder evidence belong to the owning Card Block. Projection coordinates must match the current metadata revision or Document generation/head before a reader may use them.
 
 Durable secondary evidence is separate from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. No projection writes back into Y.Doc or property authority.
 
-Historical schema v69 made stable Block/Document identity, rather than the current Project coordinate, the foreign-key edge for retained relocation, recovery, version, membership, and Canvas-reference evidence. Its startup finalizer drains shadow content and foreign-body references to a fixed point, repairs projections, verifies every owned Card Document, and atomically advances to v70 while dropping `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and the transfer fence. Project transfer in v70 mutates only Block/Document/Database authority and rebuildable projections.
+During a shipped-schema staging import, stable Block/Document identity rather than a mutable Project coordinate becomes the foreign-key edge for retained relocation, recovery, version, membership, and Canvas-reference evidence. A v26 source is first normalized semantically into the common Card-first import shape without changing its marker. The importer then drains shadow content and foreign-body references to a fixed point, repairs projections, verifies every owned Document and managed asset, and drops `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and the transfer fence before publishing v58. Current Project transfer mutates only Block/Document/Database authority and rebuildable projections.
 
 A structured property mutation is a versioned, project/store-scoped field-intent batch with one immutable `mutationId`. Scalar fields compare their own property revision rather than a whole-Card revision; set-like values apply add/remove intent against the current set. The property values, any coupled View grouping, one `metadataRevision` advance per affected Card, full Card/schedule projections, change-log cursor, and accepted or rejected receipt are one SQLite transaction. Retrying the same canonical request replays its prior outcome; the same ID can never name different intent.
 
@@ -161,7 +161,7 @@ Cross-Document relocation uses short-lived write fences and an ephemeral lease s
 
 The renderer submits only a logical relocation intent: stable root Block IDs, source Document generation, and the target parent/anchor. It never supplies a guessed SQL head or location revision. The realtime Hub prepares once to establish the lease boundary, waits for every mounted source/target surface to commit IME, flush, and freeze, then prepares again so the SQLite writer receives the latest durable heads and Block location revisions. A response retry reuses the same relocation ID; the immutable ledger returns the committed result or a resync receipt after update compaction.
 
-Schema v64 stores the immutable relocation request/result, moved-member set, source pre-relocation state, per-Document update receipts, recovery artifacts, and shared change-log cursor. A stale binary update that overlaps moved Blocks is never applied blindly: safe remaining edits may commit, while inseparable moved content becomes a durable recovery artifact and forces a typed reload boundary.
+The relocation ledger stores the immutable request/result, moved-member set, source pre-relocation state, per-Document update receipts, recovery artifacts, and shared change-log cursor. A stale binary update that overlaps moved Blocks is never applied blindly: safe remaining edits may commit, while inseparable moved content becomes a durable recovery artifact and forces a typed reload boundary.
 
 ### Card Project transfer
 
@@ -253,7 +253,7 @@ Presence, cursors, selections, open toggles, search terms, focus, and relocation
 
 ## Code orientation
 
-Card-first migration machinery is confined to the v69→v70 schema/startup finalizer in `src/main`; its backing tables do not exist after finalization. Card-named read models are projections assembled from Block/Document/Database authority. Renderer Card Stage and NFM editing receive a prepared Document or render a fail-closed descriptor diagnostic, with no snapshot-authority branch.
+Card-first migration machinery is confined to the shipped-schema staging importer in `src/main`; its backing tables do not exist in a published v58 store. Card-named read models are projections assembled from Block/Document/Database authority. Renderer Card Stage and NFM editing receive a prepared Document or render a fail-closed descriptor diagnostic, with no snapshot-authority branch.
 
 Shared Block/Document Interfaces live under `src/shared/`, persistence Implementations under `src/main/local-store/`, and the transport-neutral renderer provider behind `src/renderer/lib/api.ts`. Card Stage's authority boundary and writable surface live under `src/renderer/components/block-documents/`; surface runtime and descriptor validation live under `src/renderer/lib/`. The completed spike evidence and phased cutover history remain in `.generated/block-first/EXECPLAN.md`.
 

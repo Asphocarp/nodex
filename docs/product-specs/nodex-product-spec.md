@@ -149,7 +149,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - detailed Review panel behavior lives in [Review Right Panel Behavior](./review-right-panel-behavior.md)
 - Create/delete projects from the sidebar Projects header or project-row action menus.
 - Default project is seeded on first boot with a UUID canonical ID and a retained `default` legacy alias.
-- In Electron, startup opens into a blocking bootstrap surface until local initialization completes; if a future supported SQLite schema migration is running, that surface shows determinate migration progress and migration-specific status copy
+- In Electron, startup opens into a blocking bootstrap surface until local initialization completes. A shipped v26 or v57 profile is converted and validated in staging before v58 replaces it; the surface shows determinate migration progress while HTTP, mutation workers, and schedulers remain unavailable.
 - Project ID: opaque UUID generated server-side. Legacy slug IDs resolve through aliases, but responses return canonical UUIDs.
 - Project icon: optional per-project emoji persisted in SQLite; when empty, UI shows a project-colored dot
 - Project sources: ordered source folders persisted separately from the project row. The first source is the primary workspace root for Git, Files, Review, local thread cwd, and managed worktree base repository; all configured sources are writable workspace roots for sandboxing.
@@ -209,7 +209,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
-- Schema v74 stores Block identity with one Space/Document/Database parent, engine-neutral Owned Documents, stable dormant Database membership/properties/Views, immutable mutation/history evidence, rebuildable projections, and a validated portable-rich Card title projection. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
+- Schema v58 stores Block identity with one Space/Document/Database parent, engine-neutral Owned Documents, stable dormant Database membership/properties/Views, immutable mutation/history evidence, rebuildable projections, and a validated portable-rich Card title projection. Block-tree owners use Yjs authority; Canvas uses normalized scene authority. The content-bearing Card/history/description snapshot tables are absent.
 - One asynchronous `BlockMutationWriter` serializes Block/Card-domain `better-sqlite3` transactions outside the Electron main event loop.
 - New user/content Block identities use canonical lowercase UUID-v7 and are validated only at creation. Existing IDs remain opaque. View, property, membership, operation, mutation, and other non-Block identities default to UUID-v4 when they do not have a stronger domain-derived identity; explicit timestamps, ranks, and sequences remain the only ordering authority.
 
@@ -341,7 +341,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Card targets resolve from Block/Document content authority even when the Card belongs to no Database. Collapsed rows mount no target provider. Expansion keeps one observed row frame and one title row, replaces its projected title with the collaborative Y.Text title from one target surface, and renders only the target body at standard Block child indentation. There is no nested panel, second title, or vertical divider, and the host Block tree never changes.
 - Card expansion keeps the projected title row stable while the target boundary or first sync is pending and uses a body skeleton instead of replacing the row with opening text. Runtime failures keep that row and expose in-place retry below it.
 - Canonical Card/Database View reference owners remain ordinary stable-ID Blocks for BlockNote selection and drag operations. Result rows are renderer projections and cannot be dragged as if they were host Document children.
-- Migrated inline rules compile into the canonical durable Database View schema before v70 cutover. Project-scoped reads validate and execute filter/sort/include-host semantics over memberships, including negative set membership and creation-time sorts, use view rank plus Card ID as stable tie-breakers, and safely show all rows when a malformed legacy rule cannot be interpreted. No active View retains a legacy compatibility config.
+- During v57 import, inline rules compile into the canonical durable Database View schema before v58 publication. Project-scoped reads validate and execute filter/sort/include-host semantics over memberships, including negative set membership and creation-time sorts, use view rank plus Card ID as stable tie-breakers, and safely show all rows when a malformed legacy rule cannot be interpreted. No active View retains a legacy compatibility config.
 - `cardRef` / `databaseViewRef` are childless persistence shapes. Parser, codec, and primary storage validation reject foreign Card bodies; legacy `cardToggle` / `toggleListInlineView` shapes exist only as migration inputs and inert diagnostics.
 - Toggle List summary rows do not export or accept body snapshots; only an independently mounted Card editor can move its own stable-ID Blocks through `BlockTransfer`.
 - Reference recursion is guarded by an inherited Card ancestry path (including A → B → A), while a per-mounted-surface visible-provider budget caps independent editors and keeps the focused surface resident; foreign bodies never enter the host tree.
@@ -580,7 +580,7 @@ nodex/
 │   │       ├── notifier.ts     # EventEmitter for local-store changes
 │   │       ├── schema.ts       # Latest database schema bootstrap + version guard
 │   │       ├── card-history.ts # Canonical merged Card history read model
-│   │       └── block-first-finalization.ts # v69→v70 migration-only fixed point
+│   │       └── block-first-finalization.ts # private shipped-schema import fixed point
 │   ├── preload/
 │   │   └── index.ts            # contextBridge: exposes window.api (invoke, on, serverUrl, assetPathPrefix)
 │   └── renderer/               # React SPA (Vite dev server on port 51284)
@@ -777,7 +777,7 @@ The former board-create, Card-delete, and description-write snapshot endpoints r
 
 ### Database Schema
 
-Schema v74 is Block-first. `blocks` gives every active Card one Space, Document, or Database parent; a Database parent has one matching active membership, and each Card/Database pair retains at most one stable historical membership for dormant-value restoration. `retired_block_identities` permanently reserves collected IDs; `documents` plus `block_documents` own independently synchronized content and select its sync engine. Yjs tables own `block_tree` causal state; Canvas scene tables and immutable receipts own normalized `scene_graph` state. Database records model membership/properties/Views without copying Cards, mutation/history evidence is immutable, and read projections remain rebuildable at exact authority coordinates. A supported v69 store finalizes through v70, scene-native Canvas v71, exclusive-parent v72, stable-membership v73, and rich Card title projection/schema v74 in order. Failure leaves the prior schema edge intact and blocks readiness.
+Schema v58 is Block-first. `blocks` gives every active Card one Space, Document, or Database parent; a Database parent has one matching active membership, and each Card/Database pair retains at most one stable historical membership for dormant-value restoration. `retired_block_identities` permanently reserves collected IDs; `documents` plus `block_documents` own independently synchronized content and select its sync engine. Yjs tables own `block_tree` causal state; Canvas scene tables and immutable receipts own normalized `scene_graph` state. Database records model membership/properties/Views without copying Cards, mutation/history evidence is immutable, and read projections remain rebuildable at exact authority coordinates. A shipped v26 or v57 store is converted off-line in staging and becomes observable only after the complete v58 store passes validation and the replacement journal commits.
 
 ```sql
 -- Current schema (simplified excerpt)

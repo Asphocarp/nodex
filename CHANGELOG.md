@@ -99,7 +99,7 @@ All notable changes to this project will be documented in this file.
 - Right-panel DB View and Card Stage actions now use the same dense searchable picker chrome as NFM move-to, scoped to DB or card destinations.
 
 ### Removed
-- Removed the legacy Card snapshot tables and whole-Card write APIs after one-time v69 finalization; Card commands and read models now operate only on Block, Document, and Database authority.
+- Removed the legacy Card snapshot tables and whole-Card write APIs during the shipped-store import; Card commands and read models now operate only on Block, Document, and Database authority.
 - Removed the old `KANBAN_*` server environment variable aliases.
 - Removed the floating Manage Projects popover entry points.
 - Removed legacy project slugs, project-level workspace paths, and runtime alias compatibility from the project model.

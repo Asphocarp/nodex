@@ -10,10 +10,9 @@ interface PendingRichTitleDocument {
 }
 
 /**
- * Recovery for stores that crossed the original v74 edge before snapshot
- * coordinates were included. The Yjs root constructors did not change, so
- * only the relational schema coordinate advances; immutable history remains
- * on its recorded schema.
+ * Repair snapshots created earlier in the shipped-store import before rich
+ * title coordinates were applied. The Yjs root constructors do not change;
+ * immutable history remains on its recorded schema.
  */
 export const repairRichCardSnapshotSchemaCoordinates = (
   database: Database.Database,
@@ -39,10 +38,9 @@ export const repairRichCardSnapshotSchemaCoordinates = (
 };
 
 /**
- * Rebuilds v2 rich-title projections from current Yjs authority. The v73→v74
- * DDL edge changes only schema coordinates and adds projection columns; this
- * writer-owned fixed point prevents SQL title projections from becoming a
- * migration authority.
+ * Rebuild rich-title projections from current Yjs authority after adding the
+ * relational projection columns. This writer-owned fixed point prevents SQL
+ * title projections from becoming import authority.
  */
 export const finalizeRichCardTitleSchema = (
   database: Database.Database,

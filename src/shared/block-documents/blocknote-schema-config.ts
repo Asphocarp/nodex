@@ -158,7 +158,7 @@ export const blockDocumentCustomBlockConfigs = {
 } as const;
 
 /**
- * Decode-only Block configs used by the v69→v70 migration and historical NFM
+ * Decode-only Block configs used by the shipped-store import and historical NFM
  * readers. Writable Block Document surfaces intentionally do not register
  * them, so foreign Card bodies cannot re-enter a host Y.Doc.
  */

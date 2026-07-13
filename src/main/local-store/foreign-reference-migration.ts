@@ -53,7 +53,7 @@ import { getDb } from "./database";
 import * as descriptionRevisionService from "./description-revisions";
 import { persistCardDocumentMaterialization } from "./document-materializations";
 
-/** Pre-v70 fixed-point migration only; v70 runtime never owns foreign bodies. */
+/** Shipped-store import only; current runtime never owns foreign bodies. */
 const DEFAULT_BATCH_LIMIT = 50;
 const MIGRATION_CLIENT_SESSION_ID = "foreign-reference-migration";
 
@@ -930,7 +930,7 @@ const legacyRunTarget = (
 };
 
 /**
- * Foreign-body recovery is deliberately a v69 migration write. Inserting the
+ * Foreign-body recovery is deliberately a shipped-store import write. Inserting the
  * temporary compatibility row lets the transitional triggers create a
  * legacy-shadow Card shell and enqueue its body for the next fixed-point pass.
  * Public Card creation must never use this path because primary genesis

@@ -154,7 +154,6 @@ const moveIfPresent = (source: string, destination: string): void => {
 const simulateCrashRecovery = (
   directory: string,
   phase: StoreRestorePhase,
-  previousSchema = false,
 ): "none" | "rolled_back" | "committed" => {
   process.env.NODEX_DIR = directory;
   ensureDatabase();
@@ -175,13 +174,6 @@ const simulateCrashRecovery = (
     () => "epoch-new",
   );
   fs.writeFileSync(path.join(staging, "assets", "marker.txt"), "new", "utf8");
-  if (previousSchema) {
-    for (const target of [databasePath, path.join(staging, "nodex.db")]) {
-      const database = new Database(target);
-      database.pragma("user_version = 65");
-      database.close();
-    }
-  }
   let journal = createStoreRestoreJournal({
     backupId: "runtime",
     stagingDirectoryPath: staging,
@@ -214,9 +206,7 @@ const simulateCrashRecovery = (
 
   const recovered = recoverInterruptedStoreRestore();
   const expectedEpoch = phase === "committed" ? "epoch-new" : "epoch-old";
-  const validated = validateBackupStore(databasePath, {
-    requireCurrentSchema: !previousSchema,
-  });
+  const validated = validateBackupStore(databasePath);
   invariant(validated.storeEpoch === expectedEpoch, `${phase} epoch recovery failed`);
   invariant(
     fs.readFileSync(path.join(assetsPath, "marker.txt"), "utf8") ===
@@ -409,11 +399,7 @@ const run = async (): Promise<void> => {
       );
       try {
         recoveryResults.push(
-          simulateCrashRecovery(
-            crashDirectory,
-            phase,
-            phase === "committed",
-          ),
+          simulateCrashRecovery(crashDirectory, phase),
         );
       } finally {
         fs.rmSync(crashDirectory, { recursive: true, force: true });
@@ -429,7 +415,6 @@ const run = async (): Promise<void> => {
         missingAssetRejected,
         assetSymlinkRejected,
         crashRecoveries: recoveryResults,
-        previousSchemaJournal: true,
       })}\n`,
     );
   } finally {
