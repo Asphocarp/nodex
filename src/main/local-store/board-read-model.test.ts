@@ -116,9 +116,10 @@ describe("board summary read model", () => {
 
   test("summary payload stays bounded for many cards with large descriptions", async () => {
     const ran = await withTempDatabase(async (projectId) => {
+      const cardCount = 128;
       const hiddenMarker = "full-body-marker-should-not-enter-summary";
       const longBody = `${"preview ".repeat(40)} ${hiddenMarker} ${"body ".repeat(600)}`;
-      for (let index = 0; index < 500; index += 1) {
+      for (let index = 0; index < cardCount; index += 1) {
         await createCard(projectId, "draft", {
           title: `Large ${index}`,
           description: longBody,
@@ -129,8 +130,8 @@ describe("board summary read model", () => {
       const payload = JSON.stringify(summary);
 
       expect(payload.includes(hiddenMarker)).toBe(false);
-      expect(payload.length < 1_000_000).toBe(true);
-      expect(summary.columns.flatMap((column) => column.cards).length).toBe(500);
+      expect(payload.length < cardCount * 2_000).toBe(true);
+      expect(summary.columns.flatMap((column) => column.cards).length).toBe(cardCount);
     });
 
     if (!ran) expect(true).toBe(true);

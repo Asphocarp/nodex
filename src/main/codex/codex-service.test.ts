@@ -9469,12 +9469,10 @@ describe("codex-service interrupt target resolution", () => {
 
     try {
       serviceInternals.applyThreadStatusLocal("thr_goal_continue", "idle", []);
-      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
-      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
-
-      await waitForCondition(() =>
-        requests.some((request) => request.method === "thread/goal/set"),
-      1_000);
+      await Promise.all([
+        serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue"),
+        serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue"),
+      ]);
 
       const goalSetRequests = requests.filter((request) => request.method === "thread/goal/set");
       expect(goalSetRequests.length).toBe(1);
