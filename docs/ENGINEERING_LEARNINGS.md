@@ -27,6 +27,12 @@ React's `onBeforeInput` is a synthetic compatibility event, not a reliable nativ
 
 Formatting is also a schema boundary, not a blanket DOM command. Apply Y.Text formats only to validated text ranges: skip line breaks and atomic inline objects, strip untyped object-replacement characters from external text, and insert line breaks without inherited attributes. Otherwise an apparently harmless select-all Bold command can attach unsupported attributes to a mention atom and make the entire Card Document fail validation.
 
+### Inline mark input rules must match only text they own
+
+A regular expression can use a leading capture to express a lexical boundary while accidentally making that character part of the full input-rule range. Tiptap's `markInputRule` preserves the final capture and deletes the rest of the full match, so a pattern such as `(^|[^delimiter])...` can delete the character immediately before the opening delimiter. Use a function finder whose returned `text` starts at the opening delimiter and whose `replaceWith` is only the interior content.
+
+Automatic inline-code formatting is also an input contract, not delayed Markdown normalization. Accept the closing delimiter only when the opening side is line/whitespace/parenthesis bounded, the interior is non-empty with non-whitespace edges, and the closing side is end/whitespace/parenthesis bounded. Inspect the post-cursor character from editor state because Tiptap finders receive only text before the cursor. Do not add a second trailing-space rule: it retroactively rewrites literal text and makes the same document depend on which later character happened to be typed. Keep `Cmd/Ctrl+E` on the direct mark-command path.
+
 ### Collaboration boundaries must not become nested visual containers
 
 An independent Y.Doc/provider is a loading, undo, awareness, and persistence boundary; it is not automatically a bordered component. Rendering a document-bearing Card as a generic File/Link shell with another editor header below it makes one logical outliner look like an editor nested inside an editor and often duplicates title ownership in the DOM.
