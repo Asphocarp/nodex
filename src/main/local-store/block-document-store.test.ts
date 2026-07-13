@@ -10,6 +10,7 @@ import {
   createCardDocument,
   openCardDocument,
 } from "../../shared/block-documents";
+import { createCardDocumentGenesis } from "../../shared/block-documents/block-document-codec";
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
@@ -342,6 +343,136 @@ describe("BlockDocumentStore", () => {
         expect(
           getBlockDocumentRuntimeIdentity(database, documentId).head.headSeq,
         ).toBe(2);
+        database.close();
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  sqliteTest(
+    "accepts BlockNote's pending image upload state before indexing the resolved asset",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-pending-image-upload-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+
+      try {
+        await initializeDatabase();
+        closeDatabase();
+
+        const database = new Database(getDatabasePath(), { readonly: false });
+        database.pragma("foreign_keys = ON");
+        const { documentId, storeEpoch } = seedPendingCardDocument(
+          database,
+          "pending-image-card",
+        );
+        const imageBlockId = createUuidV7();
+        const genesis = createCardDocumentGenesis({
+          documentId,
+          title: "Image paste",
+          nfm: "",
+          allocateBlockId: () => imageBlockId,
+        });
+        initializeCardDocumentGenesis(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "pending-image-genesis",
+          clientSessionId: "migration",
+          update: genesis.update,
+          finalAuthority: "ydoc_primary",
+        });
+        genesis.document.destroy();
+
+        const replica = loadBlockDocument(database, documentId);
+        const pendingUpdate = captureOneUpdate(replica.document, () => {
+          replica.document.transact(() => {
+            const container = findBlockContainer(
+              replica.document,
+              imageBlockId,
+            );
+            const image = new Y.XmlElement("image");
+            image.setAttribute("name", "pasted.png");
+            image.setAttribute("url", "");
+            container.delete(0, 1);
+            container.insert(0, [image]);
+          });
+        });
+        const pendingAck = applyBlockDocumentUpdate(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "pending-image-placeholder",
+          clientSessionId: "window-paste",
+          baseHeadSeq: 1,
+          touchedBlockIds: [imageBlockId],
+          update: pendingUpdate,
+        });
+        expect(pendingAck.headSeq).toBe(2);
+
+        const pendingMaterialization = database
+          .prepare(
+            "SELECT asset_refs_json FROM document_materializations WHERE document_id = ?",
+          )
+          .get(documentId) as { readonly asset_refs_json: string };
+        expect(JSON.parse(pendingMaterialization.asset_refs_json)).toEqual([]);
+        expect(
+          database
+            .prepare(
+              "SELECT COUNT(*) AS count FROM block_asset_refs WHERE document_id = ?",
+            )
+            .get(documentId),
+        ).toEqual({ count: 0 });
+
+        const resolvedSource = "https://example.com/pasted.png";
+        const resolvedUpdate = captureOneUpdate(replica.document, () => {
+          const container = findBlockContainer(
+            replica.document,
+            imageBlockId,
+          );
+          const image = container.get(0);
+          if (!(image instanceof Y.XmlElement) || image.nodeName !== "image") {
+            throw new TypeError("Expected the pending image Block");
+          }
+          image.setAttribute("url", resolvedSource);
+        });
+        const resolvedAck = applyBlockDocumentUpdate(database, {
+          documentId,
+          storeEpoch,
+          generation: 1,
+          updateId: "pending-image-resolved",
+          clientSessionId: "window-paste",
+          baseHeadSeq: 2,
+          touchedBlockIds: [imageBlockId],
+          update: resolvedUpdate,
+        });
+        expect(resolvedAck.headSeq).toBe(3);
+
+        const resolvedMaterialization = database
+          .prepare(
+            "SELECT asset_refs_json FROM document_materializations WHERE document_id = ?",
+          )
+          .get(documentId) as { readonly asset_refs_json: string };
+        expect(JSON.parse(resolvedMaterialization.asset_refs_json)).toMatchObject([
+          {
+            sourceBlockId: imageBlockId,
+            kind: "image",
+            source: resolvedSource,
+          },
+        ]);
+        expect(
+          database
+            .prepare(
+              "SELECT asset_uri FROM block_asset_refs WHERE document_id = ? AND block_id = ?",
+            )
+            .get(documentId, imageBlockId),
+        ).toEqual({ asset_uri: resolvedSource });
+
+        replica.document.destroy();
         database.close();
       } finally {
         closeDatabase();

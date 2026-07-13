@@ -93,6 +93,21 @@ const readDisplayHint = (value: string | undefined): string | undefined => {
   return value;
 };
 
+const appendResolvedAssetReference = (
+  assetRefs: BlockDocumentAssetReference[],
+  input: Omit<BlockDocumentAssetReference, "managedFileName">,
+): void => {
+  // BlockNote inserts file Blocks before the asynchronous upload resolves.
+  // The empty source is valid collaborative content, but it does not yet
+  // identify an asset and therefore must not enter the asset projection.
+  if (input.source.length === 0) return;
+
+  assetRefs.push({
+    ...input,
+    managedFileName: parseAssetSource(input.source)?.fileName ?? null,
+  });
+};
+
 const collectInlineReferences = (
   sourceBlockId: BlockId,
   inline: readonly NfmInlineContent[],
@@ -109,11 +124,10 @@ const collectInlineReferences = (
       continue;
     }
     if (item.type !== "attachment") continue;
-    assetRefs.push({
+    appendResolvedAssetReference(assetRefs, {
       sourceBlockId,
       kind: "attachment",
       source: item.source,
-      managedFileName: parseAssetSource(item.source)?.fileName ?? null,
     });
   }
 };
@@ -164,11 +178,10 @@ const collectDerivedRecords = (
         references,
         assetRefs,
       );
-      assetRefs.push({
+      appendResolvedAssetReference(assetRefs, {
         sourceBlockId: block.id,
         kind: "image",
         source: nfmBlock.source,
-        managedFileName: parseAssetSource(nfmBlock.source)?.fileName ?? null,
       });
     } else if (
       nfmBlock.type === "cardRef"

@@ -219,6 +219,9 @@ Image:
 <image source="{{URL}}" color?="Color">Caption</image>
 In Nodex, image `source` can also be a local asset URI:
 `nodex://assets/<file-name>`.
+An explicit empty source (`<image source="">Caption</image>`) represents a
+pending/unresolved image Block and round-trips without creating an asset
+reference. Omitting the `source` attribute is still invalid.
 Optional width is supported via `preview-width`:
 `<image source="{{URL}}" preview-width="420">Caption</image>`
 PDF:

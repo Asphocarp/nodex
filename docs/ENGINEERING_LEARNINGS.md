@@ -875,7 +875,7 @@ Notion clipboard rich text often arrives as `properties.title` tuples like `["te
 When copying from Notion in Chromium, structural block data is available via `text/_notion-blocks-v3-production` (and on native pasteboard encoded inside `org.chromium.web-custom-data`). For preserving structures like toggles, handle this MIME first via BlockNote `pasteHandler` and only fallback to default HTML/plain-text paste when Notion payload parsing fails.
 
 ### BlockNote file paste/upload requires `uploadFile` or file blocks never finish
-BlockNote's file insertion flow creates a placeholder block first and then calls `editor.uploadFile(file, blockId)` to populate `props.url`. Without `uploadFile`, paste/drop image behavior effectively fails. In Nodex, keep `uploadFile` wired in `useCreateBlockNote` and avoid persisting unresolved image blocks with empty URLs.
+BlockNote's file insertion flow creates a placeholder block first and then calls `editor.uploadFile(file, blockId)` to populate `props.url`. Without `uploadFile`, paste/drop image behavior effectively fails. In a realtime Y.Doc, the placeholder update is independently observable and durable: treat an empty URL as valid pending Block content, exclude it from asset-reference projections, and index the asset only after the follow-up update supplies a source. Do not debounce, reject, or hide that first collaborative transaction.
 
 ### Stable media references should use app-specific asset URIs
 Persisting absolute `http://localhost:...` image URLs inside NFM is brittle when host/port changes. Store canonical `nodex://assets/<file>` URIs in descriptions and resolve them to HTTP at render time (`resolveFileUrl` in editor and a renderer helper in read-only views).

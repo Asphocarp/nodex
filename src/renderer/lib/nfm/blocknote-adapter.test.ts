@@ -828,7 +828,7 @@ describe("blocknote adapter", () => {
     expect(serialized.includes('rules-v2="eyJ0ZXN0Ijp0cnVlfQ"')).toBe(true);
   });
 
-  test("unresolved image placeholder is dropped during BN → NFM conversion", () => {
+  test("unresolved image placeholder round-trips while upload is pending", () => {
     const blocks = blockNoteToNfm(
       asDoc([
         {
@@ -843,7 +843,18 @@ describe("blocknote adapter", () => {
       ]),
     );
 
-    expect(blocks.length).toBe(0);
+    expect(blocks).toMatchObject([
+      {
+        type: "image",
+        source: "",
+        caption: [{ type: "text", text: "uploading..." }],
+      },
+    ]);
+    const serialized = serializeNfm(blocks);
+    expect(serialized).toBe(
+      '<image source="">uploading...</image>',
+    );
+    expect(parseNfm(serialized)).toMatchObject(blocks);
   });
 
   test("expanded toggle (▼) round-trips through parser/serializer", () => {

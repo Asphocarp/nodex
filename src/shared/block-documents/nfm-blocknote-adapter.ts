@@ -608,7 +608,7 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
 
     case "image": {
       const source = normalizeImageUrl(block.props?.url);
-      if (!source) return null;
+      if (source === null) return null;
       const caption = normalizeImageCaption(block.props?.caption);
       const previewWidth = normalizePreviewWidth(block.props?.previewWidth);
 
@@ -1072,8 +1072,7 @@ function extractCodeText(content: unknown): string {
 
 function normalizeImageUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  return value.trim();
 }
 
 function parseCsvString(value: unknown): string[] {

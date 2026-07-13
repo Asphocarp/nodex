@@ -490,7 +490,7 @@ function parseImage(line: string): NfmImage | null {
   const caption = match[2];
 
   const source = getXmlAttr(attrString, "source");
-  if (!source) return null;
+  if (source === undefined) return null;
 
   const colorValue = getXmlAttr(attrString, "color");
   const color = colorValue && NFM_COLORS.includes(colorValue as NfmColor)

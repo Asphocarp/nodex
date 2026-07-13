@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import {
   canonicalizeNfmForBlockDocument,
   createCardDocumentGenesis,
+  createDetachedCardDocumentFromBlockTree,
   materializeCardDocument,
 } from "./block-document-codec";
 
@@ -168,6 +169,36 @@ describe("CardDocumentCodec", () => {
     ]);
     expect(genesis.materialization.nfm).toBe("");
     expect(genesis.materialization.plainText).toBe("");
+  });
+
+  test("keeps a pending image Block without projecting a nonexistent asset", () => {
+    const pending = createDetachedCardDocumentFromBlockTree({
+      documentId: "document-codec-pending-image",
+      title: "Pending image",
+      blockTree: [
+        {
+          id: "pending-image",
+          type: "image",
+          props: {
+            backgroundColor: "default",
+            caption: "",
+            name: "pasted.png",
+            showPreview: true,
+            textAlignment: "left",
+            url: "",
+          },
+          children: [],
+        },
+      ],
+    });
+
+    expect(pending.materialization.blockTree[0]).toMatchObject({
+      id: "pending-image",
+      type: "image",
+      props: { name: "pasted.png", url: "" },
+    });
+    expect(pending.materialization.assetRefs).toEqual([]);
+    pending.document.destroy();
   });
 
 });

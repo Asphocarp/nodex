@@ -323,7 +323,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Pressing `Space` while an image block is focused opens a larger centered modal preview; pressing `Space` again closes it (Esc/click outside also close)
 - Double-clicking an image block opens the same large preview modal
 - Image preview modal includes zoom controls (`+`, `-`, reset) with a visible zoom percentage
-- Pasting images uploads them to shared local assets and inserts image blocks automatically
+- Pasting images inserts a collaborative pending image Block immediately, uploads the file to shared local assets, and then resolves the same Block to its canonical asset source. Pending Blocks remain valid content but are not exposed as asset references until the source exists.
 - Pasting from Notion preserves block structure (including toggle blocks and nested children) when Notion clipboard metadata is present
 - Notion paste preserves inline rich text marks (`bold`, `italic`, `strikethrough`, `code`, `underline`) and inline text/background colors from Notion annotation metadata (`h` color tokens)
 - When pasting plain text that exceeds the configurable `Large paste text threshold` (default `100,000`) or would push the description near the configurable `Large paste description soft limit` (default `750,000`), Nodex intercepts the paste and offers `Save in Nodex`, `Paste anyway`, or `Cancel`, with a truncated, scrollable preview of the pasted text and character/line metadata in the dialog
