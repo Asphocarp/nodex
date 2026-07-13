@@ -255,6 +255,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Notion-style slide-out panel for card details
 - Always-editable fields (no edit mode toggle)
 - Card is the user-facing term for a document-bearing Block; Card Stage never introduces a second Page identity
+- Card Stage opens through membership-independent Card Detail. Space-, Document-, and Database-parented Cards all resolve the same Block and owned Document; absence from a Database View is never treated as a missing Card. Nested `card` and `cardRef` Open Card actions therefore open the same Y.Doc in a normal Card tab without copying content or restoring an old membership.
+- Title/body, history, Threads, intrinsic Agent state, and `Run in` controls are available for every Card. Status, priority, estimate, tags, assignee, due/scheduled dates, occurrence actions, Database moves, and Database lifecycle actions render only when Card Detail includes a matching active membership and property coordinates. A standalone Card receives no synthetic `draft` status or empty Database values.
+- Membership refresh changes only the optional Card Stage Database capability. It keeps the Card Block ID, owned Document ID/provider boundary, collaborative content, and local undo scope stable. Opening a Card is read-only with respect to ownership.
 - Production Card Stage prepares the exact Project-scoped owned-Document descriptor before rendering content. Only a ready, schema-compatible `yjs` descriptor mounts the Card editor; `canvas_scene` descriptors route to Canvas view, and invalid descriptors remain on a retryable fail-closed diagnostic surface
 - Card Stage uses one continuous content skeleton across Card hydration, Document preparation, runtime creation, and the initial state-vector handshake. Normal opening never replaces that skeleton with a second text-only loading state. A terminal open or resync failure remains inline until recovery, shows the concrete failure reason beside Reload, and offers expandable, copyable diagnostics with the protocol error code and Document identity; delayed/offline sync status remains available after a Document has opened
 - A title-only Card opens as a normal empty editor. Its collaborative body contains one authority-owned empty paragraph with a stable Block ID, while NFM/plain-text exports remain empty; the editor never creates a placeholder identity during mount
@@ -724,8 +727,9 @@ nodex/
 |--------|----------|-------------|
 | GET | `/api/projects/[projectId]/board-summary` | Fetch the bounded primary Database View summary without full Card bodies |
 | GET | `/api/projects/[projectId]/column` | Fetch a single board status group (query: `?id=<status>`) |
-| GET | `/api/projects/[projectId]/card` | Read one Card product projection assembled from current Block/Document/Database authority |
-| POST | `/api/projects/[projectId]/cards/details` | Read bounded selected Card detail projections |
+| GET | `/api/projects/[projectId]/card` | Read one versioned membership-independent Card Detail result with optional Database capability |
+| GET | `/api/projects/[projectId]/database-row` | Read the compatibility wide Card projection for an active Database row |
+| POST | `/api/projects/[projectId]/database-rows/details` | Batch-read compatibility wide projections for selected active Database rows |
 | POST | `/api/projects/[projectId]/card-lifecycle-mutations` | Create, archive/restore, or tombstone a Card Block and owned Document through one idempotent lifecycle command |
 | GET | `/api/projects/[projectId]/card-lifecycle-preflight` | Read exact lifecycle/ownership evidence needed to compile a lifecycle command |
 | POST | `/api/projects/[sourceProjectId]/card-transfers` | Atomically transfer a top-level Card and recursively owned Document closure to another Project |

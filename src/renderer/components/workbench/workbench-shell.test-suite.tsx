@@ -11,7 +11,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents";
+import {
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  plainTextToPortableRichText,
+} from "../../../shared/block-documents";
 import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
@@ -30,6 +33,7 @@ import type {
   ProjectSessionTab,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+import { resetDatabaseRowDetailStoreForTests } from "@/lib/database-row-detail-store";
 import { resetCardDetailStoreForTests } from "@/lib/card-detail-store";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
@@ -536,7 +540,10 @@ vi.mock("@/components/block-documents/owned-block-document-boundary", () => ({
 vi.mock("./workbench-card-stage", () => ({
   CardStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
-    const card = props.card as { id?: string } | null | undefined;
+    const stageModel = props.card as {
+      card?: { id?: string };
+    } | null | undefined;
+    const card = stageModel?.card;
     const cardId = card?.id ?? "missing";
     const propsByCardId = ((globalThis as {
       __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
@@ -623,8 +630,7 @@ vi.mock("./workbench-card-stage", () => ({
           onClick: () => {
             const current = (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks ?? 0;
             (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks = current + 1;
-            void (props.onDelete as ((nextColumnId: string, cardId: string) => Promise<void>) | undefined)?.(
-              "in_progress",
+            void (props.onDelete as ((cardId: string) => Promise<void>) | undefined)?.(
               card?.id ?? "card-1",
             );
           },
@@ -1626,6 +1632,135 @@ function renderWorkbench({
   worktreeEnvironmentOptionsByProject?: Record<string, WorktreeEnvironmentOption[]>;
   codexModels?: CodexModelOption[];
 } = {}) {
+  const asCardDetailCommandResult = (
+    value: unknown,
+    projectId: string,
+    cardId: string,
+  ): unknown => {
+    if (value instanceof Promise) {
+      return value.then((resolved) =>
+        asCardDetailCommandResult(resolved, projectId, cardId),
+      );
+    }
+    if (
+      value &&
+      typeof value === "object" &&
+      "ok" in value
+    ) {
+      return value;
+    }
+    if (!value) {
+      return {
+        ok: false,
+        error: {
+          code: "card_not_found",
+          message: `Card not found: ${cardId}`,
+          retryable: false,
+        },
+      };
+    }
+    const row = value as Record<string, unknown>;
+    const standalone = row.standalone === true;
+    const title = typeof row.title === "string" ? row.title : cardId;
+    const status = typeof row.status === "string" ? row.status : "draft";
+    const created = row.created instanceof Date
+      ? row.created.toISOString()
+      : "2026-06-07T00:00:00.000Z";
+    const databaseBlockId = `database:${projectId}:primary`;
+    const intrinsic = [
+      ["isAllDay", Boolean(row.isAllDay)],
+      ["recurrence", row.recurrence ?? null],
+      ["reminders", row.reminders ?? []],
+      ["scheduleTimezone", row.scheduleTimezone ?? null],
+      ["agentBlocked", Boolean(row.agentBlocked)],
+      ["agentStatus", row.agentStatus ?? null],
+      ["runInTarget", row.runInTarget ?? "localProject"],
+      ["runInLocalPath", row.runInLocalPath ?? null],
+      ["runInBaseBranch", row.runInBaseBranch ?? null],
+      ["runInWorktreePath", row.runInWorktreePath ?? null],
+      ["runInEnvironmentPath", row.runInEnvironmentPath ?? null],
+    ].map(([field, fieldValue]) => ({
+      scope: "intrinsic",
+      field,
+      revision: 1,
+      value: fieldValue,
+    }));
+    const databaseFields = [
+      ["status", status],
+      ["priority", row.priority ?? null],
+      ["estimate", row.estimate ?? null],
+      ["tags", row.tags ?? []],
+      ["dueDate", row.dueDate instanceof Date
+        ? row.dueDate.toISOString().slice(0, 10)
+        : null],
+      ["scheduledStart", row.scheduledStart instanceof Date
+        ? row.scheduledStart.toISOString()
+        : null],
+      ["scheduledEnd", row.scheduledEnd instanceof Date
+        ? row.scheduledEnd.toISOString()
+        : null],
+      ["assignee", row.assignee ?? null],
+    ].map(([field, fieldValue]) => ({
+      scope: "database",
+      field,
+      databaseBlockId,
+      propertyId: `${databaseBlockId}:property:${String(field)}`,
+      revision: 1,
+      value: fieldValue,
+    }));
+    return {
+      ok: true,
+      value: {
+        version: 1,
+        card: {
+          blockId: cardId,
+          projectId,
+          lifecycle: "active",
+          location: standalone
+            ? { kind: "document", documentId: "document:host" }
+            : { kind: "database", databaseBlockId },
+          locationRevision: 1,
+          metadataRevision: typeof row.revision === "number" ? row.revision : 1,
+          documentId: `document:${cardId}`,
+          documentGeneration: 1,
+          documentHeadSeq: 1,
+          documentAuthority: "ydoc_primary",
+          content: {
+            projectedSeq: 1,
+            title,
+            richTitle: plainTextToPortableRichText(title),
+            preview: "",
+            plainText: title,
+          },
+          createdAt: created,
+          updatedAt: created,
+        },
+        document: {
+          readiness: "ready",
+          schemaKey: "nodex.card",
+          schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+        },
+        properties: {
+          projectId,
+          storeEpoch: "store-epoch:test",
+          changeLogSeq: 1,
+          cardBlockId: cardId,
+          metadataRevision: typeof row.revision === "number" ? row.revision : 1,
+          fields: standalone ? intrinsic : [...intrinsic, ...databaseFields],
+        },
+        databaseContext: standalone
+          ? { kind: "standalone" }
+          : {
+              kind: "member",
+              membership: {
+                id: `membership:${cardId}`,
+                databaseBlockId,
+                revision: 1,
+              },
+            },
+      },
+    };
+  };
   const projectlessSessionStateKey = "__projectless__";
   let sessionState = projectlessSessions.length > 0
     ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
@@ -1962,10 +2097,12 @@ function renderWorkbench({
       const cardId = String(args[1] ?? "");
       if (cardGetOverride) {
         const overridden = cardGetOverride(projectId, cardId);
-        if (overridden !== undefined) return overridden;
+        if (overridden !== undefined) {
+          return asCardDetailCommandResult(overridden, projectId, cardId);
+        }
       }
       if (cardId === "card-beta") {
-        return {
+        return asCardDetailCommandResult({
           id: "card-beta",
           projectId: "beta",
           status: "in_progress",
@@ -1977,10 +2114,10 @@ function renderWorkbench({
           created: new Date("2026-06-07T00:00:00.000Z"),
           order: 0,
           revision: 1,
-        };
+        }, projectId, cardId);
       }
       if (cardId === "card-2") {
-        return {
+        return asCardDetailCommandResult({
           id: "card-2",
           projectId: "alpha",
           status: "in_progress",
@@ -1992,10 +2129,12 @@ function renderWorkbench({
           created: new Date("2026-06-07T00:00:00.000Z"),
           order: 1,
           revision: 1,
-        };
+        }, projectId, cardId);
       }
-      if (cardId !== "card-1") return null;
-      return {
+      if (cardId !== "card-1") {
+        return asCardDetailCommandResult(null, projectId, cardId);
+      }
+      return asCardDetailCommandResult({
         id: "card-1",
         projectId: "alpha",
         status: "in_progress",
@@ -2007,9 +2146,9 @@ function renderWorkbench({
         created: new Date("2026-06-07T00:00:00.000Z"),
         order: 0,
         revision: 1,
-      };
+      }, projectId, cardId);
     }
-    if (channel === "cards:details:get") {
+    if (channel === "database-rows:details:get") {
       const input = (args[1] ?? {}) as { cardIds?: string[] };
       return (input.cardIds ?? []).flatMap((cardId) => (
         cardId === "card-beta"
@@ -2700,6 +2839,7 @@ function installTerminalEventApiMock(): TerminalEventListenerMap {
 
 beforeEach(() => {
   terminalSessionStore.disposeEventSubscriptions();
+  resetDatabaseRowDetailStoreForTests();
   resetCardDetailStoreForTests();
   __resetNodexToastStoreForTests();
   document.body.removeAttribute("style");
@@ -10215,14 +10355,15 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    const card = cardStageProps?.card as { id?: string; projectId?: string } | undefined;
+    const cardModel = cardStageProps?.card as {
+      card?: { id?: string };
+    } | undefined;
     const documentAuthority = cardStageProps?.documentAuthority as {
       kind?: string;
       descriptor?: { projectId?: string; ownerBlockId?: string };
     } | undefined;
     expect(cardStageProps?.projectId).toBe("beta");
-    expect(card?.id).toBe("card-beta");
-    expect(card?.projectId).toBe("beta");
+    expect(cardModel?.card?.id).toBe("card-beta");
     expect(documentAuthority?.kind).toBe("yjs");
     expect(documentAuthority?.descriptor?.projectId).toBe("beta");
     expect(documentAuthority?.descriptor?.ownerBlockId).toBe("card-beta");
@@ -10521,6 +10662,55 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByText("Card:card-1") !== null).toBe(true);
     expect(screen.queryByRole("status", { name: "Loading Card One" }) === null).toBe(true);
     expect(screen.queryByText("Card not found") === null).toBe(true);
+  });
+
+  test("opens a Document-parented Card without requiring a Database row", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "nested-card-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Nested Card",
+          panelId: "right",
+          config: {
+            projectId: "alpha",
+            cardId: "nested-card",
+            titleSnapshot: "Nested Card",
+          },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha")],
+      sessionsByProject: { alpha: [session] },
+      cardGetOverride: (_projectId, cardId) => cardId === "nested-card"
+        ? {
+            id: cardId,
+            title: "Nested Card",
+            description: "Independent body",
+            archived: false,
+            agentBlocked: false,
+            created: new Date("2026-07-14T00:00:00.000Z"),
+            revision: 2,
+            standalone: true,
+          }
+        : undefined,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByText("Card:nested-card") !== null).toBe(true);
+    const props = (globalThis as {
+      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
+    }).__mockCardStagePropsByCardId?.["nested-card"];
+    const model = props?.card as {
+      databaseContext?: { kind?: string };
+    } | undefined;
+    expect(model?.databaseContext?.kind).toBe("standalone");
+    expect(props?.onDelete).toBeUndefined();
+    expect(props?.onMove).toBeUndefined();
   });
 
   test("renders card detail load failures as load errors instead of missing cards", async () => {

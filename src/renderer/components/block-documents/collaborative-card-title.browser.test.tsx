@@ -20,6 +20,96 @@ const createTitle = (value: string) => {
 };
 
 describe("CollaborativeCardTitle in Chromium", () => {
+  test("keeps the caret after sequential local text input", async () => {
+    const existing = createTitle("123");
+    const existingView = render(
+      <CollaborativeCardTitle title={existing.title} aria-label="Existing title" />,
+    );
+    const existingEditor = existingView.getByRole("textbox", {
+      name: "Existing title",
+    }) as HTMLDivElement;
+
+    await act(async () => {
+      existingEditor.focus();
+      restoreRichTitleDomSelection(existingEditor, 3, 3);
+      await userEvent.keyboard("4");
+    });
+
+    expect(existing.title.toString()).toBe("1234");
+    expect(readRichTitleDomSelection(existingEditor)).toMatchObject({
+      anchor: 4,
+      focus: 4,
+    });
+
+    const empty = createTitle("");
+    const emptyView = render(
+      <CollaborativeCardTitle title={empty.title} aria-label="Empty title" />,
+    );
+    const emptyEditor = emptyView.getByRole("textbox", {
+      name: "Empty title",
+    }) as HTMLDivElement;
+
+    await act(async () => {
+      emptyEditor.focus();
+      restoreRichTitleDomSelection(emptyEditor, 0, 0);
+      await userEvent.keyboard("abcdefg");
+    });
+
+    expect(empty.title.toString()).toBe("abcdefg");
+    expect(readRichTitleDomSelection(emptyEditor)).toMatchObject({
+      anchor: 7,
+      focus: 7,
+    });
+    existing.document.destroy();
+    empty.document.destroy();
+  });
+
+  test("reconciles a non-cancelable browser DOM draft in draft coordinates", async () => {
+    const { document, title } = createTitle("123");
+    const view = render(<CollaborativeCardTitle title={title} />);
+    const editor = view.getByRole("textbox", {
+      name: "Card title",
+    }) as HTMLDivElement;
+    const segment = editor.querySelector<HTMLElement>(
+      "[data-rich-title-kind='text']",
+    );
+    const textNode = segment?.firstChild;
+    if (!segment || !(textNode instanceof Text)) {
+      throw new TypeError("Expected a rendered rich-title text segment");
+    }
+
+    await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 3, 3);
+      editor.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: false,
+        data: "4",
+        inputType: "insertReplacementText",
+      }));
+      textNode.insertData(3, "4");
+      editor.ownerDocument.getSelection()?.setBaseAndExtent(
+        textNode,
+        4,
+        textNode,
+        4,
+      );
+      editor.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "4",
+        inputType: "insertReplacementText",
+      }));
+      await Promise.resolve();
+    });
+
+    expect(title.toString()).toBe("1234");
+    expect(readRichTitleDomSelection(editor)).toMatchObject({
+      anchor: 4,
+      focus: 4,
+    });
+    document.destroy();
+  });
+
   test("restores a native selection through a remote Y.Text insertion", async () => {
     const { document, title } = createTitle("Hello Chromium");
     const view = render(<CollaborativeCardTitle title={title} />);

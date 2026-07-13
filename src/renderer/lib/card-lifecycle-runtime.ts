@@ -15,7 +15,7 @@ const defaultDependencies: CardLifecycleRuntimeDependencies = {
   readPreflight: readCardLifecyclePreflight,
   mutate: mutateCardLifecycle,
   readCard: async (projectId, cardId) =>
-    (await invoke("card:get", projectId, cardId)) as Card | null,
+    (await invoke("database-row:get", projectId, cardId)) as Card | null,
   waitBeforeCanonicalReadRetry: async () => {
     await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
   },

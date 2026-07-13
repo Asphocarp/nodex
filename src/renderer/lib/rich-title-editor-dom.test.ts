@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   readRichTitleDomDraft,
+  readRichTitleDomDraftSelection,
   readRichTitleDomSelection,
   restoreRichTitleDomSelection,
   richTitleDomPointToIndex,
@@ -49,6 +50,32 @@ describe("rich title editor DOM coordinates", () => {
   test("reads an IME draft without leaking visible atom labels", () => {
     const root = createFixture();
     expect(readRichTitleDomDraft(root)).toBe("Hello\uFFFC\nworld");
+    root.remove();
+  });
+
+  test("maps a browser-mutated draft without stale segment lengths", () => {
+    const root = createFixture();
+    const firstText = root.children[0]?.firstChild;
+    const lastText = root.children[3]?.firstChild;
+    if (!(firstText instanceof Text) || !(lastText instanceof Text)) {
+      throw new TypeError("Missing title text fixture");
+    }
+    firstText.insertData(5, "!");
+    root.ownerDocument.getSelection()?.setBaseAndExtent(
+      lastText,
+      3,
+      lastText,
+      3,
+    );
+
+    expect(readRichTitleDomDraftSelection(root)).toMatchObject({
+      anchor: 11,
+      focus: 11,
+    });
+    expect(readRichTitleDomSelection(root)).toMatchObject({
+      anchor: 10,
+      focus: 10,
+    });
     root.remove();
   });
 });

@@ -40,7 +40,9 @@ export function normalizeReminderOffsets(raw: string): number[] {
   return Array.from(new Set(offsets)).sort((left, right) => left - right);
 }
 
-export function reminderInputFromConfigs(reminders: ReminderConfig[] | undefined): string {
+export function reminderInputFromConfigs(
+  reminders: readonly ReminderConfig[] | undefined,
+): string {
   if (!reminders || reminders.length === 0) return "";
   return reminders
     .map((entry) => entry.offsetMinutes)
@@ -48,7 +50,7 @@ export function reminderInputFromConfigs(reminders: ReminderConfig[] | undefined
     .join(", ");
 }
 
-export function recurrenceFromCard(card: Card): {
+export function recurrenceFromCard(card: CardScheduleSource): {
   enabled: boolean;
   frequency: RecurrenceFrequency;
   interval: string;
@@ -81,6 +83,22 @@ export function recurrenceFromCard(card: Card): {
     untilDate,
   };
 }
+
+export type CardScheduleSource = Omit<
+  Pick<
+    Card,
+    | "id"
+    | "scheduledStart"
+    | "scheduledEnd"
+    | "isAllDay"
+    | "recurrence"
+    | "reminders"
+    | "scheduleTimezone"
+  >,
+  "reminders"
+> & {
+  readonly reminders: readonly ReminderConfig[];
+};
 
 export function formatReminderOffset(offset: number): string {
   if (offset === 0) return "At time";
@@ -207,7 +225,7 @@ export interface ScheduleSummary {
 }
 
 export interface UseScheduleStateOptions {
-  card: Card | null;
+  card: CardScheduleSource | null;
   saveProperty: (updates: Partial<CardInput>) => void;
   onCompleteOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
   onSkipOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
@@ -228,8 +246,8 @@ export interface ScheduleState {
   scheduleTimezone: string;
   occurrenceBusy: boolean;
   scheduleSummary: ScheduleSummary | null;
-  applyScheduleState: (card: Card) => void;
-  applyRecurrenceState: (card: Card) => void;
+  applyScheduleState: (card: CardScheduleSource) => void;
+  applyRecurrenceState: (card: CardScheduleSource) => void;
   handleScheduledStartChange: (value: string) => void;
   handleScheduledEndChange: (value: string) => void;
   handleToggleAllDay: () => void;
@@ -286,7 +304,7 @@ export function useScheduleState({
     savePropertyRef.current = saveProperty;
   }, [saveProperty]);
 
-  const applyScheduleState = useCallback((nextCard: Card) => {
+  const applyScheduleState = useCallback((nextCard: CardScheduleSource) => {
     const nextIsAllDay = Boolean(nextCard.isAllDay);
     setIsAllDay(nextIsAllDay);
     if (nextIsAllDay) {
@@ -299,7 +317,7 @@ export function useScheduleState({
     setScheduleHint(null);
   }, []);
 
-  const applyRecurrenceState = useCallback((nextCard: Card) => {
+  const applyRecurrenceState = useCallback((nextCard: CardScheduleSource) => {
     const recurrenceState = recurrenceFromCard(nextCard);
     setRecurrenceEnabled(recurrenceState.enabled);
     setRecurrenceFrequency(recurrenceState.frequency);

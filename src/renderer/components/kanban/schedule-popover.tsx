@@ -11,8 +11,11 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Card, RecurrenceFrequency } from "@/lib/types";
-import type { ScheduleState } from "@/lib/use-schedule-state";
+import type { RecurrenceFrequency } from "@/lib/types";
+import type {
+  CardScheduleSource,
+  ScheduleState,
+} from "@/lib/use-schedule-state";
 import {
   REPEAT_FREQUENCIES,
   REMINDER_PRESET_OFFSETS,
@@ -25,7 +28,7 @@ import {
 
 interface SchedulePopoverProps {
   schedule: ScheduleState;
-  card: Card;
+  card: Pick<CardScheduleSource, "scheduledStart" | "recurrence">;
 }
 
 export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {

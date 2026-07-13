@@ -68,6 +68,7 @@ import type { CardLifecyclePreflightResult } from "./card-lifecycle-runtime";
 import type { ListCardHistoryRequest } from "./card-history";
 import type { CardHistoryCommandResult } from "./card-history-transport";
 import type { CardMetadataPropertySnapshotCommandResult } from "./card-metadata-property-snapshot-transport";
+import type { CardDetailCommandResult } from "./card-detail";
 import type { AdditionalDocumentCommandResult } from "./additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "./additional-document-command-transport";
 import type {
@@ -216,7 +217,7 @@ import type {
   CardOccurrenceUpdateInput,
   Card,
   CardSummary,
-  CardsDetailsInput,
+  DatabaseRowsDetailsInput,
   CardSearchInput,
   CardSearchResult,
   CommandPaletteThreadContentSearchInput,
@@ -734,8 +735,8 @@ export interface IpcApi {
     result: boolean;
   };
   "board:summary:get": { args: [projectId: string]; result: BoardSummary };
-  "cards:details:get": {
-    args: [projectId: string, input: CardsDetailsInput];
+  "database-rows:details:get": {
+    args: [projectId: string, input: DatabaseRowsDetailsInput];
     result: Card[];
   };
   "cards:search": {
@@ -743,6 +744,10 @@ export interface IpcApi {
     result: CardSearchResult[];
   };
   "card:get": {
+    args: [projectId: string, cardId: string];
+    result: CardDetailCommandResult;
+  };
+  "database-row:get": {
     args: [projectId: string, cardId: string, status?: Card["status"]];
     result: Card | null;
   };

@@ -9,6 +9,7 @@ import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
 import { getDb } from "./local-store/database";
 import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
+import { readCardDetailCommand } from "./card-detail-boundary";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import * as sqlInspection from "./local-store/sql-inspection";
@@ -35,7 +36,7 @@ import type {
   CardOccurrenceCompleteInput,
   CardOccurrenceUpdateInput,
   CardSearchInput,
-  CardsDetailsInput,
+  DatabaseRowsDetailsInput,
 } from "../shared/types";
 import {
   CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
@@ -1293,15 +1294,31 @@ app.get("/api/assets/:fileName", (c) => {
 
 app.get("/api/projects/:projectId/card", async (c) => {
   const projectId = c.req.param("projectId");
+  const cardId = c.req.query("cardId");
+  if (!cardId) return c.json({ error: "Missing cardId" }, 400);
+  const result = readCardDetailCommand(projectId, cardId);
+  if (result.ok) return c.json(result);
+  if (result.error.code === "invalid_request") return c.json(result, 400);
+  if (result.error.code === "card_not_found") return c.json(result, 404);
+  if (result.error.code === "card_detail_corrupt") return c.json(result, 409);
+  return c.json(result, 503);
+});
+
+app.get("/api/projects/:projectId/database-row", async (c) => {
+  const projectId = c.req.param("projectId");
   const status = parseOptionalCardStatus(c.req.query("status") || undefined);
   const cardId = c.req.query("cardId");
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const result = await cardsStore.getCard(projectId, cardId, status);
+  const result = await cardsStore.getDatabaseRowCard(
+    projectId,
+    cardId,
+    status,
+  );
   if (!result) return c.json({ error: "Not found" }, 404);
   return c.json(result);
 });
 
-app.post("/api/projects/:projectId/cards/details", async (c) => {
+app.post("/api/projects/:projectId/database-rows/details", async (c) => {
   const projectId = c.req.param("projectId");
   const startedAt = Date.now();
   const body = await c.req.json().catch(() => ({}));
@@ -1309,9 +1326,9 @@ app.post("/api/projects/:projectId/cards/details", async (c) => {
     return c.json({ error: "Missing cardIds" }, 400);
   }
   const cardIds = body.cardIds.filter((cardId): cardId is string => typeof cardId === "string");
-  const cards = await boardReadModel.getCardsDetails(projectId, { cardIds } satisfies CardsDetailsInput);
-  logger.info("card details payload served", {
-    channel: "POST /api/projects/:projectId/cards/details",
+  const cards = await boardReadModel.getDatabaseRowsDetails(projectId, { cardIds } satisfies DatabaseRowsDetailsInput);
+  logger.info("database row details payload served", {
+    channel: "POST /api/projects/:projectId/database-rows/details",
     projectId,
     requestedCardCount: cardIds.length,
     cardCount: cards.length,

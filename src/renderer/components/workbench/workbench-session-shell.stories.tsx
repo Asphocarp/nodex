@@ -1,9 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
-import type { BoardSummary, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
+import type {
+  BoardSummary,
+  Card,
+  Project,
+  ProjectSession,
+  ProjectSessionTab,
+} from "@/lib/types";
 import type { SidebarPinnedOrganizationMode, WorkbenchView } from "@/lib/use-workbench-state";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { buildCardDetailStoryCommandResult } from "../kanban/card-stage/card-stage-story-card-detail";
 import {
   writeWorkbenchShellNavigationHistoryState,
   type WorkbenchShellNavigationSnapshot,
@@ -168,16 +175,18 @@ const STORY_BOARD: BoardSummary = {
   ],
 };
 
-function buildStoryCardDetail(projectId: string, cardId: string) {
+function buildStoryCardDetail(projectId: string, cardId: string): Card | null {
   if (cardId !== "card-1") return null;
   const crossProject = projectId === "codex-readable";
 
   return {
     id: cardId,
-    projectId,
     status: "in_progress",
     archived: false,
     title: crossProject ? "Readable pack review" : "Workbench redesign",
+    richTitle: plainTextToPortableRichText(
+      crossProject ? "Readable pack review" : "Workbench redesign",
+    ),
     description: crossProject
       ? "Review the readable Codex pack from the current Nodex session."
       : "Tighten the workbench shell while preserving project-scoped panel tabs.",
@@ -762,9 +771,12 @@ function installStoryApi(
           if (cardId === "loading-card") {
             return new Promise<never>(() => {});
           }
-          return buildStoryCardDetail(projectId, cardId);
+          return buildCardDetailStoryCommandResult(
+            projectId,
+            buildStoryCardDetail(projectId, cardId),
+          );
         }
-        if (channel === "cards:details:get") {
+        if (channel === "database-rows:details:get") {
           const projectId = String(args[0] ?? "nodex");
           const input = (args[1] ?? {}) as { cardIds?: string[] };
           return (input.cardIds ?? []).flatMap((cardId) => {

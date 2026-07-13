@@ -173,19 +173,21 @@ function CardStageContent({
 
       <div className="h-2" />
 
-      <CardStageInlinePropertyStrip
-        priority={controller.priority}
-        estimate={controller.estimate}
-        dueDate={controller.dueDate}
-        currentColumnId={controller.currentColumnId}
-        currentColumnName={controller.currentColumnName}
-        onPriorityChange={controller.handlePriorityChange}
-        onEstimateChange={controller.handleEstimateChange}
-        onDueDateChange={controller.handleDueDateChange}
-        onClearDueDate={controller.handleClearDueDate}
-        onSetDueDateToday={controller.handleSetDueDateToday}
-        onColumnChange={controller.handleColumnChange}
-      />
+      {controller.hasDatabaseProperties ? (
+        <CardStageInlinePropertyStrip
+          priority={controller.priority}
+          estimate={controller.estimate}
+          dueDate={controller.dueDate}
+          currentColumnId={controller.currentColumnId}
+          currentColumnName={controller.currentColumnName}
+          onPriorityChange={controller.handlePriorityChange}
+          onEstimateChange={controller.handleEstimateChange}
+          onDueDateChange={controller.handleDueDateChange}
+          onClearDueDate={controller.handleClearDueDate}
+          onSetDueDateToday={controller.handleSetDueDateToday}
+          onColumnChange={controller.handleColumnChange}
+        />
+      ) : null}
 
       <CardStagePropertiesSection controller={controller} />
 
@@ -231,6 +233,7 @@ export function CardStage(props: CardStageProps) {
         onDelete={() => {
           void controller.handleDelete();
         }}
+        showDelete={Boolean(props.onDelete)}
         onToggleContentWidth={controller.handleToggleContentWidth}
         onToggleShowRawContent={controller.handleToggleShowRawContent}
         onToggleHistoryPanel={controller.onToggleHistoryPanel}

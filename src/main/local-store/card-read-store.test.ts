@@ -17,8 +17,8 @@ import {
 import {
   createCard,
   getBoard,
-  getCard,
-  getCardsDetails,
+  getDatabaseRowCard,
+  getDatabaseRowsDetails,
   readColumn,
 } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -213,8 +213,8 @@ describe("authoritative Card reads", () => {
             .get() === undefined,
         ).toBe(true);
 
-        const byId = await getCard(project.id, created.id);
-        const details = await getCardsDetails(project.id, {
+        const byId = await getDatabaseRowCard(project.id, created.id);
+        const details = await getDatabaseRowsDetails(project.id, {
           cardIds: [created.id],
         });
         const column = await readColumn(project.id, "in_progress");
@@ -234,7 +234,7 @@ describe("authoritative Card reads", () => {
           expect(card?.runInTarget).toBe("newWorktree");
         }
         expect(
-          (await getCard(project.id, created.id, "done")) === null,
+          (await getDatabaseRowCard(project.id, created.id, "done")) === null,
         ).toBe(true);
 
         database.transaction(() => {
@@ -266,7 +266,7 @@ describe("authoritative Card reads", () => {
 
         closeDatabase();
         await initializeDatabase();
-        const restarted = await getCard(project.id, created.id);
+        const restarted = await getDatabaseRowCard(project.id, created.id);
         expect(restarted?.title).toBe("Primary title");
         expect(restarted?.description).toBe("Primary body");
         expect(restarted?.priority).toBe("p0-critical");
@@ -315,7 +315,7 @@ describe("authoritative Card reads", () => {
 
         let errorCode: string | null = null;
         try {
-          await getCard(project.id, created.id);
+          await getDatabaseRowCard(project.id, created.id);
         } catch (error) {
           errorCode =
             error instanceof CardReadStoreError ? error.code : "unexpected";
@@ -340,12 +340,12 @@ describe("authoritative Card reads", () => {
       `,
           )
           .run(descriptor.documentId);
-        const recovered = await getCard(project.id, created.id);
+        const recovered = await getDatabaseRowCard(project.id, created.id);
         expect(recovered?.title).toBe("Fresh title");
 
         closeDatabase();
         await initializeDatabase();
-        expect((await getCard(project.id, created.id))?.description).toBe(
+        expect((await getDatabaseRowCard(project.id, created.id))?.description).toBe(
           "Fresh body",
         );
       } finally {

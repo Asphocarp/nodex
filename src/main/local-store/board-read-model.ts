@@ -1,7 +1,7 @@
 export {
   getBoard,
   getBoardSummary,
-  getCardsDetails,
+  getDatabaseRowsDetails,
   readColumn,
   readSummaryColumn,
   searchCards,

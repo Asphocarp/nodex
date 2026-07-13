@@ -26,9 +26,13 @@ Physical retention may remove the live Block row only after global reachability 
 
 A Card is the user-facing name for a document-bearing Block. A Card has no separate storage identity: the Card ID is its Block ID. Every Card owns exactly one Document containing its collaborative title and body.
 
+Card Detail is the membership-independent read boundary for opening that identity. It combines the Card Block/location, owned Document coordinate and exact-head projection, intrinsic property coordinates, and an optional active Database capability in one versioned result. A Space- or Document-parented Card is therefore a complete Card even though it has no status, priority, View order, or other Database values. The wide `Card`/`CardSummary` projections are Database-row read models and must not be used as Card existence checks.
+
 A Card has exactly one parent: a Space, another Document, or a Database. It can also be shown through non-owning references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
 
 Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready descriptor whose registered sync engine is `yjs` may mount Card Stage; the current schema has no snapshot-editor fallback.
+
+Card Stage always exposes title/body, history, intrinsic Agent state, and run-target behavior. Database status, priority, estimate, tags, assignee, schedule, occurrence, move, and Database lifecycle actions exist only when Card Detail carries their active membership/property coordinates. Opening a standalone Card never creates or reactivates membership. Changing membership does not change its Block or owned Document identity.
 
 ### Document
 
@@ -257,6 +261,7 @@ Shared Block/Document Interfaces live under `src/shared/`, persistence Implement
 
 - `docs/adr/0001-block-identity-card-alias.md`: one Block identity; Card is the product alias for a document-bearing Block.
 - `docs/adr/0002-document-bearing-blocks-yjs.md`: per-Card Y.Doc and the distinction between first-class Blocks and Document ownership.
+- `docs/adr/0010-card-detail-and-database-capability.md`: membership-independent Card Detail and optional Database capabilities in Card Stage.
 - `docs/adr/0003-database-membership-and-views.md`: Database capability, zero-or-one Card membership, and durable views.
 - `docs/adr/0004-atomic-block-relocation.md`: atomic cross-Document moves with stable application identity.
 - `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Owned Documents and normalized scene-native Canvas authority.

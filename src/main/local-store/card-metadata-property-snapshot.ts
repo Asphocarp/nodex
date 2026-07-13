@@ -36,7 +36,7 @@ export class CardMetadataPropertySnapshotError extends Error {
 
 interface CardRow {
   readonly type: string;
-  readonly lifecycle: string;
+  readonly lifecycle: "active" | "archived" | "deleted";
   readonly metadata_revision: number;
 }
 
@@ -86,6 +86,7 @@ const readSnapshot = (
   database: Database.Database,
   projectId: string,
   cardBlockId: string,
+  options: { readonly allowArchived: boolean },
 ): CardMetadataPropertySnapshot => {
   const store = database
     .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
@@ -111,7 +112,10 @@ const readSnapshot = (
       `Card does not exist in Project ${projectId}: ${cardBlockId}`,
     );
   }
-  if (card.lifecycle !== "active") {
+  if (
+    card.lifecycle === "deleted" ||
+    (!options.allowArchived && card.lifecycle !== "active")
+  ) {
     throw new CardMetadataPropertySnapshotError(
       "card_not_active",
       `Card is not active: ${cardBlockId}`,
@@ -268,5 +272,28 @@ export const readCardMetadataPropertySnapshot = (
   cardBlockId: string,
 ): CardMetadataPropertySnapshot =>
   database
-    .transaction(() => readSnapshot(database, projectId, cardBlockId))
+    .transaction(() => readSnapshot(
+      database,
+      projectId,
+      cardBlockId,
+      { allowArchived: false },
+    ))
+    .deferred();
+
+/**
+ * Read-only Card Detail may display an archived Card, but mutation callers
+ * must continue using `readCardMetadataPropertySnapshot`, which rejects it.
+ */
+export const readCardMetadataPropertySnapshotForDetail = (
+  database: Database.Database,
+  projectId: string,
+  cardBlockId: string,
+): CardMetadataPropertySnapshot =>
+  database
+    .transaction(() => readSnapshot(
+      database,
+      projectId,
+      cardBlockId,
+      { allowArchived: true },
+    ))
     .deferred();

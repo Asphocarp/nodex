@@ -53,7 +53,7 @@ const defaultDependencies: CardMetadataPropertyRuntimeDependencies = {
   readSnapshot: readCardMetadataPropertySnapshot,
   mutate: mutateBlockProperties,
   readCard: async (projectId, cardBlockId) =>
-    (await invoke("card:get", projectId, cardBlockId)) as Card | null,
+    (await invoke("database-row:get", projectId, cardBlockId)) as Card | null,
 };
 
 const readCanonicalCard = async (

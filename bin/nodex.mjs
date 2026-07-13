@@ -665,7 +665,7 @@ async function readCardOrNull(config, cardId) {
   let response;
   try {
     response = await fetch(
-      `${BASE_URL}${apiPrefix(config)}/card?cardId=${encodeURIComponent(cardId)}`,
+      `${BASE_URL}${apiPrefix(config)}/database-row?cardId=${encodeURIComponent(cardId)}`,
     );
   } catch {
     throw new Error(`Cannot connect to ${BASE_URL}. Is the Nodex server running?`);
@@ -811,7 +811,7 @@ async function mutateCardContent(config, cardId, input) {
   const descriptor = await prepareCardDocument(config, cardId);
   const current = input.skipUnchanged
     ? await apiGet(
-        `${apiPrefix(config)}/card?cardId=${encodeURIComponent(cardId)}`,
+        `${apiPrefix(config)}/database-row?cardId=${encodeURIComponent(cardId)}`,
       )
     : null;
   const hasNfm = input.nfm !== undefined &&
@@ -1442,7 +1442,7 @@ async function cmdGet(positional, flags, config) {
 
   const prefix = apiPrefix(config);
   const card = await apiGet(
-    `${prefix}/card?cardId=${encodeURIComponent(cardId)}`
+    `${prefix}/database-row?cardId=${encodeURIComponent(cardId)}`
   );
 
   if (flags.json) {
@@ -1510,7 +1510,7 @@ async function cmdBlock(positional, flags, config) {
   }
   if (action === "export") {
     const card = await apiGet(
-      `${apiPrefix(config)}/card?cardId=${encodeURIComponent(cardId)}`,
+      `${apiPrefix(config)}/database-row?cardId=${encodeURIComponent(cardId)}`,
     );
     keyValueOut(
       { cardId, title: card.title ?? "", nfm: card.description ?? "" },
@@ -2055,7 +2055,7 @@ async function cmdUpdate(positional, flags, config) {
     }, flags);
   } else if (flags.verbose) {
     const card = await apiGet(
-      `${prefix}/card?cardId=${encodeURIComponent(cardId)}`,
+      `${prefix}/database-row?cardId=${encodeURIComponent(cardId)}`,
     );
     keyValueOut(cardToKV(card, card.status || "unknown"), flags);
   } else {
@@ -2197,7 +2197,7 @@ async function cmdMv(positional, flags, config) {
   }
   if (flags.verbose) {
     cardAfterMove = await apiGet(
-      `${prefix}/card?cardId=${encodeURIComponent(cardId)}`
+      `${prefix}/database-row?cardId=${encodeURIComponent(cardId)}`
     );
   }
 

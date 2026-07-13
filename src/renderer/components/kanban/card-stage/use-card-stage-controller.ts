@@ -19,14 +19,16 @@ import {
   TAG_BLUR_DELAY_MS,
 } from "@/lib/timing";
 import type {
-  Card,
   CardInput,
   CardRunInTarget,
-  CardUpdateMutationResult,
   Estimate,
   Priority,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+import type {
+  CardStageCoreCard,
+  CardStageDatabaseProperties,
+} from "@/lib/card-stage-card";
 import { useScheduleState } from "@/lib/use-schedule-state";
 import { useCardStageCollapsedProperties } from "@/lib/use-card-stage-collapsed-properties";
 import { KANBAN_STATUS_OPTIONS } from "@/lib/kanban-options";
@@ -38,10 +40,15 @@ import {
   buildCardStageDraftOverlay,
 } from "./card-stage-draft-sync";
 import { normalizeRunInTarget, resolveDefaultRunInBaseBranch } from "./options";
-import type { CardStageProps, CardStageSessionSnapshot } from "./types";
+import type {
+  CardStageMetadataMutationResult,
+  CardStageProps,
+  CardStageSessionSnapshot,
+} from "./types";
 
 interface UseCardStageControllerResult {
-  card: Card | null;
+  card: CardStageCoreCard | null;
+  hasDatabaseProperties: boolean;
   projectWorkspacePath?: string | null;
   title: string;
   priority?: Priority;
@@ -198,7 +205,7 @@ function readFormDraftField(state: CardStageFormState, field: DraftFieldKey): st
 
 function buildCardStageSessionSnapshot(
   projectId: string,
-  card: Card | null,
+  card: CardStageCoreCard | null,
   title: string,
 ): CardStageSessionSnapshot | null {
   if (!card) return null;
@@ -225,9 +232,7 @@ export function useCardStageController(
     closeRef,
     persistRef,
     sessionSnapshotRef,
-    card,
-    columnId,
-    columnName,
+    card: cardModel,
     projectId,
     projectWorkspacePath,
     availableTags,
@@ -245,6 +250,15 @@ export function useCardStageController(
     historyPanelActive = false,
     isActivePanelTab = true,
   } = props;
+  const card = cardModel?.card ?? null;
+  const databaseProperties =
+    cardModel?.databaseContext.kind === "member"
+      ? cardModel.databaseContext.compatibilityProperties
+      : null;
+  const columnId = databaseProperties?.status ?? "";
+  const columnName = KANBAN_STATUS_OPTIONS.find(
+    (status) => status.id === columnId,
+  )?.name ?? "";
   const persistDocument = dependencies.persistDocument;
 
   const [title, setTitle] = useState(card?.title ?? "");
@@ -283,7 +297,11 @@ export function useCardStageController(
   const [tagHighlight, setTagHighlight] = useState(-1);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
 
-  const prevCardRef = useRef<{ card: Card; columnId: string } | null>(null);
+  const prevCardRef = useRef<{
+    card: CardStageCoreCard;
+    databaseProperties: CardStageDatabaseProperties | null;
+    columnId: string;
+  } | null>(null);
   const currentCardIdRef = useRef<string | null>(null);
   const assigneeSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const agentStatusSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -354,19 +372,15 @@ export function useCardStageController(
 
   const runUpdate = useCallback(
     async (
-      nextColumnId: string,
       nextCardId: string,
       updates: Partial<CardInput>,
-    ): Promise<CardUpdateMutationResult> => {
-      const result = await onUpdate(nextColumnId, nextCardId, updates);
+    ): Promise<CardStageMetadataMutationResult> => {
+      const result = await onUpdate(nextCardId, updates);
       if (!result) {
         return {
           status: "error",
           error: "Missing update result",
         };
-      }
-      if (result.status === "conflict") {
-        setCurrentColumnId(result.card.status);
       }
       return result;
     },
@@ -375,10 +389,10 @@ export function useCardStageController(
 
   const clearDraftDirtyFromAck = useCallback(
     (
-      result: CardUpdateMutationResult,
+      result: CardStageMetadataMutationResult,
       expectedValues: Partial<Record<DraftFieldKey, string>>,
     ) => {
-      if (result.status === "error") return;
+      if (result.status !== "updated") return;
 
       for (const field of Object.keys(expectedValues) as DraftFieldKey[]) {
         const expectedValue = expectedValues[field];
@@ -392,13 +406,12 @@ export function useCardStageController(
 
   const runDraftFieldUpdate = useCallback(
     async (
-      nextColumnId: string,
       nextCardId: string,
       field: DraftFieldKey,
       updates: Partial<CardInput>,
       expectedValue: string,
-    ): Promise<CardUpdateMutationResult> => {
-      const result = await runUpdate(nextColumnId, nextCardId, updates);
+    ): Promise<CardStageMetadataMutationResult> => {
+      const result = await runUpdate(nextCardId, updates);
       clearDraftDirtyFromAck(result, { [field]: expectedValue });
       return result;
     },
@@ -409,16 +422,19 @@ export function useCardStageController(
     (updates: Partial<CardInput>) => {
       if (!card) return;
       const endSaving = beginSaving();
-      runUpdate(columnId, card.id, updates).finally(endSaving);
+      runUpdate(card.id, updates).finally(endSaving);
     },
-    [beginSaving, card, columnId, runUpdate],
+    [beginSaving, card, runUpdate],
   );
 
+  const scheduleCard = card && databaseProperties
+    ? { ...card, ...databaseProperties }
+    : null;
   const schedule = useScheduleState({
-    card,
+    card: scheduleCard,
     saveProperty,
-    onCompleteOccurrence,
-    onSkipOccurrence,
+    onCompleteOccurrence: databaseProperties ? onCompleteOccurrence : undefined,
+    onSkipOccurrence: databaseProperties ? onSkipOccurrence : undefined,
   });
 
   useEffect(() => {
@@ -444,13 +460,16 @@ export function useCardStageController(
   useEffect(() => {
     if (!card) return;
 
-    const overlay = buildCardStageDraftOverlay(card, {
+    const overlay = buildCardStageDraftOverlay({
+      assignee: databaseProperties?.assignee,
+      agentStatus: card.agentStatus,
+    }, {
       assignee,
       agentStatus,
     });
 
     setCardDraftOverlay(projectId, card.id, overlay);
-  }, [agentStatus, assignee, card, projectId]);
+  }, [agentStatus, assignee, card, databaseProperties?.assignee, projectId]);
 
   const rememberScrollTopForCard = useCallback((cardId: string | null, scrollTop: number) => {
     if (!cardId) return;
@@ -537,7 +556,9 @@ export function useCardStageController(
       if (!card) return;
 
       const state = formStateRef.current;
-      const nextDueDate = card.dueDate ? card.dueDate.toISOString().split("T")[0] : "";
+      const nextDueDate = databaseProperties?.dueDate
+        ? databaseProperties.dueDate.toISOString().split("T")[0]
+        : "";
       const nextRunInTarget = normalizeRunInTarget(card.runInTarget);
       const nextRunInLocalPath = card.runInLocalPath || "";
       const nextRunInBaseBranch = card.runInBaseBranch || "";
@@ -547,15 +568,28 @@ export function useCardStageController(
       const assigneeDirty = draftDirtyRef.current.assignee;
       const agentStatusDirty = draftDirtyRef.current.agentStatus;
 
-      setPriority((current) => (current === card.priority ? current : card.priority));
-      setEstimate((current) => (current === (card.estimate || "none") ? current : (card.estimate || "none")));
+      setPriority((current) => (
+        current === databaseProperties?.priority
+          ? current
+          : databaseProperties?.priority
+      ));
+      setEstimate((current) => (
+        current === (databaseProperties?.estimate || "none")
+          ? current
+          : (databaseProperties?.estimate || "none")
+      ));
       setDueDate((current) => (current === nextDueDate ? current : nextDueDate));
-      if (!areStringArraysEqual(state.tags, card.tags)) {
-        setTags(card.tags);
+      const nextTags = [...(databaseProperties?.tags ?? [])];
+      if (!areStringArraysEqual(state.tags, nextTags)) {
+        setTags(nextTags);
       }
-      if (!assigneeDirty || state.assignee === (card.assignee || "")) {
+      if (!assigneeDirty || state.assignee === (databaseProperties?.assignee || "")) {
         draftDirtyRef.current.assignee = false;
-        setAssignee((current) => (current === (card.assignee || "") ? current : (card.assignee || "")));
+        setAssignee((current) => (
+          current === (databaseProperties?.assignee || "")
+            ? current
+            : (databaseProperties?.assignee || "")
+        ));
       }
       if (!agentStatusDirty || state.agentStatus === (card.agentStatus || "")) {
         draftDirtyRef.current.agentStatus = false;
@@ -570,9 +604,12 @@ export function useCardStageController(
         current === nextRunInEnvironmentPath ? current : nextRunInEnvironmentPath
       ));
       setCurrentColumnId((current) => (current === columnId ? current : columnId));
-      schedule.applyScheduleState(card);
-      schedule.applyRecurrenceState(card);
-      prevCardRef.current = { card, columnId };
+      if (databaseProperties) {
+        const scheduleCard = { ...card, ...databaseProperties };
+        schedule.applyScheduleState(scheduleCard);
+        schedule.applyRecurrenceState(scheduleCard);
+      }
+      prevCardRef.current = { card, databaseProperties, columnId };
       return;
     }
 
@@ -592,23 +629,37 @@ export function useCardStageController(
     if (prevCard && card && prevCard.card.id !== card.id) {
       const state = formStateRef.current;
       const targetCard = prevCard.card;
-      const targetDueDate = targetCard.dueDate ? targetCard.dueDate.toISOString().split("T")[0] : "";
+      const targetDatabase = prevCard.databaseProperties;
+      const targetDueDate = targetDatabase?.dueDate
+        ? targetDatabase.dueDate.toISOString().split("T")[0]
+        : "";
 
-      const hasAnyChanges = state.priority !== targetCard.priority
-        || state.estimate !== (targetCard.estimate || "none")
-        || state.dueDate !== targetDueDate
-        || state.assignee !== (targetCard.assignee || "")
-        || state.agentStatus !== (targetCard.agentStatus || "")
+      const hasAnyChanges = (
+        targetDatabase !== null && (
+          state.priority !== targetDatabase.priority
+          || state.estimate !== (targetDatabase.estimate || "none")
+          || state.dueDate !== targetDueDate
+          || state.assignee !== (targetDatabase.assignee || "")
+          || JSON.stringify(state.tags) !== JSON.stringify(targetDatabase.tags)
+        )
+      ) || state.agentStatus !== (targetCard.agentStatus || "")
         || state.agentBlocked !== targetCard.agentBlocked
-        || JSON.stringify(state.tags) !== JSON.stringify(targetCard.tags);
+      ;
 
       if (hasAnyChanges) {
-        void runUpdate(prevCard.columnId, targetCard.id, {
-          ...toPriorityUpdate(state.priority, targetCard.priority),
-          estimate: state.estimate === "none" ? null : (state.estimate as Estimate),
-          dueDate: state.dueDate ? new Date(state.dueDate) : undefined,
-          tags: state.tags,
-          assignee: state.assignee,
+        void runUpdate(targetCard.id, {
+          ...(targetDatabase
+            ? {
+                ...toPriorityUpdate(state.priority, targetDatabase.priority),
+                estimate:
+                  state.estimate === "none"
+                    ? null
+                    : (state.estimate as Estimate),
+                dueDate: state.dueDate ? new Date(state.dueDate) : null,
+                tags: state.tags,
+                assignee: state.assignee,
+              }
+            : {}),
           agentStatus: state.agentStatus,
           agentBlocked: state.agentBlocked,
         });
@@ -619,12 +670,20 @@ export function useCardStageController(
 
     if (card) {
       setTitle(card.title);
-      setPriority(card.priority);
-      setEstimate(card.estimate || "none");
-      setDueDate(card.dueDate ? card.dueDate.toISOString().split("T")[0] : "");
-      schedule.applyScheduleState(card);
-      setTags(card.tags);
-      setAssignee(card.assignee || "");
+      setPriority(databaseProperties?.priority);
+      setEstimate(databaseProperties?.estimate || "none");
+      setDueDate(
+        databaseProperties?.dueDate
+          ? databaseProperties.dueDate.toISOString().split("T")[0]
+          : "",
+      );
+      if (databaseProperties) {
+        const scheduleCard = { ...card, ...databaseProperties };
+        schedule.applyScheduleState(scheduleCard);
+        schedule.applyRecurrenceState(scheduleCard);
+      }
+      setTags([...(databaseProperties?.tags ?? [])]);
+      setAssignee(databaseProperties?.assignee || "");
       setAgentStatus(card.agentStatus || "");
       setAgentBlocked(card.agentBlocked);
       setRunInTarget(normalizeRunInTarget(card.runInTarget));
@@ -632,9 +691,8 @@ export function useCardStageController(
       setRunInBaseBranch(card.runInBaseBranch || "");
       setRunInWorktreePath(card.runInWorktreePath || "");
       setRunInEnvironmentPath(card.runInEnvironmentPath || "");
-      schedule.applyRecurrenceState(card);
       setCurrentColumnId(columnId);
-      prevCardRef.current = { card, columnId };
+      prevCardRef.current = { card, databaseProperties, columnId };
       return;
     }
 
@@ -650,6 +708,7 @@ export function useCardStageController(
     card,
     clearAllDraftDirty,
     columnId,
+    databaseProperties,
     runUpdate,
     readCurrentScrollTopForCard,
     saveScrollTopForCard,
@@ -692,15 +751,31 @@ export function useCardStageController(
 
   const hasChanges = useCallback(() => {
     if (!card) return false;
-    const cardDueDate = card.dueDate ? card.dueDate.toISOString().split("T")[0] : "";
-    return priority !== card.priority
-      || estimate !== (card.estimate || "none")
+    const cardDueDate = databaseProperties?.dueDate
+      ? databaseProperties.dueDate.toISOString().split("T")[0]
+      : "";
+    const databaseChanged = databaseProperties !== null && (
+      priority !== databaseProperties.priority
+      || estimate !== (databaseProperties.estimate || "none")
       || dueDate !== cardDueDate
-      || assignee !== (card.assignee || "")
+      || assignee !== (databaseProperties.assignee || "")
+      || JSON.stringify(tags) !== JSON.stringify(databaseProperties.tags)
+    );
+    return databaseChanged
       || agentStatus !== (card.agentStatus || "")
       || agentBlocked !== card.agentBlocked
-      || JSON.stringify(tags) !== JSON.stringify(card.tags);
-  }, [card, priority, estimate, dueDate, assignee, agentStatus, agentBlocked, tags]);
+    ;
+  }, [
+    agentBlocked,
+    agentStatus,
+    assignee,
+    card,
+    databaseProperties,
+    dueDate,
+    estimate,
+    priority,
+    tags,
+  ]);
 
   const handleDocumentTitleChange = useCallback((value: string) => {
     setTitle(value);
@@ -718,12 +793,12 @@ export function useCardStageController(
 
       assigneeSaveTimerRef.current = setTimeout(() => {
         assigneeSaveTimerRef.current = null;
-        if (!card || value === (card.assignee || "")) return;
+        if (!card || !databaseProperties || value === (databaseProperties.assignee || "")) return;
         const endSaving = beginSaving();
-        runDraftFieldUpdate(columnId, card.id, "assignee", { assignee: value }, value).finally(endSaving);
+        runDraftFieldUpdate(card.id, "assignee", { assignee: value }, value).finally(endSaving);
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [beginSaving, card, columnId, markDraftDirty, runDraftFieldUpdate],
+    [beginSaving, card, databaseProperties, markDraftDirty, runDraftFieldUpdate],
   );
 
   const handleAssigneeBlur = useCallback(() => {
@@ -732,14 +807,14 @@ export function useCardStageController(
       assigneeSaveTimerRef.current = null;
     }
 
-    if (!card) return;
-    if (assignee === (card.assignee || "")) {
+    if (!card || !databaseProperties) return;
+    if (assignee === (databaseProperties.assignee || "")) {
       clearDraftDirty("assignee");
       return;
     }
     const endSaving = beginSaving();
-    runDraftFieldUpdate(columnId, card.id, "assignee", { assignee }, assignee).finally(endSaving);
-  }, [assignee, beginSaving, card, clearDraftDirty, columnId, runDraftFieldUpdate]);
+    runDraftFieldUpdate(card.id, "assignee", { assignee }, assignee).finally(endSaving);
+  }, [assignee, beginSaving, card, clearDraftDirty, databaseProperties, runDraftFieldUpdate]);
 
   const handleAgentStatusChange = useCallback(
     (value: string) => {
@@ -755,10 +830,10 @@ export function useCardStageController(
         agentStatusSaveTimerRef.current = null;
         if (!card || value === (card.agentStatus || "")) return;
         const endSaving = beginSaving();
-        runDraftFieldUpdate(columnId, card.id, "agentStatus", { agentStatus: value }, value).finally(endSaving);
+        runDraftFieldUpdate(card.id, "agentStatus", { agentStatus: value }, value).finally(endSaving);
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [beginSaving, card, columnId, markDraftDirty, runDraftFieldUpdate],
+    [beginSaving, card, markDraftDirty, runDraftFieldUpdate],
   );
 
   const handleAgentStatusBlur = useCallback(() => {
@@ -773,19 +848,24 @@ export function useCardStageController(
       return;
     }
     const endSaving = beginSaving();
-    runDraftFieldUpdate(columnId, card.id, "agentStatus", { agentStatus }, agentStatus).finally(endSaving);
-  }, [agentStatus, beginSaving, card, clearDraftDirty, columnId, runDraftFieldUpdate]);
+    runDraftFieldUpdate(card.id, "agentStatus", { agentStatus }, agentStatus).finally(endSaving);
+  }, [agentStatus, beginSaving, card, clearDraftDirty, runDraftFieldUpdate]);
 
   const handleSave = useCallback(async () => {
     if (!card || !hasChanges()) return;
     const endSaving = beginSaving();
     try {
-      const result = await runUpdate(columnId, card.id, {
-        ...toPriorityUpdate(priority, card.priority),
-        estimate: estimate === "none" ? null : (estimate as Estimate),
-        dueDate: dueDate ? new Date(dueDate) : undefined,
-        tags,
-        assignee,
+      const result = await runUpdate(card.id, {
+        ...(databaseProperties
+          ? {
+              ...toPriorityUpdate(priority, databaseProperties.priority),
+              estimate:
+                estimate === "none" ? null : (estimate as Estimate),
+              dueDate: dueDate ? new Date(dueDate) : null,
+              tags,
+              assignee,
+            }
+          : {}),
         agentStatus,
         agentBlocked,
       });
@@ -802,7 +882,7 @@ export function useCardStageController(
     hasChanges,
     runUpdate,
     clearDraftDirtyFromAck,
-    columnId,
+    databaseProperties,
     priority,
     estimate,
     dueDate,
@@ -884,15 +964,15 @@ export function useCardStageController(
   }, [handlePersist, isActivePanelTab]);
 
   const handleDelete = useCallback(async () => {
-    if (!card) return;
+    if (!card || !onDelete) return;
     const endSaving = beginSaving();
     try {
-      await onDelete(columnId, card.id);
+      await onDelete(card.id);
       onClose();
     } finally {
       endSaving();
     }
-  }, [beginSaving, card, onDelete, columnId, onClose]);
+  }, [beginSaving, card, onDelete, onClose]);
 
   const handleOpenCodexThread = useCallback(async (threadId: string) => {
     if (!onOpenCodexThread) return;
@@ -1071,12 +1151,11 @@ export function useCardStageController(
   }, [saveProperty]);
 
   const handleColumnChange = useCallback(async (nextColumnId: string) => {
-    if (!card || nextColumnId === currentColumnId) return;
-    const previousColumnId = currentColumnId;
+    if (!card || !databaseProperties || !onMove || nextColumnId === currentColumnId) return;
     setCurrentColumnId(nextColumnId);
-    await onMove(previousColumnId as Card["status"], card.id, nextColumnId as Card["status"]);
+    await onMove(card.id, nextColumnId as typeof databaseProperties.status);
     onColumnIdChange?.(nextColumnId);
-  }, [card, currentColumnId, onMove, onColumnIdChange]);
+  }, [card, currentColumnId, databaseProperties, onMove, onColumnIdChange]);
 
   const handleToggleAgentBlocked = useCallback(() => {
     const next = !agentBlocked;
@@ -1100,10 +1179,13 @@ export function useCardStageController(
   const runInWorktreePathDisplay = runInWorktreePath.trim();
   const runInEnvironmentPathDisplay = runInEnvironmentPath.trim();
 
-  const collapseTagsByDefault = collapsedProperties.includes("tags");
-  const collapseAssigneeByDefault = collapsedProperties.includes("assignee");
+  const collapseTagsByDefault = Boolean(databaseProperties)
+    && collapsedProperties.includes("tags");
+  const collapseAssigneeByDefault = Boolean(databaseProperties)
+    && collapsedProperties.includes("assignee");
   const collapseThreadsByDefault = hasThreadsRow && collapsedProperties.includes("threads");
-  const collapseScheduleByDefault = collapsedProperties.includes("schedule");
+  const collapseScheduleByDefault = Boolean(databaseProperties)
+    && collapsedProperties.includes("schedule");
   const collapseAgentBlockedByDefault = collapsedProperties.includes("agentBlocked");
   const collapseAgentStatusByDefault = collapsedProperties.includes("agentStatus");
 
@@ -1132,6 +1214,7 @@ export function useCardStageController(
 
   return {
     card,
+    hasDatabaseProperties: databaseProperties !== null,
     projectWorkspacePath,
     title,
     priority,

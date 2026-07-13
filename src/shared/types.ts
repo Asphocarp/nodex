@@ -231,7 +231,7 @@ export type CardUpdateResult =
       status: "not_found";
     };
 
-export interface CardsDetailsInput {
+export interface DatabaseRowsDetailsInput {
   cardIds: string[];
 }
 

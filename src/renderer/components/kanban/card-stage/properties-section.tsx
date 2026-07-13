@@ -34,6 +34,7 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
 
   const {
     card,
+    hasDatabaseProperties,
     tags,
     tagInput,
     tagInputRef,
@@ -106,7 +107,7 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
       </div>
 
       <div className="flex flex-col pb-1">
-        {(showCollapsedProperties || !collapseTagsByDefault) && (
+        {hasDatabaseProperties && (showCollapsedProperties || !collapseTagsByDefault) && (
           <div className="flex min-h-7.5 items-center">
             <div className="flex w-40 shrink-0 items-center gap-1.5 pl-1.5">
               <div className="flex w-5 items-center justify-center text-(--foreground-secondary)">
@@ -305,7 +306,7 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
           </div>
         )}
 
-        {(showCollapsedProperties || !collapseAssigneeByDefault) && (
+        {hasDatabaseProperties && (showCollapsedProperties || !collapseAssigneeByDefault) && (
           <div className="flex min-h-7.5 items-center">
             <div className="flex w-40 shrink-0 items-center gap-1.5 pl-1.5">
               <div className="flex w-5 items-center justify-center text-(--foreground-secondary)">
@@ -504,7 +505,7 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
           </div>
         )}
 
-        {(showCollapsedProperties || !collapseScheduleByDefault) && (
+        {hasDatabaseProperties && (showCollapsedProperties || !collapseScheduleByDefault) && (
           <SchedulePopover schedule={schedule} card={card} />
         )}
 

@@ -41,7 +41,7 @@ import {
 } from "./api";
 import type { CardProjectTransferReceipt } from "../../shared/card-project-transfer";
 import { getKanbanProjectStore } from "./kanban-store";
-import { getCardDetail, setCardDetail } from "./card-detail-store";
+import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detail-store";
 import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
 import { commitPrimaryDatabaseCardDragMany } from "./primary-database-card-drag-many-runtime";
 import { commitCardLifecycleIntent } from "./card-lifecycle-runtime";
@@ -55,6 +55,7 @@ interface UseKanbanOptions {
   databaseViewId?: string;
   sessionId?: string;
   onMutation?: () => void;
+  enabled?: boolean;
 }
 
 type NewCardOccurrenceAction = Omit<
@@ -121,16 +122,25 @@ function buildCommittedCardDetailFromUpdate(
 }
 
 export function useKanban(options: UseKanbanOptions) {
-  const { projectId, databaseViewId, sessionId, onMutation } = options;
+  const {
+    projectId,
+    databaseViewId,
+    sessionId,
+    onMutation,
+    enabled = true,
+  } = options;
   const store = useMemo(
     () => getKanbanProjectStore(projectId, databaseViewId ?? null),
     [databaseViewId, projectId],
   );
 
-  const snapshot = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
+  const subscribe = useCallback(
+    (listener: () => void) => enabled
+      ? store.subscribe(listener)
+      : () => undefined,
+    [enabled, store],
   );
+  const snapshot = useSyncExternalStore(subscribe, store.getSnapshot);
 
   const fetchBoard = useCallback(async () => {
     await store.fetchBoard();
@@ -184,7 +194,7 @@ export function useKanban(options: UseKanbanOptions) {
 
       if (!outcome.ok) return null;
       if (outcome.result) {
-        setCardDetail(projectId, outcome.result);
+        setDatabaseRowDetail(projectId, outcome.result);
         store.applyRemoteCard(outcome.result);
       }
       onMutation?.();
@@ -245,11 +255,11 @@ export function useKanban(options: UseKanbanOptions) {
 
       if (result.status === "updated") {
         const committedDetail = buildCommittedCardDetailFromUpdate(
-          getCardDetail(projectId, cardId),
+          getDatabaseRowDetail(projectId, cardId),
           result,
         );
         if (committedDetail) {
-          setCardDetail(projectId, committedDetail, { acceptEqualRevision: true });
+          setDatabaseRowDetail(projectId, committedDetail, { acceptEqualRevision: true });
         }
         store.applyRemoteCardSummary(result.summary);
         onMutation?.();
@@ -257,7 +267,7 @@ export function useKanban(options: UseKanbanOptions) {
       }
 
       if (result.status === "conflict") {
-        setCardDetail(projectId, result.card);
+        setDatabaseRowDetail(projectId, result.card);
         store.applyRemoteCard(result.card);
         store.resolveConflict(conflictKeys);
         await store.refreshBoard();
@@ -281,8 +291,8 @@ export function useKanban(options: UseKanbanOptions) {
   const getCard = useCallback(
     async (cardId: string, columnId?: string): Promise<Card | null> => {
       try {
-        const card = (await invoke("card:get", projectId, cardId, columnId)) as Card | null;
-        if (card) setCardDetail(projectId, card);
+        const card = (await invoke("database-row:get", projectId, cardId, columnId)) as Card | null;
+        if (card) setDatabaseRowDetail(projectId, card);
         return card;
       } catch (err) {
         store.setError(toErrorMessage(err));

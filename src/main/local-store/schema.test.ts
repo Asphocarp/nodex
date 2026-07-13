@@ -8,7 +8,7 @@ import * as Y from "yjs";
 
 import { createUuidV7 } from "../../shared/card-id";
 import { parseGeneralDatabaseViewConfig } from "../../shared/database-kernel";
-import { createCard, getCard } from "./cards";
+import { createCard, getDatabaseRowCard } from "./cards";
 import { getDatabasePath } from "./config";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { loadPrimaryBlockDocument } from "./block-document-store";
@@ -788,7 +788,7 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
     await initializeDatabase();
 
     const database = getDb();
-    const card = await getCard(projectId, cardId);
+    const card = await getDatabaseRowCard(projectId, cardId);
     expect(card?.title).toBe("Migrated title");
     expect(card?.description).toBe("Migrated body");
     const document = database
@@ -856,14 +856,17 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
 
     await initializeDatabase();
 
-    const card = await getCard(projectId, cardId);
+    const card = await getDatabaseRowCard(projectId, cardId);
     expect(card?.description).toContain("▶# Expanded heading");
     expect(card?.description).not.toContain("▼");
     const recoveredCardId = card?.description.match(
       /<card-ref target-block="([^"]+)"/,
     )?.[1];
     expect(recoveredCardId).toBeTypeOf("string");
-    const recoveredCard = await getCard(projectId, recoveredCardId ?? "");
+    const recoveredCard = await getDatabaseRowCard(
+      projectId,
+      recoveredCardId ?? "",
+    );
     expect(recoveredCard?.description).toContain("▶ Expanded nested toggle");
     expect(recoveredCard?.description).not.toContain("▼");
     expect(
@@ -930,7 +933,7 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
     expect(hostMaterialization.nfm.includes("<card-toggle")).toBe(false);
     expect(hostMaterialization.nfm.includes("<toggle-list-inline-view")).toBe(false);
 
-    const recoveredCard = await getCard(
+    const recoveredCard = await getDatabaseRowCard(
       projectId,
       recoveredReference?.targetBlockId ?? "",
     );

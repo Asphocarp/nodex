@@ -42,6 +42,105 @@ const rootOffsetToIndex = (root: HTMLElement, offset: number): number => {
   return index;
 };
 
+const richTitleDraftNodeValue = (node: Node): string => {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  if (!(node instanceof HTMLElement)) return "";
+  if (node.dataset.richTitleKind === "atom") return "\uFFFC";
+  if (node.dataset.richTitleKind === "linebreak") return "\n";
+  return node.textContent ?? "";
+};
+
+const richTitleDraftNodeLength = (node: Node): number =>
+  richTitleDraftNodeValue(node).length;
+
+const closestDraftChild = (
+  root: HTMLElement,
+  node: Node,
+): ChildNode | null => {
+  if (!root.contains(node)) return null;
+  let child: Node = node;
+  while (child.parentNode && child.parentNode !== root) {
+    child = child.parentNode;
+  }
+  return child.parentNode === root ? child as ChildNode : null;
+};
+
+const richTitleDraftDomPointToIndex = (
+  root: HTMLElement,
+  node: Node,
+  offset: number,
+): number | null => {
+  const children = [...root.childNodes];
+  if (node === root) {
+    const boundedOffset = Math.min(Math.max(offset, 0), children.length);
+    return children
+      .slice(0, boundedOffset)
+      .reduce((length, child) => length + richTitleDraftNodeLength(child), 0);
+  }
+
+  const draftChild = closestDraftChild(root, node);
+  if (!draftChild) return null;
+  const childIndex = children.indexOf(draftChild);
+  if (childIndex < 0) return null;
+  const childStart = children
+    .slice(0, childIndex)
+    .reduce((length, child) => length + richTitleDraftNodeLength(child), 0);
+  if (!(draftChild instanceof HTMLElement)) {
+    return childStart + Math.min(
+      Math.max(offset, 0),
+      richTitleDraftNodeLength(draftChild),
+    );
+  }
+  if (
+    draftChild.dataset.richTitleKind === "atom" ||
+    draftChild.dataset.richTitleKind === "linebreak"
+  ) {
+    return childStart + (node === draftChild && offset === 0 ? 0 : 1);
+  }
+
+  const range = root.ownerDocument.createRange();
+  range.setStart(draftChild, 0);
+  try {
+    range.setEnd(node, offset);
+  } catch {
+    return null;
+  }
+  return childStart + Math.min(
+    range.toString().length,
+    richTitleDraftNodeLength(draftChild),
+  );
+};
+
+const readRichTitleSelection = (
+  root: HTMLElement,
+  pointToIndex: (
+    root: HTMLElement,
+    node: Node,
+    offset: number,
+  ) => number | null,
+): RichTitleDomSelection | null => {
+  const selection = root.ownerDocument.getSelection();
+  if (!selection || !selection.anchorNode || !selection.focusNode) return null;
+  const anchor = pointToIndex(
+    root,
+    selection.anchorNode,
+    selection.anchorOffset,
+  );
+  const focus = pointToIndex(
+    root,
+    selection.focusNode,
+    selection.focusOffset,
+  );
+  if (anchor === null || focus === null) return null;
+  return {
+    anchor,
+    focus,
+    start: Math.min(anchor, focus),
+    end: Math.max(anchor, focus),
+    direction: anchor === focus ? "none" : anchor < focus ? "forward" : "backward",
+  };
+};
+
 export const richTitleDomPointToIndex = (
   root: HTMLElement,
   node: Node,
@@ -73,28 +172,18 @@ export const richTitleDomPointToIndex = (
 
 export const readRichTitleDomSelection = (
   root: HTMLElement,
-): RichTitleDomSelection | null => {
-  const selection = root.ownerDocument.getSelection();
-  if (!selection || !selection.anchorNode || !selection.focusNode) return null;
-  const anchor = richTitleDomPointToIndex(
-    root,
-    selection.anchorNode,
-    selection.anchorOffset,
-  );
-  const focus = richTitleDomPointToIndex(
-    root,
-    selection.focusNode,
-    selection.focusOffset,
-  );
-  if (anchor === null || focus === null) return null;
-  return {
-    anchor,
-    focus,
-    start: Math.min(anchor, focus),
-    end: Math.max(anchor, focus),
-    direction: anchor === focus ? "none" : anchor < focus ? "forward" : "backward",
-  };
-};
+): RichTitleDomSelection | null =>
+  readRichTitleSelection(root, richTitleDomPointToIndex);
+
+/**
+ * Reads selection offsets from the browser-mutated draft DOM. Segment metadata
+ * still describes the last committed Y.Text projection at this point, so draft
+ * coordinates must be derived from the live DOM instead.
+ */
+export const readRichTitleDomDraftSelection = (
+  root: HTMLElement,
+): RichTitleDomSelection | null =>
+  readRichTitleSelection(root, richTitleDraftDomPointToIndex);
 
 export const richTitleIndexToDomPoint = (
   root: HTMLElement,
@@ -150,12 +239,4 @@ export const restoreRichTitleDomSelection = (
 
 /** Reads the browser's uncommitted IME draft using Y.Text-compatible atoms. */
 export const readRichTitleDomDraft = (root: HTMLElement): string =>
-  [...root.childNodes]
-    .map((node) => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-      if (!(node instanceof HTMLElement)) return "";
-      if (node.dataset.richTitleKind === "atom") return "\uFFFC";
-      if (node.dataset.richTitleKind === "linebreak") return "\n";
-      return node.textContent ?? "";
-    })
-    .join("");
+  [...root.childNodes].map(richTitleDraftNodeValue).join("");

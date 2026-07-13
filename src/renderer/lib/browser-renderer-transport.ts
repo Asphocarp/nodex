@@ -36,6 +36,7 @@ import {
 } from "../../shared/reference-read-http-contract";
 import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
 import { parseCardMetadataPropertySnapshotCommandResult } from "../../shared/card-metadata-property-snapshot-transport";
+import { parseCardDetailCommandResult } from "../../shared/card-detail";
 import {
   parseDatabaseCatalogSnapshotCommandResult,
   parseDatabaseManagementSnapshotCommandResult,
@@ -967,10 +968,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       }
       return decodeDatabaseViewReadModelHttp(await res.json());
     }
-    case "cards:details:get": {
+    case "database-rows:details:get": {
       const [projectId, input] = args as [string, { cardIds: string[] }];
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/cards/details`),
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-rows/details`,
+        ),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -993,11 +996,23 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "card:get": {
+      const [projectId, cardId] = args as [string, string];
+      const params = new URLSearchParams({ cardId });
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/card?${params.toString()}`,
+        ),
+      );
+      return parseCardDetailCommandResult(await res.json());
+    }
+    case "database-row:get": {
       const [projectId, cardId, status] = args as [string, string, string?];
       const params = new URLSearchParams({ cardId });
       if (status) params.set("status", status);
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card?${params.toString()}`),
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-row?${params.toString()}`,
+        ),
       );
       if (!res.ok) return null;
       return res.json();

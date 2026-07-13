@@ -23,6 +23,7 @@ import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { buildCardDetailStoryCommandResult } from "@/components/kanban/card-stage/card-stage-story-card-detail";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -2760,7 +2761,10 @@ function createStorybookElectronBridge(input: {
       switch (channel) {
         case "card:get": {
           const [, cardId] = args as [string, string];
-          return cardId === input.card.id ? input.card : null;
+          return buildCardDetailStoryCommandResult(
+            String(args[0] ?? "story-project"),
+            cardId === input.card.id ? input.card : null,
+          );
         }
         case "codex:permission:custom-description:get":
           return input.permissionDescription;

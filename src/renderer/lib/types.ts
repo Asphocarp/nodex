@@ -12,7 +12,7 @@ export type {
   CardCreateInput,
   CardUpdateField,
   CardUpdateResult,
-  CardsDetailsInput,
+  DatabaseRowsDetailsInput,
   CardSearchInput,
   CardSearchResult,
   CommandPaletteThreadContentSearchInput,

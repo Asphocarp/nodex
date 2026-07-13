@@ -1,12 +1,12 @@
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
   type ClipboardEvent,
   type ComponentPropsWithoutRef,
   type CompositionEvent,
-  type FormEvent,
   type KeyboardEvent,
   type Ref,
 } from "react";
@@ -26,6 +26,7 @@ import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-sur
 import { reconcileYTextInputValues } from "@/lib/y-text-input";
 import {
   readRichTitleDomDraft,
+  readRichTitleDomDraftSelection,
   readRichTitleDomSelection,
   restoreRichTitleDomSelection,
 } from "@/lib/rich-title-editor-dom";
@@ -185,7 +186,9 @@ export function CollaborativeCardTitle({
   const captureSelection = (): void => {
     const editor = editorRef.current;
     if (!editor) return;
-    const selection = readRichTitleDomSelection(editor);
+    const selection = composingRef.current
+      ? readRichTitleDomDraftSelection(editor)
+      : readRichTitleDomSelection(editor);
     setSelectedRange(
       selection && selection.end > selection.start
         ? { start: selection.start, end: selection.end }
@@ -218,7 +221,9 @@ export function CollaborativeCardTitle({
       if (transaction.origin === localOrigin) return;
       const editor = editorRef.current;
       if (!editor || editor.ownerDocument.activeElement !== editor) return;
-      const selection = readRichTitleDomSelection(editor);
+      const selection = composingRef.current
+        ? readRichTitleDomDraftSelection(editor)
+        : readRichTitleDomSelection(editor);
       if (!selection) return;
       const draft = composingRef.current ? readRichTitleDomDraft(editor) : title.toString();
       const anchor = composingRef.current
@@ -349,7 +354,7 @@ export function CollaborativeCardTitle({
     const editor = editorRef.current;
     if (!editor) return;
     const draft = readRichTitleDomDraft(editor);
-    const draftSelection = readRichTitleDomSelection(editor);
+    const draftSelection = readRichTitleDomDraftSelection(editor);
     const hadRelativeSelection = relativeSelectionRef.current !== null;
     const reconciliation = reconcileYTextInputValues({
       baseValue: compositionBaseRef.current,
@@ -375,17 +380,25 @@ export function CollaborativeCardTitle({
     setSelectionRevision((revision) => revision + 1);
   };
 
-  const handleBeforeInput = (event: FormEvent<HTMLDivElement>): void => {
-    const nativeEvent = event.nativeEvent as InputEvent;
-    if (composingRef.current || nativeEvent.isComposing) return;
+  const handleBeforeInput = useEffectEvent((event: InputEvent): void => {
+    if (
+      disabled ||
+      event.defaultPrevented ||
+      !event.cancelable ||
+      composingRef.current ||
+      event.isComposing
+    ) {
+      return;
+    }
     const editor = editorRef.current;
     if (!editor) return;
     const selection = readRichTitleDomSelection(editor);
     if (!selection) return;
-    const inputType = nativeEvent.inputType;
+    const inputType = event.inputType;
     if (inputType === "insertText" || inputType === "insertReplacementText") {
+      if (event.data === null) return;
       event.preventDefault();
-      applyEdit(selection.start, selection.end, nativeEvent.data ?? "");
+      applyEdit(selection.start, selection.end, event.data);
       return;
     }
     if (inputType === "deleteContentBackward") {
@@ -410,7 +423,14 @@ export function CollaborativeCardTitle({
       event.preventDefault();
       applyEdit(selection.start, selection.end, "");
     }
-  };
+  });
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.addEventListener("beforeinput", handleBeforeInput);
+    return () => editor.removeEventListener("beforeinput", handleBeforeInput);
+  }, []);
 
   const toggleFormat = (attribute: RichTitleFormatAttribute): void => {
     const editor = editorRef.current;
@@ -630,7 +650,6 @@ export function CollaborativeCardTitle({
         spellCheck={spellCheck}
         tabIndex={disabled ? -1 : tabIndex}
         className={cn(TITLE_CLASS_NAME, className)}
-        onBeforeInput={handleBeforeInput}
         onInput={handleInput}
         onPaste={handlePaste}
         onCompositionStart={handleCompositionStart}

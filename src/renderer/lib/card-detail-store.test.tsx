@@ -1,231 +1,152 @@
 import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
+
+import { CARD_DETAIL_CONTRACT_VERSION, parseCardDetail } from "../../shared/card-detail";
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import { render } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import {
   getCardDetail,
   resetCardDetailStoreForTests,
   setCardDetail,
-  setCardDetails,
   useCardDetail,
 } from "./card-detail-store";
-import type { Card } from "./types";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
 
-function buildCard(overrides: Partial<Card> = {}): Card {
-  const title = overrides.title ?? "Persisted title";
-  return {
-    id: "card-1",
-    status: "in_progress",
-    archived: false,
-    title,
-    richTitle: plainTextToPortableRichText(title),
-    description: "Persisted body",
-    tags: [],
-    agentBlocked: false,
-    created: new Date("2026-01-01T00:00:00.000Z"),
-    order: 1,
-    revision: 1,
-    ...overrides,
-  };
-}
+const buildDetail = (headSeq = 1) => parseCardDetail({
+  version: CARD_DETAIL_CONTRACT_VERSION,
+  card: {
+    blockId: "card-1",
+    projectId: "project-1",
+    lifecycle: "active",
+    location: { kind: "document", documentId: "document-host" },
+    locationRevision: 2,
+    metadataRevision: 1,
+    documentId: "document-card-1",
+    documentGeneration: 1,
+    documentHeadSeq: headSeq,
+    documentAuthority: "ydoc_primary",
+    content: {
+      projectedSeq: headSeq,
+      title: `Nested ${headSeq}`,
+      richTitle: plainTextToPortableRichText(`Nested ${headSeq}`),
+      preview: "Body",
+      plainText: "Body",
+    },
+    createdAt: "2026-07-14T00:00:00.000Z",
+    updatedAt: "2026-07-14T00:00:00.000Z",
+  },
+  document: {
+    readiness: "ready",
+    schemaKey: "nodex.card",
+    schemaVersion: 2,
+  },
+  properties: {
+    projectId: "project-1",
+    storeEpoch: "epoch-1",
+    changeLogSeq: headSeq,
+    cardBlockId: "card-1",
+    metadataRevision: 1,
+    fields: [
+      ["isAllDay", false],
+      ["recurrence", null],
+      ["reminders", []],
+      ["scheduleTimezone", null],
+      ["agentBlocked", false],
+      ["agentStatus", null],
+      ["runInTarget", "localProject"],
+      ["runInLocalPath", null],
+      ["runInBaseBranch", null],
+      ["runInWorktreePath", null],
+      ["runInEnvironmentPath", null],
+    ].map(([field, value]) => ({
+      scope: "intrinsic",
+      field,
+      revision: 1,
+      value,
+    })),
+  },
+  databaseContext: { kind: "standalone" },
+});
 
-function DetailHarness() {
-  const detail = useCardDetail("project-1", "card-1");
+function Harness() {
+  const snapshot = useCardDetail("project-1", "card-1");
   return (
     <span data-testid="detail-state">
-      {detail.loading ? "loading" : detail.error ?? detail.card?.title ?? "empty"}
+      {snapshot.loading
+        ? "loading"
+        : snapshot.error ?? snapshot.detail?.card.content?.title ?? "empty"}
     </span>
   );
 }
 
-describe("card detail store", () => {
-  beforeEach(() => {
-    resetCardDetailStoreForTests();
-  });
+describe("Card Detail store", () => {
+  beforeEach(() => resetCardDetailStoreForTests());
 
-  test("does not overwrite or emit for older single-card detail replies", async () => {
-    const newerCard = buildCard({
-      title: "Newer title",
-      description: "Newer body",
-      revision: 3,
-    });
-    const olderCard = buildCard({
-      title: "Older title",
-      description: "Older body",
-      revision: 2,
-    });
-    setCardDetail("project-1", newerCard);
-
-    let renderCount = 0;
-    function RenderCountHarness() {
-      renderCount += 1;
-      const detail = useCardDetail("project-1", "card-1");
-      return <span data-testid="detail-title">{detail.card?.title ?? "empty"}</span>;
-    }
-
-    const view = render(<RenderCountHarness />);
-    expect(view.getByTestId("detail-title").textContent).toBe("Newer title");
-    expect(renderCount).toBe(1);
-
-    await act(async () => {
-      setCardDetail("project-1", olderCard);
-      await Promise.resolve();
+  test("loads a standalone Card through the typed command", async () => {
+    let calls = 0;
+    installWindowApi({
+      invoke: async (channel: string) => {
+        expect(channel).toBe("card:get");
+        calls += 1;
+        return { ok: true, value: buildDetail() };
+      },
+      on: () => () => undefined,
     });
 
-    expect(getCardDetail("project-1", "card-1") === newerCard).toBe(true);
-    expect(view.getByTestId("detail-title").textContent).toBe("Newer title");
-    expect(renderCount).toBe(1);
-    view.unmount();
-  });
-
-  test("does not overwrite or emit for same-revision batch hydration", async () => {
-    const cachedCard = buildCard({
-      title: "Cached title",
-      description: "Cached body",
-      revision: 5,
+    const view = render(<Harness />);
+    await waitFor(() => {
+      expect(view.getByTestId("detail-state").textContent).toBe("Nested 1");
     });
-    const sameRevisionReply = buildCard({
-      title: "Reply title",
-      description: "Reply body",
-      revision: 5,
-    });
-    setCardDetail("project-1", cachedCard);
-
-    let renderCount = 0;
-    function RenderCountHarness() {
-      renderCount += 1;
-      const detail = useCardDetail("project-1", "card-1");
-      return <span data-testid="detail-title">{detail.card?.title ?? "empty"}</span>;
-    }
-
-    const view = render(<RenderCountHarness />);
-    expect(view.getByTestId("detail-title").textContent).toBe("Cached title");
-    expect(renderCount).toBe(1);
-
-    await act(async () => {
-      setCardDetails("project-1", [sameRevisionReply]);
-      await Promise.resolve();
-    });
-
-    expect(getCardDetail("project-1", "card-1") === cachedCard).toBe(true);
-    expect(view.getByTestId("detail-title").textContent).toBe("Cached title");
-    expect(renderCount).toBe(1);
-    view.unmount();
-  });
-
-  test("only notifies subscribers for the changed card detail key", async () => {
-    setCardDetail("project-1", buildCard({
-      id: "card-1",
-      title: "First title",
-      revision: 1,
-    }));
-    setCardDetail("project-1", buildCard({
-      id: "card-2",
-      title: "Second title",
-      revision: 1,
-    }));
-
-    let firstRenderCount = 0;
-    let secondRenderCount = 0;
-    function FirstHarness() {
-      firstRenderCount += 1;
-      const detail = useCardDetail("project-1", "card-1");
-      return <span data-testid="first-title">{detail.card?.title ?? "empty"}</span>;
-    }
-    function SecondHarness() {
-      secondRenderCount += 1;
-      const detail = useCardDetail("project-1", "card-2");
-      return <span data-testid="second-title">{detail.card?.title ?? "empty"}</span>;
-    }
-
-    const view = render(
-      <>
-        <FirstHarness />
-        <SecondHarness />
-      </>,
+    expect(calls).toBe(1);
+    expect(getCardDetail("project-1", "card-1")?.databaseContext.kind).toBe(
+      "standalone",
     );
-    expect(view.getByTestId("first-title").textContent).toBe("First title");
-    expect(view.getByTestId("second-title").textContent).toBe("Second title");
-    expect(firstRenderCount).toBe(1);
-    expect(secondRenderCount).toBe(1);
+  });
+
+  test("does not replace a newer Document coordinate with a stale reply", () => {
+    setCardDetail(buildDetail(3));
+    setCardDetail(buildDetail(2), { acceptEqualFreshness: true });
+
+    expect(getCardDetail("project-1", "card-1")?.card.documentHeadSeq).toBe(3);
+  });
+
+  test("refreshes a standalone Card when a cross-window Database transfer may change its capability", async () => {
+    const subscriptions = new Map<
+      string,
+      (...args: unknown[]) => void
+    >();
+    let calls = 0;
+    installWindowApi({
+      invoke: async () => {
+        calls += 1;
+        return { ok: true, value: buildDetail(calls) };
+      },
+      on: (channel: string, callback: (...args: unknown[]) => void) => {
+        subscriptions.set(channel, callback);
+        return () => subscriptions.delete(channel);
+      },
+    });
+
+    const view = render(<Harness />);
+    await waitFor(() => {
+      expect(view.getByTestId("detail-state").textContent).toBe("Nested 1");
+    });
 
     await act(async () => {
-      setCardDetail("project-1", buildCard({
-        id: "card-1",
-        title: "Updated first title",
-        revision: 2,
-      }));
+      subscriptions.get("database-changed")?.({
+        version: 1,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        operationId: "transfer-1",
+        sourceKind: "block_transfer",
+        affectedDatabaseBlockIds: [],
+        changeLogSeq: 2,
+      });
       await Promise.resolve();
     });
-
-    expect(view.getByTestId("first-title").textContent).toBe("Updated first title");
-    expect(view.getByTestId("second-title").textContent).toBe("Second title");
-    expect(firstRenderCount).toBe(2);
-    expect(secondRenderCount).toBe(1);
-    view.unmount();
-  });
-
-  test("refetches cached detail when the requested revision is newer", async () => {
-    let calls = 0;
-    installWindowApi({
-      invoke: async (channel: string) => {
-        if (channel !== "card:get") {
-          throw new Error(`Unexpected channel: ${channel}`);
-        }
-        calls += 1;
-        return buildCard({
-          title: "Fresh title",
-          description: "Fresh body",
-          revision: 2,
-        });
-      },
-      on: () => () => {},
-    });
-
-    setCardDetail("project-1", buildCard({
-      title: "Cached title",
-      description: "Cached body",
-      revision: 1,
-    }));
-
-    function RevisionHarness() {
-      const detail = useCardDetail("project-1", "card-1", "in_progress", 2);
-      return <span data-testid="detail-title">{detail.card?.title ?? "empty"}</span>;
-    }
-
-    const view = render(<RevisionHarness />);
-    expect(view.getByTestId("detail-title").textContent).toBe("Cached title");
-
     await waitFor(() => {
-      expect(view.getByTestId("detail-title").textContent).toBe("Fresh title");
+      expect(view.getByTestId("detail-state").textContent).toBe("Nested 2");
     });
-
-    expect(calls).toBe(1);
-    expect(getCardDetail("project-1", "card-1")?.revision).toBe(2);
-    view.unmount();
-  });
-
-  test("does not retry continuously after a card detail miss", async () => {
-    let calls = 0;
-    installWindowApi({
-      invoke: async (channel: string) => {
-        if (channel !== "card:get") {
-          throw new Error(`Unexpected channel: ${channel}`);
-        }
-        calls += 1;
-        return null;
-      },
-      on: () => () => {},
-    });
-
-    const view = render(<DetailHarness />);
-
-    await waitFor(() => {
-      expect(view.getByTestId("detail-state").textContent).toBe("Card not found");
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
   });
 });

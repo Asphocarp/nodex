@@ -112,7 +112,7 @@ describe("card status CLI arguments", () => {
 
         if (
           method === "GET" &&
-          url.pathname === "/api/projects/default/card" &&
+          url.pathname === "/api/projects/default/database-row" &&
           url.searchParams.get("cardId") === createdCardId
         ) {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -131,7 +131,7 @@ describe("card status CLI arguments", () => {
           return;
         }
 
-        if (method === "GET" && url.pathname === "/api/projects/default/card") {
+        if (method === "GET" && url.pathname === "/api/projects/default/database-row") {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
             id: "card-1",
@@ -409,7 +409,7 @@ describe("card status CLI arguments", () => {
           return;
         }
 
-        if (method === "GET" && url.pathname === "/api/projects/default/card") {
+        if (method === "GET" && url.pathname === "/api/projects/default/database-row") {
           const cardId = url.searchParams.get("cardId") ?? "";
           if (cardId === "card-existing" && deleted) {
             res.writeHead(404, { "Content-Type": "application/json" });

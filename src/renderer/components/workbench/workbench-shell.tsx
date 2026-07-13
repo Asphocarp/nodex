@@ -130,12 +130,16 @@ import {
 } from "@/lib/app-shell-layers";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
-import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke } from "@/lib/api";
 import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
 import { useKanban } from "@/lib/use-kanban";
 import { ensureFreshDatabaseViewBoard } from "@/lib/kanban-store";
-import { useCardDetail } from "@/lib/card-detail-store";
+import { fetchCardDetail, useCardDetail } from "@/lib/card-detail-store";
+import {
+  projectCardDetailToStageModel,
+  type CardStageDatabaseProperties,
+} from "@/lib/card-stage-card";
+import { commitCardDetailMetadataPatch } from "@/lib/card-detail-metadata-runtime";
 import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
 import { cn } from "@/lib/utils";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
@@ -227,7 +231,6 @@ import type {
   Card,
   CardRunInTarget,
   CardInput,
-  CardUpdateMutationResult,
   CodexAccountSnapshot,
   CodexBackgroundTerminalRow,
   CodexCollaborationModeKind,
@@ -11824,6 +11827,80 @@ function DbViewSessionTab({
   );
 }
 
+interface CardStageDatabaseCapability {
+  readonly availableTags: string[];
+  readonly onDelete: (cardId: string) => Promise<void>;
+  readonly onMove: (cardId: string, toStatus: Card["status"]) => Promise<void>;
+  readonly onCompleteOccurrence: (
+    cardId: string,
+    occurrenceStart: Date,
+  ) => Promise<void>;
+  readonly onSkipOccurrence: (
+    cardId: string,
+    occurrenceStart: Date,
+  ) => Promise<void>;
+}
+
+function CardStageDatabaseCapabilityBoundary({
+  projectId,
+  sessionId,
+  properties,
+  children,
+}: {
+  projectId: string;
+  sessionId: string;
+  properties: CardStageDatabaseProperties | null;
+  children: (capability: CardStageDatabaseCapability | null) => ReactNode;
+}) {
+  const kanban = useKanban({
+    projectId,
+    sessionId,
+    enabled: properties !== null,
+  });
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const column of kanban.board?.columns ?? []) {
+      for (const card of column.cards) {
+        card.tags.forEach((tag) => tags.add(tag));
+      }
+    }
+    return [...tags].sort((left, right) => left.localeCompare(right));
+  }, [kanban.board?.columns]);
+
+  if (!properties) return children(null);
+  return children({
+    availableTags,
+    onDelete: async (cardId) => {
+      const deleted = await kanban.deleteCard(properties.status, cardId);
+      if (!deleted) throw new Error(`Card ${cardId} delete did not commit`);
+    },
+    onMove: async (cardId, toStatus) => {
+      await kanban.moveCard({
+        fromStatus: properties.status,
+        cardId,
+        toStatus,
+      });
+      await fetchCardDetail(projectId, cardId);
+    },
+    onCompleteOccurrence: async (cardId, occurrenceStart) => {
+      await kanban.completeOccurrence({
+        cardId,
+        occurrenceStart,
+        source: "card-stage",
+      });
+      await fetchCardDetail(projectId, cardId);
+    },
+    onSkipOccurrence: async (cardId, occurrenceStart) => {
+      await kanban.skipOccurrence({
+        cardId,
+        occurrenceStart,
+        source: "card-stage",
+      });
+      await fetchCardDetail(projectId, cardId);
+    },
+  });
+}
+
 function CardStageSessionTab({
   tab,
   project,
@@ -11854,7 +11931,7 @@ function CardStageSessionTab({
   canStartThreadInSession: boolean;
   onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
   onClose: () => void;
-  onOpenTerminal: (card: Card) => Promise<void>;
+  onOpenTerminal: () => Promise<void>;
   onEnsureBlankSessionForProject: (
     projectId: string,
     options?: { select?: boolean },
@@ -11866,34 +11943,38 @@ function CardStageSessionTab({
   onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
   isActivePanelTab: boolean;
 }) {
-  const kanban = useKanban({ projectId: tab.config.projectId, sessionId: tab.id });
   const codexControl = useCodexAppServerControl(tab.config.projectId);
 
-  const cardSummary = kanban.cardIndex.get(tab.config.cardId) ?? null;
-  const detail = useCardDetail(
+  const detailSnapshot = useCardDetail(
     tab.config.projectId,
     tab.config.cardId,
-    cardSummary?.status,
-    cardSummary?.revision,
   );
-  const card = detail.card;
-  const cardLoadError = !card && detail.error && detail.error !== "Card not found"
-    ? detail.error
+  const stageProjection = useMemo(() => {
+    if (!detailSnapshot.detail) return { card: null, error: null };
+    try {
+      return {
+        card: projectCardDetailToStageModel(detailSnapshot.detail),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        card: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, [detailSnapshot.detail]);
+  const card = stageProjection.card;
+  const cardLoadError = !card
+    ? stageProjection.error ?? (
+        detailSnapshot.error === "Card not found"
+          ? null
+          : detailSnapshot.error
+      )
     : null;
   const cardHydrating = !card && (
-    kanban.loading
-    || detail.loading
-    || !detail.error
+    detailSnapshot.loading
+    || (!detailSnapshot.error && !stageProjection.error)
   );
-  const availableTags = useMemo(() => {
-    const tags = new Set<string>();
-    for (const column of kanban.board?.columns ?? []) {
-      for (const item of column.cards) {
-        item.tags.forEach((tag) => tags.add(tag));
-      }
-    }
-    return [...tags].sort((left, right) => left.localeCompare(right));
-  }, [kanban.board?.columns]);
   const handleStartNewSessionThreadFromEditor = useCallback(async (input: {
     projectId: string;
     targetSessionId?: string;
@@ -11959,17 +12040,21 @@ function CardStageSessionTab({
     );
   }
 
-  const columnId = cardSummary?.status ?? card?.status ?? "draft";
-  const columnName = KANBAN_STATUS_LABELS[columnId] ?? columnId;
+  const compatibilityDatabase =
+    card.databaseContext.kind === "member"
+      ? card.databaseContext.compatibilityProperties
+      : null;
 
-  return (
+  const renderDocumentSurface = (
+    databaseCapability: CardStageDatabaseCapability | null,
+  ): ReactNode => (
     <OwnedBlockDocumentBoundary
       projectId={tab.config.projectId}
-      ownerBlockId={card.id}
+      ownerBlockId={card.card.id}
     >
       {(documentModel, documentControls) => {
         if (documentModel.status === "loading") {
-          return <CardStageSessionSkeleton titleSnapshot={card.title} />;
+          return <CardStageSessionSkeleton titleSnapshot={card.card.title} />;
         }
         if (documentModel.status === "error") {
           return (
@@ -12004,64 +12089,82 @@ function CardStageSessionTab({
 
         return (
           <CardStage
-        documentAuthority={documentAuthority}
-        card={card}
-        columnId={columnId}
-        columnName={columnName}
-        projectId={tab.config.projectId}
-        projectName={project.name}
-        projectWorkspacePath={projectWorkspaceRootOrNull(project)}
-        availableTags={availableTags}
-        closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
-        persistRef={persistRef}
-        sessionSnapshotRef={sessionSnapshotRef}
-        onClose={onClose}
-        onLeaveCard={onLeaveCard}
-        onUpdate={async (nextColumnId: string, cardId: string, updates: Partial<CardInput>): Promise<CardUpdateMutationResult> => (
-          await kanban.updateCard(nextColumnId, cardId, updates)
-        )}
-        onDelete={async (nextColumnId: string, cardId: string) => {
-          const deleted = await kanban.deleteCard(nextColumnId, cardId);
-          if (deleted) onClose();
-        }}
-        onMove={async (fromStatus, cardId, toStatus) => {
-          await kanban.moveCard({ fromStatus, cardId, toStatus });
-        }}
-        onCompleteOccurrence={async (cardId, occurrenceStart) => {
-          await kanban.completeOccurrence({ cardId, occurrenceStart, source: "card-stage" });
-        }}
-        onSkipOccurrence={async (cardId, occurrenceStart) => {
-          await kanban.skipOccurrence({ cardId, occurrenceStart, source: "card-stage" });
-        }}
-        onOpenTerminalPanel={() => {
-          if (!card) return;
-          void onOpenTerminal(card);
-        }}
-        onToggleHistoryPanel={() => onToggleHistoryPanel({
-          sessionId,
-          tabId: tab.id,
-          projectId: tab.config.projectId,
-          cardId: tab.config.cardId,
-          cardTitle: card?.title ?? tab.config.titleSnapshot,
-        })}
-        historyPanelActive={historyPanelActive}
-        isActivePanelTab={isActivePanelTab}
-        sessionId={sessionId}
-        sessionThread={sessionThread}
-        canStartThreadInSession={canStartThreadInSession}
-        linkedCodexThreads={[]}
-        onOpenCodexThread={onOpenThread}
-        onOpenCard={({ projectId, cardId, titleSnapshot }) => {
-          void onOpenCardTab(projectId, cardId, titleSnapshot, { openMode: "durable" });
-        }}
-        onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
-        onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
-          await codexControl.startTurn(threadId, prompt, { projectId, promptInput });
-        }}
+            documentAuthority={documentAuthority}
+            card={card}
+            projectId={tab.config.projectId}
+            projectName={project.name}
+            projectWorkspacePath={projectWorkspaceRootOrNull(project)}
+            availableTags={databaseCapability?.availableTags ?? []}
+            closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
+            persistRef={persistRef}
+            sessionSnapshotRef={sessionSnapshotRef}
+            onClose={onClose}
+            onLeaveCard={onLeaveCard}
+            onUpdate={async (cardId: string, updates: Partial<CardInput>) =>
+              await commitCardDetailMetadataPatch({
+                projectId: tab.config.projectId,
+                cardBlockId: cardId,
+                mutationId: crypto.randomUUID(),
+                clientSessionId: tab.id,
+                patch: updates,
+              })}
+            {...(databaseCapability
+              ? {
+                  onDelete: databaseCapability.onDelete,
+                  onMove: databaseCapability.onMove,
+                  onCompleteOccurrence:
+                    databaseCapability.onCompleteOccurrence,
+                  onSkipOccurrence: databaseCapability.onSkipOccurrence,
+                }
+              : {})}
+            onOpenTerminalPanel={() => {
+              void onOpenTerminal();
+            }}
+            onToggleHistoryPanel={() => onToggleHistoryPanel({
+              sessionId,
+              tabId: tab.id,
+              projectId: tab.config.projectId,
+              cardId: tab.config.cardId,
+              cardTitle: card.card.title || tab.config.titleSnapshot,
+            })}
+            historyPanelActive={historyPanelActive}
+            isActivePanelTab={isActivePanelTab}
+            sessionId={sessionId}
+            sessionThread={sessionThread}
+            canStartThreadInSession={canStartThreadInSession}
+            linkedCodexThreads={[]}
+            onOpenCodexThread={onOpenThread}
+            onOpenCard={({ projectId, cardId, titleSnapshot }) => {
+              void onOpenCardTab(projectId, cardId, titleSnapshot, {
+                openMode: "durable",
+              });
+            }}
+            onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
+            onSendThreadSectionPrompt={async ({
+              projectId,
+              threadId,
+              prompt,
+              promptInput,
+            }) => {
+              await codexControl.startTurn(threadId, prompt, {
+                projectId,
+                promptInput,
+              });
+            }}
           />
         );
       }}
     </OwnedBlockDocumentBoundary>
+  );
+
+  return (
+    <CardStageDatabaseCapabilityBoundary
+      projectId={tab.config.projectId}
+      sessionId={tab.id}
+      properties={compatibilityDatabase}
+    >
+      {renderDocumentSurface}
+    </CardStageDatabaseCapabilityBoundary>
   );
 }
 

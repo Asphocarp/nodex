@@ -19,6 +19,7 @@ import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
 import { getDb } from "./local-store/database";
 import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
+import { readCardDetailCommand } from "./card-detail-boundary";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardTarget,
@@ -1549,11 +1550,11 @@ export function registerIpcHandlers(
   });
 
   // Cards
-  registerHandle("cards:details:get", async (_, projectId, input) => {
+  registerHandle("database-rows:details:get", async (_, projectId, input) => {
     const startedAt = performance.now();
-    const cards = await boardReadModel.getCardsDetails(projectId, input);
-    ipcPayloadLogger.info("card details payload served", {
-      channel: "cards:details:get",
+    const cards = await boardReadModel.getDatabaseRowsDetails(projectId, input);
+    ipcPayloadLogger.info("database row details payload served", {
+      channel: "database-rows:details:get",
       projectId,
       requestedCardCount: input.cardIds.length,
       cardCount: cards.length,
@@ -1578,11 +1579,17 @@ export function registerIpcHandlers(
 
   registerHandle(
     "card:get",
+    (_, projectId: string, cardId: string) =>
+      readCardDetailCommand(projectId, cardId),
+  );
+
+  registerHandle(
+    "database-row:get",
     (_, projectId: string, cardId: string, status?: string) =>
-      cardsStore.getCard(
+      cardsStore.getDatabaseRowCard(
         projectId,
         cardId,
-        status as Parameters<typeof cardsStore.getCard>[2],
+        status as Parameters<typeof cardsStore.getDatabaseRowCard>[2],
       ),
   );
 

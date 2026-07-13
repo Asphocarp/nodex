@@ -358,9 +358,11 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
         initialLayout.recentCardSessions.slice(0, 10).map(async (session) => {
           try {
             const result = await invoke("card:get", session.projectId, session.cardId);
-            return result ? null : session.id;
+            return !result.ok && result.error.code === "card_not_found"
+              ? session.id
+              : null;
           } catch {
-            return session.id;
+            return null;
           }
         }),
       );
@@ -373,9 +375,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
             initialLayout.cardStage.projectId,
             initialLayout.cardStage.cardId,
           );
-          activeCardMissing = !result;
+          activeCardMissing =
+            !result.ok && result.error.code === "card_not_found";
         } catch {
-          activeCardMissing = true;
+          activeCardMissing = false;
         }
       }
 

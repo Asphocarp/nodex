@@ -7,7 +7,8 @@ import {
   writeCardStageContentWidthPreference,
   writeCardStageShowRawContentPreference,
 } from "@/lib/card-stage-layout";
-import type { Card, CardUpdateMutationResult } from "@/lib/types";
+import type { Card } from "@/lib/types";
+import type { CardStageCardModel } from "@/lib/card-stage-card";
 import { render, textContent } from "@/test/dom";
 import {
   CARD_DOCUMENT_SCHEMA_VERSION,
@@ -85,21 +86,31 @@ function buildCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
-function buildUpdateAck(card: Card = buildCard({ revision: 2 })): CardUpdateMutationResult {
-  const { description, ...summary } = card;
+function toStageModel(card: Card): CardStageCardModel {
   return {
-    status: "updated",
-    projectId: "default",
-    cardId: card.id,
-    revision: card.revision ?? 2,
-    summary: {
-      ...summary,
-      descriptionPreview: description,
-      descriptionLength: description.length,
-      hasDescription: description.trim().length > 0,
+    card: {
+      id: card.id,
+      archived: card.archived,
+      title: card.title,
+      richTitle: card.richTitle,
+      isAllDay: Boolean(card.isAllDay),
+      reminders: card.reminders ?? [],
+      agentBlocked: card.agentBlocked,
+      revision: card.revision ?? 1,
+      created: card.created,
     },
-    changedFields: [],
-    didMutate: true,
+    databaseContext: {
+      kind: "member",
+      membership: {
+        id: "membership-1",
+        databaseBlockId: "database-1",
+        revision: 1,
+      },
+      compatibilityProperties: {
+        status: card.status,
+        tags: card.tags,
+      },
+    },
   };
 }
 
@@ -124,22 +135,26 @@ function documentAuthority() {
   };
 }
 
-function renderStage() {
+function renderStage(
+  card: CardStageCardModel = toStageModel(buildCard()),
+) {
   const { CardStage } = requireCardStage();
   return render(
     <NodexTooltipProvider>
       <CardStage
         onClose={() => undefined}
-        card={buildCard()}
-        columnId="in_progress"
-        columnName="In progress"
+        card={card}
         projectId="default"
         projectName="Default"
         documentAuthority={documentAuthority()}
         availableTags={[]}
-        onUpdate={async () => buildUpdateAck()}
-        onDelete={async () => undefined}
-        onMove={async () => undefined}
+        onUpdate={async () => ({ status: "updated", didMutate: true })}
+        {...(card.databaseContext.kind === "member"
+          ? {
+              onDelete: async () => undefined,
+              onMove: async () => undefined,
+            }
+          : {})}
       />
     </NodexTooltipProvider>,
   );
@@ -181,6 +196,19 @@ describe("card stage", () => {
     expect(Object.hasOwn(source, "content")).toBe(false);
     expect(Object.hasOwn(source, "onChange")).toBe(false);
     expect(container.querySelector('[data-card-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
+  });
+
+  test("opens a standalone Card without Database controls or delete", () => {
+    const member = toStageModel(buildCard());
+    const standalone: CardStageCardModel = {
+      card: member.card,
+      databaseContext: { kind: "standalone" },
+    };
+    const { queryByText, queryByRole, getByText } = renderStage(standalone);
+
+    expect(getByText("Mock collaborative editor")).toBeTruthy();
+    expect(queryByText("Inline property strip")).toBeNull();
+    expect(queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
   test("raw mode reads the live Y.Doc projection, not Card.description", () => {

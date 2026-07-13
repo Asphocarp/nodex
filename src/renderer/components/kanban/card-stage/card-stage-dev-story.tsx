@@ -4,12 +4,11 @@ import { CardStage } from "./card-stage-dev-story-deps";
 import { ReadonlyNfmBlockNotePreview } from "../editor/readonly-nfm-blocknote-preview";
 import { useCardStageCollapsedProperties } from "../../../lib/use-card-stage-collapsed-properties";
 import type { CardInput } from "../../../lib/types";
+import type { CardStageCardModel } from "../../../lib/card-stage-card";
 import {
   buildCardStageStoryCard,
   buildCardStageStoryCollapsedProperties,
   buildCardStageStoryThreads,
-  CARD_STAGE_STORY_COLUMN_ID,
-  CARD_STAGE_STORY_COLUMN_NAME,
   CARD_STAGE_STORY_PROJECT_ID,
   CARD_STAGE_STORY_WORKSPACE_PATH,
   type CardStageStoryControls,
@@ -112,6 +111,53 @@ export function CardStageDevStoryPage({
       description,
     };
   }, [card, descriptionVariant]);
+  const stageCard = useMemo((): CardStageCardModel => ({
+    card: {
+      id: displayCard.id,
+      archived: displayCard.archived,
+      title: displayCard.title,
+      richTitle: displayCard.richTitle,
+      isAllDay: Boolean(displayCard.isAllDay),
+      ...(displayCard.recurrence ? { recurrence: displayCard.recurrence } : {}),
+      reminders: displayCard.reminders ?? [],
+      ...(displayCard.scheduleTimezone
+        ? { scheduleTimezone: displayCard.scheduleTimezone }
+        : {}),
+      agentBlocked: displayCard.agentBlocked,
+      ...(displayCard.agentStatus ? { agentStatus: displayCard.agentStatus } : {}),
+      ...(displayCard.runInTarget ? { runInTarget: displayCard.runInTarget } : {}),
+      ...(displayCard.runInLocalPath ? { runInLocalPath: displayCard.runInLocalPath } : {}),
+      ...(displayCard.runInBaseBranch ? { runInBaseBranch: displayCard.runInBaseBranch } : {}),
+      ...(displayCard.runInWorktreePath ? { runInWorktreePath: displayCard.runInWorktreePath } : {}),
+      ...(displayCard.runInEnvironmentPath
+        ? { runInEnvironmentPath: displayCard.runInEnvironmentPath }
+        : {}),
+      revision: displayCard.revision ?? 1,
+      created: displayCard.created,
+    },
+    databaseContext: {
+      kind: "member",
+      membership: {
+        id: "story-membership",
+        databaseBlockId: "story-database",
+        revision: 1,
+      },
+      compatibilityProperties: {
+        status: displayCard.status,
+        ...(displayCard.priority ? { priority: displayCard.priority } : {}),
+        ...(displayCard.estimate ? { estimate: displayCard.estimate } : {}),
+        tags: displayCard.tags,
+        ...(displayCard.dueDate ? { dueDate: displayCard.dueDate } : {}),
+        ...(displayCard.scheduledStart
+          ? { scheduledStart: displayCard.scheduledStart }
+          : {}),
+        ...(displayCard.scheduledEnd
+          ? { scheduledEnd: displayCard.scheduledEnd }
+          : {}),
+        ...(displayCard.assignee ? { assignee: displayCard.assignee } : {}),
+      },
+    },
+  }), [displayCard]);
   const storyDocument = useMemo(
     () => createCardStageStoryDocument({
       projectId: CARD_STAGE_STORY_PROJECT_ID,
@@ -150,14 +196,13 @@ export function CardStageDevStoryPage({
     setHistoryPanelActive((current) => !current);
   }, []);
 
-  const handleUpdate = useCallback(async (columnId: string, cardId: string, updates: Partial<CardInput>) => {
-    void columnId;
+  const handleUpdate = useCallback(async (cardId: string, updates: Partial<CardInput>) => {
     void cardId;
     void updates;
+    return { status: "updated", didMutate: true } as const;
   }, []);
 
-  const handleMove = useCallback(async (fromStatus: string, cardId: string, toStatus: string) => {
-    void fromStatus;
+  const handleMove = useCallback(async (cardId: string, toStatus: string) => {
     void cardId;
     void toStatus;
   }, []);
@@ -197,9 +242,7 @@ export function CardStageDevStoryPage({
             <CardStage
               key={descriptionVariant}
               onClose={() => undefined}
-              card={displayCard}
-              columnId={CARD_STAGE_STORY_COLUMN_ID}
-              columnName={CARD_STAGE_STORY_COLUMN_NAME}
+              card={stageCard}
               projectId={CARD_STAGE_STORY_PROJECT_ID}
               documentAuthority={storyDocument.authority}
               projectWorkspacePath={CARD_STAGE_STORY_WORKSPACE_PATH}

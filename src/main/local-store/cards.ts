@@ -10,7 +10,7 @@ import {
   type CardCreatePlacement,
   type CardSearchInput,
   type CardSearchResult,
-  type CardsDetailsInput,
+  type DatabaseRowsDetailsInput,
   type CardSummary,
   type Column,
 } from "../../shared/types";
@@ -131,9 +131,9 @@ export const getBoardSummary = async (
   };
 };
 
-export const getCardsDetails = async (
+export const getDatabaseRowsDetails = async (
   projectId: string,
-  input: CardsDetailsInput,
+  input: DatabaseRowsDetailsInput,
 ): Promise<Card[]> => {
   const canonicalProjectId = requireProjectId(projectId);
   const cardIds = Array.from(
@@ -269,7 +269,11 @@ export const createCard = async (
   return card;
 };
 
-export const getCard = async (
+/**
+ * Compatibility reader for a Card as a row in the primary Database.
+ * Canonical Card identity/content reads go through Card Detail instead.
+ */
+export const getDatabaseRowCard = async (
   projectId: string,
   cardId: string,
   columnId?: CardStatus,
@@ -294,15 +298,6 @@ export const findCardLocationById = (
   const summary = readDatabaseCardSummaryFromStore(database, cardId);
   if (!summary) return null;
   return { projectId: block.project_id, columnId: summary.status };
-};
-
-export const getCardSync = (
-  projectId: string,
-  cardId: string,
-): { title: string } | null => {
-  const canonicalProjectId = requireProjectId(projectId);
-  const card = readDatabaseCardById(getDb(), canonicalProjectId, cardId);
-  return card ? { title: card.title } : null;
 };
 
 export { COLUMNS };

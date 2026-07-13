@@ -1,13 +1,18 @@
 import type { MutableRefObject } from "react";
 import type {
-  Card,
   CardInput,
-  CardUpdateMutationResult,
+  CardStatus,
   CodexPromptInput,
   CodexThreadSummary,
 } from "@/lib/types";
 import type { ReadyCardBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
+import type {
+  CardStageCardModel,
+  CardStageMetadataMutationResult,
+} from "@/lib/card-stage-card";
+
+export type { CardStageMetadataMutationResult } from "@/lib/card-stage-card";
 
 export interface CardStageLinkedThread {
   threadId: string;
@@ -45,20 +50,17 @@ export interface CardStageProps {
   persistRef?: MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: MutableRefObject<CardStageSessionSnapshot | null>;
   isActivePanelTab?: boolean;
-  card: Card | null;
-  columnId: string;
-  columnName: string;
+  card: CardStageCardModel | null;
   projectId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   availableTags: string[];
   onUpdate: (
-    columnId: string,
     cardId: string,
     updates: Partial<CardInput>,
-  ) => Promise<CardUpdateMutationResult | void>;
-  onDelete: (columnId: string, cardId: string) => Promise<void>;
-  onMove: (fromStatus: Card["status"], cardId: string, toStatus: Card["status"]) => Promise<void>;
+  ) => Promise<CardStageMetadataMutationResult | void>;
+  onDelete?: (cardId: string) => Promise<void>;
+  onMove?: (cardId: string, toStatus: CardStatus) => Promise<void>;
   onCompleteOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
   onSkipOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
   onColumnIdChange?: (columnId: string) => void;

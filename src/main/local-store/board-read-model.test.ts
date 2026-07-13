@@ -5,7 +5,7 @@ import path from "node:path";
 import { closeDatabase, initializeDatabase } from "./database";
 import { createCard } from "./cards";
 import { createProject } from "./projects";
-import { getBoardSummary, getCardsDetails, searchCards } from "./board-read-model";
+import { getBoardSummary, getDatabaseRowsDetails, searchCards } from "./board-read-model";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -69,7 +69,7 @@ describe("board summary read model", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("getCardsDetails returns full cards in requested order", async () => {
+  test("getDatabaseRowsDetails returns full cards in requested order", async () => {
     const ran = await withTempDatabase(async (projectId) => {
       const first = await createCard(projectId, "draft", {
         title: "First",
@@ -80,7 +80,7 @@ describe("board summary read model", () => {
         description: "Second full body",
       });
 
-      const details = await getCardsDetails(projectId, {
+      const details = await getDatabaseRowsDetails(projectId, {
         cardIds: [second.id, first.id, second.id, "missing"],
       });
 

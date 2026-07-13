@@ -5,10 +5,8 @@ import { describe, expect, test } from "vitest";
 import type {
   Card,
   CardInput,
-  CardSummary,
-  CardUpdateField,
-  CardUpdateMutationResult,
 } from "@/lib/types";
+import type { CardStageCardModel } from "@/lib/card-stage-card";
 import { render, settleAsyncRender } from "@/test/dom";
 import {
   CARD_DOCUMENT_SCHEMA_VERSION,
@@ -39,29 +37,54 @@ function buildCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
-function toSummary(card: Card): CardSummary {
-  const { description, ...summary } = card;
-  return {
-    ...summary,
-    descriptionPreview: description,
-    descriptionLength: description.length,
-    hasDescription: description.trim().length > 0,
-  };
-}
-
 function updatedResult(
   card: Card,
   updates: Partial<CardInput>,
-): CardUpdateMutationResult {
-  const nextCard = { ...card, revision: (card.revision ?? 0) + 1 };
+) {
+  void card;
+  void updates;
+  return { status: "updated", didMutate: true } as const;
+}
+
+function toStageModel(card: Card): CardStageCardModel {
   return {
-    status: "updated",
-    projectId: "project-1",
-    cardId: card.id,
-    revision: nextCard.revision,
-    summary: toSummary(nextCard),
-    changedFields: Object.keys(updates) as CardUpdateField[],
-    didMutate: true,
+    card: {
+      id: card.id,
+      archived: card.archived,
+      title: card.title,
+      richTitle: card.richTitle,
+      isAllDay: Boolean(card.isAllDay),
+      recurrence: card.recurrence,
+      reminders: card.reminders ?? [],
+      scheduleTimezone: card.scheduleTimezone,
+      agentBlocked: card.agentBlocked,
+      agentStatus: card.agentStatus,
+      runInTarget: card.runInTarget,
+      runInLocalPath: card.runInLocalPath,
+      runInBaseBranch: card.runInBaseBranch,
+      runInWorktreePath: card.runInWorktreePath,
+      runInEnvironmentPath: card.runInEnvironmentPath,
+      revision: card.revision ?? 1,
+      created: card.created,
+    },
+    databaseContext: {
+      kind: "member",
+      membership: {
+        id: "membership-1",
+        databaseBlockId: "database-1",
+        revision: 1,
+      },
+      compatibilityProperties: {
+        status: card.status,
+        priority: card.priority,
+        estimate: card.estimate,
+        tags: card.tags,
+        dueDate: card.dueDate,
+        scheduledStart: card.scheduledStart,
+        scheduledEnd: card.scheduledEnd,
+        assignee: card.assignee,
+      },
+    },
   };
 }
 
@@ -87,17 +110,16 @@ function documentAuthority(): CardStageProps["documentAuthority"] {
 }
 
 function buildProps(overrides: Partial<CardStageProps> = {}): CardStageProps {
-  const card = overrides.card === undefined ? buildCard() : overrides.card;
+  const sourceCard = buildCard();
+  const card = overrides.card === undefined ? toStageModel(sourceCard) : overrides.card;
   return {
     card,
     documentAuthority: documentAuthority(),
-    columnId: "in_progress",
-    columnName: "In progress",
     projectId: "project-1",
     availableTags: [],
     onClose: () => undefined,
-    onUpdate: async (_columnId, _cardId, updates) =>
-      updatedResult(card ?? buildCard(), updates),
+    onUpdate: async (_cardId, updates) =>
+      updatedResult(sourceCard, updates),
     onDelete: async () => undefined,
     onMove: async () => undefined,
     ...overrides,
@@ -138,7 +160,7 @@ describe("useCardStageController", () => {
     const result = renderController(
       buildProps({
         onLeaveCard: (snapshot) => leftTitles.push(snapshot.titleSnapshot),
-        onUpdate: async (_columnId, _cardId, patch) => {
+        onUpdate: async (_cardId, patch) => {
           updates.push(patch);
           return updatedResult(buildCard(), patch);
         },
@@ -162,7 +184,7 @@ describe("useCardStageController", () => {
   test("persists freeform metadata without title or description fields", async () => {
     const updates: Partial<CardInput>[] = [];
     const result = renderController(buildProps({
-      onUpdate: async (_columnId, _cardId, patch) => {
+      onUpdate: async (_cardId, patch) => {
         updates.push(patch);
         return updatedResult(buildCard(), patch);
       },
@@ -184,7 +206,7 @@ describe("useCardStageController", () => {
     const updates: Partial<CardInput>[] = [];
     const latest = buildCard({ priority: "p0-critical", revision: 4 });
     const result = renderController(buildProps({
-      onUpdate: async (_columnId, _cardId, patch) => {
+      onUpdate: async (_cardId, patch) => {
         updates.push(patch);
         return {
           status: "conflict",
@@ -211,7 +233,7 @@ describe("useCardStageController", () => {
     let persisted = 0;
     const result = renderController(
       buildProps({
-        onUpdate: async (_columnId, _cardId, patch) => {
+        onUpdate: async (_cardId, patch) => {
           updates.push(patch);
           return updatedResult(buildCard(), patch);
         },
