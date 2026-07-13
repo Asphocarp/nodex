@@ -9,7 +9,10 @@ import {
 } from "@/lib/card-stage-layout";
 import type { Card, CardUpdateMutationResult } from "@/lib/types";
 import { render, textContent } from "@/test/dom";
-import { createCardDocument } from "../../../shared/block-documents";
+import {
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  createCardDocument,
+} from "../../../shared/block-documents";
 import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
@@ -110,7 +113,7 @@ function documentAuthority() {
       generation: 1,
       headSeq: 1,
       schemaKey: "nodex.card" as const,
-      schemaVersion: 1 as const,
+      schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION as 2,
       readiness: "ready" as const,
       sync: { kind: "yjs" as const, stateVector: new Uint8Array() },
     },

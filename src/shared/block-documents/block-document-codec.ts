@@ -18,6 +18,7 @@ import {
   assertValidCardDocumentRoots,
   CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
+  openCardDocument,
 } from "./card-document";
 import type { BlockId, DocumentId } from "./contracts";
 import {
@@ -32,6 +33,11 @@ import {
   nfmToBlockNoteWithIds,
   type BlockNoteBlockValue,
 } from "./nfm-blocknote-adapter";
+import {
+  portableRichTextPlainText,
+  readPortableRichTextFromYText,
+  type PortableRichText,
+} from "./portable-rich-text";
 
 export type BlockTreeValue =
   | null
@@ -54,7 +60,7 @@ export type {
   BlockDocumentReference,
 } from "./derived-records";
 
-export interface CardDocumentMaterialization {
+export interface BlockDocumentMaterialization {
   readonly schemaVersion: number;
   readonly title: string;
   readonly blockTree: readonly BlockTreeNode[];
@@ -65,6 +71,10 @@ export interface CardDocumentMaterialization {
   readonly assetRefs: readonly BlockDocumentAssetReference[];
 }
 
+export interface CardDocumentMaterialization extends BlockDocumentMaterialization {
+  readonly richTitle: PortableRichText;
+}
+
 /**
  * Common projection shape for every BlockNote-backed Document schema.
  *
@@ -73,7 +83,6 @@ export interface CardDocumentMaterialization {
  * existing relational projection remains rebuildable without inventing a
  * hidden collaborative title root.
  */
-export type BlockDocumentMaterialization = CardDocumentMaterialization;
 
 export interface CreateCardDocumentGenesisInput {
   readonly documentId: DocumentId;
@@ -429,12 +438,16 @@ export const materializeCardDocument = (
   document: Y.Doc,
 ): CardDocumentMaterialization => {
   const envelope = assertValidCardDocumentRoots(document);
-  return materializeBlockDocumentBody({
+  const richTitle = readPortableRichTextFromYText(envelope.title);
+  return {
+    ...materializeBlockDocumentBody({
     body: envelope.body,
     schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
-    title: envelope.title.toString(),
+    title: portableRichTextPlainText(richTitle),
     schemaLabel: "Card",
-  });
+    }),
+    richTitle,
+  };
 };
 
 export const createCardDocumentGenesis = ({
@@ -519,7 +532,7 @@ export const migrateCardDocument = (
   fromVersion: number,
   toVersion = CARD_DOCUMENT_SCHEMA_VERSION,
 ): CardDocumentMigrationResult => {
-  if (fromVersion !== CARD_DOCUMENT_SCHEMA_VERSION) {
+  if (fromVersion !== 1 && fromVersion !== CARD_DOCUMENT_SCHEMA_VERSION) {
     throw new BlockDocumentCodecError(
       `No Card Document migration is registered from schema version ${fromVersion}`,
     );
@@ -528,6 +541,22 @@ export const migrateCardDocument = (
     throw new BlockDocumentCodecError(
       `Unsupported Card Document target schema version ${toVersion}`,
     );
+  }
+
+  if (fromVersion === 1) {
+    const legacyTitle = openCardDocument(document).title;
+    const hasLegacyIncompatibleAttributes = legacyTitle
+      .toDelta()
+      .some(
+        (operation: { readonly attributes?: Readonly<Record<string, unknown>> }) =>
+          operation.attributes !== undefined &&
+          Object.keys(operation.attributes).length > 0,
+      );
+    if (hasLegacyIncompatibleAttributes) {
+      throw new BlockDocumentCodecError(
+        "Card Document schema version 1 title contains rich attributes",
+      );
+    }
   }
 
   materializeCardDocument(document);

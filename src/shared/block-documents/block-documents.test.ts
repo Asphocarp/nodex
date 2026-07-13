@@ -27,6 +27,7 @@ import {
   LARGE_DOCUMENT_SCHEMA_VERSION,
   listBlockDocumentSchemaAdapters,
   openCardDocument,
+  replaceYTextWithPortableRichText,
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
   REUSABLE_TEMPLATE_SOURCE_TYPE,
@@ -128,6 +129,41 @@ describe("Card block document envelope", () => {
     );
   });
 
+  test("accepts canonical rich title Delta and materializes portable semantics", () => {
+    const envelope = createCardDocument({ documentId: "document-rich-title" });
+    replaceYTextWithPortableRichText(envelope.title, [
+      { type: "text", text: "Rich ", styles: { bold: true } },
+      {
+        type: "link",
+        text: "title",
+        href: "https://nodex.local/title",
+        styles: { color: "blue" },
+      },
+      { type: "threadMention", uuid: "thread-rich-title" },
+    ]);
+
+    const inspection = inspectRegisteredOwnedBlockDocument(envelope.document, {
+      ownerType: "card",
+      schemaKey: "nodex.card",
+      schemaVersion: 2,
+    });
+
+    expect(inspection.materialization).toMatchObject({
+      kind: "card",
+      title: "Rich title@thread:thread-rich-title",
+      richTitle: [
+        { type: "text", text: "Rich ", styles: { bold: true } },
+        {
+          type: "link",
+          text: "title",
+          href: "https://nodex.local/title",
+          styles: { color: "blue" },
+        },
+        { type: "threadMention", uuid: "thread-rich-title" },
+      ],
+    });
+  });
+
   test("rejects an encoded non-text title root after typed Yjs root resolution", () => {
     const malformed = new Y.Doc({ guid: "malformed-title-source" });
     malformed
@@ -170,7 +206,7 @@ describe("Card block document envelope", () => {
 describe("registered document-bearing Block envelopes", () => {
   test("keeps every owner/schema registration exact and unambiguous", () => {
     const adapters = listBlockDocumentSchemaAdapters();
-    expect(adapters.length).toBe(5);
+    expect(adapters.length).toBe(6);
     expect(
       adapters
         .map(
@@ -182,6 +218,7 @@ describe("registered document-bearing Block envelopes", () => {
     ).toBe(
       [
         "card/nodex.card@1:block_tree/yjs",
+        "card/nodex.card@2:block_tree/yjs",
         "largeCode/nodex.large-code@1:block_tree/yjs",
         "largeDocument/nodex.large-document@1:block_tree/yjs",
         "reusable_template_source/nodex.reusable-template@1:block_tree/yjs",

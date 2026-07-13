@@ -12,6 +12,7 @@ import {
 } from "./block-structure";
 import {
   assertValidCardDocumentRoots,
+  assertValidLegacyCardDocumentRoots,
   CARD_DOCUMENT_SCHEMA_KEY,
   CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
@@ -56,6 +57,12 @@ import {
   CANVAS_DOCUMENT_SCHEMA_VERSION,
 } from "./canvas-document-identity";
 import type { PortableCanvasScene } from "./canvas-scene";
+import {
+  plainTextToPortableRichText,
+  portableRichTextPlainText,
+  readPortableRichTextFromYText,
+  type PortableRichText,
+} from "./portable-rich-text";
 
 export interface CommonOwnedDocumentMaterialization {
   readonly schemaVersion: number;
@@ -70,6 +77,7 @@ export interface CommonOwnedDocumentMaterialization {
 export interface CardOwnedDocumentMaterialization extends CommonOwnedDocumentMaterialization {
   readonly kind: "card";
   readonly title: string;
+  readonly richTitle: PortableRichText;
 }
 
 export interface SyncedBlockOwnedDocumentMaterialization extends CommonOwnedDocumentMaterialization {
@@ -163,6 +171,7 @@ const inspectBlockNoteBody = (
   schemaVersion: number,
   schemaLabel: string,
   title?: string,
+  richTitle?: PortableRichText,
 ): OwnedDocumentInspection => {
   const blocks = assertValidBlockDocument(envelope.body);
   const projected = materializeBlockDocumentBody({
@@ -179,6 +188,7 @@ const inspectBlockNoteBody = (
         kind: "card",
         ...projected,
         title: projected.title,
+        richTitle: richTitle ?? [],
       },
     };
   }
@@ -248,11 +258,29 @@ const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
   }),
   inspect: (document) => {
     const envelope = assertValidCardDocumentRoots(document);
+    const richTitle = readPortableRichTextFromYText(envelope.title);
     return inspectBlockNoteBody(
       { kind: "card", ...envelope },
       CARD_DOCUMENT_SCHEMA_VERSION,
       "Card",
+      portableRichTextPlainText(richTitle),
+      richTitle,
+    );
+  },
+};
+
+const legacyCardDocumentAdapter: BlockDocumentSchemaAdapter = {
+  ...cardDocumentAdapter,
+  schemaVersion: 1,
+  inspect: (document) => {
+    const envelope = assertValidLegacyCardDocumentRoots(document);
+    const richTitle = plainTextToPortableRichText(envelope.title.toString());
+    return inspectBlockNoteBody(
+      { kind: "card", ...envelope },
+      1,
+      "Legacy Card",
       envelope.title.toString(),
+      richTitle,
     );
   },
 };
@@ -367,6 +395,7 @@ const canvasDocumentRegistration: OwnedDocumentSchemaRegistration = {
 };
 
 const schemaAdapters: readonly BlockDocumentSchemaAdapter[] = [
+  legacyCardDocumentAdapter,
   cardDocumentAdapter,
   syncedBlockDocumentAdapter,
   reusableTemplateDocumentAdapter,
@@ -518,6 +547,7 @@ export const toPersistedBlockDocumentMaterialization = (
 ): CardDocumentMaterialization => ({
   schemaVersion: materialization.schemaVersion,
   title: materialization.kind === "card" ? materialization.title : "",
+  richTitle: materialization.kind === "card" ? materialization.richTitle : [],
   blockTree: materialization.blockTree,
   nfm: materialization.nfm,
   plainText: materialization.plainText,

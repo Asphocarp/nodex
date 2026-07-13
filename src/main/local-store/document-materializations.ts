@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
 import type { DocumentId } from "../../shared/block-documents/contracts";
+import { portableRichTextSemanticSource } from "../../shared/block-documents/portable-rich-text";
 
 export interface PersistCardDocumentMaterializationInput {
   readonly documentId: DocumentId;
@@ -59,20 +61,29 @@ export const persistCardDocumentMaterialization = (
     "materialization.schemaVersion",
   );
   const updatedAt = input.updatedAt ?? new Date().toISOString();
+  const richTitleJson = portableRichTextSemanticSource(
+    input.materialization.richTitle,
+  );
+  const richTitleHash = createHash("sha256")
+    .update(richTitleJson)
+    .digest("hex");
 
   database
     .prepare(
       `
     INSERT INTO document_materializations (
       document_id, generation, projected_seq, schema_version, title,
+      title_rich_json, title_rich_hash,
       nfm, plain_text, preview, block_tree_json, references_json,
       asset_refs_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(document_id) DO UPDATE SET
       generation = excluded.generation,
       projected_seq = excluded.projected_seq,
       schema_version = excluded.schema_version,
       title = excluded.title,
+      title_rich_json = excluded.title_rich_json,
+      title_rich_hash = excluded.title_rich_hash,
       nfm = excluded.nfm,
       plain_text = excluded.plain_text,
       preview = excluded.preview,
@@ -88,6 +99,8 @@ export const persistCardDocumentMaterialization = (
       projectedSeq,
       schemaVersion,
       input.materialization.title,
+      richTitleJson,
+      richTitleHash,
       input.materialization.nfm,
       input.materialization.plainText,
       input.materialization.preview,

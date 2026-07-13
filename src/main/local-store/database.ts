@@ -10,6 +10,7 @@ import {
 } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
 import { ensurePrimaryCanvasDocuments } from "./primary-canvas-document";
+import { finalizeRichCardTitleSchema } from "./rich-title-schema-finalization";
 
 let db: Database.Database | null = null;
 const DATABASE_MAINTENANCE_LEASE_ENV =
@@ -104,6 +105,7 @@ export async function initializeDatabase(options?: EnsureDatabaseOptions): Promi
   }) as number;
   if (schemaVersion === CURRENT_SCHEMA_VERSION) {
     ensurePrimaryCanvasDocuments(database);
+    finalizeRichCardTitleSchema(database);
     return;
   }
   if (schemaVersion !== 69) {
@@ -129,4 +131,5 @@ export async function initializeDatabase(options?: EnsureDatabaseOptions): Promi
     );
   }
   ensurePrimaryCanvasDocuments(migratedDatabase);
+  finalizeRichCardTitleSchema(migratedDatabase);
 }

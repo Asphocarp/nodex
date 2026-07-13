@@ -10,6 +10,7 @@ import type {
   CardUpdateMutationResult,
 } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../../../shared/block-documents";
 import {
   useCardStageController,
   type CardStageControllerDependencies,
@@ -72,7 +73,7 @@ function documentAuthority(): CardStageProps["documentAuthority"] {
       generation: 1,
       headSeq: 1,
       schemaKey: "nodex.card",
-      schemaVersion: 1,
+      schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
       readiness: "ready",
       sync: { kind: "yjs", stateVector: new Uint8Array() },
     },

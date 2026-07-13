@@ -3,6 +3,10 @@ import type {
   DocumentId,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
+import {
+  CARD_DOCUMENT_SCHEMA_KEY,
+  CARD_DOCUMENT_SCHEMA_VERSION,
+} from "../../shared/block-documents/card-document";
 import type {
   DocumentSyncCommandResult,
   DocumentSyncErrorCode,
@@ -12,8 +16,8 @@ import {
   getOwnedDocumentSchemaRegistration,
 } from "../../shared/block-documents/document-schema-adapters";
 
-export const CARD_BLOCK_DOCUMENT_SCHEMA_KEY = "nodex.card";
-export const CARD_BLOCK_DOCUMENT_SCHEMA_VERSION = 1;
+export const CARD_BLOCK_DOCUMENT_SCHEMA_KEY = CARD_DOCUMENT_SCHEMA_KEY;
+export const CARD_BLOCK_DOCUMENT_SCHEMA_VERSION = CARD_DOCUMENT_SCHEMA_VERSION;
 
 export interface OwnedBlockDocumentRequest {
   readonly projectId: string;

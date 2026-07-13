@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { createUuidV7 } from "../../shared/card-id";
 import { parseGeneralDatabaseViewConfig } from "../../shared/database-kernel";
-import { getCard } from "./cards";
+import { createCard, getCard } from "./cards";
 import { getDatabasePath } from "./config";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
@@ -136,7 +136,9 @@ describe("schema v70 Block-first finalization", () => {
 
     await initializeDatabase();
     const after = getDb();
-    expect(after.pragma("user_version", { simple: true })).toBe(73);
+    expect(after.pragma("user_version", { simple: true })).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
     expect(
       (after.prepare("PRAGMA table_info(documents)").all() as readonly {
         readonly name: string;
@@ -297,6 +299,107 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
     assertHealthy(database);
   });
 
+  test("migrates v73 Card title projections to rich schema without changing Yjs authority", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    const project = database
+      .prepare("SELECT id FROM projects ORDER BY id LIMIT 1")
+      .get() as { readonly id: string };
+    const card = await createCard(project.id, "backlog", {
+      title: "Migration title",
+    });
+    const before = database
+      .prepare(
+        `SELECT document.id, document.generation, document.head_seq,
+                hex(document.state_vector) AS state_vector,
+                document.state_hash
+         FROM documents document
+         JOIN block_documents ownership ON ownership.document_id = document.id
+         WHERE ownership.block_id = ?`,
+      )
+      .get(card.id) as {
+      readonly id: string;
+      readonly generation: number;
+      readonly head_seq: number;
+      readonly state_vector: string;
+      readonly state_hash: string;
+    };
+    closeDatabase();
+
+    const legacy = new Database(getDatabasePath());
+    legacy.pragma("foreign_keys = OFF");
+    legacy.exec(`
+      ALTER TABLE document_materializations
+      RENAME TO document_materializations_v74;
+      CREATE TABLE document_materializations (
+        document_id TEXT PRIMARY KEY,
+        generation INTEGER NOT NULL,
+        projected_seq INTEGER NOT NULL,
+        schema_version INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        nfm TEXT NOT NULL,
+        plain_text TEXT NOT NULL,
+        preview TEXT NOT NULL,
+        block_tree_json TEXT NOT NULL,
+        references_json TEXT NOT NULL,
+        asset_refs_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+      INSERT INTO document_materializations
+      SELECT document_id, generation, projected_seq, 1, title, nfm,
+             plain_text, preview, block_tree_json, references_json,
+             asset_refs_json, updated_at
+      FROM document_materializations_v74;
+      DROP TABLE document_materializations_v74;
+      UPDATE documents
+      SET schema_version = 1
+      WHERE schema_key = 'nodex.card';
+      PRAGMA user_version = 73;
+    `);
+    legacy.close();
+
+    await initializeDatabase();
+    const migrated = getDb();
+    const after = migrated
+      .prepare(
+        `SELECT document.id, document.generation, document.head_seq,
+                document.schema_version,
+                hex(document.state_vector) AS state_vector,
+                document.state_hash,
+                materialization.title_rich_json,
+                materialization.title_rich_hash
+         FROM documents document
+         JOIN document_materializations materialization
+           ON materialization.document_id = document.id
+         WHERE document.id = ?`,
+      )
+      .get(before.id) as typeof before & {
+      readonly schema_version: number;
+      readonly title_rich_json: string;
+      readonly title_rich_hash: string;
+    };
+
+    expect(migrated.pragma("user_version", { simple: true })).toBe(74);
+    expect(after.schema_version).toBe(2);
+    expect({
+      generation: after.generation,
+      head_seq: after.head_seq,
+      state_vector: after.state_vector,
+      state_hash: after.state_hash,
+    }).toEqual({
+      generation: before.generation,
+      head_seq: before.head_seq,
+      state_vector: before.state_vector,
+      state_hash: before.state_hash,
+    });
+    expect(JSON.parse(after.title_rich_json)).toEqual([
+      { type: "text", text: "Migration title", styles: {} },
+    ]);
+    expect(after.title_rich_hash).toMatch(/^[a-f0-9]{64}$/u);
+    assertHealthy(migrated);
+  });
+
   test("migrates a v71 Database Card from dual placement to one Database parent", async () => {
     useTempStore();
     await initializeDatabase();
@@ -435,7 +538,9 @@ describe("schema v73 exclusive Card parents and stable membership history", () =
         )
         .get(cardId),
     ).toBeUndefined();
-    expect(migrated.pragma("user_version", { simple: true })).toBe(73);
+    expect(migrated.pragma("user_version", { simple: true })).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
     expect(() =>
       migrated
         .prepare(

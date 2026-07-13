@@ -51,6 +51,7 @@ const makeDependencies = (
         kind: "card",
         schemaVersion: 1,
         title: "Checkpoint",
+        richTitle: [{ type: "text", text: "Checkpoint", styles: {} }],
         blockTree: [],
         nfm: "",
         plainText: "",

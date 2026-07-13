@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 
 import {
+  CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
   type DocumentSyncRealtimeEvent,
 } from "../../../../shared/block-documents";
@@ -102,7 +103,7 @@ export function createCardStageStoryDocument(input: {
         generation: 1,
         headSeq: 0,
         schemaKey: "nodex.card",
-        schemaVersion: 1,
+        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: Y.encodeStateVector(envelope.document) },
       },

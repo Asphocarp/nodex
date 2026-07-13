@@ -29,6 +29,8 @@ describe("document materialization store", () => {
           projected_seq INTEGER NOT NULL,
           schema_version INTEGER NOT NULL,
           title TEXT NOT NULL,
+          title_rich_json TEXT NOT NULL,
+          title_rich_hash TEXT NOT NULL,
           nfm TEXT NOT NULL,
           plain_text TEXT NOT NULL,
           preview TEXT NOT NULL,
@@ -46,6 +48,9 @@ describe("document materialization store", () => {
         materialization: {
           schemaVersion: 1,
           title: "Canonical title",
+          richTitle: [
+            { type: "text", text: "Canonical title", styles: {} },
+          ],
           nfm: "Body",
           plainText: "Body",
           preview: "Body",
@@ -79,18 +84,25 @@ describe("document materialization store", () => {
       const row = database
         .prepare(
           `
-        SELECT projected_seq, title, references_json, asset_refs_json
+        SELECT projected_seq, title, title_rich_json, title_rich_hash,
+               references_json, asset_refs_json
         FROM document_materializations WHERE document_id = 'document:test'
       `,
         )
         .get() as {
         projected_seq: number;
         title: string;
+        title_rich_json: string;
+        title_rich_hash: string;
         references_json: string;
         asset_refs_json: string;
       };
       expect(row.projected_seq).toBe(7);
       expect(row.title).toBe("Canonical title");
+      expect(JSON.parse(row.title_rich_json)).toEqual([
+        { type: "text", text: "Canonical title", styles: {} },
+      ]);
+      expect(row.title_rich_hash).toMatch(/^[a-f0-9]{64}$/u);
       expect(JSON.parse(row.references_json).length).toBe(1);
       expect(JSON.parse(row.asset_refs_json).length).toBe(1);
     } finally {
@@ -108,6 +120,7 @@ describe("document materialization store", () => {
         materialization: {
           schemaVersion: 1,
           title: "",
+          richTitle: [],
           nfm: "",
           plainText: "",
           preview: "",

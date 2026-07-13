@@ -538,6 +538,9 @@ function makeVersionDetail(): DocumentVersionDetail {
       kind: "card",
       schemaVersion: 1,
       title: "Checkpoint title",
+      richTitle: [
+        { type: "text", text: "Checkpoint title", styles: {} },
+      ],
       blockTree: [],
       nfm: "Checkpoint body",
       plainText: "Checkpoint body",

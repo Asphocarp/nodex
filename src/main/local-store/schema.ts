@@ -34,11 +34,11 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 73;
+export const CURRENT_SCHEMA_VERSION = 74;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
-  70, 71, 72, 73,
+  70, 71, 72, 73, 74,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -1271,6 +1271,8 @@ function createBlockFoundationSchema(db: Database.Database): void {
       projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
       schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version >= 1),
       title TEXT NOT NULL DEFAULT '',
+      title_rich_json TEXT NOT NULL DEFAULT '[]',
+      title_rich_hash TEXT NOT NULL DEFAULT '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
       nfm TEXT NOT NULL,
       plain_text TEXT NOT NULL,
       preview TEXT NOT NULL,
@@ -1279,6 +1281,8 @@ function createBlockFoundationSchema(db: Database.Database): void {
       asset_refs_json TEXT NOT NULL DEFAULT '[]',
       updated_at TEXT NOT NULL,
       CHECK (json_valid(block_tree_json) AND json_type(block_tree_json) = 'array'),
+      CHECK (json_valid(title_rich_json) AND json_type(title_rich_json) = 'array'),
+      CHECK (length(title_rich_hash) = 64),
       CHECK (json_valid(references_json) AND json_type(references_json) = 'array'),
       CHECK (json_valid(asset_refs_json) AND json_type(asset_refs_json) = 'array')
     ) WITHOUT ROWID;
@@ -8297,6 +8301,46 @@ function migrateSchema72To73(db: Database.Database): void {
   migrate.immediate();
 }
 
+function migrateSchema73To74(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    if (!tableHasColumn(db, "document_materializations", "title_rich_json")) {
+      db.exec(
+        "ALTER TABLE document_materializations ADD COLUMN title_rich_json TEXT NOT NULL DEFAULT '[]'",
+      );
+    }
+    if (!tableHasColumn(db, "document_materializations", "title_rich_hash")) {
+      db.exec(
+        "ALTER TABLE document_materializations ADD COLUMN title_rich_hash TEXT NOT NULL DEFAULT '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'",
+      );
+    }
+    db.exec(`
+      UPDATE documents
+      SET schema_version = 2,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE schema_key = 'nodex.card'
+        AND schema_version = 1
+        AND EXISTS (
+          SELECT 1
+          FROM block_documents ownership
+          JOIN blocks owner ON owner.id = ownership.block_id
+          WHERE ownership.document_id = documents.id
+            AND owner.type = 'card'
+        );
+
+      UPDATE document_materializations
+      SET schema_version = 2
+      WHERE document_id IN (
+        SELECT document.id
+        FROM documents document
+        WHERE document.schema_key = 'nodex.card'
+          AND document.schema_version = 2
+      );
+    `);
+    setUserVersion(db, 74);
+  });
+  migrate.immediate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -8740,6 +8784,17 @@ function runMigrations(
       createSchemaMigrationSafetyBackup(db, 72, 73);
       migrateSchema72To73(db);
       fromVersion = 73;
+      continue;
+    }
+    if (target === 74) {
+      if (fromVersion !== 73) {
+        throw new Error(
+          `Unsupported Nodex database migration target 74 from ${fromVersion}`,
+        );
+      }
+      createSchemaMigrationSafetyBackup(db, 73, 74);
+      migrateSchema73To74(db);
+      fromVersion = 74;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
