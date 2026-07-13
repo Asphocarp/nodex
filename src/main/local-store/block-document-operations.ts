@@ -32,6 +32,7 @@ import {
   prepareDocumentOperationUpdate,
 } from "../../shared/block-documents/document-operation-engine";
 import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
+import { portableRichTextSemanticSource } from "../../shared/block-documents/portable-rich-text";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   type CanvasSceneAppStateIntent,
@@ -305,6 +306,7 @@ const requestedTargetBlockIds = (
     request.operations.flatMap((operation) => {
       switch (operation.kind) {
         case "set_title":
+        case "set_rich_title":
           return [];
         case "insert_block":
           return collectBlockIds(operation.block);
@@ -332,6 +334,7 @@ const fieldIntents = (
   return request.operations.map((operation) => {
     switch (operation.kind) {
       case "set_title":
+      case "set_rich_title":
         return { path: "document.title", operation: "set" };
       case "insert_block":
         return {
@@ -740,7 +743,9 @@ const deriveSemanticChangeSet = (
   const afterIds = afterCoordinates.map((coordinate) => coordinate.block.id);
   const beforeIdSet = new Set(beforeIds);
   const afterIdSet = new Set(afterIds);
-  const titleChanged = before.title !== after.title;
+  const titleChanged =
+    portableRichTextSemanticSource(before.richTitle) !==
+    portableRichTextSemanticSource(after.richTitle);
   const durableWriteFenceBlockIds = uniqueSorted([
     ...writeFenceBlockIds.filter((blockId) => beforeIdSet.has(blockId)),
     ...(titleWriteFenceRequired && titleWriteFenceBlockId
@@ -1070,7 +1075,8 @@ const prepareNfmReplacement = (
     transactionOrigin: `replace-document-from-nfm:${request.mutationId}`,
   });
   if (
-    prepared.materialization.title !== before.title ||
+    portableRichTextSemanticSource(prepared.materialization.richTitle) !==
+      portableRichTextSemanticSource(before.richTitle) ||
     prepared.materialization.nfm !== replacement.materialization.nfm ||
     stableStringify(prepared.materialization.blockTree) !==
       stableStringify(replacement.materialization.blockTree)

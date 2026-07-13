@@ -196,6 +196,7 @@ const canonicalCard = (archived = false): Card => ({
   status: "draft",
   archived,
   title: "Card",
+  richTitle: [{ type: "text", text: "Card", styles: {} }],
   description: "",
   tags: [],
   agentBlocked: false,

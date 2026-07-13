@@ -10,6 +10,11 @@ import type {
 import { isCardStatus, type CardStatus } from "../../shared/card-status";
 import { summarizeCardDescription } from "../../shared/card-summary";
 import { assertValidCardInput } from "./card-input-validation";
+import {
+  canonicalizePortableRichText,
+  portableRichTextPlainText,
+  type PortableRichText,
+} from "../../shared/block-documents/portable-rich-text";
 
 const DATABASE_PROPERTY_KEYS = [
   "status",
@@ -80,6 +85,7 @@ interface CardAuthorityRow {
   readonly materialization_projected_seq: number | null;
   readonly materialization_schema_version: number | null;
   readonly materialized_title: string | null;
+  readonly materialized_title_rich_json: string | null;
   readonly materialized_nfm: string | null;
   readonly materialized_preview: string | null;
   readonly materialization_updated_at: string | null;
@@ -106,6 +112,7 @@ interface ParsedPropertyValue {
 
 interface CardContent {
   readonly title: string;
+  readonly richTitle: PortableRichText;
   readonly description: string;
   readonly preview: string;
   readonly length: number;
@@ -169,6 +176,7 @@ const CARD_AUTHORITY_SELECT = `
     materialization.projected_seq AS materialization_projected_seq,
     materialization.schema_version AS materialization_schema_version,
     materialization.title AS materialized_title,
+    materialization.title_rich_json AS materialized_title_rich_json,
     materialization.nfm AS materialized_nfm,
     materialization.preview AS materialized_preview,
     materialization.updated_at AS materialization_updated_at,
@@ -445,6 +453,7 @@ const resolveCardContent = (row: CardAuthorityRow): CardContent => {
     row.materialization_projected_seq === row.document_head_seq &&
     row.materialization_schema_version === row.document_schema_version &&
     typeof row.materialized_title === "string" &&
+    typeof row.materialized_title_rich_json === "string" &&
     typeof row.materialized_nfm === "string" &&
     typeof row.materialized_preview === "string";
   if (!isCurrentMaterialization) {
@@ -455,8 +464,29 @@ const resolveCardContent = (row: CardAuthorityRow): CardContent => {
     );
   }
 
+  let richTitle: PortableRichText;
+  try {
+    richTitle = canonicalizePortableRichText(
+      JSON.parse(row.materialized_title_rich_json as string),
+    );
+  } catch (error) {
+    return throwReadError(
+      "card_materialization_stale",
+      row.card_block_id,
+      `has an invalid rich title projection: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (portableRichTextPlainText(richTitle) !== row.materialized_title) {
+    return throwReadError(
+      "card_materialization_stale",
+      row.card_block_id,
+      "has divergent rich and plain title projections",
+    );
+  }
+
   return {
     title: row.materialized_title as string,
+    richTitle,
     description: row.materialized_nfm as string,
     preview: row.materialized_preview as string,
     length: (row.materialized_nfm as string).length,
@@ -593,6 +623,7 @@ const assembleCard = (
     status: statusValue,
     archived: row.lifecycle === "archived",
     title: content.title,
+    richTitle: content.richTitle,
     description: content.description,
     priority: priority === null ? undefined : (priority as Priority),
     estimate: estimate === null ? undefined : (estimate as Estimate),

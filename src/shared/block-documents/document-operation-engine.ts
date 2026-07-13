@@ -26,6 +26,12 @@ import type {
   DocumentBlockUpdatePatch,
 } from "./document-operations";
 import { cloneXmlSubtree } from "./xml-subtree-codec";
+import {
+  plainTextToPortableRichText,
+  portableRichTextSemanticSource,
+  readPortableRichTextFromYText,
+  replaceYTextWithPortableRichText,
+} from "./portable-rich-text";
 
 export type DocumentOperationEngineErrorCode =
   | "duplicate_block_id"
@@ -543,10 +549,30 @@ const applyOperation = (
           );
         }
         const title = document.getText("title");
-        if (title.toString() === operation.title) return;
+        const desired = plainTextToPortableRichText(operation.title);
+        if (
+          portableRichTextSemanticSource(readPortableRichTextFromYText(title)) ===
+          portableRichTextSemanticSource(desired)
+        ) return;
         titleWriteFence.required = true;
-        title.delete(0, title.length);
-        if (operation.title.length > 0) title.insert(0, operation.title);
+        replaceYTextWithPortableRichText(title, desired);
+        return;
+      }
+      case "set_rich_title": {
+        if (!supportsTitle) {
+          throw new DocumentOperationEngineError(
+            "invalid_operation",
+            "This Document schema does not own a title root",
+            { operationIndex },
+          );
+        }
+        const title = document.getText("title");
+        if (
+          portableRichTextSemanticSource(readPortableRichTextFromYText(title)) ===
+          portableRichTextSemanticSource(operation.richTitle)
+        ) return;
+        titleWriteFence.required = true;
+        replaceYTextWithPortableRichText(title, operation.richTitle);
         return;
       }
       case "insert_block":
@@ -648,11 +674,11 @@ export const prepareDocumentOperationUpdate = ({
     }
     if (
       stableStringify({
-        title: sourceMaterialization.title,
+        richTitle: sourceMaterialization.richTitle,
         blockTree: sourceMaterialization.blockTree,
       }) ===
       stableStringify({
-        title: materialization.title,
+        richTitle: materialization.richTitle,
         blockTree: materialization.blockTree,
       })
     ) {

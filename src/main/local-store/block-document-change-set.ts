@@ -11,6 +11,10 @@ import {
   type PortableXmlValue,
 } from "../../shared/block-documents";
 import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
+import {
+  portableRichTextSemanticSource,
+  readPortableRichTextFromYText,
+} from "../../shared/block-documents/portable-rich-text";
 
 export interface BlockChangeDescriptor {
   readonly id: BlockId;
@@ -23,7 +27,7 @@ export interface BlockChangeDescriptor {
 }
 
 export interface BlockDocumentChangeState {
-  readonly title: string | null;
+  readonly titleSemanticSource: string | null;
   readonly blocks: ReadonlyMap<BlockId, BlockChangeDescriptor>;
 }
 
@@ -143,12 +147,16 @@ export const captureBlockDocumentChangeState = (
     });
   });
   return {
-    title:
+    titleSemanticSource:
       inspection?.materialization.kind === "card"
-        ? inspection.materialization.title
+        ? portableRichTextSemanticSource(inspection.materialization.richTitle)
         : inspection
           ? null
-          : assertValidCardDocumentRoots(document).title.toString(),
+          : portableRichTextSemanticSource(
+              readPortableRichTextFromYText(
+                assertValidCardDocumentRoots(document).title,
+              ),
+            ),
     blocks,
   };
 };
@@ -177,7 +185,9 @@ export const deriveBlockDocumentTouchedIds = (input: {
 }): readonly BlockId[] => {
   const touched = new Set<BlockId>();
 
-  if (input.before.title !== input.after.title) {
+  if (
+    input.before.titleSemanticSource !== input.after.titleSemanticSource
+  ) {
     touched.add(input.ownerBlockId);
   }
 

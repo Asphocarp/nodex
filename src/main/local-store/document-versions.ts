@@ -43,6 +43,7 @@ import {
   loadPrimaryBlockDocument,
 } from "./block-document-store";
 import { syncCanvasScene } from "./canvas-scene-store";
+import { portableRichTextSemanticSource } from "../../shared/block-documents/portable-rich-text";
 
 const MAX_SCOPE_ID_LENGTH = 512;
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -377,7 +378,7 @@ const materializationHash = (
           schemaVersion: materialization.schemaVersion,
           kind: materialization.kind,
           ...(materialization.kind === "card"
-            ? { title: materialization.title }
+            ? { richTitle: materialization.richTitle }
             : {}),
           blockTree: materialization.blockTree,
           nfm: materialization.nfm,
@@ -1298,12 +1299,13 @@ export const prepareDocumentVersionRestore = (
       const operations = [
         ...(current.kind !== "card" ||
         version.materialization.kind !== "card" ||
-        current.title === version.materialization.title
+        portableRichTextSemanticSource(current.richTitle) ===
+          portableRichTextSemanticSource(version.materialization.richTitle)
           ? []
           : [
               {
-                kind: "set_title" as const,
-                title: version.materialization.title,
+                kind: "set_rich_title" as const,
+                richTitle: version.materialization.richTitle,
               },
             ]),
         ...compileBlockTreeReplacementOperations(
@@ -1315,7 +1317,10 @@ export const prepareDocumentVersionRestore = (
         ...planBase,
         contentModel: "block_tree",
         ...(version.materialization.kind === "card"
-          ? { targetTitle: version.materialization.title }
+          ? {
+              targetTitle: version.materialization.title,
+              targetRichTitle: version.materialization.richTitle,
+            }
           : {}),
         targetBlockTree: version.materialization.blockTree,
         operations,

@@ -8,6 +8,7 @@ import type {
   DatabaseViewJsonValue,
   DatabaseViewReadModel,
 } from "./database-views";
+import { canonicalizePortableRichText } from "./block-documents/portable-rich-text";
 
 const PRIORITIES = [
   "p0-critical",
@@ -47,6 +48,17 @@ const HttpIsoDateStringSchema = z.string().refine(isCanonicalIsoDate, {
 const HttpDateSchema = HttpIsoDateStringSchema.transform(
   (value) => new Date(value),
 );
+const PortableRichTextHttpSchema = z.unknown().transform((value, context) => {
+  try {
+    return canonicalizePortableRichText(value);
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return z.NEVER;
+  }
+});
 
 const RecurrenceEndConditionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("never") }),
@@ -61,6 +73,7 @@ const CardSummaryHttpSchema = z.object({
   status: z.enum(CARD_STATUS_ORDER),
   archived: z.boolean(),
   title: z.string(),
+  richTitle: PortableRichTextHttpSchema,
   priority: z.enum(PRIORITIES).optional(),
   estimate: z.enum(ESTIMATES).optional(),
   tags: z.array(z.string()),

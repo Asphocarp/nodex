@@ -24,6 +24,7 @@ const makeCard = (
   status,
   archived: false,
   title: id,
+  richTitle: [{ type: "text", text: id, styles: {} }],
   priority,
   tags: [],
   agentBlocked: false,

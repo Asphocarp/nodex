@@ -696,7 +696,7 @@ describe("general Database kernel", () => {
             id, project_id, generation, head_seq, schema_key, schema_version,
             state_vector, state_hash, readiness, authority,
             genesis_source_revision, created_at, updated_at
-          ) VALUES ('document-block-only', ?, 1, 0, 'nodex.card', 1,
+          ) VALUES ('document-block-only', ?, 1, 0, 'nodex.card', 2,
             X'', 'state', 'ready', 'ydoc_primary', NULL, ?, ?)
         `,
           )
@@ -714,10 +714,11 @@ describe("general Database kernel", () => {
             `
           INSERT INTO document_materializations (
             document_id, generation, projected_seq, schema_version,
-            title, nfm, plain_text, preview, block_tree_json,
+            title, title_rich_json, nfm, plain_text, preview, block_tree_json,
             references_json, asset_refs_json, updated_at
-          ) VALUES ('document-block-only', 1, 0, 1,
-            'Block-only title', '', 'Body', 'Body', '[]', '[]', '[]', ?)
+          ) VALUES ('document-block-only', 1, 0, 2,
+            'Block-only title', '[{"type":"text","text":"Block-only title","styles":{}}]',
+            '', 'Body', 'Body', '[]', '[]', '[]', ?)
         `,
           )
           .run(now);
@@ -728,6 +729,9 @@ describe("general Database kernel", () => {
           fixture.database,
         );
         expect(summary?.content?.title).toBe("Block-only title");
+        expect(summary?.content?.richTitle).toEqual([
+          { type: "text", text: "Block-only title", styles: {} },
+        ]);
         expect(
           fixture.database
             .prepare(

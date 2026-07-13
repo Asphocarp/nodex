@@ -42,6 +42,14 @@ describe("Document operation contract", () => {
       operations: [
         { kind: "set_title", title: "Updated" },
         {
+          kind: "set_rich_title",
+          richTitle: [
+            { type: "text", text: "Rich", styles: { bold: true } },
+            { type: "linebreak" },
+            { type: "link", text: "title", href: "https://nodex.local", styles: {} },
+          ],
+        },
+        {
           kind: "insert_block",
           parentBlockId: "parent",
           beforeBlockId: "anchor",
@@ -71,13 +79,30 @@ describe("Document operation contract", () => {
       ],
     });
 
-    expect(parsed.operations.length).toBe(5);
-    expect(parsed.operations[1]?.kind).toBe("insert_block");
+    expect(parsed.operations.length).toBe(6);
+    expect(parsed.operations[2]?.kind).toBe("insert_block");
     expect(
-      parsed.operations[1]?.kind === "insert_block"
-        ? parsed.operations[1].block.children[0]?.id
+      parsed.operations[2]?.kind === "insert_block"
+        ? parsed.operations[2].block.children[0]?.id
         : "",
     ).toBe("inserted-child");
+  });
+
+  test("rejects non-canonical or unsafe rich title payloads at the boundary", () => {
+    expect(
+      rejectsContract(
+        {
+          ...BASE,
+          operations: [
+            {
+              kind: "set_rich_title",
+              richTitle: [{ type: "attachment", name: "not-title-safe" }],
+            },
+          ],
+        },
+        "batch",
+      ),
+    ).toBe(true);
   });
 
   test("canonicalizes portable object key order but preserves operation order", () => {

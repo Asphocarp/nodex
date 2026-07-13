@@ -19,7 +19,14 @@ const request: DocumentMutationRequest = {
   documentId: "document-1",
   generation: 1,
   expectedHeadSeq: 3,
-  operations: [{ kind: "set_title", title: "Current" }],
+  operations: [
+    {
+      kind: "set_rich_title",
+      richTitle: [
+        { type: "text", text: "Current", styles: { italic: true } },
+      ],
+    },
+  ],
 };
 
 const committed = (

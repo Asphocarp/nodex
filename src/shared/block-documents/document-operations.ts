@@ -9,6 +9,12 @@ import {
   type BlockId,
   type DocumentId,
 } from "./contracts";
+import {
+  canonicalizePortableRichText,
+  PortableRichTextError,
+  portableRichTextSemanticSource,
+  type PortableRichText,
+} from "./portable-rich-text";
 
 export const DOCUMENT_OPERATION_CONTRACT_VERSION = 1;
 export const MAX_DOCUMENT_OPERATION_BATCH_SIZE = 512;
@@ -22,6 +28,12 @@ const MAX_OPERATION_REQUEST_UNITS = 2_000_000;
 export interface SetDocumentTitleOperation {
   readonly kind: "set_title";
   readonly title: string;
+}
+
+/** Canonical rich replacement. Use set_title only as the plain-text convenience seam. */
+export interface SetDocumentRichTitleOperation {
+  readonly kind: "set_rich_title";
+  readonly richTitle: PortableRichText;
 }
 
 export interface InsertDocumentBlockOperation {
@@ -58,6 +70,7 @@ export interface MoveDocumentBlockOperation {
 
 export type DocumentBlockOperation =
   | SetDocumentTitleOperation
+  | SetDocumentRichTitleOperation
   | InsertDocumentBlockOperation
   | UpdateDocumentBlockOperation
   | DeleteDocumentBlockOperation
@@ -461,6 +474,25 @@ const readOperation = (
     throw new DocumentOperationContractError(
       `${label}.title must be at most ${MAX_CARD_TITLE_LENGTH} characters`,
     );
+  }
+  if (operation.kind === "set_rich_title") {
+    assertExactKeys(operation, label, ["kind", "richTitle"]);
+    try {
+      const richTitle = canonicalizePortableRichText(operation.richTitle);
+      consumeBudget(
+        budget,
+        portableRichTextSemanticSource(richTitle).length,
+        `${label}.richTitle`,
+      );
+      return { kind: "set_rich_title", richTitle };
+    } catch (error) {
+      if (error instanceof PortableRichTextError) {
+        throw new DocumentOperationContractError(
+          `${label}.richTitle is invalid: ${error.message}`,
+        );
+      }
+      throw error;
+    }
   }
   if (operation.kind === "insert_block") {
     assertExactKeys(

@@ -221,6 +221,9 @@ describe("authoritative Card reads", () => {
         const boardCard = await readBoardCard(project.id, created.id);
         for (const card of [byId, details[0], column.cards[0], boardCard]) {
           expect(card?.title).toBe("Primary title");
+          expect(card?.richTitle).toEqual([
+            { type: "text", text: "Primary title", styles: {} },
+          ]);
           expect(card?.description).toBe("Primary body");
           expect(card?.priority).toBe("p0-critical");
           expect(card?.estimate).toBe("xl");

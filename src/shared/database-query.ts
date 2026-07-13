@@ -4,6 +4,7 @@ import type {
   GeneralDatabaseViewConfig,
   GeneralDatabaseViewKind,
 } from "./database-kernel";
+import type { PortableRichText } from "./block-documents/portable-rich-text";
 
 export const DATABASE_QUERY_CONTRACT_VERSION = 1 as const;
 
@@ -112,6 +113,7 @@ export interface CardContentSummary {
   readonly content: null | {
     readonly projectedSeq: number;
     readonly title: string;
+    readonly richTitle?: PortableRichText;
     readonly preview: string;
     readonly plainText: string;
   };

@@ -44,6 +44,43 @@ const captureEngineError = (operation: () => unknown): string => {
 };
 
 describe("Document operation engine", () => {
+  test("persists formatting-only rich title changes as replayable authority", () => {
+    const source = createGenesis(
+      "operation-rich-title",
+      "Same words",
+      "Body",
+      ["body"],
+    );
+    const prepared = prepareDocumentOperationUpdate({
+      document: source.document,
+      operations: [
+        {
+          kind: "set_rich_title",
+          richTitle: [
+            { type: "text", text: "Same ", styles: {} },
+            { type: "text", text: "words", styles: { bold: true } },
+          ],
+        },
+      ],
+    });
+
+    expect(prepared.materialization.title).toBe("Same words");
+    expect(prepared.materialization.richTitle).toEqual([
+      { type: "text", text: "Same ", styles: {} },
+      { type: "text", text: "words", styles: { bold: true } },
+    ]);
+    expect(prepared.titleWriteFenceRequired).toBe(true);
+
+    const replica = new Y.Doc({ guid: source.document.guid });
+    Y.applyUpdate(replica, source.update);
+    Y.applyUpdate(replica, prepared.update);
+    expect(materializeCardDocument(replica).richTitle).toEqual(
+      prepared.materialization.richTitle,
+    );
+    replica.destroy();
+    source.document.destroy();
+  });
+
   test("applies one stable-ID batch on a detached clone and emits one replayable update", () => {
     const source = createGenesis(
       "operation-source",

@@ -30,6 +30,9 @@ function createScheduledCard(overrides: Partial<Card>): Card {
     reminders: [{ offsetMinutes: 10 }],
     scheduleTimezone: "UTC",
     ...overrides,
+    richTitle: overrides.richTitle ?? [
+      { type: "text", text: overrides.title ?? "Recurring task", styles: {} },
+    ],
   };
 }
 

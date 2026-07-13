@@ -16,6 +16,10 @@ const makeCardSummaryWire = () => ({
   status: "draft",
   archived: false,
   title: "HTTP Card",
+  richTitle: [
+    { type: "text", text: "HTTP ", styles: {} },
+    { type: "text", text: "Card", styles: { bold: true } },
+  ],
   tags: ["transport"],
   dueDate: DUE_DATE,
   scheduledStart: SCHEDULED_START,
@@ -70,6 +74,11 @@ describe("reference read HTTP contract", () => {
     const summary = decodeCardSummaryHttp(makeCardSummaryWire());
 
     expect(summary.created instanceof Date).toBe(true);
+    expect(summary.richTitle?.[1]).toEqual({
+      type: "text",
+      text: "Card",
+      styles: { bold: true },
+    });
     expect(summary.dueDate instanceof Date).toBe(true);
     expect(summary.scheduledStart instanceof Date).toBe(true);
     expect(summary.scheduledEnd instanceof Date).toBe(true);

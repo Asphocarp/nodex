@@ -22,6 +22,10 @@ import type {
   GeneralDatabaseViewQuery,
 } from "../../shared/database-query";
 import { getDb } from "./database";
+import {
+  canonicalizePortableRichText,
+  portableRichTextPlainText,
+} from "../../shared/block-documents/portable-rich-text";
 
 export type {
   CardContentSummary,
@@ -96,6 +100,7 @@ interface CardSummaryRow {
   readonly document_authority: "legacy_shadow" | "ydoc_primary";
   readonly projected_seq: number | null;
   readonly title: string | null;
+  readonly title_rich_json: string | null;
   readonly preview: string | null;
   readonly plain_text: string | null;
 }
@@ -398,6 +403,7 @@ const readCardSummaryRows = (
         document.head_seq AS document_head_seq,
         document.authority AS document_authority,
         materialization.projected_seq, materialization.title,
+        materialization.title_rich_json,
         materialization.preview, materialization.plain_text
       FROM blocks block
       INNER JOIN block_documents ownership
@@ -427,11 +433,20 @@ const rowToCardSummary = (row: CardSummaryRow): CardContentSummary => {
   const materializationMissing =
     row.projected_seq === null ||
     row.title === null ||
+    row.title_rich_json === null ||
     row.preview === null ||
     row.plain_text === null;
   if (row.document_authority === "ydoc_primary" && materializationMissing) {
     throw new GeneralDatabaseQueryError(
       `Y.Doc-primary Card ${row.block_id} has no exact-head materialization`,
+    );
+  }
+  const richTitle = materializationMissing
+    ? null
+    : canonicalizePortableRichText(JSON.parse(row.title_rich_json as string));
+  if (richTitle && portableRichTextPlainText(richTitle) !== row.title) {
+    throw new GeneralDatabaseQueryError(
+      `Card ${row.block_id} has divergent rich and plain title projections`,
     );
   }
   return {
@@ -473,6 +488,7 @@ const rowToCardSummary = (row: CardSummaryRow): CardContentSummary => {
       : {
           projectedSeq: row.projected_seq,
           title: row.title,
+          richTitle: richTitle ?? [],
           preview: row.preview,
           plainText: row.plain_text,
         },

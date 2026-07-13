@@ -104,6 +104,9 @@ function makeSummary(overrides: Partial<CardSummary> = {}): CardSummary {
     descriptionLength: 7,
     hasDescription: true,
     ...overrides,
+    richTitle: overrides.richTitle ?? [
+      { type: "text", text: overrides.title ?? "Card", styles: {} },
+    ],
   };
 }
 

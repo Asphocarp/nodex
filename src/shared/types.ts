@@ -38,6 +38,7 @@ import type {
   UserInput as CodexAppServerUserInput,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode as CodexAppServerThreadMemoryMode } from "@nodex/codex-app-server-protocol";
+import type { PortableRichText } from "./block-documents/portable-rich-text";
 
 export type Priority =
   "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
@@ -130,6 +131,8 @@ export interface Card {
   status: CardStatus;
   archived: boolean;
   title: string;
+  /** Canonical collaborative title authority; title is its plain-text projection. */
+  richTitle?: PortableRichText;
   description: string;
   priority?: Priority;
   estimate?: Estimate;

@@ -8,6 +8,7 @@ import type {
 import type { CanvasSceneForwardRestorePlan } from "./canvas-scene";
 import type { BlockId, DocumentId } from "./contracts";
 import type { DocumentBlockOperation } from "./document-operations";
+import type { PortableRichText } from "./portable-rich-text";
 
 export const DOCUMENT_VERSION_CONTRACT_VERSION = 1;
 export const MAX_DOCUMENT_VERSION_CAUSE_LENGTH = 128;
@@ -150,6 +151,7 @@ export interface BlockTreeDocumentVersionRestorePlan
   extends DocumentVersionRestorePlanBase {
   readonly contentModel: "block_tree";
   readonly targetTitle?: string;
+  readonly targetRichTitle?: PortableRichText;
   readonly targetBlockTree: readonly BlockTreeNode[];
   readonly operations: readonly DocumentBlockOperation[];
 }

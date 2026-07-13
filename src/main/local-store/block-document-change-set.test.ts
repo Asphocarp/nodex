@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import {
   BLOCK_GROUP_NODE_NAME,
   createCardDocument,
+  replaceYTextWithPortableRichText,
 } from "../../shared/block-documents";
 import {
   captureBlockDocumentChangeState,
@@ -84,6 +85,17 @@ describe("deriveBlockDocumentTouchedIds", () => {
       makeDocument("after", "Changed", [{ id: "a", text: "Alpha" }]),
     );
     expect(JSON.stringify(titleTouched)).toBe('["owner-card"]');
+
+    const richTitleBefore = makeDocument("rich-before", "Title", [
+      { id: "a", text: "Alpha" },
+    ]);
+    const richTitleAfter = makeDocument("rich-after", "Title", [
+      { id: "a", text: "Alpha" },
+    ]);
+    replaceYTextWithPortableRichText(richTitleAfter.getText("title"), [
+      { type: "text", text: "Title", styles: { italic: true } },
+    ]);
+    expect(derive(richTitleBefore, richTitleAfter)).toEqual(["owner-card"]);
 
     const textTouched = derive(
       makeDocument("before", "Title", [{ id: "a", text: "Alpha" }]),

@@ -16,7 +16,12 @@ const request: DocumentMutationRequest = {
   documentId: "document-1",
   generation: 1,
   expectedHeadSeq: 5,
-  operations: [{ kind: "set_title", title: "HTTP" }],
+  operations: [
+    {
+      kind: "set_rich_title",
+      richTitle: [{ type: "text", text: "HTTP", styles: { bold: true } }],
+    },
+  ],
 };
 
 const committed = (

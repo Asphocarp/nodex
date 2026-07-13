@@ -218,7 +218,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | string | Yes | Canonical lowercase UUID-v7 Block identity; Card has no separate storage ID |
-| `title` | string | Yes | Product read of `Y.Text("title")` (max 2,000 chars); edits use the Card Document |
+| `title` | string | Yes | Plain-text projection of `Y.Text("title")` (max 2,000 chars); used by search, tables, accessibility, and plain CLI output |
+| `richTitle` | portable rich text | Yes on current reads | Canonical styled/link/mention projection of the Card Document title; structured transports preserve it without loading the body |
 | `description` | string | No | Read/export projection of `Y.XmlFragment("body")` as [NFM](../references/notion-flavored-markdown-spec.md), including image/attachment/thread/date syntax (max 1,000,000 projected chars); never a collaborative write field |
 | `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
 | `estimate` | enum | No | xs, s, m, l, xl |
