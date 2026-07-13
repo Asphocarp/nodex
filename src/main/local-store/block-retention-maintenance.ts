@@ -21,6 +21,8 @@ export type BlockRetentionMaintenanceFaultPoint =
 
 export interface MaintainBlockRetentionInput {
   readonly projectId: string;
+  /** Optional exact roots for operator recovery; ordinary passes use policy selection. */
+  readonly rootBlockIds?: readonly string[];
   readonly policy?: Partial<BlockRetentionGcPolicy>;
 }
 
@@ -184,23 +186,26 @@ const readIdentityArray = (
   return identities;
 };
 
+const readImmutableIdentitySet = (
+  serialized: string,
+  label: string,
+): readonly string[] => {
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized) as unknown;
+  } catch (error) {
+    throw new TypeError(`${label} is invalid JSON`, { cause: error });
+  }
+  if (!Array.isArray(value)) throw new TypeError(`${label} is not an array`);
+  return [
+    ...new Set(value.map((entry) => requireIdentity(entry, label))),
+  ];
+};
+
 const intersects = (
   values: readonly string[],
   identities: ReadonlySet<string>,
 ): boolean => values.some((value) => identities.has(value));
-
-/**
- * A ledger row may also mention a shared Database. That other dimension stays
- * fully retained and therefore is not mixed evidence for a Card collection.
- * A dimension becomes unsafe only when it names both the collected closure and
- * another identity from that same dimension.
- */
-const hasMixedRelevantDimension = (
-  values: readonly string[],
-  identities: ReadonlySet<string>,
-): boolean =>
-  intersects(values, identities) &&
-  values.some((value) => !identities.has(value));
 
 const hasOnlyBlockers = (
   candidate: BlockRetentionGcCandidate,
@@ -334,15 +339,15 @@ const readReleasedImmutableAttribution = (
     let documents: readonly string[];
     let databases: readonly string[];
     try {
-      blocks = readIdentityArray(
+      blocks = readImmutableIdentitySet(
         row.block_ids_json,
         `${table} ${row.identity} Block IDs`,
       );
-      documents = readIdentityArray(
+      documents = readImmutableIdentitySet(
         row.document_ids_json,
         `${table} ${row.identity} Document IDs`,
       );
-      databases = readIdentityArray(
+      databases = readImmutableIdentitySet(
         row.database_block_ids_json,
         `${table} ${row.identity} Database IDs`,
       );
@@ -360,12 +365,7 @@ const readReleasedImmutableAttribution = (
       intersects(documents, documentIds) ||
       intersects(databases, blockIds);
     if (!relevant) continue;
-    if (
-      row.project_id !== candidate.projectId ||
-      hasMixedRelevantDimension(authorityBlocks, blockIds) ||
-      hasMixedRelevantDimension(documents, documentIds) ||
-      hasMixedRelevantDimension(databases, blockIds)
-    ) {
+    if (row.project_id !== candidate.projectId) {
       return null;
     }
     released.push(row.identity);
@@ -623,6 +623,7 @@ export const maintainBlockRetention = (
 ): BlockRetentionMaintenanceResult => {
   const initialPlan: BlockRetentionGcPlan = planBlockRetentionGc(database, {
     projectId: input.projectId,
+    ...(input.rootBlockIds ? { rootBlockIds: input.rootBlockIds } : {}),
     policy: input.policy,
   });
   const selectedRootBlockIds = initialPlan.candidates.map(

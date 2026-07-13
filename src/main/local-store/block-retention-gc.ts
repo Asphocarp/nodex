@@ -151,6 +151,35 @@ interface BlockerCollector {
   readonly finish: () => readonly BlockRetentionGcBlocker[];
 }
 
+interface CanvasCardReferenceProjection {
+  readonly source_element_id: string;
+  readonly target_block_id: string;
+}
+
+/** Compare reference identity as a keyed relation, independent of SQL/JS collation. */
+export const isCanvasCardReferenceProjectionCurrent = (
+  authorityReferences: readonly {
+    readonly sourceElementId: string;
+    readonly targetBlockId: string;
+  }[],
+  projectedReferences: readonly CanvasCardReferenceProjection[],
+): boolean => {
+  const expectedBySourceElement = new Map<string, string>();
+  for (const reference of authorityReferences) {
+    if (expectedBySourceElement.has(reference.sourceElementId)) return false;
+    expectedBySourceElement.set(
+      reference.sourceElementId,
+      reference.targetBlockId,
+    );
+  }
+  if (projectedReferences.length !== expectedBySourceElement.size) return false;
+  return projectedReferences.every(
+    (reference) =>
+      expectedBySourceElement.get(reference.source_element_id) ===
+      reference.target_block_id,
+  );
+};
+
 const MAX_RETAINED_TOMBSTONES = 100_000;
 const MAX_GC_CANDIDATES = 1_000;
 const MAX_EVIDENCE_SAMPLES = 100;
@@ -353,6 +382,27 @@ const readIdentityArray = (
     label,
     100_000,
   );
+};
+
+const readImmutableIdentitySet = (
+  serialized: string,
+  label: string,
+): readonly string[] => {
+  const value = readJson(serialized, label);
+  if (!Array.isArray(value)) {
+    throw new TypeError(`Stored ${label} is not an array`);
+  }
+  if (value.length > 100_000) {
+    throw new TypeError(`${label} exceeds the bounded count`);
+  }
+  return [
+    ...new Set(
+      value.map((entry) => {
+        if (typeof entry === "string") return requireIdentity(entry, label);
+        throw new TypeError(`Stored ${label} contains a non-string identity`);
+      }),
+    ),
+  ];
 };
 
 const readBlockTreeIds = (
@@ -758,15 +808,12 @@ const analyzeDocumentProjectionRoots = (
         readonly source_element_id: string;
         readonly target_block_id: string;
       }[];
-      const projected = authority.scene.cardReferences
-        .map((reference) => ({
-          source_element_id: reference.sourceElementId,
-          target_block_id: reference.targetBlockId,
-        }))
-        .sort((left, right) =>
-          left.source_element_id.localeCompare(right.source_element_id),
-        );
-      if (JSON.stringify(rows) !== JSON.stringify(projected)) {
+      if (
+        !isCanvasCardReferenceProjectionCurrent(
+          authority.scene.cardReferences,
+          rows,
+        )
+      ) {
         addProjectionFailure(collector, document.id, "canvas_reference_index_stale");
         continue;
       }
@@ -1107,15 +1154,15 @@ const analyzeImmutableEvidenceRoots = (
   }[];
   for (const mutation of mutations) {
     try {
-      const blockIds = readIdentityArray(
+      const blockIds = readImmutableIdentitySet(
         mutation.target_block_ids_json,
         "mutation target Block IDs",
       );
-      const documentIds = readIdentityArray(
+      const documentIds = readImmutableIdentitySet(
         mutation.affected_document_ids_json,
         "mutation affected Document IDs",
       );
-      const databaseIds = readIdentityArray(
+      const databaseIds = readImmutableIdentitySet(
         mutation.affected_database_block_ids_json,
         "mutation affected Database IDs",
       );
@@ -1162,15 +1209,21 @@ const analyzeImmutableEvidenceRoots = (
     try {
       if (
         !intersects(
-          readIdentityArray(change.block_ids_json, "change Block IDs"),
+          readImmutableIdentitySet(change.block_ids_json, "change Block IDs"),
           closure.blockIds,
         ) &&
         !intersects(
-          readIdentityArray(change.document_ids_json, "change Document IDs"),
+          readImmutableIdentitySet(
+            change.document_ids_json,
+            "change Document IDs",
+          ),
           closure.documentIds,
         ) &&
         !intersects(
-          readIdentityArray(change.database_block_ids_json, "change Database IDs"),
+          readImmutableIdentitySet(
+            change.database_block_ids_json,
+            "change Database IDs",
+          ),
           closure.blockIds,
         )
       ) {

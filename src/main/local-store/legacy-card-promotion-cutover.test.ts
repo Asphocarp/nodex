@@ -12,6 +12,8 @@ import {
   compactBlockDocument,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
+import { applyCardLifecycleMutation } from "./card-block-lifecycle";
+import { maintainBlockRetention } from "./block-retention-maintenance";
 import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
@@ -434,6 +436,113 @@ describe("legacy Card promotion cutover", () => {
     expect(leafAfter.root.content).toEqual([]);
     expect(leafAfter.root.id).not.toBe(leafBefore.root.id);
     expect(finalizeLegacyCardPromotionCutover(database)).toEqual({
+      repairedCardIds: [],
+      issues: [],
+    });
+  });
+
+  test("ignores immutable promotion evidence after the Card is permanently retired", async () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-retired-promotion-cutover-"),
+    );
+    tempDirectories.push(directory);
+    process.env.NODEX_DIR = directory;
+    await initializeDatabase();
+    const project = createProject({ name: "Retired cutover" });
+    const card = await createCard(project.id, "backlog", {
+      title: "Historical title",
+      description: "Historical title",
+    });
+    const database = getDb();
+    const storeEpoch = (
+      database
+        .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
+        .get() as { readonly store_epoch: string }
+    ).store_epoch;
+    const before = readCardDocument(card.id);
+    seedHistoricalPromotionEvidence({
+      projectId: project.id,
+      storeEpoch,
+      cardId: card.id,
+      root: before.root,
+      suffix: "retired",
+    });
+    const titleChange = applyDocumentOperationBatch(
+      database,
+      {
+        version: 1,
+        mutationId: "diverge-retired-promotion-title",
+        projectId: project.id,
+        storeEpoch,
+        actor: { kind: "test" },
+        documentId: before.documentId,
+        generation: before.generation,
+        expectedHeadSeq: before.headSeq,
+        operations: [{ kind: "set_title", title: "Disposable title" }],
+      },
+      {
+        writeFence: {
+          leaseId: "diverge-retired-promotion-title:lease",
+          documentId: before.documentId,
+          generation: before.generation,
+          headSeq: before.headSeq,
+        },
+      },
+    );
+    expect(titleChange.ok).toBe(true);
+    expect(finalizeLegacyCardPromotionCutover(database).issues).toEqual([
+      expect.objectContaining({ cardId: card.id, reason: "title_diverged" }),
+    ]);
+
+    const coordinate = database
+      .prepare(
+        `SELECT metadata_revision, location_revision
+         FROM blocks WHERE id = ? AND project_id = ?`,
+      )
+      .get(card.id, project.id) as {
+      readonly metadata_revision: number;
+      readonly location_revision: number;
+    };
+    const deleted = applyCardLifecycleMutation(database, {
+      version: 1,
+      operationId: "delete-retired-promotion-card",
+      projectId: project.id,
+      storeEpoch,
+      actor: { kind: "test" },
+      operation: {
+        kind: "delete_card",
+        cardId: card.id,
+        expectedMetadataRevision: coordinate.metadata_revision,
+        expectedLocationRevision: coordinate.location_revision,
+      },
+    });
+    expect(deleted.ok).toBe(true);
+
+    const retention = maintainBlockRetention(database, {
+      projectId: project.id,
+      rootBlockIds: [card.id],
+      policy: { retainNewestDeletedBlocks: 0 },
+    });
+    expect(retention.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rootBlockId: card.id,
+          status: "collected",
+        }),
+      ]),
+    );
+    expect(
+      database.prepare("SELECT 1 FROM blocks WHERE id = ?").get(card.id),
+    ).toBeUndefined();
+    expect(
+      database
+        .prepare(
+          `SELECT block_type FROM retired_block_identities
+           WHERE block_id = ? AND project_id = ?`,
+        )
+        .get(card.id, project.id),
+    ).toEqual({ block_type: "card" });
+    expect(assertLegacyCardPromotionCutoverReady(database)).toEqual({
       repairedCardIds: [],
       issues: [],
     });

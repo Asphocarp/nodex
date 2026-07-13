@@ -13,6 +13,7 @@ import {
 } from "./database";
 import { createProject } from "./projects";
 import {
+  isCanvasCardReferenceProjectionCurrent,
   planBlockRetentionGc,
   type BlockRetentionGcBlockerKind,
   type BlockRetentionGcCandidate,
@@ -183,6 +184,29 @@ const hasBlocker = (
 ): boolean => candidate.blockers.some((blocker) => blocker.kind === kind);
 
 describe("Block retention GC kernel", () => {
+  test("compares Canvas reference projections without locale-dependent ordering", () => {
+    const authority = [
+      { sourceElementId: "sIV", targetBlockId: "card-c" },
+      { sourceElementId: "-Rf", targetBlockId: "card-a" },
+      { sourceElementId: "Xbq", targetBlockId: "card-b" },
+    ];
+    const sqliteBinaryOrder = [
+      { source_element_id: "-Rf", target_block_id: "card-a" },
+      { source_element_id: "Xbq", target_block_id: "card-b" },
+      { source_element_id: "sIV", target_block_id: "card-c" },
+    ];
+
+    expect(
+      isCanvasCardReferenceProjectionCurrent(authority, sqliteBinaryOrder),
+    ).toBe(true);
+    expect(
+      isCanvasCardReferenceProjectionCurrent(authority, [
+        ...sqliteBinaryOrder.slice(0, 2),
+        { source_element_id: "sIV", target_block_id: "another-card" },
+      ]),
+    ).toBe(false);
+  });
+
   sqliteTest("retains the newest-N tombstones and never selects live Blocks", async () => {
     await withDatabase((database, projectId) => {
       seedBlock(database, {

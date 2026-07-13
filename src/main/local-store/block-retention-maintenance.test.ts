@@ -482,7 +482,7 @@ describe("Block retention count maintenance", () => {
   );
 
   sqliteTest(
-    "retains same-dimension mixed and cross-Project immutable evidence",
+    "releases same-Project mixed immutable evidence but retains cross-Project attribution",
     async () => {
       await withFixture((fixture) => {
         const otherProject = createProject({ name: "Retention evidence host" });
@@ -514,6 +514,14 @@ describe("Block retention count maintenance", () => {
           mutationId: "mutation:retention:mixed",
           blockIds: ["retention:mixed", "retention:live"],
         });
+        const duplicateChangeSeq = seedChange(fixture, {
+          operationId: "change:retention:mixed-legacy-duplicates",
+          blockIds: [
+            "retention:mixed",
+            "retention:live",
+            "retention:mixed",
+          ],
+        });
         seedRejectedMutation(fixture, {
           mutationId: "mutation:retention:cross-project",
           projectId: otherProject.id,
@@ -524,25 +532,50 @@ describe("Block retention count maintenance", () => {
           projectId: fixture.projectId,
           policy: { retainNewestDeletedBlocks: 0 },
         });
-        for (const rootBlockId of [
-          "retention:mixed",
-          "retention:cross-project",
-        ]) {
-          const candidate = result.candidates.find(
-            (entry) => entry.rootBlockId === rootBlockId,
-          );
-          expect(candidate?.status).toBe("retained");
-          expect(
-            candidate?.status === "retained" ? candidate.reason : "",
-          ).toBe("unsafe_retained_evidence");
-          expect(
-            rowExists(
-              fixture.database,
-              "SELECT 1 FROM blocks WHERE id = ?",
-              rootBlockId,
-            ),
-          ).toBe(true);
-        }
+        const mixed = result.candidates.find(
+          (entry) => entry.rootBlockId === "retention:mixed",
+        );
+        expect(mixed?.status).toBe("collected");
+        expect(
+          rowExists(
+            fixture.database,
+            "SELECT 1 FROM blocks WHERE id = 'retention:mixed'",
+          ),
+        ).toBe(false);
+        expect(
+          rowExists(
+            fixture.database,
+            "SELECT 1 FROM blocks WHERE id = 'retention:live'",
+          ),
+        ).toBe(true);
+        expect(
+          rowExists(
+            fixture.database,
+            `SELECT 1 FROM block_mutations
+             WHERE mutation_id = 'mutation:retention:mixed'`,
+          ),
+        ).toBe(true);
+        expect(
+          rowExists(
+            fixture.database,
+            "SELECT 1 FROM change_log WHERE seq = ?",
+            duplicateChangeSeq,
+          ),
+        ).toBe(true);
+
+        const crossProject = result.candidates.find(
+          (entry) => entry.rootBlockId === "retention:cross-project",
+        );
+        expect(crossProject?.status).toBe("retained");
+        expect(
+          crossProject?.status === "retained" ? crossProject.reason : "",
+        ).toBe("unsafe_retained_evidence");
+        expect(
+          rowExists(
+            fixture.database,
+            "SELECT 1 FROM blocks WHERE id = 'retention:cross-project'",
+          ),
+        ).toBe(true);
       });
     },
   );

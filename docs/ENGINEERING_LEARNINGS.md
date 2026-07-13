@@ -1027,6 +1027,12 @@ A Yjs state vector records struct clocks, not which delete-set ranges the receiv
 
 This can look length-dependent without having a byte threshold. Frequently edited long Documents accumulate tombstones/delete ranges, while pristine short Documents often have none. A successful open writes the full local checkpoint; replaying its already-durable delete set on the next open used to fail and clear that checkpoint, making the following open succeed and recreate it—hence the exact success/failure alternation.
 
+### Durable identity-set equality must not depend on locale ordering
+
+SQLite's default `TEXT` order is binary, while JavaScript `localeCompare` follows locale collation. Opaque IDs containing punctuation or mixed case can therefore produce different orderings even when two projections contain exactly the same relation. Compare identity-keyed projections as maps/sets (including cardinality and value equality), or use one explicit bytewise comparator on both sides; never use serialized ordered arrays as a cross-runtime equality proof.
+
+Immutable audit identity arrays are set-valued for reachability even when an older receipt serialized duplicates or wider same-Project transfer attribution. Normalize those arrays while reading retention evidence, keep their bytes untouched, and reserve fail-closed treatment for malformed identities, cross-Project attribution, or evidence that maintenance would actually prune.
+
 ### Activity-retained state must not own a terminal collaborative runtime
 React Activity preserves component state and DOM while destroying Effects. Treat a hidden Activity as effect-unmounted: a Y.Doc/provider created by an Effect must be removed from render state and closed, then recreated through a fresh state-vector handshake when the Activity becomes visible. Never leave a terminal runtime in retained `useState`; descendant editor Effects can otherwise reconnect relocation/persistence hooks to a destroyed Y.Doc before a replacement render commits.
 

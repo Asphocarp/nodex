@@ -155,6 +155,20 @@ const readStoreEpoch = (database: Database.Database): string => {
   );
 };
 
+const isPermanentlyRetiredCard = (
+  database: Database.Database,
+  candidate: HistoricalPromotionCandidate,
+): boolean =>
+  Boolean(
+    database
+      .prepare(
+        `SELECT 1 AS present
+         FROM retired_block_identities
+         WHERE block_id = ? AND project_id = ? AND block_type = 'card'`,
+      )
+      .get(candidate.cardId, candidate.projectId),
+  );
+
 const readCommittedRows = (
   database: Database.Database,
   mutationKind: string,
@@ -584,6 +598,7 @@ export const finalizeLegacyCardPromotionCutover = (
   const repairedCardIds: string[] = [];
   const issues: LegacyCardPromotionCutoverIssue[] = [];
   for (const candidate of readHistoricalPromotionCandidates(database)) {
+    if (isPermanentlyRetiredCard(database, candidate)) continue;
     if (isRepairCommitted(database, candidate)) continue;
     const prepared = prepareRepair(database, candidate);
     if (prepared.kind === "issue") {
