@@ -108,7 +108,7 @@ const seedHost = (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority,
         genesis_source_revision, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
         'pending_genesis', 'legacy_shadow', NULL, ?, ?)
     `,
     )

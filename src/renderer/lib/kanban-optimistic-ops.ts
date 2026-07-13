@@ -17,6 +17,36 @@ interface PatchTransformOptions {
   bumpRevision?: boolean;
 }
 
+const isPlainRecord = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  !(value instanceof Date);
+
+const patchValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date || right instanceof Date) {
+    return left instanceof Date &&
+      right instanceof Date &&
+      left.getTime() === right.getTime();
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    return left.every((value, index) =>
+      patchValuesEqual(value, right[index])
+    );
+  }
+  if (!isPlainRecord(left) || !isPlainRecord(right)) return false;
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every((key) =>
+    Object.hasOwn(right, key) && patchValuesEqual(left[key], right[key])
+  );
+};
+
 function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
@@ -148,7 +178,10 @@ export function buildPatchCardTransform(
     const target = column?.cards[location.cardIndex];
     if (!column || !target) return board;
 
-    const changed = patchEntries.some(([key, value]) => target[key as keyof CardSummary] !== value);
+    const changed = patchEntries.some(
+      ([key, value]) =>
+        !patchValuesEqual(target[key as keyof CardSummary], value),
+    );
     if (!changed) return board;
 
     const nextCards = [...column.cards];

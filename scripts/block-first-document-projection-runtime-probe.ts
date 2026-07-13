@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as Y from "yjs";
 import {
-  applyLegacyShadowDocumentUpdate,
+  applyBlockDocumentUpdate,
   compactBlockDocument,
   initializeCardDocumentGenesis,
-  loadLegacyShadowBlockDocumentForMigration,
+  loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import {
   listDocumentAssetRefs,
@@ -24,7 +25,11 @@ import {
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
 import { createCardDocumentGenesis } from "../src/shared/block-documents/block-document-codec";
-import { translateLegacyNfmIntoCardDocument } from "../src/shared/block-documents/legacy-nfm-shadow-translator";
+import { replaceCardDocumentBodyFromNfm } from "../src/shared/block-documents/legacy-nfm-shadow-translator";
+import {
+  plainTextToPortableRichText,
+  replaceYTextWithPortableRichText,
+} from "../src/shared/block-documents/portable-rich-text";
 import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 function invariant(condition: boolean, message: string): asserts condition {
@@ -93,7 +98,7 @@ const seedDocument = (input: {
       INSERT INTO documents (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
         'pending_genesis', 'legacy_shadow', ?, ?)
     `,
     )
@@ -121,6 +126,7 @@ const seedDocument = (input: {
       updateId: `genesis:${input.cardBlockId}`,
       clientSessionId: "document-projection-probe",
       update: genesis.update,
+      finalAuthority: "ydoc_primary",
     });
     return {
       documentId,
@@ -133,7 +139,7 @@ const seedDocument = (input: {
   }
 };
 
-const prepareLegacyUpdate = (input: {
+const prepareCurrentUpdate = (input: {
   readonly documentId: string;
   readonly title: string;
   readonly nfm: string;
@@ -143,37 +149,46 @@ const prepareLegacyUpdate = (input: {
   readonly baseHeadSeq: number;
   readonly storeEpoch: string;
 } => {
-  const loaded = loadLegacyShadowBlockDocumentForMigration(
+  const loaded = loadPrimaryBlockDocument(
     getDb(),
     input.documentId,
   );
+  const working = new Y.Doc({ guid: input.documentId });
   try {
-    const translated = translateLegacyNfmIntoCardDocument({
-      document: loaded.document,
-      authority: loaded.authority,
-      readiness: "ready",
-      title: input.title,
+    Y.applyUpdate(working, Y.encodeStateAsUpdate(loaded.document));
+    const translated = replaceCardDocumentBodyFromNfm({
+      document: working,
       nfm: input.nfm,
       allocateBlockId,
     });
-    invariant(translated.changed, "expected a changed legacy translation");
+    invariant(translated.changed, "expected a changed NFM replacement");
+    Y.applyUpdate(working, translated.update);
+    replaceYTextWithPortableRichText(
+      working.getText("title"),
+      plainTextToPortableRichText(input.title),
+      "document-projection-probe:title",
+    );
     return {
-      update: translated.update,
+      update: Y.encodeStateAsUpdate(
+        working,
+        Y.encodeStateVector(loaded.document),
+      ),
       generation: loaded.head.generation,
       baseHeadSeq: loaded.head.headSeq,
       storeEpoch: loaded.storeEpoch,
     };
   } finally {
+    working.destroy();
     loaded.document.destroy();
   }
 };
 
-const applyPreparedLegacyUpdate = (input: {
+const applyPreparedCurrentUpdate = (input: {
   readonly documentId: string;
   readonly updateId: string;
-  readonly prepared: ReturnType<typeof prepareLegacyUpdate>;
+  readonly prepared: ReturnType<typeof prepareCurrentUpdate>;
 }): void => {
-  applyLegacyShadowDocumentUpdate(getDb(), {
+  applyBlockDocumentUpdate(getDb(), {
     documentId: input.documentId,
     storeEpoch: input.prepared.storeEpoch,
     generation: input.prepared.generation,
@@ -290,7 +305,7 @@ const run = async (): Promise<void> => {
       "genesis asset references were not projected",
     );
 
-    const prepared = prepareLegacyUpdate({
+    const prepared = prepareCurrentUpdate({
       documentId: document.documentId,
       title: "NewTitleNeedle",
       nfm: [
@@ -308,7 +323,7 @@ const run = async (): Promise<void> => {
     `);
     let projectionFailureRolledBack = false;
     try {
-      applyPreparedLegacyUpdate({
+      applyPreparedCurrentUpdate({
         documentId: document.documentId,
         updateId: "projection-update",
         prepared,
@@ -333,7 +348,7 @@ const run = async (): Promise<void> => {
       "failed projection replaced old searchable content",
     );
 
-    applyPreparedLegacyUpdate({
+    applyPreparedCurrentUpdate({
       documentId: document.documentId,
       updateId: "projection-update",
       prepared,
@@ -488,11 +503,6 @@ const run = async (): Promise<void> => {
       title: "Relocation target",
       nfm: "TargetAnchorNeedle",
     });
-    getDb()
-      .prepare(
-        "UPDATE documents SET authority = 'ydoc_primary' WHERE id IN (?, ?)",
-      )
-      .run(relocationSource.documentId, relocationTarget.documentId);
     const movingBlockId = relocationSource.blockIds[0];
     invariant(
       movingBlockId !== undefined,

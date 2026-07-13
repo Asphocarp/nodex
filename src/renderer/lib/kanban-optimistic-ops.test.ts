@@ -3,6 +3,7 @@ import {
   buildCreateCardTransform,
   buildMoveCardTransform,
   buildMoveCardsTransform,
+  buildPatchCardTransform,
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import type { BoardSummary, CardSummary } from "./types";
@@ -83,6 +84,24 @@ describe("kanban optimistic ops", () => {
       "c",
       "d",
     ]);
+  });
+
+  test("treats equivalent projected title and structured values as a no-op", () => {
+    const board = createBoard();
+
+    expect(buildPatchCardTransform("in_progress", "a", {
+      title: "a",
+      tags: [],
+    })(board)).toBe(board);
+
+    const renamed = buildPatchCardTransform("in_progress", "a", {
+      title: "Renamed",
+    })(board);
+    expect(renamed).not.toBe(board);
+    expect(renamed.columns[2]?.cards[0]).toMatchObject({
+      title: "Renamed",
+      richTitle: [{ type: "text", text: "Renamed", styles: {} }],
+    });
   });
 
   test("move-card uses post-removal insertion indices for same-column reorders", () => {

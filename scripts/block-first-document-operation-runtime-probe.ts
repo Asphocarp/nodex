@@ -100,7 +100,7 @@ const seedPrimaryDocument = (input: {
       INSERT INTO documents (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
         'pending_genesis', 'legacy_shadow', ?, ?)
     `,
     )
@@ -134,10 +134,8 @@ const seedPrimaryDocument = (input: {
       updateId: `genesis:${input.cardBlockId}`,
       clientSessionId: "document-operation-probe",
       update: genesis.update,
+      finalAuthority: "ydoc_primary",
     });
-    database
-      .prepare("UPDATE documents SET authority = 'ydoc_primary' WHERE id = ?")
-      .run(documentId);
     return { documentId, headSeq: ack.headSeq };
   } finally {
     genesis.document.destroy();
