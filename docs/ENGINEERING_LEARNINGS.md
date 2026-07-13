@@ -13,6 +13,12 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Cancellable process operations must register before their first await
+
+An operation-id registry cannot begin after asynchronous directory or status preflight. Under load, a caller can request cancellation while the service is still awaiting preflight, receive `canceled: false`, and then watch the mutation start after cancellation. Register the operation synchronously at the public service boundary, carry one AbortSignal through preflight and every child process, and let final settlement own registry cleanup.
+
+Test the lifecycle in two layers. A fast service test should cancel immediately after the public call returns, before any external command can start. Keep one real-process integration test for the Node/Git boundary, but synchronize it through an observable readiness marker from the child workflow; fixed sleeps only encode assumptions about machine speed and turn production races into flaky tests.
+
 ### Rich contenteditable needs one DOM owner during IME composition
 
 A browser mutates a focused contenteditable subtree directly during native input and IME composition. Rendering that same subtree as ordinary controlled React children creates two owners: React's virtual child tree still describes the pre-composition nodes while the browser has split, removed, or replaced them. The next collaborative update can then leave stale text visible or make React remove a node that is no longer attached. Keep the editable title root structurally owned by a dedicated DOM Adapter: React renders the root and surrounding toolbar only, the Adapter replaces canonical spans from Y.Text when not composing, and composition reads its draft back into one Yjs transaction before canonical rendering resumes. Preserve selection as Yjs relative positions across remote transactions, and keep atom labels out of DOM-to-Y.Text text extraction by mapping each non-editable atom to its single application character.

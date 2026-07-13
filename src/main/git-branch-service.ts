@@ -32,13 +32,15 @@ function normalizeBranchName(value: string): string {
   return value.trim();
 }
 
-async function ensureDirectory(cwd: string): Promise<string> {
+async function ensureDirectory(cwd: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
   const normalizedCwd = cwd.trim();
   if (!normalizedCwd) {
     throw new Error("Working directory is required");
   }
 
   const entry = await stat(normalizedCwd).catch(() => null);
+  signal?.throwIfAborted();
   if (!entry?.isDirectory()) {
     throw new Error(`Working directory not found: ${normalizedCwd}`);
   }
@@ -46,7 +48,7 @@ async function ensureDirectory(cwd: string): Promise<string> {
   return normalizedCwd;
 }
 
-function runGitCommand(args: string[], cwd: string): Promise<GitCommandResult> {
+function runGitCommand(args: string[], cwd: string, signal?: AbortSignal): Promise<GitCommandResult> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
@@ -56,6 +58,7 @@ function runGitCommand(args: string[], cwd: string): Promise<GitCommandResult> {
         encoding: "utf8",
         timeout: GIT_COMMAND_TIMEOUT_MS,
         windowsHide: true,
+        signal,
       },
       (error, stdout, stderr) => {
         if (error) {
@@ -82,11 +85,15 @@ function isNotGitRepositoryError(error: unknown): boolean {
   return message.includes("not a git repository");
 }
 
-async function loadGitBranchState(cwd: string): Promise<GitBranchState> {
+async function loadGitBranchState(cwd: string, signal?: AbortSignal): Promise<GitBranchState> {
   const [currentBranchResult, branchListResult, defaultBranchResult] = await Promise.all([
-    runGitCommand(["branch", "--show-current"], cwd),
-    runGitCommand(["branch", "--format=%(refname:short)"], cwd),
-    runGitCommand(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd).catch(() => null),
+    runGitCommand(["branch", "--show-current"], cwd, signal),
+    runGitCommand(["branch", "--format=%(refname:short)"], cwd, signal),
+    runGitCommand(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd, signal).catch((error) => {
+      signal?.throwIfAborted();
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      return null;
+    }),
   ]);
 
   const currentBranch = normalizeBranchName(currentBranchResult.stdout) || null;
@@ -122,11 +129,11 @@ async function resolveGitHeadPath(cwd: string): Promise<string> {
   return resolve(cwd, rawPath);
 }
 
-export async function readGitBranchState(cwd: string): Promise<GitBranchState> {
-  const normalizedCwd = await ensureDirectory(cwd);
+export async function readGitBranchState(cwd: string, signal?: AbortSignal): Promise<GitBranchState> {
+  const normalizedCwd = await ensureDirectory(cwd, signal);
 
   try {
-    return await loadGitBranchState(normalizedCwd);
+    return await loadGitBranchState(normalizedCwd, signal);
   } catch (error) {
     if (isNotGitRepositoryError(error)) {
       return EMPTY_GIT_BRANCH_STATE;

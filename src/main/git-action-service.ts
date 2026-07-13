@@ -80,13 +80,15 @@ export interface CommitGitChangesOptions {
   ) => Promise<GitPullRequestMessageGenerationResponse | null>;
 }
 
-async function ensureDirectory(cwd: string): Promise<string> {
+async function ensureDirectory(cwd: string, signal?: AbortSignal): Promise<string> {
+  throwIfAborted(signal);
   const normalizedCwd = cwd.trim();
   if (!normalizedCwd) {
     throw new Error("Working directory is required");
   }
 
   const entry = await stat(normalizedCwd).catch(() => null);
+  throwIfAborted(signal);
   if (!entry?.isDirectory()) {
     throw new Error(`Working directory not found: ${normalizedCwd}`);
   }
@@ -176,6 +178,11 @@ function isAbortError(error: unknown): boolean {
   return error.name === "AbortError" || errorCode === "ABORT_ERR";
 }
 
+function ignoreGitCommandErrorUnlessAborted(error: unknown): null {
+  if (isAbortError(error)) throw error;
+  return null;
+}
+
 function gitErrorMessage(error: unknown, fallback: string): string {
   if (isAbortError(error)) return "Git action was canceled.";
   if (!(error instanceof Error)) return fallback;
@@ -197,13 +204,15 @@ function isNotGitRepositoryError(error: unknown): boolean {
   return message.includes("not a git repository");
 }
 
-async function isGitRepository(cwd: string): Promise<boolean> {
-  const result = await runGitCommand(["rev-parse", "--is-inside-work-tree"], cwd).catch(() => null);
+async function isGitRepository(cwd: string, signal?: AbortSignal): Promise<boolean> {
+  const result = await runGitCommand(["rev-parse", "--is-inside-work-tree"], cwd, [0], signal)
+    .catch(ignoreGitCommandErrorUnlessAborted);
   return result?.stdout.trim() === "true";
 }
 
-async function hasHeadCommit(cwd: string): Promise<boolean> {
-  const result = await runGitCommand(["rev-parse", "--verify", "HEAD"], cwd, [0, 128]).catch(() => null);
+async function hasHeadCommit(cwd: string, signal?: AbortSignal): Promise<boolean> {
+  const result = await runGitCommand(["rev-parse", "--verify", "HEAD"], cwd, [0, 128], signal)
+    .catch(ignoreGitCommandErrorUnlessAborted);
   return result?.exitCode === 0;
 }
 
@@ -630,16 +639,17 @@ async function resolveCommitMessage(
   return generateCommitMessage(cwd, requestedMessage, options, signal);
 }
 
-async function listUntrackedFiles(cwd: string): Promise<string[]> {
-  const result = await runGitCommand(["ls-files", "--others", "--exclude-standard", "-z"], cwd);
+async function listUntrackedFiles(cwd: string, signal?: AbortSignal): Promise<string[]> {
+  const result = await runGitCommand(["ls-files", "--others", "--exclude-standard", "-z"], cwd, [0], signal);
   return result.stdout
     .split("\0")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 }
 
-async function readRemotes(cwd: string): Promise<string[]> {
-  const result = await runGitCommand(["remote"], cwd, [0, 128]).catch(() => null);
+async function readRemotes(cwd: string, signal?: AbortSignal): Promise<string[]> {
+  const result = await runGitCommand(["remote"], cwd, [0, 128], signal)
+    .catch(ignoreGitCommandErrorUnlessAborted);
   if (!result) return [];
   return result.stdout
     .split(/\r?\n/)
@@ -647,18 +657,30 @@ async function readRemotes(cwd: string): Promise<string[]> {
     .filter((remote, index, remotes) => remote.length > 0 && remotes.indexOf(remote) === index);
 }
 
-async function readUpstreamBranch(cwd: string): Promise<string | null> {
-  const result = await runGitCommand(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd, [0, 128])
-    .catch(() => null);
+async function readUpstreamBranch(cwd: string, signal?: AbortSignal): Promise<string | null> {
+  const result = await runGitCommand(
+    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    cwd,
+    [0, 128],
+    signal,
+  ).catch(ignoreGitCommandErrorUnlessAborted);
   const upstream = result?.exitCode === 0 ? result.stdout.trim() : "";
   return upstream || null;
 }
 
-async function readCommitsAhead(cwd: string, upstreamBranch: string | null): Promise<number> {
+async function readCommitsAhead(
+  cwd: string,
+  upstreamBranch: string | null,
+  signal?: AbortSignal,
+): Promise<number> {
   if (!upstreamBranch) return 0;
 
-  const result = await runGitCommand(["rev-list", "--count", `${upstreamBranch}..HEAD`], cwd, [0, 128])
-    .catch(() => null);
+  const result = await runGitCommand(
+    ["rev-list", "--count", `${upstreamBranch}..HEAD`],
+    cwd,
+    [0, 128],
+    signal,
+  ).catch(ignoreGitCommandErrorUnlessAborted);
   const count = Number.parseInt(result?.stdout.trim() ?? "0", 10);
   return Number.isFinite(count) ? count : 0;
 }
@@ -684,11 +706,14 @@ function emptyStatus(cwd: string): GitActionStatusResult {
   };
 }
 
-export async function readGitActionStatus(input: { cwd: string }): Promise<GitActionStatusResult> {
-  const cwd = await ensureDirectory(input.cwd);
+export async function readGitActionStatus(
+  input: { cwd: string },
+  signal?: AbortSignal,
+): Promise<GitActionStatusResult> {
+  const cwd = await ensureDirectory(input.cwd, signal);
 
   try {
-    const repository = await isGitRepository(cwd);
+    const repository = await isGitRepository(cwd, signal);
     if (!repository) return emptyStatus(cwd);
 
     const [
@@ -700,15 +725,15 @@ export async function readGitActionStatus(input: { cwd: string }): Promise<GitAc
       remotes,
       upstreamBranch,
     ] = await Promise.all([
-      readGitBranchState(cwd),
-      hasHeadCommit(cwd),
-      hasDiff(cwd, ["--cached"]),
-      hasDiff(cwd, []),
-      listUntrackedFiles(cwd),
-      readRemotes(cwd),
-      readUpstreamBranch(cwd),
+      readGitBranchState(cwd, signal),
+      hasHeadCommit(cwd, signal),
+      hasDiff(cwd, ["--cached"], signal),
+      hasDiff(cwd, [], signal),
+      listUntrackedFiles(cwd, signal),
+      readRemotes(cwd, signal),
+      readUpstreamBranch(cwd, signal),
     ]);
-    const commitsAhead = await readCommitsAhead(cwd, upstreamBranch);
+    const commitsAhead = await readCommitsAhead(cwd, upstreamBranch, signal);
     const hasUntrackedFiles = untrackedFiles.length > 0;
     const hasUnstagedChanges = unstagedTrackedChanges || hasUntrackedFiles;
     const hasUncommittedChanges = stagedChanges || hasUnstagedChanges;
@@ -736,6 +761,7 @@ export async function readGitActionStatus(input: { cwd: string }): Promise<GitAc
       errorMessage: null,
     };
   } catch (error) {
+    if (isAbortError(error)) throw error;
     if (isNotGitRepositoryError(error)) return emptyStatus(cwd);
 
     return {
@@ -790,7 +816,7 @@ async function pushGitBranch(
   force: boolean | undefined,
   signal?: AbortSignal,
 ): Promise<GitCommandResult> {
-  const status = await readGitActionStatus({ cwd });
+  const status = await readGitActionStatus({ cwd }, signal);
   if (!status.currentBranch) {
     throw new Error("Current branch is required before pushing.");
   }
@@ -812,26 +838,30 @@ async function pushGitBranch(
   ], cwd, [0], signal);
 }
 
-export async function commitGitChanges(
+export function commitGitChanges(
   input: GitCommitInput,
   options: CommitGitChangesOptions = {},
 ): Promise<GitActionMutationResult> {
-  const cwd = await ensureDirectory(input.cwd);
   const requestedMessage = input.message.trim();
-  const status = await readGitActionStatus({ cwd });
-  if (!status.isGitRepository) {
-    return {
-      cwd,
-      status: "error",
-      branch: null,
-      stdout: "",
-      stderr: "",
-      errorMessage: "Git repository is required before committing.",
-    };
-  }
-
   return runGitActionOperation(input.operationId, async (signal) => {
+    let cwd = input.cwd.trim();
+    let branch: string | null = null;
+
     try {
+      cwd = await ensureDirectory(input.cwd, signal);
+      const status = await readGitActionStatus({ cwd }, signal);
+      branch = status.currentBranch;
+      if (!status.isGitRepository) {
+        return {
+          cwd,
+          status: "error",
+          branch: null,
+          stdout: "",
+          stderr: "",
+          errorMessage: "Git repository is required before committing.",
+        };
+      }
+
       if (input.includeUnstaged !== false) {
         await runGitCommand(["add", "-A"], cwd, [0], signal);
       }
@@ -841,7 +871,7 @@ export async function commitGitChanges(
         return {
           cwd,
           status: "error",
-          branch: status.currentBranch,
+          branch,
           stdout: "",
           stderr: "",
           errorMessage: "No staged changes to commit.",
@@ -855,7 +885,7 @@ export async function commitGitChanges(
         return {
           cwd,
           status: "success",
-          branch: status.currentBranch,
+          branch,
           stdout: [commitResult.stdout, pushResult.stdout].filter(Boolean).join("\n"),
           stderr: [commitResult.stderr, pushResult.stderr].filter(Boolean).join("\n"),
           errorMessage: null,
@@ -865,36 +895,38 @@ export async function commitGitChanges(
       return {
         cwd,
         status: "success",
-        branch: status.currentBranch,
+        branch,
         stdout: commitResult.stdout,
         stderr: commitResult.stderr,
         errorMessage: null,
       };
     } catch (error) {
-      return mutationError(cwd, status.currentBranch, error, "Could not commit changes.");
+      return mutationError(cwd, branch, error, "Could not commit changes.");
     }
   });
 }
 
-export async function generateGitCommitMessage(
+export function generateGitCommitMessage(
   input: GitCommitMessageGenerateInput,
   options: CommitGitChangesOptions = {},
 ): Promise<GitCommitMessageGenerateResult> {
-  const cwd = await ensureDirectory(input.cwd);
   const draftMessage = input.draftMessage?.trim() ?? "";
-  const status = await readGitActionStatus({ cwd });
-  if (!status.isGitRepository) {
-    return {
-      cwd,
-      status: "error",
-      message: null,
-      stderr: "",
-      errorMessage: "Git repository is required before generating a commit message.",
-    };
-  }
-
   return runGitActionOperation(input.operationId, async (signal) => {
+    let cwd = input.cwd.trim();
+
     try {
+      cwd = await ensureDirectory(input.cwd, signal);
+      const status = await readGitActionStatus({ cwd }, signal);
+      if (!status.isGitRepository) {
+        return {
+          cwd,
+          status: "error",
+          message: null,
+          stderr: "",
+          errorMessage: "Git repository is required before generating a commit message.",
+        };
+      }
+
       if (input.includeUnstaged !== false) {
         await runGitCommand(["add", "-A"], cwd, [0], signal);
       }
@@ -924,30 +956,31 @@ export async function generateGitCommitMessage(
   });
 }
 
-export async function generateGitPullRequestMessage(
+export function generateGitPullRequestMessage(
   input: GitPullRequestMessageGenerateInput,
   options: CommitGitChangesOptions = {},
 ): Promise<GitPullRequestMessageGenerateResult> {
-  const cwd = await ensureDirectory(input.cwd);
-  const status = await readGitActionStatus({ cwd });
-  if (!status.isGitRepository) {
-    return {
-      cwd,
-      status: "error",
-      title: null,
-      body: null,
-      stderr: "",
-      errorMessage: "Git repository is required before generating a pull request message.",
-    };
-  }
-
   const title = input.title?.trim() ?? "";
   const body = input.body?.trim() ?? "";
-  const headBranch = input.headBranch?.trim() || status.currentBranch;
-  const baseBranch = input.baseBranch?.trim() || status.defaultBranch;
-
   return runGitActionOperation(input.operationId, async (signal) => {
+    let cwd = input.cwd.trim();
+
     try {
+      cwd = await ensureDirectory(input.cwd, signal);
+      const status = await readGitActionStatus({ cwd }, signal);
+      if (!status.isGitRepository) {
+        return {
+          cwd,
+          status: "error",
+          title: null,
+          body: null,
+          stderr: "",
+          errorMessage: "Git repository is required before generating a pull request message.",
+        };
+      }
+
+      const headBranch = input.headBranch?.trim() || status.currentBranch;
+      const baseBranch = input.baseBranch?.trim() || status.defaultBranch;
       const generated = await generatePullRequestMessage(
         cwd,
         {
@@ -974,33 +1007,37 @@ export async function generateGitPullRequestMessage(
   });
 }
 
-export async function pushGitChanges(input: GitPushInput): Promise<GitActionMutationResult> {
-  const cwd = await ensureDirectory(input.cwd);
-  const status = await readGitActionStatus({ cwd });
-  if (!status.isGitRepository) {
-    return {
-      cwd,
-      status: "error",
-      branch: null,
-      stdout: "",
-      stderr: "",
-      errorMessage: "Git repository is required before pushing.",
-    };
-  }
-
+export function pushGitChanges(input: GitPushInput): Promise<GitActionMutationResult> {
   return runGitActionOperation(input.operationId, async (signal) => {
+    let cwd = input.cwd.trim();
+    let branch: string | null = null;
+
     try {
+      cwd = await ensureDirectory(input.cwd, signal);
+      const status = await readGitActionStatus({ cwd }, signal);
+      branch = status.currentBranch;
+      if (!status.isGitRepository) {
+        return {
+          cwd,
+          status: "error",
+          branch: null,
+          stdout: "",
+          stderr: "",
+          errorMessage: "Git repository is required before pushing.",
+        };
+      }
+
       const result = await pushGitBranch(cwd, input.force, signal);
       return {
         cwd,
         status: "success",
-        branch: status.currentBranch,
+        branch,
         stdout: result.stdout,
         stderr: result.stderr,
         errorMessage: null,
       };
     } catch (error) {
-      return mutationError(cwd, status.currentBranch, error, "Could not push changes.");
+      return mutationError(cwd, branch, error, "Could not push changes.");
     }
   });
 }
@@ -1013,6 +1050,5 @@ export function cancelGitAction(input: GitActionCancelInput): GitActionCancelRes
   if (!controller) return { canceled: false };
 
   controller.abort();
-  activeGitActionOperations.delete(operationId);
   return { canceled: true };
 }
