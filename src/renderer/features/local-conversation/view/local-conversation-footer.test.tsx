@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { render } from "../../../test/dom";
@@ -403,11 +403,6 @@ describe("LocalConversationFooter", () => {
     await waitFor(() => {
       expect(overlay.getAttribute("aria-hidden")).toBe("false");
     });
-
-    const previewToggle = latestTurnPreview.querySelector("button");
-    expect(previewToggle?.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.pointerDown(document.body);
-    expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("keeps queued follow-ups in the queue portal outside the fixed pill", async () => {
@@ -490,9 +485,14 @@ describe("LocalConversationFooter", () => {
       const previewToggle = latestTurnPreview?.querySelector("button");
       expect(previewToggle?.getAttribute("aria-expanded")).toBe("true");
 
-      fireEvent.pointerDown(document.body);
+      await act(async () => {
+        fireEvent.pointerDown(document.body);
+        await Promise.resolve();
+      });
 
-      expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
+      await waitFor(() => {
+        expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
+      });
       expect(tooltipDismissEvents).toBe(0);
     } finally {
       window.removeEventListener("codex:dismiss-tooltips", handleTooltipDismiss);

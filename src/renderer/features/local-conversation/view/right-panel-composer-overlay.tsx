@@ -154,11 +154,13 @@ export function RightPanelComposerOverlay({
   });
 
   const handleDocumentPointerDown = useEffectEvent((event: PointerEvent) => {
+    if (phase !== "visible" || !onPointerDownOutside) return;
+
     const eventTarget = event.target;
     if (!(eventTarget instanceof Node)) return;
     if (interactiveRef.current?.contains(eventTarget)) return;
 
-    onPointerDownOutside?.();
+    onPointerDownOutside();
   });
 
   useLayoutEffect(() => {
@@ -215,13 +217,11 @@ export function RightPanelComposerOverlay({
   }, [reducedMotion, visible]);
 
   useEffect(() => {
-    if (phase !== "visible" || !onPointerDownOutside) return undefined;
-
     document.addEventListener("pointerdown", handleDocumentPointerDown, true);
     return () => {
       document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
     };
-  }, [onPointerDownOutside, phase]);
+  }, []);
 
   useEffect(() => {
     return () => {

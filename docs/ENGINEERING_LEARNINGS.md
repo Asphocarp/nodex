@@ -552,6 +552,9 @@ The important lesson is that default `act` execution can stay green while the cl
 3. If that still passes, rerun the exact Vitest project inside the resulting `act` job container with `--sequence.shuffle --sequence.seed=...`.
 4. If more fidelity is needed than `act-24.04`, move up to `catthehacker/ubuntu:full-24.04` or a real Ubuntu 24.04 x86_64 VM, because GitHub-hosted runners are fresh VMs and `act` is still a Docker approximation.
 
+### Global dismissal listeners must not lag behind visible UI state
+An overlay that renders as visible before a passive effect installs its `document` outside-pointer listener has a real interaction gap, not merely a flaky-test problem: the first click after entry can be missed. Keep one listener subscribed for the mounted overlay lifetime, read the latest phase and callback through `useEffectEvent`, and guard inactive phases inside the handler. Tests for native `document` or `window` events should keep one focused behavioral contract, wrap the low-level event in async `act`, and await the resulting accessible DOM state; do not duplicate that interaction inside unrelated layout tests or use retries to hide missing synchronization.
+
 ### Renderer transport detection must be runtime-based, not cached at module import
 `src/renderer/lib/api.ts` is shared by tests that may import it before `window.api` exists, then install the Electron bridge later. Caching `const isElectron = typeof window !== "undefined" && !!window.api` at module load makes later callers fall back to the browser HTTP path forever, which surfaced in release CI as `Unknown IPC channel: app:flush-before-close:done`. Keep Electron-vs-browser detection inside each exported function call, and for component tests prefer mocking a local adapter module (for example `workbench-api.ts`) instead of mocking the shared renderer transport directly.
 
