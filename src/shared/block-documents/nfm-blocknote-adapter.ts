@@ -340,6 +340,12 @@ function nfmBlockToBN(
   }
 }
 
+export function nfmInlineToBlockNote(
+  items: NfmInlineContent[],
+): BlockNoteInlineContentValue[] {
+  return nfmInlineToBN(items);
+}
+
 function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
   return items.map((item) => {
     if (item.type === "linebreak") {
@@ -867,6 +873,10 @@ function resolveBNTableColumnAlignment(
 function normalizeTableAlignment(value: unknown): NfmTableAlignment | undefined {
   if (value === "left" || value === "center" || value === "right") return value;
   return undefined;
+}
+
+export function blockNoteInlineToNfm(content: unknown): NfmInlineContent[] {
+  return bnInlineToNfm(content);
 }
 
 function bnInlineToNfm(content: unknown): NfmInlineContent[] {
