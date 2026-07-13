@@ -3,7 +3,9 @@ import { describe, expect, test } from "vitest";
 import type { DbViewCardRecord } from "@/lib/db-view-prefs";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
@@ -37,17 +39,18 @@ const makeCard = (
 
 describe("ToggleListReferenceRows", () => {
   test("mounts a Card's independent document only while its visible row is expanded", async () => {
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(2);
     const view = render(
       <ToggleListReferenceRows
         projectId="project-1"
+        disclosureScopeKey="toggle-list:view-1"
         cards={[makeCard()]}
         propertyOrder={["priority", "estimate", "status", "tags"]}
         hiddenProperties={[]}
         showEmptyEstimate={false}
         showEmptyPriority={false}
-        expansionStore={expansionStore}
+        disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride
         renderDocument={({ projectId, card }) => (
@@ -88,6 +91,7 @@ describe("ToggleListReferenceRows", () => {
     const view = render(
       <ToggleListReferenceRows
         projectId="project-1"
+        disclosureScopeKey="toggle-list:view-1"
         cards={[makeCard()]}
         propertyOrder={["status", "tags", "priority", "estimate"]}
         hiddenProperties={["estimate"]}
@@ -127,6 +131,7 @@ describe("ToggleListReferenceRows", () => {
     const view = render(
       <ToggleListReferenceRows
         projectId="project-1"
+        disclosureScopeKey="toggle-list:view-1"
         cards={[card]}
         propertyOrder={["priority", "estimate"]}
         hiddenProperties={[]}
@@ -146,6 +151,7 @@ describe("ToggleListReferenceRows", () => {
     const view = render(
       <ToggleListReferenceRows
         projectId="project-1"
+        disclosureScopeKey="toggle-list:view-1"
         cards={[makeCard()]}
         propertyOrder={[]}
         hiddenProperties={[]}

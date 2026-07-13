@@ -3,18 +3,48 @@ import { ViewMutationRecord } from "@tiptap/pm/view";
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import { Block } from "../defaultBlocks.js";
 
-type ToggledState = {
+export type ToggledState = {
   set: (block: Block<any, any, any>, isToggled: boolean) => void;
   get: (block: Block<any, any, any>) => boolean;
 };
 
+export const toggledStateStorageKey = (blockId: string): string =>
+  `toggle-${blockId}`;
+
+export const readPersistedToggledState = (
+  blockId: string,
+): boolean | undefined => {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const value = window.localStorage.getItem(toggledStateStorageKey(blockId));
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const writePersistedToggledState = (
+  blockId: string,
+  isToggled: boolean,
+): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      toggledStateStorageKey(blockId),
+      isToggled ? "true" : "false",
+    );
+  } catch {
+    // Disclosure preferences are disposable view state. Keep the live UI
+    // responsive when browser storage is unavailable or full.
+  }
+};
+
 export const defaultToggledState: ToggledState = {
   set: (block, isToggled: boolean) =>
-    window.localStorage.setItem(
-      `toggle-${block.id}`,
-      isToggled ? "true" : "false",
-    ),
-  get: (block) => window.localStorage.getItem(`toggle-${block.id}`) === "true",
+    writePersistedToggledState(block.id, isToggled),
+  get: (block) => readPersistedToggledState(block.id) === true,
 };
 
 export const createToggleWrapper = (

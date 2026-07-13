@@ -5,7 +5,9 @@ import { plainTextToPortableRichText } from "../../../../shared/block-documents"
 import type { CardSummary } from "@/lib/types";
 import { DatabaseViewReferenceSurface } from "@/components/block-documents/reference-block-surfaces";
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 
@@ -52,7 +54,7 @@ const VIEW: DatabaseViewReadModel = {
 };
 
 function DatabaseViewReferenceStory() {
-  const [expansionStore] = useState(() => new ReferenceExpansionStore());
+  const [disclosureStore] = useState(() => new BlockDisclosureStateStore());
   const [activationBudget] = useState(
     () => new ReferenceSurfaceActivationBudget(2),
   );
@@ -66,7 +68,7 @@ function DatabaseViewReferenceStory() {
           referenceKey="story:database-view"
           displayHint=""
           model={VIEW}
-          expansionStore={expansionStore}
+          disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           visibilityOverride
           onOpenCard={() => undefined}

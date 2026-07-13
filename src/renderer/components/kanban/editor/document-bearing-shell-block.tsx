@@ -26,7 +26,7 @@ export interface DocumentBearingShellVisualProps
   readonly label: string;
   readonly detail: string;
   readonly identity?: string;
-  readonly referenceKey?: string;
+  readonly disclosureKey?: string;
   readonly disabledReason?: string;
   readonly renderDocument?: OwnedDocumentReferenceRenderer;
 }
@@ -37,23 +37,23 @@ export function DocumentBearingShellVisual({
   label,
   detail,
   identity,
-  referenceKey = `document-bearing:${identity ?? "unscoped"}`,
+  disclosureKey = `document-bearing:${identity ?? "unscoped"}`,
   disabledReason,
   renderDocument,
-  expansionStore,
+  disclosureStore,
   activationBudget,
   visibilityOverride,
 }: DocumentBearingShellVisualProps) {
   return (
     <OwnedDocumentReferenceSurface
-      referenceKey={referenceKey}
+      disclosureKey={disclosureKey}
       ownerBlockId={identity ?? ""}
       icon={<Icon className="icon-2xs shrink-0" />}
       label={label}
       detail={detail}
       disabledReason={disabledReason}
       renderDocument={renderDocument}
-      expansionStore={expansionStore}
+      disclosureStore={disclosureStore}
       activationBudget={activationBudget}
       visibilityOverride={visibilityOverride}
     />
@@ -63,7 +63,7 @@ export function DocumentBearingShellVisual({
 export interface DocumentBearingShellBlockProps
   extends Omit<
     DocumentBearingShellVisualProps,
-    "referenceKey" | "disabledReason" | "renderDocument"
+    "disclosureKey" | "disabledReason" | "renderDocument"
   > {
   readonly shellBlockId: string;
 }
@@ -121,7 +121,7 @@ export function DocumentBearingShellBlock({
     <DocumentBearingShellVisual
       {...visual}
       identity={ownerBlockId}
-      referenceKey={`owned-document:${shellBlockId}:${ownerBlockId || "missing"}`}
+      disclosureKey={shellBlockId}
       disabledReason={disabledReason}
       renderDocument={renderDocument}
     />

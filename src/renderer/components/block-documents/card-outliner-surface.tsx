@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useId,
   type FocusEventHandler,
   type PointerEventHandler,
@@ -8,18 +7,20 @@ import {
 } from "react";
 import { ExternalLink } from "lucide-react";
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+  blockDisclosureStateStore,
+  useBlockDisclosure,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
-  referenceExpansionStore,
   referenceSurfaceActivationBudget,
-  useReferenceExpansion,
   useReferenceSurfaceActivation,
 } from "@/lib/reference-surface-state";
 import { useElementVisibility } from "@/lib/use-element-visibility";
 import { cn } from "@/lib/utils";
 
 export interface CardOutlinerStateDependencies {
-  readonly expansionStore?: ReferenceExpansionStore;
+  readonly disclosureStore?: BlockDisclosureStateStore;
   readonly activationBudget?: ReferenceSurfaceActivationBudget;
   /** Deterministic test/story seam; production always uses IntersectionObserver. */
   readonly visibilityOverride?: boolean;
@@ -35,21 +36,22 @@ export interface CardOutlinerActivation {
 }
 
 export const useCardOutlinerActivation = ({
-  activationKey,
+  disclosureKey,
   expandable,
-  expansionStore = referenceExpansionStore,
+  disclosureStore = blockDisclosureStateStore,
   activationBudget = referenceSurfaceActivationBudget,
   visibilityOverride,
 }: CardOutlinerStateDependencies & {
-  readonly activationKey: string;
+  readonly disclosureKey: string;
   readonly expandable: boolean;
 }): CardOutlinerActivation => {
   const surfaceInstanceId = useId();
-  const surfaceInstanceKey = `${activationKey}:mount:${surfaceInstanceId}`;
-  const [expanded, setExpanded] = useReferenceExpansion(
-    surfaceInstanceKey,
-    expansionStore,
+  const surfaceInstanceKey = `card-outliner:${disclosureKey}:mount:${surfaceInstanceId}`;
+  const [preferredExpanded, setExpanded] = useBlockDisclosure(
+    disclosureKey,
+    disclosureStore,
   );
+  const expanded = expandable && preferredExpanded;
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
   const active = useReferenceSurfaceActivation(
@@ -57,10 +59,6 @@ export const useCardOutlinerActivation = ({
     expandable && expanded && visible,
     activationBudget,
   );
-  useEffect(() => {
-    if (expandable || !expanded) return;
-    setExpanded(false);
-  }, [expandable, expanded, setExpanded]);
   return {
     active,
     expanded,

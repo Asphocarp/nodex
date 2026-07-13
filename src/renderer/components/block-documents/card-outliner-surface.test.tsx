@@ -1,8 +1,8 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
 import {
-  ReferenceExpansionStore,
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
@@ -13,22 +13,24 @@ import {
 import { PortableRichTitle } from "./portable-rich-title";
 
 function ActivationHarness({
-  activationKey = "card:block:target",
+  disclosureKey = "card:block:target",
   title = "Rich title",
-  expansionStore,
+  expandable = true,
+  disclosureStore,
   activationBudget,
   renderActive,
 }: {
-  readonly activationKey?: string;
+  readonly disclosureKey?: string;
   readonly title?: string;
-  readonly expansionStore: ReferenceExpansionStore;
+  readonly expandable?: boolean;
+  readonly disclosureStore: BlockDisclosureStateStore;
   readonly activationBudget: ReferenceSurfaceActivationBudget;
   readonly renderActive: () => React.ReactNode;
 }) {
   const activation = useCardOutlinerActivation({
-    activationKey,
-    expandable: true,
-    expansionStore,
+    disclosureKey,
+    expandable,
+    disclosureStore,
     activationBudget,
     visibilityOverride: true,
   });
@@ -39,7 +41,7 @@ function ActivationHarness({
       plainTitle={title}
       title={<PortableRichTitle value={plainTextToPortableRichText(title)} />}
       expanded={activation.expanded}
-      expandable
+      expandable={expandable}
       active={activation.active}
       sectionRef={activation.sectionRef}
       onExpandedChange={activation.setExpanded}
@@ -52,12 +54,12 @@ function ActivationHarness({
 
 describe("CardOutlinerRow", () => {
   test("admits target content only while the local row is expanded", async () => {
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(1);
     const renderActive = vi.fn(() => <div data-testid="target-runtime" />);
     const view = render(
       <ActivationHarness
-        expansionStore={expansionStore}
+        disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         renderActive={renderActive}
       />,
@@ -111,22 +113,22 @@ describe("CardOutlinerRow", () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  test("treats duplicate target rows as independent mounted surfaces", async () => {
-    const expansionStore = new ReferenceExpansionStore();
+  test("shares one disclosure preference while keeping duplicate mounts independently active", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(2);
     const view = render(
       <>
         <ActivationHarness
           title="First instance"
-          activationKey="same-semantic-reference"
-          expansionStore={expansionStore}
+          disclosureKey="same-semantic-reference"
+          disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           renderActive={() => <div data-testid="duplicate-runtime">First</div>}
         />
         <ActivationHarness
           title="Second instance"
-          activationKey="same-semantic-reference"
-          expansionStore={expansionStore}
+          disclosureKey="same-semantic-reference"
+          disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           renderActive={() => <div data-testid="duplicate-runtime">Second</div>}
         />
@@ -137,14 +139,35 @@ describe("CardOutlinerRow", () => {
       fireEvent.click(
         view.getByRole("button", { name: "Expand First instance" }),
       );
-      fireEvent.click(
-        view.getByRole("button", { name: "Expand Second instance" }),
-      );
       await Promise.resolve();
     });
     await waitFor(() => {
       expect(view.getAllByTestId("duplicate-runtime")).toHaveLength(2);
       expect(activationBudget.getActiveKeys()).toHaveLength(2);
+    });
+  });
+
+  test("retains the preferred disclosure while the target is temporarily unavailable", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(1);
+    disclosureStore.setExpanded("stable-card", true);
+    const makeHarness = (expandable: boolean) => (
+      <ActivationHarness
+        disclosureKey="stable-card"
+        expandable={expandable}
+        disclosureStore={disclosureStore}
+        activationBudget={activationBudget}
+        renderActive={() => <div data-testid="restored-runtime" />}
+      />
+    );
+    const view = render(makeHarness(false));
+
+    expect(view.queryByTestId("restored-runtime")).toBeNull();
+    expect(disclosureStore.isExpanded("stable-card")).toBe(true);
+
+    view.rerender(makeHarness(true));
+    await waitFor(() => {
+      expect(view.getByTestId("restored-runtime")).toBeTruthy();
     });
   });
 

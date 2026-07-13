@@ -32,7 +32,7 @@ The visual row follows the editor's native toggle geometry:
 - there is no permanent Card/File/Link icon, type label, rounded shell border, inset card background, or vertical body divider;
 - the expanded body begins one native Block indentation, 24 pixels, after the row and remains visually transparent.
 
-Error, deleted, archived, self-reference, and cycle states retain the same row geometry. They may add a terse state token or inline recovery action, but they do not switch to a visually unrelated message box. Expansion state, visibility, and activation budget remain window-local and are not persisted into either Y.Doc.
+Error, deleted, archived, self-reference, and cycle states retain the same row geometry. They may add a terse state token or inline recovery action, but they do not switch to a visually unrelated message box. As refined by ADR 0009, disclosure preference is browser-profile local state keyed by shell Block identity; visibility and activation budget remain per-mount ephemeral. None of them is persisted into Y.Doc.
 
 The existing generic `OwnedDocumentReferenceSurface` remains available for body-only owners with a distinct product meaning, currently Synced Block source and Reusable Template source. Card no longer uses that generic shell.
 

@@ -58,6 +58,7 @@ export const CollaborativeRows: Story = {
       <div className="mx-auto max-w-4xl rounded-lg border-[0.5px] border-token-border bg-token-bg-primary px-3.5 py-3">
         <ToggleListReferenceRows
           projectId="nodex"
+          disclosureScopeKey="toggle-list:view-story"
           cards={CARDS}
           propertyOrder={["priority", "estimate", "status", "tags"]}
           hiddenProperties={[]}

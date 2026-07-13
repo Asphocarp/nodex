@@ -3,12 +3,14 @@ import { LayoutTemplate, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { DocumentBearingShellVisual } from "./document-bearing-shell-block";
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 
 function InteractiveShells() {
-  const [expansionStore] = useState(() => new ReferenceExpansionStore());
+  const [disclosureStore] = useState(() => new BlockDisclosureStateStore());
   const [activationBudget] = useState(
     () => new ReferenceSurfaceActivationBudget(2),
   );
@@ -19,7 +21,7 @@ function InteractiveShells() {
     </div>
   );
   const sharedState = {
-    expansionStore,
+    disclosureStore,
     activationBudget,
     visibilityOverride: true,
     renderDocument,
@@ -38,7 +40,7 @@ function InteractiveShells() {
           label="Synced block"
           detail="Shared launch notes"
           identity="synced-source:launch-notes"
-          referenceKey="story:synced"
+          disclosureKey="story:synced"
         />
         <DocumentBearingShellVisual
           {...sharedState}
@@ -46,7 +48,7 @@ function InteractiveShells() {
           label="Template"
           detail="Incident review"
           identity="template:incident-review"
-          referenceKey="story:template"
+          disclosureKey="story:template"
         />
       </div>
     </main>

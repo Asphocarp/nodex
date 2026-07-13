@@ -2,11 +2,13 @@ import { useId, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+  blockDisclosureStateStore,
+  useBlockDisclosure,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
-  referenceExpansionStore,
   referenceSurfaceActivationBudget,
-  useReferenceExpansion,
   useReferenceSurfaceActivation,
 } from "@/lib/reference-surface-state";
 import { useElementVisibility } from "@/lib/use-element-visibility";
@@ -22,14 +24,14 @@ export type OwnedDocumentReferenceRenderer = (
 ) => ReactNode;
 
 export interface OwnedDocumentReferenceStateDependencies {
-  readonly expansionStore?: ReferenceExpansionStore;
+  readonly disclosureStore?: BlockDisclosureStateStore;
   readonly activationBudget?: ReferenceSurfaceActivationBudget;
   /** Deterministic test/story seam; production uses IntersectionObserver. */
   readonly visibilityOverride?: boolean;
 }
 
 export interface OwnedDocumentReferenceSurfaceProps extends OwnedDocumentReferenceStateDependencies {
-  readonly referenceKey: string;
+  readonly disclosureKey: string;
   readonly ownerBlockId: string;
   readonly icon: ReactNode;
   readonly label: string;
@@ -39,28 +41,27 @@ export interface OwnedDocumentReferenceSurfaceProps extends OwnedDocumentReferen
 }
 
 /**
- * Window-local shell for any body-only document-bearing Block. The host Y.Doc
- * owns only this row and its stable target identity. The target provider is
- * eligible only while the row is expanded, visible, and inside the shared
- * renderer activation budget.
+ * Per-user disclosure shell for a body-only document-bearing Block. The host
+ * Y.Doc owns only this row and its stable target identity. Provider activation
+ * remains per-mount and eligible only while expanded and visible.
  */
 export function OwnedDocumentReferenceSurface({
-  referenceKey,
+  disclosureKey,
   ownerBlockId,
   icon,
   label,
   detail,
   disabledReason,
   renderDocument,
-  expansionStore = referenceExpansionStore,
+  disclosureStore = blockDisclosureStateStore,
   activationBudget = referenceSurfaceActivationBudget,
   visibilityOverride,
 }: OwnedDocumentReferenceSurfaceProps) {
   const surfaceInstanceId = useId();
-  const surfaceInstanceKey = `${referenceKey}:mount:${surfaceInstanceId}`;
-  const [expanded, setExpanded] = useReferenceExpansion(
-    surfaceInstanceKey,
-    expansionStore,
+  const surfaceInstanceKey = `owned-document:${disclosureKey}:mount:${surfaceInstanceId}`;
+  const [preferredExpanded, setExpanded] = useBlockDisclosure(
+    disclosureKey,
+    disclosureStore,
   );
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
@@ -69,6 +70,7 @@ export function OwnedDocumentReferenceSurface({
     normalizedOwnerBlockId.length > 0 &&
     !disabledReason &&
     typeof renderDocument === "function";
+  const expanded = expandable && preferredExpanded;
   const eligible = expandable && expanded && visible;
   const budgetActive = useReferenceSurfaceActivation(
     surfaceInstanceKey,

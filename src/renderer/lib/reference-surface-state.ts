@@ -14,51 +14,6 @@ const sameStringSet = (
 };
 
 /**
- * Window-local expansion state for reference Blocks. It deliberately does not
- * use localStorage or write into the host Y.Doc: opening a referenced Card is
- * view state, not content.
- */
-export class ReferenceExpansionStore {
-  private readonly expandedKeys = new Set<string>();
-  private readonly listenersByKey = new Map<string, Set<Listener>>();
-
-  isExpanded = (key: string): boolean => this.expandedKeys.has(key);
-
-  subscribe = (key: string, listener: Listener): (() => void) => {
-    const listeners = this.listenersByKey.get(key) ?? new Set<Listener>();
-    listeners.add(listener);
-    this.listenersByKey.set(key, listeners);
-    return () => {
-      listeners.delete(listener);
-      if (listeners.size === 0) this.listenersByKey.delete(key);
-    };
-  };
-
-  setExpanded = (key: string, expanded: boolean): void => {
-    const wasExpanded = this.expandedKeys.has(key);
-    if (wasExpanded === expanded) return;
-    if (expanded) {
-      this.expandedKeys.add(key);
-    } else {
-      this.expandedKeys.delete(key);
-    }
-    for (const listener of this.listenersByKey.get(key) ?? []) listener();
-  };
-
-  toggle = (key: string): void => {
-    this.setExpanded(key, !this.isExpanded(key));
-  };
-
-  clear = (): void => {
-    const keys = [...this.expandedKeys];
-    this.expandedKeys.clear();
-    for (const key of keys) {
-      for (const listener of this.listenersByKey.get(key) ?? []) listener();
-    }
-  };
-}
-
-/**
  * Caps live referenced-document providers across the whole renderer window.
  * Eligible surfaces are ordered by the last user/visibility activation. The
  * most recent `capacity` surfaces stay active; evicted rows remain expanded
@@ -136,27 +91,8 @@ export class ReferenceSurfaceActivationBudget {
   }
 }
 
-export const referenceExpansionStore = new ReferenceExpansionStore();
 export const referenceSurfaceActivationBudget =
   new ReferenceSurfaceActivationBudget(3);
-
-export const useReferenceExpansion = (
-  key: string,
-  store: ReferenceExpansionStore = referenceExpansionStore,
-): readonly [boolean, (expanded: boolean) => void] => {
-  const subscribe = useCallback(
-    (listener: Listener) => store.subscribe(key, listener),
-    [key, store],
-  );
-  const getSnapshot = useCallback(() => store.isExpanded(key), [key, store]);
-  const expanded = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  useEffect(() => () => store.setExpanded(key, false), [key, store]);
-  const setExpanded = useCallback(
-    (nextExpanded: boolean) => store.setExpanded(key, nextExpanded),
-    [key, store],
-  );
-  return [expanded, setExpanded];
-};
 
 export const useReferenceSurfaceActivation = (
   key: string,

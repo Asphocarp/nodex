@@ -4,7 +4,9 @@ import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import type { CardSummary } from "@/lib/types";
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
@@ -88,14 +90,14 @@ describe("DatabaseViewReferenceSurface", () => {
         rankKey: String(index),
       })),
     };
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(2);
     const view = render(
       <DatabaseViewReferenceSurface
         referenceKey="host:view-1"
         displayHint=""
         model={model}
-        expansionStore={expansionStore}
+        disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride
         renderDocument={({ projectId, card }) => (
@@ -163,14 +165,14 @@ describe("DatabaseViewReferenceSurface", () => {
         rankKey: String(index),
       })),
     };
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(2);
     const view = render(
       <DatabaseViewReferenceSurface
         referenceKey="focus-view"
         displayHint=""
         model={model}
-        expansionStore={expansionStore}
+        disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride
         renderDocument={({ card }) => (

@@ -61,7 +61,7 @@ A Reusable Template is also a library source with an authoritative human display
 
 A Block shell is the representation of a Block inside its containing Document. For an ordinary Block, the shell and its content live together in the host Document. For a document-bearing Block, the host Document stores only its shell identity and presentation fields; the owned Document remains separate and is loaded independently.
 
-An inline document-bearing shell is window-local UI over that ownership boundary. Collapsed or offscreen Synced and Template shells create no provider or editor. Expanding a visible shell mounts the owner through the registered owned-Document boundary and the shared window activation budget; collapsing unmounts it. Card is Page-like rather than a generic body-only shell: child `card` and non-owning `cardRef` Blocks share one flat outliner presentation. The collapsed row reads portable-rich title from the exact-head summary; the expanded row mounts one target runtime whose Y.Text title remains in the row and whose body appears at normal child indentation. The provider boundary never creates a nested visual card or a second title. The inherited open-owner path blocks recursive Card/body-only Document cycles. A `scene_graph` owner never mounts a BlockNote body editor and remains a Canvas-view concern.
+An inline document-bearing shell is per-user local UI over that ownership boundary. Its disclosure preference is browser-profile state keyed by the stable shell Block ID; it is neither collaborative content nor a Document property. Collapsed or offscreen Synced and Template shells create no provider or editor. Expanding a visible shell mounts the owner through the registered owned-Document boundary and the shared window activation budget; collapsing unmounts it. Card is Page-like rather than a generic body-only shell: child `card` and non-owning `cardRef` Blocks share one flat outliner presentation. The collapsed row reads portable-rich title from the exact-head summary; the expanded row mounts one target runtime whose Y.Text title remains in the row and whose body appears at normal child indentation. The provider boundary never creates a nested visual card or a second title. The inherited open-owner path blocks recursive Card/body-only Document cycles. A `scene_graph` owner never mounts a BlockNote body editor and remains a Canvas-view concern.
 
 ### Placement
 
@@ -111,7 +111,7 @@ A `templateRef` follows the same foreign-body rule but has copy-on-instantiate s
 
 Synced source, Template, and non-primary Canvas ownership changes use one versioned Additional Document command. The Project route and actor/session are trusted transport evidence and are rebound by Electron main or loopback HTTP. Logical intent retains `operationId`, `storeEpoch`, application identities, generations, and requested placement; only the Document Hub may renew execution heads after mounted surfaces flush and freeze. Creation and reference-guarded recursive tombstoning commit through the same receipt boundary. The CLI and renderer API submit this same envelope, and committed heads repair through the registered engine's ordinary realtime resync path rather than a second ownership channel.
 
-Reference expansion is window-local. The renderer bounds simultaneously mounted referenced-Document providers per mounted surface, keeps the focused editor most-recent, and never persists expansion, visibility, or activation into either Y.Doc. A mounted Card row owns one stable observed DOM frame; projected, loading, and active content are slots inside it, so provider admission cannot invalidate its own visibility observation. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
+Reference disclosure is per-user local preference state. Each renderer hydrates a stable shell Block ID from the browser profile and shares that preference across duplicate mounts in the same renderer; another active window is not live-driven by the change. A `cardRef` uses its own reference Block ID rather than the target Card ID, so separate occurrences remain independent. Moves retain disclosure state with the stable ID and copies default collapsed with their new IDs. Visibility, provider activation, focus recency, and activation-budget membership remain per-mount ephemeral and never enter Y.Doc, NFM, history, or undo. Temporary loading, error, or cycle eligibility may suppress effective expansion but must not erase the stored preference. A mounted Card row owns one stable observed DOM frame; projected, loading, and active content are slots inside it, so provider admission cannot invalidate its own visibility observation. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
 
 ### Projection
 
@@ -186,7 +186,8 @@ The writer requires target properties to represent every source value, tombstone
 | Intrinsic Card behavior | generic Block properties plus typed read models |
 | NFM, preview, search, schedule, asset, and Card summary data | rebuildable projections |
 | Cursor, presence, and relocation lease | ephemeral collaboration state |
-| Expansion, selection, active view, and search | window-local view state |
+| Block disclosure preference | browser-profile-scoped per-user local view state |
+| Visibility, provider activation, selection, active view, and search | window-local ephemeral view state |
 | Project sessions, tabs, and panels | existing shell domain |
 
 ## Invariants
@@ -234,7 +235,7 @@ Restore treats SQLite, WAL state, and managed assets as one authority even thoug
 
 ## Non-domain state
 
-Presence, cursors, selections, open toggles, search terms, focus, and relocation leases are not durable content. Project sessions, tabs, panels, and Codex thread ownership remain shell/execution concepts and are not Blocks. A durable `db_view` tab points to one stable `databaseViewId`; its temporary search, selection, and display interaction state remains window-local.
+Presence, cursors, selections, open toggles, search terms, focus, and relocation leases are not durable content. Open toggles may persist as disposable browser-profile preferences keyed by stable Block identity, without entering collaboration, history, export, or backup authority. Project sessions, tabs, panels, and Codex thread ownership remain shell/execution concepts and are not Blocks. A durable `db_view` tab points to one stable `databaseViewId`; its temporary search, selection, and display interaction state remains window-local.
 
 ## Naming rules
 

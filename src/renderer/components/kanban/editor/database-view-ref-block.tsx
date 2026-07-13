@@ -25,7 +25,7 @@ export const createDatabaseViewRefBlockSpec = createReactBlockSpec(
       );
       return (
         <DatabaseViewReferenceSurface
-          referenceKey={`database-view-ref:${host?.hostCardId ?? "unscoped"}:${block.id}:${databaseViewId}`}
+          referenceKey={`database-view-ref:${block.id}`}
           displayHint={block.props.displayHint}
           model={view.data}
           loading={view.loading}

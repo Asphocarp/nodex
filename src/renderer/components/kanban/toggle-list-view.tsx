@@ -24,10 +24,8 @@ import {
   tokenizeSearchQuery,
 } from "@/lib/card-search";
 import { resolveKanbanPriorityOption } from "@/lib/kanban-options";
-import type {
-  ReferenceExpansionStore,
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import type { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
+import type { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 import { StatusIcon } from "@/lib/status-chip";
 import { useKanban } from "@/lib/use-kanban";
 import { cn } from "@/lib/utils";
@@ -64,6 +62,7 @@ interface ToggleListViewProps {
 
 interface ToggleListReferenceRowsProps {
   readonly projectId: string;
+  readonly disclosureScopeKey: string;
   readonly cards: readonly DbViewCardRecord[];
   readonly propertyOrder: readonly ToggleListPropertyKey[];
   readonly hiddenProperties: readonly ToggleListPropertyKey[];
@@ -75,7 +74,7 @@ interface ToggleListReferenceRowsProps {
     cardId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
-  readonly expansionStore?: ReferenceExpansionStore;
+  readonly disclosureStore?: BlockDisclosureStateStore;
   readonly activationBudget?: ReferenceSurfaceActivationBudget;
   /** Deterministic test/story seam; production uses IntersectionObserver. */
   readonly visibilityOverride?: boolean;
@@ -176,6 +175,7 @@ function ToggleListRowMetadata({
  */
 export function ToggleListReferenceRows({
   projectId,
+  disclosureScopeKey,
   cards,
   propertyOrder,
   hiddenProperties,
@@ -183,7 +183,7 @@ export function ToggleListReferenceRows({
   showEmptyPriority,
   renderDocument,
   onOpenCard,
-  expansionStore,
+  disclosureStore,
   activationBudget,
   visibilityOverride,
 }: ToggleListReferenceRowsProps) {
@@ -209,7 +209,7 @@ export function ToggleListReferenceRows({
       {cards.map((card) => (
         <ReferencedCardRow
           key={card.id}
-          activationKey={`toggle-list:${projectId}:${card.id}`}
+          disclosureKey={`${disclosureScopeKey}:${card.id}`}
           projectId={projectId}
           card={card}
           canEdit={!card.archived}
@@ -224,7 +224,7 @@ export function ToggleListReferenceRows({
           }
           renderDocument={renderDocument}
           onOpenCard={onOpenCard}
-          expansionStore={expansionStore}
+          disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           visibilityOverride={visibilityOverride}
         />
@@ -348,6 +348,7 @@ export function ToggleListView({
         <section className="nodex-toggle-list-editor-shell rounded-lg border-[0.5px] border-(--border) bg-(--card) px-3.5 pt-3 pb-4">
           <ToggleListReferenceRows
             projectId={projectId}
+            disclosureScopeKey={`toggle-list:${databaseViewId}`}
             cards={visibleCards}
             propertyOrder={propertyOrder}
             hiddenProperties={hiddenProperties}

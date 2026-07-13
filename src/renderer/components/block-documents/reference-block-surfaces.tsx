@@ -11,11 +11,13 @@ import { isInlineCardCycle } from "./block-reference-runtime-context";
 import type { CardSummary } from "@/lib/types";
 import { resolveKanbanPriorityOption } from "@/lib/kanban-options";
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+  blockDisclosureStateStore,
+  useBlockDisclosure,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
-  referenceExpansionStore,
   referenceSurfaceActivationBudget,
-  useReferenceExpansion,
   useReferenceSurfaceActivation,
 } from "@/lib/reference-surface-state";
 import { StatusIcon } from "@/lib/status-chip";
@@ -33,14 +35,14 @@ export type ReferencedCardDocumentRenderer = (
 ) => ReactNode;
 
 interface ReferenceSurfaceStateDependencies {
-  readonly expansionStore?: ReferenceExpansionStore;
+  readonly disclosureStore?: BlockDisclosureStateStore;
   readonly activationBudget?: ReferenceSurfaceActivationBudget;
   /** Deterministic test/story seam; production always uses IntersectionObserver. */
   readonly visibilityOverride?: boolean;
 }
 
 export interface ReferencedCardRowProps extends ReferenceSurfaceStateDependencies {
-  readonly activationKey: string;
+  readonly disclosureKey: string;
   readonly projectId: string;
   readonly card: CardSummary;
   readonly canEdit: boolean;
@@ -92,7 +94,7 @@ function CardRowMetadata({
 }
 
 export function ReferencedCardRow({
-  activationKey,
+  disclosureKey,
   projectId,
   card,
   canEdit,
@@ -102,25 +104,26 @@ export function ReferencedCardRow({
   metadata,
   renderDocument,
   onOpenCard,
-  expansionStore = referenceExpansionStore,
+  disclosureStore = blockDisclosureStateStore,
   activationBudget = referenceSurfaceActivationBudget,
   visibilityOverride,
 }: ReferencedCardRowProps) {
   const surfaceInstanceId = useId();
-  const surfaceInstanceKey = `${activationKey}:mount:${surfaceInstanceId}`;
-  const [expanded, setExpanded] = useReferenceExpansion(
-    surfaceInstanceKey,
-    expansionStore,
+  const surfaceInstanceKey = `referenced-card:${disclosureKey}:mount:${surfaceInstanceId}`;
+  const [preferredExpanded, setExpanded] = useBlockDisclosure(
+    disclosureKey,
+    disclosureStore,
   );
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
+  const expandable = canEdit && typeof renderDocument === "function";
+  const expanded = expandable && preferredExpanded;
   const active = useReferenceSurfaceActivation(
     surfaceInstanceKey,
-    canEdit && expanded && visible,
+    expanded && visible,
     activationBudget,
   );
   const title = card.title.trim() || "Untitled";
-  const expandable = canEdit && typeof renderDocument === "function";
 
   return (
     <section
@@ -253,7 +256,7 @@ export function DatabaseViewReferenceSurface({
   onOpenCard,
   hostCardId = null,
   ancestorCardIds = [],
-  expansionStore,
+  disclosureStore,
   activationBudget,
   visibilityOverride,
 }: DatabaseViewReferenceSurfaceProps) {
@@ -317,7 +320,7 @@ export function DatabaseViewReferenceSurface({
           return (
             <ReferencedCardRow
               key={row.card.id}
-              activationKey={`${referenceKey}:${row.card.id}`}
+              disclosureKey={`${referenceKey}:${row.card.id}`}
               projectId={model.view.projectId}
               card={row.card}
               canEdit={!row.card.archived && !referencesAncestor}
@@ -331,7 +334,7 @@ export function DatabaseViewReferenceSurface({
               }
               renderDocument={renderDocument}
               onOpenCard={onOpenCard}
-              expansionStore={expansionStore}
+              disclosureStore={disclosureStore}
               activationBudget={activationBudget}
               visibilityOverride={visibilityOverride}
             />

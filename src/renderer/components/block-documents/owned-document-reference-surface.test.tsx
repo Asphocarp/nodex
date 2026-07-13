@@ -3,7 +3,9 @@ import { FileText } from "lucide-react";
 import { describe, expect, test } from "vitest";
 
 import {
-  ReferenceExpansionStore,
+  BlockDisclosureStateStore,
+} from "@/lib/block-disclosure-state";
+import {
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
@@ -13,16 +15,16 @@ const renderIcon = () => <FileText aria-hidden="true" className="size-3.5" />;
 
 describe("OwnedDocumentReferenceSurface", () => {
   test("does not mount the foreign provider surface until local expansion", async () => {
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(1);
     const view = render(
       <OwnedDocumentReferenceSurface
-        referenceKey="host:template-shell"
+        disclosureKey="host:template-shell"
         ownerBlockId="template-owner"
         icon={renderIcon()}
         label="Document"
         detail="Architecture notes"
-        expansionStore={expansionStore}
+        disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride
         renderDocument={({ ownerBlockId }) => (
@@ -62,7 +64,7 @@ describe("OwnedDocumentReferenceSurface", () => {
   test("keeps a cycle-marked owner non-expandable", () => {
     const view = render(
       <OwnedDocumentReferenceSurface
-        referenceKey="recursive-template"
+        disclosureKey="recursive-template"
         ownerBlockId="template-owner"
         icon={renderIcon()}
         label="Template"
@@ -87,16 +89,16 @@ describe("OwnedDocumentReferenceSurface", () => {
   });
 
   test("unmounts an expanded provider as soon as its shell leaves view", async () => {
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(1);
     const makeSurface = (visible: boolean) => (
       <OwnedDocumentReferenceSurface
-        referenceKey="visible-template"
+        disclosureKey="visible-template"
         ownerBlockId="template-owner"
         icon={renderIcon()}
         label="Template"
         detail="Release checklist"
-        expansionStore={expansionStore}
+        disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride={visible}
         renderDocument={() => (

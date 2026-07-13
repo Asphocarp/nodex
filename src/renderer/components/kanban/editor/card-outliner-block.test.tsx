@@ -1,8 +1,8 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { BlockReferenceRuntimeProvider } from "@/components/block-documents/block-reference-runtime-context";
+import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
 import {
-  ReferenceExpansionStore,
   ReferenceSurfaceActivationBudget,
 } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
@@ -123,7 +123,7 @@ describe("CardOutlinerBlock", () => {
       writable: true,
       value: ControlledIntersectionObserver,
     });
-    const expansionStore = new ReferenceExpansionStore();
+    const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(1);
     const view = render(
       <BlockReferenceRuntimeProvider
@@ -142,7 +142,7 @@ describe("CardOutlinerBlock", () => {
           shellBlockId="nested-card"
           targetBlockId="nested-card"
           displayHint="Nested Card"
-          expansionStore={expansionStore}
+          disclosureStore={disclosureStore}
           activationBudget={activationBudget}
         />
       </BlockReferenceRuntimeProvider>,
@@ -165,5 +165,59 @@ describe("CardOutlinerBlock", () => {
     ).toBe(anchor);
     expect(ControlledIntersectionObserver.latest?.observed).toBe(anchor);
     expect(activationBudget.getActiveKeys()).toHaveLength(1);
+  });
+
+  test("persists disclosure by reference Block identity rather than target Card", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(2);
+    const view = render(
+      <BlockReferenceRuntimeProvider
+        value={{
+          projectId: "project-a",
+          projectName: "Project A",
+          projectWorkspacePath: null,
+          hostCardId: "host-card",
+          ancestorCardIds: ["host-card"],
+          ancestorDocumentOwnerBlockIds: ["host-card"],
+          isActiveSurface: true,
+        }}
+      >
+        <CardOutlinerBlock
+          relationship="reference"
+          shellBlockId="card-ref-1"
+          targetBlockId="nested-card"
+          displayHint="Nested Card"
+          disclosureStore={disclosureStore}
+          activationBudget={activationBudget}
+          visibilityOverride
+        />
+        <CardOutlinerBlock
+          relationship="reference"
+          shellBlockId="card-ref-2"
+          targetBlockId="nested-card"
+          displayHint="Nested Card"
+          disclosureStore={disclosureStore}
+          activationBudget={activationBudget}
+          visibilityOverride
+        />
+      </BlockReferenceRuntimeProvider>,
+    );
+    const rows = view.container.querySelectorAll(
+      "[data-card-outliner-target='nested-card']",
+    );
+    const firstDisclosure = view
+      .getAllByRole("button", { name: "Expand Nested Card" })
+      .at(0);
+    if (!firstDisclosure) throw new Error("Missing first Card disclosure");
+
+    await act(async () => {
+      fireEvent.click(firstDisclosure);
+      await Promise.resolve();
+    });
+
+    expect(rows[0]?.getAttribute("data-card-outliner-expanded")).toBe("true");
+    expect(rows[1]?.getAttribute("data-card-outliner-expanded")).toBe("false");
+    expect(disclosureStore.isExpanded("card-ref-1")).toBe(true);
+    expect(disclosureStore.isExpanded("card-ref-2")).toBe(false);
   });
 });

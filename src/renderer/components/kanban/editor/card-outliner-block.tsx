@@ -52,7 +52,7 @@ export function CardOutlinerBlock({
   shellBlockId,
   targetBlockId,
   displayHint,
-  expansionStore,
+  disclosureStore,
   activationBudget,
   visibilityOverride,
 }: CardOutlinerBlockProps) {
@@ -77,9 +77,9 @@ export function CardOutlinerBlock({
     target.status === "available" &&
     target.inlineMode === "editable";
   const activation = useCardOutlinerActivation({
-    activationKey: `card-outliner:${host?.hostCardId ?? "unscoped"}:${shellBlockId}:${targetBlockId}`,
+    disclosureKey: shellBlockId,
     expandable,
-    expansionStore,
+    disclosureStore,
     activationBudget,
     visibilityOverride,
   });
