@@ -11,7 +11,13 @@ import {
   useTransitionStatus,
   useTransitionStyles,
 } from "@floating-ui/react";
-import { HTMLAttributes, ReactNode, useEffect, useRef } from "react";
+import {
+  HTMLAttributes,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 
 import { useBlockNoteEditor } from "../../hooks/useBlockNoteEditor.js";
 import { FloatingUIOptions } from "./FloatingUIOptions.js";
@@ -158,7 +164,25 @@ export const GenericPopover = (
 
   const innerHTML = useRef<string>("");
   const ref = useRef<HTMLDivElement>(null);
-  const mergedRefs = useMergeRefs([ref, refs.setFloating]);
+  const interactionRootCleanup = useRef<(() => void) | undefined>(undefined);
+  const setInteractionRoot = useCallback(
+    (element: HTMLDivElement | null) => {
+      interactionRootCleanup.current?.();
+      interactionRootCleanup.current = element
+        ? editor.registerInteractionRoot(element)
+        : undefined;
+    },
+    [editor],
+  );
+  const mergedRefs = useMergeRefs([ref, refs.setFloating, setInteractionRoot]);
+
+  useEffect(
+    () => () => {
+      interactionRootCleanup.current?.();
+      interactionRootCleanup.current = undefined;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (props.reference) {
@@ -167,8 +191,7 @@ export const GenericPopover = (
 
       if (
         element !== undefined &&
-        (props.focusManagerProps?.disabled ||
-          !editor.isWithinEditor(element))
+        (props.focusManagerProps?.disabled || !editor.isWithinEditor(element))
       ) {
         // Only set domReference when FloatingFocusManager is disabled.
         // When FloatingFocusManager is active (disabled !== false) and the

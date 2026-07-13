@@ -279,6 +279,14 @@ function getBlockFromMousePos(
   );
 }
 
+function eventTargetsEditorContent(event: Event, editorElement: Element) {
+  const path = event.composedPath();
+  if (path.length > 0) {
+    return path.includes(editorElement);
+  }
+  return event.target instanceof Node && editorElement.contains(event.target);
+}
+
 /**
  * With the sidemenu plugin we can position a menu next to a hovered block.
  */
@@ -286,12 +294,13 @@ export class SideMenuView<
   BSchema extends BlockSchema,
   I extends InlineContentSchema,
   S extends StyleSchema,
-> implements PluginView
-{
+> implements PluginView {
   public state?: SideMenuState<BSchema, I, S>;
   public readonly emitUpdate: (state: SideMenuState<BSchema, I, S>) => void;
 
   private mousePos: { x: number; y: number } | undefined;
+
+  private mousePositionOwnedByEditor = false;
 
   private hoveredBlock: HTMLElement | undefined;
 
@@ -389,10 +398,12 @@ export class SideMenuView<
       return;
     }
 
-    const closestEditor = this.findClosestEditorElement({
-      clientX: this.mousePos.x,
-      clientY: this.mousePos.y,
-    });
+    const closestEditor = this.mousePositionOwnedByEditor
+      ? { element: this.pmView.dom, distance: 0 }
+      : this.findClosestEditorElement({
+          clientX: this.mousePos.x,
+          clientY: this.mousePos.y,
+        });
 
     if (
       closestEditor?.element !== this.pmView.dom ||
@@ -634,8 +645,34 @@ export class SideMenuView<
     // Tells us that the current editor instance has a drag ongoing (either text or side menu)
     const isDragOrigin = textContentIsBeingDragged || sideMenuIsBeingDragged;
 
+    const interactionOwnership = this.editor.getInteractionOwnership(event);
+    if (interactionOwnership === "other") {
+      return isDragOrigin
+        ? {
+            isDropPoint: false,
+            isDropWithinEditorBounds: false,
+            isDragOrigin: true,
+          }
+        : undefined;
+    }
+    if (
+      interactionOwnership === "self" &&
+      !eventTargetsEditorContent(event, this.pmView.dom)
+    ) {
+      return isDragOrigin
+        ? {
+            isDropPoint: false,
+            isDropWithinEditorBounds: false,
+            isDragOrigin: true,
+          }
+        : undefined;
+    }
+
     // Tells us which editor instance is the closest to the drag event (whether or not it is actually reasonably close)
-    const closestEditor = this.findClosestEditorElement(event);
+    const closestEditor =
+      interactionOwnership === "self"
+        ? { element: this.pmView.dom, distance: 0 }
+        : this.findClosestEditorElement(event);
 
     // We arbitrarily decide how far is "too far" from the closest editor to be considered a drop point
     if (
@@ -797,7 +834,24 @@ export class SideMenuView<
       return;
     }
 
+    const interactionOwnership = this.editor.getInteractionOwnership(event);
+    if (interactionOwnership === "other") {
+      this.mousePositionOwnedByEditor = false;
+      this.hideMenu();
+      return;
+    }
+    if (
+      interactionOwnership === "self" &&
+      !eventTargetsEditorContent(event, this.pmView.dom)
+    ) {
+      // The pointer moved from content onto this editor's portaled UI. Keep
+      // the current block and mouse position so document updates cannot make
+      // the side menu disappear while the user reaches for its drag handle.
+      return;
+    }
+
     this.mousePos = { x: event.clientX, y: event.clientY };
+    this.mousePositionOwnedByEditor = interactionOwnership === "self";
 
     // We want the full area of the editor to check if the cursor is hovering
     // above it though.
@@ -977,11 +1031,12 @@ export const SideMenuExtension = createExtension(({ editor }) => {
         const selectionBlockIds = getSideMenuDroppedBlockIdsFromSelection(
           editor.prosemirrorView.state.selection,
         );
-        const draggedBlockIds = dragStartResult.blockIds.length > 0
-          ? dragStartResult.blockIds
-          : selectionBlockIds.length > 0
-            ? selectionBlockIds
-            : [block.id];
+        const draggedBlockIds =
+          dragStartResult.blockIds.length > 0
+            ? dragStartResult.blockIds
+            : selectionBlockIds.length > 0
+              ? selectionBlockIds
+              : [block.id];
         view.setDraggedBlockIdsForDropSelection(draggedBlockIds);
         editor.prosemirrorView.dragging = {
           slice: dragStartResult.slice,

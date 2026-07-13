@@ -45,6 +45,11 @@ import type { NoInfer } from "../util/typescript.js";
 import { ExtensionFactoryInstance } from "./BlockNoteExtension.js";
 import type { TextCursorPosition } from "./cursorPositionTypes.js";
 import {
+  getEditorInteractionOwnership,
+  registerEditorInteractionRoot,
+  type EditorInteractionOwnership,
+} from "./editorInteractionScopes.js";
+import {
   BlockManager,
   EventManager,
   ExportManager,
@@ -473,8 +478,7 @@ export class BlockNoteEditor<
           SSchema
         >),
       ...options,
-      generateBlockId:
-        options.generateBlockId ?? UniqueID.options.generateID,
+      generateBlockId: options.generateBlockId ?? UniqueID.options.generateID,
       placeholders: {
         ...this.dictionary.placeholders,
         ...options.placeholders,
@@ -760,6 +764,7 @@ export class BlockNoteEditor<
     element: HTMLElement,
     options?: { portalTarget?: HTMLElement | null },
   ) => {
+    this.clearMountedInteractionRoots();
     const root = element.getRootNode();
     const isInShadowRoot =
       typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot;
@@ -768,7 +773,25 @@ export class BlockNoteEditor<
       element.parentElement ??
       (isInShadowRoot ? (root as ShadowRoot) : document.body);
     target.appendChild(this.portalElement);
-    this._tiptapEditor.mount({ mount: element });
+    const editorContainer = element.parentElement?.classList.contains(
+      "bn-container",
+    )
+      ? element.parentElement
+      : null;
+    this._mountedInteractionRootCleanups = [
+      this.registerInteractionRoot(element),
+      ...(editorContainer
+        ? [this.registerInteractionRoot(editorContainer)]
+        : []),
+      this.registerInteractionRoot(this.portalElement),
+    ];
+    try {
+      this._tiptapEditor.mount({ mount: element });
+    } catch (error) {
+      this.clearMountedInteractionRoots();
+      this.portalElement.remove();
+      throw error;
+    }
   };
 
   /**
@@ -777,6 +800,7 @@ export class BlockNoteEditor<
   public unmount = () => {
     this.portalElement?.remove();
     this._tiptapEditor.unmount();
+    this.clearMountedInteractionRoots();
   };
 
   /**
@@ -805,6 +829,15 @@ export class BlockNoteEditor<
 
   private _portalElement: HTMLElement | undefined;
 
+  private _mountedInteractionRootCleanups: Array<() => void> = [];
+
+  private clearMountedInteractionRoots = () => {
+    for (const cleanup of this._mountedInteractionRootCleanups) {
+      cleanup();
+    }
+    this._mountedInteractionRootCleanups = [];
+  };
+
   /**
    * The portal container element at `document.body` used by floating UI
    * elements (menus, toolbars) to escape overflow:hidden ancestors.
@@ -822,16 +855,22 @@ export class BlockNoteEditor<
     return this._portalElement;
   }
 
+  /** Registers a content or floating-UI root as part of this editor's interaction scope. */
+  public registerInteractionRoot = (root: Element) =>
+    registerEditorInteractionRoot(this, root);
+
   /**
-   * Checks whether a DOM element belongs to this editor — either inside the
-   * editor's DOM tree or inside its portal container (used for floating UI
-   * elements like menus and toolbars).
+   * Resolves ownership from the deepest registered root in the composed DOM
+   * path. `none` deliberately leaves empty gutters to geometry-based UI
+   * routing; `other` prevents a parent editor from claiming nested content.
    */
+  public getInteractionOwnership = (
+    target: Element | Event,
+  ): EditorInteractionOwnership => getEditorInteractionOwnership(this, target);
+
+  /** Checks whether a DOM element belongs to this editor's interaction scope. */
   public isWithinEditor = (element: Element): boolean => {
-    return !!(
-      this.domElement?.parentElement?.contains(element) ||
-      this.portalElement?.contains(element)
-    );
+    return this.getInteractionOwnership(element) === "self";
   };
 
   public isFocused() {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { BlockNoteEditor } from "@blocknote/core";
 import {
   createSideMenuDroppedBlockSelection,
   getSideMenuDroppedBlockIdsFromSelection,
@@ -99,6 +100,8 @@ function installElementsFromPoint(
 function makeSideMenuView(
   active: ReturnType<typeof makeEditorCandidate>,
   root: Document | ShadowRoot = document,
+  interactionOwnership: (event: Event) => "self" | "other" | "none" = () =>
+    "none",
 ) {
   const droppedSlice = new Slice(
     Fragment.from(makeBlock(active.block.dataset.id!)),
@@ -115,14 +118,17 @@ function makeSideMenuView(
     dispatch: () => {},
   };
   let hoveredBlockId = "";
+  let visible = false;
   const view = new SideMenuView(
     {
       isEditable: true,
       isWithinEditor: (element: Element) => active.editor.contains(element),
+      getInteractionOwnership: interactionOwnership,
       getBlock: (id: string) => ({ id }),
     } as never,
     pmView as never,
     (state) => {
+      visible = state.show;
       if (state.show) hoveredBlockId = state.block.id;
     },
     () => {},
@@ -131,7 +137,26 @@ function makeSideMenuView(
   return {
     view,
     getHoveredBlockId: () => hoveredBlockId,
+    isVisible: () => visible,
   };
+}
+
+function makePointerEvent(
+  type: "mousemove" | "dragover",
+  target: Element,
+  path: EventTarget[],
+  clientX: number,
+  clientY: number,
+) {
+  const event =
+    type === "mousemove"
+      ? new MouseEvent(type, { bubbles: true, clientX, clientY })
+      : makeDropEvent(type, clientX, clientY);
+  Object.defineProperties(event, {
+    target: { configurable: true, value: target },
+    composedPath: { configurable: true, value: () => path },
+  });
+  return event;
 }
 
 function makeDropEvent(type: string, clientX: number, clientY: number) {
@@ -158,7 +183,10 @@ describe("side-menu drop selection helpers", () => {
   });
 
   test("creates a MultipleNodeSelection for adjacent dropped block ids", () => {
-    const selection = createSideMenuDroppedBlockSelection(makeDoc(), ["c", "b"]);
+    const selection = createSideMenuDroppedBlockSelection(makeDoc(), [
+      "c",
+      "b",
+    ]);
 
     expect(selection instanceof MultipleNodeSelection).toBe(true);
     expect(selectionIds(selection)).toBe("b,c");
@@ -173,7 +201,9 @@ describe("side-menu drop selection helpers", () => {
       0,
     );
 
-    expect(getSideMenuDroppedBlockIdsFromSelection(selection!).join(",")).toBe("b,c");
+    expect(getSideMenuDroppedBlockIdsFromSelection(selection!).join(",")).toBe(
+      "b,c",
+    );
     expect(getSideMenuDroppedBlockIdsFromSlice(slice).join(",")).toBe("x,y");
   });
 
@@ -181,11 +211,15 @@ describe("side-menu drop selection helpers", () => {
     const doc = makeDoc();
     const selection = createSideMenuDroppedBlockSelection(doc, ["b"]);
 
-    expect(getSideMenuDroppedBlockIdsFromSlice(selection!.content()).join(",")).toBe("b");
+    expect(
+      getSideMenuDroppedBlockIdsFromSlice(selection!.content()).join(","),
+    ).toBe("b");
   });
 
   test("returns undefined when dropped ids are not in the new document", () => {
-    expect(createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined).toBe(true);
+    expect(
+      createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined,
+    ).toBe(true);
   });
 
   test("ignores non-interactive editor geometry for side-menu hover and drop routing", () => {
@@ -255,10 +289,10 @@ describe("side-menu drop selection helpers", () => {
     top.blockGroup.style.pointerEvents = "auto";
     document.body.append(lower.editor, top.editor);
 
-    const restoreElementsFromPoint = installElementsFromPoint(
-      document,
-      () => [top.block, lower.block],
-    );
+    const restoreElementsFromPoint = installElementsFromPoint(document, () => [
+      top.block,
+      lower.block,
+    ]);
     const runtime = makeSideMenuView(top);
 
     try {
@@ -279,6 +313,129 @@ describe("side-menu drop selection helpers", () => {
       restoreElementsFromPoint();
       lower.editor.remove();
       top.editor.remove();
+    }
+  });
+
+  test("keeps nested editor hover and drop ownership while crossing into its portaled side menu", () => {
+    const outer = makeEditorCandidate("outer", new DOMRect(80, 80, 440, 360));
+    const inner = makeEditorCandidate("inner", new DOMRect(120, 120, 360, 240));
+    const innerContainer = document.createElement("div");
+    const innerPortal = document.createElement("div");
+    const innerHandle = document.createElement("button");
+    innerContainer.className = "bn-container";
+    innerPortal.className = "bn-root";
+    innerPortal.appendChild(innerHandle);
+    innerContainer.append(inner.editor, innerPortal);
+    outer.block.appendChild(innerContainer);
+    document.body.appendChild(outer.editor);
+
+    const outerOwner = BlockNoteEditor.create();
+    const innerOwner = BlockNoteEditor.create();
+    const unregisterOuter = outerOwner.registerInteractionRoot(outer.editor);
+    const unregisterInnerContent = innerOwner.registerInteractionRoot(
+      inner.editor,
+    );
+    const unregisterInnerPortal =
+      innerOwner.registerInteractionRoot(innerPortal);
+    const restoreElementsFromPoint = installElementsFromPoint(document, () => [
+      inner.block,
+      outer.block,
+    ]);
+    const outerRuntime = makeSideMenuView(
+      outer,
+      document,
+      outerOwner.getInteractionOwnership,
+    );
+    const innerRuntime = makeSideMenuView(
+      inner,
+      document,
+      innerOwner.getInteractionOwnership,
+    );
+
+    const contentPath = [
+      inner.block,
+      inner.blockGroup,
+      inner.editor,
+      innerContainer,
+      outer.block,
+      outer.blockGroup,
+      outer.editor,
+      document.body,
+      document,
+      window,
+    ];
+    const portalPath = [
+      innerHandle,
+      innerPortal,
+      innerContainer,
+      outer.block,
+      outer.blockGroup,
+      outer.editor,
+      document.body,
+      document,
+      window,
+    ];
+
+    try {
+      const contentMove = makePointerEvent(
+        "mousemove",
+        inner.block,
+        contentPath,
+        160,
+        160,
+      ) as MouseEvent;
+      innerRuntime.view.onMouseMove(contentMove);
+      outerRuntime.view.onMouseMove(contentMove);
+
+      expect(innerRuntime.getHoveredBlockId()).toBe("inner");
+      expect(innerRuntime.isVisible()).toBe(true);
+      expect(outerRuntime.isVisible()).toBe(false);
+
+      const handleMove = makePointerEvent(
+        "mousemove",
+        innerHandle,
+        portalPath,
+        100,
+        160,
+      ) as MouseEvent;
+      innerRuntime.view.onMouseMove(handleMove);
+      outerRuntime.view.onMouseMove(handleMove);
+
+      expect(innerRuntime.isVisible()).toBe(true);
+      expect(outerRuntime.isVisible()).toBe(false);
+
+      const innerDropContext = innerRuntime.view.getDragEventContext(
+        makePointerEvent(
+          "dragover",
+          inner.block,
+          contentPath,
+          160,
+          160,
+        ) as DragEvent,
+      );
+      const outerDropContext = outerRuntime.view.getDragEventContext(
+        makePointerEvent(
+          "dragover",
+          inner.block,
+          contentPath,
+          160,
+          160,
+        ) as DragEvent,
+      );
+
+      expect(innerDropContext).toMatchObject({
+        isDropPoint: true,
+        isDropWithinEditorBounds: true,
+      });
+      expect(outerDropContext).toBeUndefined();
+    } finally {
+      innerRuntime.view.destroy();
+      outerRuntime.view.destroy();
+      restoreElementsFromPoint();
+      unregisterInnerPortal();
+      unregisterInnerContent();
+      unregisterOuter();
+      outer.editor.remove();
     }
   });
 
@@ -331,7 +488,9 @@ describe("side-menu drop selection helpers", () => {
         move: true,
       },
       dispatch: () => {
-        throw new Error("outer drop handler should not collapse selection after synthetic drop");
+        throw new Error(
+          "outer drop handler should not collapse selection after synthetic drop",
+        );
       },
     };
     let pendingIds = "";
@@ -342,7 +501,10 @@ describe("side-menu drop selection helpers", () => {
     });
 
     const view = new SideMenuView(
-      { isEditable: true } as never,
+      {
+        isEditable: true,
+        getInteractionOwnership: () => "none",
+      } as never,
       pmView as never,
       () => {},
       (blockIds) => {
@@ -390,6 +552,7 @@ describe("side-menu drop selection helpers", () => {
     const extension = SideMenuExtension()({
       editor: {
         isEditable: true,
+        getInteractionOwnership: () => "none",
         prosemirrorView: pmView,
         blur: () => {
           blurred = true;

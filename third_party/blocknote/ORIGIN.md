@@ -36,6 +36,7 @@ The vendored source carries these Nodex-maintained deltas from upstream:
 - `core/src/blocks/ToggleWrapper/createToggleWrapper.ts`: preserve collapsed toggle state across children being added instead of forcing collapsed toggles open.
 - `core/src/extensions/SideMenu/SideMenu.ts`: carry captured side-menu drag details through the drag-start event path.
 - `core/src/extensions/SideMenu/SideMenu.ts`: exclude inert, non-rendered, and pointer-disabled editors from document-wide side-menu routing, prefer browser hit-test order for overlapping visible editors, and keep geometric proximity as the gutter fallback.
+- `core/src/editor/editorInteractionScopes.ts`, `core/src/editor/BlockNoteEditor.ts`, `core/src/extensions/SideMenu/SideMenu.ts`, and `react/src/components/Popovers/GenericPopover.tsx`: give nested editors explicit content/container/floating-UI interaction scopes, route side-menu hover and drop events to the deepest owner before geometric gutter fallback, and keep custom portal targets attributable to their editor.
 - `core/src/extensions/SideMenu/dragging.ts`: support captured selected block IDs and ProseMirror ranges when creating drag selections, and guard drag cleanup when the view is no longer mounted.
 - `core/src/extensions/SideMenu/dragging.ts`: use ProseMirror's public `TextSelection.between` API for captured selection ranges; `Selection.between` is not exposed by the installed ProseMirror version.
 - `react/src/blocks/ToggleWrapper/ToggleWrapper.tsx`: keep React toggle-wrapper behavior aligned with the core toggle-wrapper collapse semantics.
