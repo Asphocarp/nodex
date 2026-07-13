@@ -64,6 +64,7 @@ export const DropCursorExtension = createExtension<
   let element: HTMLElement | null = null;
   let timeout = -1;
   let dragSourceElement: Element | null = null;
+  let externalDragOwnershipResolver = (_event: DragEvent) => false;
 
   const config = {
     width: options.dropCursor?.width ?? 5,
@@ -146,6 +147,11 @@ export const DropCursorExtension = createExtension<
 
   const onDragOver = (event: Event) => {
     const e = event as DragEvent;
+
+    if (externalDragOwnershipResolver(e)) {
+      setCursor(null);
+      return;
+    }
 
     // Check if drag source has exclusion classname
     if (
@@ -240,6 +246,18 @@ export const DropCursorExtension = createExtension<
 
   return {
     key: "dropCursor",
+    clearDropCursor() {
+      setCursor(null);
+    },
+    setExternalDragOwnershipResolver(
+      resolver: (event: DragEvent) => boolean,
+    ): () => void {
+      externalDragOwnershipResolver = resolver;
+      return () => {
+        if (externalDragOwnershipResolver !== resolver) return;
+        externalDragOwnershipResolver = () => false;
+      };
+    },
     mount({ signal, dom, root }) {
       // Track drag source at document level
       root.addEventListener("dragstart", onDragStart, {

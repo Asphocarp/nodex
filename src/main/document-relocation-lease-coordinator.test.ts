@@ -300,6 +300,48 @@ describe("Document relocation lease coordinator", () => {
     ).toBe("participant-b");
   });
 
+  test("an acknowledged participant may detach while the remaining lease quorum prepares", async () => {
+    const harness = makeHarness();
+    harness.coordinator.subscribe("participant-nested", "document-a");
+    harness.coordinator.subscribe("participant-outer", "document-a");
+    const preparation = harness.coordinator.prepare({
+      leaseId: "lease-view-detach",
+      documents: [documentHead("document-a", 4)],
+    });
+
+    const nestedAck = harness.coordinator.acknowledge({
+      leaseId: "lease-view-detach",
+      participantSessionKey: "participant-nested",
+      documentId: "document-a",
+      generation: 1,
+      headSeq: 4,
+    });
+    expect(nestedAck.ok).toBe(true);
+    const detached = harness.coordinator.unsubscribe(
+      "participant-nested",
+      "document-a",
+    );
+    expect(detached.ok).toBe(true);
+    expect(harness.coordinator.getFencedDocumentIds()).toEqual([
+      "document-a",
+    ]);
+
+    harness.coordinator.acknowledge({
+      leaseId: "lease-view-detach",
+      participantSessionKey: "participant-outer",
+      documentId: "document-a",
+      generation: 1,
+      headSeq: 5,
+    });
+    const prepared = await preparation;
+    expect(prepared.ok).toBe(true);
+    if (prepared.ok) {
+      expect(prepared.value.resolvedHeads[0]?.headSeq).toBe(5);
+      expect(prepared.value.acknowledgements).toHaveLength(2);
+    }
+    harness.coordinator.release("lease-view-detach");
+  });
+
   test("only an expected participant can NACK and caller cancellation is idempotent", async () => {
     const harness = makeHarness();
     harness.coordinator.subscribe("participant-a", "document-a");

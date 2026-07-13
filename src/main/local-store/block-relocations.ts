@@ -364,17 +364,13 @@ const loadWorkingDocument = (
     }
     throw error;
   }
-  try {
-    const working = new Y.Doc({ guid: row.document_id });
-    Y.applyUpdate(
-      working,
-      Y.encodeStateAsUpdate(loaded.document),
-      "sqlite-relocation-clone",
-    );
-    return working;
-  } finally {
-    loaded.document.destroy();
-  }
+  // loadPrimaryBlockDocument already returns a fresh detached reconstruction.
+  // Mutate that exact snapshot-plus-tail lineage directly. Re-encoding it into
+  // a second equivalent Y.Doc is not a byte-canonical clone in Yjs (notably
+  // around garbage-collected delete sets), so hashing the second representation
+  // while persisting only its delta can create a false corruption boundary on
+  // the next replay.
+  return loaded.document;
 };
 
 const validateRelocatedDocument = (

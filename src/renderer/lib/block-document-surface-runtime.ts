@@ -96,6 +96,7 @@ export interface BlockDocumentSurfaceProvider {
   disconnect: () => void;
   flush: () => Promise<void>;
   checkpoint: () => Promise<void>;
+  waitForRelocationIdle: () => Promise<void>;
   destroy: () => void;
 }
 
@@ -572,6 +573,13 @@ export class BlockDocumentSurfaceRuntime {
     const persisted = terminal
       ? null
       : await (this.persistPromise ?? this.persistOwnedDocument());
+
+    // A React surface is only the visual owner of this provider. If its
+    // parent EditorView disappears after relocation preparation has begun,
+    // retain the headless participant until the bounded lease reaches a
+    // terminal event. Unsubscribing earlier turns harmless view churn into a
+    // false participant-disconnected transaction failure.
+    await this.provider.waitForRelocationIdle();
 
     this.unsubscribeProviderStatus();
     try {

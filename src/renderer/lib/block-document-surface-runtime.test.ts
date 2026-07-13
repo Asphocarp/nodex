@@ -81,6 +81,7 @@ class FakeSurfaceProvider implements BlockDocumentSurfaceProvider {
   readonly events: string[];
   flushPromise: Promise<void> = Promise.resolve();
   checkpointPromise: Promise<void> = Promise.resolve();
+  relocationIdlePromise: Promise<void> = Promise.resolve();
   onConnect: (() => void | Promise<void>) | null = null;
 
   private status: NodexYProviderStatus;
@@ -131,6 +132,11 @@ class FakeSurfaceProvider implements BlockDocumentSurfaceProvider {
   checkpoint = (): Promise<void> => {
     this.events.push("checkpoint");
     return this.checkpointPromise;
+  };
+
+  waitForRelocationIdle = (): Promise<void> => {
+    this.events.push("wait-relocation-idle");
+    return this.relocationIdlePromise;
   };
 
   destroy = (): void => {
@@ -475,6 +481,33 @@ describe("BlockDocumentSurfaceRuntime", () => {
       events.indexOf("provider-destroy") < events.indexOf("document-destroy"),
     ).toBe(true);
     expect(runtime.getStatus().phase).toBe("closed");
+  });
+
+  test("retains an unmounted provider until its active relocation lease settles", async () => {
+    const events: string[] = [];
+    const providers: FakeSurfaceProvider[] = [];
+    const runtime = new BlockDocumentSurfaceRuntime({
+      descriptor: descriptor(),
+      adapter: unusedAdapter,
+      createProvider: createFactory(providers, events),
+      localCheckpointStore: null,
+    });
+    const provider = providers[0];
+    if (!provider) throw new Error("Expected provider");
+    let settleRelocation = (): void => undefined;
+    provider.relocationIdlePromise = new Promise<void>((resolve) => {
+      settleRelocation = resolve;
+    });
+
+    const closing = runtime.close();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(events.includes("wait-relocation-idle")).toBe(true);
+    expect(events.includes("provider-destroy")).toBe(false);
+
+    settleRelocation();
+    await closing;
+    expect(events.includes("provider-destroy")).toBe(true);
   });
 
   test("coalesces bounded persistence without disconnecting the live surface", async () => {

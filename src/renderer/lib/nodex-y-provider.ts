@@ -146,6 +146,10 @@ interface FlushWaiter {
   readonly reject: (error: Error) => void;
 }
 
+interface RelocationIdleWaiter {
+  readonly resolve: () => void;
+}
+
 interface ActiveProviderRelocationLease {
   readonly leaseId: string;
   readonly storeEpoch: string;
@@ -311,6 +315,7 @@ export class NodexYProvider {
   private readonly documentSchemaAdapter: BlockDocumentSchemaAdapter;
   private readonly statusListeners = new Set<() => void>();
   private readonly flushWaiters = new Set<FlushWaiter>();
+  private readonly relocationIdleWaiters = new Set<RelocationIdleWaiter>();
 
   private status: NodexYProviderStatus;
   private unsubscribeRealtime: (() => void) | null = null;
@@ -563,6 +568,18 @@ export class NodexYProvider {
     await this.queueLocalCheckpoint();
   };
 
+  /**
+   * A mounted surface may disappear while its parent EditorView is changing.
+   * Once this provider has entered a relocation lease it remains the durable
+   * participant until that bounded protocol reaches release, cancel, or reset.
+   */
+  waitForRelocationIdle = (): Promise<void> => {
+    if (!this.activeRelocationLease) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.relocationIdleWaiters.add({ resolve });
+    });
+  };
+
   destroy = (): void => {
     if (this.destroyed) {
       return;
@@ -593,6 +610,7 @@ export class NodexYProvider {
     this.bufferedDocumentEvents = [];
     this.bufferedAwarenessEvents = [];
     this.rejectFlushWaiters(providerDestroyedError());
+    this.resolveRelocationIdleWaiters();
     this.refreshStatus();
     this.statusListeners.clear();
   };
@@ -1039,6 +1057,12 @@ export class NodexYProvider {
   private clearActiveRelocationLease(): void {
     this.activeRelocationLease?.cancelDeadline?.();
     this.activeRelocationLease = null;
+    this.resolveRelocationIdleWaiters();
+  }
+
+  private resolveRelocationIdleWaiters(): void {
+    for (const waiter of this.relocationIdleWaiters) waiter.resolve();
+    this.relocationIdleWaiters.clear();
   }
 
   private handleRemoteAwareness(

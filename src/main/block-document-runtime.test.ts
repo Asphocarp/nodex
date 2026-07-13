@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
   CARD_DOCUMENT_SCHEMA_KEY,
@@ -34,9 +33,6 @@ interface AuthorityDocument {
 interface CommittedUpdate {
   readonly committedSeq: number;
 }
-
-const hashBytes = (value: Uint8Array): string =>
-  createHash("sha256").update(value).digest("hex");
 
 const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
   if (left.byteLength !== right.byteLength) {
@@ -191,7 +187,6 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
   private identityFor(
     source: AuthorityDocument,
   ): BlockDocumentRuntimeIdentity {
-    const state = Y.encodeStateAsUpdate(source.document);
     return {
       storeEpoch: this.storeEpoch,
       authority: "ydoc_primary",
@@ -204,7 +199,6 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
         schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
         stateVector: Y.encodeStateVector(source.document),
       },
-      stateHash: hashBytes(state),
     };
   }
 

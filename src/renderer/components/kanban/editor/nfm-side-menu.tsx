@@ -1952,6 +1952,7 @@ export function NfmSideMenu() {
   const dragStartedRef = useRef(false);
   const lastPointerActivationAtRef = useRef<number | null>(null);
   const sideMenuOpenController = useNfmSideMenuOpenController();
+  const runtime = useNfmSideMenuRuntime();
 
   const dragTargetBlock = block;
 
@@ -2062,11 +2063,21 @@ export function NfmSideMenu() {
               ...event,
               ...(dragSelectionSnapshotRef.current ?? {}),
             };
-            sideMenu.blockDragStart(dragEvent, dragTargetBlock as never);
+            const result = sideMenu.blockDragStart(
+              dragEvent,
+              dragTargetBlock as never,
+            );
+            if (event.dataTransfer && result?.blockIds.length) {
+              runtime.getSnapshot().onBlockDragStart({
+                dataTransfer: event.dataTransfer,
+                blockIds: result.blockIds,
+              });
+            }
           }}
           onDragEnd={() => {
             dragStartedRef.current = false;
             dragSelectionSnapshotRef.current = null;
+            runtime.getSnapshot().onBlockDragEnd();
             sideMenu.blockDragEnd();
           }}
           className="bn-button"

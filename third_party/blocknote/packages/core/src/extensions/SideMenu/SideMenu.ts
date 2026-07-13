@@ -24,6 +24,7 @@ import { getDraggableBlockFromElement } from "../getDraggableBlockFromElement.js
 import {
   dragStart,
   type SideMenuBlockDragStartEvent,
+  type SideMenuBlockDragStartResult,
   unsetDragImage,
 } from "./dragging.js";
 import {
@@ -317,6 +318,8 @@ export class SideMenuView<
     private readonly setPendingDroppedBlockIdsForSelection: (
       blockIds: string[],
     ) => void,
+    private readonly isExternalDragManaged: (event: DragEvent) => boolean =
+      () => false,
   ) {
     this.emitUpdate = () => {
       if (!this.state) {
@@ -480,6 +483,7 @@ export class SideMenuView<
    * access `dataTransfer` contents on `dragstart` and `drop` events.
    */
   onDragStart = (event: DragEvent) => {
+    if (this.isExternalDragManaged(event)) return;
     const html = event.dataTransfer?.getData("blocknote/html");
     if (!html) {
       return;
@@ -556,6 +560,10 @@ export class SideMenuView<
    */
   onDragOver = (event: DragEvent) => {
     if ((event as any).synthetic) {
+      return;
+    }
+    if (this.isExternalDragManaged(event)) {
+      this.closeDropCursor();
       return;
     }
 
@@ -717,6 +725,11 @@ export class SideMenuView<
    */
   onDrop = (event: DragEvent) => {
     if ((event as any).synthetic) {
+      return;
+    }
+    if (this.isExternalDragManaged(event)) {
+      this.setPendingDroppedBlockIdsForSelection([]);
+      this.closeDropCursor();
       return;
     }
 
@@ -962,6 +975,7 @@ export const SideMenuExtension = createExtension(({ editor }) => {
   let pendingDroppedBlockIdsForSelection: string[] = [];
   let preserveFocusAfterDroppedBlockSelection = false;
   let blockDragEndHandled = false;
+  let externalDragOwnershipResolver = (_event: DragEvent) => false;
   const store = createStore<SideMenuState<any, any, any> | undefined>(
     undefined,
   );
@@ -1008,6 +1022,7 @@ export const SideMenuExtension = createExtension(({ editor }) => {
               store.setState({ ...state });
             },
             setPendingDroppedBlockIdsForSelection,
+            (event) => externalDragOwnershipResolver(event),
           );
           return view;
         },
@@ -1020,7 +1035,7 @@ export const SideMenuExtension = createExtension(({ editor }) => {
     blockDragStart(
       event: SideMenuBlockDragStartEvent,
       block: Block<any, any, any>,
-    ) {
+    ): SideMenuBlockDragStartResult | undefined {
       blockDragEndHandled = false;
       preserveFocusAfterDroppedBlockSelection = false;
       if (view) {
@@ -1043,6 +1058,17 @@ export const SideMenuExtension = createExtension(({ editor }) => {
           move: true,
         };
       }
+      return dragStartResult;
+    },
+
+    setExternalDragOwnershipResolver(
+      resolver: (event: DragEvent) => boolean,
+    ): () => void {
+      externalDragOwnershipResolver = resolver;
+      return () => {
+        if (externalDragOwnershipResolver !== resolver) return;
+        externalDragOwnershipResolver = () => false;
+      };
     },
 
     /**

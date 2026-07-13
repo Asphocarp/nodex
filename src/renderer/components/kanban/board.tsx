@@ -51,9 +51,11 @@ import { resolveKanbanDropFeedback } from "./drop-feedback";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   blockTransferDropLabel,
+  buildDocumentToDatabaseTransferIntent,
+  endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
-  parseBlockTransferDragPayload,
+  resolveLocalBlockDragDropSession,
   resolveCrossSurfaceTransferMode,
   shouldHandleNativeCrossSurfaceDrag,
 } from "./cross-surface-drag";
@@ -310,14 +312,13 @@ export function KanbanBoard({
 
   const handleExternalBlockDrop = useCallback(
     async (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
-      if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
-      const payload = parseBlockTransferDragPayload(
-        event.dataTransfer.getData(NODEX_BLOCK_TRANSFER_DRAG_MIME),
-      );
-      if (!payload) return;
+      const session = resolveLocalBlockDragDropSession(event.dataTransfer);
+      if (!session) return;
+      const authoritativePayload = session.payload;
 
       event.preventDefault();
       event.stopPropagation();
+      endLocalBlockDragSession({ sessionId: session.sessionId });
       const destinationIndex = computeNativeDropIndexFromSurface(
         event.currentTarget,
         event.clientY,
@@ -328,8 +329,8 @@ export function KanbanBoard({
 
       if (
         !databaseView ||
-        payload.projectId !== projectId ||
-        payload.storeEpoch !== databaseView.storeEpoch
+        authoritativePayload.projectId !== projectId ||
+        authoritativePayload.storeEpoch !== databaseView.storeEpoch
       ) {
         toast.danger("Block transfer belongs to another Project or store generation.");
         return;
@@ -338,22 +339,20 @@ export function KanbanBoard({
         (column) => column.id === columnId,
       )?.cards ?? [];
       const beforeCardBlockId = destinationCards[destinationIndex]?.id;
-      const result = await transferBlocks(projectId, {
-        version: 1,
-        operationId: crypto.randomUUID(),
+      const result = await transferBlocks(
         projectId,
-        storeEpoch: databaseView.storeEpoch,
-        mode: resolveCrossSurfaceTransferMode(event),
-        rootBlockIds: payload.rootBlockIds,
-        source: payload.source,
-        target: {
-          kind: "database",
+        buildDocumentToDatabaseTransferIntent({
+          operationId: crypto.randomUUID(),
+          projectId,
+          storeEpoch: databaseView.storeEpoch,
+          payload: authoritativePayload,
           databaseBlockId: databaseView.databaseBlockId,
           viewId: databaseView.databaseViewId,
           groupKey: columnId,
           ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
-        },
-      });
+          altKey: event.altKey,
+        }),
+      );
       if (!result.ok) {
         toast.danger(result.error.message);
         return;

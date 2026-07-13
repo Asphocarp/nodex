@@ -1376,6 +1376,14 @@ describe("NodexYProvider", () => {
     try {
       await provider.connect();
       await prepareLease("lease-cancel");
+      let relocationIdle = false;
+      const relocationIdlePromise = provider
+        .waitForRelocationIdle()
+        .then(() => {
+          relocationIdle = true;
+        });
+      await Promise.resolve();
+      expect(relocationIdle).toBe(false);
       const syncCallsBeforeCancel = adapter.syncCalls.length;
       adapter.emit({
         kind: "relocation-lease-cancel",
@@ -1389,6 +1397,8 @@ describe("NodexYProvider", () => {
       });
       await waitUntil(() => adapter.syncCalls.length > syncCallsBeforeCancel);
       await waitUntil(() => provider.getStatus().phase === "synced");
+      await relocationIdlePromise;
+      expect(relocationIdle).toBe(true);
       expect(provider.getStatus().relocationLease).toBe(undefined);
 
       await prepareLease("lease-release");

@@ -38,6 +38,15 @@ export interface Extension<State = any, Key extends string = string> {
   }) => void | OnDestroy;
 
   /**
+   * Releases resources owned by this registered extension instance.
+   *
+   * Unlike the cleanup returned by {@link Extension.mount}, this is not tied
+   * to an EditorView DOM attachment. It runs exactly once when the extension
+   * is unregistered or when the owning editor is destroyed.
+   */
+  readonly destroy?: OnDestroy;
+
+  /**
    * The store for the extension.
    */
   readonly store?: Store<State>;

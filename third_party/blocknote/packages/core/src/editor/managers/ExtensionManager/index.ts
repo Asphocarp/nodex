@@ -50,6 +50,9 @@ export class ExtensionManager {
    */
   private extensionPlugins: Map<Extension, Plugin[]> = new Map();
 
+  /** Extension cleanup is registration-scoped and must be idempotent. */
+  private destroyedExtensions = new WeakSet<Extension>();
+
   constructor(
     private editor: BlockNoteEditor<any, any, any>,
     private options: BlockNoteEditorOptions<any, any, any>,
@@ -187,7 +190,11 @@ export class ExtensionManager {
       instance = extension;
     }
 
-    if (!instance || this.disabledExtensions.has(instance.key)) {
+    if (!instance) {
+      return undefined as any;
+    }
+    if (this.disabledExtensions.has(instance.key)) {
+      this.destroyExtension(instance);
       return undefined as any;
     }
 
@@ -279,6 +286,7 @@ export class ExtensionManager {
       });
       this.abortMap.get(extension)?.abort();
       this.abortMap.delete(extension);
+      this.destroyExtension(extension);
 
       const plugins = this.extensionPlugins.get(extension);
       plugins?.forEach((plugin) => {
@@ -422,7 +430,24 @@ export class ExtensionManager {
       tiptapExtensions.push(extension);
     }
 
+    tiptapExtensions.push(
+      TiptapExtension.create({
+        name: "blockNoteExtensionRegistrationLifecycle",
+        onDestroy: () => {
+          for (const extension of this.extensions) {
+            this.destroyExtension(extension);
+          }
+        },
+      }),
+    );
+
     return tiptapExtensions;
+  }
+
+  private destroyExtension(extension: Extension): void {
+    if (this.destroyedExtensions.has(extension)) return;
+    this.destroyedExtensions.add(extension);
+    extension.destroy?.();
   }
 
   /**

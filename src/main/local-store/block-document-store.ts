@@ -277,7 +277,6 @@ export interface BlockDocumentRuntimeIdentity {
   readonly storeEpoch: string;
   readonly authority: LegacyDocumentAuthority;
   readonly head: DocumentHead;
-  readonly stateHash: string;
 }
 
 export interface InitializeBlockDocumentGenesis {
@@ -1188,11 +1187,42 @@ const loadDocumentFromRow = (
         `Persisted state vector does not match document head for ${row.document_id}`,
       );
     }
-    if (hashBytes(Y.encodeStateAsUpdate(document)) !== row.state_hash) {
-      throw new BlockDocumentStoreError(
-        "document_state_corrupt",
-        `Persisted state checksum does not match document head for ${row.document_id}`,
-      );
+    const reconstructedStateHash = hashBytes(Y.encodeStateAsUpdate(document));
+    if (reconstructedStateHash !== row.state_hash) {
+      const repaired = database
+        .prepare(
+          `
+          UPDATE documents
+          SET state_hash = ?
+          WHERE id = ? AND generation = ? AND head_seq = ? AND state_hash = ?
+        `,
+        )
+        .run(
+          reconstructedStateHash,
+          row.document_id,
+          row.generation,
+          row.head_seq,
+          row.state_hash,
+        );
+      if (repaired.changes !== 1) {
+        const current = database
+          .prepare(
+            `
+            SELECT state_hash
+            FROM documents
+            WHERE id = ? AND generation = ? AND head_seq = ?
+          `,
+          )
+          .get(row.document_id, row.generation, row.head_seq) as
+          | { readonly state_hash: string }
+          | undefined;
+        if (current?.state_hash !== reconstructedStateHash) {
+          throw new BlockDocumentStoreError(
+            "document_state_corrupt",
+            `Document ${row.document_id} changed while repairing its reconstruction fingerprint`,
+          );
+        }
+      }
     }
     return document;
   } catch (error) {
@@ -2106,7 +2136,6 @@ export const getBlockDocumentRuntimeIdentity = (
       storeEpoch,
       authority: row.authority,
       head: toDocumentHead(row),
-      stateHash: row.state_hash,
     };
   });
   return read();
@@ -2957,6 +2986,22 @@ export const applyLegacyShadowDocumentUpdate = (
     true,
   );
 
+const countRetainedDocumentUpdateReceipts = (
+  database: Database.Database,
+  row: Pick<DocumentRow, "document_id" | "generation" | "head_seq">,
+): number => {
+  const receiptCount = database
+    .prepare(
+      `
+        SELECT COUNT(*) AS count
+        FROM document_update_receipts
+        WHERE document_id = ? AND generation = ? AND seq <= ?
+      `,
+    )
+    .get(row.document_id, row.generation, row.head_seq) as { count: number };
+  return receiptCount.count;
+};
+
 export const compactBlockDocument = (
   database: Database.Database,
   input: CompactBlockDocumentInput,
@@ -2989,13 +3034,44 @@ export const compactBlockDocument = (
 
     const document = loadDocumentFromRow(database, row);
     try {
+      const existingHeadSnapshot = database
+        .prepare(
+          `
+            SELECT snapshot_seq, state_vector, snapshot_update, snapshot_hash, schema_version
+            FROM document_snapshots
+            WHERE document_id = ? AND generation = ? AND snapshot_seq = ?
+          `,
+        )
+        .get(row.document_id, row.generation, row.head_seq) as
+        | DocumentSnapshotRow
+        | undefined;
+      const coveredUpdateCount = database
+        .prepare(
+          `
+            SELECT COUNT(*) AS count
+            FROM document_updates
+            WHERE document_id = ? AND generation = ? AND seq <= ?
+          `,
+        )
+        .get(row.document_id, row.generation, row.head_seq) as { count: number };
+      if (existingHeadSnapshot && coveredUpdateCount.count === 0) {
+        return {
+          documentId: row.document_id,
+          generation: row.generation,
+          snapshotSeq: row.head_seq,
+          snapshotBytes: existingHeadSnapshot.snapshot_update.byteLength,
+          prunedUpdateCount: 0,
+          retainedReceiptCount: countRetainedDocumentUpdateReceipts(
+            database,
+            row,
+          ),
+        };
+      }
+
       const snapshotUpdate = Y.encodeStateAsUpdate(document);
       const stateVector = Y.encodeStateVector(document);
       const snapshotHash = hashBytes(snapshotUpdate);
-      if (
-        !bytesEqual(stateVector, row.state_vector) ||
-        snapshotHash !== row.state_hash
-      ) {
+      if (!bytesEqual(stateVector, row.state_vector)) {
         throw new BlockDocumentStoreError(
           "document_state_corrupt",
           `Document ${row.document_id} changed while preparing compaction`,
@@ -3048,6 +3124,7 @@ export const compactBlockDocument = (
       }
 
       const verificationDocument = new Y.Doc({ guid: row.document_id });
+      let reconstructedSnapshotStateHash = "";
       try {
         applyStoredUpdate(
           verificationDocument,
@@ -3073,15 +3150,16 @@ export const compactBlockDocument = (
           !bytesEqual(
             Y.encodeStateVector(verificationDocument),
             row.state_vector,
-          ) ||
-          hashBytes(Y.encodeStateAsUpdate(verificationDocument)) !==
-            row.state_hash
+          )
         ) {
           throw new BlockDocumentStoreError(
             "document_state_corrupt",
             `Document ${row.document_id} compaction snapshot failed round-trip verification`,
           );
         }
+        reconstructedSnapshotStateHash = hashBytes(
+          Y.encodeStateAsUpdate(verificationDocument),
+        );
       } finally {
         verificationDocument.destroy();
       }
@@ -3103,26 +3181,39 @@ export const compactBlockDocument = (
         )
         .run(row.document_id, row.generation, row.head_seq);
 
-      const reloaded = loadDocumentFromRow(database, row);
-      reloaded.destroy();
-      const receiptCount = database
+      const fingerprintUpdated = database
         .prepare(
           `
-        SELECT COUNT(*) AS count
-        FROM document_update_receipts
-        WHERE document_id = ? AND generation = ? AND seq <= ?
-      `,
+          UPDATE documents
+          SET state_hash = ?
+          WHERE id = ? AND generation = ? AND head_seq = ?
+        `,
         )
-        .get(row.document_id, row.generation, row.head_seq) as {
-        count: number;
-      };
+        .run(
+          reconstructedSnapshotStateHash,
+          row.document_id,
+          row.generation,
+          row.head_seq,
+        );
+      if (fingerprintUpdated.changes !== 1) {
+        throw new BlockDocumentStoreError(
+          "document_state_corrupt",
+          `Document ${row.document_id} head changed while finalizing compaction`,
+        );
+      }
+
+      const reloaded = loadDocumentFromRow(database, row);
+      reloaded.destroy();
       return {
         documentId: row.document_id,
         generation: row.generation,
         snapshotSeq: row.head_seq,
         snapshotBytes: snapshotUpdate.byteLength,
         prunedUpdateCount: pruned.changes,
-        retainedReceiptCount: receiptCount.count,
+        retainedReceiptCount: countRetainedDocumentUpdateReceipts(
+          database,
+          row,
+        ),
       };
     } finally {
       document.destroy();

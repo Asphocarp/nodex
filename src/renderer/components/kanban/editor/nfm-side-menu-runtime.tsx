@@ -15,6 +15,11 @@ export interface NfmSideMenuRuntimeSnapshot {
     fallbackBlockId: string,
   ) => Promise<void> | void;
   onConvertDividerToThreadSection: (blockId: string) => void;
+  onBlockDragStart: (input: {
+    readonly dataTransfer: DataTransfer;
+    readonly blockIds: readonly string[];
+  }) => void;
+  onBlockDragEnd: () => void;
 }
 
 export interface NfmSideMenuRuntimeValue {
@@ -29,6 +34,8 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
     sourceCardId: null,
     onMoveBlocksToDestination: () => undefined,
     onConvertDividerToThreadSection: () => undefined,
+    onBlockDragStart: () => undefined,
+    onBlockDragEnd: () => undefined,
   }),
 };
 

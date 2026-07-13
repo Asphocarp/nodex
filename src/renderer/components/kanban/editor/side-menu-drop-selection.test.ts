@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { BlockNoteEditor } from "@blocknote/core";
 import {
   createSideMenuDroppedBlockSelection,
@@ -518,6 +518,44 @@ describe("side-menu drop selection helpers", () => {
       expect(pendingIdsSeenBySyntheticDrop).toBe("b");
       expect(pendingIds).toBe("b");
       expect(pmView.dragging).toBe(null);
+    } finally {
+      view.destroy();
+      editorElement.remove();
+    }
+  });
+
+  test("leaves externally managed cross-surface drops to the domain coordinator", () => {
+    const editorElement = document.createElement("div");
+    const blockGroup = document.createElement("div");
+    editorElement.className = "bn-editor";
+    blockGroup.className = "bn-block-group";
+    editorElement.appendChild(blockGroup);
+    document.body.appendChild(editorElement);
+    const droppedSlice = new Slice(Fragment.from(makeBlock("managed")), 0, 0);
+    const dispatch = vi.fn();
+    const pmView = {
+      dom: editorElement,
+      root: document,
+      dragging: { slice: droppedSlice, move: true },
+      dispatch,
+    };
+    const pendingIds = vi.fn();
+    const view = new SideMenuView(
+      {
+        isEditable: true,
+        getInteractionOwnership: () => "self",
+      } as never,
+      pmView as never,
+      () => {},
+      pendingIds,
+      () => true,
+    );
+
+    try {
+      view.onDrop(makeDropEvent("drop", 120, 120));
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(pendingIds).toHaveBeenLastCalledWith([]);
+      expect(pmView.dragging).not.toBeNull();
     } finally {
       view.destroy();
       editorElement.remove();

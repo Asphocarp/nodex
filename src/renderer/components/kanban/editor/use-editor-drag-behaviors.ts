@@ -1,19 +1,18 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import {
-  beginLocalNativeEditorDrag,
-  encodeBlockTransferDragPayload,
-  endLocalNativeEditorDrag,
-  NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  DropCursorExtension,
+  SideMenuExtension,
+} from "@blocknote/core/extensions";
+import {
+  endLocalBlockDragSession,
+  resolveLocalBlockDragSession,
+  shouldBlockNoteYieldManagedDrag,
 } from "../cross-surface-drag";
 import {
-  resolveTopLevelDraggedBlocks,
-} from "./dragged-block-roots";
-import {
-  setupKanbanCardTransferDrop,
+  setupBlockTransferDocumentDrop,
   type BlockTransferDropBoundary,
 } from "./block-transfer-drop";
-import { resolveDraggedBlockIds } from "./drag-source-resolver";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 import { setupToggleDrop } from "./toggle-drop";
 
@@ -21,6 +20,7 @@ interface UseEditorDragBehaviorsOptions {
   editor: Parameters<typeof setupToggleDrop>[1];
   containerRef: RefObject<HTMLElement | null>;
   crossSurface?: {
+    readonly surfaceId: string;
     readonly projectId: string;
     readonly documentId: string;
     readonly storeEpoch: string;
@@ -53,7 +53,8 @@ export function useEditorDragBehaviors({
 
       const hadLocalDragState = el.hasAttribute("data-dragging");
       el.removeAttribute("data-dragging");
-      endLocalNativeEditorDrag(el);
+      const surfaceId = latestOptionsRef.current.crossSurface?.surfaceId;
+      if (surfaceId) endLocalBlockDragSession({ sourceSurfaceId: surfaceId });
       const currentEditor = latestOptionsRef.current.editor;
       if (hadLocalDragState && currentEditor) {
         finalizeSideMenuBlockDrag(currentEditor);
@@ -61,30 +62,12 @@ export function useEditorDragBehaviors({
     };
 
     const onDragStart = (event: DragEvent) => {
-      el.setAttribute("data-dragging", "");
-      const current = latestOptionsRef.current;
-      if (!current.editor || !current.crossSurface || !event.dataTransfer) return;
       const target = event.target;
-      if (target instanceof Element && target.closest(".nfm-editor") !== el) return;
-
-      const draggedBlockIds = resolveDraggedBlockIds(current.editor, el);
-      const blocks = resolveTopLevelDraggedBlocks(current.editor, draggedBlockIds);
-      if (blocks.length === 0) return;
-      event.dataTransfer.setData(
-        NODEX_BLOCK_TRANSFER_DRAG_MIME,
-        encodeBlockTransferDragPayload({
-          projectId: current.crossSurface.projectId,
-          storeEpoch: current.crossSurface.storeEpoch,
-          source: {
-            kind: "document",
-            documentId: current.crossSurface.documentId,
-          },
-          rootBlockIds: blocks.map((block) => block.id),
-          displayHints: blocks.map((block) => block.type),
-        }),
-      );
-      beginLocalNativeEditorDrag(el);
-      event.dataTransfer.effectAllowed = "copyMove";
+      if (target instanceof Element) {
+        const deepestEditor = target.closest(".nfm-editor");
+        if (deepestEditor && deepestEditor !== el) return;
+      }
+      el.setAttribute("data-dragging", "");
     };
 
     const onDragEnd = () => {
@@ -117,6 +100,40 @@ export function useEditorDragBehaviors({
   }, [containerRef]);
 
   useEffect(() => {
+    if (!editor || !crossSurface) return;
+    const element = containerRef.current;
+    if (!element) return;
+    const extensionRuntime = (
+      editor as unknown as {
+        getExtension: (extension: unknown) => {
+          setExternalDragOwnershipResolver: (
+            resolver: (event: DragEvent) => boolean,
+          ) => () => void;
+        };
+      }
+    );
+    const resolveExternalDragOwnership = (event: DragEvent) => {
+      const session = resolveLocalBlockDragSession(event.dataTransfer);
+      return shouldBlockNoteYieldManagedDrag({
+        session,
+        currentSurfaceId: crossSurface.surfaceId,
+        currentSurfaceElement: element,
+        eventTarget: event.target,
+      });
+    };
+    const releaseSideMenuOwnership = extensionRuntime
+      .getExtension(SideMenuExtension)
+      .setExternalDragOwnershipResolver(resolveExternalDragOwnership);
+    const releaseDropCursorOwnership = extensionRuntime
+      .getExtension(DropCursorExtension)
+      .setExternalDragOwnershipResolver(resolveExternalDragOwnership);
+    return () => {
+      releaseDropCursorOwnership();
+      releaseSideMenuOwnership();
+    };
+  }, [containerRef, crossSurface, editor]);
+
+  useEffect(() => {
     const el = containerRef.current;
     if (!el || !editor) return;
     return setupToggleDrop(el, editor);
@@ -125,9 +142,9 @@ export function useEditorDragBehaviors({
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !editor || !crossSurface) return;
-    return setupKanbanCardTransferDrop(
+    return setupBlockTransferDocumentDrop(
       el,
-      editor as unknown as Parameters<typeof setupKanbanCardTransferDrop>[1],
+      editor as unknown as Parameters<typeof setupBlockTransferDocumentDrop>[1],
       crossSurface.blockTransferDrop,
     );
   }, [containerRef, crossSurface, editor]);

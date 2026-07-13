@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import * as Y from "yjs";
 import {
@@ -32,9 +31,6 @@ const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
   }
   return true;
 };
-
-const hashBytes = (value: Uint8Array): string =>
-  createHash("sha256").update(value).digest("hex");
 
 const requireIdentity = (value: string, field: string): void => {
   if (value.trim().length > 0) {
@@ -310,7 +306,6 @@ export class BlockDocumentRuntime {
   ): boolean {
     return entry.identity.storeEpoch === identity.storeEpoch
       && entry.identity.authority === identity.authority
-      && entry.identity.stateHash === identity.stateHash
       && headsEqual(entry.identity.head, identity.head);
   }
 
@@ -341,10 +336,7 @@ export class BlockDocumentRuntime {
   ): CacheEntry {
     const state = Y.encodeStateAsUpdate(document);
     const stateVector = Y.encodeStateVector(document);
-    if (
-      !bytesEqual(stateVector, identity.head.stateVector)
-      || hashBytes(state) !== identity.stateHash
-    ) {
+    if (!bytesEqual(stateVector, identity.head.stateVector)) {
       throw new BlockDocumentStoreError(
         "document_state_corrupt",
         `Document ${identity.head.documentId} runtime state does not match SQLite head`,

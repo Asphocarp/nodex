@@ -1,17 +1,27 @@
 import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { createRef, type RefObject } from "react";
+import {
+  DropCursorExtension,
+  SideMenuExtension,
+} from "@blocknote/core/extensions";
 import { render, settleAsyncRender } from "@/test/dom";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
-  NODEX_BLOCK_TRANSFER_DRAG_MIME,
-  parseBlockTransferDragPayload,
+  beginLocalBlockDragSession,
+  endLocalBlockDragSession,
   shouldHandleNativeCrossSurfaceDrag,
 } from "../cross-surface-drag";
 
 type DragBehaviorEditor = Parameters<typeof useEditorDragBehaviors>[0]["editor"];
 
-function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
+function makeEditor(
+  onBlockDragEnd: () => void,
+  onExternalDragOwnershipResolver?: (
+    extension: unknown,
+    resolver: (event: DragEvent) => boolean,
+  ) => void,
+): DragBehaviorEditor {
   const block = { id: "block-1", type: "paragraph", content: [{ type: "text", text: "Block" }] };
   return {
     document: [block],
@@ -28,8 +38,14 @@ function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
     removeBlocks: () => undefined,
     replaceBlocks: () => undefined,
     transact: <T,>(fn: () => T) => fn(),
-    getExtension: () => ({
+    getExtension: (extension: unknown) => ({
       blockDragEnd: onBlockDragEnd,
+      setExternalDragOwnershipResolver: (
+        resolver: (event: DragEvent) => boolean,
+      ) => {
+        onExternalDragOwnershipResolver?.(extension, resolver);
+        return () => undefined;
+      },
     }),
     insertBlocks: () => undefined,
   } as unknown as DragBehaviorEditor;
@@ -50,10 +66,12 @@ function DragBehaviorHarness({
     ...(crossSurface
       ? {
           crossSurface: {
+            surfaceId: "surface-a",
             projectId: "project-a",
             documentId: "document-a",
             storeEpoch: "epoch-a",
             blockTransferDrop: {
+              surfaceId: "surface-a",
               projectId: "project-1",
               documentId: "document-a",
               storeEpoch: "epoch-a",
@@ -120,7 +138,7 @@ describe("useEditorDragBehaviors", () => {
     expect(blockDragEndCount).toBe(1);
   });
 
-  test("publishes stable Block identities and current parent authority", async () => {
+  test("does not infer a managed Block session from an arbitrary container drag", async () => {
     const editor = makeEditor(() => undefined);
     const containerRef = createRef<HTMLDivElement>();
     const view = render(
@@ -133,14 +151,13 @@ describe("useEditorDragBehaviors", () => {
     await settleAsyncRender();
     const container = view.getByTestId("editor-container");
     container.classList.add("nfm-editor");
-    const data = new Map<string, string>();
     const types: string[] = [];
     const dataTransfer = {
       types,
       effectAllowed: "uninitialized",
       setData: (type: string, value: string) => {
+        void value;
         if (!types.includes(type)) types.push(type);
-        data.set(type, value);
       },
     } as unknown as DataTransfer;
     const dragStart = new Event("dragstart", { bubbles: true });
@@ -151,22 +168,70 @@ describe("useEditorDragBehaviors", () => {
       await Promise.resolve();
     });
 
-    const payload = parseBlockTransferDragPayload(
-      data.get(NODEX_BLOCK_TRANSFER_DRAG_MIME) ?? "",
-    );
-    expect(payload?.projectId).toBe("project-a");
-    expect(payload?.source).toEqual({
-      kind: "document",
-      documentId: "document-a",
-    });
-    expect(payload?.rootBlockIds).toEqual(["block-1"]);
-    expect(dataTransfer.effectAllowed).toBe("copyMove");
-    expect(shouldHandleNativeCrossSurfaceDrag(dataTransfer)).toBe(true);
+    expect(types).toEqual([]);
+    expect(dataTransfer.effectAllowed).toBe("uninitialized");
+    expect(shouldHandleNativeCrossSurfaceDrag(dataTransfer)).toBe(false);
 
     await act(async () => {
       fireEvent.dragEnd(container);
       await Promise.resolve();
     });
     expect(shouldHandleNativeCrossSurfaceDrag(dataTransfer)).toBe(false);
+  });
+
+  test("makes both BlockNote native drag paths yield to a cross-surface session", async () => {
+    const resolvers = new Map<unknown, (event: DragEvent) => boolean>();
+    const editor = makeEditor(
+      () => undefined,
+      (extension, resolver) => resolvers.set(extension, resolver),
+    );
+    const containerRef = createRef<HTMLDivElement>();
+    const view = render(
+      <DragBehaviorHarness
+        editor={editor}
+        containerRef={containerRef}
+        crossSurface
+      />,
+    );
+    await settleAsyncRender();
+    const container = view.getByTestId("editor-container");
+    container.classList.add("nfm-editor");
+    const types: string[] = [];
+    const values = new Map<string, string>();
+    const dataTransfer = {
+      types,
+      effectAllowed: "uninitialized",
+      setData: (type: string, value: string) => {
+        if (!types.includes(type)) types.push(type);
+        values.set(type, value);
+      },
+      getData: (type: string) => values.get(type) ?? "",
+    } as unknown as DataTransfer;
+    beginLocalBlockDragSession(
+      {
+        sourceSurfaceId: "surface-b",
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        source: { kind: "document", documentId: "document-b" },
+        rootBlockIds: ["block-b"],
+        displayHints: ["paragraph"],
+      },
+      dataTransfer,
+    );
+    const dragOver = new Event("dragover", {
+      bubbles: true,
+      cancelable: true,
+    }) as DragEvent;
+    Object.defineProperties(dragOver, {
+      dataTransfer: { value: dataTransfer },
+      target: { value: container },
+    });
+
+    try {
+      expect(resolvers.get(SideMenuExtension)?.(dragOver)).toBe(true);
+      expect(resolvers.get(DropCursorExtension)?.(dragOver)).toBe(true);
+    } finally {
+      endLocalBlockDragSession();
+    }
   });
 });

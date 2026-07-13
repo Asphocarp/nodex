@@ -11,6 +11,8 @@ describe("cross-surface Block transfer in Chromium", () => {
     transfer.setData(
       NODEX_BLOCK_TRANSFER_DRAG_MIME,
       encodeBlockTransferDragPayload({
+        sessionId: "session-a",
+        sourceSurfaceId: "surface-a",
         projectId: "project-a",
         storeEpoch: "epoch-a",
         source: { kind: "document", documentId: "document-a" },

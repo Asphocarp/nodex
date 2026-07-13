@@ -339,7 +339,10 @@ export class DocumentRelocationLeaseCoordinator {
     for (const lease of this.activeLeases.values()) {
       if (
         lease.phase === "prepared" ||
-        !lease.participantDocuments.has(participantSessionKey)
+        !this.hasUnacknowledgedParticipantDocument(
+          lease,
+          participantSessionKey,
+        )
       ) {
         continue;
       }
@@ -774,8 +777,10 @@ export class DocumentRelocationLeaseCoordinator {
     if (
       lease === undefined ||
       lease.phase === "prepared" ||
-      !lease.expectedAcknowledgements.has(
-        acknowledgementKey(participantSessionKey, documentId),
+      !this.hasUnacknowledgedParticipantDocument(
+        lease,
+        participantSessionKey,
+        documentId,
       )
     ) {
       return;
@@ -786,6 +791,26 @@ export class DocumentRelocationLeaseCoordinator {
       leaseId,
       documentId,
       participantSessionKey,
+    });
+  }
+
+  private hasUnacknowledgedParticipantDocument(
+    lease: ActiveLease,
+    participantSessionKey: string,
+    documentId?: string,
+  ): boolean {
+    const documents = lease.participantDocuments.get(participantSessionKey);
+    if (!documents) return false;
+    return documents.some((document) => {
+      if (documentId && document.documentId !== documentId) return false;
+      const key = acknowledgementKey(
+        participantSessionKey,
+        document.documentId,
+      );
+      return (
+        lease.expectedAcknowledgements.has(key) &&
+        !lease.acknowledgements.has(key)
+      );
     });
   }
 

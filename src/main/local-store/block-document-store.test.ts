@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -600,13 +601,30 @@ describe("BlockDocumentStore", () => {
         `,
           )
           .run(documentId);
+        database
+          .prepare("UPDATE documents SET state_hash = ? WHERE id = ?")
+          .run("0".repeat(64), documentId);
+        const repairedFingerprintDocument = loadBlockDocument(
+          database,
+          documentId,
+        );
+        const repairedFingerprint = database
+          .prepare("SELECT state_hash FROM documents WHERE id = ?")
+          .get(documentId) as { readonly state_hash: string };
+        expect(repairedFingerprint.state_hash).toBe(
+          createHash("sha256")
+            .update(
+              Y.encodeStateAsUpdate(repairedFingerprintDocument.document),
+            )
+            .digest("hex"),
+        );
+        repairedFingerprintDocument.document.destroy();
         const genesisIdentity = getBlockDocumentRuntimeIdentity(
           database,
           documentId,
         );
         expect(genesisIdentity.storeEpoch).toBe(storeEpoch);
         expect(genesisIdentity.head.headSeq).toBe(1);
-        expect(genesisIdentity.stateHash.length).toBe(64);
 
         const emptyReplica = new Y.Doc({ guid: documentId });
         const initialSync = syncBlockDocument(database, {
@@ -916,6 +934,16 @@ describe("BlockDocumentStore", () => {
         expect(compacted.prunedUpdateCount).toBe(5);
         expect(compacted.retainedReceiptCount).toBe(5);
         expect(compacted.snapshotBytes > 0).toBe(true);
+
+        const compactedAgain = compactBlockDocument(database, {
+          documentId,
+          expectedGeneration: 1,
+          expectedHeadSeq: 5,
+        });
+        expect(compactedAgain).toEqual({
+          ...compacted,
+          prunedUpdateCount: 0,
+        });
 
         const lateDuplicateB = applyBlockDocumentUpdate(database, {
           documentId,

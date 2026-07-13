@@ -13,6 +13,7 @@ It covers:
 - Drag behavior while Kanban search/filter/sort rules are active
 - Block drag from NFM editors into Kanban
 - Kanban card drag into NFM editors
+- Block drag between independently mounted NFM editor surfaces
 
 It does not redefine general BlockNote side-menu behavior outside these Kanban-facing flows.
 
@@ -109,13 +110,19 @@ This post-removal contract must stay identical across:
 ## Editor Interop
 
 ### NFM block -> Kanban
-- Native block drag from Card Stage and independently mounted reference editors into Kanban targets the Database parent, not a serialized row snapshot. The default operation is move; holding Alt/Option at drop time copies instead.
+- Native block drag from Card Stage and independently mounted owning/reference editors into Kanban targets the Database parent, not a serialized row snapshot. The custom side-menu starts one window-local drag session only after BlockNote has established the exact root Block selection. The default operation is move; holding Alt/Option at drop time copies instead.
 - Move submits one logical `BlockTransfer`: text-like roots promote to Cards in place, while non-convertible roots receive deterministic wrapper Cards. Copy recursively clones ownership with fresh IDs and leaves the source unchanged. Neither path serializes NFM nor mutates a Card description projection.
 - Multi-block order follows the selected top-level document order. Nested selected blocks are represented only once through their selected ancestor.
 - Pointer position determines the Kanban insert slot when block-drop import is allowed.
 - The board shows truthful drag feedback for this import path.
 - Empty target columns use whole-column drop feedback instead of a floating insertion line, because there is no sibling list for a truthful gap preview.
 - Auto-collapsed empty columns stay collapsed and express the target with the existing column-surface highlight.
+
+### NFM editor -> NFM editor
+- An explicit side-menu drag between different Card Documents carries stable root Block IDs and logical Document coordinates through the same window-local session. The destination renders the horizontal block insertion line and suppresses ProseMirror's vertical text caret.
+- The target does not insert a serialized ProseMirror/HTML slice, and the source does not later delete its selection. One `BlockTransfer` commits both Document updates and Block locations or leaves both unchanged.
+- Same mounted-surface reorder remains BlockNote-native because it is already one Yjs transaction in one Document. Two separately mounted surfaces over the same logical Document fail closed until a stable-ID single-Document move command is available.
+- In nested Card outliners, the closest `.nfm-editor` to the event target owns the drop. An outer editor capture listener must not steal a drop intended for an embedded Card body.
 
 ### Kanban card -> NFM editor
 - Dragging one or more ordered Kanban Cards into a Card Stage or independently mounted reference editor moves the real same-ID, childless Card shells into the target Document. Their separately owned title/body Documents are unchanged.
@@ -125,7 +132,7 @@ This post-removal contract must stay identical across:
 - Self-drop into the source card/editor context must be blocked.
 
 ### Cross-window transport
-- Cross-window native DnD is intentionally unsupported. A drag payload is valid only while the same renderer owns its live source marker; another window fails closed without claiming or mutating it.
+- Cross-window native DnD is intentionally unsupported. A drag payload is valid only while the same renderer owns its typed live session; another window fails closed without claiming or mutating it.
 - Cross-window consistency is provided by SQLite/Y.Doc synchronization. Supporting cross-window gestures later would require a trusted live-session handoff into the same `BlockTransfer` command, not a second snapshot transport.
 
 ## Visual Feedback Rules
@@ -147,6 +154,7 @@ This post-removal contract must stay identical across:
 - Drop-derived property patches must be applied atomically with the move, not through a follow-up card update.
 - Group IDs are globally unique and grouped history lookup is global rather than project-local, so undo/redo of a cross-project move restores every affected project atomically and publishes change notifications for each project.
 - Cross-surface Move/Copy carries stable IDs and logical parents only and commits through one idempotent `BlockTransfer`; source and target authority are never separate renderer mutations.
+- The side-menu selection that starts the gesture is authoritative. Container-level `dragstart` listeners may manage visual cleanup but must never infer or replace the selected Block IDs.
 
 ## Non-Goals
 - Copy-style Kanban-to-Kanban board drag

@@ -11,7 +11,9 @@ import React, {
   Ref,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useBlockNoteEditor } from "../hooks/useBlockNoteEditor.js";
@@ -301,6 +303,8 @@ export const BlockNoteViewRaw = React.forwardRef(BlockNoteViewComponent) as <
 export const BlockNoteViewEditor = (props: { children?: ReactNode }) => {
   const ctx = useBlockNoteViewContext()!;
   const editor = useBlockNoteEditor();
+  const editableRef = useRef(ctx.editorProps.editable !== false);
+  editableRef.current = ctx.editorProps.editable !== false;
 
   const portalManager = useMemo(() => {
     return getContentComponent();
@@ -308,14 +312,21 @@ export const BlockNoteViewEditor = (props: { children?: ReactNode }) => {
 
   const portalTarget = ctx.editorProps.portalTarget;
 
+  useLayoutEffect(() => {
+    const editorDom = editor.prosemirrorView.dom;
+    const retainedTabIndex = editorDom.getAttribute("tabindex") ?? "0";
+    editor.isEditable = editableRef.current;
+    if (!editorDom.hasAttribute("tabindex")) {
+      editorDom.setAttribute("tabindex", retainedTabIndex);
+    }
+  }, [ctx.editorProps.editable, editor]);
+
   const mount = useCallback(
     (element: HTMLElement | null) => {
-      // Set editable state of the actual editor.
-      // We need to re-mount the editor when changing `isEditable` as TipTap
-      // removes the `tabIndex="0"` attribute we set (see
-      // `BlockNoteEditor.ts`). Ideally though, this logic would exist in a
-      // separate hook.
-      editor.isEditable = ctx.editorProps.editable !== false;
+      // Editable changes are applied in place above. Remounting an EditorView
+      // destroys React NodeViews, including independently synchronized nested
+      // editors, so DOM attachment depends only on actual mount coordinates.
+      editor.isEditable = editableRef.current;
       // Since we are not using TipTap's React Components, we need to set up the contentComponent it expects
       // This is a simple replacement for the state management that Tiptap does internally
       editor._tiptapEditor.contentComponent = portalManager;
@@ -325,7 +336,7 @@ export const BlockNoteViewEditor = (props: { children?: ReactNode }) => {
         editor.unmount();
       }
     },
-    [ctx.editorProps.editable, editor, portalManager, portalTarget],
+    [editor, portalManager, portalTarget],
   );
 
   return (

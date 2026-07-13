@@ -43,6 +43,11 @@ import {
   NodexPopoverContent,
 } from "@/components/ui/popover";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
+import {
+  beginLocalBlockDragSession,
+  endLocalBlockDragSession,
+} from "../cross-surface-drag";
+import { resolveTopLevelDraggedBlocks } from "./dragged-block-roots";
 import type { CodexPromptInput } from "@/lib/types";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { NfmTableHandlesController } from "./nfm-table-handles";
@@ -1758,10 +1763,12 @@ function NfmEditorInstance({
 
   const crossSurfaceDrag = useMemo(
     () => ({
+      surfaceId: source.clientSessionId,
       projectId,
       documentId: source.documentId,
       storeEpoch: source.storeEpoch,
       blockTransferDrop: {
+        surfaceId: source.clientSessionId,
         projectId,
         documentId: source.documentId,
         storeEpoch: source.storeEpoch,
@@ -1779,6 +1786,7 @@ function NfmEditorInstance({
       parentBlockReferenceRuntime?.ancestorCardIds,
       projectId,
       source.documentId,
+      source.clientSessionId,
       source.storeEpoch,
       sourceCardContext?.cardId,
     ],
@@ -1806,6 +1814,35 @@ function NfmEditorInstance({
   const blockActionCapabilities = resolveNfmEditorBlockActionCapabilities(
     sourceCardContext !== undefined,
   );
+  const handleBlockDragStart = useCallback(
+    ({
+      dataTransfer,
+      blockIds,
+    }: {
+      dataTransfer: DataTransfer;
+      blockIds: readonly string[];
+    }) => {
+      const roots = resolveTopLevelDraggedBlocks(editor, [...blockIds]);
+      if (roots.length === 0) return;
+      beginLocalBlockDragSession(
+        {
+          sourceSurfaceId: source.clientSessionId,
+          projectId,
+          storeEpoch: source.storeEpoch,
+          source: { kind: "document", documentId: source.documentId },
+          rootBlockIds: roots.map((block) => block.id),
+          displayHints: roots.map((block) => block.type),
+        },
+        dataTransfer,
+      );
+    },
+    [editor, projectId, source],
+  );
+  const handleBlockDragEnd = useCallback(
+    () =>
+      endLocalBlockDragSession({ sourceSurfaceId: source.clientSessionId }),
+    [source.clientSessionId],
+  );
   const sideMenuHandlersRef = useRef({
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
@@ -1813,6 +1850,8 @@ function NfmEditorInstance({
     sourceCardId: sourceCardContext?.cardId ?? null,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
+    onBlockDragStart: handleBlockDragStart,
+    onBlockDragEnd: handleBlockDragEnd,
   });
   sideMenuHandlersRef.current = {
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
@@ -1821,6 +1860,8 @@ function NfmEditorInstance({
     sourceCardId: sourceCardContext?.cardId ?? null,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
+    onBlockDragStart: handleBlockDragStart,
+    onBlockDragEnd: handleBlockDragEnd,
   };
 
   const sideMenuRuntimeValue = useMemo(

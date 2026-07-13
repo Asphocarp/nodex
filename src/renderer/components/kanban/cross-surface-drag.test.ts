@@ -1,18 +1,20 @@
 import { describe, expect, test } from "vitest";
 import {
-  beginLocalNativeEditorDrag,
+  BlockDragSessionCoordinator,
   blockTransferDropLabel,
+  buildDocumentToDatabaseTransferIntent,
   encodeBlockTransferDragPayload,
-  endLocalNativeEditorDrag,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   parseBlockTransferDragPayload,
   resolveCrossSurfaceTransferMode,
-  shouldHandleNativeCrossSurfaceDrag,
+  shouldBlockNoteYieldManagedDrag,
 } from "./cross-surface-drag";
 
 describe("cross-surface Block transfer drag", () => {
   test("round-trips stable identities and parent authority without content snapshots", () => {
     const serialized = encodeBlockTransferDragPayload({
+      sessionId: "session-a",
+      sourceSurfaceId: "surface-a",
       projectId: "project-a",
       storeEpoch: "epoch-a",
       source: { kind: "document", documentId: "document-a" },
@@ -30,6 +32,8 @@ describe("cross-surface Block transfer drag", () => {
 
   test("rejects duplicate identities and unbounded payloads", () => {
     const duplicate = encodeBlockTransferDragPayload({
+      sessionId: "session-a",
+      sourceSurfaceId: "surface-a",
       projectId: "project-a",
       storeEpoch: "epoch-a",
       source: { kind: "space" },
@@ -47,13 +51,151 @@ describe("cross-surface Block transfer drag", () => {
     expect(blockTransferDropLabel("copy", "document")).toBe("Copy into page");
   });
 
+  test("compiles an editor session into one Database-parent transfer", () => {
+    const payload = parseBlockTransferDragPayload(
+      encodeBlockTransferDragPayload({
+        sessionId: "session-a",
+        sourceSurfaceId: "surface-a",
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        source: { kind: "document", documentId: "document-a" },
+        rootBlockIds: ["block-a"],
+        displayHints: ["paragraph"],
+      }),
+    );
+    if (!payload) throw new Error("Expected a valid Block drag payload");
+
+    expect(
+      buildDocumentToDatabaseTransferIntent({
+        operationId: "operation-a",
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        payload,
+        databaseBlockId: "database-a",
+        viewId: "view-a",
+        groupKey: "in-progress",
+        beforeCardBlockId: "card-b",
+        altKey: true,
+      }),
+    ).toEqual({
+      version: 1,
+      operationId: "operation-a",
+      projectId: "project-a",
+      storeEpoch: "epoch-a",
+      mode: "copy",
+      rootBlockIds: ["block-a"],
+      source: { kind: "document", documentId: "document-a" },
+      target: {
+        kind: "database",
+        databaseBlockId: "database-a",
+        viewId: "view-a",
+        groupKey: "in-progress",
+        beforeCardBlockId: "card-b",
+      },
+    });
+  });
+
   test("accepts the custom MIME only while a local editor owns the native drag", () => {
-    const editor = document.createElement("div");
-    const transfer = { types: [NODEX_BLOCK_TRANSFER_DRAG_MIME] };
-    expect(shouldHandleNativeCrossSurfaceDrag(transfer)).toBe(false);
-    beginLocalNativeEditorDrag(editor);
-    expect(shouldHandleNativeCrossSurfaceDrag(transfer)).toBe(true);
-    endLocalNativeEditorDrag(editor);
-    expect(shouldHandleNativeCrossSurfaceDrag(transfer)).toBe(false);
+    const coordinator = new BlockDragSessionCoordinator(() => "session-local");
+    const values = new Map<string, string>();
+    const types: string[] = [];
+    const transfer = {
+      types,
+      effectAllowed: "uninitialized",
+      setData: (type: string, value: string) => {
+        if (!types.includes(type)) types.push(type);
+        values.set(type, value);
+      },
+      getData: (type: string) => values.get(type) ?? "",
+    } as unknown as DataTransfer;
+
+    expect(coordinator.resolve(transfer)).toBeNull();
+    const session = coordinator.start(
+      {
+        sourceSurfaceId: "surface-a",
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        source: { kind: "document", documentId: "document-a" },
+        rootBlockIds: ["block-a"],
+        displayHints: ["paragraph"],
+      },
+      transfer,
+    );
+    expect(coordinator.resolve(transfer)).toEqual(session);
+    expect(transfer.effectAllowed).toBe("copyMove");
+    expect(
+      parseBlockTransferDragPayload(
+        values.get(NODEX_BLOCK_TRANSFER_DRAG_MIME) ?? "",
+      ),
+    ).toMatchObject({
+      sessionId: "session-local",
+      sourceSurfaceId: "surface-a",
+      rootBlockIds: ["block-a"],
+    });
+    expect(coordinator.resolveDrop(transfer)).toEqual(session);
+    values.set(
+      NODEX_BLOCK_TRANSFER_DRAG_MIME,
+      encodeBlockTransferDragPayload({
+        ...session.payload,
+        sessionId: "stale-session",
+      }),
+    );
+    expect(coordinator.resolveDrop(transfer)).toBeNull();
+    values.set(
+      NODEX_BLOCK_TRANSFER_DRAG_MIME,
+      encodeBlockTransferDragPayload(session.payload),
+    );
+
+    coordinator.end({ sourceSurfaceId: "another-surface" });
+    expect(coordinator.resolve(transfer)).toEqual(session);
+    coordinator.end({ sessionId: "session-local" });
+    expect(coordinator.resolve(transfer)).toBeNull();
+  });
+
+  test("preserves native same-surface reorder while yielding every cross-surface path", () => {
+    const surface = document.createElement("div");
+    const content = document.createElement("div");
+    surface.className = "nfm-editor";
+    surface.append(content);
+    const session = {
+      sessionId: "session-a",
+      sourceSurfaceId: "surface-a",
+      payload: parseBlockTransferDragPayload(
+        encodeBlockTransferDragPayload({
+          sessionId: "session-a",
+          sourceSurfaceId: "surface-a",
+          projectId: "project-a",
+          storeEpoch: "epoch-a",
+          source: { kind: "document", documentId: "document-a" },
+          rootBlockIds: ["block-a"],
+          displayHints: ["paragraph"],
+        }),
+      )!,
+    };
+
+    expect(
+      shouldBlockNoteYieldManagedDrag({
+        session,
+        currentSurfaceId: "surface-a",
+        currentSurfaceElement: surface,
+        eventTarget: content,
+      }),
+    ).toBe(false);
+    expect(
+      shouldBlockNoteYieldManagedDrag({
+        session,
+        currentSurfaceId: "surface-b",
+        currentSurfaceElement: surface,
+        eventTarget: content,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockNoteYieldManagedDrag({
+        session,
+        currentSurfaceId: "surface-a",
+        currentSurfaceElement: surface,
+        eventTarget: document.body,
+      }),
+    ).toBe(true);
   });
 });
