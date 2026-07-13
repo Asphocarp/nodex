@@ -143,8 +143,6 @@ export type NfmBlockType =
   | "databaseViewRef"
   | "syncedBlockRef"
   | "templateRef"
-  | "largeDocument"
-  | "largeCode"
   | "threadSection"
   | "cardToggle"
   | "card"
@@ -275,17 +273,6 @@ export interface NfmReusableTemplateRef extends NfmBlockBase {
   displayHint?: string;
 }
 
-export interface NfmLargeDocument extends NfmBlockBase {
-  type: "largeDocument";
-  displayName: string;
-}
-
-export interface NfmLargeCode extends NfmBlockBase {
-  type: "largeCode";
-  displayName: string;
-  language: string;
-}
-
 export interface NfmThreadSection extends NfmBlockBase {
   type: "threadSection";
   label?: string;
@@ -358,8 +345,6 @@ export type NfmBlock =
   | NfmDatabaseViewRef
   | NfmSyncedBlockRef
   | NfmReusableTemplateRef
-  | NfmLargeDocument
-  | NfmLargeCode
   | NfmThreadSection
   | NfmCardToggle
   | NfmCard

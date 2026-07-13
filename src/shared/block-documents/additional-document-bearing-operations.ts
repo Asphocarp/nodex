@@ -56,38 +56,6 @@ export interface InstantiateReusableTemplate
   readonly beforeBlockId?: string;
 }
 
-export type ExplicitDocumentBearingBlockKind =
-  | "large_document"
-  | "large_code";
-
-export type ExplicitDocumentBearingBlockLocation =
-  | {
-      readonly kind: "space";
-      readonly beforeBlockId?: string;
-      readonly expectedBeforeLocationRevision?: number;
-    }
-  | {
-      readonly kind: "document";
-      readonly hostDocumentId: string;
-      readonly expectedHostGeneration: number;
-      readonly expectedHostHeadSeq: number;
-      readonly parentBlockId?: string;
-      readonly beforeBlockId?: string;
-    };
-
-export interface CreateExplicitDocumentBearingBlock
-  extends AdditionalDocumentBearingOperationBase {
-  readonly kind: "create_explicit_document_bearing_block";
-  readonly blockKind: ExplicitDocumentBearingBlockKind;
-  readonly blockId: string;
-  readonly documentId: string;
-  readonly displayName: string;
-  readonly location: ExplicitDocumentBearingBlockLocation;
-  readonly blockTree?: readonly BlockTreeNode[];
-  readonly code?: string;
-  readonly language?: string;
-}
-
 export interface AdditionalDocumentBearingMutationResult {
   readonly version: typeof ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION;
   readonly operationId: string;
@@ -97,7 +65,6 @@ export interface AdditionalDocumentBearingMutationResult {
     | CreateReusableTemplateSource["kind"]
     | CreateReusableTemplateReference["kind"]
     | InstantiateReusableTemplate["kind"]
-    | CreateExplicitDocumentBearingBlock["kind"]
     | "delete_owned_source"
     | "create_canvas_owner"
     | "delete_canvas_owner";

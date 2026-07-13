@@ -456,8 +456,8 @@ const cardProjectTransferRequest = (
       metadataRevision: 1,
     },
     {
-      blockId: "large-owned",
-      type: "large_document",
+      blockId: "template-owned",
+      type: "reusable_template_source",
       lifecycle: "active",
       location: { kind: "document", documentId: "doc-card-root" },
       locationRevision: 1,
@@ -474,11 +474,11 @@ const cardProjectTransferRequest = (
       schemaVersion: 2,
     },
     {
-      ownerBlockId: "large-owned",
-      documentId: "doc-large-owned",
+      ownerBlockId: "template-owned",
+      documentId: "doc-template-owned",
       generation: 1,
       headSeq: nestedHeadSeq,
-      schemaKey: "nodex.large-document",
+      schemaKey: "nodex.reusable-template",
       schemaVersion: 1,
     },
   ],
@@ -516,15 +516,15 @@ const cardProjectTransferReceipt = (
   targetProjectId: intent.targetProjectId,
   cardId: intent.cardId,
   duplicate,
-  movedBlockIds: ["card-root", "large-owned"],
-  movedDocumentIds: ["doc-card-root", "doc-large-owned"],
+  movedBlockIds: ["card-root", "template-owned"],
+  movedDocumentIds: ["doc-card-root", "doc-template-owned"],
   sourceMembershipIds: ["membership-source"],
   targetMembershipIds: { "card-root": "membership-target" },
-  blockMetadataRevisions: { "card-root": 2, "large-owned": 2 },
+  blockMetadataRevisions: { "card-root": 2, "template-owned": 2 },
   rootLocationRevision: 2,
   documentHeads: {
     "doc-card-root": { generation: 1, headSeq: 2 },
-    "doc-large-owned": { generation: 1, headSeq: 4 },
+    "doc-template-owned": { generation: 1, headSeq: 4 },
   },
   targetDatabaseBlockId: intent.target.databaseBlockId,
   targetDatabaseSchemaRevision: 1,
@@ -1803,7 +1803,7 @@ describe("DocumentSyncHub", () => {
     const rootSurface = new FakeTarget(80);
     const nestedSurface = new FakeTarget(81);
     subscribe(hub, rootSurface, "doc-card-root", "surface-root");
-    subscribe(hub, nestedSurface, "doc-large-owned", "surface-nested");
+    subscribe(hub, nestedSurface, "doc-template-owned", "surface-nested");
     await syncSubscription(
       hub,
       rootSurface,
@@ -1813,7 +1813,7 @@ describe("DocumentSyncHub", () => {
     await syncSubscription(
       hub,
       nestedSurface,
-      "doc-large-owned",
+      "doc-template-owned",
       "surface-nested",
     );
     clearSent(rootSurface, nestedSurface);

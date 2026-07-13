@@ -7,10 +7,7 @@ import {
   parseCardLifecycleMutationRequest,
   type CardLifecycleMutationRequest,
 } from "../../shared/card-lifecycle";
-import { ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION } from "../../shared/block-documents";
-import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { createUuidV7 } from "../../shared/card-id";
-import { createExplicitDocumentBearingBlock } from "./additional-document-bearing-blocks";
 import { readAuthoritativeCardById } from "./card-read-store";
 import {
   applyCardLifecycleMutation,
@@ -140,14 +137,6 @@ const readBlock = (
     readonly metadata_revision: number;
     readonly location_revision: number;
   };
-
-const paragraph = (id: string, text: string): BlockTreeNode => ({
-  id,
-  type: "paragraph",
-  props: {},
-  content: [{ type: "text", text, styles: {} }],
-  children: [],
-});
 
 const readBlockLifecycles = (
   fixture: Fixture,
@@ -423,193 +412,6 @@ describe("authoritative Card lifecycle kernel", () => {
         );
         expect(duplicate.ok).toBe(true);
         if (duplicate.ok) expect(duplicate.value.duplicate).toBe(true);
-      });
-    },
-  );
-
-  sqliteTest(
-    "tombstones and restores the exact current indexed closure across nested Documents",
-    async () => {
-      await withFixture((fixture) => {
-        const cardId = createUuidV7();
-        const cardBodyId = createUuidV7();
-        const nestedOneId = createUuidV7();
-        const nestedOneBodyId = createUuidV7();
-        const nestedTwoId = createUuidV7();
-        const nestedTwoBodyId = createUuidV7();
-        committed(
-          fixture,
-          "create-closure",
-          createOperation(cardId, "Nested closure"),
-          { allocateBodyBlockId: () => cardBodyId },
-        );
-        createExplicitDocumentBearingBlock(fixture.database, {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "closure:create-first",
-          projectId: fixture.projectId,
-          storeEpoch: fixture.storeEpoch,
-          clientSessionId: "card-lifecycle-test",
-          actor: { kind: "test" },
-          blockKind: "large_document",
-          blockId: nestedOneId,
-          documentId: "document:lifecycle:nested-one",
-          displayName: "Nested one",
-          blockTree: [paragraph(nestedOneBodyId, "First body")],
-          location: {
-            kind: "document",
-            hostDocumentId: `document:${cardId}`,
-            expectedHostGeneration: 1,
-            expectedHostHeadSeq: 1,
-          },
-        });
-        createExplicitDocumentBearingBlock(fixture.database, {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "closure:create-second",
-          projectId: fixture.projectId,
-          storeEpoch: fixture.storeEpoch,
-          clientSessionId: "card-lifecycle-test",
-          actor: { kind: "test" },
-          blockKind: "large_document",
-          blockId: nestedTwoId,
-          documentId: "document:lifecycle:nested-two",
-          displayName: "Nested two",
-          blockTree: [paragraph(nestedTwoBodyId, "Second body")],
-          location: {
-            kind: "document",
-            hostDocumentId: "document:lifecycle:nested-one",
-            expectedHostGeneration: 1,
-            expectedHostHeadSeq: 1,
-          },
-        });
-
-        const staleBlockId = "lifecycle:stale-unindexed";
-        fixture.database
-          .prepare(
-            `
-            INSERT INTO blocks (
-              id, project_id, type, lifecycle, location_kind,
-              containing_document_id, location_revision, metadata_revision,
-              created_at, updated_at
-            ) VALUES (?, ?, 'paragraph', 'deleted', 'document', ?, 1, 2, ?, ?)
-          `,
-          )
-          .run(
-            staleBlockId,
-            fixture.projectId,
-            `document:${cardId}`,
-            "2026-07-12T00:00:00.000Z",
-            "2026-07-12T00:00:00.000Z",
-          );
-
-        const closureBlockIds = [
-          cardId,
-          cardBodyId,
-          nestedOneId,
-          nestedOneBodyId,
-          nestedTwoId,
-          nestedTwoBodyId,
-        ].sort((left, right) => left.localeCompare(right));
-        const closureDocumentIds = [
-          `document:${cardId}`,
-          "document:lifecycle:nested-one",
-          "document:lifecycle:nested-two",
-        ].sort((left, right) => left.localeCompare(right));
-        const deleted = committed(fixture, "delete-closure", {
-          kind: "delete_card",
-          cardId,
-          expectedMetadataRevision: 1,
-          expectedLocationRevision: 1,
-        });
-        expect(
-          Object.values(readBlockLifecycles(fixture, closureBlockIds)).every(
-            (candidate) =>
-              candidate.lifecycle === "deleted" && candidate.revision === 2,
-          ),
-        ).toBe(true);
-        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.lifecycle).toBe(
-          "deleted",
-        );
-        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.revision).toBe(
-          2,
-        );
-
-        const deleteLedger = fixture.database
-          .prepare(
-            `
-            SELECT mutation.target_block_ids_json, change.payload_json
-            FROM block_mutations mutation
-            INNER JOIN change_log change ON change.seq = mutation.change_log_seq
-            WHERE mutation.mutation_id = 'delete-closure'
-          `,
-          )
-          .get() as {
-          readonly target_block_ids_json: string;
-          readonly payload_json: string;
-        };
-        const deletePayload = JSON.parse(deleteLedger.payload_json) as {
-          readonly tombstonedBlockIds: readonly string[];
-          readonly indexedDocumentIds: readonly string[];
-        };
-        const expectedTargets = [
-          ...closureBlockIds,
-          ...(deleted.databaseBlockId ? [deleted.databaseBlockId] : []),
-        ].sort((left, right) => left.localeCompare(right));
-        expect(deleteLedger.target_block_ids_json).toBe(
-          JSON.stringify(expectedTargets),
-        );
-        expect(JSON.stringify(deletePayload.tombstonedBlockIds)).toBe(
-          JSON.stringify(closureBlockIds),
-        );
-        expect(JSON.stringify(deletePayload.indexedDocumentIds)).toBe(
-          JSON.stringify(closureDocumentIds),
-        );
-
-        const restored = committed(fixture, "restore-closure", {
-          kind: "restore_card",
-          cardId,
-          deleteOperationId: "delete-closure",
-          expectedMetadataRevision: deleted.metadataRevision,
-          expectedLocationRevision: deleted.locationRevision,
-          membership: {
-            membershipId: deleted.membershipId,
-            databaseBlockId: deleted.databaseBlockId,
-            viewId: deleted.viewId,
-            status: "draft",
-          },
-        });
-        expect(restored.lifecycle).toBe("active");
-        expect(
-          Object.values(readBlockLifecycles(fixture, closureBlockIds)).every(
-            (candidate) =>
-              candidate.lifecycle === "active" && candidate.revision === 3,
-          ),
-        ).toBe(true);
-        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.lifecycle).toBe(
-          "deleted",
-        );
-        expect(readBlockLifecycles(fixture, [staleBlockId])[staleBlockId]?.revision).toBe(
-          2,
-        );
-
-        const restorePayload = JSON.parse(
-          (
-            fixture.database
-              .prepare(
-                `
-                SELECT change.payload_json
-                FROM block_mutations mutation
-                INNER JOIN change_log change ON change.seq = mutation.change_log_seq
-                WHERE mutation.mutation_id = 'restore-closure'
-              `,
-              )
-              .get() as { readonly payload_json: string }
-          ).payload_json,
-        ) as { readonly restoredBlockIds: readonly string[] };
-        expect(JSON.stringify(restorePayload.restoredBlockIds)).toBe(
-          JSON.stringify(closureBlockIds),
-        );
       });
     },
   );

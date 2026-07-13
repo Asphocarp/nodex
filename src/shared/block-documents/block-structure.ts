@@ -64,9 +64,7 @@ export interface ChildlessBlockViolation {
     | "card"
     | "databaseViewRef"
     | "syncedBlockRef"
-    | "templateRef"
-    | "largeDocument"
-    | "largeCode";
+    | "templateRef";
 }
 
 export class BlockDocumentValidationError extends Error {
@@ -119,16 +117,12 @@ const isCanonicalChildlessBlockContent = (
     | "card"
     | "databaseViewRef"
     | "syncedBlockRef"
-    | "templateRef"
-    | "largeDocument"
-    | "largeCode";
+    | "templateRef";
 } => {
   if (!content) return false;
   if (
     content.nodeName === "databaseViewRef" ||
-    content.nodeName === "card" ||
-    content.nodeName === "largeDocument" ||
-    content.nodeName === "largeCode"
+    content.nodeName === "card"
   ) {
     return true;
   }

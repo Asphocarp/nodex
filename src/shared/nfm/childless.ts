@@ -6,8 +6,6 @@ const CHILDLESS_NFM_BLOCK_TYPES: ReadonlySet<NfmBlockType> = new Set([
   "databaseViewRef",
   "syncedBlockRef",
   "templateRef",
-  "largeDocument",
-  "largeCode",
   "table",
   "toggleListInlineView",
 ]);

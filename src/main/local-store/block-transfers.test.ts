@@ -22,7 +22,6 @@ import {
   prepareBlockTransfer,
   readCommittedBlockTransfer,
 } from "./block-transfers";
-import { applyAdditionalDocumentCommand } from "./additional-document-command-kernel";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { applyDatabaseMutation } from "./database-kernel";
@@ -463,59 +462,6 @@ describe("BlockTransfer store", () => {
         },
       });
       expect(nestForCopy.ok).toBe(true);
-      const largeDocumentCopySourceId = createUuidV7();
-      const largeDocumentBodySourceId = createUuidV7();
-      const createNestedLargeDocument = applyAdditionalDocumentCommand(
-        database,
-        {
-          version: 1,
-          operationId: "create-large-document-before-copy",
-          projectId: project.id,
-          storeEpoch: metadata.store_epoch,
-          clientSessionId: "test-session",
-          actor: { kind: "test" },
-          coordination: {
-            kind: "hub_lease",
-            leaseId: "lease:create-large-document-before-copy",
-            documents: [
-              {
-                documentId: sourceDocumentId,
-                generation: 1,
-                headSeq: 2,
-              },
-            ],
-          },
-          operation: {
-            kind: "create_large_document",
-            blockId: largeDocumentCopySourceId,
-            documentId: `document:${largeDocumentCopySourceId}`,
-            displayName: "Nested large document",
-            content: {
-              kind: "large_document",
-              initialBlocks: [
-                {
-                  id: largeDocumentBodySourceId,
-                  type: "paragraph",
-                  props: {},
-                  content: [
-                    {
-                      type: "text",
-                      text: "Nested large body",
-                      styles: {},
-                    },
-                  ],
-                  children: [],
-                },
-              ],
-            },
-            location: {
-              kind: "document",
-              host: { documentId: sourceDocumentId, generation: 1 },
-            },
-          },
-        },
-      );
-      expect(createNestedLargeDocument.ok).toBe(true);
       const externalReferenceCopySourceId = createUuidV7();
       const insertExternalReference = applyDocumentOperationBatch(database, {
         version: 1,
@@ -525,7 +471,7 @@ describe("BlockTransfer store", () => {
         actor: { kind: "test" },
         documentId: sourceDocumentId,
         generation: 1,
-        expectedHeadSeq: 3,
+        expectedHeadSeq: 2,
         operations: [
           {
             kind: "insert_block",
@@ -609,12 +555,9 @@ describe("BlockTransfer store", () => {
         expect(copied.value.copiedBlockIds["card-source"]).toBe(copiedCardId);
         const copiedNestedCardId =
           copied.value.copiedBlockIds["card-nested-copy-source"];
-        const copiedLargeDocumentId =
-          copied.value.copiedBlockIds[largeDocumentCopySourceId];
         const copiedReferenceId =
           copied.value.copiedBlockIds[externalReferenceCopySourceId];
         expect(isUuidV7(copiedNestedCardId ?? "")).toBe(true);
-        expect(isUuidV7(copiedLargeDocumentId ?? "")).toBe(true);
         expect(isUuidV7(copiedReferenceId ?? "")).toBe(true);
         expect(copied.value.finalLocations[copiedCardId ?? ""]).toEqual({
           kind: "document",
@@ -661,28 +604,6 @@ describe("BlockTransfer store", () => {
             )
             .get(copiedNestedDocument.document_id),
         ).toEqual({ title: "Nested copy source" });
-        const copiedLargeDocument = database
-          .prepare(
-            `SELECT ownership.document_id, owner.location_kind,
-                    owner.containing_document_id,
-                    materialization.nfm
-             FROM block_documents ownership
-             JOIN blocks owner ON owner.id = ownership.block_id
-             JOIN document_materializations materialization
-               ON materialization.document_id = ownership.document_id
-             WHERE ownership.block_id = ?`,
-          )
-          .get(copiedLargeDocumentId) as {
-          readonly document_id: string;
-          readonly location_kind: string;
-          readonly containing_document_id: string;
-          readonly nfm: string;
-        };
-        expect(copiedLargeDocument.location_kind).toBe("document");
-        expect(copiedLargeDocument.containing_document_id).toBe(
-          `document:${copiedCardId}`,
-        );
-        expect(copiedLargeDocument.nfm).toContain("Nested large body");
         const copiedRootMaterialization = database
           .prepare(
             "SELECT block_tree_json FROM document_materializations WHERE document_id = ?",

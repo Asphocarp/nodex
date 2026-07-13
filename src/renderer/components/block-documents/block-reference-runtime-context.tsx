@@ -13,9 +13,8 @@ export interface BlockReferenceHostRuntime {
   readonly ancestorCardIds: readonly string[];
   /**
    * Every independently synchronized owner already open in this inline
-   * expansion chain. Unlike `ancestorCardIds`, this also includes Synced,
-   * Template, and Large Document owners so reference cycles cannot recursively
-   * mount providers.
+   * expansion chain. Unlike `ancestorCardIds`, this also includes Synced and
+   * Template owners so reference cycles cannot recursively mount providers.
    */
   readonly ancestorDocumentOwnerBlockIds: readonly string[];
   readonly isActiveSurface: boolean;

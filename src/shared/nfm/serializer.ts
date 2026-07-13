@@ -138,25 +138,11 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         );
         break;
       }
-      case "largeDocument": {
-        lines.push(
-          prefix +
-            `<large-document display-name="${escapeXmlAttr(block.displayName)}" />`,
-        );
-        break;
-      }
       case "card": {
         const displayHint = block.displayHint
           ? ` display-hint="${escapeXmlAttr(block.displayHint)}"`
           : "";
         lines.push(prefix + `<card${displayHint} />`);
-        break;
-      }
-      case "largeCode": {
-        lines.push(
-          prefix +
-            `<large-code display-name="${escapeXmlAttr(block.displayName)}" language="${escapeXmlAttr(block.language)}" />`,
-        );
         break;
       }
       case "threadSection": {

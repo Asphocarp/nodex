@@ -17,8 +17,8 @@ describe("OwnedDocumentReferenceSurface", () => {
     const activationBudget = new ReferenceSurfaceActivationBudget(1);
     const view = render(
       <OwnedDocumentReferenceSurface
-        referenceKey="host:large-document-shell"
-        ownerBlockId="large-document-owner"
+        referenceKey="host:template-shell"
+        ownerBlockId="template-owner"
         icon={renderIcon()}
         label="Document"
         detail="Architecture notes"
@@ -43,7 +43,7 @@ describe("OwnedDocumentReferenceSurface", () => {
     });
     await waitFor(() => {
       expect(view.getByTestId("owned-document-provider").textContent).toBe(
-        "large-document-owner",
+        "template-owner",
       );
     });
 

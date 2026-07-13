@@ -93,8 +93,7 @@ export type PublicAdditionalDocumentOperation = Extract<
       | "promote_synced_source"
       | "demote_synced_source"
       | "create_template"
-      | "instantiate_template"
-      | "create_large_document";
+      | "instantiate_template";
   }
 >;
 

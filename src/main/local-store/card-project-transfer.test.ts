@@ -3,19 +3,13 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION } from "../../shared/block-documents";
-import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
 import { createUuidV7 } from "../../shared/card-id";
-import { cardProjectTransferIntentFromRequest } from "../../shared/card-project-transfer";
-import { createExplicitDocumentBearingBlock } from "./additional-document-bearing-blocks";
 import { applyCardLifecycleMutation } from "./card-block-lifecycle";
 import {
   applyCardProjectTransfer,
   CardProjectTransferCompilationError,
   compileCardProjectTransferRequest,
-  readCardProjectTransferOutcomeByIntent,
-  type CardProjectTransferFaultPoint,
 } from "./card-project-transfer";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
@@ -94,14 +88,6 @@ const withFixture = async (
   }
 };
 
-const paragraph = (id: string, text: string): BlockTreeNode => ({
-  id,
-  type: "paragraph",
-  props: {},
-  content: [{ type: "text", text, styles: {} }],
-  children: [],
-});
-
 const createAuthorityCard = (
   fixture: Fixture,
   cardId: string,
@@ -157,174 +143,6 @@ const readBlockProject = (fixture: Fixture, blockId: string): string =>
   ).project_id;
 
 describe("Card Project transfer authority kernel", () => {
-  sqliteTest(
-    "moves a recursively owned Document closure atomically and replays a lost response",
-    async () => {
-      await withFixture((fixture) => {
-        const cardId = createUuidV7();
-        const largeBlockId = createUuidV7();
-        const largeParagraphId = createUuidV7();
-        const root = createAuthorityCard(fixture, cardId, "create-transfer-root");
-        const large = createExplicitDocumentBearingBlock(fixture.database, {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "create-transfer-large-document",
-          projectId: fixture.sourceProjectId,
-          storeEpoch: fixture.storeEpoch,
-          clientSessionId: "transfer-test",
-          actor: { kind: "test" },
-          blockKind: "large_document",
-          blockId: largeBlockId,
-          documentId: "document:large-transfer-shell",
-          displayName: "Independent source",
-          blockTree: [paragraph(largeParagraphId, "Nested body")],
-          location: {
-            kind: "document",
-            hostDocumentId: root.documentId,
-            expectedHostGeneration: 1,
-            expectedHostHeadSeq: root.headSeq,
-          },
-        });
-        expect(large.documentHeads[root.documentId]?.headSeq).toBe(2);
-
-        const request = compile(fixture, cardId, "transfer-recursive");
-        expect(request.expectedDocuments.length).toBe(2);
-        expect(
-          request.expectedBlocks.some(
-            (block) => block.blockId === largeParagraphId,
-          ),
-        ).toBe(true);
-        const updateHashesBefore = fixture.database
-          .prepare(
-            `SELECT document_id, generation, seq, update_hash
-             FROM document_updates
-             WHERE document_id IN (?, ?)
-             ORDER BY document_id, generation, seq`,
-          )
-          .all(root.documentId, "document:large-transfer-shell");
-
-        const precommitPoints: readonly CardProjectTransferFaultPoint[] = [
-          "after_source_memberships",
-          "after_project_coordinates",
-          "after_target_memberships",
-          "after_projections",
-          "after_change_log",
-          "after_ledger",
-          "before_commit",
-        ];
-        for (const point of precommitPoints) {
-          let threw = false;
-          try {
-            applyCardProjectTransfer(fixture.database, request, {
-              faultInjector(candidate) {
-                if (candidate === point) throw new Error(`fault:${point}`);
-              },
-            });
-          } catch {
-            threw = true;
-          }
-          expect(threw).toBe(true);
-          expect(readBlockProject(fixture, cardId)).toBe(
-            fixture.sourceProjectId,
-          );
-          expect(
-            fixture.database
-              .prepare("SELECT 1 FROM block_mutations WHERE mutation_id = ?")
-              .get(request.operationId) === undefined,
-          ).toBe(true);
-          expect(
-            (
-              fixture.database.pragma("foreign_key_check") as readonly unknown[]
-            ).length,
-          ).toBe(0);
-        }
-
-        let responseLost = false;
-        try {
-          applyCardProjectTransfer(fixture.database, request, {
-            faultInjector(point) {
-              if (point === "after_commit") {
-                throw new Error("response lost after commit");
-              }
-            },
-          });
-        } catch {
-          responseLost = true;
-        }
-        expect(responseLost).toBe(true);
-        const intentRetry = readCardProjectTransferOutcomeByIntent(
-          fixture.database,
-          {
-            ...cardProjectTransferIntentFromRequest(request),
-            clientSessionId: "logical-retry-session",
-            actor: { kind: "logical-retry" },
-          },
-        );
-        expect(intentRetry?.ok).toBe(true);
-        if (!intentRetry?.ok) {
-          throw new Error(intentRetry?.error.message ?? "Missing intent retry");
-        }
-        expect(intentRetry.value.duplicate).toBe(true);
-
-        const retry = applyCardProjectTransfer(fixture.database, {
-          ...request,
-          clientSessionId: "retry-session",
-          actor: { kind: "retry" },
-        });
-        expect(retry.ok).toBe(true);
-        if (!retry.ok) throw new Error(retry.error.message);
-        expect(retry.value.duplicate).toBe(true);
-        expect(retry.value.movedDocumentIds.length).toBe(2);
-        for (const block of request.expectedBlocks) {
-          expect(readBlockProject(fixture, block.blockId)).toBe(
-            fixture.targetProjectId,
-          );
-        }
-        for (const document of request.expectedDocuments) {
-          const moved = fixture.database
-            .prepare(
-              "SELECT project_id, generation, head_seq FROM documents WHERE id = ?",
-            )
-            .get(document.documentId) as {
-            readonly project_id: string;
-            readonly generation: number;
-            readonly head_seq: number;
-          };
-          expect(moved.project_id).toBe(fixture.targetProjectId);
-          expect(moved.generation).toBe(document.generation);
-          expect(moved.head_seq).toBe(document.headSeq);
-        }
-        expect(
-          JSON.stringify(
-            fixture.database
-              .prepare(
-                `SELECT document_id, generation, seq, update_hash
-                 FROM document_updates
-                 WHERE document_id IN (?, ?)
-                 ORDER BY document_id, generation, seq`,
-              )
-              .all(root.documentId, "document:large-transfer-shell"),
-          ),
-        ).toBe(JSON.stringify(updateHashesBefore));
-        expect(
-          (
-            fixture.database
-              .prepare(
-                `SELECT COUNT(*) AS count FROM change_log
-                 WHERE operation_id = ? AND kind = 'card_project_transfer'`,
-              )
-              .get(request.operationId) as { readonly count: number }
-          ).count,
-        ).toBe(1);
-        expect(
-          (
-            fixture.database.pragma("foreign_key_check") as readonly unknown[]
-          ).length,
-        ).toBe(0);
-      });
-    },
-  );
-
   sqliteTest(
     "fails compilation when the target property schema cannot represent source values",
     async () => {

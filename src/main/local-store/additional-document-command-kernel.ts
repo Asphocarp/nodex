@@ -24,7 +24,6 @@ import type { BlockTreeNode } from "../../shared/block-documents/block-document-
 import {
   AdditionalDocumentBearingBlockError,
   createNonPrimaryCanvasOwner,
-  createExplicitDocumentBearingBlock,
   createReusableTemplateSource,
   deleteOwnedDocumentSource,
   instantiateReusableTemplate,
@@ -94,8 +93,6 @@ const expectedDomainMutationKind = (
       return "create_reusable_template_source";
     case "instantiate_template":
       return "instantiate_reusable_template";
-    case "create_large_document":
-      return "create_explicit_document_bearing_block";
     case "delete_owned_source":
     case "create_canvas_owner":
     case "delete_canvas_owner":
@@ -423,14 +420,6 @@ const deriveMutationEffect = (
       documentHeads: evidence.documentHeads,
     };
   }
-  if (operation.kind === "create_large_document") {
-    return {
-      createdBlockIds: evidence.targetBlockIds,
-      preservedBlockIds: [],
-      deletedBlockIds: [],
-      documentHeads: evidence.documentHeads,
-    };
-  }
   if (
     operation.kind === "delete_owned_source" ||
     operation.kind === "delete_canvas_owner"
@@ -586,53 +575,6 @@ const executeDomainMutation = (
       ...(operation.beforeBlockId
         ? { beforeBlockId: operation.beforeBlockId }
         : {}),
-    });
-  }
-  if (operation.kind === "create_large_document") {
-    const content =
-      operation.content.kind === "large_document"
-        ? { blockTree: operation.content.initialBlocks }
-        : {
-            language: operation.content.language,
-            code: operation.content.code,
-          };
-    const location = (() => {
-      if (operation.location.kind === "space") {
-        return {
-          kind: "space" as const,
-          ...(operation.location.before
-            ? {
-                beforeBlockId: operation.location.before.blockId,
-                expectedBeforeLocationRevision:
-                  operation.location.before.expectedLocationRevision,
-              }
-            : {}),
-        };
-      }
-      const host = executionHead(request, operation.location.host);
-      return {
-        kind: "document" as const,
-        hostDocumentId: host.documentId,
-        expectedHostGeneration: host.generation,
-        expectedHostHeadSeq: host.headSeq,
-        ...(operation.location.parentBlockId
-          ? { parentBlockId: operation.location.parentBlockId }
-          : {}),
-        ...(operation.location.beforeBlockId
-          ? { beforeBlockId: operation.location.beforeBlockId }
-          : {}),
-      };
-    })();
-    return createExplicitDocumentBearingBlock(database, {
-      ...common,
-      version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-      kind: "create_explicit_document_bearing_block",
-      blockKind: operation.content.kind,
-      blockId: operation.blockId,
-      documentId: operation.documentId,
-      displayName: operation.displayName,
-      ...content,
-      location,
     });
   }
   if (operation.kind === "create_canvas_owner") {

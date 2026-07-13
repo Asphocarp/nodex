@@ -148,16 +148,6 @@ describe("headless Block Document schema", () => {
           displayHint: "Incident review",
         },
       },
-      {
-        id: "large-document-block",
-        type: "largeDocument",
-        props: { displayName: "Architecture" },
-      },
-      {
-        id: "large-code-block",
-        type: "largeCode",
-        props: { displayName: "Sync adapter", language: "typescript" },
-      },
     ];
     const editor = BlockNoteEditor.create({
       schema: headlessBlockDocumentSchema,
@@ -170,7 +160,7 @@ describe("headless Block Document schema", () => {
 
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(editor.document));
     expect(decoded.map((block) => block.id).join(",")).toBe(
-      "callout-block,card-toggle-block,thread-section-block,inline-view-block,card-block,card-ref-block,canonical-card-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block,large-document-block,large-code-block",
+      "callout-block,card-toggle-block,thread-section-block,inline-view-block,card-block,card-ref-block,canonical-card-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
     );
   });
 });

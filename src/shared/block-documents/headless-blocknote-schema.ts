@@ -23,8 +23,6 @@ import {
   threadSectionBlockConfig,
   syncedBlockRefBlockConfig,
   reusableTemplateRefBlockConfig,
-  largeDocumentBlockConfig,
-  largeCodeBlockConfig,
   toggleListInlineViewBlockConfig,
 } from "./blocknote-schema-config";
 
@@ -73,8 +71,6 @@ const headlessBlockDocumentBlockSpecs = {
     databaseViewRef: createHeadlessBlockSpec(databaseViewRefBlockConfig),
     syncedBlockRef: createHeadlessBlockSpec(syncedBlockRefBlockConfig),
     templateRef: createHeadlessBlockSpec(reusableTemplateRefBlockConfig),
-    largeDocument: createHeadlessBlockSpec(largeDocumentBlockConfig),
-    largeCode: createHeadlessBlockSpec(largeCodeBlockConfig),
 } as const;
 
 export const HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES = Object.freeze(

@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
-import { Braces, FileText, LayoutTemplate, type LucideIcon } from "lucide-react";
+import { FileText, LayoutTemplate, type LucideIcon } from "lucide-react";
 import {
   isInlineDocumentOwnerCycle,
   useBlockReferenceHostRuntime,
@@ -11,8 +11,6 @@ import {
   type OwnedDocumentReferenceRenderer,
 } from "@/components/block-documents/owned-document-reference-surface";
 import {
-  largeCodeBlockConfig,
-  largeDocumentBlockConfig,
   cardBlockConfig,
   reusableTemplateRefBlockConfig,
 } from "../../../../shared/block-documents/blocknote-schema-config";
@@ -157,33 +155,3 @@ export const createCardBlockSpec = createReactBlockSpec(cardBlockConfig, {
     />
   ),
 });
-
-export const createLargeDocumentBlockSpec = createReactBlockSpec(
-  largeDocumentBlockConfig,
-  {
-    render: ({ block }) => (
-      <DocumentBearingShellBlock
-        icon={FileText}
-        label="Document"
-        detail={block.props.displayName}
-        identity={block.id}
-        shellBlockId={block.id}
-      />
-    ),
-  },
-);
-
-export const createLargeCodeBlockSpec = createReactBlockSpec(
-  largeCodeBlockConfig,
-  {
-    render: ({ block }) => (
-      <DocumentBearingShellBlock
-        icon={Braces}
-        label="Code"
-        detail={`${block.props.displayName} · ${block.props.language}`}
-        identity={block.id}
-        shellBlockId={block.id}
-      />
-    ),
-  },
-);

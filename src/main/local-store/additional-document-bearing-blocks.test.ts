@@ -7,9 +7,6 @@ import * as Y from "yjs";
 import { createUuidV7 } from "../../shared/card-id";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-  DOCUMENT_OPERATION_CONTRACT_VERSION,
-  LARGE_CODE_BLOCK_TYPE,
-  LARGE_DOCUMENT_BLOCK_TYPE,
   REUSABLE_TEMPLATE_REFERENCE_TYPE,
 } from "../../shared/block-documents";
 import {
@@ -20,19 +17,15 @@ import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../../shared/block-documents/
 import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
 import {
   AdditionalDocumentBearingBlockError,
-  createExplicitDocumentBearingBlock,
   createReusableTemplateReference,
   createReusableTemplateSource,
   getDocumentBearingBlockSummary,
   instantiateReusableTemplate,
 } from "./additional-document-bearing-blocks";
 import {
-  applyBlockDocumentUpdate,
-  BlockDocumentStoreError,
   initializeBlockDocumentGenesis,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import { applyDocumentOperationBatch } from "./block-document-operations";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
 import { createDocumentVersionCheckpoint } from "./document-versions";
@@ -330,260 +323,6 @@ describe("additional registered document-bearing Blocks", () => {
       });
     },
   );
-
-  sqliteTest(
-    "creates visible Large Document/Code shells without embedding their bodies",
-    async () => {
-      await withDatabase((database, projectId, storeEpoch) => {
-        const hostCardId = createUuidV7();
-        const largeDocumentBlockId = createUuidV7();
-        const largeParagraphId = createUuidV7();
-        const largeCodeBlockId = createUuidV7();
-        seedPrimaryCardDocument(database, {
-          projectId,
-          cardId: hostCardId,
-          documentId: "document:large-host",
-        });
-        const largeDocument = createExplicitDocumentBearingBlock(database, {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "large:create-document",
-          projectId,
-          storeEpoch,
-          clientSessionId: "surface:large-document",
-          actor: ACTOR,
-          blockKind: "large_document",
-          blockId: largeDocumentBlockId,
-          documentId: "document:large-document",
-          displayName: "Architecture",
-          blockTree: [paragraph(largeParagraphId, "Independent body")],
-          location: {
-            kind: "document",
-            hostDocumentId: "document:large-host",
-            expectedHostGeneration: 1,
-            expectedHostHeadSeq: 1,
-          },
-        });
-        expect(largeDocument.duplicate).toBe(false);
-        const host = readMaterialization(database, "document:large-host");
-        expect(host.blockTree[1]?.id).toBe(largeDocumentBlockId);
-        expect(host.blockTree[1]?.type).toBe(LARGE_DOCUMENT_BLOCK_TYPE);
-        expect(host.blockTree[1]?.children.length).toBe(0);
-        expect(host.plainText.includes("Independent body")).toBe(false);
-        const shellRegistry = database
-          .prepare(
-            `
-            SELECT owner.type AS owner_type, entry.block_type AS shell_type,
-              owner.containing_document_id, ownership.document_id
-            FROM blocks owner
-            INNER JOIN document_block_index entry ON entry.block_id = owner.id
-            INNER JOIN block_documents ownership ON ownership.block_id = owner.id
-            WHERE owner.id = ?
-          `,
-          )
-          .get(largeDocumentBlockId) as {
-          readonly owner_type: string;
-          readonly shell_type: string;
-          readonly containing_document_id: string;
-          readonly document_id: string;
-        };
-        expect(shellRegistry.owner_type).toBe(LARGE_DOCUMENT_BLOCK_TYPE);
-        expect(shellRegistry.shell_type).toBe(LARGE_DOCUMENT_BLOCK_TYPE);
-        expect(shellRegistry.containing_document_id).toBe(
-          "document:large-host",
-        );
-        expect(shellRegistry.document_id).toBe("document:large-document");
-        expect(
-          readMaterialization(database, "document:large-document").plainText,
-        ).toBe("Independent body");
-
-        createExplicitDocumentBearingBlock(database, {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "large:create-code",
-          projectId,
-          storeEpoch,
-          clientSessionId: "surface:large-code",
-          actor: ACTOR,
-          blockKind: "large_code",
-          blockId: largeCodeBlockId,
-          documentId: "document:large-code",
-          displayName: "Sync adapter",
-          code: "export const sync = true;",
-          language: "typescript",
-          location: { kind: "space" },
-        });
-        const code = readMaterialization(database, "document:large-code");
-        expect(code.kind).toBe("large_code");
-        expect(code.blockTree.length).toBe(1);
-        expect(code.blockTree[0]?.type).toBe("codeBlock");
-        const owner = database
-          .prepare(
-            `SELECT type, location_kind FROM blocks WHERE id = ?`,
-          )
-          .get(largeCodeBlockId) as { readonly type: string; readonly location_kind: string };
-        expect(owner.type).toBe(LARGE_CODE_BLOCK_TYPE);
-        expect(owner.location_kind).toBe("space");
-      });
-    },
-  );
-
-  sqliteTest(
-    "rejects ordinary manufacture and schema drift for typed owners",
-    async () => {
-      await withDatabase((database, projectId, storeEpoch) => {
-        const hostCardId = createUuidV7();
-        const forgedBlockId = createUuidV7();
-        const strictCodeBlockId = createUuidV7();
-        seedPrimaryCardDocument(database, {
-          projectId,
-          cardId: hostCardId,
-          documentId: "document:typed-host",
-        });
-        const manufactured = applyDocumentOperationBatch(database, {
-          version: DOCUMENT_OPERATION_CONTRACT_VERSION,
-          mutationId: "manufacture:large",
-          projectId,
-          storeEpoch,
-          actor: {},
-          documentId: "document:typed-host",
-          generation: 1,
-          expectedHeadSeq: 1,
-          operations: [
-            {
-              kind: "insert_block",
-              block: {
-                id: forgedBlockId,
-                type: LARGE_DOCUMENT_BLOCK_TYPE,
-                props: { displayName: "Forged" },
-                children: [],
-              },
-            },
-          ],
-        });
-        expect(manufactured.ok).toBe(false);
-        expect(
-          database
-            .prepare("SELECT 1 AS present FROM blocks WHERE id = ?")
-            .get(forgedBlockId) === undefined,
-        ).toBe(true);
-
-        createExplicitDocumentBearingBlock(database, {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "large:strict-code",
-          projectId,
-          storeEpoch,
-          clientSessionId: "surface:strict-code",
-          actor: ACTOR,
-          blockKind: "large_code",
-          blockId: strictCodeBlockId,
-          documentId: "document:strict-code",
-          displayName: "Strict",
-          code: "before",
-          language: "text",
-          location: { kind: "space" },
-        });
-        const loaded = loadPrimaryBlockDocument(database, "document:strict-code");
-        const vector = Y.encodeStateVector(loaded.document);
-        const content = [...loaded.document.getXmlFragment("body").createTreeWalker(
-          (node) => node instanceof Y.XmlElement && node.nodeName === "codeBlock",
-        )][0] as Y.XmlElement;
-        const parent = content.parent as Y.XmlElement;
-        const replacement = new Y.XmlElement("paragraph");
-        const text = new Y.XmlText();
-        text.insert(0, "not code");
-        replacement.insert(0, [text]);
-        const index = parent.toArray().indexOf(content);
-        parent.delete(index, 1);
-        parent.insert(index, [replacement]);
-        let error: unknown;
-        try {
-          applyBlockDocumentUpdate(database, {
-            documentId: "document:strict-code",
-            storeEpoch,
-            generation: 1,
-            updateId: "large:strict-code:drift",
-            clientSessionId: "surface:drift",
-            baseHeadSeq: 1,
-            touchedBlockIds: ["block:ignored"],
-            update: Y.encodeStateAsUpdate(loaded.document, vector),
-          });
-        } catch (caught) {
-          error = caught;
-        } finally {
-          loaded.document.destroy();
-        }
-        expect(error instanceof BlockDocumentStoreError).toBe(true);
-        expect(
-          readMaterialization(database, "document:strict-code").blockTree[0]
-            ?.type,
-        ).toBe("codeBlock");
-      });
-    },
-  );
-
-  sqliteTest("rolls owner, Document, and host shell back at every fault", async () => {
-    await withDatabase((database, projectId, storeEpoch) => {
-      const hostCardId = createUuidV7();
-      const faultBlockId = createUuidV7();
-      const faultBodyId = createUuidV7();
-      seedPrimaryCardDocument(database, {
-        projectId,
-        cardId: hostCardId,
-        documentId: "document:fault-host",
-      });
-      let error: unknown;
-      try {
-        createExplicitDocumentBearingBlock(
-          database,
-          {
-            version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-            kind: "create_explicit_document_bearing_block",
-            operationId: "large:fault",
-            projectId,
-            storeEpoch,
-            clientSessionId: "surface:fault",
-            actor: ACTOR,
-            blockKind: "large_document",
-            blockId: faultBlockId,
-            documentId: "document:large-fault",
-            displayName: "Fault",
-            blockTree: [paragraph(faultBodyId, "rollback")],
-            location: {
-              kind: "document",
-              hostDocumentId: "document:fault-host",
-              expectedHostGeneration: 1,
-              expectedHostHeadSeq: 1,
-            },
-          },
-          {
-            faultInjector: (point) => {
-              if (point === "after_host_update") throw new Error("fault");
-            },
-          },
-        );
-      } catch (caught) {
-        error = caught;
-      }
-      expect(error instanceof Error).toBe(true);
-      expect(
-        database
-          .prepare("SELECT 1 AS present FROM blocks WHERE id = ?")
-          .get(faultBlockId) === undefined,
-      ).toBe(true);
-      expect(
-        database
-          .prepare(
-            "SELECT 1 AS present FROM documents WHERE id = 'document:large-fault'",
-          )
-          .get() === undefined,
-      ).toBe(true);
-      expect(
-        readMaterialization(database, "document:fault-host").blockTree.length,
-      ).toBe(1);
-    });
-  });
 
   sqliteTest("binds operation identity to semantic intent", async () => {
     await withDatabase((database, projectId, storeEpoch) => {

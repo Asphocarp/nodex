@@ -16,9 +16,9 @@ import {
   BLOCK_CONTAINER_NODE_NAME,
   BLOCK_GROUP_NODE_NAME,
   BLOCK_ID_ATTRIBUTE,
-  LARGE_DOCUMENT_BLOCK_TYPE,
-  LARGE_DOCUMENT_SCHEMA_KEY,
-  LARGE_DOCUMENT_SCHEMA_VERSION,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+  REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
+  REUSABLE_TEMPLATE_SOURCE_TYPE,
   captureXmlSubtreeAt,
   createCardDocument,
   deleteXmlSubtreeAt,
@@ -1148,17 +1148,17 @@ describe("NodexYProvider", () => {
   test("recovers a body-only Document from its registered schema after restart", async () => {
     await recoverDisconnectedRegisteredDocumentEdit({
       schema: {
-        ownerType: LARGE_DOCUMENT_BLOCK_TYPE,
-        schemaKey: LARGE_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: LARGE_DOCUMENT_SCHEMA_VERSION,
+        ownerType: REUSABLE_TEMPLATE_SOURCE_TYPE,
+        schemaKey: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
       },
       mutate: (document, adapter) => {
         if (adapter.contentModel !== "block_tree") {
-          throw new TypeError("Expected the Large Document block-tree Adapter");
+          throw new TypeError("Expected the Template block-tree Adapter");
         }
         const root = adapter.inspect(document).envelope.body.toArray()[0];
         if (!(root instanceof Y.XmlElement)) {
-          throw new TypeError("Expected the Large Document body root");
+          throw new TypeError("Expected the Template body root");
         }
         root.insert(0, [
           createParagraphBlock("offline-block", "Recovered offline body"),
@@ -1166,7 +1166,7 @@ describe("NodexYProvider", () => {
       },
       assertRecovered: (document, adapter) => {
         if (adapter.contentModel !== "block_tree") {
-          throw new TypeError("Expected the Large Document block-tree Adapter");
+          throw new TypeError("Expected the Template block-tree Adapter");
         }
         expect(adapter.inspect(document).materialization.plainText).toBe(
           "Recovered offline body",

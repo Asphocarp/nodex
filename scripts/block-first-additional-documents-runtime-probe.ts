@@ -4,40 +4,32 @@ import path from "node:path";
 import * as Y from "yjs";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-  LARGE_CODE_BLOCK_TYPE,
-  LARGE_DOCUMENT_BLOCK_TYPE,
   REUSABLE_TEMPLATE_REFERENCE_TYPE,
-  type RelocateBlocks,
 } from "../src/shared/block-documents";
 import {
   createDetachedCardDocumentFromBlockTree,
   type BlockTreeNode,
 } from "../src/shared/block-documents/block-document-codec";
-import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
 import { inspectOwnedBlockDocument } from "../src/shared/block-documents/document-schema-adapters";
 import {
   AdditionalDocumentBearingBlockError,
   assertReusableTemplateSourceIsUnreferenced,
-  createExplicitDocumentBearingBlock,
   createReusableTemplateReference,
   createReusableTemplateSource,
   getDocumentBearingBlockSummary,
   instantiateReusableTemplate,
 } from "../src/main/local-store/additional-document-bearing-blocks";
 import {
-  applyBlockDocumentUpdate,
   initializeBlockDocumentGenesis,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
-import { relocateBlocksAtomically } from "../src/main/local-store/block-relocations";
 import {
   closeDatabase,
   getDb,
   initializeDatabase,
 } from "../src/main/local-store/database";
-import { createDocumentVersionCheckpoint } from "../src/main/local-store/document-versions";
 import { createProject } from "../src/main/local-store/projects";
-import { createUuidV7FromTimestamp, isUuidV7 } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/card-id";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -70,11 +62,6 @@ const blockIds = {
   templateReference: probeBlockId(5),
   invalidTemplate: probeBlockId(6),
   nestedOwner: probeBlockId(7),
-  largeDocument: probeBlockId(8),
-  largeParagraph: probeBlockId(9),
-  largeCode: probeBlockId(10),
-  faultOwner: probeBlockId(11),
-  faultBody: probeBlockId(12),
 } as const;
 
 const readEpoch = (): string =>
@@ -158,15 +145,6 @@ const materialize = (documentId: string) => {
   } finally {
     loaded.document.destroy();
   }
-};
-
-const findText = (document: Y.Doc): Y.XmlText => {
-  for (const node of document
-    .getXmlFragment("body")
-    .createTreeWalker(() => true)) {
-    if (node instanceof Y.XmlText) return node;
-  }
-  throw new Error("Expected text in Block Document");
 };
 
 const main = async (): Promise<void> => {
@@ -328,8 +306,8 @@ const main = async (): Promise<void> => {
           blockTree: [
             {
               id: blockIds.nestedOwner,
-              type: LARGE_DOCUMENT_BLOCK_TYPE,
-              props: { displayName: "Nested" },
+              type: "card",
+              props: { displayHint: "Nested" },
               children: [],
             },
           ],
@@ -356,170 +334,6 @@ const main = async (): Promise<void> => {
       "invalid Template ownership did not produce one durable typed rejection",
     );
 
-    createExplicitDocumentBearingBlock(getDb(), {
-      version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-      kind: "create_explicit_document_bearing_block",
-      operationId: "probe:large-document:create",
-      projectId: project.id,
-      storeEpoch,
-      clientSessionId: "probe:large-document",
-      actor: {},
-      blockKind: "large_document",
-      blockId: blockIds.largeDocument,
-      documentId: "document:probe-large-document",
-      displayName: "Architecture",
-      blockTree: [paragraph(blockIds.largeParagraph, "Foreign body")],
-      location: {
-        kind: "document",
-        hostDocumentId: "document:probe-host",
-        expectedHostGeneration: 1,
-        expectedHostHeadSeq: 3,
-      },
-    });
-    const hostWithShell = materialize("document:probe-host");
-    invariant(
-      hostWithShell.blockTree.at(-1)?.type === LARGE_DOCUMENT_BLOCK_TYPE &&
-        !hostWithShell.plainText.includes("Foreign body"),
-      "Large Document shell embedded its owned body",
-    );
-
-    createExplicitDocumentBearingBlock(getDb(), {
-      version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-      kind: "create_explicit_document_bearing_block",
-      operationId: "probe:large-code:create",
-      projectId: project.id,
-      storeEpoch,
-      clientSessionId: "probe:large-code",
-      actor: {},
-      blockKind: "large_code",
-      blockId: blockIds.largeCode,
-      documentId: "document:probe-large-code",
-      displayName: "Sync",
-      code: "base",
-      language: "typescript",
-      location: { kind: "space" },
-    });
-    const codeBase = loadPrimaryBlockDocument(getDb(), "document:probe-large-code");
-    const full = Y.encodeStateAsUpdate(codeBase.document);
-    codeBase.document.destroy();
-    const left = new Y.Doc({ guid: "document:probe-large-code" });
-    const right = new Y.Doc({ guid: "document:probe-large-code" });
-    Y.applyUpdate(left, full);
-    Y.applyUpdate(right, full);
-    const leftVector = Y.encodeStateVector(left);
-    const rightVector = Y.encodeStateVector(right);
-    findText(left).insert(0, "L");
-    findText(right).insert(findText(right).length, "R");
-    applyBlockDocumentUpdate(getDb(), {
-      documentId: "document:probe-large-code",
-      storeEpoch,
-      generation: 1,
-      updateId: "probe:large-code:left",
-      clientSessionId: "probe:left",
-      baseHeadSeq: 1,
-      touchedBlockIds: [],
-      update: Y.encodeStateAsUpdate(left, leftVector),
-    });
-    applyBlockDocumentUpdate(getDb(), {
-      documentId: "document:probe-large-code",
-      storeEpoch,
-      generation: 1,
-      updateId: "probe:large-code:right",
-      clientSessionId: "probe:right",
-      baseHeadSeq: 1,
-      touchedBlockIds: [],
-      update: Y.encodeStateAsUpdate(right, rightVector),
-    });
-    left.destroy();
-    right.destroy();
-    invariant(
-      materialize("document:probe-large-code").plainText === "LbaseR",
-      "Large Code clients did not converge",
-    );
-    const checkpoint = createDocumentVersionCheckpoint(getDb(), {
-      version: DOCUMENT_VERSION_CONTRACT_VERSION,
-      projectId: project.id,
-      storeEpoch,
-      documentId: "document:probe-large-code",
-      expectedGeneration: 1,
-      expectedHeadSeq: 3,
-      cause: "manual",
-      actor: {},
-    }).checkpoint;
-    invariant(
-      checkpoint.materializationKind === "large_code" && checkpoint.title === null,
-      "Large Code did not reuse generic Document history",
-    );
-
-    const relocate: RelocateBlocks = {
-      relocationId: "probe:large-document:relocate-body",
-      projectId: project.id,
-      storeEpoch,
-      rootBlockIds: [blockIds.largeParagraph],
-      sourceDocumentId: "document:probe-large-document",
-      sourceGeneration: 1,
-      expectedSourceHeadSeq: 1,
-      expectedLocationRevisions: { [blockIds.largeParagraph]: 1 },
-      target: {
-        kind: "document",
-        documentId: "document:probe-host",
-        generation: 1,
-        expectedHeadSeq: 4,
-        beforeBlockId: blockIds.largeDocument,
-      },
-    };
-    const relocated = relocateBlocksAtomically(getDb(), relocate);
-    const emptiedLargeDocument = materialize("document:probe-large-document");
-    invariant(
-      relocated.targetCommit?.headSeq === 5 &&
-        emptiedLargeDocument.nfm === "" &&
-        emptiedLargeDocument.blockTree.length === 1 &&
-        emptiedLargeDocument.blockTree[0]?.type === "paragraph" &&
-        isUuidV7(emptiedLargeDocument.blockTree[0]?.id ?? "") &&
-        materialize("document:probe-host").blockTree.some(
-          (block) => block.id === blockIds.largeParagraph,
-        ),
-      "Large Document did not reuse atomic relocation",
-    );
-
-    let rolledBack = false;
-    try {
-      createExplicitDocumentBearingBlock(
-        getDb(),
-        {
-          version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-          kind: "create_explicit_document_bearing_block",
-          operationId: "probe:fault",
-          projectId: project.id,
-          storeEpoch,
-          clientSessionId: "probe:fault",
-          actor: {},
-          blockKind: "large_document",
-          blockId: blockIds.faultOwner,
-          documentId: "document:probe-fault",
-          displayName: "Fault",
-          blockTree: [paragraph(blockIds.faultBody, "rollback")],
-          location: { kind: "space" },
-        },
-        {
-          faultInjector: (point) => {
-            if (point === "before_receipt") throw new Error("fault");
-          },
-        },
-      );
-    } catch (error) {
-      rolledBack = error instanceof Error && error.message === "fault";
-    }
-    invariant(rolledBack, "fault injection was not observed");
-    invariant(
-      getDb()
-        .prepare("SELECT 1 FROM blocks WHERE id = ?")
-        .get(blockIds.faultOwner) === undefined &&
-        getDb()
-          .prepare("SELECT 1 FROM documents WHERE id = 'document:probe-fault'")
-          .get() === undefined,
-      "faulted owner/Document escaped the transaction",
-    );
     const originalActor = getDb()
       .prepare(
         `SELECT actor_json, client_session_id FROM block_mutations
@@ -534,32 +348,14 @@ const main = async (): Promise<void> => {
         originalActor.client_session_id === "probe:template-create",
       "retry replaced first-attempt audit identity",
     );
-    const ownerTypes = getDb()
-      .prepare(
-        "SELECT type FROM blocks WHERE id IN (?, ?) ORDER BY type",
-      )
-      .all(blockIds.largeCode, blockIds.largeDocument) as readonly {
-      readonly type: string;
-    }[];
-    invariant(
-      ownerTypes.some((row) => row.type === LARGE_CODE_BLOCK_TYPE) &&
-        ownerTypes.some((row) => row.type === LARGE_DOCUMENT_BLOCK_TYPE),
-      "registered explicit owner types were not durable",
-    );
-
     process.stdout.write(
       `${JSON.stringify({
         bodyOnly: true,
         templateReference: true,
         instantiateRenewsIds: true,
         sourceStable: true,
-        foreignBodyExcluded: true,
-        largeCodeConverged: true,
-        history: true,
-        relocation: true,
         exactRetry: true,
         firstAudit: true,
-        faultRollback: true,
         typedRejection: true,
         ordinaryNotPromoted: true,
         referencedSourceGuard: true,

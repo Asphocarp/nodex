@@ -382,15 +382,13 @@ describe("additional Document authoritative command kernel", () => {
   );
 
   sqliteTest(
-    "creates Template instances and Large Document owners through one receipt contract",
+    "creates Template instances through the shared receipt contract",
     async () => {
       await withDatabase((database, projectId, storeEpoch) => {
         const targetCardId = createUuidV7();
         const targetAnchorId = createUuidV7();
         const templateSourceId = createUuidV7();
         const templateRootId = createUuidV7();
-        const largeOwnerId = createUuidV7();
-        const largeBodyId = createUuidV7();
         seedCardDocument(database, {
           projectId,
           cardId: targetCardId,
@@ -533,45 +531,6 @@ describe("additional Document authoritative command kernel", () => {
           }
         }
 
-        const large = applyAdditionalDocumentCommand(
-          database,
-          command(
-            projectId,
-            storeEpoch,
-            "command:large",
-            {
-              kind: "create_large_document",
-              blockId: largeOwnerId,
-              documentId: "document:large",
-              displayName: "Architecture",
-              content: {
-                kind: "large_document",
-                initialBlocks: [paragraph(largeBodyId, "body")],
-              },
-              location: {
-                kind: "document",
-                host: {
-                  documentId: "document:target",
-                  generation: 1,
-                },
-              },
-            },
-            lease("lease:large", [
-              {
-                documentId: "document:target",
-                generation: 1,
-                headSeq: 2,
-              },
-            ]),
-          ),
-        );
-        expect(large.ok).toBe(true);
-        if (large.ok) {
-          expect(large.value.effect.createdBlockIds.join(",")).toBe(
-            [largeBodyId, largeOwnerId].sort().join(","),
-          );
-          expect(large.value.effect.documentHeads.length).toBe(2);
-        }
       });
     },
   );
@@ -674,16 +633,13 @@ describe("additional Document authoritative command kernel", () => {
         const referenceBlockId = createUuidV7();
         const created = applyAdditionalDocumentCommand(
           database,
-          command(projectId, storeEpoch, "command:referenced-large", {
-            kind: "create_large_document",
-            blockId: referencedOwnerId,
-            documentId: "document:large-referenced",
+          command(projectId, storeEpoch, "command:referenced-template", {
+            kind: "create_template",
+            sourceBlockId: referencedOwnerId,
+            documentId: "document:template-referenced",
             displayName: "Referenced",
-            content: {
-              kind: "large_document",
-              initialBlocks: [paragraph(referencedBodyId, "body")],
-            },
-            location: { kind: "space" },
+            initialBlocks: [paragraph(referencedBodyId, "body")],
+            placement: { kind: "space" },
           }),
         );
         if (!created.ok) throw new Error(created.error.message);
@@ -718,10 +674,10 @@ describe("additional Document authoritative command kernel", () => {
           command(
             projectId,
             storeEpoch,
-            "command:referenced-large-delete",
+            "command:referenced-template-delete",
             {
               kind: "delete_owned_source",
-              ownerKind: "large_document",
+              ownerKind: "reusable_template",
               owner: {
                 ownerBlockId: referencedOwnerId,
                 documentId: head.documentId,
@@ -731,7 +687,7 @@ describe("additional Document authoritative command kernel", () => {
               },
               referencePolicy: "require_unreferenced",
             },
-            lease("lease:referenced-large-delete", [head]),
+            lease("lease:referenced-template-delete", [head]),
           ),
         );
         expect(rejected.ok).toBe(false);
@@ -754,9 +710,9 @@ describe("additional Document authoritative command kernel", () => {
         const faultSourceId = createUuidV7();
         const faultBodyId = createUuidV7();
         const canvasBlockId = createUuidV7();
-        const largeSourceId = createUuidV7();
-        const largeRootId = createUuidV7();
-        const largeChildId = createUuidV7();
+        const templateSourceId = createUuidV7();
+        const templateRootId = createUuidV7();
+        const templateChildId = createUuidV7();
         const request = command(projectId, storeEpoch, "command:fault", {
           kind: "create_template",
           sourceBlockId: faultSourceId,
@@ -904,59 +860,56 @@ describe("additional Document authoritative command kernel", () => {
         expect(retry.ok).toBe(true);
         if (retry.ok) expect(retry.value.duplicate).toBe(true);
 
-        const largeSource = applyAdditionalDocumentCommand(
+        const templateSource = applyAdditionalDocumentCommand(
           database,
-          command(projectId, storeEpoch, "command:large-source", {
-            kind: "create_large_document",
-            blockId: largeSourceId,
-            documentId: "document:large-deletable",
+          command(projectId, storeEpoch, "command:template-source", {
+            kind: "create_template",
+            sourceBlockId: templateSourceId,
+            documentId: "document:template-deletable",
             displayName: "Temporary source",
-            content: {
-              kind: "large_document",
-              initialBlocks: [
-                paragraph(largeRootId, "root", [
-                  paragraph(largeChildId, "child"),
-                ]),
-              ],
-            },
-            location: { kind: "space" },
+            initialBlocks: [
+              paragraph(templateRootId, "root", [
+                paragraph(templateChildId, "child"),
+              ]),
+            ],
+            placement: { kind: "space" },
           }),
         );
-        if (!largeSource.ok) throw new Error(largeSource.error.message);
-        const largeOwner = database
+        if (!templateSource.ok) throw new Error(templateSource.error.message);
+        const templateOwner = database
           .prepare(
             `SELECT metadata_revision, location_revision FROM blocks WHERE id = ?`,
           )
-          .get(largeSourceId) as {
+          .get(templateSourceId) as {
           readonly metadata_revision: number;
           readonly location_revision: number;
         };
-        const largeHead = largeSource.value.effect.documentHeads[0];
-        if (!largeHead) throw new Error("Large source returned no Document head");
-        const deletedLarge = applyAdditionalDocumentCommand(
+        const templateHead = templateSource.value.effect.documentHeads[0];
+        if (!templateHead) throw new Error("Template source returned no Document head");
+        const deletedTemplate = applyAdditionalDocumentCommand(
           database,
           command(
             projectId,
             storeEpoch,
-            "command:large-source-delete",
+            "command:template-source-delete",
             {
               kind: "delete_owned_source",
-              ownerKind: "large_document",
+              ownerKind: "reusable_template",
               owner: {
-                ownerBlockId: largeSourceId,
-                documentId: largeHead.documentId,
-                generation: largeHead.generation,
-                metadataRevision: largeOwner.metadata_revision,
-                locationRevision: largeOwner.location_revision,
+                ownerBlockId: templateSourceId,
+                documentId: templateHead.documentId,
+                generation: templateHead.generation,
+                metadataRevision: templateOwner.metadata_revision,
+                locationRevision: templateOwner.location_revision,
               },
               referencePolicy: "require_unreferenced",
             },
-            lease("lease:large-source-delete", [largeHead]),
+            lease("lease:template-source-delete", [templateHead]),
           ),
         );
-        if (!deletedLarge.ok) throw new Error(deletedLarge.error.message);
-        expect(deletedLarge.value.effect.deletedBlockIds.join(",")).toBe(
-          [largeSourceId, largeRootId, largeChildId].sort().join(","),
+        if (!deletedTemplate.ok) throw new Error(deletedTemplate.error.message);
+        expect(deletedTemplate.value.effect.deletedBlockIds.join(",")).toBe(
+          [templateSourceId, templateRootId, templateChildId].sort().join(","),
         );
         expect(
           (
@@ -966,7 +919,7 @@ describe("additional Document authoritative command kernel", () => {
                  WHERE id IN (?, ?, ?)
                    AND lifecycle = 'deleted'`,
               )
-              .get(largeSourceId, largeRootId, largeChildId) as { readonly count: number }
+              .get(templateSourceId, templateRootId, templateChildId) as { readonly count: number }
           ).count,
         ).toBe(3);
       });

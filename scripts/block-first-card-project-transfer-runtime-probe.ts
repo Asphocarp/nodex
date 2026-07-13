@@ -1,10 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION } from "../src/shared/block-documents";
 import { parseCardLifecycleMutationRequest } from "../src/shared/card-lifecycle";
 import { createUuidV7 } from "../src/shared/card-id";
-import { createExplicitDocumentBearingBlock } from "../src/main/local-store/additional-document-bearing-blocks";
 import { applyCardLifecycleMutation } from "../src/main/local-store/card-block-lifecycle";
 import {
   applyCardProjectTransfer,
@@ -60,8 +58,6 @@ const main = async (): Promise<void> => {
         .get(target.id, targetDatabaseBlockId) as { readonly id: string }
     ).id;
     const cardId = createUuidV7();
-    const largeShellBlockId = createUuidV7();
-    const largeParagraphBlockId = createUuidV7();
     const created = applyCardLifecycleMutation(
       database,
       parseCardLifecycleMutationRequest({
@@ -82,36 +78,6 @@ const main = async (): Promise<void> => {
     );
     invariant(created.ok, "Could not create the source authority Card");
     const rootDocumentId = created.value.documentId ?? `document:${cardId}`;
-    createExplicitDocumentBearingBlock(database, {
-      version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
-      kind: "create_explicit_document_bearing_block",
-      operationId: "probe:create-large-document",
-      projectId: source.id,
-      storeEpoch,
-      clientSessionId: "transfer-probe",
-      actor: { kind: "probe" },
-      blockKind: "large_document",
-      blockId: largeShellBlockId,
-      documentId: "document:probe-large-shell",
-      displayName: "Nested owner",
-      blockTree: [
-        {
-          id: largeParagraphBlockId,
-          type: "paragraph",
-          props: {},
-          content: [
-            { type: "text", text: "Nested independent body", styles: {} },
-          ],
-          children: [],
-        },
-      ],
-      location: {
-        kind: "document",
-        hostDocumentId: rootDocumentId,
-        expectedHostGeneration: 1,
-        expectedHostHeadSeq: created.value.documentHeadSeq ?? 1,
-      },
-    });
     const request = compileCardProjectTransferRequest(database, {
       operationId: "probe:transfer",
       sourceProjectId: source.id,
@@ -123,16 +89,16 @@ const main = async (): Promise<void> => {
       clientSessionId: "transfer-probe",
       actor: { kind: "probe" },
     });
-    invariant(request.expectedDocuments.length === 2, "Closure missed owned Document");
+    invariant(request.expectedDocuments.length === 1, "Card Document is missing");
     const updateEvidence = JSON.stringify(
       database
         .prepare(
           `SELECT document_id, generation, seq, update_hash
            FROM document_updates
-           WHERE document_id IN (?, ?)
+           WHERE document_id = ?
            ORDER BY document_id, generation, seq`,
         )
-        .all(rootDocumentId, "document:probe-large-shell"),
+        .all(rootDocumentId),
     );
 
     const rollbackPoints: readonly CardProjectTransferFaultPoint[] = [
@@ -200,10 +166,10 @@ const main = async (): Promise<void> => {
           .prepare(
             `SELECT document_id, generation, seq, update_hash
              FROM document_updates
-             WHERE document_id IN (?, ?)
+             WHERE document_id = ?
              ORDER BY document_id, generation, seq`,
           )
-          .all(rootDocumentId, "document:probe-large-shell"),
+          .all(rootDocumentId),
       ) === updateEvidence,
       "Project transfer rewrote Y.Doc updates or internal identities",
     );

@@ -93,12 +93,10 @@ describe("Block-first reference codec", () => {
     expect(serializeNfm(roundTrip)).toBe(source);
   });
 
-  test("round-trips Template and typed-shell projection syntax without foreign bodies", () => {
+  test("round-trips Template and Card shell projection syntax without foreign bodies", () => {
     const source = [
       '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
       '<card display-hint="Nested Card" />',
-      '<large-document display-name="Architecture" />',
-      '<large-code display-name="Sync adapter" language="typescript" />',
     ].join("\n");
     const nfmBlocks = parseNfm(source);
     const blockNoteBlocks = nfmToBlockNote(nfmBlocks);
@@ -109,11 +107,6 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[0]?.children?.length).toBe(0);
     expect(blockNoteBlocks[1]?.type).toBe("card");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
-    expect(blockNoteBlocks[2]?.type).toBe("largeDocument");
-    expect(blockNoteBlocks[2]?.children?.length).toBe(0);
-    expect(blockNoteBlocks[3]?.type).toBe("largeCode");
-    expect(blockNoteBlocks[3]?.props?.language).toBe("typescript");
-    expect(blockNoteBlocks[3]?.children?.length).toBe(0);
     expect(serializeNfm(roundTrip)).toBe(source);
   });
 
@@ -126,19 +119,16 @@ describe("Block-first reference codec", () => {
         "\tView child",
         '<template-ref source-block="template-1" />',
         "\tTemplate child",
-        '<large-document display-name="Document" />',
-        "\tDocument shell child",
         '<card display-hint="Card" />',
         "\tCard shell child",
       ].join("\n"),
     );
 
-    expect(blocks.length).toBe(10);
+    expect(blocks.length).toBe(8);
     expect(blocks[0]?.children.length).toBe(0);
     expect(blocks[2]?.children.length).toBe(0);
     expect(blocks[4]?.children.length).toBe(0);
     expect(blocks[6]?.children.length).toBe(0);
-    expect(blocks[8]?.children.length).toBe(0);
   });
 
   test("rejects persisted children beneath canonical Card and Database references", () => {

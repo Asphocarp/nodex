@@ -36,8 +36,6 @@ import {
   databaseViewRefBlockConfig,
   syncedBlockRefBlockConfig,
   reusableTemplateRefBlockConfig,
-  largeDocumentBlockConfig,
-  largeCodeBlockConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
   toggleListInlineViewBlockConfig,
@@ -158,32 +156,6 @@ const createReadonlyTemplateRefBlockSpec = createReactBlockSpec(
         icon={FileText}
         label="Template"
         detail={String(block.props.displayHint || "Reusable content").trim()}
-      />
-    ),
-  },
-);
-
-const createReadonlyLargeDocumentBlockSpec = createReactBlockSpec(
-  largeDocumentBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={FileText}
-        label="Document"
-        detail={String(block.props.displayName || "Untitled document").trim()}
-      />
-    ),
-  },
-);
-
-const createReadonlyLargeCodeBlockSpec = createReactBlockSpec(
-  largeCodeBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={FileText}
-        label="Code"
-        detail={`${String(block.props.displayName || "Untitled code").trim()} · ${String(block.props.language || "text").trim()}`}
       />
     ),
   },
@@ -315,8 +287,6 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),
     templateRef: createReadonlyTemplateRefBlockSpec(),
-    largeDocument: createReadonlyLargeDocumentBlockSpec(),
-    largeCode: createReadonlyLargeCodeBlockSpec(),
     threadSection: createReadonlyThreadSectionBlockSpec(),
     toggleListInlineView: createReadonlyToggleListInlineViewBlockSpec(),
   },

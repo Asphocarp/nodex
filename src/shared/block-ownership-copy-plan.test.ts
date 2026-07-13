@@ -15,15 +15,15 @@ const blocks = new Map<string, OwnershipClosureBlock>([
   ["card-b", { blockId: "card-b", blockType: "card", containingDocumentId: "document-a" }],
   ["card-ref", { blockId: "card-ref", blockType: "cardRef", containingDocumentId: "document-a" }],
   ["paragraph-b", { blockId: "paragraph-b", blockType: "paragraph", containingDocumentId: "document-b" }],
-  ["large-document", { blockId: "large-document", blockType: "largeDocument", containingDocumentId: "document-b" }],
-  ["paragraph-large", { blockId: "paragraph-large", blockType: "paragraph", containingDocumentId: "document-large" }],
+  ["template-source", { blockId: "template-source", blockType: "reusable_template_source", containingDocumentId: "document-b" }],
+  ["paragraph-template", { blockId: "paragraph-template", blockType: "paragraph", containingDocumentId: "document-template" }],
   ["external-target", { blockId: "external-target", blockType: "card", containingDocumentId: null }],
 ]);
 
 const documents = new Map<string, OwnershipClosureDocument>([
   ["card-a", { documentId: "document-a", ownerBlockId: "card-a", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
   ["card-b", { documentId: "document-b", ownerBlockId: "card-b", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
-  ["large-document", { documentId: "document-large", ownerBlockId: "large-document", schemaKey: "nodex.large-document", schemaVersion: 1 }],
+  ["template-source", { documentId: "document-template", ownerBlockId: "template-source", schemaKey: "nodex.reusable-template", schemaVersion: 1 }],
   ["external-target", { documentId: "document-external", ownerBlockId: "external-target", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
 ]);
 
@@ -44,14 +44,14 @@ describe("Block ownership copy plan", () => {
       "paragraph-a",
       "card-b",
       "paragraph-b",
-      "large-document",
-      "paragraph-large",
+      "template-source",
+      "paragraph-template",
       "card-ref",
     ]);
     expect(closure.documents.map((document) => document.documentId)).toEqual([
       "document-a",
       "document-b",
-      "document-large",
+      "document-template",
     ]);
     expect(closure.blocks.some((block) => block.blockId === "external-target")).toBe(
       false,

@@ -18,8 +18,6 @@ import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 import {
   createCardBlockSpec,
-  createLargeCodeBlockSpec,
-  createLargeDocumentBlockSpec,
   createReusableTemplateRefBlockSpec,
 } from "./document-bearing-shell-block";
 
@@ -43,8 +41,6 @@ export const nfmSchema = BlockNoteSchema.create({
     cardRef: createCardRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),
     templateRef: createReusableTemplateRefBlockSpec(),
-    largeDocument: createLargeDocumentBlockSpec(),
-    largeCode: createLargeCodeBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

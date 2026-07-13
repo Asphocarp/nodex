@@ -11,8 +11,6 @@ import type {
   NfmThreadSection,
   NfmSyncedBlockRef,
   NfmReusableTemplateRef,
-  NfmLargeDocument,
-  NfmLargeCode,
   NfmToggleListInlineView,
 } from "./types";
 import { NFM_COLORS } from "./types";
@@ -171,24 +169,6 @@ export function parseNfm(input: string): NfmBlock[] {
       const templateRef = parseReusableTemplateRef(content.trim());
       if (templateRef) {
         addBlock(templateRef, indent);
-        i++;
-        continue;
-      }
-    }
-
-    if (content.trimStart().startsWith("<large-document")) {
-      const largeDocument = parseLargeDocument(content.trim());
-      if (largeDocument) {
-        addBlock(largeDocument, indent);
-        i++;
-        continue;
-      }
-    }
-
-    if (content.trimStart().startsWith("<large-code")) {
-      const largeCode = parseLargeCode(content.trim());
-      if (largeCode) {
-        addBlock(largeCode, indent);
         i++;
         continue;
       }
@@ -604,17 +584,6 @@ function parseReusableTemplateRef(
   };
 }
 
-function parseLargeDocument(line: string): NfmLargeDocument | null {
-  const match = line.match(/^<large-document(?:\s+([^>]*))?\s*\/>$/);
-  if (!match) return null;
-  return {
-    type: "largeDocument",
-    displayName:
-      getXmlAttr(match[1] ?? "", "display-name") ?? "Untitled document",
-    children: [],
-  };
-}
-
 function parseCard(line: string): NfmCard | null {
   const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
@@ -622,18 +591,6 @@ function parseCard(line: string): NfmCard | null {
   return {
     type: "card",
     ...(displayHint === undefined ? {} : { displayHint }),
-    children: [],
-  };
-}
-
-function parseLargeCode(line: string): NfmLargeCode | null {
-  const match = line.match(/^<large-code(?:\s+([^>]*))?\s*\/>$/);
-  if (!match) return null;
-  return {
-    type: "largeCode",
-    displayName:
-      getXmlAttr(match[1] ?? "", "display-name") ?? "Untitled code",
-    language: getXmlAttr(match[1] ?? "", "language") ?? "text",
     children: [],
   };
 }

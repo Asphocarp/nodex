@@ -1,7 +1,7 @@
 # ADR 0002: Document-bearing Blocks use explicitly registered Yjs Documents
 
 - Status: Accepted
-- Date: 2026-07-11
+- Date: 2026-07-11; amended 2026-07-13
 - Owners: Nodex maintainers
 - Scope: Accepted for `block_tree`; its proposed Canvas/Yjs extension is superseded by ADR 0005
 
@@ -22,21 +22,19 @@ These are the complete named-root set; hidden extra shared roots are invalid. Th
 
 Title and body therefore participate in the same causal history and durable update stream. Ordinary paragraphs, headings, lists, and media are stable-ID Blocks inside the nearest Card's body fragment; they do not each own a Y.Doc.
 
-Only selected document-bearing Block types own independent Documents. Card, Synced Block sources, Reusable Template sources, explicit Large Documents, explicit Large Code, and Canvas are registered. This ADR governs the Yjs `block_tree` owners; ADR 0005 governs Canvas's `canvas_scene` engine. Promotion, instantiation, and ownership changes are explicit transactions; content size never promotes an ordinary Block.
+Only selected document-bearing Block types own independent Documents: Card, Synced Block sources, Reusable Template sources, and Canvas. This ADR governs the Yjs `block_tree` owners; ADR 0005 governs Canvas's `canvas_scene` engine. Promotion, instantiation, and ownership changes are explicit transactions; content size never promotes an ordinary Block.
 
 A Synced Block source is a system-managed document-bearing Block with schema `nodex.synced-block@1`. Its Y.Doc has only `Y.XmlFragment("body")`; it must not manufacture a Card title root. Every visible occurrence is a childless `syncedBlockRef` that stores only `sourceBlockId` and lazy-mounts the source's independent surface. Nodex deliberately uses a library-source model: the source Block has a real Space placement so its relational location is total, but normal Card/Database/top-level navigation does not present it as another Card or standalone page. Exact owner lookup, reference expansion, history, search materialization, and maintenance may address it. The original promotion location becomes the first reference; this hidden source placement is product policy, not an accidental extra page.
 
-Promotion moves the original subtree's application Block IDs into the new source Document, creates a new UUID-v7 reference identity at the host location, and commits both Documents/registry/evidence atomically. Copy allocates fresh UUID-v7 IDs for the source body. Demotion is allowed only when exactly one current reference can be proven from exact-head projections. It requires one lease covering both host and source heads, relocates the source roots back with their existing IDs, leaves the source Y.Doc at a durable empty head/projection, and tombstones the source resource and reference in the same SQLite transaction. Typed deletion and physical GC must pass the same exact-head reference scan and reject any source with a live reference. The current BF-09 slice implements and proves the store/kernel boundary; production Hub/FIFO/transport commands remain required before this behavior is exposed to users.
+Promotion moves the original subtree's application Block IDs into the new source Document, creates a new UUID-v7 reference identity at the host location, and commits both Documents/registry/evidence atomically. Copy allocates fresh UUID-v7 IDs for the source body. Demotion is allowed only when exactly one current reference can be proven from exact-head projections. It requires one lease covering both host and source heads, relocates the source roots back with their existing IDs, leaves the source Y.Doc at a durable empty head/projection, and tombstones the source resource and reference in the same SQLite transaction. Typed deletion and physical GC must pass the same exact-head reference scan and reject any source with a live reference.
 
-The schema registry dispatches on content model and sync engine. Card, Synced Block, Reusable Template, Large Document, and Large Code use `block_tree` with `yjs`; Canvas uses `scene_graph` with `canvas_scene`. BlockNote/NFM code requests the block-tree Adapter explicitly and fails closed for another content model, so Canvas is never forced into a fake title/body tree or Yjs root set.
+The schema registry dispatches on content model and sync engine. Card, Synced Block, and Reusable Template use `block_tree` with `yjs`; Canvas uses `scene_graph` with `canvas_scene`. BlockNote/NFM code requests the block-tree Adapter explicitly and fails closed for another content model, so Canvas is never forced into a fake title/body tree or Yjs root set.
 
-Every body-only `block_tree` owner reuses one exact-root primitive rather than maintaining per-type `body` validators. Reusable Template, Large Document, and Large Code Documents have no title root. Large Code narrows the common tree contract to one childless root `codeBlock`; an update that drifts to another shape is rejected before durability.
+Every body-only `block_tree` owner reuses one exact-root primitive rather than maintaining per-type `body` validators. Synced Block and Reusable Template Documents have no title root.
 
 A Reusable Template source is a library Block with an authoritative display name in intrinsic Block properties. A visible `templateRef` is childless and may retain a disposable display hint only. Instantiation is copy-on-apply: it fences the exact source and target heads, recursively allocates fresh application IDs, and inserts the copied subtree through the normal stable-ID Document operation path. Existing instances do not remain linked. Exact-head reference scanning rejects lifecycle deletion/GC while any live reference remains. Template content currently rejects nested document-bearing owner shells because a correct deep copy would also need to allocate and atomically create their owned Documents.
 
-Large Document and Large Code are explicit visible shell types. The persisted owner type and shell node type are the same canonical identity (`largeDocument` or `largeCode`); the shell never includes the owned body. A typed creation transaction stages the owner, initializes the registered Document, and inserts the shell under one SQLite commit. The ordinary Yjs reconciliation path rejects attempts to manufacture any document-bearing owner type. Internal body Blocks continue to use history, provider, projection, compaction, and relocation Modules unchanged.
-
-NFM projection syntax for a typed owner shell is not authority genesis. Parsing or identity-aligned replacement may preserve the shell projection, but generic NFM import must fail when no registered owner/owned Document exists. Portable copy/import requires a typed ownership operation that allocates both identities before inserting the shell.
+Document ownership follows product semantics rather than storage size. A long-form document is a Card, including when nested inside another Card. Code remains an ordinary `codeBlock` inside its nearest owning Document. Loading, caching, compaction, and viewport virtualization may vary with size, but those policies cannot change Block type, identity, ownership, collaboration, or NFM syntax. A future independently owned code artifact would require a separate ADR proving lifecycle and product behavior beyond “large code.”
 
 The registry is relational (`documents` and `block_documents`). Nodex does not use Yjs subdocuments for ownership: providers still synchronize subdocuments as independent entities, while explicit registration makes loading, persistence, cache invalidation, and access checks visible in the Nodex domain.
 
@@ -45,8 +43,6 @@ SQLite is the local durable authority. `document_updates` stores the compactable
 Each mounted writable surface creates a distinct Yjs client identity, even for two windows owned by the same user. `Y.UndoManager` tracks only local transaction origins for that surface, so remote edits are not undone locally. Awareness carries cursor/presence keyed by client session and window but is never persisted as content.
 
 NFM is limited to genesis import, explicit compare-and-swap replacement, export, and materialized projection. `blocksToYDoc`-style conversion is permitted only for genesis. An existing collaborative Document is loaded from snapshot plus updates and is never reconstructed from NFM.
-
-The current Reusable Template/Large Document/Large Code slice establishes the registry, store, history, relocation, summary, typed creation, reference, and instantiate kernel contracts. Production FIFO/IPC/HTTP commands and lazy authoritative-summary/owned-surface UI remain required before these operations are exposed to users.
 
 ## Consequences
 
@@ -58,4 +54,4 @@ The writer must tentatively apply and validate updates before one SQLite transac
 
 ## Alternatives considered
 
-Whole-NFM last-write-wins snapshots cannot merge concurrent intent. A Space-wide Y.Doc makes unrelated Cards one loading and failure domain. One Y.Doc per paragraph creates needless synchronization overhead. Yjs subdocuments hide no provider complexity and weaken explicit product ownership. These alternatives are rejected.
+Whole-NFM last-write-wins snapshots cannot merge concurrent intent. A Space-wide Y.Doc makes unrelated Cards one loading and failure domain. One Y.Doc per paragraph creates needless synchronization overhead. Yjs subdocuments hide no provider complexity and weaken explicit product ownership. Size-based Document types are also rejected because they turn an implementation threshold into durable product identity and duplicate Card and `codeBlock` semantics.

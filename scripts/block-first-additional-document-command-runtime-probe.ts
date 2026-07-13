@@ -58,9 +58,6 @@ const blockIds = {
   targetAnchor: probeBlockId(8),
   templateSource: probeBlockId(9),
   templateRoot: probeBlockId(10),
-  largeOwner: probeBlockId(11),
-  largeBody: probeBlockId(12),
-  codeOwner: probeBlockId(13),
   staleSource: probeBlockId(14),
   staleBody: probeBlockId(15),
   missingTemplate: probeBlockId(16),
@@ -518,62 +515,6 @@ const main = async (): Promise<void> => {
       "Template retry accepted a different logical anchor",
     );
 
-    const largeDocument = applyAdditionalDocumentCommand(
-      getDb(),
-      command(
-        project.id,
-        storeEpoch,
-        "probe:large-document",
-        {
-          kind: "create_large_document",
-          blockId: blockIds.largeOwner,
-          documentId: "document:probe-large",
-          displayName: "Architecture",
-          content: {
-            kind: "large_document",
-            initialBlocks: [paragraph(blockIds.largeBody, "Large")],
-          },
-          location: {
-            kind: "document",
-            host: {
-              documentId: "document:probe-target",
-              generation: 1,
-            },
-          },
-        },
-        lease("probe:lease-large", [
-          {
-            documentId: "document:probe-target",
-            generation: 1,
-            headSeq: 2,
-          },
-        ]),
-      ),
-    );
-    invariant(
-      largeDocument.ok &&
-        largeDocument.value.effect.createdBlockIds.join(",") ===
-          [blockIds.largeBody, blockIds.largeOwner].sort().join(",") &&
-        largeDocument.value.effect.documentHeads.length === 2,
-      "Large Document command receipt is invalid",
-    );
-    const largeCode = applyAdditionalDocumentCommand(
-      getDb(),
-      command(project.id, storeEpoch, "probe:large-code", {
-        kind: "create_large_document",
-        blockId: blockIds.codeOwner,
-        documentId: "document:probe-code",
-        displayName: "Worker",
-        content: {
-          kind: "large_code",
-          language: "typescript",
-          code: "export const ready = true;",
-        },
-        location: { kind: "space" },
-      }),
-    );
-    invariant(largeCode.ok, "Large Code command failed");
-
     const staleAnchor = applyAdditionalDocumentCommand(
       getDb(),
       command(project.id, storeEpoch, "probe:stale-anchor", {
@@ -765,8 +706,6 @@ const main = async (): Promise<void> => {
         instantiate: instantiated.ok,
         freshHeadRetry: instantiateFreshHeadRetry.value.duplicate,
         anchorCollision: !instantiateAnchorCollision.ok,
-        largeDocument: largeDocument.ok,
-        largeCode: largeCode.ok,
         staleAnchor: !staleAnchor.ok,
         durableRejection: staleReceipt?.outcome === "rejected",
         missingReplay: !missingReplay.ok,

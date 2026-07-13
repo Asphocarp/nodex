@@ -31,8 +31,6 @@ export const BLOCK_TO_CARD_TYPE_CAPABILITIES = {
   databaseViewRef: "wrap_subtree",
   syncedBlockRef: "wrap_subtree",
   templateRef: "wrap_subtree",
-  largeDocument: "wrap_subtree",
-  largeCode: "wrap_subtree",
   cardToggle: "unsupported_legacy",
   toggleListInlineView: "unsupported_legacy",
 } as const satisfies Readonly<Record<string, BlockToCardTypeCapability>>;

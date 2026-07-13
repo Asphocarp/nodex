@@ -6,7 +6,6 @@ import {
   AdditionalDocumentExecutionProofError,
   MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH,
   MAX_ADDITIONAL_DOCUMENT_BLOCKS,
-  MAX_ADDITIONAL_DOCUMENT_CODE_LENGTH,
   additionalDocumentCommandRequiredCoordination,
   canonicalizeAdditionalDocumentCommandIntent,
   compileAdditionalDocumentCommandExecution,
@@ -144,28 +143,6 @@ describe("additional document command contract", () => {
         },
         lease([hostHead, sourceHead]),
       ),
-      request({
-        kind: "create_large_document",
-        blockId: "large:document",
-        documentId: "document:large",
-        displayName: "Long form",
-        content: {
-          kind: "large_document",
-          initialBlocks: [paragraph("large:root")],
-        },
-        location: { kind: "space" },
-      }),
-      request(
-        {
-          kind: "create_large_document",
-          blockId: "large:code",
-          documentId: "document:code",
-          displayName: "Worker",
-          content: { kind: "large_code", language: "typescript", code: "" },
-          location: { kind: "document", host },
-        },
-        lease([hostHead]),
-      ),
       request(
         {
           kind: "delete_owned_source",
@@ -205,8 +182,6 @@ describe("additional document command contract", () => {
         "demote_synced_source",
         "create_template",
         "instantiate_template",
-        "create_large_document",
-        "create_large_document",
         "delete_owned_source",
         "create_canvas_owner",
         "delete_canvas_owner",
@@ -219,10 +194,10 @@ describe("additional document command contract", () => {
       "hub_lease",
     );
     expect(additionalDocumentCommandRequiredCoordination(cases[5])).toBe(
-      "fifo_only",
+      "hub_lease",
     );
     expect(additionalDocumentCommandRequiredCoordination(cases[6])).toBe(
-      "hub_lease",
+      "fifo_only",
     );
   });
 
@@ -442,24 +417,7 @@ describe("additional document command contract", () => {
     );
   });
 
-  test("bounds content by code length, block count, depth, actor, and total shape", () => {
-    expectContractError(() =>
-      parseAdditionalDocumentCommandRequest(
-        request({
-          kind: "create_large_document",
-          blockId: "large:code",
-          documentId: "document:code",
-          displayName: "Code",
-          content: {
-            kind: "large_code",
-            language: "text",
-            code: "x".repeat(MAX_ADDITIONAL_DOCUMENT_CODE_LENGTH + 1),
-          },
-          location: { kind: "space" },
-        }),
-      ),
-    );
-
+  test("bounds content by block count, depth, actor, and total shape", () => {
     const tooMany = Array.from(
       { length: MAX_ADDITIONAL_DOCUMENT_BLOCKS + 1 },
       (_, index) => paragraph(`block:${index}`),

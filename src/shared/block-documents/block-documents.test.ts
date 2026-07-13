@@ -21,12 +21,6 @@ import {
   getYjsDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
   inspectHistoricalOwnedBlockDocument,
-  LARGE_CODE_BLOCK_TYPE,
-  LARGE_CODE_DOCUMENT_SCHEMA_KEY,
-  LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
-  LARGE_DOCUMENT_BLOCK_TYPE,
-  LARGE_DOCUMENT_SCHEMA_KEY,
-  LARGE_DOCUMENT_SCHEMA_VERSION,
   listBlockDocumentSchemaAdapters,
   openCardDocument,
   replaceYTextWithPortableRichText,
@@ -208,7 +202,7 @@ describe("Card block document envelope", () => {
 describe("registered document-bearing Block envelopes", () => {
   test("keeps every owner/schema registration exact and unambiguous", () => {
     const adapters = listBlockDocumentSchemaAdapters();
-    expect(adapters.length).toBe(5);
+    expect(adapters.length).toBe(3);
     expect(
       adapters
         .map(
@@ -220,8 +214,6 @@ describe("registered document-bearing Block envelopes", () => {
     ).toBe(
       [
         "card/nodex.card@2:block_tree/yjs",
-        "largeCode/nodex.large-code@1:block_tree/yjs",
-        "largeDocument/nodex.large-document@1:block_tree/yjs",
         "reusable_template_source/nodex.reusable-template@1:block_tree/yjs",
         "synced_block_source/nodex.synced-block@1:block_tree/yjs",
       ].join(","),
@@ -320,19 +312,13 @@ describe("registered document-bearing Block envelopes", () => {
     expect(error instanceof SyncedBlockDocumentRootValidationError).toBe(true);
   });
 
-  test("registers Template and Large Document as distinct body-only schemas", () => {
+  test("registers Reusable Template as body-only block-tree content", () => {
     const cases = [
       {
         kind: "reusable_template",
         ownerType: REUSABLE_TEMPLATE_SOURCE_TYPE,
         schemaKey: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
         schemaVersion: REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
-      },
-      {
-        kind: "large_document",
-        ownerType: LARGE_DOCUMENT_BLOCK_TYPE,
-        schemaKey: LARGE_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: LARGE_DOCUMENT_SCHEMA_VERSION,
       },
     ] as const;
 
@@ -351,43 +337,6 @@ describe("registered document-bearing Block envelopes", () => {
       );
       envelope.document.destroy();
     }
-  });
-
-  test("Large Code accepts one childless codeBlock and rejects schema drift", () => {
-    const valid = createBodyOnlyBlockDocument({
-      documentId: "document:code",
-      label: "Large Code",
-    });
-    getOnlyElement(valid.body).insert(0, [
-      createBlock("code-content", "const value = 1", [], "codeBlock"),
-    ]);
-    const inspection = inspectRegisteredOwnedBlockDocument(valid.document, {
-      ownerType: LARGE_CODE_BLOCK_TYPE,
-      schemaKey: LARGE_CODE_DOCUMENT_SCHEMA_KEY,
-      schemaVersion: LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
-    });
-    expect(inspection.envelope.kind).toBe("large_code");
-
-    const invalid = createBodyOnlyBlockDocument({
-      documentId: "document:code-invalid",
-      label: "Large Code",
-    });
-    getOnlyElement(invalid.body).insert(0, [
-      createBlock("not-code", "paragraph"),
-    ]);
-    let error: unknown;
-    try {
-      inspectRegisteredOwnedBlockDocument(invalid.document, {
-        ownerType: LARGE_CODE_BLOCK_TYPE,
-        schemaKey: LARGE_CODE_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
-      });
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error instanceof TypeError).toBe(true);
-    valid.document.destroy();
-    invalid.document.destroy();
   });
 
   test("all new body-only schemas reject a synthetic title root", () => {

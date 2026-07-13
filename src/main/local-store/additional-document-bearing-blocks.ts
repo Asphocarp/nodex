@@ -8,12 +8,6 @@ import {
   CANVAS_DOCUMENT_SCHEMA_KEY,
   CANVAS_DOCUMENT_SCHEMA_VERSION,
   DOCUMENT_OPERATION_CONTRACT_VERSION,
-  LARGE_CODE_BLOCK_TYPE,
-  LARGE_CODE_DOCUMENT_SCHEMA_KEY,
-  LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
-  LARGE_DOCUMENT_BLOCK_TYPE,
-  LARGE_DOCUMENT_SCHEMA_KEY,
-  LARGE_DOCUMENT_SCHEMA_VERSION,
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
   REUSABLE_TEMPLATE_REFERENCE_TYPE,
@@ -23,10 +17,8 @@ import {
   materializePortableCanvasScene,
   primaryCanvasBlockId,
   type AdditionalDocumentBearingMutationResult,
-  type CreateExplicitDocumentBearingBlock,
   type CreateReusableTemplateReference,
   type CreateReusableTemplateSource,
-  type ExplicitDocumentBearingBlockKind,
   type InstantiateReusableTemplate,
 } from "../../shared/block-documents";
 import {
@@ -92,8 +84,6 @@ export interface AdditionalDocumentBearingMutationOptions {
 export type DeletableOwnedDocumentKind =
   | "synced_block"
   | "reusable_template"
-  | "large_document"
-  | "large_code"
   | "canvas";
 
 export interface CreateNonPrimaryCanvasOwnerInput {
@@ -1208,16 +1198,6 @@ const withoutTemplateExecutionHeads = (
   return logicalRequest;
 };
 
-const withoutExplicitDocumentExecutionHead = (
-  input: CreateExplicitDocumentBearingBlock,
-): Readonly<Record<string, unknown>> => {
-  const logicalRequest = withoutAuditIdentity(input);
-  if (input.location.kind === "space") return logicalRequest;
-  const { expectedHostHeadSeq, ...logicalLocation } = input.location;
-  void expectedHostHeadSeq;
-  return { ...logicalRequest, location: logicalLocation };
-};
-
 export const createReusableTemplateSource = (
   database: Database.Database,
   input: CreateReusableTemplateSource,
@@ -1422,191 +1402,9 @@ export const instantiateReusableTemplate = (
   );
 };
 
-const resolveExplicitBlockSchema = (kind: ExplicitDocumentBearingBlockKind) => {
-  if (kind === "large_document") {
-    return {
-      blockType: LARGE_DOCUMENT_BLOCK_TYPE,
-      schemaKey: LARGE_DOCUMENT_SCHEMA_KEY,
-      schemaVersion: LARGE_DOCUMENT_SCHEMA_VERSION,
-    } as const;
-  }
-  if (kind === "large_code") {
-    return {
-      blockType: LARGE_CODE_BLOCK_TYPE,
-      schemaKey: LARGE_CODE_DOCUMENT_SCHEMA_KEY,
-      schemaVersion: LARGE_CODE_DOCUMENT_SCHEMA_VERSION,
-    } as const;
-  }
-  throw new AdditionalDocumentBearingBlockError(
-    "invalid_request",
-    `Unsupported explicit document-bearing Block kind: ${String(kind)}`,
-  );
-};
-
-const resolveExplicitBlockTree = (
-  input: CreateExplicitDocumentBearingBlock,
-): readonly BlockTreeNode[] => {
-  if (input.blockKind === "large_document") {
-    if (input.blockTree && input.code === undefined && input.language === undefined) {
-      return input.blockTree;
-    }
-    throw new AdditionalDocumentBearingBlockError(
-      "invalid_request",
-      "large_document requires blockTree and does not accept code/language",
-    );
-  }
-  if (input.blockTree !== undefined) {
-    throw new AdditionalDocumentBearingBlockError(
-      "invalid_request",
-      "large_code accepts code/language instead of an arbitrary blockTree",
-    );
-  }
-  const language = requireBoundedText(
-    input.language ?? "text",
-    "language",
-    128,
-  );
-  const code = requireBoundedText(input.code ?? "", "code", 2_000_000, true);
-  return [
-    {
-      id: createUuidV7(),
-      type: "codeBlock",
-      props: { language },
-      content: [{ type: "text", text: code, styles: {} }],
-      children: [],
-    },
-  ];
-};
-
-export const createExplicitDocumentBearingBlock = (
-  database: Database.Database,
-  input: CreateExplicitDocumentBearingBlock,
-  options: AdditionalDocumentBearingMutationOptions = {},
-): AdditionalDocumentBearingMutationResult => {
-  validateCommonInput(input);
-  const blockId = requireIdentity(input.blockId, "blockId");
-  const documentId = requireIdentity(input.documentId, "documentId");
-  const displayName = requireBoundedText(input.displayName, "displayName", 512);
-  const schema = resolveExplicitBlockSchema(input.blockKind);
-  const blockTree = resolveExplicitBlockTree(input);
-  const location =
-    input.location.kind === "space"
-      ? {
-          kind: "space" as const,
-          ...(input.location.beforeBlockId
-            ? {
-                beforeBlockId: requireIdentity(
-                  input.location.beforeBlockId,
-                  "location.beforeBlockId",
-                ),
-              }
-            : {}),
-          ...(input.location.expectedBeforeLocationRevision === undefined
-            ? {}
-            : {
-                expectedBeforeLocationRevision:
-                  input.location.expectedBeforeLocationRevision,
-              }),
-        }
-      : {
-          kind: "document" as const,
-          hostDocumentId: requireIdentity(
-            input.location.hostDocumentId,
-            "location.hostDocumentId",
-          ),
-        };
-  if (input.location.kind === "document") {
-    requireHead(
-      input.location.expectedHostGeneration,
-      "location.expectedHostGeneration",
-      1,
-    );
-    requireHead(
-      input.location.expectedHostHeadSeq,
-      "location.expectedHostHeadSeq",
-      1,
-    );
-  }
-  return executeMutation(
-    database,
-    {
-      ...input,
-      mutationKind: input.kind,
-      logicalRequest: withoutExplicitDocumentExecutionHead(input),
-      requestedBlockIds: [blockId],
-      fieldIntents: [
-        { path: "block.documentOwnership", operation: input.blockKind },
-      ],
-    },
-    () => {
-      const ownedHead = initializeOwnedBlockTreeDocument(database, {
-        ...input,
-        blockId,
-        blockType: schema.blockType,
-        documentId,
-        schemaKey: schema.schemaKey,
-        schemaVersion: schema.schemaVersion,
-        displayName,
-        blockTree,
-        location,
-      });
-      options.faultInjector?.("after_owner_staged");
-      options.faultInjector?.("after_genesis");
-      const documentHeads: Record<
-        string,
-        { readonly generation: number; readonly headSeq: number }
-      > = { [documentId]: ownedHead };
-      if (input.location.kind === "document") {
-        const shell: BlockTreeNode = {
-          id: blockId,
-          type: schema.blockType,
-          props:
-            input.blockKind === "large_code"
-              ? {
-                  displayName,
-                  language: requireBoundedText(
-                    input.language ?? "text",
-                    "language",
-                    128,
-                  ),
-                }
-              : { displayName },
-          children: [],
-        };
-        const host = applyHostInsertions(database, {
-          ...input,
-          documentId: input.location.hostDocumentId,
-          generation: input.location.expectedHostGeneration,
-          headSeq: input.location.expectedHostHeadSeq,
-          blocks: [shell],
-          ...(input.location.parentBlockId
-            ? { parentBlockId: input.location.parentBlockId }
-            : {}),
-          ...(input.location.beforeBlockId
-            ? { beforeBlockId: input.location.beforeBlockId }
-            : {}),
-          stagedOwnerBlockIds: [blockId],
-        });
-        documentHeads[input.location.hostDocumentId] = {
-          generation: host.generation,
-          headSeq: host.headSeq,
-        };
-        options.faultInjector?.("after_host_update");
-      }
-      return {
-        blockIds: [blockId, ...flattenBlockIds(blockTree)],
-        documentHeads,
-      };
-    },
-    options,
-  );
-};
-
 const DELETABLE_OWNER_TYPES: Readonly<Record<DeletableOwnedDocumentKind, string>> = {
   synced_block: SYNCED_BLOCK_SOURCE_TYPE,
   reusable_template: REUSABLE_TEMPLATE_SOURCE_TYPE,
-  large_document: LARGE_DOCUMENT_BLOCK_TYPE,
-  large_code: LARGE_CODE_BLOCK_TYPE,
   canvas: CANVAS_BLOCK_TYPE,
 };
 

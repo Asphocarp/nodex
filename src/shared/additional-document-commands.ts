@@ -13,12 +13,10 @@ export const MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH = 2_000_000;
 export const MAX_ADDITIONAL_DOCUMENT_ACTOR_LENGTH = 64 * 1024;
 export const MAX_ADDITIONAL_DOCUMENT_BLOCKS = 10_000;
 export const MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH = 64;
-export const MAX_ADDITIONAL_DOCUMENT_CODE_LENGTH = 1_800_000;
 
 const MAX_ID_LENGTH = 512;
 const MAX_BLOCK_TYPE_LENGTH = 128;
 const MAX_DISPLAY_NAME_LENGTH = 512;
-const MAX_LANGUAGE_LENGTH = 128;
 const MAX_RESULT_BLOCK_IDS = 100_000;
 
 export interface AdditionalDocumentHeadRevision {
@@ -116,37 +114,8 @@ export interface InstantiateTemplateOperation {
    */
 }
 
-export type LargeDocumentContent =
-  | {
-      readonly kind: "large_document";
-      readonly initialBlocks: readonly BlockTreeNode[];
-    }
-  | {
-      readonly kind: "large_code";
-      readonly language: string;
-      readonly code: string;
-    };
-
-export type LargeDocumentLocation =
-  | AdditionalDocumentSpacePlacement
-  | {
-      readonly kind: "document";
-      readonly host: AdditionalDocumentRevision;
-      readonly parentBlockId?: string;
-      readonly beforeBlockId?: string;
-    };
-
-export interface CreateLargeDocumentOperation {
-  readonly kind: "create_large_document";
-  readonly blockId: string;
-  readonly documentId: string;
-  readonly displayName: string;
-  readonly content: LargeDocumentContent;
-  readonly location: LargeDocumentLocation;
-}
-
 export type DeletableOwnedSourceKind =
-  "synced_block" | "reusable_template" | "large_document" | "large_code";
+  "synced_block" | "reusable_template";
 
 export interface DeleteOwnedSourceOperation {
   readonly kind: "delete_owned_source";
@@ -177,7 +146,6 @@ export type AdditionalDocumentOperation =
   | DemoteSyncedSourceOperation
   | CreateTemplateOperation
   | InstantiateTemplateOperation
-  | CreateLargeDocumentOperation
   | DeleteOwnedSourceOperation
   | CreateCanvasOwnerOperation
   | DeleteCanvasOwnerOperation;
@@ -202,14 +170,13 @@ export type AdditionalDocumentIdentitySemantics =
   | "move_preserving_content_ids_create_source_and_reference_ids"
   | "move_preserving_content_ids_delete_source_and_reference_ids"
   | "copy_deriving_every_content_id_from_operation_id"
-  | "create_owner_preserve_supplied_or_derive_code_content_ids"
   | "delete_owner_preserving_retained_history_ids"
   | "create_empty_owner"
   | "delete_canvas_owner_preserving_retained_history_ids";
 
 export interface AdditionalDocumentCommandCapability {
   readonly availability: "kernel_ready" | "capability_gap";
-  readonly coordination: "fifo_only" | "hub_lease" | "depends_on_location";
+  readonly coordination: "fifo_only" | "hub_lease";
   readonly identitySemantics: AdditionalDocumentIdentitySemantics;
   readonly gap?: string;
 }
@@ -247,12 +214,6 @@ export const ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES: Readonly<
     availability: "kernel_ready",
     coordination: "hub_lease",
     identitySemantics: "copy_deriving_every_content_id_from_operation_id",
-  },
-  create_large_document: {
-    availability: "kernel_ready",
-    coordination: "depends_on_location",
-    identitySemantics:
-      "create_owner_preserve_supplied_or_derive_code_content_ids",
   },
   delete_owned_source: {
     availability: "kernel_ready",
@@ -677,38 +638,6 @@ const assertNewOwnerDoesNotCollideWithContent = (
   );
 };
 
-const parseDocumentLocation = (
-  value: unknown,
-  label: string,
-): LargeDocumentLocation => {
-  const location = readRecord(value, label);
-  if (location.kind === "space") return parseSpacePlacement(value, label);
-  if (location.kind !== "document") {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.kind is not supported`,
-    );
-  }
-  assertExactKeys(
-    location,
-    label,
-    ["kind", "host"],
-    ["parentBlockId", "beforeBlockId"],
-  );
-  const parentBlockId = readOptionalId(location, "parentBlockId", label);
-  const beforeBlockId = readOptionalId(location, "beforeBlockId", label);
-  if (parentBlockId !== undefined && parentBlockId === beforeBlockId) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label} parent and before identities must differ`,
-    );
-  }
-  return {
-    kind: "document",
-    host: parseRevision(location.host, `${label}.host`),
-    ...(parentBlockId === undefined ? {} : { parentBlockId }),
-    ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
-  };
-};
-
 const parseOperation = (value: unknown): AdditionalDocumentOperation => {
   const label = "additionalDocument.operation";
   const operation = readRecord(value, label);
@@ -886,113 +815,6 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
     };
   }
-  if (kind === "create_large_document") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "blockId",
-      "documentId",
-      "displayName",
-      "content",
-      "location",
-    ]);
-    const contentRecord = readRecord(operation.content, `${label}.content`);
-    let content: LargeDocumentContent;
-    if (contentRecord.kind === "large_document") {
-      assertExactKeys(contentRecord, `${label}.content`, [
-        "kind",
-        "initialBlocks",
-      ]);
-      const initialBlocks = parseBlockTree(
-        contentRecord.initialBlocks,
-        `${label}.content.initialBlocks`,
-      );
-      content = {
-        kind: "large_document",
-        initialBlocks,
-      };
-    } else if (contentRecord.kind === "large_code") {
-      assertExactKeys(contentRecord, `${label}.content`, [
-        "kind",
-        "language",
-        "code",
-      ]);
-      content = {
-        kind: "large_code",
-        language: readString(
-          contentRecord,
-          "language",
-          `${label}.content`,
-          MAX_LANGUAGE_LENGTH,
-        ),
-        code: readString(
-          contentRecord,
-          "code",
-          `${label}.content`,
-          MAX_ADDITIONAL_DOCUMENT_CODE_LENGTH,
-          true,
-        ),
-      };
-    } else {
-      throw new AdditionalDocumentCommandContractError(
-        `${label}.content.kind is not supported`,
-      );
-    }
-    const blockId = readString(operation, "blockId", label);
-    const location = parseDocumentLocation(
-      operation.location,
-      `${label}.location`,
-    );
-    if (content.kind === "large_document") {
-      assertNewOwnerDoesNotCollideWithContent(
-        blockId,
-        content.initialBlocks,
-        label,
-      );
-      const anchorIds =
-        location.kind === "space"
-          ? location.before === undefined
-            ? []
-            : [location.before.blockId]
-          : [location.parentBlockId, location.beforeBlockId].filter(
-              (candidate): candidate is string => candidate !== undefined,
-            );
-      if (
-        anchorIds.some((anchorId) =>
-          blockTreeContainsId(content.initialBlocks, anchorId),
-        )
-      ) {
-        throw new AdditionalDocumentCommandContractError(
-          `${label}.location anchor cannot be a newly-created content Block`,
-        );
-      }
-    }
-    if (location.kind === "space" && location.before?.blockId === blockId) {
-      throw new AdditionalDocumentCommandContractError(
-        `${label}.location cannot anchor before the identity being created`,
-      );
-    }
-    if (
-      location.kind === "document" &&
-      (location.parentBlockId === blockId || location.beforeBlockId === blockId)
-    ) {
-      throw new AdditionalDocumentCommandContractError(
-        `${label}.location cannot use the identity being created as an anchor`,
-      );
-    }
-    return {
-      kind,
-      blockId,
-      documentId: readString(operation, "documentId", label),
-      displayName: readString(
-        operation,
-        "displayName",
-        label,
-        MAX_DISPLAY_NAME_LENGTH,
-      ),
-      content,
-      location,
-    };
-  }
   if (kind === "delete_owned_source") {
     assertExactKeys(operation, label, [
       "kind",
@@ -1003,8 +825,6 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
     const ownerKinds = new Set<DeletableOwnedSourceKind>([
       "synced_block",
       "reusable_template",
-      "large_document",
-      "large_code",
     ]);
     if (!ownerKinds.has(operation.ownerKind as DeletableOwnedSourceKind)) {
       throw new AdditionalDocumentCommandContractError(
@@ -1094,10 +914,6 @@ const requiredLeaseDocuments = (
       return [operation.host, operation.source];
     case "instantiate_template":
       return [operation.source, operation.target];
-    case "create_large_document":
-      return operation.location.kind === "document"
-        ? [operation.location.host]
-        : [];
     case "delete_owned_source":
     case "delete_canvas_owner":
       return [operation.owner];
