@@ -59,6 +59,81 @@ function setRect(element: Element, rect: DOMRect) {
   });
 }
 
+function makeEditorCandidate(id: string, rect: DOMRect) {
+  const editor = document.createElement("div");
+  const blockGroup = document.createElement("div");
+  const block = document.createElement("div");
+  editor.className = "bn-editor";
+  blockGroup.className = "bn-block-group";
+  block.dataset.nodeType = "blockContainer";
+  block.dataset.id = id;
+  blockGroup.appendChild(block);
+  editor.appendChild(blockGroup);
+  setRect(editor, rect);
+  setRect(blockGroup, rect);
+  setRect(block, rect);
+  return { editor, blockGroup, block };
+}
+
+function installElementsFromPoint(
+  root: Document | ShadowRoot,
+  resolve: (clientX: number, clientY: number) => Element[],
+) {
+  const original = root.elementsFromPoint;
+  Object.defineProperty(root, "elementsFromPoint", {
+    configurable: true,
+    value: resolve,
+  });
+  return () => {
+    if (original) {
+      Object.defineProperty(root, "elementsFromPoint", {
+        configurable: true,
+        value: original,
+      });
+      return;
+    }
+    Reflect.deleteProperty(root, "elementsFromPoint");
+  };
+}
+
+function makeSideMenuView(
+  active: ReturnType<typeof makeEditorCandidate>,
+  root: Document | ShadowRoot = document,
+) {
+  const droppedSlice = new Slice(
+    Fragment.from(makeBlock(active.block.dataset.id!)),
+    0,
+    0,
+  );
+  const pmView = {
+    dom: active.editor,
+    root,
+    dragging: {
+      slice: droppedSlice,
+      move: true,
+    },
+    dispatch: () => {},
+  };
+  let hoveredBlockId = "";
+  const view = new SideMenuView(
+    {
+      isEditable: true,
+      isWithinEditor: (element: Element) => active.editor.contains(element),
+      getBlock: (id: string) => ({ id }),
+    } as never,
+    pmView as never,
+    (state) => {
+      if (state.show) hoveredBlockId = state.block.id;
+    },
+    () => {},
+  );
+
+  return {
+    view,
+    getHoveredBlockId: () => hoveredBlockId,
+  };
+}
+
 function makeDropEvent(type: string, clientX: number, clientY: number) {
   const event = new Event(type, { bubbles: true }) as DragEvent;
   Object.defineProperties(event, {
@@ -111,6 +186,126 @@ describe("side-menu drop selection helpers", () => {
 
   test("returns undefined when dropped ids are not in the new document", () => {
     expect(createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined).toBe(true);
+  });
+
+  test("ignores non-interactive editor geometry for side-menu hover and drop routing", () => {
+    const excludedRect = new DOMRect(100, 100, 300, 300);
+    const activeRect = new DOMRect(120, 100, 300, 300);
+    const hidden = makeEditorCandidate("hidden", excludedRect);
+    hidden.editor.style.visibility = "hidden";
+
+    const inert = makeEditorCandidate("inert", excludedRect);
+    const inertHost = document.createElement("div");
+    inertHost.setAttribute("inert", "");
+    inertHost.appendChild(inert.editor);
+
+    const pointerDisabled = makeEditorCandidate(
+      "pointer-disabled",
+      excludedRect,
+    );
+    pointerDisabled.editor.style.pointerEvents = "none";
+
+    const incomplete = document.createElement("div");
+    incomplete.className = "bn-editor";
+
+    const active = makeEditorCandidate("active", activeRect);
+    document.body.append(
+      hidden.editor,
+      inertHost,
+      pointerDisabled.editor,
+      incomplete,
+      active.editor,
+    );
+
+    const restoreElementsFromPoint = installElementsFromPoint(
+      document,
+      (clientX) => (clientX >= activeRect.left ? [active.block] : []),
+    );
+    const runtime = makeSideMenuView(active);
+
+    try {
+      runtime.view.onMouseMove(
+        new MouseEvent("mousemove", { clientX: 90, clientY: 150 }),
+      );
+      const dragContext = runtime.view.getDragEventContext(
+        makeDropEvent("dragover", 90, 150),
+      );
+
+      expect(runtime.getHoveredBlockId()).toBe("active");
+      expect(dragContext).toMatchObject({
+        isDropPoint: true,
+        isDropWithinEditorBounds: false,
+      });
+    } finally {
+      runtime.view.destroy();
+      restoreElementsFromPoint();
+      hidden.editor.remove();
+      inertHost.remove();
+      pointerDisabled.editor.remove();
+      incomplete.remove();
+      active.editor.remove();
+    }
+  });
+
+  test("prefers the browser hit-tested editor when visible editors overlap", () => {
+    const rect = new DOMRect(100, 100, 300, 300);
+    const lower = makeEditorCandidate("lower", rect);
+    const top = makeEditorCandidate("top", rect);
+    top.editor.style.pointerEvents = "none";
+    top.blockGroup.style.pointerEvents = "auto";
+    document.body.append(lower.editor, top.editor);
+
+    const restoreElementsFromPoint = installElementsFromPoint(
+      document,
+      () => [top.block, lower.block],
+    );
+    const runtime = makeSideMenuView(top);
+
+    try {
+      runtime.view.onMouseMove(
+        new MouseEvent("mousemove", { clientX: 150, clientY: 150 }),
+      );
+      const dragContext = runtime.view.getDragEventContext(
+        makeDropEvent("dragover", 150, 150),
+      );
+
+      expect(runtime.getHoveredBlockId()).toBe("top");
+      expect(dragContext).toMatchObject({
+        isDropPoint: true,
+        isDropWithinEditorBounds: true,
+      });
+    } finally {
+      runtime.view.destroy();
+      restoreElementsFromPoint();
+      lower.editor.remove();
+      top.editor.remove();
+    }
+  });
+
+  test("ignores an editor made inert outside its ShadowRoot", () => {
+    const rect = new DOMRect(100, 100, 300, 300);
+    const host = document.createElement("div");
+    host.setAttribute("inert", "");
+    const root = host.attachShadow({ mode: "open" });
+    const active = makeEditorCandidate("shadowed", rect);
+    root.appendChild(active.editor);
+    document.body.appendChild(host);
+    const runtime = makeSideMenuView(active, root);
+
+    try {
+      runtime.view.onMouseMove(
+        new MouseEvent("mousemove", { clientX: 150, clientY: 150 }),
+      );
+      const dragContext = runtime.view.getDragEventContext(
+        makeDropEvent("dragover", 150, 150),
+      );
+
+      expect(runtime.getHoveredBlockId()).toBe("");
+      expect(dragContext).toBeUndefined();
+    } finally {
+      runtime.view.destroy();
+      host.remove();
+    }
   });
 
   test("sets pending dropped ids before dispatching a synthetic gutter drop", () => {

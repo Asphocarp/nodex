@@ -43,6 +43,154 @@ export type SideMenuState<
 
 const DISTANCE_TO_CONSIDER_EDITOR_BOUNDS = 250;
 
+type SideMenuEditorCandidate = {
+  element: Element;
+  distance: number;
+};
+
+function getComposedParentElement(element: Element) {
+  if (element.assignedSlot) {
+    return element.assignedSlot;
+  }
+  if (element.parentElement) {
+    return element.parentElement;
+  }
+
+  const view = element.ownerDocument.defaultView;
+  const root = element.getRootNode();
+  return view && root instanceof view.ShadowRoot ? root.host : null;
+}
+
+function isSideMenuEditorInteractionCandidate(editor: Element) {
+  const blockGroup = editor.querySelector(".bn-block-group");
+  if (!blockGroup) {
+    return false;
+  }
+
+  for (
+    let current: Element | null = blockGroup;
+    current;
+    current = getComposedParentElement(current)
+  ) {
+    if (current.hasAttribute("inert")) {
+      return false;
+    }
+  }
+
+  const view = editor.ownerDocument.defaultView;
+  if (!view) {
+    return true;
+  }
+
+  const style = view.getComputedStyle(blockGroup);
+  if (
+    style.pointerEvents === "none" ||
+    style.visibility === "hidden" ||
+    style.visibility === "collapse"
+  ) {
+    return false;
+  }
+
+  if (typeof blockGroup.checkVisibility === "function") {
+    return blockGroup.checkVisibility({
+      contentVisibilityAuto: true,
+      visibilityProperty: true,
+    });
+  }
+
+  for (
+    let current: Element | null = blockGroup;
+    current;
+    current = getComposedParentElement(current)
+  ) {
+    const currentStyle = view.getComputedStyle(current);
+    if (
+      currentStyle.display === "none" ||
+      currentStyle.contentVisibility === "hidden"
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getDistanceFromRect(
+  coords: { clientX: number; clientY: number },
+  rect: DOMRect,
+) {
+  const distanceX =
+    coords.clientX < rect.left
+      ? rect.left - coords.clientX
+      : coords.clientX > rect.right
+        ? coords.clientX - rect.right
+        : 0;
+  const distanceY =
+    coords.clientY < rect.top
+      ? rect.top - coords.clientY
+      : coords.clientY > rect.bottom
+        ? coords.clientY - rect.bottom
+        : 0;
+
+  return Math.hypot(distanceX, distanceY);
+}
+
+function getSideMenuEditorCandidates(
+  root: Document | ShadowRoot,
+  coords: { clientX: number; clientY: number },
+) {
+  return Array.from(root.querySelectorAll(".bn-editor")).flatMap(
+    (element): SideMenuEditorCandidate[] => {
+      if (!isSideMenuEditorInteractionCandidate(element)) {
+        return [];
+      }
+
+      const blockGroup = element.querySelector(".bn-block-group")!;
+
+      return [
+        {
+          element,
+          distance: getDistanceFromRect(
+            coords,
+            blockGroup.getBoundingClientRect(),
+          ),
+        },
+      ];
+    },
+  );
+}
+
+function getHitTestedSideMenuEditor(
+  root: Document | ShadowRoot,
+  coords: { clientX: number; clientY: number },
+  candidates: SideMenuEditorCandidate[],
+) {
+  if (typeof root.elementsFromPoint !== "function") {
+    return undefined;
+  }
+
+  const candidatesByElement = new Map(
+    candidates.map((candidate) => [candidate.element, candidate]),
+  );
+
+  for (const element of root.elementsFromPoint(
+    coords.clientX,
+    coords.clientY,
+  )) {
+    const editor = element.closest(".bn-editor");
+    if (!editor) {
+      continue;
+    }
+
+    const candidate = candidatesByElement.get(editor);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
 function getBlockFromCoords(
   view: EditorView,
   coords: { left: number; top: number },
@@ -220,7 +368,23 @@ export class SideMenuView<
     this.emitUpdate(this.state);
   };
 
-  updateStateFromMousePos = () => {
+  private hideMenu = () => {
+    if (!this.state?.show) {
+      return;
+    }
+
+    this.state.show = false;
+    this.updateState(this.state);
+  };
+
+  updateStateFromMousePos = (
+    editorIsInteractive = isSideMenuEditorInteractionCandidate(this.pmView.dom),
+  ) => {
+    if (!editorIsInteractive) {
+      this.menuFrozen = false;
+      this.hideMenu();
+      return;
+    }
     if (this.menuFrozen || !this.mousePos) {
       return;
     }
@@ -234,10 +398,7 @@ export class SideMenuView<
       closestEditor?.element !== this.pmView.dom ||
       closestEditor.distance > DISTANCE_TO_CONSIDER_EDITOR_BOUNDS
     ) {
-      if (this.state?.show) {
-        this.state.show = false;
-        this.updateState(this.state);
-      }
+      this.hideMenu();
       return;
     }
 
@@ -245,10 +406,7 @@ export class SideMenuView<
 
     // Closes the menu if the mouse cursor is beyond the editor vertically.
     if (!block || !this.editor.isEditable) {
-      if (this.state?.show) {
-        this.state.show = false;
-        this.updateState(this.state);
-      }
+      this.hideMenu();
 
       return;
     }
@@ -348,50 +506,28 @@ export class SideMenuView<
     clientX: number;
     clientY: number;
   }) => {
-    // Get all editor elements in the document
-    const editors = Array.from(this.pmView.root.querySelectorAll(".bn-editor"));
-
-    if (editors.length === 0) {
+    const candidates = getSideMenuEditorCandidates(this.pmView.root, coords);
+    if (candidates.length === 0) {
       return null;
     }
 
-    // Find the editor with the smallest distance to the coordinates
-    let closestEditor = editors[0];
-    let minDistance = Number.MAX_VALUE;
+    const closestEditor = candidates.reduce((closest, candidate) =>
+      candidate.distance < closest.distance ? candidate : closest,
+    );
+    const equallyCloseEditors = candidates.filter(
+      (candidate) => candidate.distance === closestEditor.distance,
+    );
+    if (equallyCloseEditors.length === 1) {
+      return closestEditor;
+    }
 
-    editors.forEach((editor) => {
-      const rect = editor
-        .querySelector(".bn-block-group")!
-        .getBoundingClientRect();
-
-      const distanceX =
-        coords.clientX < rect.left
-          ? rect.left - coords.clientX
-          : coords.clientX > rect.right
-            ? coords.clientX - rect.right
-            : 0;
-
-      const distanceY =
-        coords.clientY < rect.top
-          ? rect.top - coords.clientY
-          : coords.clientY > rect.bottom
-            ? coords.clientY - rect.bottom
-            : 0;
-
-      const distance = Math.sqrt(
-        Math.pow(distanceX, 2) + Math.pow(distanceY, 2),
-      );
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestEditor = editor;
-      }
-    });
-
-    return {
-      element: closestEditor,
-      distance: minDistance,
-    };
+    return (
+      getHitTestedSideMenuEditor(
+        this.pmView.root,
+        coords,
+        equallyCloseEditors,
+      ) ?? closestEditor
+    );
   };
 
   /**
@@ -465,6 +601,13 @@ export class SideMenuView<
    *  - Whether the drop event is within the bounds of the current editor instance
    */
   getDragEventContext = (event: DragEvent) => {
+    if (
+      !this.isDragOrigin &&
+      !isSideMenuEditorInteractionCandidate(this.pmView.dom)
+    ) {
+      return undefined;
+    }
+
     // Relevance gate: Only handle drags that belong to BlockNote
     // Check if at least one of the following is true:
     // 1. ProseMirror drag started in an editor
@@ -643,6 +786,13 @@ export class SideMenuView<
   };
 
   onMouseMove = (event: MouseEvent) => {
+    const editorIsInteractive = isSideMenuEditorInteractionCandidate(
+      this.pmView.dom,
+    );
+    if (!editorIsInteractive) {
+      this.updateStateFromMousePos(false);
+      return;
+    }
     if (this.menuFrozen) {
       return;
     }
@@ -669,15 +819,12 @@ export class SideMenuView<
       // Element is outside this editor and its portaled UI
       !this.editor.isWithinEditor(event.target as HTMLElement)
     ) {
-      if (this.state?.show) {
-        this.state.show = false;
-        this.emitUpdate(this.state);
-      }
+      this.hideMenu();
 
       return;
     }
 
-    this.updateStateFromMousePos();
+    this.updateStateFromMousePos(true);
   };
 
   private dispatchSyntheticEvent(event: DragEvent) {

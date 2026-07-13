@@ -88,7 +88,7 @@ Explicit replacement parses NFM and compiles stable-ID operations against the cu
 
 ## Lifecycle and Close
 
-Card Stage panel tabs may retain their mounted editor while their panel leaf remains mounted. Tab switching should preserve the ProseMirror instance, selection, local undo stack, plugin state, and native scroll position. An inactive retained surface may remain a content subscriber but must clear Awareness and stay ref-passive for shell-owned close/persist handles.
+Card Stage panel tabs may retain their mounted editor while their panel leaf remains mounted. Tab switching should preserve the ProseMirror instance, selection, local undo stack, plugin state, and native scroll position. An inactive retained surface may remain a content subscriber but must clear Awareness, stay ref-passive for shell-owned close/persist handles, and remain excluded from document-wide editor hover and drag/drop routing even though layout-preserving parking keeps its DOM geometry measurable.
 
 Persist/close follows a bounded Document lifecycle:
 
