@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
+import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents/card-document";
 import {
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
@@ -40,7 +41,7 @@ const makeDescriptor = (
   generation: 3,
   headSeq: 11,
   schemaKey: "nodex.card",
-  schemaVersion: 1,
+  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array([1, 2, 3]) },
   ...overrides,
@@ -139,7 +140,7 @@ describe("owned Block Document renderer boundary", () => {
       },
       {
         expected: "unsupported_document_schema",
-        descriptor: makeDescriptor({ schemaVersion: 2 }),
+        descriptor: makeDescriptor({ schemaVersion: 1 }),
       },
     ];
 

@@ -365,7 +365,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
     expect(errorMessage).toBe(
-      "No owned Document Adapter is registered for database/nodex.card@1",
+      "No owned Document Adapter is registered for database/nodex.card@2",
     );
     expect(providersCreated).toBe(0);
   });

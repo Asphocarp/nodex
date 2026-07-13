@@ -13,6 +13,12 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Rich contenteditable needs one DOM owner during IME composition
+
+A browser mutates a focused contenteditable subtree directly during native input and IME composition. Rendering that same subtree as ordinary controlled React children creates two owners: React's virtual child tree still describes the pre-composition nodes while the browser has split, removed, or replaced them. The next collaborative update can then leave stale text visible or make React remove a node that is no longer attached. Keep the editable title root structurally owned by a dedicated DOM Adapter: React renders the root and surrounding toolbar only, the Adapter replaces canonical spans from Y.Text when not composing, and composition reads its draft back into one Yjs transaction before canonical rendering resumes. Preserve selection as Yjs relative positions across remote transactions, and keep atom labels out of DOM-to-Y.Text text extraction by mapping each non-editable atom to its single application character.
+
+Formatting is also a schema boundary, not a blanket DOM command. Apply Y.Text formats only to validated text ranges: skip line breaks and atomic inline objects, strip untyped object-replacement characters from external text, and insert line breaks without inherited attributes. Otherwise an apparently harmless select-all Bold command can attach unsupported attributes to a mention atom and make the entire Card Document fail validation.
+
 ### Scheduled automation drafts must be owned by the route shell
 Scheduled automation definitions are sourced from `${NODEX_DIR}/automations/<id>/automation.toml`; `codex_scheduled_automations` is only the SQLite mirror/read model. Renderer detail editing should therefore build create/update payloads in the route or panel owner that also runs autosave and navigation guards, then trust the backend response item after TOML + mirror persistence. Do not make the child form push an editor snapshot upward through an effect and then let route-changing actions read that snapshot: React state is snapshot-based, so a model/reasoning dropdown change followed immediately by a tab switch or previous-run open can otherwise save the previous payload. Keep the form controlled, derive dirty/validation/payloads next to the guard, flush valid dirty edits before route changes, and roll back optimistic query cache on update failure.
 

@@ -1,7 +1,16 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
+import {
+  readPortableRichTextFromYText,
+  replaceYTextWithPortableRichText,
+  type PortableRichText,
+} from "../../../shared/block-documents/portable-rich-text";
 import { render } from "@/test/dom";
+import {
+  readRichTitleDomSelection,
+  restoreRichTitleDomSelection,
+} from "@/lib/rich-title-editor-dom";
 import { CollaborativeCardTitle } from "./collaborative-card-title";
 import type {
   BlockDocumentSurfaceRelocationPreparation,
@@ -45,99 +54,145 @@ class TestSurfaceWriteFence implements BlockDocumentSurfaceWriteFence {
 }
 
 const createTitle = (
-  initialValue: string,
+  initialValue: string | PortableRichText,
 ): { readonly document: Y.Doc; readonly title: Y.Text } => {
   const document = new Y.Doc({ guid: "document:title-test" });
   const title = document.getText("title");
-  if (initialValue.length > 0) title.insert(0, initialValue);
+  if (typeof initialValue === "string") {
+    if (initialValue.length > 0) title.insert(0, initialValue);
+  } else {
+    replaceYTextWithPortableRichText(title, initialValue);
+  }
   return { document, title };
 };
 
+const replaceEditorDraft = (
+  editor: HTMLDivElement,
+  value: string,
+  isComposing = false,
+): void => {
+  editor.textContent = value;
+  fireEvent.input(editor, { isComposing });
+};
+
 describe("CollaborativeCardTitle", () => {
-  test("writes a local input as a minimal Y.Text transaction and reports authoritative changes", async () => {
+  test("writes a local DOM draft as a minimal Y.Text transaction and reports authority", async () => {
     const { document, title } = createTitle("Card alpha");
     const reportedValues: string[] = [];
     const observedDeltas: string[] = [];
-    title.observe((event) => {
-      observedDeltas.push(JSON.stringify(event.delta));
-    });
-
+    title.observe((event) => observedDeltas.push(JSON.stringify(event.delta)));
     const view = render(
       <CollaborativeCardTitle
         title={title}
         onValueChange={(value) => reportedValues.push(value)}
       />,
     );
-    const input = view.getByRole("textbox", { name: "Card title" });
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
 
     await act(async () => {
-      fireEvent.input(input, { target: { value: "Card beta" } });
+      replaceEditorDraft(editor, "Card beta");
       await Promise.resolve();
     });
 
     expect(title.toString()).toBe("Card beta");
-    expect(observedDeltas.length).toBe(1);
-    expect(observedDeltas[0]).toBe(
-      JSON.stringify([
-        { retain: 5 },
-        { delete: 4 },
-        { insert: "bet" },
-      ]),
-    );
-    expect(reportedValues.join(",")).toBe("Card alpha,Card beta");
+    expect(observedDeltas).toEqual([
+      JSON.stringify([{ retain: 5 }, { delete: 4 }, { insert: "bet" }]),
+    ]);
+    expect(reportedValues).toEqual(["Card alpha", "Card beta"]);
 
     await act(async () => {
       document.transact(() => title.insert(0, "Remote "), "remote");
       await Promise.resolve();
     });
-    expect((input as HTMLTextAreaElement).value).toBe("Remote Card beta");
-    expect(reportedValues.join(",")).toBe(
-      "Card alpha,Card beta,Remote Card beta",
-    );
+    expect(editor.textContent).toBe("Remote Card beta");
+    expect(reportedValues.at(-1)).toBe("Remote Card beta");
+    document.destroy();
+  });
+
+  test("renders and toggles canonical rich formatting without replacing text", async () => {
+    const { document, title } = createTitle([
+      { type: "text", text: "Rich ", styles: { italic: true } },
+      { type: "link", text: "title", href: "https://nodex.local", styles: {} },
+      { type: "threadMention", uuid: "thread-12345678" },
+    ]);
+    const view = render(<CollaborativeCardTitle title={title} />);
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
+    expect(editor.querySelector("[data-rich-title-link]")?.textContent).toBe("title");
+    expect(editor.querySelector("[data-rich-title-atom]")?.textContent).toBe("@thread-1");
+
+    await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 0, 4);
+      fireEvent.keyDown(editor, { key: "b", metaKey: true });
+      await Promise.resolve();
+    });
+    expect(readPortableRichTextFromYText(title)[0]).toEqual({
+      type: "text",
+      text: "Rich",
+      styles: { bold: true, italic: true },
+    });
+    document.destroy();
+  });
+
+  test("keeps the selection alive while the inline link editor applies a URL", async () => {
+    const { document, title } = createTitle("Link title");
+    const view = render(<CollaborativeCardTitle title={title} />);
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
+    await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 0, 4);
+      const ownerDocument = editor.ownerDocument;
+      const EventConstructor = ownerDocument.defaultView?.Event ?? Event;
+      fireEvent(ownerDocument, new EventConstructor("selectionchange"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Edit title link" }));
+      await Promise.resolve();
+    });
+    const input = view.getByRole("textbox", { name: "Title link URL" });
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "https://nodex.local" } });
+      const form = input.closest("form");
+      if (!form) throw new TypeError("Missing title link form");
+      fireEvent.submit(form);
+      await Promise.resolve();
+    });
+    expect(readPortableRichTextFromYText(title)[0]).toEqual({
+      type: "link",
+      text: "Link",
+      href: "https://nodex.local",
+      styles: {},
+    });
+    expect(editor.ownerDocument.activeElement).toBe(editor);
     document.destroy();
   });
 
   test("rebases an IME draft over remote edits without replacing either intent", async () => {
     const { document, title } = createTitle("hello world");
     const view = render(<CollaborativeCardTitle title={title} />);
-    const input = view.getByRole("textbox", {
-      name: "Card title",
-    }) as HTMLTextAreaElement;
-    input.focus();
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
 
     await act(async () => {
-      fireEvent.input(input, {
-        target: { value: "hello brave world" },
-        isComposing: true,
-      });
-      await Promise.resolve();
-    });
-    input.setSelectionRange(17, 17);
-
-    await act(async () => {
+      editor.focus();
+      fireEvent.compositionStart(editor);
+      replaceEditorDraft(editor, "hello brave world", true);
       document.transact(() => title.insert(0, "remote "), "remote");
       await Promise.resolve();
     });
-
-    expect(input.value).toBe("hello brave world");
+    expect(editor.textContent).toBe("hello brave world");
     expect(title.toString()).toBe("remote hello world");
 
     await act(async () => {
-      fireEvent.input(input, {
-        target: { value: "hello brave world" },
-        isComposing: false,
-      });
+      fireEvent.compositionEnd(editor);
       await Promise.resolve();
     });
-
     expect(title.toString()).toBe("remote hello brave world");
-    expect(input.value).toBe("remote hello brave world");
-    expect(input.selectionStart).toBe(24);
-    expect(input.selectionEnd).toBe(24);
+    expect(editor.textContent).toBe("remote hello brave world");
     document.destroy();
   });
 
-  test("does not let an external Enter handler cancel an active IME composition", async () => {
+  test("does not let an external Enter handler cancel active IME composition", async () => {
     const { document, title } = createTitle("Card");
     let forwardedKeyDownCount = 0;
     const view = render(
@@ -149,20 +204,13 @@ describe("CollaborativeCardTitle", () => {
         }}
       />,
     );
-    const input = view.getByRole("textbox", {
-      name: "Card title",
-    }) as HTMLTextAreaElement;
+    const editor = view.getByRole("textbox", { name: "Card title" });
     let wasNotCancelled = false;
-
     await act(async () => {
-      fireEvent.compositionStart(input);
-      wasNotCancelled = fireEvent.keyDown(input, {
-        key: "Enter",
-        isComposing: true,
-      });
+      fireEvent.compositionStart(editor);
+      wasNotCancelled = fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
       await Promise.resolve();
     });
-
     expect(wasNotCancelled).toBe(true);
     expect(forwardedKeyDownCount).toBe(0);
     document.destroy();
@@ -171,55 +219,80 @@ describe("CollaborativeCardTitle", () => {
   test("local undo preserves a later remote title edit", async () => {
     const { document, title } = createTitle("Title");
     const view = render(<CollaborativeCardTitle title={title} />);
-    const input = view.getByRole("textbox", {
-      name: "Card title",
-    }) as HTMLTextAreaElement;
-    input.focus();
-
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
     await act(async () => {
-      fireEvent.input(input, { target: { value: "Title local" } });
+      editor.focus();
+      replaceEditorDraft(editor, "Title local");
       document.transact(() => title.insert(0, "Remote "), "remote");
+      fireEvent.keyDown(editor, { key: "z", metaKey: true });
       await Promise.resolve();
     });
-    expect(input.value).toBe("Remote Title local");
-
-    await act(async () => {
-      fireEvent.keyDown(input, { key: "z", metaKey: true });
-      await Promise.resolve();
-    });
-
     expect(title.toString()).toBe("Remote Title");
-    expect(input.value).toBe("Remote Title");
+    expect(editor.textContent).toBe("Remote Title");
     document.destroy();
   });
 
-  test("preserves a focused selection through a remote insertion", async () => {
+  test("preserves a focused DOM selection through a remote insertion", async () => {
     const { document, title } = createTitle("Hello world");
-    const externalRef: { current: HTMLTextAreaElement | null } = {
-      current: null,
-    };
-    const view = render(
-      <CollaborativeCardTitle title={title} ref={externalRef} />,
-    );
-    const input = view.getByRole("textbox", {
-      name: "Card title",
-    }) as HTMLTextAreaElement;
-    input.focus();
-    input.setSelectionRange(6, 11, "forward");
-
+    const externalRef: { current: HTMLDivElement | null } = { current: null };
+    const view = render(<CollaborativeCardTitle title={title} ref={externalRef} />);
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
     await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 6, 11);
       document.transact(() => title.insert(0, "Remote "), "remote");
       await Promise.resolve();
     });
-
-    expect(externalRef.current === input).toBe(true);
-    expect(input.value).toBe("Remote Hello world");
-    expect(input.selectionStart).toBe(13);
-    expect(input.selectionEnd).toBe(18);
+    expect(externalRef.current).toBe(editor);
+    expect(editor.textContent).toBe("Remote Hello world");
+    expect(readRichTitleDomSelection(editor)).toMatchObject({ start: 13, end: 18 });
     document.destroy();
   });
 
-  test("commits its own IME draft and freezes without blurring another surface", async () => {
+  test("keeps two mounted clients convergent across text and formatting updates", async () => {
+    const first = createTitle("Shared title");
+    const secondDocument = new Y.Doc({ guid: first.document.guid });
+    Y.applyUpdate(secondDocument, Y.encodeStateAsUpdate(first.document));
+    const secondTitle = secondDocument.getText("title");
+    const view = render(
+      <>
+        <CollaborativeCardTitle title={first.title} aria-label="First client" />
+        <CollaborativeCardTitle title={secondTitle} aria-label="Second client" />
+      </>,
+    );
+    const firstEditor = view.getByRole("textbox", { name: "First client" }) as HTMLDivElement;
+    const secondEditor = view.getByRole("textbox", { name: "Second client" }) as HTMLDivElement;
+
+    await act(async () => {
+      replaceEditorDraft(firstEditor, "Shared collaborative title");
+      Y.applyUpdate(
+        secondDocument,
+        Y.encodeStateAsUpdate(first.document, Y.encodeStateVector(secondDocument)),
+        "provider:first-to-second",
+      );
+      await Promise.resolve();
+    });
+    expect(secondEditor.textContent).toBe("Shared collaborative title");
+
+    await act(async () => {
+      secondEditor.focus();
+      restoreRichTitleDomSelection(secondEditor, 0, 6);
+      fireEvent.keyDown(secondEditor, { key: "i", metaKey: true });
+      Y.applyUpdate(
+        first.document,
+        Y.encodeStateAsUpdate(secondDocument, Y.encodeStateVector(first.document)),
+        "provider:second-to-first",
+      );
+      await Promise.resolve();
+    });
+    expect(readPortableRichTextFromYText(first.title)).toEqual(
+      readPortableRichTextFromYText(secondTitle),
+    );
+    first.document.destroy();
+    secondDocument.destroy();
+  });
+
+  test("commits its IME draft and freezes only the leased surface", async () => {
     const first = createTitle("First");
     const second = createTitle("Second");
     const firstFence = new TestSurfaceWriteFence();
@@ -238,37 +311,24 @@ describe("CollaborativeCardTitle", () => {
         />
       </>,
     );
-    const firstInput = view.getByRole("textbox", {
-      name: "First title",
-    }) as HTMLTextAreaElement;
-    const secondInput = view.getByRole("textbox", {
-      name: "Second title",
-    }) as HTMLTextAreaElement;
-    firstInput.focus();
+    const firstEditor = view.getByRole("textbox", { name: "First title" }) as HTMLDivElement;
+    const secondEditor = view.getByRole("textbox", { name: "Second title" }) as HTMLDivElement;
     await act(async () => {
-      fireEvent.compositionStart(firstInput);
-      fireEvent.input(firstInput, {
-        target: { value: "First draft" },
-        isComposing: true,
-      });
+      firstEditor.focus();
+      fireEvent.compositionStart(firstEditor);
+      replaceEditorDraft(firstEditor, "First draft", true);
       firstFence.setFrozen(true);
       await firstFence.prepare();
     });
-
     expect(first.title.toString()).toBe("First draft");
-    expect(firstInput.disabled).toBe(true);
-    expect(firstInput.ownerDocument.activeElement === firstInput).toBe(false);
+    expect(firstEditor.getAttribute("aria-disabled")).toBe("true");
+    expect(firstEditor.ownerDocument.activeElement).not.toBe(firstEditor);
 
-    secondInput.focus();
     await act(async () => {
+      secondEditor.focus();
       await firstFence.prepare();
     });
-    expect(secondInput.ownerDocument.activeElement === secondInput).toBe(true);
-    await act(async () => {
-      firstFence.setFrozen(false);
-      await Promise.resolve();
-    });
-    expect(firstInput.disabled).toBe(false);
+    expect(secondEditor.ownerDocument.activeElement).toBe(secondEditor);
     first.document.destroy();
     second.document.destroy();
   });

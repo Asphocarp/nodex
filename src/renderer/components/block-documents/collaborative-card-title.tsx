@@ -3,6 +3,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ClipboardEvent,
   type ComponentPropsWithoutRef,
   type CompositionEvent,
   type FormEvent,
@@ -10,115 +11,174 @@ import {
   type Ref,
 } from "react";
 import * as Y from "yjs";
-import { MAX_CARD_TITLE_LENGTH } from "../../../shared/card-limits";
+import {
+  portableRichTextPlainText,
+  readPortableRichTextFromYText,
+  type PortableRichText,
+  type PortableRichTextItem,
+  type PortableRichTextStyles,
+} from "../../../shared/block-documents/portable-rich-text";
+import { formatDateMentionPlainText } from "../../../shared/nfm/date-mention";
+import type { NfmColor } from "../../../shared/nfm/types";
 import { cn } from "@/lib/utils";
 import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
 import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
-import { applyYTextInputReconciliation } from "@/lib/y-text-input";
+import { reconcileYTextInputValues } from "@/lib/y-text-input";
+import {
+  readRichTitleDomDraft,
+  readRichTitleDomSelection,
+  restoreRichTitleDomSelection,
+} from "@/lib/rich-title-editor-dom";
+import {
+  applyRichTitleTextEdit,
+  mapRichTitleCompositionIndexToBase,
+  nextRichTitleCodePointIndex,
+  previousRichTitleCodePointIndex,
+  richTitleRangeHasFormat,
+  setRichTitleLink,
+  toggleRichTitleFormat,
+  type RichTitleFormatAttribute,
+} from "@/lib/rich-title-ytext-editing";
 
-type NativeTitleTextareaProps = Omit<
-  ComponentPropsWithoutRef<"textarea">,
-  | "defaultValue"
-  | "maxLength"
-  | "onChange"
+type NativeTitleEditorProps = Omit<
+  ComponentPropsWithoutRef<"div">,
+  | "children"
+  | "contentEditable"
+  | "dangerouslySetInnerHTML"
+  | "onBeforeInput"
   | "onCompositionEnd"
   | "onCompositionStart"
   | "onInput"
+  | "role"
   | "title"
-  | "value"
 >;
 
-export interface CollaborativeCardTitleProps
-  extends NativeTitleTextareaProps {
+export interface CollaborativeCardTitleProps extends NativeTitleEditorProps {
   readonly title: Y.Text;
-  readonly ref?: Ref<HTMLTextAreaElement>;
+  readonly ref?: Ref<HTMLDivElement>;
+  readonly placeholder?: string;
   /** Fires for every authoritative local or remote Y.Text change. */
   readonly onValueChange?: (value: string) => void;
   readonly onCompositionStart?: (
-    event: CompositionEvent<HTMLTextAreaElement>,
+    event: CompositionEvent<HTMLDivElement>,
   ) => void;
   readonly onCompositionEnd?: (
-    event: CompositionEvent<HTMLTextAreaElement>,
+    event: CompositionEvent<HTMLDivElement>,
   ) => void;
   readonly surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
 }
 
-interface CompositionCommit {
-  readonly browserValue: string;
-  readonly authoritativeValue: string;
-}
-
 interface RelativeTitleSelection {
-  readonly start: Y.RelativePosition;
-  readonly end: Y.RelativePosition;
-  readonly direction: "forward" | "backward" | "none";
+  readonly anchor: Y.RelativePosition;
+  readonly focus: Y.RelativePosition;
 }
 
 interface AbsoluteTitleSelection {
-  readonly start: number;
-  readonly end: number;
-  readonly direction: "forward" | "backward" | "none";
+  readonly anchor: number;
+  readonly focus: number;
 }
 
 const TITLE_CLASS_NAME = cn(
-  "w-full resize-none overflow-hidden",
+  "w-full min-w-0 whitespace-pre-wrap wrap-break-word",
   "text-xl/snug-plus font-bold",
   "text-(--foreground)",
   "border-none bg-transparent px-0.5 pt-0.75",
-  "field-sizing-content focus-visible:ring-0 focus-visible:outline-none",
-  "placeholder:text-(--foreground-disabled)",
+  "focus-visible:ring-0 focus-visible:outline-none",
+  "empty:before:pointer-events-none empty:before:text-(--foreground-disabled)",
+  "empty:before:content-[attr(data-placeholder)]",
 );
 
-const clampSelectionIndex = (index: number, length: number): number =>
-  Math.min(Math.max(index, 0), length);
+const FORMAT_BUTTON_CLASS_NAME = cn(
+  "flex size-6 items-center justify-center rounded-md",
+  "text-[11px] font-semibold text-token-description-foreground",
+  "hover:bg-token-foreground/5 hover:text-token-text-primary",
+  "aria-pressed:bg-token-foreground/10 aria-pressed:text-token-text-primary",
+);
 
-/**
- * Maps a browser selection inside an uncommitted IME draft back onto the
- * authoritative value that existed when composition started. The composed
- * range is anchored to the right-hand side of the replaced base range so the
- * Yjs relative position follows the composed text when it is committed.
- */
-const mapCompositionDraftIndexToBase = (
-  baseValue: string,
-  draftValue: string,
-  draftIndex: number,
-): number => {
-  const boundedDraftIndex = clampSelectionIndex(draftIndex, draftValue.length);
-  let prefixLength = 0;
-  const maximumPrefixLength = Math.min(baseValue.length, draftValue.length);
-  while (
-    prefixLength < maximumPrefixLength
-    && baseValue[prefixLength] === draftValue[prefixLength]
-  ) {
-    prefixLength += 1;
-  }
-
-  let suffixLength = 0;
-  const maximumSuffixLength = Math.min(
-    baseValue.length - prefixLength,
-    draftValue.length - prefixLength,
-  );
-  while (
-    suffixLength < maximumSuffixLength
-    && baseValue[baseValue.length - suffixLength - 1]
-      === draftValue[draftValue.length - suffixLength - 1]
-  ) {
-    suffixLength += 1;
-  }
-
-  if (boundedDraftIndex <= prefixLength) return boundedDraftIndex;
-  const draftChangedEnd = draftValue.length - suffixLength;
-  if (boundedDraftIndex >= draftChangedEnd) {
-    return baseValue.length - (draftValue.length - boundedDraftIndex);
-  }
-  return baseValue.length - suffixLength;
+const titleColorClass = (color: NfmColor | undefined): string | undefined => {
+  if (!color) return undefined;
+  const classes: Record<NfmColor, string> = {
+    gray: "text-[var(--gray-text)]",
+    brown: "text-[var(--brown-text,#64473a)]",
+    orange: "text-[var(--orange-text,#d9730d)]",
+    yellow: "text-[var(--yellow-text,#cb8a00)]",
+    green: "text-[var(--green-text,#448361)]",
+    blue: "text-[var(--blue-text)]",
+    purple: "text-[var(--purple-text,#9065b0)]",
+    pink: "text-[var(--pink-text,#ad1a72)]",
+    red: "text-[var(--red-text,#e03e3e)]",
+    gray_bg: "bg-[var(--gray-bg)] text-[var(--gray-text)]",
+    brown_bg: "bg-[var(--brown-bg,#e9e5e3)] text-[var(--brown-text,#64473a)]",
+    orange_bg: "bg-[var(--orange-bg,#faebdd)] text-[var(--orange-text,#d9730d)]",
+    yellow_bg: "bg-[var(--yellow-bg,#fbf3db)] text-[var(--yellow-text,#cb8a00)]",
+    green_bg: "bg-[var(--green-bg,#ddedea)] text-[var(--green-text,#448361)]",
+    blue_bg: "bg-[var(--blue-bg)] text-[var(--blue-text)]",
+    purple_bg: "bg-[var(--purple-bg,#e8deee)] text-[var(--purple-text,#9065b0)]",
+    pink_bg: "bg-[var(--pink-bg,#f4dfeb)] text-[var(--pink-text,#ad1a72)]",
+    red_bg: "bg-[var(--red-bg,#fbe4e4)] text-[var(--red-text,#e03e3e)]",
+  };
+  return classes[color];
 };
 
-/**
- * A controlled textarea whose only content authority is the supplied Y.Text.
- * Each ordinary input becomes one minimal Yjs edit; an IME draft is rebased
- * over the latest remote title before it is committed.
- */
+const titleStyleClass = (styles: PortableRichTextStyles): string => cn(
+  styles.bold && "font-bold",
+  styles.italic && "italic",
+  styles.underline && "underline",
+  styles.strikethrough && "line-through",
+  styles.code && "rounded-sm bg-token-foreground/5 px-0.5 font-mono text-[0.9em]",
+  titleColorClass(styles.color),
+);
+
+const atomLabel = (item: PortableRichTextItem): string => {
+  if (item.type === "threadMention") return `@${item.uuid.slice(0, 8)}`;
+  if (item.type === "dateMention") return formatDateMentionPlainText(item);
+  return "";
+};
+
+const renderRichTitleDom = (
+  root: HTMLDivElement,
+  value: PortableRichText,
+): void => {
+  const ownerDocument = root.ownerDocument;
+  const nodes: Node[] = [];
+  let offset = 0;
+  value.forEach((item) => {
+    const start = offset;
+    offset += item.type === "text" || item.type === "link" ? item.text.length : 1;
+    const element = ownerDocument.createElement(
+      item.type === "linebreak" ? "br" : "span",
+    );
+    element.dataset.richTitleSegment = "true";
+    element.dataset.richTitleStart = String(start);
+    element.dataset.richTitleLength = String(offset - start);
+    if (item.type === "linebreak") {
+      element.dataset.richTitleKind = "linebreak";
+      nodes.push(element);
+      return;
+    }
+    if (item.type === "threadMention" || item.type === "dateMention") {
+      element.dataset.richTitleKind = "atom";
+      element.dataset.richTitleAtom = item.type;
+      element.contentEditable = "false";
+      element.className = "mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.72em] font-medium text-token-text-secondary";
+      element.title = item.type === "threadMention" ? item.uuid : atomLabel(item);
+      element.textContent = atomLabel(item);
+      nodes.push(element);
+      return;
+    }
+    element.dataset.richTitleKind = "text";
+    element.className = cn(
+      item.type === "link"
+        && "underline decoration-current/40 underline-offset-2",
+      titleStyleClass(item.styles),
+    );
+    if (item.type === "link") element.dataset.richTitleLink = item.href;
+    element.textContent = item.text;
+    nodes.push(element);
+  });
+  root.replaceChildren(...nodes);
+};
+
 export function CollaborativeCardTitle({
   title,
   ref: forwardedRef,
@@ -127,153 +187,177 @@ export function CollaborativeCardTitle({
   onCompositionEnd,
   surfaceWriteFence,
   onKeyDown,
+  onFocus,
+  onBlur,
   className,
-  disabled = false,
-  rows = 1,
+  "aria-disabled": ariaDisabled,
+  tabIndex,
+  spellCheck = true,
   placeholder = "Untitled",
   "aria-label": ariaLabel = "Card title",
   ...props
 }: CollaborativeCardTitleProps) {
   const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
-  const [value, setValue] = useState(() => title.toString());
-  const [localOrigin] = useState(() => ({
-    source: "collaborative-card-title",
-  }));
-  const draftRef = useRef(value);
+  const [richTitle, setRichTitle] = useState(() =>
+    readPortableRichTextFromYText(title),
+  );
+  const [localOrigin] = useState(() => ({ source: "collaborative-card-title" }));
+  const [selectionRevision, setSelectionRevision] = useState(0);
+  const [renderRevision, setRenderRevision] = useState(0);
+  const [selectedRange, setSelectedRange] = useState<{
+    readonly start: number;
+    readonly end: number;
+  } | null>(null);
+  const [linkEditorOpen, setLinkEditorOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
-  const compositionBaseRef = useRef(value);
-  const compositionCommitRef = useRef<CompositionCommit | null>(null);
-  const undoManagerRef = useRef<Y.UndoManager | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const compositionBaseRef = useRef(title.toString());
   const relativeSelectionRef = useRef<RelativeTitleSelection | null>(null);
   const absoluteSelectionRef = useRef<AbsoluteTitleSelection | null>(null);
-  const [selectionRevision, setSelectionRevision] = useState(0);
+  const undoManagerRef = useRef<Y.UndoManager | null>(null);
   const onValueChangeRef = useRef(onValueChange);
   onValueChangeRef.current = onValueChange;
+  const plainTitle = portableRichTextPlainText(richTitle);
+  const disabled = writeFrozen || ariaDisabled === true || ariaDisabled === "true";
+
+  const captureSelection = (): void => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = readRichTitleDomSelection(editor);
+    setSelectedRange(
+      selection && selection.end > selection.start
+        ? { start: selection.start, end: selection.end }
+        : null,
+    );
+    if (!selection || selection.end === selection.start) {
+      setLinkEditorOpen(false);
+    }
+  };
 
   useEffect(() => {
+    const document = title.doc;
+    if (!document) {
+      throw new TypeError("Collaborative Card title must belong to a Y.Doc");
+    }
     const undoManager = new Y.UndoManager(title, {
       trackedOrigins: new Set([localOrigin]),
     });
     undoManagerRef.current = undoManager;
 
     const handleTitleChange = (): void => {
-      const authoritativeValue = title.toString();
-      onValueChangeRef.current?.(authoritativeValue);
+      onValueChangeRef.current?.(
+        portableRichTextPlainText(readPortableRichTextFromYText(title)),
+      );
       if (composingRef.current) return;
-      draftRef.current = authoritativeValue;
-      setValue(authoritativeValue);
+      setRichTitle(readPortableRichTextFromYText(title));
+      setRenderRevision((revision) => revision + 1);
     };
-
-    const document = title.doc;
-    if (!document) {
-      undoManager.destroy();
-      undoManagerRef.current = null;
-      throw new TypeError("Collaborative Card title must belong to a Y.Doc");
-    }
     const handleBeforeTransaction = (transaction: Y.Transaction): void => {
       if (transaction.origin === localOrigin) return;
-      if (composingRef.current && relativeSelectionRef.current) return;
-      const input = textareaRef.current;
-      if (!input || input.ownerDocument.activeElement !== input) return;
-      const selectionStart = input.selectionStart ?? 0;
-      const selectionEnd = input.selectionEnd ?? selectionStart;
-      const authoritativeSelectionStart = composingRef.current
-        ? mapCompositionDraftIndexToBase(
+      const editor = editorRef.current;
+      if (!editor || editor.ownerDocument.activeElement !== editor) return;
+      const selection = readRichTitleDomSelection(editor);
+      if (!selection) return;
+      const draft = composingRef.current ? readRichTitleDomDraft(editor) : title.toString();
+      const anchor = composingRef.current
+        ? mapRichTitleCompositionIndexToBase(
             compositionBaseRef.current,
-            draftRef.current,
-            selectionStart,
+            draft,
+            selection.anchor,
           )
-        : selectionStart;
-      const authoritativeSelectionEnd = composingRef.current
-        ? mapCompositionDraftIndexToBase(
+        : selection.anchor;
+      const focus = composingRef.current
+        ? mapRichTitleCompositionIndexToBase(
             compositionBaseRef.current,
-            draftRef.current,
-            selectionEnd,
+            draft,
+            selection.focus,
           )
-        : selectionEnd;
+        : selection.focus;
       relativeSelectionRef.current = {
-        start: Y.createRelativePositionFromTypeIndex(
-          title,
-          authoritativeSelectionStart,
-        ),
-        end: Y.createRelativePositionFromTypeIndex(
-          title,
-          authoritativeSelectionEnd,
-        ),
-        direction: input.selectionDirection ?? "none",
+        anchor: Y.createRelativePositionFromTypeIndex(title, anchor),
+        focus: Y.createRelativePositionFromTypeIndex(title, focus),
       };
     };
     const handleAfterTransaction = (transaction: Y.Transaction): void => {
-      const relativeSelection = relativeSelectionRef.current;
+      const relative = relativeSelectionRef.current;
       const changedParentTypes = transaction.changedParentTypes as ReadonlyMap<
         unknown,
         unknown
       >;
-      if (!relativeSelection || !changedParentTypes.has(title)) {
+      if (!relative || !changedParentTypes.has(title)) return;
+      const anchor = Y.createAbsolutePositionFromRelativePosition(
+        relative.anchor,
+        document,
+      );
+      const focus = Y.createAbsolutePositionFromRelativePosition(
+        relative.focus,
+        document,
+      );
+      if (!anchor || !focus || anchor.type !== title || focus.type !== title) {
         relativeSelectionRef.current = null;
         return;
       }
-      const start = Y.createAbsolutePositionFromRelativePosition(
-        relativeSelection.start,
-        document,
-      );
-      const end = Y.createAbsolutePositionFromRelativePosition(
-        relativeSelection.end,
-        document,
-      );
-      if (!start || !end || start.type !== title || end.type !== title) return;
       if (composingRef.current) {
         relativeSelectionRef.current = {
-          start: Y.createRelativePositionFromTypeIndex(title, start.index),
-          end: Y.createRelativePositionFromTypeIndex(title, end.index),
-          direction: relativeSelection.direction,
+          anchor: Y.createRelativePositionFromTypeIndex(title, anchor.index),
+          focus: Y.createRelativePositionFromTypeIndex(title, focus.index),
         };
         return;
       }
       relativeSelectionRef.current = null;
       absoluteSelectionRef.current = {
-        start: start.index,
-        end: end.index,
-        direction: relativeSelection.direction,
+        anchor: anchor.index,
+        focus: focus.index,
       };
-      setSelectionRevision((current) => current + 1);
+      setSelectionRevision((revision) => revision + 1);
     };
 
     title.observe(handleTitleChange);
     document.on("beforeTransaction", handleBeforeTransaction);
     document.on("afterTransaction", handleAfterTransaction);
-    const authoritativeValue = title.toString();
-    draftRef.current = authoritativeValue;
-    setValue(authoritativeValue);
-    onValueChangeRef.current?.(authoritativeValue);
+    setRichTitle(readPortableRichTextFromYText(title));
+    onValueChangeRef.current?.(
+      portableRichTextPlainText(readPortableRichTextFromYText(title)),
+    );
     return () => {
       title.unobserve(handleTitleChange);
       document.off("beforeTransaction", handleBeforeTransaction);
       document.off("afterTransaction", handleAfterTransaction);
       undoManager.destroy();
-      if (undoManagerRef.current === undoManager) {
-        undoManagerRef.current = null;
-      }
+      if (undoManagerRef.current === undoManager) undoManagerRef.current = null;
     };
   }, [localOrigin, title]);
 
   useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || composingRef.current) return;
+    renderRichTitleDom(editor, richTitle);
+  }, [renderRevision, richTitle]);
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
     const selection = absoluteSelectionRef.current;
     absoluteSelectionRef.current = null;
-    const input = textareaRef.current;
-    if (!selection || !input || input.ownerDocument.activeElement !== input) {
-      return;
-    }
-    input.setSelectionRange(
-      selection.start,
-      selection.end,
-      selection.direction,
-    );
-  }, [selectionRevision, value]);
+    if (!editor || !selection || editor.ownerDocument.activeElement !== editor) return;
+    restoreRichTitleDomSelection(editor, selection.anchor, selection.focus);
+    captureSelection();
+  }, [plainTitle, richTitle, selectionRevision]);
 
-  const setTextareaRef = (node: HTMLTextAreaElement | null): void => {
-    textareaRef.current = node;
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const ownerDocument = editor.ownerDocument;
+    const handleSelectionChange = (): void => {
+      if (ownerDocument.activeElement === editor) captureSelection();
+    };
+    ownerDocument.addEventListener("selectionchange", handleSelectionChange);
+    return () => ownerDocument.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
+
+  const setEditorRef = (node: HTMLDivElement | null): void => {
+    editorRef.current = node;
     if (typeof forwardedRef === "function") {
       forwardedRef(node);
       return;
@@ -281,35 +365,206 @@ export function CollaborativeCardTitle({
     if (forwardedRef) forwardedRef.current = node;
   };
 
-  const applyDraft = (baseValue: string, draftValue: string): void => {
-    const reconciliation = applyYTextInputReconciliation({
-      text: title,
-      baseValue,
-      draftValue,
+  const applyEdit = (
+    start: number,
+    end: number,
+    insertText: string,
+  ): void => {
+    const result = applyRichTitleTextEdit({
+      title,
+      start,
+      end,
+      insertText,
       origin: localOrigin,
     });
-    draftRef.current = reconciliation.value;
-    setValue(reconciliation.value);
+    if (!result.changed) return;
+    absoluteSelectionRef.current = {
+      anchor: result.caret,
+      focus: result.caret,
+    };
+    setSelectionRevision((revision) => revision + 1);
+  };
+
+  const applyDomDraft = (): void => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const draft = readRichTitleDomDraft(editor);
+    const draftSelection = readRichTitleDomSelection(editor);
+    const hadRelativeSelection = relativeSelectionRef.current !== null;
+    const reconciliation = reconcileYTextInputValues({
+      baseValue: compositionBaseRef.current,
+      currentValue: title.toString(),
+      draftValue: draft,
+    });
+    if (reconciliation.edit) {
+      applyRichTitleTextEdit({
+        title,
+        start: reconciliation.edit.index,
+        end: reconciliation.edit.index + reconciliation.edit.deleteLength,
+        insertText: reconciliation.edit.insertText,
+        origin: localOrigin,
+      });
+    }
+    setRichTitle(readPortableRichTextFromYText(title));
+    if (!hadRelativeSelection) {
+      absoluteSelectionRef.current = {
+        anchor: draftSelection?.anchor ?? reconciliation.value.length,
+        focus: draftSelection?.focus ?? reconciliation.value.length,
+      };
+    }
+    setSelectionRevision((revision) => revision + 1);
+  };
+
+  const handleBeforeInput = (event: FormEvent<HTMLDivElement>): void => {
+    const nativeEvent = event.nativeEvent as InputEvent;
+    if (composingRef.current || nativeEvent.isComposing) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = readRichTitleDomSelection(editor);
+    if (!selection) return;
+    const inputType = nativeEvent.inputType;
+    if (inputType === "insertText" || inputType === "insertReplacementText") {
+      event.preventDefault();
+      applyEdit(selection.start, selection.end, nativeEvent.data ?? "");
+      return;
+    }
+    if (inputType === "deleteContentBackward") {
+      event.preventDefault();
+      const current = title.toString();
+      const start = selection.start === selection.end
+        ? previousRichTitleCodePointIndex(current, selection.start)
+        : selection.start;
+      applyEdit(start, selection.end, "");
+      return;
+    }
+    if (inputType === "deleteContentForward") {
+      event.preventDefault();
+      const current = title.toString();
+      const end = selection.start === selection.end
+        ? nextRichTitleCodePointIndex(current, selection.end)
+        : selection.end;
+      applyEdit(selection.start, end, "");
+      return;
+    }
+    if (inputType.startsWith("delete")) {
+      event.preventDefault();
+      applyEdit(selection.start, selection.end, "");
+    }
+  };
+
+  const toggleFormat = (attribute: RichTitleFormatAttribute): void => {
+    const editor = editorRef.current;
+    if (!editor || disabled) return;
+    const selection = readRichTitleDomSelection(editor);
+    if (!selection || selection.end <= selection.start || !title.doc) return;
+    toggleRichTitleFormat({
+      title,
+      start: selection.start,
+      end: selection.end,
+      attribute,
+      origin: localOrigin,
+    });
+    absoluteSelectionRef.current = {
+      anchor: selection.anchor,
+      focus: selection.focus,
+    };
+    setSelectionRevision((revision) => revision + 1);
+  };
+
+  const applySelectedLink = (href: string | null): void => {
+    const selection = selectedRange;
+    const editor = editorRef.current;
+    if (!selection || !editor) return;
+    if (!setRichTitleLink({
+      title,
+      start: selection.start,
+      end: selection.end,
+      href,
+      origin: localOrigin,
+    })) return;
+    setLinkEditorOpen(false);
+    editor.focus();
+    absoluteSelectionRef.current = {
+      anchor: selection.start,
+      focus: selection.end,
+    };
+    setSelectionRevision((revision) => revision + 1);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (composingRef.current || event.nativeEvent.isComposing) return;
+    if (event.key === "Enter" && event.shiftKey) {
+      event.preventDefault();
+      const editor = editorRef.current;
+      const selection = editor ? readRichTitleDomSelection(editor) : null;
+      if (selection) applyEdit(selection.start, selection.end, "\n");
+      return;
+    }
+    onKeyDown?.(event);
+    if (event.defaultPrevented) return;
+    if (!(event.metaKey || event.ctrlKey)) return;
+    const key = event.key.toLowerCase();
+    if (key === "z") {
+      event.preventDefault();
+      if (event.shiftKey) undoManagerRef.current?.redo();
+      else undoManagerRef.current?.undo();
+      return;
+    }
+    const format = key === "b" || key === "i" || key === "u"
+      ? key === "b" ? "bold" : key === "i" ? "italic" : "underline"
+      : key === "e" ? "code" : null;
+    if (!format) return;
+    event.preventDefault();
+    toggleFormat(format);
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>): void => {
+    if (disabled) return;
+    const editor = editorRef.current;
+    const selection = editor ? readRichTitleDomSelection(editor) : null;
+    if (!selection) return;
+    event.preventDefault();
+    applyEdit(
+      selection.start,
+      selection.end,
+      event.clipboardData.getData("text/plain"),
+    );
+  };
+
+  const handleCompositionStart = (
+    event: CompositionEvent<HTMLDivElement>,
+  ): void => {
+    composingRef.current = true;
+    compositionBaseRef.current = title.toString();
+    onCompositionStart?.(event);
+  };
+
+  const handleCompositionEnd = (
+    event: CompositionEvent<HTMLDivElement>,
+  ): void => {
+    composingRef.current = false;
+    applyDomDraft();
+    onCompositionEnd?.(event);
+  };
+
+  const handleInput = (): void => {
+    if (composingRef.current) return;
+    compositionBaseRef.current = title.toString();
+    applyDomDraft();
   };
 
   const prepareForRelocationRef = useRef<() => Promise<void>>(
     () => Promise.resolve(),
   );
   prepareForRelocationRef.current = async () => {
-    const input = textareaRef.current;
-    if (!input) return;
-    if (input.ownerDocument.activeElement === input) input.blur();
+    const editor = editorRef.current;
+    if (!editor) return;
+    if (editor.ownerDocument.activeElement === editor) editor.blur();
     await Promise.resolve();
     if (composingRef.current) {
-      const browserValue = input.value;
       composingRef.current = false;
-      applyDraft(compositionBaseRef.current, browserValue);
-      compositionCommitRef.current = {
-        browserValue,
-        authoritativeValue: title.toString(),
-      };
+      applyDomDraft();
     }
-    await Promise.resolve();
   };
 
   useEffect(() => {
@@ -319,103 +574,125 @@ export function CollaborativeCardTitle({
     );
   }, [surfaceWriteFence]);
 
-  const handleInput = (event: FormEvent<HTMLTextAreaElement>): void => {
-    const nextValue = event.currentTarget.value;
-    if (nextValue.length > MAX_CARD_TITLE_LENGTH) return;
-    const nativeIsComposing =
-      "isComposing" in event.nativeEvent &&
-      event.nativeEvent.isComposing === true;
-
-    if (nativeIsComposing) {
-      if (!composingRef.current) {
-        composingRef.current = true;
-        compositionBaseRef.current = title.toString();
-        compositionCommitRef.current = null;
-      }
-      draftRef.current = nextValue;
-      setValue(nextValue);
-      return;
-    }
-
-    if (composingRef.current) {
-      composingRef.current = false;
-      applyDraft(compositionBaseRef.current, nextValue);
-      compositionCommitRef.current = {
-        browserValue: nextValue,
-        authoritativeValue: title.toString(),
-      };
-      return;
-    }
-
-    const compositionCommit = compositionCommitRef.current;
-    compositionCommitRef.current = null;
-    if (
-      compositionCommit &&
-      nextValue === compositionCommit.browserValue &&
-      title.toString() === compositionCommit.authoritativeValue
-    ) {
-      draftRef.current = compositionCommit.authoritativeValue;
-      setValue(compositionCommit.authoritativeValue);
-      return;
-    }
-
-    applyDraft(draftRef.current, nextValue);
-  };
-
-  const handleCompositionStart = (
-    event: CompositionEvent<HTMLTextAreaElement>,
-  ): void => {
-    composingRef.current = true;
-    compositionBaseRef.current = title.toString();
-    compositionCommitRef.current = null;
-    onCompositionStart?.(event);
-  };
-
-  const handleCompositionEnd = (
-    event: CompositionEvent<HTMLTextAreaElement>,
-  ): void => {
-    const browserValue = event.currentTarget.value;
-    composingRef.current = false;
-    applyDraft(compositionBaseRef.current, browserValue);
-    compositionCommitRef.current = {
-      browserValue,
-      authoritativeValue: title.toString(),
-    };
-    onCompositionEnd?.(event);
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (composingRef.current || event.nativeEvent.isComposing) return;
-    onKeyDown?.(event);
-    if (event.defaultPrevented) return;
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") {
-      return;
-    }
-
-    event.preventDefault();
-    if (event.shiftKey) {
-      undoManagerRef.current?.redo();
-      return;
-    }
-    undoManagerRef.current?.undo();
-  };
-
   return (
-    <textarea
-      {...props}
-      ref={setTextareaRef}
-      aria-label={ariaLabel}
-      data-relocation-write-frozen={writeFrozen ? "true" : "false"}
-      disabled={disabled || writeFrozen}
-      value={value}
-      rows={rows}
-      maxLength={MAX_CARD_TITLE_LENGTH}
-      placeholder={placeholder}
-      className={cn(TITLE_CLASS_NAME, className)}
-      onInput={handleInput}
-      onCompositionStart={handleCompositionStart}
-      onCompositionEnd={handleCompositionEnd}
-      onKeyDown={handleKeyDown}
-    />
+    <div ref={wrapperRef} className="relative w-full min-w-0">
+      {selectedRange && !disabled ? (
+        <div
+          className="absolute -top-8 right-0 z-10 flex items-center gap-0.5 rounded-lg bg-token-dropdown-background/90 p-1 shadow-lg ring-[0.5px] ring-token-border backdrop-blur-xl"
+          contentEditable={false}
+          role="toolbar"
+          aria-label="Title formatting"
+          onMouseDown={(event) => {
+            if (event.target instanceof HTMLInputElement) return;
+            event.preventDefault();
+          }}
+        >
+          {linkEditorOpen ? (
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applySelectedLink(linkDraft.length > 0 ? linkDraft : null);
+              }}
+            >
+              <input
+                autoFocus
+                value={linkDraft}
+                onChange={(event) => setLinkDraft(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  setLinkEditorOpen(false);
+                  const editor = editorRef.current;
+                  if (!editor || !selectedRange) return;
+                  editor.focus();
+                  absoluteSelectionRef.current = {
+                    anchor: selectedRange.start,
+                    focus: selectedRange.end,
+                  };
+                  setSelectionRevision((revision) => revision + 1);
+                }}
+                className="h-6 w-44 rounded-md bg-token-foreground/5 px-1.5 text-xs text-token-text-primary outline-none placeholder:text-token-description-foreground"
+                placeholder="Paste a link; empty removes"
+                aria-label="Title link URL"
+              />
+            </form>
+          ) : (
+            <>
+              {([
+                ["bold", "B"],
+                ["italic", "I"],
+                ["underline", "U"],
+                ["code", "<>"],
+              ] as const).map(([attribute, label]) => (
+                <button
+                  key={attribute}
+                  type="button"
+                  className={FORMAT_BUTTON_CLASS_NAME}
+                  aria-label={`Toggle ${attribute}`}
+                  aria-pressed={richTitleRangeHasFormat(
+                    title,
+                    selectedRange.start,
+                    selectedRange.end,
+                    attribute,
+                  )}
+                  onClick={() => toggleFormat(attribute)}
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={FORMAT_BUTTON_CLASS_NAME}
+                aria-label="Edit title link"
+                onClick={() => {
+                  setLinkDraft("");
+                  setLinkEditorOpen(true);
+                }}
+              >
+                ↗
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+      <div
+        {...props}
+        ref={setEditorRef}
+        role="textbox"
+        aria-label={ariaLabel}
+        aria-multiline="true"
+        aria-disabled={disabled}
+        data-placeholder={placeholder}
+        data-relocation-write-frozen={writeFrozen ? "true" : "false"}
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        spellCheck={spellCheck}
+        tabIndex={disabled ? -1 : tabIndex}
+        className={cn(TITLE_CLASS_NAME, className)}
+        onBeforeInput={handleBeforeInput}
+        onInput={handleInput}
+        onPaste={handlePaste}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        onKeyDown={handleKeyDown}
+        onFocus={(event) => {
+          captureSelection();
+          onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          const nextTarget = event.relatedTarget;
+          if (
+            nextTarget instanceof Node
+            && wrapperRef.current?.contains(nextTarget)
+          ) {
+            return;
+          }
+          setSelectedRange(null);
+          setLinkEditorOpen(false);
+          onBlur?.(event);
+        }}
+      />
+    </div>
   );
 }

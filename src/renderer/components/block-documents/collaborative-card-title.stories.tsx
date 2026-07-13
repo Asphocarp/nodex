@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import { createCardDocument } from "../../../shared/block-documents";
+import {
+  createCardDocument,
+  replaceYTextWithPortableRichText,
+  type PortableRichText,
+} from "../../../shared/block-documents";
 import { CollaborativeCardTitle } from "./collaborative-card-title";
 import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
 
@@ -10,13 +14,33 @@ const FROZEN_STORY_FENCE: BlockDocumentSurfaceWriteFence = {
   registerRelocationPreparer: () => () => undefined,
 };
 
-function CollaborativeCardTitleStory({ frozen = false }: { frozen?: boolean }) {
-  const [cardDocument] = useState(() =>
-    createCardDocument({
+const RICH_TITLE: PortableRichText = [
+  { type: "text", text: "Designing a ", styles: {} },
+  { type: "text", text: "rich", styles: { bold: true, color: "blue" } },
+  { type: "text", text: " Card title with ", styles: { italic: true } },
+  { type: "link", text: "stable identity", href: "https://nodex.local", styles: {} },
+  { type: "dateMention", start: "2026-07-14" },
+];
+
+function CollaborativeCardTitleStory({
+  frozen = false,
+  rich = false,
+  long = false,
+}: {
+  frozen?: boolean;
+  rich?: boolean;
+  long?: boolean;
+}) {
+  const [cardDocument] = useState(() => {
+    const card = createCardDocument({
       documentId: "storybook:collaborative-card-title",
-      initialTitle: "A Card title backed by Y.Text",
-    }),
-  );
+      initialTitle: long
+        ? "A deliberately long Card title that demonstrates natural wrapping while preserving a dense, borderless editing surface across the full Card Stage content width"
+        : "A Card title backed by Y.Text",
+    });
+    if (rich) replaceYTextWithPortableRichText(card.title, RICH_TITLE);
+    return card;
+  });
 
   useEffect(
     () => () => cardDocument.document.destroy(),
@@ -52,6 +76,14 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const RichFormattingAndAtoms: Story = {
+  render: () => <CollaborativeCardTitleStory rich />,
+};
+
+export const LongWrappingTitle: Story = {
+  render: () => <CollaborativeCardTitleStory long />,
+};
 
 export const RelocationFrozen: Story = {
   render: () => <CollaborativeCardTitleStory frozen />,

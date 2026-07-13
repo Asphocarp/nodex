@@ -99,7 +99,7 @@
 - Keep custom editor behaviors in dedicated modules under `editor/`.
 - Keep schema and extension composition centralized (`nfm-schema`, `toggle-list-schema`, extension helpers).
 - `NfmEditor` must receive an explicit discriminated source. `legacy-snapshot` may use NFM `initialContent`, serialized-change debounce, blur flush, and external replacement. `collaborative-document` must use BlockNote's collaboration fragment/Awareness and must not install `initialContent`, serialize the whole body for persistence, or replace Blocks from a Card snapshot.
-- Primary Card title and body share one surface-owned Y.Doc but keep local undo scopes. Each writable mount has a distinct client/session origin; remote transactions do not enter its undo stack.
+- Primary Card title and body share one surface-owned Y.Doc but keep local undo scopes. The rich-title contenteditable renders the validated Y.Text Delta through a DOM Adapter; React owns the surrounding toolbar/state but never reconciles the browser-mutated composition subtree. Each writable mount has a distinct client/session origin; remote transactions do not enter its undo stack.
 - Add behavior regression tests next to editor helpers (`*.test.ts`).
 - Preserve NFM round-trip compatibility when changing parser/serializer/adapters.
 - For Card Stage rich-editor typing performance, follow `docs/card-stage-rich-editor-performance.md`.

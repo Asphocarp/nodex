@@ -10,6 +10,10 @@ const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   status: "draft",
   archived: false,
   title: "Target Card",
+  richTitle: [
+    { type: "text", text: "Target ", styles: {} },
+    { type: "text", text: "Card", styles: { bold: true } },
+  ],
   tags: [],
   dueDate: "2026-01-02T00:00:00.000Z",
   scheduledStart: "2026-01-03T09:00:00.000Z",
