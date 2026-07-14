@@ -215,10 +215,11 @@ Responsibilities:
    - built `Nodex.app`
 9. Assert bundled Codex runtime resources exist inside `Nodex.app/Contents/Resources/bin`:
    - `codex`
+   - `codex-code-mode-host`
    - `rg`
    - `runtime.json`
-10. Run the bundled `codex --version` and verify it matches `runtime.json`.
-11. Inspect the embedded Codex binary with `codesign -dvvv` and verify it still reports `TeamIdentifier=2DC432GLL2` so packaged builds preserve the upstream OpenAI Keychain identity.
+10. Run `scripts/verify-codex-runtime.ts` against the packaged Resources directory. It validates every upstream native artifact against its size and SHA-256, checks declared search-path tools as regular executables, runs the bundled `codex --version`, and verifies the metadata version.
+11. Strictly validate every executable native artifact signature before inspecting its identity; the preserved artifacts must report `TeamIdentifier=2DC432GLL2`. `rg` is intentionally signed by the app packager and is covered by the final deep app-signature check.
 12. Verify signing and notarization:
    - `codesign --verify --deep --strict --verbose=2`
    - `spctl --assess --type execute --verbose=4`

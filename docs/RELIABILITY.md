@@ -106,9 +106,9 @@
 - Backup restore failures surface explicit error responses.
 - Reminder delivery is at-least-once at scheduler level, then effectively exactly-once per `(project_id, card_id, occurrence_start, offset)` via receipt uniqueness.
 - Missing Codex CLI binary surfaces explicit `missingBinary` connection status in UI.
-- `codex-service` defers staged/bundled runtime validation until the Codex client actually starts, so pure service construction and state-only test paths do not fail on hosts where the pinned runtime has not been materialized yet.
-- Packaged builds ship a pinned Codex runtime inside `Contents/Resources/bin`, and dev/unpackaged runs use the staged pinned runtime under `.generated/codex-runtime/bin`.
-- macOS packaging preserves the upstream OpenAI signature on `Contents/Resources/bin/codex` instead of re-signing that binary under the app's identity, so existing `Codex MCP Credentials` Keychain ACL entries that trust OpenAI's Codex team continue to match packaged Nodex builds.
+- `codex-service` defers absent staged/bundled runtime handling until the Codex client actually starts, while a materialized runtime must pass its manifest contract before app-server launches: each upstream native artifact must be a regular file with the recorded size, SHA-256, and executable mode, and each declared search-path tool must be a regular executable.
+- Packaged builds ship the pinned Codex native artifact closure (`codex`, `codex-code-mode-host`, and any future sibling helpers), `rg`, and `runtime.json` inside `Contents/Resources/bin`; dev/unpackaged runs use the same staged closure under `.generated/codex-runtime/bin`. Staging copies the complete version-matched upstream `bin` directory and replaces the prior runtime with rollback on failure.
+- macOS packaging preserves the valid upstream OpenAI signatures on native sibling artifacts instead of re-signing those binaries under the app's identity, so existing `Codex MCP Credentials` Keychain ACL entries that trust OpenAI's Codex team continue to match packaged Nodex builds. The ad-hoc upstream `rg` is outside that byte-for-byte manifest and is signed by the app packager; the final app signature seals it for distribution.
 - Nodex never falls back to a system `codex` binary from `PATH`, so the runtime CLI version stays aligned with the committed `@nodex/codex-app-server-protocol` package in both packaged and local development flows.
 - Permission-state reads degrade to a local fallback when the pinned Codex app-server runtime cannot start, so settings and approval fallback logic do not crash before the missing-runtime connection state can be surfaced.
 - `codex:*` API calls in browser mode fail fast with explicit unsupported errors.
@@ -129,7 +129,7 @@
 - Before release packaging on macOS: run `pnpm run codex:schemas:verify` so checked-in app-server schemas still match the pinned Codex version.
 - Release macOS packaging uploads hidden source maps to Sentry only when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are present; `.map` files remain excluded from packaged artifacts.
 - Before enabling CI signing secrets: do one local notarization dry run and verify `codesign --verify --deep --strict`, `spctl --assess --type open`, and `xcrun stapler validate` against the generated macOS artifacts.
-- During macOS packaging validation, inspect `Contents/Resources/bin/codex` with `codesign -dvvv` and verify it still reports `TeamIdentifier=2DC432GLL2`.
+- During macOS packaging validation, verify the runtime manifest, validate every executable native artifact with `codesign --verify --strict`, and require the preserved upstream artifacts to report `TeamIdentifier=2DC432GLL2`; final deep app-signature validation covers the separately signed `rg`.
 - Release CI publishes only after both `arm64` and `x64` notarized artifacts pass verification, and it synthesizes one canonical `latest-mac.yml` plus referenced blockmaps from the two per-arch updater outputs before the GitHub Release is published; tap sync runs after GitHub Release publication and should be retried independently if the external tap push fails.
 - The authoritative release runbook for workflow triggers, job ordering, secret requirements, artifact naming, and rerun strategy is `docs/release-macos.md`.
 - Before risky migrations/refactors: create a labeled manual backup.

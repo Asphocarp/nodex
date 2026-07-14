@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,14 +7,31 @@ import { resolveCodexRuntime } from "./codex-runtime";
 
 function writeRuntime(rootPath: string): void {
   fs.mkdirSync(rootPath, { recursive: true });
-  fs.writeFileSync(path.join(rootPath, "codex"), "#!/bin/sh\necho codex\n", "utf8");
-  fs.writeFileSync(path.join(rootPath, "rg"), "#!/bin/sh\necho rg\n", "utf8");
+  const artifactBodies = new Map([
+    ["codex", "#!/bin/sh\necho codex\n"],
+    ["codex-code-mode-host", "#!/bin/sh\necho host\n"],
+  ]);
+  const artifacts = [...artifactBodies].map(([artifactName, body]) => {
+    const artifactPath = path.join(rootPath, artifactName);
+    fs.writeFileSync(artifactPath, body, "utf8");
+    fs.chmodSync(artifactPath, 0o755);
+    return {
+      executable: true,
+      path: artifactName,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      size: Buffer.byteLength(body),
+    };
+  });
+  const rgPath = path.join(rootPath, "rg");
+  fs.writeFileSync(rgPath, "#!/bin/sh\necho rg\n", "utf8");
+  fs.chmodSync(rgPath, 0o755);
   fs.writeFileSync(
     path.join(rootPath, "runtime.json"),
     JSON.stringify({
-      binarySha256: "binary",
+      artifacts,
       codexVersion: "0.115.0",
-      rgSha256: "rg",
+      layoutVersion: 1,
+      searchPathTools: ["rg"],
       sourcePackage: "@openai/codex-darwin-arm64@0.115.0-darwin-arm64",
       targetArch: "arm64",
       targetPlatform: "darwin",
@@ -63,12 +81,12 @@ describe("codex-runtime", () => {
     }
   });
 
-  test("throws when the bundled runtime is incomplete", () => {
+  test("throws before startup when the bundled runtime omits the code-mode host", () => {
     const fixture = makeBundledRuntimeFixture();
     let threw = false;
 
     try {
-      fs.rmSync(path.join(fixture.resourcesPath, "bin", "runtime.json"));
+      fs.rmSync(path.join(fixture.resourcesPath, "bin", "codex-code-mode-host"));
       try {
         resolveCodexRuntime({
           isPackaged: true,
@@ -79,6 +97,48 @@ describe("codex-runtime", () => {
       }
 
       expect(threw).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("throws before startup when a staged runtime artifact was modified", () => {
+    const fixture = makeStagedRuntimeFixture();
+
+    try {
+      fs.appendFileSync(path.join(
+        fixture.projectRootPath,
+        ".generated",
+        "codex-runtime",
+        "bin",
+        "codex-code-mode-host",
+      ), "tampered");
+
+      expect(() => resolveCodexRuntime({
+        isPackaged: false,
+        projectRootPath: fixture.projectRootPath,
+      })).toThrow("artifact size does not match metadata: codex-code-mode-host");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("throws before startup when the staged runtime omits a search-path tool", () => {
+    const fixture = makeStagedRuntimeFixture();
+
+    try {
+      fs.rmSync(path.join(
+        fixture.projectRootPath,
+        ".generated",
+        "codex-runtime",
+        "bin",
+        "rg",
+      ));
+
+      expect(() => resolveCodexRuntime({
+        isPackaged: false,
+        projectRootPath: fixture.projectRootPath,
+      })).toThrow("search-path tool is missing: rg");
     } finally {
       fixture.cleanup();
     }

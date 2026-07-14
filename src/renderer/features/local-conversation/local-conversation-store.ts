@@ -136,6 +136,7 @@ import {
   type CodexItemLifecycleNotification,
 } from "../../../shared/codex-conversation-state/codex-conversation-reducer";
 import { applyCodexLifecycleProjectionDiff } from "../../../shared/codex-conversation-state/codex-lifecycle-projection-diff";
+import { areCodexCanonicalTurnParamsEqual } from "../../../shared/codex-canonical-item-projector";
 import { buildCodexTurnOccurrenceKey } from "../../../shared/codex-turn-identity";
 import {
   groupCodexFrameTextDeltasByConversation,
@@ -1680,6 +1681,10 @@ function applyOwnerCanonicalTurnProjection(
       || beforeTurn.protocol.status !== afterTurn.protocol.status
       || beforeTurn.protocol.error !== afterTurn.protocol.error
       || beforeTurn.protocol.durationMs !== afterTurn.protocol.durationMs
+      || !areCodexCanonicalTurnParamsEqual(
+        beforeTurn.sidecar.params,
+        afterTurn.sidecar.params,
+      )
       || beforeTurn.sidecar.turnStartedAtMs !== afterTurn.sidecar.turnStartedAtMs
       || beforeTurn.sidecar.completedAtMs !== afterTurn.sidecar.completedAtMs
       || beforeTurn.sidecar.firstTurnWorkItemStartedAtMs
@@ -4501,6 +4506,7 @@ export class CodexAppServerManager {
     threadId: string,
     conversation: CodexConversationSnapshot,
     label: string,
+    options: { notifyMode?: ConversationNotifyMode } = {},
   ): Promise<number> {
     await this.waitForOwnerStreamPublishIdle(threadId);
     const role = this.streamState.getRole(threadId);
@@ -4521,7 +4527,12 @@ export class CodexAppServerManager {
 
     const revision = cursor.acceptedRevision + 1;
     cursor.inFlight = true;
-    this.applyConversationSnapshot(threadId, conversation);
+    this.applyConversationSnapshot(
+      threadId,
+      conversation,
+      undefined,
+      options.notifyMode ?? "default",
+    );
     const latestConversation = this.conversationsById.get(threadId) ?? conversation;
     const accepted = await this.dispatchOwnerStreamSnapshot(threadId, revision, latestConversation);
     if (this.ownerStreamPublishCursorsByConversationId.get(threadId) !== cursor) {
@@ -5511,18 +5522,18 @@ export class CodexAppServerManager {
       await this.ensureOwnerForConversationAction(threadId, "edit last user turn");
     }
 
-    const conversation = this.conversationsById.get(threadId);
-    if (!conversation) {
+    await this.waitForOwnerStreamPublishIdle(threadId);
+
+    const conversationBeforeRollback = this.conversationsById.get(threadId);
+    if (!conversationBeforeRollback) {
       throw new Error(`Thread '${threadId}' was not found`);
     }
 
-    if (resolveLatestEditableUserTurnId(conversation) !== turnId) {
+    if (resolveLatestEditableUserTurnId(conversationBeforeRollback) !== turnId) {
       throw new Error("Only the latest completed user turn can be edited");
     }
 
-    await this.waitForOwnerStreamPublishIdle(threadId);
-
-    const targetTurn = conversation.turns.find((turn) => turn.turnId === turnId);
+    const targetTurn = conversationBeforeRollback.turns.find((turn) => turn.turnId === turnId);
     if (!targetTurn) {
       throw new Error("Only the latest completed user turn can be edited");
     }
@@ -5532,12 +5543,20 @@ export class CodexAppServerManager {
       turnId,
       numTurns: 1,
     });
-    const rollbackConversation = materializeOwnerRollbackConversation(conversation, rollbackResult);
-    this.rememberOwnerRollbackTombstones(threadId, conversation, rollbackConversation);
+    const conversationAtRollback = this.conversationsById.get(threadId);
+    if (!conversationAtRollback) {
+      throw new Error(`Thread '${threadId}' was not found`);
+    }
+    const rollbackConversation = materializeOwnerRollbackConversation(
+      conversationAtRollback,
+      rollbackResult,
+    );
+    this.rememberOwnerRollbackTombstones(threadId, conversationAtRollback, rollbackConversation);
     const streamRevision = await this.publishOwnerSnapshotTransaction(
       threadId,
       rollbackConversation,
       "edit rollback",
+      { notifyMode: "sync" },
     );
 
     const startResult = await this.startTurnAsOwnerLocalTransaction(threadId, message, {

@@ -57,6 +57,7 @@ import type {
   ThreadRollbackResponse,
   ThreadStartResponse,
   Turn,
+  TurnStartParams,
 } from "@nodex/codex-app-server-protocol/v2";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import type {
@@ -982,6 +983,7 @@ function createService(options?: {
           },
           sidecar: {
             ...canonicalTurn.sidecar,
+            params: existing?.sidecar.params ?? canonicalTurn.sidecar.params,
             diff: detailTurn.diff ?? existing?.sidecar.diff ?? null,
             completedAtMs:
               detailTurn.completedAt ?? existing?.sidecar.completedAtMs ?? null,
@@ -2771,7 +2773,7 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("suppresses no-owner fallback source-null snapshots while a renderer owner exists from bundle 40592-40606", async () => {
+  test("suppresses no-owner fallback snapshots without replacing the renderer-owner patch base", async () => {
     const service = createService();
     const hostMessages: CodexHostMessage[] = [];
     service.on("hostMessage", (message) => {
@@ -2785,6 +2787,11 @@ describe("codex-service renderer owner stream publishing", () => {
         threadId: string,
         reason: "no-owner-fallback" | "explicit-resync",
       ) => void;
+      mutateBroadcastConversationCacheSilently: (
+        threadId: string,
+        recipe: (draft: CodexConversationSnapshot) => void,
+      ) => void;
+      syncBroadcastConversationSnapshotCacheSilently: (threadId: string) => number;
     };
 
     try {
@@ -2794,10 +2801,43 @@ describe("codex-service renderer owner stream publishing", () => {
         transcript: [],
       });
       service.setRendererConversationOwner("thread-source-null-guard", "owner-a");
+      const ownerBase = makeConversationSnapshot({ threadId: "thread-source-null-guard" });
+      const ownerNext = makeConversationSnapshot({
+        threadId: "thread-source-null-guard",
+        text: "owner remains authoritative",
+      });
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-source-null-guard",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: ownerBase,
+        },
+      })).toBe(true);
 
       serviceInternals.emitThreadStreamSnapshotFromRecord("thread-source-null-guard", "no-owner-fallback");
-      expect(String(hostMessages.length)).toBe("0");
+      serviceInternals.syncBroadcastConversationSnapshotCacheSilently("thread-source-null-guard");
+      serviceInternals.mutateBroadcastConversationCacheSilently(
+        "thread-source-null-guard",
+        (draft) => {
+          draft.turns = [];
+        },
+      );
+      expect(String(hostMessages.length)).toBe("1");
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-source-null-guard",
+        change: {
+          type: "patches",
+          baseRevision: 1,
+          revision: 2,
+          patches: buildCodexConversationStateUpdates(ownerBase, ownerNext),
+        },
+      })).toBe(true);
+      expect(hostMessages).toHaveLength(2);
+      expect(projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText)
+        .toBe("owner remains authoritative");
 
+      hostMessages.length = 0;
       const snapshot = await service.requestConversationSnapshot("thread-source-null-guard");
       expect(snapshot).not.toBeNull();
       expect(String(hostMessages.length)).toBe("1");
@@ -3499,7 +3539,7 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("broadcasts renderer stream patches with a mismatched local cache revision", async () => {
+  test("rejects renderer stream patches with a mismatched local cache revision", async () => {
     const service = createService();
     const hostMessages: CodexHostMessage[] = [];
     service.on("hostMessage", (message) => {
@@ -3529,13 +3569,86 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 4,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBe(true);
+      })).toBe(false);
 
       const latest = projectConversationFromHostMessages(hostMessages);
-      expect(String(hostMessages.length)).toBe("2");
-      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("stale");
-      expect(hostMessages[1]?.type).toBe("threadStreamStateChanged");
-      expect(hostMessages[1]?.type === "threadStreamStateChanged" ? hostMessages[1].change.type : "").toBe("patches");
+      expect(String(hostMessages.length)).toBe("1");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("rejects unapplicable owner patches and accepts the repair snapshot at the same revision", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    const serviceInternals = service as unknown as {
+      getNextOwnerNotificationSequence: (conversationId: string) => number;
+      drainRendererOwnerNotificationsBefore: (conversationId: string, callback: () => void) => boolean;
+    };
+
+    try {
+      const baseConversation = makeConversationSnapshot({ threadId: "thread-owner-repair" });
+      const repairedConversation = makeConversationSnapshot({
+        threadId: "thread-owner-repair",
+        text: "repaired",
+      });
+      service.setRendererConversationOwner("thread-owner-repair", "owner-a");
+
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner-repair",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+      })).toBe(true);
+      expect(serviceInternals.getNextOwnerNotificationSequence("thread-owner-repair"))
+        .toBe(1);
+      let notificationDrained = false;
+      expect(serviceInternals.drainRendererOwnerNotificationsBefore(
+        "thread-owner-repair",
+        () => {
+          notificationDrained = true;
+        },
+      )).toBe(true);
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner-repair",
+        ownerNotificationSequence: 1,
+        change: {
+          type: "patches",
+          baseRevision: 1,
+          revision: 2,
+          patches: [{
+            op: "replace",
+            path: ["canonicalState", "turns", 0, "items", 0],
+            value: { id: "missing-parent" },
+          }],
+        },
+      })).toBe(false);
+      expect(notificationDrained).toBe(false);
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner-repair",
+        ownerNotificationSequence: 1,
+        change: {
+          type: "snapshot",
+          revision: 2,
+          conversationState: repairedConversation,
+        },
+      })).toBe(true);
+
+      expect(notificationDrained).toBe(true);
+      expect(hostMessages).toHaveLength(2);
+      expect(hostMessages[1]?.type === "threadStreamStateChanged"
+        ? hostMessages[1].change.type
+        : null).toBe("snapshot");
+      expect(projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText)
+        .toBe("repaired");
     } finally {
       await service.shutdown();
     }
@@ -16520,6 +16633,9 @@ describe("codex-service startThreadForSession", () => {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
       const requests: Array<{ method: string; params: unknown }> = [];
 
       client.start = async () => undefined;
@@ -16578,11 +16694,13 @@ describe("codex-service startThreadForSession", () => {
 
         const threadStartRequest = requests.find((request) => request.method === "thread/start");
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        const turnStartParams = turnStartRequest?.params as TurnStartParams | undefined;
         const linked = getProjectSession(session.id)?.thread;
         expect((threadStartRequest?.params as { cwd?: string } | undefined)?.cwd).toBe("/tmp/codex");
         expect((threadStartRequest?.params as { personality?: string } | undefined)?.personality)
           .toBe("pragmatic");
-        expect((turnStartRequest?.params as { cwd?: string } | undefined)?.cwd).toBe("/tmp/codex");
+        expect(turnStartParams?.cwd).toBe("/tmp/codex");
+        expect(typeof turnStartParams?.clientUserMessageId).toBe("string");
         expect(linked?.threadId).toBe("thr_session_start");
         expect(linked?.projectId).toBe(defaultProjectId);
         expect(linked?.cwd).toBe("/tmp/codex");
@@ -16590,7 +16708,156 @@ describe("codex-service startThreadForSession", () => {
         expect(detail.projectId).toBe(defaultProjectId);
         const canonical = getCanonicalConversationState(service, "thr_session_start");
         expect(canonical?.protocol.id ?? null).toBe("thr_session_start");
-        expect(canonical?.turns.length ?? -1).toBe(0);
+        expect(canonical?.turns.length ?? -1).toBe(1);
+        expect(canonical?.turns[0]?.protocol.id).toBe("turn_session_start");
+        expect(canonical?.turns[0]?.sidecar.params.clientUserMessageId)
+          .toBe(turnStartParams?.clientUserMessageId);
+        expect(canonical?.turns[0]?.sidecar.params.input).toStrictEqual(turnStartParams?.input);
+
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_session_start",
+          turnId: "turn_session_start",
+          item: makeProtocolAgentMessage({ id: "assistant_before_echo", text: "" }),
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_session_start",
+          turnId: "turn_session_start",
+          item: makeProtocolAgentMessage({ id: "assistant_before_echo", text: "Working" }),
+        });
+        const serverUserMessage = makeProtocolUserMessage({
+          id: "user_message_late_echo",
+          clientId: turnStartParams?.clientUserMessageId ?? null,
+          content: turnStartParams?.input ?? [],
+        });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_session_start",
+          turnId: "turn_session_start",
+          item: serverUserMessage,
+        });
+        let streamingSnapshot = service.serializeConversationSnapshot("thr_session_start");
+        expect(
+          streamingSnapshot?.turns[0]?.items.filter((item) => item.semanticKind === "userMessage"),
+        ).toHaveLength(1);
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_session_start",
+          turnId: "turn_session_start",
+          item: serverUserMessage,
+        });
+        streamingSnapshot = service.serializeConversationSnapshot("thr_session_start");
+        expect(
+          streamingSnapshot?.turns[0]?.items.filter((item) => item.semanticKind === "userMessage"),
+        ).toHaveLength(1);
+        expect(
+          streamingSnapshot?.turns[0]?.items.filter((item) => item.semanticKind === "steered"),
+        ).toHaveLength(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("rebinds a new-session optimistic turn when lifecycle notifications beat turn/start", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Notification race",
+      });
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const turnStartRequests: TurnStartParams[] = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_session_notification_race",
+            cwd: "/tmp/codex",
+          });
+        }
+        if (method === "turn/start") {
+          const turnStartParams = params as TurnStartParams;
+          turnStartRequests.push(turnStartParams);
+          await serviceInternals.handleNotification("turn/started", {
+            threadId: "thr_session_notification_race",
+            turn: {
+              id: "turn_session_notification_race",
+              status: "inProgress",
+              error: null,
+              startedAt: null,
+              completedAt: null,
+              durationMs: null,
+            },
+          });
+          await serviceInternals.handleNotification("item/started", {
+            threadId: "thr_session_notification_race",
+            turnId: "turn_session_notification_race",
+            item: makeProtocolAgentMessage({ id: "assistant_race", text: "" }),
+          });
+          await serviceInternals.handleNotification("item/completed", {
+            threadId: "thr_session_notification_race",
+            turnId: "turn_session_notification_race",
+            item: makeProtocolAgentMessage({ id: "assistant_race", text: "Working" }),
+          });
+          const serverUserMessage = makeProtocolUserMessage({
+            id: "user_message_race_echo",
+            clientId: turnStartParams.clientUserMessageId ?? null,
+            content: turnStartParams.input,
+          });
+          await serviceInternals.handleNotification("item/started", {
+            threadId: "thr_session_notification_race",
+            turnId: "turn_session_notification_race",
+            item: serverUserMessage,
+          });
+          await serviceInternals.handleNotification("item/completed", {
+            threadId: "thr_session_notification_race",
+            turnId: "turn_session_notification_race",
+            item: serverUserMessage,
+          });
+          return {
+            turn: {
+              id: "turn_session_notification_race",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        await service.startThreadForSession({
+          projectId: defaultProjectId,
+          sessionId: session.id,
+          prompt: "Race the first response",
+          permissionMode: "auto",
+          skipAutoTitleGeneration: true,
+        });
+
+        const canonical = getCanonicalConversationState(service, "thr_session_notification_race");
+        const snapshot = service.serializeConversationSnapshot("thr_session_notification_race");
+        const turnStartParams = turnStartRequests[0];
+        expect(typeof turnStartParams?.clientUserMessageId).toBe("string");
+        expect(canonical?.turns).toHaveLength(1);
+        expect(canonical?.turns[0]?.protocol.id).toBe("turn_session_notification_race");
+        expect(canonical?.turns[0]?.sidecar.params.clientUserMessageId)
+          .toBe(turnStartParams?.clientUserMessageId);
+        expect(
+          snapshot?.turns[0]?.items.filter((item) => item.semanticKind === "userMessage"),
+        ).toHaveLength(1);
+        expect(
+          snapshot?.turns[0]?.items.filter((item) => item.semanticKind === "steered"),
+        ).toHaveLength(1);
       } finally {
         await service.shutdown();
       }

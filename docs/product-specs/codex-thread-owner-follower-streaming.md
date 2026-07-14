@@ -150,21 +150,25 @@ For active owned threads, the renderer owner creates the submitted-user bubble:
 5. Rebind the temporary turn to the returned app-server turn id.
 6. Publish the rebind revision.
 
-Later app-server user-message echoes merge with the optimistic row instead of creating a second user bubble.
+Direct new-thread creation follows the same canonical transaction before the route adopts the actual app-server thread. The client-created thread id remains route identity only and never owns a turn. Once `thread/start` returns the actual thread, main temporarily owns its source-null canonical state: it generates the per-submit `clientUserMessageId`, appends the complete nullable params turn before dispatching `turn/start`, sends the same id and input, and binds that occurrence in place whether `turn/started` or the RPC response arrives first. It must not add a separate transcript-only optimistic row after the response.
+
+Later app-server user-message echoes remain canonical raw turn items but never create a second initial-user bubble while the params-owned row is visible. An exact echo at the raw-item prefix is hidden through shared client identity or structural input equality. If actual turn work precedes a remaining server `userMessage`, normal local-thread projection treats that completion as a `steered` lifecycle marker; preserving a second server-owned user bubble is reserved for explicit server-message-preserving views. This order-sensitive policy applies to incremental `item/completed` projection as well as full turn hydration and optimistic rebind.
 
 ### Edit Last User Turn
 
 Editing the latest user turn is an owner-local ordered transaction:
 
 1. Ensure the local conversation is owner; no-role local edits resume first.
-2. Verify the target is the latest completed editable user turn.
-3. Wait for the owner publish cursor and already-forwarded owner notifications to settle.
+2. Wait for the owner publish cursor and already-forwarded owner notifications to settle.
+3. Read the current conversation and verify the target is still the latest completed editable user turn.
 4. Call app-server `thread/rollback` through the owner-scoped facade.
-5. Project the raw rollback response into local owner conversation state.
-6. Publish the rollback snapshot.
-7. Tombstone removed turn/item ids so late notifications cannot recreate the old bubble.
-8. Start the replacement turn through the same owner-local start-turn path.
+5. Re-read local state, then project the raw rollback response against that current owner conversation.
+6. Tombstone removed turn/item ids so late notifications cannot recreate the old bubble.
+7. Synchronously commit the rollback-only conversation to renderer subscribers and publish that snapshot.
+8. Start the replacement turn through the same owner-local start-turn path only after the rollback publish succeeds.
 9. Followers wait for the returned owner revision before the edit action resolves.
+
+The synchronous rollback-only commit is part of the contract, not a rendering optimization. React must observe a state in which the original bubble is gone before the optimistic replacement is appended.
 
 Current edit replacement input is reconstructed from visible user-message content. Text, images, mentions, skills, and text attachments represented in `rawItem.content` are preserved. Hidden start params such as structured comment attachments or agent config overrides are not replayed unless they are persisted in the conversation model.
 
@@ -196,7 +200,7 @@ When the owner client disappears, followers reject revision waiters, clear the o
 
 Source-null snapshots remain valid for cold load, explicit snapshot/resume, no-owner fallback, inactive-owner cleanup, and durable recovery. They must not be used as hot repair for active owner state.
 
-Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client and broadcasts the owner change; renderer followers enforce owner id and `baseRevision` continuity.
+Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client, requires the patch base to match its last accepted owner revision, and applies the patch to that owner cache before broadcasting. A missing, mismatched, or unapplicable base is rejected without advancing revision or acknowledging the owner notification; the owner then publishes its current conversation as the repair snapshot. While a renderer owner exists, suppressed main/no-owner fallback snapshots may update main's canonical manager but never replace this accepted-owner patch base.
 
 ## Implementation Coverage
 
@@ -232,6 +236,8 @@ Required regression coverage includes:
 - follower actions wait for returned owner revisions
 - request responses route through owner by conversation id
 - stale patches are dropped without source-null resync
+- rejected owner patches repair through an owner snapshot without exposing a split transcript
+- late server user-message completions remain canonical but project as steering lifecycle after work instead of duplicating the params-owned user bubble
 - owner-loss recovery marks followers `needs_resume`
 - failed resume/start requests do not leave stale main-side renderer owner mappings
 - renderer-owned resume seeds the owner cursor from the renderer-local stream revision, releases the resume buffer, and then publishes the hydrated owner snapshot

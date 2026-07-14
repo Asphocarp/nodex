@@ -1,17 +1,12 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
+import {
+  parseBundledCodexRuntimeMetadata,
+  type BundledCodexRuntimeMetadata,
+} from "../../shared/codex-runtime-metadata";
 
 export type CodexRuntimeSource = "bundled" | "staged";
-
-export type BundledCodexRuntimeMetadata = {
-  binarySha256: string;
-  codexVersion: string;
-  rgSha256: string;
-  sourcePackage: string;
-  targetArch: string;
-  targetPlatform: string;
-  targetTriple: string;
-};
 
 export type ResolvedCodexRuntime = {
   additionalSearchPaths: string[];
@@ -21,6 +16,66 @@ export type ResolvedCodexRuntime = {
   source: CodexRuntimeSource;
   version: string | null;
 };
+
+function readSha256(filePath: string): string {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const fileDescriptor = fs.openSync(filePath, "r");
+  try {
+    for (;;) {
+      const bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) return hash.digest("hex");
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    fs.closeSync(fileDescriptor);
+  }
+}
+
+function validateRuntimeArtifacts(runtimeRoot: string, metadata: BundledCodexRuntimeMetadata): void {
+  for (const artifact of metadata.artifacts) {
+    const artifactPath = path.join(runtimeRoot, ...artifact.path.split("/"));
+    let stats: fs.Stats;
+    try {
+      stats = fs.lstatSync(artifactPath);
+    } catch {
+      throw new Error(`Codex runtime artifact is missing: ${artifact.path}`);
+    }
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new Error(`Codex runtime artifact is not a regular file: ${artifact.path}`);
+    }
+    if (stats.size !== artifact.size) {
+      throw new Error(`Codex runtime artifact size does not match metadata: ${artifact.path}`);
+    }
+    if (artifact.executable && (stats.mode & 0o111) === 0) {
+      throw new Error(`Codex runtime artifact is not executable: ${artifact.path}`);
+    }
+    if (readSha256(artifactPath) !== artifact.sha256) {
+      throw new Error(`Codex runtime artifact checksum does not match metadata: ${artifact.path}`);
+    }
+  }
+}
+
+function validateRuntimeSearchPathTools(
+  runtimeRoot: string,
+  metadata: BundledCodexRuntimeMetadata,
+): void {
+  for (const tool of metadata.searchPathTools) {
+    const toolPath = path.join(runtimeRoot, tool);
+    let stats: fs.Stats;
+    try {
+      stats = fs.lstatSync(toolPath);
+    } catch {
+      throw new Error(`Codex runtime search-path tool is missing: ${tool}`);
+    }
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new Error(`Codex runtime search-path tool is not a regular file: ${tool}`);
+    }
+    if ((stats.mode & 0o111) === 0) {
+      throw new Error(`Codex runtime search-path tool is not executable: ${tool}`);
+    }
+  }
+}
 
 type ResolveCodexRuntimeOptions = {
   isPackaged: boolean;
@@ -33,19 +88,19 @@ function resolveRuntimeFromRoot(input: {
   runtimeRoot: string;
   source: CodexRuntimeSource;
 }): ResolvedCodexRuntime {
-  const binaryPath = path.join(input.runtimeRoot, "codex");
-  const rgPath = path.join(input.runtimeRoot, "rg");
   const metadataPath = path.join(input.runtimeRoot, "runtime.json");
 
-  if (!fs.existsSync(binaryPath) || !fs.existsSync(rgPath) || !fs.existsSync(metadataPath)) {
+  if (!fs.existsSync(metadataPath)) {
     throw new Error(`Codex runtime is missing or incomplete under ${input.runtimeRoot}`);
   }
 
   const metadata = parseBundledRuntimeMetadata(metadataPath);
+  validateRuntimeArtifacts(input.runtimeRoot, metadata);
+  validateRuntimeSearchPathTools(input.runtimeRoot, metadata);
 
   return {
     source: input.source,
-    binaryPath,
+    binaryPath: path.join(input.runtimeRoot, "codex"),
     additionalSearchPaths: [input.runtimeRoot],
     version: metadata.codexVersion,
     metadataPath,
@@ -54,29 +109,17 @@ function resolveRuntimeFromRoot(input: {
 }
 
 function parseBundledRuntimeMetadata(metadataPath: string): BundledCodexRuntimeMetadata {
-  const parsed = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as Partial<BundledCodexRuntimeMetadata>;
-
-  if (
-    typeof parsed.codexVersion !== "string" ||
-    typeof parsed.sourcePackage !== "string" ||
-    typeof parsed.targetPlatform !== "string" ||
-    typeof parsed.targetArch !== "string" ||
-    typeof parsed.targetTriple !== "string" ||
-    typeof parsed.binarySha256 !== "string" ||
-    typeof parsed.rgSha256 !== "string"
-  ) {
+  let rawMetadata: unknown;
+  try {
+    rawMetadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
+  } catch {
     throw new Error(`Invalid bundled Codex runtime metadata at ${metadataPath}`);
   }
-
-  return {
-    codexVersion: parsed.codexVersion,
-    sourcePackage: parsed.sourcePackage,
-    targetPlatform: parsed.targetPlatform,
-    targetArch: parsed.targetArch,
-    targetTriple: parsed.targetTriple,
-    binarySha256: parsed.binarySha256,
-    rgSha256: parsed.rgSha256,
-  };
+  const parsed = parseBundledCodexRuntimeMetadata(rawMetadata);
+  if (!parsed) {
+    throw new Error(`Invalid bundled Codex runtime metadata at ${metadataPath}`);
+  }
+  return parsed;
 }
 
 export function resolveCodexRuntime(options: ResolveCodexRuntimeOptions): ResolvedCodexRuntime {

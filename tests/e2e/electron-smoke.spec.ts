@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,12 +14,25 @@ function writeExecutable(filePath: string, source: string): void {
 function prepareRuntimeFixture(root: string): void {
   const runtimeRoot = path.join(root, ".generated", "codex-runtime", "bin");
   fs.mkdirSync(runtimeRoot, { recursive: true });
-  writeExecutable(path.join(runtimeRoot, "codex"), "#!/bin/sh\nexit 0\n");
+  const artifactBodies = new Map([
+    ["codex", "#!/bin/sh\nexit 0\n"],
+    ["codex-code-mode-host", "#!/bin/sh\nexit 0\n"],
+  ]);
+  const artifacts = [...artifactBodies].map(([artifactName, body]) => {
+    writeExecutable(path.join(runtimeRoot, artifactName), body);
+    return {
+      executable: true,
+      path: artifactName,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      size: Buffer.byteLength(body),
+    };
+  });
   writeExecutable(path.join(runtimeRoot, "rg"), "#!/bin/sh\nexit 1\n");
   fs.writeFileSync(path.join(runtimeRoot, "runtime.json"), JSON.stringify({
-    binarySha256: "e2e",
+    artifacts,
     codexVersion: "0.0.0-e2e",
-    rgSha256: "e2e",
+    layoutVersion: 1,
+    searchPathTools: ["rg"],
     sourcePackage: "nodex-e2e-fixture",
     targetArch: process.arch,
     targetPlatform: process.platform,

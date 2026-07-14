@@ -573,7 +573,7 @@ describe("projectCodexCanonicalTurnViews", () => {
     expect(views.at(-1)?.itemId).toBe("assistant");
   });
 
-  test("uses structural input equality and keeps a matching raw message after real activity", () => {
+  test("uses structural input equality and projects a late server message as steered after real activity", () => {
     const structurallyEqual = materializeCodexCanonicalProtocolItem({
       type: "userMessage",
       id: "equal-user",
@@ -611,6 +611,11 @@ describe("projectCodexCanonicalTurnViews", () => {
       `${TURN_ID}:input`,
       "hook",
       "later-user",
+    ]);
+    expect(activityViews.map((view) => view.semanticKind)).toEqual([
+      "userMessage",
+      "userMessage",
+      "steered",
     ]);
   });
 });

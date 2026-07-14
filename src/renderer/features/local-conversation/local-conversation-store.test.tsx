@@ -1,5 +1,5 @@
 import { describe, expect, vi, test } from "vitest";
-import { createElement } from "react";
+import { createElement, useLayoutEffect, useSyncExternalStore } from "react";
 import { act } from "@testing-library/react";
 import type {
   CodexConnectionState,
@@ -39,6 +39,7 @@ let completeThreadTurnsResult: CodexConversationSnapshot | null = null;
 let ownerEditRollbackResult: ThreadRollbackResponse | null = null;
 let ownerTurnStartResult: TurnStartResponse | null = null;
 let ownerTurnStartError: Error | null = null;
+let ownerTurnStartHandler: (() => void) | null = null;
 let followerActionResult: unknown = null;
 let followerActionError: Error | null = null;
 let followerActionHandler: ((input: unknown) => unknown | Promise<unknown>) | null = null;
@@ -178,6 +179,7 @@ vi.mock("./local-conversation-deps", () => ({
         return ownerEditRollbackResult;
       }
       if (input.request?.method === "turn/start") {
+        ownerTurnStartHandler?.();
         if (ownerTurnStartError) {
           throw ownerTurnStartError;
         }
@@ -384,6 +386,33 @@ function buildConversation(threadId: string, projectId: string): CodexConversati
       canCollapseTurns: true,
     },
   };
+}
+
+function ConversationUserMessages({
+  manager,
+  threadId,
+  onCommit,
+}: {
+  manager: CodexAppServerManagerInstance;
+  threadId: string;
+  onCommit?: (messages: string[]) => void;
+}) {
+  const conversation = useSyncExternalStore(
+    (onStoreChange) => manager.addConversationCallback(threadId, () => onStoreChange()),
+    () => manager.readConversation(threadId),
+  );
+  const messages = conversation?.turns.flatMap((turn) => turn.items)
+    .filter((item) => item.semanticKind === "userMessage")
+    .map((item) => item.markdownText ?? "")
+    ?? [];
+  useLayoutEffect(() => {
+    onCommit?.(messages);
+  }, [messages, onCommit]);
+  return createElement(
+    "div",
+    null,
+    messages.map((message) => createElement("p", { key: message }, message)),
+  );
 }
 
 function buildRollbackResponseFromConversation(conversation: CodexConversationSnapshot): ThreadRollbackResponse {
@@ -11005,6 +11034,223 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("owner start keeps one visible user row through the ordered app-server streaming prelude", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [],
+    };
+    ownerTurnStartResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      await manager.startTurn("thread-1", "Edited prompt", { permissionMode: "auto" });
+
+      const optimisticUser = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      const rawOptimisticUser = optimisticUser?.rawItem && typeof optimisticUser.rawItem === "object"
+        ? optimisticUser.rawItem as { clientId?: string }
+        : null;
+      const clientId = rawOptimisticUser?.clientId;
+      if (!clientId) {
+        throw new Error("Expected optimistic client user-message identity");
+      }
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-owner-start",
+          item: {
+            id: "server-user-echo",
+            type: "userMessage",
+            clientId,
+            content: [{ type: "text", text: "Edited prompt", text_elements: [] }],
+          },
+        },
+      });
+      await flushAsyncWork();
+      expect(manager.readConversation("thread-1")?.turns[0]?.items.filter(
+        (item) => item.semanticKind === "userMessage",
+      )).toHaveLength(1);
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/completed",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-owner-start",
+          item: {
+            id: "server-user-echo",
+            type: "userMessage",
+            clientId,
+            content: [{ type: "text", text: "Edited prompt", text_elements: [] }],
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const conversation = manager.readConversation("thread-1");
+      const visibleUserItems = conversation?.turns[0]?.items.filter(
+        (item) => item.semanticKind === "userMessage",
+      ) ?? [];
+      expect(visibleUserItems.map((item) => item.markdownText)).toEqual(["Edited prompt"]);
+      expect(conversation?.canonicalState?.turns[0]?.items.map((item) => item.id))
+        .toEqual(["server-user-echo"]);
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 3,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-owner-start",
+          item: {
+            id: "assistant-streaming",
+            type: "agentMessage",
+            text: "",
+            phase: null,
+            memoryCitation: null,
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const streamingItems = manager.readConversation("thread-1")?.turns[0]?.items ?? [];
+      expect(streamingItems.filter((item) => item.semanticKind === "userMessage"))
+        .toHaveLength(1);
+      expect(streamingItems.map((item) => item.semanticKind)).toEqual([
+        "userMessage",
+        "assistantMessage",
+      ]);
+    } finally {
+      resumeThreadResult = null;
+      ownerTurnStartResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner start merges lifecycle notifications that race the turn-start response", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [],
+    };
+    ownerTurnStartResult = null;
+    ownerTurnStartHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      ownerTurnStartHandler = () => {
+        const optimisticUser = manager.readConversation("thread-1")?.turns[0]?.items[0];
+        const clientId = optimisticUser?.rawItem && typeof optimisticUser.rawItem === "object"
+          ? (optimisticUser.rawItem as { clientId?: string }).clientId
+          : null;
+        if (!clientId) throw new Error("Expected optimistic client user-message identity");
+
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "turn/started",
+          sequence: 1,
+          params: {
+            threadId: "thread-1",
+            turn: { id: "turn-owner-start", status: "inProgress" },
+          },
+        });
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "item/started",
+          sequence: 2,
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-owner-start",
+            item: {
+              id: "server-user-echo",
+              type: "userMessage",
+              clientId,
+              content: [{ type: "text", text: "Racing prompt", text_elements: [] }],
+            },
+          },
+        });
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "item/started",
+          sequence: 3,
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-owner-start",
+            item: {
+              id: "assistant-streaming",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
+          },
+        });
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "item/completed",
+          sequence: 4,
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-owner-start",
+            item: {
+              id: "server-user-echo",
+              type: "userMessage",
+              clientId,
+              content: [{ type: "text", text: "Racing prompt", text_elements: [] }],
+            },
+          },
+        });
+      };
+
+      await manager.startTurn("thread-1", "Racing prompt", { permissionMode: "auto" });
+      await flushAsyncWork(3);
+
+      const conversation = manager.readConversation("thread-1");
+      const userItems = conversation?.turns.flatMap((turn) => turn.items).filter(
+        (item) => item.semanticKind === "userMessage",
+      ) ?? [];
+      expect(conversation?.turns).toHaveLength(1);
+      expect(userItems.map((item) => item.markdownText)).toEqual(["Racing prompt"]);
+      expect(conversation?.turns[0]?.items.map((item) => item.semanticKind)).toEqual([
+        "userMessage",
+        "assistantMessage",
+        "steered",
+      ]);
+    } finally {
+      ownerTurnStartHandler = null;
+      resumeThreadResult = null;
+      ownerTurnStartResult = null;
+      manager.destroy();
+    }
+  });
+
   test("owner start failure keeps the fixed local error and restores its prior runtime status", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -14540,6 +14786,145 @@ describe("local-conversation-store", () => {
       expect(invokeRecords.some((record) => record.channel === "codex:thread:edit-last-user-turn")).toBe(false);
       expect(invokeRecords.some((record) =>
         record.channel === "codex:thread-owner:edit-last-user-turn:rollback"
+      )).toBe(false);
+    } finally {
+      resumeThreadResult = null;
+      ownerEditRollbackResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner edit commits removal of the original user message before starting its replacement", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerEditRollbackResult = null;
+    ownerTurnStartHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const olderUser = buildUserMessage("thread-1", "turn-older", "user-older", "Older prompt");
+      const latestUser = buildUserMessage("thread-1", "turn-latest", "user-latest", "Latest prompt");
+      const currentConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-older",
+            status: "completed",
+            itemIds: ["user-older"],
+            items: [olderUser],
+          },
+          {
+            threadId: "thread-1",
+            turnId: "turn-latest",
+            status: "completed",
+            itemIds: ["user-latest"],
+            items: [latestUser],
+          },
+        ],
+      };
+      ownerEditRollbackResult = buildRollbackResponseFromConversation({
+        ...currentConversation,
+        turns: [currentConversation.turns[0]!],
+      });
+      resumeThreadResult = currentConversation;
+      await manager.requestThreadStreamResume("thread-1");
+
+      const committedMessages: string[][] = [];
+      const view = render(createElement(ConversationUserMessages, {
+        manager,
+        threadId: "thread-1",
+        onCommit: (messages) => committedMessages.push(messages),
+      }));
+      expect(view.queryByText("Latest prompt")).not.toBeNull();
+      committedMessages.length = 0;
+
+      ownerTurnStartHandler = () => {
+        expect(view.queryByText("Latest prompt")).toBeNull();
+        expect(committedMessages.some((messages) => messages.length === 1 && messages[0] === "Older prompt"))
+          .toBe(true);
+      };
+      await act(async () => {
+        await manager.editLastUserTurn("thread-1", "turn-latest", "Rewrite latest prompt");
+      });
+
+      expect(view.queryByText("Latest prompt")).toBeNull();
+      expect(view.queryByText("Rewrite latest prompt")).not.toBeNull();
+    } finally {
+      ownerTurnStartHandler = null;
+      resumeThreadResult = null;
+      ownerEditRollbackResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner edit revalidates the latest turn after pending stream publishes settle", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerEditRollbackResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const latestUser = buildUserMessage("thread-1", "turn-latest", "user-latest", "Latest prompt");
+      const currentConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-latest",
+          status: "completed",
+          itemIds: ["user-latest"],
+          items: [latestUser],
+        }],
+      };
+      ownerEditRollbackResult = buildRollbackResponseFromConversation({
+        ...currentConversation,
+        turns: [],
+      });
+      resumeThreadResult = currentConversation;
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      const editPromise = manager.editLastUserTurn(
+        "thread-1",
+        "turn-latest",
+        "Rewrite latest prompt",
+      );
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "turn/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "turn-new",
+            status: "inProgress",
+          },
+        },
+      });
+
+      await expect(editPromise).rejects.toThrow("Only the latest completed user turn can be edited");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:owner-app-server:request"
+        && (record.args[0] as { request?: { method?: string } })?.request?.method === "thread/rollback"
       )).toBe(false);
     } finally {
       resumeThreadResult = null;

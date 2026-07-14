@@ -17,10 +17,19 @@ const promptSchema = new Schema({
       content: "paragraph+",
     },
     paragraph: {
-      content: "text*",
+      content: "inline*",
       group: "block",
       parseDOM: [{ tag: "p" }],
       toDOM: () => ["p", 0],
+    },
+    hardBreak: {
+      group: "inline",
+      inline: true,
+      linebreakReplacement: true,
+      selectable: false,
+      parseDOM: [{ tag: "br" }],
+      toDOM: () => ["br"],
+      leafText: () => "\n",
     },
     text: {
       group: "inline",
@@ -65,17 +74,17 @@ function buildPromptDoc(value: string): ProseMirrorNode {
 }
 
 function readPromptDocText(doc: ProseMirrorNode): string {
-  return doc.textBetween(0, doc.content.size, "\n");
+  return doc.textBetween(0, doc.content.size, "\n", "\n");
 }
 
 function promptDocPositionToTextOffset(doc: ProseMirrorNode, position: number): number {
-  return doc.textBetween(0, position, "\n").length;
+  return doc.textBetween(0, position, "\n", "\n").length;
 }
 
 function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: number): number {
   const targetOffset = Math.max(0, offset);
   for (let position = 0; position <= doc.content.size; position += 1) {
-    if (doc.textBetween(0, position, "\n").length >= targetOffset) {
+    if (doc.textBetween(0, position, "\n", "\n").length >= targetOffset) {
       return position;
     }
   }
@@ -117,6 +126,29 @@ function createPromptEditorState(value: string, placeholderRef: { current: strin
     doc: buildPromptDoc(value),
     plugins: [createPromptPlaceholderPlugin(placeholderRef)],
   });
+}
+
+function insertPromptLineBreak(view: EditorView, event: KeyboardEvent): boolean {
+  if (
+    event.key !== "Enter"
+    || !event.shiftKey
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.isComposing
+  ) {
+    return false;
+  }
+
+  const hardBreak = view.state.schema.nodes.hardBreak;
+  if (!hardBreak) return false;
+
+  view.dispatch(
+    view.state.tr
+      .replaceSelectionWith(hardBreak.create())
+      .scrollIntoView(),
+  );
+  return true;
 }
 
 export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, ComposerPromptEditorProps>(
@@ -272,7 +304,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           translate: "no",
           style: "font-size: var(--codex-chat-font-size); height: auto; resize: none; min-height: 2.75rem;",
         },
-        handleKeyDown: (_view, event) => onKeyDownRef.current(event),
+        handleKeyDown: (view, event) => (
+          onKeyDownRef.current(event) || insertPromptLineBreak(view, event)
+        ),
         handleDOMEvents: {
           mouseup(view) {
             window.setTimeout(() => emitSlashTriggerState(view), 0);
@@ -311,7 +345,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       if (!view) return;
       view.setProps({
         editable: () => !disabled,
-        handleKeyDown: (_view, event) => onKeyDownRef.current(event),
+        handleKeyDown: (currentView, event) => (
+          onKeyDownRef.current(event) || insertPromptLineBreak(currentView, event)
+        ),
         handleDOMEvents: {
           mouseup(view) {
             window.setTimeout(() => emitSlashTriggerState(view), 0);

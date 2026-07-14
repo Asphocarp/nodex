@@ -4,9 +4,11 @@ import type {
   CodexTranscriptEntry,
 } from "../types";
 import {
+  areCodexCanonicalTurnParamsEqual,
+  collectCodexCanonicalUserMessageVisibilityChangedOwnerIds,
   doesCodexCanonicalItemProjectionChangeWithTurnStatus,
   projectCodexCanonicalTurnViews,
-  projectCodexCanonicalTurnItemViews,
+  projectCodexCanonicalVisibleTurnItemViews,
 } from "../codex-canonical-item-projector";
 import { projectCodexItemViewToTranscriptEntry } from "../codex-transcript-entry-projection";
 import type {
@@ -248,8 +250,12 @@ function isAppOwnedTurnParamsEntry(input: {
 function collectCodexProjectionAffectedOwnerIds(
   input: ApplyCodexLifecycleProjectionDiffInput,
   changedRawOwnerIds: readonly string[],
+  visibilityChangedOwnerIds: ReadonlySet<string>,
 ): ReadonlySet<string> {
-  const affected = new Set(changedRawOwnerIds);
+  const affected = new Set([
+    ...changedRawOwnerIds,
+    ...visibilityChangedOwnerIds,
+  ]);
   const beforeItems = input.beforeTurn?.items ?? [];
   const beforeLastWork = lastNonUserWorkItem(beforeItems);
   const afterLastWork = lastNonUserWorkItem(input.afterTurn.items);
@@ -319,10 +325,11 @@ function projectAffectedRawItems(
 ): ReadonlyMap<string, readonly CodexItemView[]> {
   const projectedByOwnerId = new Map<string, CodexItemView[]>();
   const turnId = input.afterTurn.protocol.id;
-  const projectedViews = projectCodexCanonicalTurnItemViews({
+  const projectedViews = projectCodexCanonicalVisibleTurnItemViews({
     threadId: input.threadId,
     turnId,
     items: input.afterTurn.items,
+    params: input.afterTurn.sidecar.params,
     observedAtMs: input.observedAtMs,
     turnStatus: input.afterTurn.protocol.status,
     commandExecutionStartedAtMsById:
@@ -616,16 +623,31 @@ export function applyCodexLifecycleProjectionDiff(
     input.beforeTurn?.items ?? [],
     input.afterTurn.items,
   );
+  const visibilityChangedOwnerIds = input.beforeTurn
+    ? collectCodexCanonicalUserMessageVisibilityChangedOwnerIds({
+        beforeItems: input.beforeTurn.items,
+        beforeParams: input.beforeTurn.sidecar.params,
+        afterItems: input.afterTurn.items,
+        afterParams: input.afterTurn.sidecar.params,
+      })
+    : new Set<string>();
   const changedOwnerIds = new Set(changedRawOwnerIds);
   const affectedOwnerIds = collectCodexProjectionAffectedOwnerIds(
     input,
     changedRawOwnerIds,
+    visibilityChangedOwnerIds,
   );
   const isTurnIdentityRebind = input.beforeTurn !== null
     && input.beforeTurn.protocol.id !== input.afterTurn.protocol.id;
+  const didTurnParamsChange = input.beforeTurn !== null
+    && !areCodexCanonicalTurnParamsEqual(
+      input.beforeTurn.sidecar.params,
+      input.afterTurn.sidecar.params,
+    );
   const isCompleteCanonicalTurnRebuild = (
     input.beforeTurn === null
     || isTurnIdentityRebind
+    || didTurnParamsChange
   );
   const views = isCompleteCanonicalTurnRebuild
     ? projectCompleteCanonicalTurnViews(input)

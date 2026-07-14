@@ -52,7 +52,7 @@ mac:
   category: public.app-category.productivity
   hardenedRuntime: true
   signIgnore:
-  - "^.*\\/Contents\\/Resources\\/bin\\/codex$"
+  - "^.*\\/Contents\\/Resources\\/bin\\/(?!rg$|runtime\\.json$).+$"
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:

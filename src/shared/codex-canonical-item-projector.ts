@@ -53,12 +53,20 @@ export interface ProjectCodexCanonicalTurnItemViewsInput
   readonly items: readonly CodexCanonicalItem[];
 }
 
+export interface ProjectCodexCanonicalVisibleTurnItemViewsInput
+  extends ProjectCodexCanonicalTurnItemViewsInput {
+  readonly hasVisibleTurnParamsUserMessage?: boolean;
+  readonly params: CodexCanonicalTurnParams;
+  readonly preserveServerUserMessages?: boolean;
+}
+
 export interface ProjectCodexCanonicalTurnViewsInput {
   readonly threadId: string;
   readonly turn: CodexCanonicalTurnState;
   readonly turnKey?: string;
   readonly observedAtMs: number;
   readonly isBackgroundSubagentsEnabled?: boolean;
+  readonly preserveServerUserMessages?: boolean;
 }
 
 /** A complete turn view can include app-owned params fields absent from ThreadItem. */
@@ -220,6 +228,13 @@ function areStructurallyEqual(left: unknown, right: unknown): boolean {
   ));
 }
 
+export function areCodexCanonicalTurnParamsEqual(
+  left: CodexCanonicalTurnParams,
+  right: CodexCanonicalTurnParams,
+): boolean {
+  return areStructurallyEqual(left, right);
+}
+
 function isUserMessageDuplicatePreludeItem(item: CodexCanonicalItem): boolean {
   switch (item.type) {
     case "automaticApprovalReview":
@@ -252,17 +267,52 @@ function isDuplicateServerUserMessage(input: {
     .every(isUserMessageDuplicatePreludeItem);
 }
 
-function collectDuplicateServerUserMessages(
+function collectCodexCanonicalDuplicateUserMessageIds(
   items: readonly CodexCanonicalItem[],
   params: CodexCanonicalTurnParams,
-): ReadonlySet<CodexCanonicalItem> {
-  const duplicates = new Set<CodexCanonicalItem>();
+): ReadonlySet<string> {
+  const duplicateIds = new Set<string>();
   items.forEach((item, itemIndex) => {
     if (item.type !== "userMessage") return;
     if (!isDuplicateServerUserMessage({ items, itemIndex, item, params })) return;
-    duplicates.add(item);
+    duplicateIds.add(item.id);
   });
-  return duplicates;
+  return duplicateIds;
+}
+
+function projectServerUserMessageAsSteered(view: CodexItemView): CodexItemView {
+  return {
+    ...view,
+    type: "steered",
+    normalizedKind: "systemEvent",
+    semanticKind: "steered",
+    status: "completed",
+    role: undefined,
+    userAttachments: undefined,
+    commentAttachments: undefined,
+    deliveryStatus: undefined,
+    markdownText: "Steered conversation",
+  };
+}
+
+export function collectCodexCanonicalUserMessageVisibilityChangedOwnerIds(input: {
+  readonly beforeItems: readonly CodexCanonicalItem[];
+  readonly beforeParams: CodexCanonicalTurnParams;
+  readonly afterItems: readonly CodexCanonicalItem[];
+  readonly afterParams: CodexCanonicalTurnParams;
+}): ReadonlySet<string> {
+  const beforeIds = collectCodexCanonicalDuplicateUserMessageIds(
+    input.beforeItems,
+    input.beforeParams,
+  );
+  const afterIds = collectCodexCanonicalDuplicateUserMessageIds(
+    input.afterItems,
+    input.afterParams,
+  );
+  return new Set([
+    ...[...beforeIds].filter((itemId) => !afterIds.has(itemId)),
+    ...[...afterIds].filter((itemId) => !beforeIds.has(itemId)),
+  ]);
 }
 
 function isReviewDiffCommentAttachment(
@@ -1012,6 +1062,36 @@ export function projectCodexCanonicalTurnItemViews(
   return views;
 }
 
+export function projectCodexCanonicalVisibleTurnItemViews(
+  input: ProjectCodexCanonicalVisibleTurnItemViewsInput,
+): CodexItemView[] {
+  const duplicateUserMessageIds = collectCodexCanonicalDuplicateUserMessageIds(
+    input.items,
+    input.params,
+  );
+  const hasVisibleTurnParamsUserMessage = input.hasVisibleTurnParamsUserMessage
+    ?? projectTurnParamsUserView({
+      threadId: input.threadId,
+      turnId: input.turnId,
+      turnKey: input.turnId ?? "local-turn",
+      params: input.params,
+      blocked: false,
+      observedAtMs: input.observedAtMs,
+      goalProjection: null,
+    }) !== null;
+  return projectCodexCanonicalTurnItemViews(input).flatMap((view) => {
+    if (view.rawItemId && duplicateUserMessageIds.has(view.rawItemId)) return [];
+    if (
+      input.preserveServerUserMessages === true
+      || !hasVisibleTurnParamsUserMessage
+      || view.rawItemType !== "userMessage"
+    ) {
+      return [view];
+    }
+    return [projectServerUserMessageAsSteered(view)];
+  });
+}
+
 /**
  * Projects the complete canonical turn, including the app-owned user input
  * retained in turn params. The raw item projector remains the lower-level
@@ -1040,14 +1120,13 @@ export function projectCodexCanonicalTurnViews(
       input.turn,
     ),
   });
-  const duplicateItems = collectDuplicateServerUserMessages(
-    input.turn.items,
-    input.turn.sidecar.params,
-  );
-  const rawViews = projectCodexCanonicalTurnItemViews({
+  const rawViews = projectCodexCanonicalVisibleTurnItemViews({
     threadId: input.threadId,
     turnId,
     items: input.turn.items,
+    params: input.turn.sidecar.params,
+    hasVisibleTurnParamsUserMessage: paramsView !== null,
+    preserveServerUserMessages: input.preserveServerUserMessages,
     observedAtMs: input.observedAtMs,
     turnStatus: input.turn.protocol.status,
     commandExecutionStartedAtMsById:
@@ -1055,7 +1134,7 @@ export function projectCodexCanonicalTurnViews(
     interruptedCommandExecutionItemIds:
       input.turn.sidecar.interruptedCommandExecutionItemIds,
     isBackgroundSubagentsEnabled: input.isBackgroundSubagentsEnabled,
-  }).filter((view) => !duplicateItems.has(view.rawItem as CodexCanonicalItem));
+  });
 
   return paramsView ? [paramsView, ...rawViews] : rawViews;
 }

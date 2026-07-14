@@ -2322,6 +2322,8 @@ function normalizeTypeName(type: string | undefined): string {
   return type.replace(/[_\-\s]/g, "").toLowerCase();
 }
 
+let validatedDefaultCodexRuntime: ResolvedCodexRuntime | null = null;
+
 function extractReceiverThreadIds(item: CodexConversationItem): string[] {
   const args = item.toolCall?.args;
   if (!args || typeof args !== "object") return [];
@@ -2341,6 +2343,8 @@ function isChildThreadSourceItem(item: CodexConversationItem): boolean {
 }
 
 function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
+  if (validatedDefaultCodexRuntime) return validatedDefaultCodexRuntime;
+
   const resolveRuntimeOptions = (): DefaultCodexRuntimeOptions => {
     try {
       const electronModule = require("electron") as { app?: { isPackaged?: boolean } };
@@ -2396,7 +2400,9 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
   const runtimeOptions = resolveRuntimeOptions();
 
   try {
-    return resolveCodexRuntime(runtimeOptions);
+    const runtime = resolveCodexRuntime(runtimeOptions);
+    validatedDefaultCodexRuntime = runtime;
+    return runtime;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("Codex runtime is missing or incomplete under")) {
@@ -3620,7 +3626,6 @@ export class CodexService extends EventEmitter {
     reason: SourceNullSnapshotReason,
   ): void {
     if (this.shouldSuppressSourceNullSnapshot(threadId, reason)) {
-      this.lastBroadcastConversationById.set(threadId, conversation);
       return;
     }
 
@@ -3968,16 +3973,17 @@ export class CodexService extends EventEmitter {
     }
 
     const nextConversation = this.resolveRendererPublishedConversation(input);
+    if (!nextConversation) {
+      return false;
+    }
     const authoritativeHasUnreadTurn = record?.hasUnreadTurn
       ?? persistedThread?.hasUnreadTurn
       ?? null;
     const shouldCorrectUnreadFlag = Boolean(
-      nextConversation
-      && authoritativeHasUnreadTurn !== null
+      authoritativeHasUnreadTurn !== null
       && nextConversation.hasUnreadTurn !== authoritativeHasUnreadTurn,
     );
-    const correctedConversation = nextConversation
-      && authoritativeHasUnreadTurn !== null
+    const correctedConversation = authoritativeHasUnreadTurn !== null
       && shouldCorrectUnreadFlag
       ? {
           ...nextConversation,
@@ -3986,9 +3992,7 @@ export class CodexService extends EventEmitter {
         }
       : nextConversation;
 
-    if (correctedConversation) {
-      this.lastBroadcastConversationById.set(input.conversationId, correctedConversation);
-    }
+    this.lastBroadcastConversationById.set(input.conversationId, correctedConversation);
     this.conversationStreamRevisionById.set(input.conversationId, input.change.revision);
     this.emitHostMessage({
       type: "threadStreamStateChanged",
@@ -3999,8 +4003,7 @@ export class CodexService extends EventEmitter {
       sourceClientId,
     });
     if (
-      nextConversation
-      && correctedConversation !== nextConversation
+      correctedConversation !== nextConversation
       && authoritativeHasUnreadTurn !== null
     ) {
       this.emitHostMessage({
@@ -4010,9 +4013,7 @@ export class CodexService extends EventEmitter {
         hasUnreadTurn: authoritativeHasUnreadTurn,
       });
     }
-    if (correctedConversation) {
-      this.syncParentChildMembershipMetadataFromConversation(correctedConversation);
-    }
+    this.syncParentChildMembershipMetadataFromConversation(correctedConversation);
     if (typeof input.ownerNotificationSequence === "number") {
       this.ackOwnerNotificationSequence(input.conversationId, input.ownerNotificationSequence);
     }
@@ -4054,7 +4055,7 @@ export class CodexService extends EventEmitter {
 
     const currentConversation = this.lastBroadcastConversationById.get(input.conversationId);
     if (!currentConversation) {
-      this.logger.warn("Broadcasting renderer stream patches without broadcast cache", {
+      this.logger.warn("Rejected renderer stream patches without broadcast cache", {
         conversationId: input.conversationId,
         baseRevision: input.change.baseRevision,
         revision: input.change.revision,
@@ -4064,7 +4065,7 @@ export class CodexService extends EventEmitter {
 
     const currentRevision = this.conversationStreamRevisionById.get(input.conversationId) ?? 0;
     if (currentRevision !== input.change.baseRevision) {
-      this.logger.warn("Broadcasting renderer stream patches with mismatched local cache revision", {
+      this.logger.warn("Rejected renderer stream patches with mismatched local cache revision", {
         conversationId: input.conversationId,
         currentRevision,
         baseRevision: input.change.baseRevision,
@@ -4076,7 +4077,7 @@ export class CodexService extends EventEmitter {
     try {
       return applyCodexConversationStateUpdates(currentConversation, input.change.patches);
     } catch (error) {
-      this.logger.warn("Broadcasting renderer stream patches that could not apply to local cache", {
+      this.logger.warn("Rejected renderer stream patches that could not apply to local cache", {
         conversationId: input.conversationId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -4172,6 +4173,9 @@ export class CodexService extends EventEmitter {
     threadId: string,
     recipe: (draft: CodexConversationSnapshot) => void | CodexConversationSnapshot,
   ): void {
+    if (this.rendererOwnerClientIdByConversationId.has(threadId)) {
+      return;
+    }
     const currentConversation = this.lastBroadcastConversationById.get(threadId);
     if (!currentConversation) {
       return;
@@ -4192,6 +4196,9 @@ export class CodexService extends EventEmitter {
     threadId: string,
     options: { advanceRevision?: boolean } = {},
   ): number {
+    if (this.rendererOwnerClientIdByConversationId.has(threadId)) {
+      return this.conversationStreamRevisionById.get(threadId) ?? 0;
+    }
     const conversation = this.serializeConversationSnapshot(threadId);
     if (!conversation) {
       return this.conversationStreamRevisionById.get(threadId) ?? 0;
@@ -13282,6 +13289,89 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private async dispatchCanonicalOptimisticTurn(input: {
+    readonly canonicalParams: CodexCanonicalLiveTurnParams<
+      CodexLiveFileAttachment,
+      CodexReviewDiffCommentAttachment
+    >;
+    readonly clientUserMessageId: string;
+    readonly currentCollaborationModel: string;
+    readonly requestParams: CodexAppPrivateTurnStartParams;
+    readonly threadId: string;
+  }): Promise<Turn> {
+    const record = this.getConversationRecord(input.threadId);
+    const beforeAppend = record.canonicalState;
+    if (!beforeAppend) {
+      throw new Error("Cannot start a canonical turn before conversation hydration");
+    }
+
+    const optimisticStartedAt = Date.now();
+    const afterAppend = appendCodexCanonicalOptimisticTurn(
+      beforeAppend,
+      {
+        params: input.canonicalParams,
+        currentCollaborationModel: input.currentCollaborationModel,
+        startedAtMs: optimisticStartedAt,
+      },
+    );
+    this.commitCanonicalLocalTurnMutation({
+      threadId: input.threadId,
+      before: beforeAppend,
+      after: afterAppend,
+      observedAtMs: optimisticStartedAt,
+    });
+    record.isStreaming = true;
+    this.markThreadAsActive(input.threadId);
+    this.emitThreadStreamSnapshotFromRecord(input.threadId, "no-owner-fallback");
+
+    try {
+      const response = await this.client.request<"turn/start", TurnStartResponse>(
+        "turn/start",
+        input.requestParams,
+      );
+      if (!this.asTurnSummary(input.threadId, response.turn)) {
+        throw new Error("Codex turn/start returned an invalid turn payload");
+      }
+
+      const beforeBind = record.canonicalState;
+      if (!beforeBind) {
+        throw new Error("Canonical conversation state disappeared during turn/start");
+      }
+      const afterBind = bindCodexCanonicalOptimisticTurn(
+        beforeBind,
+        input.clientUserMessageId,
+        response.turn,
+      );
+      if (!afterBind.turns.some((turn) => turn.protocol.id === response.turn.id)) {
+        throw new Error("Codex turn/start could not bind its canonical optimistic turn");
+      }
+      this.commitCanonicalLocalTurnMutation({
+        threadId: input.threadId,
+        before: beforeBind,
+        after: afterBind,
+        observedAtMs: Date.now(),
+      });
+      return response.turn;
+    } catch (error) {
+      const beforeFailure = record.canonicalState;
+      if (beforeFailure) {
+        const afterFailure = failCodexCanonicalOptimisticTurn(
+          beforeFailure,
+          input.clientUserMessageId,
+          randomUUID(),
+        );
+        this.commitCanonicalLocalTurnMutation({
+          threadId: input.threadId,
+          before: beforeFailure,
+          after: afterFailure,
+          observedAtMs: Date.now(),
+        });
+        this.emitThreadStreamSnapshotFromRecord(input.threadId, "no-owner-fallback");
+      }
+      throw error;
+    }
+  }
+
   async startThreadForSession(
     input: CodexThreadStartForSessionInput,
     options: { signal?: AbortSignal } = {},
@@ -13537,14 +13627,25 @@ export class CodexService extends EventEmitter {
         }));
       }
 
-      const turnStartParams: TurnStartParams = {
+      const firstTurnInput = materializedGoalObjective.length > 0
+        ? replaceFirstTextInput(
+            preparedPrompt.inputItems,
+            `/goal ${materializedGoalObjective}`,
+          )
+        : preparedPrompt.inputItems;
+      const firstTurnAttachments = buildCodexPendingFirstTurnAttachments({
+        fileAttachments: preparedPrompt.fileAttachments,
+        addedFiles: preparedPrompt.addedFiles,
+        threadGoalDraft: input.threadGoalDraft,
+      });
+      const clientUserMessageId = randomUUID();
+      const turnStartParams: CodexAppPrivateTurnStartParams = {
         threadId: link.threadId,
-        input: materializedGoalObjective.length > 0
-          ? replaceFirstTextInput(
-              preparedPrompt.inputItems,
-              `/goal ${materializedGoalObjective}`,
-            )
-          : preparedPrompt.inputItems,
+        clientUserMessageId,
+        input: firstTurnInput,
+        responsesapiClientMetadata: {
+          workspace_kind: "project",
+        },
         cwd: effectiveCwd,
         ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
         ...turnPermissionOverrides,
@@ -13552,27 +13653,52 @@ export class CodexService extends EventEmitter {
         ...buildServiceTierParams(input.serviceTier),
         ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
         ...(collaborationMode ? { collaborationMode } : {}),
+        attachments: firstTurnAttachments,
       };
-      const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
-      const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
-      if (!startedTurn) {
-        throw new Error("Codex turn/start returned an invalid turn payload");
+      const record = this.getConversationRecord(link.threadId);
+      const canonicalState = record.canonicalState;
+      const hydration = canonicalState?.sidecar.hydrationContext;
+      if (!canonicalState || !hydration) {
+        throw new Error("Codex thread/start did not initialize canonical conversation state");
       }
-      const observedTurn: CodexTurnSummary & { turnId: string } = {
-        ...startedTurn,
-        turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+      const firstTurnPermissionContext = hydration.currentPermissions;
+      const canonicalTurnParams: CodexCanonicalLiveTurnParams<
+        CodexLiveFileAttachment,
+        CodexReviewDiffCommentAttachment
+      > = {
+        ...turnStartParams,
+        cwd: effectiveCwd,
+        approvalPolicy:
+          turnStartParams.approvalPolicy ?? firstTurnPermissionContext.approvalPolicy,
+        approvalsReviewer:
+          turnStartParams.approvalsReviewer ?? firstTurnPermissionContext.approvalsReviewer,
+        sandboxPolicy:
+          turnStartParams.sandboxPolicy ?? firstTurnPermissionContext.sandboxPolicy,
+        permissions: firstTurnPermissionContext.activePermissionProfile?.id ?? null,
+        runtimeWorkspaceRoots: firstTurnPermissionContext.activePermissionProfile
+          ? [...firstTurnPermissionContext.runtimeWorkspaceRoots]
+          : null,
+        useAppServerPermissionDefault: effectivePermissionState.effectivePreset === "custom",
+        model: collaborationMode ? null : effectiveModel ?? threadStart.model,
+        serviceTier: normalizeCodexServiceTier(input.serviceTier) ?? threadStart.serviceTier,
+        effort: collaborationMode
+          ? null
+          : effectiveReasoningEffort ?? threadStart.reasoningEffort,
+        multiAgentMode: "explicitRequestOnly",
+        summary: "none",
+        personality: this.personality,
+        outputSchema: null,
+        collaborationMode,
+        attachments: firstTurnAttachments,
+        commentAttachments: [...preparedPrompt.commentAttachments],
       };
-      this.mergeTurn(link.threadId, observedTurn);
-      const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
-        turnStartParams.input,
-        `optimistic:${observedTurn.turnId}`,
-      );
-      this.seedTurnWithOptimisticUserMessage(
-        link.threadId,
-        observedTurn.turnId,
-        prompt,
-        optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
-      );
+      const startedTurn = await this.dispatchCanonicalOptimisticTurn({
+        canonicalParams: canonicalTurnParams,
+        clientUserMessageId,
+        currentCollaborationModel: record.latestCollaborationMode.settings.model,
+        requestParams: turnStartParams,
+        threadId: link.threadId,
+      });
       await this.applyStartedSessionThreadGoal({
         threadId: link.threadId,
         objective: materializedGoalObjective,
@@ -13588,10 +13714,9 @@ export class CodexService extends EventEmitter {
       }
       this.logger.info("Started first Codex turn for project session", {
         threadId: link.threadId,
-        turnId: observedTurn.turnId,
+        turnId: startedTurn.id,
         durationMs: Date.now() - startedAt,
       });
-      this.markThreadAsActive(link.threadId);
       this.emitThreadStreamSnapshotFromRecord(link.threadId, "no-owner-fallback");
 
       const detail = this.serializeThreadDetail(link.threadId);

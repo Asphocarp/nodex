@@ -280,6 +280,115 @@ describe("scoped canonical lifecycle projection diff", () => {
     expect(result.transcript[0]?.sequence).toBe(0);
   });
 
+  test("suppresses a matching user-message echo that arrives after optimistic rebind", () => {
+    const content: Extract<ThreadItem, { type: "userMessage" }>["content"] = [
+      { type: "text", text: "Edited prompt", text_elements: [] },
+    ];
+    const baseTurn = buildTurn([]);
+    const reboundTurn = {
+      ...baseTurn,
+      sidecar: {
+        ...baseTurn.sidecar,
+        params: {
+          ...baseTurn.sidecar.params,
+          clientUserMessageId: "client-edited-prompt",
+          input: content,
+        },
+      },
+    } satisfies CodexCanonicalTurnState;
+    const optimistic = applyCodexLifecycleProjectionDiff({
+      threadId: THREAD_ID,
+      beforeTurn: null,
+      afterTurn: reboundTurn,
+      currentViews: [],
+      currentTranscript: [],
+      observedAtMs: 2_000,
+    });
+    const updatedContent: Extract<ThreadItem, { type: "userMessage" }>["content"] = [
+      { type: "text", text: "Updated edited prompt", text_elements: [] },
+    ];
+    const afterParamsChange = {
+      ...reboundTurn,
+      sidecar: {
+        ...reboundTurn.sidecar,
+        params: {
+          ...reboundTurn.sidecar.params,
+          input: updatedContent,
+        },
+      },
+    } satisfies CodexCanonicalTurnState;
+    const paramsChanged = applyCodexLifecycleProjectionDiff({
+      threadId: THREAD_ID,
+      beforeTurn: reboundTurn,
+      afterTurn: afterParamsChange,
+      currentViews: optimistic.views,
+      currentTranscript: optimistic.transcript,
+      observedAtMs: 2_500,
+    });
+    expect(paramsChanged.views.map((view) => view.markdownText)).toEqual([
+      "Updated edited prompt",
+    ]);
+
+    const serverEcho = {
+      type: "userMessage",
+      id: "server-user-echo",
+      clientId: "client-edited-prompt",
+      content,
+    } satisfies Extract<ThreadItem, { type: "userMessage" }>;
+    const afterEcho = {
+      ...reboundTurn,
+      items: [serverEcho],
+    } satisfies CodexCanonicalTurnState;
+
+    const result = applyCodexLifecycleProjectionDiff({
+      threadId: THREAD_ID,
+      beforeTurn: reboundTurn,
+      afterTurn: afterEcho,
+      currentViews: optimistic.views,
+      currentTranscript: optimistic.transcript,
+      observedAtMs: 3_000,
+      lifecycleStatus: "inProgress",
+    });
+
+    expect(result.views.map((view) => view.itemId)).toEqual([`${TURN_ID}:input`]);
+    expect(result.transcript.map((entry) => entry.itemId)).toEqual([`${TURN_ID}:input`]);
+    expect(result.views[0]?.createdAt).toBe(optimistic.views[0]?.createdAt);
+    expect(result.transcript[0]?.source).toBe(optimistic.transcript[0]?.source);
+    expect(result.transcript[0]?.createdAt).toBe(optimistic.transcript[0]?.createdAt);
+    expect(result.itemIds).toEqual(["server-user-echo"]);
+
+    const command = buildCommand("command-before-echo");
+    const afterActivity = {
+      ...afterEcho,
+      items: [command, serverEcho],
+    } satisfies CodexCanonicalTurnState;
+    const visibleAfterActivity = applyCodexLifecycleProjectionDiff({
+      threadId: THREAD_ID,
+      beforeTurn: afterEcho,
+      afterTurn: afterActivity,
+      currentViews: result.views,
+      currentTranscript: result.transcript,
+      observedAtMs: 4_000,
+      lifecycleStatus: "inProgress",
+    });
+
+    expect(visibleAfterActivity.views.map((view) => view.itemId)).toEqual([
+      `${TURN_ID}:input`,
+      "command-before-echo",
+      "server-user-echo",
+    ]);
+    expect(visibleAfterActivity.views.map((view) => view.semanticKind)).toEqual([
+      "userMessage",
+      "exec",
+      "steered",
+    ]);
+    expect(visibleAfterActivity.transcript.map((entry) => entry.itemId)).toEqual([
+      `${TURN_ID}:input`,
+      "command-before-echo",
+      "server-user-echo",
+    ]);
+  });
+
   test("replaces only the changed raw owner and preserves unrelated streamed state and overlays", () => {
     const startedA = buildCommand("command-a");
     const startedB = buildCommand("command-b");
