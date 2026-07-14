@@ -31,6 +31,8 @@ const DEFAULT_EXTRA_BINARY_SEARCH_PATHS =
       ]
     : [`${os.homedir()}/.bun/bin`, `${os.homedir()}/.local/bin`];
 const logger = getLogger({ subsystem: "codex", component: "app-server-client" });
+const ANSI_ESCAPE_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const TRACING_LEVEL_PREFIX = /^(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(TRACE|DEBUG|INFO|WARN|ERROR)\b/i;
 
 /**
  * A server request can be withdrawn by the app-server before the local handler
@@ -179,6 +181,54 @@ function createSpawnEnv(baseEnv: NodeJS.ProcessEnv, additionalSearchPaths: strin
 function truncatePreview(value: string, maxLength = 160): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+export function resolveCodexStderrLogLevel(
+  line: string,
+): "trace" | "debug" | "info" | "warn" | "error" {
+  const normalized = line.replace(ANSI_ESCAPE_PATTERN, "").trim();
+  if (normalized.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(normalized) as { level?: unknown };
+      if (typeof parsed.level === "string") {
+        const level = parsed.level.trim().toLowerCase();
+        if (level === "trace" || level === "debug" || level === "info" || level === "warn" || level === "error") {
+          return level;
+        }
+      }
+    } catch {
+      // Fall through to the tracing text parser.
+    }
+  }
+
+  const match = TRACING_LEVEL_PREFIX.exec(normalized);
+  const level = match?.[1]?.toLowerCase();
+  if (level === "trace" || level === "debug" || level === "info" || level === "warn" || level === "error") {
+    return level;
+  }
+  return "info";
+}
+
+function logCodexStderrLine(line: string): void {
+  const level = resolveCodexStderrLogLevel(line);
+  const fields = { line, source: "stderr" };
+  if (level === "trace") {
+    logger.trace("Codex app-server diagnostic", fields);
+    return;
+  }
+  if (level === "debug") {
+    logger.debug("Codex app-server diagnostic", fields);
+    return;
+  }
+  if (level === "info") {
+    logger.info("Codex app-server diagnostic", fields);
+    return;
+  }
+  if (level === "warn") {
+    logger.warn("Codex app-server diagnostic", fields);
+    return;
+  }
+  logger.error("Codex app-server diagnostic", fields);
 }
 
 function formatServiceTierForReporting(value: unknown): "standard" | "fast" {
@@ -549,7 +599,7 @@ export class CodexAppServerClient extends EventEmitter {
     this.requestIdCounter += 1;
 
     const message: JsonRpcRequest = { id, method, params };
-    logger.info("Sending Codex RPC request", {
+    logger.debug("Sending Codex RPC request", {
       rpcId: id,
       method,
       params: summarizeRpcParams(method, params),
@@ -613,8 +663,7 @@ export class CodexAppServerClient extends EventEmitter {
       const line = this.stderrBuffer.slice(0, newlineIndex).trim();
       this.stderrBuffer = this.stderrBuffer.slice(newlineIndex + 1);
       if (!line) continue;
-      logger.warn("Codex app-server stderr", { line });
-      this.emit("stderr", line);
+      logCodexStderrLine(line);
     }
   }
 
@@ -683,7 +732,7 @@ export class CodexAppServerClient extends EventEmitter {
       return;
     }
 
-    logger.info("Codex RPC request completed", {
+    logger.debug("Codex RPC request completed", {
       rpcId: response.id,
       method: pending.method,
       durationMs,
@@ -692,7 +741,7 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   private async handleServerRequest(request: CodexServerRequest): Promise<void> {
-    logger.info("Received Codex server request", {
+    logger.debug("Received Codex server request", {
       requestId: request.id,
       method: request.method,
       params: summarizeRpcParams(request.method, request.params),
@@ -713,13 +762,13 @@ export class CodexAppServerClient extends EventEmitter {
     try {
       const result = await this.serverRequestHandler(request);
       if (result === CODEX_SERVER_REQUEST_NO_RESPONSE) {
-        logger.info("Codex server request completed without a client response", {
+        logger.debug("Codex server request completed without a client response", {
           requestId: request.id,
           method: request.method,
         });
         return;
       }
-      logger.info("Resolved Codex server request", {
+      logger.debug("Resolved Codex server request", {
         requestId: request.id,
         method: request.method,
       });

@@ -201,8 +201,7 @@ function parseCliOptions(argv: string[]): CliOptions {
 
 function main(): void {
   const options = parseCliOptions(process.argv.slice(2));
-  const metadata = stageCodexRuntime(options);
-  console.log(`Staged Codex runtime ${metadata.sourcePackage} to ${options.outputPath}`);
+  stageCodexRuntime(options);
 }
 
 if (import.meta.main) {

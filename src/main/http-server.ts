@@ -119,6 +119,17 @@ const cardWriteBodyLimit = bodyLimit({
     ),
 });
 const logger = getLogger({ subsystem: "http" });
+const SLOW_HTTP_REQUEST_MS = 1_000;
+
+export function resolveHttpRequestLogLevel(
+  status: number,
+  durationMs: number,
+): "debug" | "info" | "warn" | "error" {
+  if (status >= 500) return "error";
+  if (status >= 400) return "warn";
+  if (durationMs >= SLOW_HTTP_REQUEST_MS) return "info";
+  return "debug";
+}
 
 function approximatePayloadBytes(value: unknown): number | null {
   try {
@@ -208,8 +219,9 @@ app.use("*", async (c, next) => {
   c.header("x-nodex-request-id", requestId);
   await next();
 
-  const level = c.res.status >= 500 ? "error" : c.res.status >= 400 ? "warn" : "info";
   const fields = getRequestLogFields(c, requestId, startedAt);
+  const durationMs = typeof fields.durationMs === "number" ? fields.durationMs : 0;
+  const level = resolveHttpRequestLogLevel(c.res.status, durationMs);
 
   if (level === "error") {
     logger.error("HTTP request completed with server error", fields);
@@ -219,7 +231,11 @@ app.use("*", async (c, next) => {
     logger.warn("HTTP request completed with client error", fields);
     return;
   }
-  logger.info("HTTP request completed", fields);
+  if (level === "info") {
+    logger.info("Slow HTTP request completed", fields);
+    return;
+  }
+  logger.debug("HTTP request completed", fields);
 });
 
 // Reject browser-originated write requests unless they come from a trusted local dev origin.

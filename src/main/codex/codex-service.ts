@@ -3007,12 +3007,6 @@ export class CodexService extends EventEmitter {
       void this.routeAppServerNotification(notification);
     });
 
-    this.client.on("stderr", (line: string) => {
-      if (!line.trim()) return;
-      this.logger.warn("Received Codex stderr line", { line });
-      this.emitEvent({ type: "error", message: "Codex stderr", detail: line.trim() });
-    });
-
     this.client.on("protocolError", (message: string) => {
       this.logger.error("Received Codex protocol error", { message });
       this.emitEvent({ type: "error", message });

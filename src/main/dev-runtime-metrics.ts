@@ -21,9 +21,7 @@ function parseBooleanEnv(value: string | undefined): boolean | null {
 
 export function isDevRuntimeMetricsEnabled(): boolean {
   const explicit = parseBooleanEnv(process.env.NODEX_DEV_METRICS);
-  if (explicit !== null) return explicit;
-  if (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test") return false;
-  return process.env.NODEX_INTERNAL_APP_PACKAGED !== "1";
+  return explicit ?? false;
 }
 
 export function getDevRuntimeMetricStart(): number {

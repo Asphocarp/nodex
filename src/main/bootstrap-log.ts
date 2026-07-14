@@ -1,11 +1,18 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import {
+  isLogLevelEnabled,
+  type ActiveLogLevelName,
+  type LogLevelName,
+} from "./logging/log-level";
 
-type BootstrapLogLevel = "info" | "warn" | "error";
+type BootstrapLogLevel = Extract<ActiveLogLevelName, "info" | "warn" | "error">;
 
 interface BootstrapLogOptions {
   consoleEnabled?: boolean;
   fileEnabled?: boolean;
+  consoleLevel?: LogLevelName;
+  fileLevel?: LogLevelName;
 }
 
 function serializeError(value: unknown): unknown {
@@ -26,6 +33,8 @@ export function writeBootstrapLog(
 ): void {
   const fileEnabled = options.fileEnabled ?? true;
   const consoleEnabled = options.consoleEnabled ?? true;
+  const fileLevel = options.fileLevel ?? "info";
+  const consoleLevel = options.consoleLevel ?? "warn";
   const entry = {
     ts: new Date().toISOString(),
     level,
@@ -36,7 +45,7 @@ export function writeBootstrapLog(
     ),
   };
 
-  if (fileEnabled) {
+  if (fileEnabled && isLogLevelEnabled(level, fileLevel)) {
     try {
       const logDir = path.join(localStoreDir, "logs");
       mkdirSync(logDir, { recursive: true });
@@ -50,7 +59,7 @@ export function writeBootstrapLog(
     }
   }
 
-  if (!consoleEnabled) return;
+  if (!consoleEnabled || !isLogLevelEnabled(level, consoleLevel)) return;
 
   const line = `[bootstrap] ${message}`;
   if (level === "error") {

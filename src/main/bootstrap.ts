@@ -3,6 +3,7 @@ import { configureInstanceScopePaths } from "./instance-scope";
 import { resolveBootstrapLocalStoreDir } from "./bootstrap-config";
 import { BootstrapRuntimeEventQueue } from "./bootstrap-events";
 import { writeBootstrapLog } from "./bootstrap-log";
+import { resolveLogSinkLevels } from "./logging/log-level";
 import { getDiagnosticsSettings } from "./local-store/config";
 import {
   captureMainException,
@@ -36,9 +37,12 @@ function logBootstrap(
   fields: Record<string, unknown> = {},
 ): void {
   const defaultSinkEnabled = !app.isPackaged;
+  const sinkLevels = resolveLogSinkLevels(process.env);
   writeBootstrapLog(localStoreDir, level, message, fields, {
     consoleEnabled: parseBooleanEnv(process.env.NODEX_LOG_CONSOLE, defaultSinkEnabled),
     fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, defaultSinkEnabled),
+    consoleLevel: sinkLevels.console,
+    fileLevel: sinkLevels.file,
   });
 }
 

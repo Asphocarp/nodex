@@ -141,14 +141,12 @@ function main(): void {
 
   if (!canGenerateAppleArtifacts) {
     ensureDerivedArtifactsExist();
-    console.log("Reused existing derived icon artifacts.");
     return;
   }
 
   rasterizeSvgToPng(sourceSvgPath, generatedIconPngPath, "2048");
   rasterizeSvgToPng(sourceSvgPath, generatedHighResPngPath, "3200");
   createIcnsFromPng(generatedIconPngPath);
-  console.log("App icons regenerated from resources/nodex-icon.svg.");
 }
 
 if (import.meta.main) {

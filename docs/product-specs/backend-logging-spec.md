@@ -23,6 +23,8 @@ The logger is implemented in [src/main/logging/logger.ts](src/main/logging/logge
 - Local-first: logs persist on disk under the active Nodex profile.
 - Safe by default: common secret-bearing fields are redacted before write.
 - Bounded: large payloads are truncated so logging cannot explode on huge objects or prompts.
+- Sink-specific: terminal, durable file, and observer thresholds are independent.
+- Backpressure-aware: disk latency cannot create an unbounded in-memory write buffer.
 - Cheap to adopt: services use child loggers with contextual bindings instead of building custom wrappers.
 - Non-fatal: logging must never throw back into application control flow.
 
@@ -34,26 +36,30 @@ When file logging is enabled, backend logs are written under:
 
 Default file naming:
 
-- `backend-YYYY-MM-DD.log`
+- `backend-YYYY-MM-DD-SSS.log`, where `SSS` is a monotonically increasing segment number
 
 Important properties:
 
 - One JSON object per line.
-- Files are appended to for the current day.
-- Old files are pruned by retention policy.
+- Files rotate at 10 MiB by default.
+- Backend segments are bounded by both a 14-day retention policy and a 100 MiB global budget.
+- A bounded asynchronous queue respects writable-stream backpressure. Queue pressure discards trace/debug/info before warn/error and emits a structured dropped-record summary.
+- Files are created with mode `0600`; a newly created log directory uses mode `0700`.
+- Stream failures disable only the file sink, emit one emergency terminal error, and never fail application work.
 - The active profile is determined by the same `NODEX_DIR` resolution used elsewhere in the app.
 
 ## Default Runtime Behavior
 
 Unpackaged non-test runtime defaults:
 
-- level: `info`
 - console logging: enabled
+- console level: `warn`
 - file logging: enabled
+- file level: `info`
+- observer level: `warn`
 
 Packaged runtime defaults:
 
-- level: `info`
 - console logging: disabled
 - file logging: disabled
 
@@ -63,9 +69,9 @@ enabled for diagnostics by explicitly setting `NODEX_LOG_CONSOLE=true` or
 
 Test runtime defaults:
 
-- level: `info`
 - console logging: disabled
 - file logging: disabled
+- observer level: `warn`
 
 Test code can still subscribe to emitted log entries in memory via `subscribeToBackendLogs(...)`.
 
@@ -77,7 +83,13 @@ Supported variables:
 
 - `NODEX_LOG_LEVEL`
   - allowed values: `trace`, `debug`, `info`, `warn`, `error`, `silent`
-  - default: `info`
+  - legacy fallback applied to every sink that does not have a sink-specific level
+- `NODEX_LOG_CONSOLE_LEVEL`
+  - terminal threshold; default: `warn`
+- `NODEX_LOG_FILE_LEVEL`
+  - durable JSONL threshold; default: `info`
+- `NODEX_LOG_OBSERVER_LEVEL`
+  - default in-process subscriber threshold; default: `warn`
 - `NODEX_LOG_CONSOLE`
   - enables/disables stdout/stderr sink
   - accepted falsey values: `0`, `false`, `no`, `off`
@@ -89,6 +101,18 @@ Supported variables:
   - relative paths resolve from `process.cwd()`
 - `NODEX_LOG_RETENTION_DAYS`
   - default: `14`
+- `NODEX_LOG_MAX_FILE_BYTES`
+  - maximum segment size; default: `10485760` (10 MiB)
+- `NODEX_LOG_MAX_TOTAL_BYTES`
+  - global backend-segment budget; default: `104857600` (100 MiB)
+- `NODEX_LOG_MAX_QUEUE_ENTRIES`
+  - maximum pending records; default: `10000`
+- `NODEX_LOG_MAX_QUEUE_BYTES`
+  - maximum pending serialized bytes; default: `8388608` (8 MiB)
+- `NODEX_LOG_STREAM_BUFFER_BYTES`
+  - writable-stream high-water mark; default: `1048576` (1 MiB)
+- `NODEX_LOG_FLUSH_TIMEOUT_MS`
+  - per-stream shutdown/rotation flush bound; default: `2000`
 - `NODEX_LOG_MAX_STRING_LENGTH`
   - default: `1200`
 - `NODEX_LOG_MAX_ARRAY_LENGTH`
@@ -101,7 +125,8 @@ Supported variables:
 Example:
 
 ```bash
-NODEX_LOG_LEVEL=debug \
+NODEX_LOG_CONSOLE_LEVEL=warn \
+NODEX_LOG_FILE_LEVEL=debug \
 NODEX_LOG_RETENTION_DAYS=30 \
 NODEX_LOG_DIR=/tmp/nodex-logs \
 pnpm run dev
@@ -229,7 +254,8 @@ This is intentional. Logs are for diagnosis, not full-fidelity archival.
 
 Severity policy:
 
-- `info` for normal responses
+- `debug` for routine successful responses
+- `info` for successful responses taking at least one second
 - `warn` for 4xx responses
 - `error` for 5xx responses and uncaught handler failures
 
@@ -245,11 +271,15 @@ Severity policy:
 - reconnect scheduling
 - JSON-RPC request send/completion/timeout/failure
 - server requests received and resolved
-- stderr lines
+- stderr diagnostics, classified from structured or Rust tracing level prefixes
 - invalid protocol payloads
 - child exit events
 
 For `thread/start`, `turn/start`, and `turn/steer`, the client logs summarized parameters rather than raw payload dumps.
+Routine JSON-RPC send/completion and successful server-request lifecycle records use `debug`.
+The stderr transport channel is not itself a severity: unclassified lines persist as `info`, while
+declared trace/debug/info/warn/error levels retain their actual severity. The service does not
+duplicate these records or turn ordinary stderr diagnostics into user-visible errors.
 
 ### Codex Service
 
@@ -267,7 +297,7 @@ For `thread/start`, `turn/start`, and `turn/steer`, the client logs summarized p
 - user-input request receipt and resolution
 - worktree setup script start/finish/failure
 - thread and turn lifecycle notifications
-- protocol/stderr events surfaced from the lower-level client
+- protocol errors surfaced from the lower-level client
 
 Codex-specific logging policy:
 
@@ -340,6 +370,13 @@ Guidelines:
 - log start/end/failure around long-lived operations
 - prefer derived metadata over full raw payloads
 - pass `error` objects directly when you need stack information
+- use `debug` for successful hot-path events; reserve `info` for lifecycle boundaries or slow operations
+
+## Development Runtime Metrics
+
+High-volume `dev runtime metric` records are disabled by default. Set
+`NODEX_DEV_METRICS=1` to enable them. They are emitted at `info`, so the default durable file sink
+captures an explicitly enabled diagnostic run without sending it to the default warn-only terminal.
 
 ## What To Log
 
@@ -378,21 +415,23 @@ Recommended workflow:
 Useful shell examples:
 
 ```bash
-rg '"subsystem":"codex"' ~/.nodex/logs/backend-2026-03-09.log
+rg '"subsystem":"codex"' ~/.nodex/logs/backend-2026-03-09-*.log
 ```
 
 ```bash
-rg '"threadId":"thr_123"' ~/.nodex/logs/backend-2026-03-09.log
+rg '"threadId":"thr_123"' ~/.nodex/logs/backend-2026-03-09-*.log
 ```
 
 ```bash
-rg '"level":"error"' ~/.nodex/logs/backend-2026-03-09.log
+rg '"level":"error"' ~/.nodex/logs/backend-2026-03-09-*.log
 ```
 
 ## Failure and Safety Properties
 
-- Logging failures are swallowed; application code should continue.
-- File writes are best-effort append-only.
+- Serialization, observer, console, and file failures cannot escape into application code.
+- File writes are best-effort append-only within the active segment; closed segments are never reopened unless a later process resumes the latest same-day segment below the size limit.
+- The writer waits for `drain`, bounds queued records and bytes, and favors warn/error records under pressure.
+- Shutdown waits for queued records and stream completion up to the configured flush bound.
 - Logger shutdown is called during app quit, but logs should still be treated as diagnostic rather than transactional data.
 - The logger is not a security audit log or compliance system.
 
@@ -401,20 +440,24 @@ rg '"level":"error"' ~/.nodex/logs/backend-2026-03-09.log
 Current logger-specific tests live in:
 
 - [src/main/logging/logger.test.ts](src/main/logging/logger.test.ts)
+- [src/main/bootstrap-log.test.ts](src/main/bootstrap-log.test.ts)
 - [src/main/codex/codex-app-server-client.test.ts](src/main/codex/codex-app-server-client.test.ts)
+- [src/main/dev-runtime-metrics.test.ts](src/main/dev-runtime-metrics.test.ts)
 
 They cover:
 
 - redaction
 - truncation
-- file persistence
-- structured Codex RPC logging
+- independent sink filtering
+- file persistence, rotation, global capacity, and queue-pressure priority
+- bootstrap sink filtering
+- structured Codex RPC and stderr severity logging
+- explicit dev-metric opt-in
 
 ## Known Limitations
 
 - configuration is env-only; there is no UI settings surface yet
 - redaction is name-based, not content-aware
-- there is no log rotation by size, only daily files + retention pruning
 - there is no viewer UI inside Nodex yet
 - logs are local diagnostics, not immutable audit records
 
@@ -424,6 +467,5 @@ Reasonable next steps if needed:
 
 - UI or settings-surface controls for log level
 - on-demand log bundle export for bug reports
-- size-based rotation in addition to daily files
 - correlation IDs propagated from IPC entrypoints into deeper service calls
 - a lightweight in-app log viewer for Codex debugging

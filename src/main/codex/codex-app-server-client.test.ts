@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
   CodexAppServerClient,
+  resolveCodexStderrLogLevel,
 } from "./codex-app-server-client";
 import { subscribeToBackendLogs } from "../logging/logger";
 
@@ -29,6 +30,11 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "  if (msg.method === 'echo') {",
       "    const delay = Number(msg.params?.delay ?? 0);",
       "    setTimeout(() => send({ id: msg.id, result: { value: msg.params?.value } }), delay);",
+      "    return;",
+      "  }",
+      "  if (msg.method === 'emitStderr') {",
+      "    process.stderr.write(String(msg.params?.line ?? '') + '\\n');",
+      "    send({ id: msg.id, result: {} });",
       "    return;",
       "  }",
       "  if (msg.method === 'triggerApproval') {",
@@ -99,6 +105,12 @@ function makeBinaryShim(binaryName: string): { dir: string; cleanup: () => void 
 }
 
 describe("codex-app-server-client", () => {
+  test("derives stderr severity from structured and tracing-formatted diagnostics", () => {
+    expect(resolveCodexStderrLogLevel('{"level":"DEBUG","message":"cache hit"}')).toBe("debug");
+    expect(resolveCodexStderrLogLevel("2026-07-14T12:34:56.000Z WARN codex_core: retrying")).toBe("warn");
+    expect(resolveCodexStderrLogLevel("plain diagnostic without a level")).toBe("info");
+  });
+
   test("initializes, correlates concurrent requests, and handles server requests", async () => {
     const mock = makeMockServerScript();
     const client = new CodexAppServerClient({
@@ -221,7 +233,7 @@ describe("codex-app-server-client", () => {
     const captured: Array<Record<string, unknown>> = [];
     const unsubscribe = subscribeToBackendLogs((entry) => {
       captured.push(entry);
-    });
+    }, { level: "trace" });
     const client = new CodexAppServerClient({
       binaryPath: process.execPath,
       args: [mock.scriptPath],
@@ -237,14 +249,50 @@ describe("codex-app-server-client", () => {
       await client.request<{ value: string }>("echo", { value: "log-me" });
 
       const hasSendLog = captured.some((entry) => {
-        return entry.msg === "Sending Codex RPC request" && entry.method === "echo";
+        return entry.level === "debug" && entry.msg === "Sending Codex RPC request" && entry.method === "echo";
       });
       const hasResponseLog = captured.some((entry) => {
-        return entry.msg === "Codex RPC request completed" && entry.method === "echo";
+        return entry.level === "debug" && entry.msg === "Codex RPC request completed" && entry.method === "echo";
       });
 
       expect(hasSendLog).toBe(true);
       expect(hasResponseLog).toBe(true);
+    } finally {
+      unsubscribe();
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
+  test("records each app-server stderr line once at its declared severity", async () => {
+    const mock = makeMockServerScript();
+    const captured: Array<Record<string, unknown>> = [];
+    const unsubscribe = subscribeToBackendLogs((entry) => {
+      captured.push(entry);
+    }, { level: "trace" });
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+    });
+
+    try {
+      await client.start();
+      const line = "2026-07-14T12:34:56.000Z WARN codex_core: retrying";
+      await client.request("emitStderr", { line });
+
+      const deadline = Date.now() + 1_000;
+      while (
+        Date.now() < deadline
+        && !captured.some((entry) => entry.msg === "Codex app-server diagnostic")
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      const stderrRecords = captured.filter((entry) =>
+        entry.msg === "Codex app-server diagnostic" && entry.line === line
+      );
+      expect(stderrRecords).toHaveLength(1);
+      expect(stderrRecords[0]?.level).toBe("warn");
     } finally {
       unsubscribe();
       await client.stop();

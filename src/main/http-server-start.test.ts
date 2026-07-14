@@ -1,7 +1,14 @@
 import { describe, expect, test } from "vitest";
-import { getHttpServerOptions } from "./http-server";
+import { getHttpServerOptions, resolveHttpRequestLogLevel } from "./http-server";
 
 describe("http server startup options", () => {
+  test("keeps routine requests at debug while escalating slow and failed requests", () => {
+    expect(resolveHttpRequestLogLevel(200, 20)).toBe("debug");
+    expect(resolveHttpRequestLogLevel(302, 1_000)).toBe("info");
+    expect(resolveHttpRequestLogLevel(404, 20)).toBe("warn");
+    expect(resolveHttpRequestLogLevel(500, 20)).toBe("error");
+  });
+
   test("binds to loopback host", () => {
     const options = getHttpServerOptions(51283);
 
