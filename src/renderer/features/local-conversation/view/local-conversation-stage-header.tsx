@@ -1,10 +1,7 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
-import {
-  AuthPopover,
-} from "./local-conversation-stage-header-deps";
 import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
 
 interface ThreadStageHeaderProps {
@@ -14,36 +11,6 @@ interface ThreadStageHeaderProps {
 }
 
 function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
-  const [busyAction, setBusyAction] = useState<"login" | "logout" | null>(null);
-
-  const handleChatGptLogin = useCallback(async () => {
-    setBusyAction("login");
-    onErrorMessage(null);
-
-    try {
-      const result = await actions.onStartChatGptLogin();
-      if (result.type === "chatgpt" && result.authUrl) {
-        window.open(result.authUrl, "_blank");
-      }
-    } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : "Login failed");
-    } finally {
-      setBusyAction(null);
-    }
-  }, [actions, onErrorMessage]);
-
-  const handleApiKeyLogin = useCallback(async (apiKey: string) => {
-    setBusyAction("login");
-    onErrorMessage(null);
-    try {
-      await actions.onStartApiKeyLogin(apiKey);
-    } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : "Login failed");
-    } finally {
-      setBusyAction(null);
-    }
-  }, [actions, onErrorMessage]);
-
   const canRenameThread = Boolean(model.threadId && actions.onRequestRenameThread);
   const showThreadActions = canRenameThread || model.showSideChatAction;
   const handleOpenSideChat = useCallback(async () => {
@@ -72,13 +39,6 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
           <span className="min-w-0 truncate">{model.title}</span>
         </span>
         <div className="no-drag flex items-center gap-2">
-          <AuthPopover
-            account={model.account}
-            busyAction={busyAction}
-            onChatGptLogin={() => void handleChatGptLogin()}
-            onApiKeyLogin={(key) => void handleApiKeyLogin(key)}
-            onCancelLogin={(loginId) => void actions.onCancelLogin(loginId)}
-          />
           {showThreadActions ? (
             <NodexDropdownMenu
               align="end"
@@ -130,8 +90,6 @@ export const ThreadStageHeader = memo(
       && left.model.title === right.model.title
       && left.model.projectId === right.model.projectId
       && left.model.threadId === right.model.threadId
-      && left.model.connection === right.model.connection
-      && left.model.account === right.model.account
       && left.model.showSideChatAction === right.model.showSideChatAction
     );
   },

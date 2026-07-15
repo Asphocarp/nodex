@@ -82,7 +82,8 @@ describe("LeftSidebarFooter", () => {
     });
   });
 
-  test("does not render a quota ring for signed-out accounts", async () => {
+  test("shows sign-in in the quota slot for signed-out accounts", async () => {
+    let chatGptLoginCount = 0;
     const view = render(
       <NodexTooltipProvider>
         <LeftSidebarFooter
@@ -90,6 +91,12 @@ describe("LeftSidebarFooter", () => {
           account={signedOutAccount}
           connection={{ status: "connected", retries: 0 }}
           onRefreshAccount={async () => signedOutAccount}
+          onStartChatGptLogin={async () => {
+            chatGptLoginCount += 1;
+            return { type: "apiKey" };
+          }}
+          onStartApiKeyLogin={async () => ({ type: "apiKey" })}
+          onCancelLogin={async () => ({ status: "canceled" })}
           onLogout={async () => undefined}
         />
       </NodexTooltipProvider>,
@@ -97,5 +104,33 @@ describe("LeftSidebarFooter", () => {
 
     expect(Boolean(view.queryByTestId("sidebar-account-rate-limit-ring"))).toBe(false);
     expect(Boolean(view.getByRole("button", { name: "Settings" }))).toBe(true);
+    fireEvent.click(view.getByRole("button", { name: "Sign in" }));
+
+    const chatGptLogin = await view.findByRole("button", { name: "Sign in with ChatGPT" });
+    fireEvent.click(chatGptLogin);
+
+    await waitFor(() => {
+      expect(chatGptLoginCount).toBe(1);
+    });
+  });
+
+  test("keeps the account slot empty until the account snapshot hydrates", () => {
+    const view = render(
+      <NodexTooltipProvider>
+        <LeftSidebarFooter
+          onOpenSettings={() => undefined}
+          account={null}
+          connection={{ status: "connected", retries: 0 }}
+          onRefreshAccount={async () => signedOutAccount}
+          onStartChatGptLogin={async () => ({ type: "apiKey" })}
+          onStartApiKeyLogin={async () => ({ type: "apiKey" })}
+          onCancelLogin={async () => ({ status: "canceled" })}
+          onLogout={async () => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    expect(Boolean(view.queryByRole("button", { name: "Sign in" }))).toBe(false);
+    expect(Boolean(view.queryByTestId("sidebar-account-rate-limit-ring"))).toBe(false);
   });
 });

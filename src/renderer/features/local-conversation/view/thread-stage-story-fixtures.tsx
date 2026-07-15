@@ -5,7 +5,6 @@ import type {
   CodexCollaborationModePreset,
   CodexCommandAction,
   CodexComposerIntent,
-  CodexConnectionState,
   CodexDictationStateSnapshot,
   CodexConversationItem,
   CodexConversationSnapshot,
@@ -143,11 +142,6 @@ const STORY_NEW_THREAD_TARGET: NonNullable<ThreadStageRouteInput["newThreadTarge
   sessionId: STORY_SESSION_ID,
   threadTitle: "Add Storybook coverage for thread surfaces",
   runInTarget: "newWorktree",
-};
-
-const DEFAULT_CONNECTION: CodexConnectionState = {
-  status: "connected",
-  retries: 0,
 };
 
 const DEFAULT_ACCOUNT_AUTHENTICATED: CodexAccountSnapshot = {
@@ -3172,8 +3166,6 @@ export function buildThreadStageStorySurfaceModels(
     projectId: conversation?.projectId ?? runtime.activeThreadSummary?.projectId ?? STORY_PROJECT_ID,
     threadId: conversation?.threadId ?? runtime.activeThreadSummary?.threadId ?? activeThreadId,
     title: resolveStoryThreadTitle(runtime),
-    connection: DEFAULT_CONNECTION,
-    account: controls.authenticatedAccount ? DEFAULT_ACCOUNT_AUTHENTICATED : DEFAULT_ACCOUNT_SIGNED_OUT,
   };
 
   const primaryRequest = selectPrimaryConversationRequest(conversation);

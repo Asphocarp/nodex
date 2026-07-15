@@ -9416,7 +9416,6 @@ export function WorkbenchShell({
                       turnDiffHoverPreviewDisabled={model.sidePanelOpen}
                       onForkSessionFromTurn={forkSessionFromTurn}
                       onForkFromTurnIntoWorktree={forkSessionFromTurnIntoWorktree}
-                      accountActions={codexAccountActions}
                       worktreeStartMode={worktreeStartMode}
                       worktreeBranchPrefix={worktreeAutoBranchPrefix}
                       searchOpenTick={isActive ? threadSearchOpenTick : 0}
@@ -9876,6 +9875,9 @@ export function WorkbenchShell({
               account={codexAccount}
               connection={codexConnection}
               onRefreshAccount={codexAccountActions.refreshAccount}
+              onStartChatGptLogin={codexAccountActions.startChatGptLogin}
+              onStartApiKeyLogin={codexAccountActions.startApiKeyLogin}
+              onCancelLogin={codexAccountActions.cancelLogin}
               onLogout={handleCodexAccountLogout}
               onAccountErrorMessage={handleCodexAccountErrorMessage}
               sidebarArchivePendingKeys={sidebarArchivePendingKeys}
@@ -9970,6 +9972,9 @@ export function WorkbenchShell({
                   account={codexAccount}
                   connection={codexConnection}
                   onRefreshAccount={codexAccountActions.refreshAccount}
+                  onStartChatGptLogin={codexAccountActions.startChatGptLogin}
+                  onStartApiKeyLogin={codexAccountActions.startApiKeyLogin}
+                  onCancelLogin={codexAccountActions.cancelLogin}
                   onLogout={handleCodexAccountLogout}
                   onAccountErrorMessage={handleCodexAccountErrorMessage}
                   sidebarArchivePendingKeys={sidebarArchivePendingKeys}
@@ -11434,6 +11439,9 @@ function ProjectSessionSidebar({
   account,
   connection,
   onRefreshAccount,
+  onStartChatGptLogin,
+  onStartApiKeyLogin,
+  onCancelLogin,
   onLogout,
   onAccountErrorMessage,
   sidebarArchivePendingKeys,
@@ -11499,6 +11507,9 @@ function ProjectSessionSidebar({
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
+  onStartChatGptLogin: ReturnType<typeof useCodexAccountActions>["startChatGptLogin"];
+  onStartApiKeyLogin: ReturnType<typeof useCodexAccountActions>["startApiKeyLogin"];
+  onCancelLogin: ReturnType<typeof useCodexAccountActions>["cancelLogin"];
   onLogout: () => Promise<void>;
   onAccountErrorMessage: (message: string | null) => void;
   sidebarArchivePendingKeys: ReadonlySet<string>;
@@ -11769,6 +11780,9 @@ function ProjectSessionSidebar({
               account={account}
               connection={connection}
               onRefreshAccount={onRefreshAccount}
+              onStartChatGptLogin={onStartChatGptLogin}
+              onStartApiKeyLogin={onStartApiKeyLogin}
+              onCancelLogin={onCancelLogin}
               onLogout={onLogout}
               onErrorMessage={onAccountErrorMessage}
             />
@@ -12052,7 +12066,6 @@ function SessionThreadPage({
   turnDiffHoverPreviewDisabled,
   onForkSessionFromTurn,
   onForkFromTurnIntoWorktree,
-  accountActions,
   worktreeStartMode,
   worktreeBranchPrefix,
   searchOpenTick,
@@ -12105,7 +12118,6 @@ function SessionThreadPage({
     threadId: string;
     targetTurnId: string;
   }) => Promise<void>;
-  accountActions: ReturnType<typeof useCodexAccountActions>;
   worktreeStartMode: WorktreeStartMode;
   worktreeBranchPrefix: string;
   searchOpenTick: number;
@@ -12259,7 +12271,6 @@ function SessionThreadPage({
   const actions = useMemo<ThreadStageActions>(() => ({
     ...createThreadStageActions({
       activeThreadId: summary?.threadId ?? null,
-      accountActions,
       codexControl,
       onEnsureBlankSessionForProject,
       onRefreshProjectSessions,
@@ -12305,7 +12316,6 @@ function SessionThreadPage({
     ...(onConsumeNewThreadComposerIntent ? { onConsumeNewThreadComposerIntent } : {}),
   }), [
     codexControl,
-    accountActions,
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
     onOpenPendingWorktree,
@@ -12549,7 +12559,6 @@ function BackgroundAgentSessionTab({
 }) {
   const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
-  const accountActions = useCodexAccountActions();
   const codexControl = useCodexAppServerControl(tab.projectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
@@ -12570,7 +12579,6 @@ function BackgroundAgentSessionTab({
 
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,
-    accountActions,
     codexControl,
     onEnsureBlankSessionForProject: async () => activeSession,
     onRefreshProjectSessions: onRefreshSessions,
@@ -12591,7 +12599,6 @@ function BackgroundAgentSessionTab({
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
-    accountActions,
     activeSession,
     codexControl,
     onOpenMcpAppSidePanel,
@@ -12692,7 +12699,6 @@ function SideChatSessionTab({
 }) {
   const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
-  const accountActions = useCodexAccountActions();
   const codexControl = useCodexAppServerControl(tab.projectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
@@ -12709,7 +12715,6 @@ function SideChatSessionTab({
 
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,
-    accountActions,
     codexControl,
     onEnsureBlankSessionForProject: async () => activeSession,
     onRefreshProjectSessions: onRefreshSessions,
@@ -12730,7 +12735,6 @@ function SideChatSessionTab({
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
-    accountActions,
     activeSession,
     codexControl,
     onOpenMcpAppSidePanel,

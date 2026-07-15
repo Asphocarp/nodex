@@ -51,7 +51,6 @@ import {
   useCodexPermissionState,
   useConversationParentThreadId,
   useLocalConversationAccount,
-  useLocalConversationConnection,
 } from "../local-conversation-store";
 import { LocalConversationFooter } from "./local-conversation-footer";
 import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-thread-home-screen";
@@ -191,8 +190,6 @@ function ConnectedThreadStageHeader({
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
 }) {
-  const connection = useLocalConversationConnection();
-  const account = useLocalConversationAccount();
   const summaryFields = useConversationSummaryFields(activeThreadId);
 
   const model = useMemo<ThreadStageHeaderModel>(
@@ -200,15 +197,11 @@ function ConnectedThreadStageHeader({
       projectId: summaryFields.projectId ?? input.projectId,
       threadId: summaryFields.threadId ?? input.activeThreadSummary?.threadId ?? activeThreadId,
       title: resolveThreadTitle(input, summaryFields),
-      connection,
-      account,
       showSideChatAction: Boolean(activeThreadId && !input.sideChatContext && actions.onOpenSideChat),
     }),
     [
-      account,
       activeThreadId,
       actions.onOpenSideChat,
-      connection,
       input,
       summaryFields,
     ],

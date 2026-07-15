@@ -63,17 +63,6 @@ function createActions(log: string[]): ThreadStageActions {
     onReasoningEffortChange: () => {},
     onPermissionModeChange: () => {},
     onQueueingEnabledChange: () => {},
-    onRefreshAccount: async () => {
-      throw new Error("not implemented");
-    },
-    onStartChatGptLogin: async () => {
-      throw new Error("not implemented");
-    },
-    onStartApiKeyLogin: async () => {
-      throw new Error("not implemented");
-    },
-    onCancelLogin: async () => {},
-    onLogout: async () => {},
     onSendPrompt: async (prompt, opts) => {
       log.push(`send:${prompt}:${opts?.collaborationMode ?? "none"}`);
     },

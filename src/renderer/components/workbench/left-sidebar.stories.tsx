@@ -1667,6 +1667,9 @@ function SettingsFooterHarness({
             account={account}
             connection={{ status: "connected", retries: 0 }}
             onRefreshAccount={async () => account ?? FOOTER_SIGNED_OUT_ACCOUNT}
+            onStartChatGptLogin={async () => ({ type: "apiKey" })}
+            onStartApiKeyLogin={async () => ({ type: "apiKey" })}
+            onCancelLogin={async () => ({ status: "canceled" })}
             onLogout={async () => undefined}
           />
         </div>

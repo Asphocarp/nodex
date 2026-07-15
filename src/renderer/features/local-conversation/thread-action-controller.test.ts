@@ -14,18 +14,6 @@ function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadAct
 
   return {
     activeThreadId: "thread_1",
-    accountActions: {
-      refreshAccount: async () => ({
-        account: null,
-        requiresOpenAiAuth: false,
-        pendingLogin: null,
-        rateLimits: null,
-      }),
-      startChatGptLogin: async () => ({ type: "apiKey" }),
-      startApiKeyLogin: async () => ({ type: "apiKey" }),
-      cancelLogin: async () => ({ status: "canceled" }),
-      logout: async () => true,
-    } as ThreadActionControllerInput["accountActions"],
     codexControl: {
       setConversationThreadSettings: async (threadId: string, patch: unknown) => {
         settingsUpdates.push({ threadId, patch });

@@ -235,11 +235,6 @@ export interface ThreadStageActions {
   onPermissionModeChange: (mode: CodexPermissionMode) => void | Promise<void>;
   onQueueingEnabledChange: (enabled: boolean) => void;
   onComposerIdeContextEnabledChange?: (enabled: boolean) => void;
-  onRefreshAccount: () => Promise<CodexAccountSnapshot>;
-  onStartChatGptLogin: () => Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }>;
-  onStartApiKeyLogin: (apiKey: string) => Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }>;
-  onCancelLogin: (loginId: string) => Promise<void>;
-  onLogout: () => Promise<void>;
   onStartThreadForSession?: (input: {
     projectId: string;
     sessionId: string;
@@ -868,8 +863,6 @@ export interface ThreadStageHeaderModel {
   projectId: string;
   threadId: string | null;
   title: string;
-  connection: CodexConnectionState;
-  account: CodexAccountSnapshot | null;
   showSideChatAction?: boolean;
 }
 

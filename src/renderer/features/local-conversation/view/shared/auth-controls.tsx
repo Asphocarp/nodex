@@ -1,27 +1,12 @@
 import { useForm, useStore } from "@tanstack/react-form";
-import { type ReactNode } from "react";
 import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
-import { NodexTooltip } from "@/components/ui/tooltip";
 import { handleFormSubmit } from "@/lib/forms";
-import { cn } from "../../../../lib/utils";
-import type { CodexAccountSnapshot, CodexConnectionState } from "../../../../lib/types";
-import type { StageThreadsBusyAction } from "./composer-action";
-import { formatRateLimitSummary, RateLimitTooltipSection } from "./auth-rate-limits";
-
-function connectionLabel(
-  status: CodexConnectionState["status"],
-  rateLimits?: CodexAccountSnapshot["rateLimits"],
-): string {
-  if (status === "connected") return formatRateLimitSummary(rateLimits) ?? "Connected";
-  if (status === "starting") return "Connecting...";
-  if (status === "missingBinary") return "Codex CLI missing";
-  if (status === "error") return "Error";
-  return "Disconnected";
-}
+import type { CodexAccountSnapshot } from "../../../../lib/types";
+import { RateLimitTooltipSection } from "./auth-rate-limits";
 
 export function renderConnectionAccountTooltipContent(
   account: NonNullable<CodexAccountSnapshot["account"]>,
@@ -42,7 +27,7 @@ export function renderConnectionAccountTooltipContent(
         {options?.onSignOut && (
           <button
             type="button"
-            className="self-start text-xs text-(--foreground-secondary) transition-colors duration-150 hover:text-(--destructive) disabled:opacity-50"
+            className="self-start text-xs text-(--foreground-secondary) hover:text-(--destructive) disabled:opacity-50"
             onClick={options.onSignOut}
             disabled={options.isSigningOutDisabled}
           >
@@ -64,7 +49,7 @@ export function renderConnectionAccountTooltipContent(
       {options?.onSignOut && (
         <button
           type="button"
-          className="self-start text-xs text-(--foreground-secondary) transition-colors duration-150 hover:text-(--destructive) disabled:opacity-50"
+          className="self-start text-xs text-(--foreground-secondary) hover:text-(--destructive) disabled:opacity-50"
           onClick={options.onSignOut}
           disabled={options.isSigningOutDisabled}
         >
@@ -75,66 +60,19 @@ export function renderConnectionAccountTooltipContent(
   );
 }
 
-// ── Connection badge ─────────────────────────────────────────────────────────
-
-function connectionBadgeClasses(status: CodexConnectionState["status"]): string {
-  if (status === "connected") return "bg-[var(--green-bg)] text-[var(--green-text)]";
-  if (status === "starting") return "bg-[var(--yellow-bg)] text-[var(--yellow-text)]";
-  return "bg-[var(--background-tertiary)] text-[var(--foreground-tertiary)]";
-}
-
-export function ConnectionBadge({
-  connection,
-  rateLimits,
-  tooltipContent,
-  onTooltipOpenChange,
-}: {
-  connection: CodexConnectionState;
-  rateLimits?: CodexAccountSnapshot["rateLimits"];
-  tooltipContent: ReactNode | null;
-  onTooltipOpenChange?: (open: boolean) => void;
-}) {
-  const badge = (
-    <button
-      type="button"
-      aria-label="Connection details"
-      className={cn(
-        "flex h-5 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-(--ring)",
-        tooltipContent ? "cursor-help" : "cursor-default",
-        connectionBadgeClasses(connection.status),
-      )}
-    >
-      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-      {connectionLabel(connection.status, rateLimits)}
-    </button>
-  );
-
-  if (!tooltipContent) return badge;
-
-  return (
-    <NodexTooltip
-      tooltipContent={tooltipContent}
-      side="bottom"
-      delayDuration={0}
-      onOpenChange={onTooltipOpenChange}
-      interactive
-    >
-      {badge}
-    </NodexTooltip>
-  );
-}
-
-// ── Auth popover ─────────────────────────────────────────────────────────────
-
 export function AuthPopover({
   account,
-  busyAction,
+  busy,
+  side = "bottom",
+  sideOffset,
   onChatGptLogin,
   onApiKeyLogin,
   onCancelLogin,
 }: {
   account: CodexAccountSnapshot | null;
-  busyAction: StageThreadsBusyAction | null;
+  busy: boolean;
+  side?: "top" | "right" | "bottom" | "left";
+  sideOffset?: number;
   onChatGptLogin: () => void;
   onApiKeyLogin: (key: string) => void;
   onCancelLogin: (loginId: string) => void;
@@ -166,7 +104,8 @@ export function AuthPopover({
       </NodexPopoverTrigger>
       <NodexPopoverContent
         align="end"
-        side="bottom"
+        side={side}
+        sideOffset={sideOffset}
         className="w-64 p-3"
       >
         {account?.pendingLogin ? (
@@ -186,7 +125,7 @@ export function AuthPopover({
               type="button"
               className="h-7 w-full rounded-md bg-(--foreground) text-xs font-medium text-(--background) shadow-card-xs hover:opacity-90"
               onClick={onChatGptLogin}
-              disabled={busyAction !== null}
+              disabled={busy}
             >
               Sign in with ChatGPT
             </button>
@@ -211,8 +150,8 @@ export function AuthPopover({
               />
               <button
                 type="submit"
-                className="h-7 shrink-0 rounded-md border border-(--border) px-2.5 text-xs font-medium transition-colors duration-150 hover:bg-(--background-tertiary)"
-                disabled={busyAction !== null || !apiKeyInput.trim()}
+                className="h-7 shrink-0 rounded-md border border-(--border) px-2.5 text-xs font-medium hover:bg-(--background-tertiary)"
+                disabled={busy || !apiKeyInput.trim()}
               >
                 Use key
               </button>

@@ -18,7 +18,6 @@ import {
 } from "./thread-stage-story-fixtures";
 import type { ThreadStageActions } from "../thread-stage-types";
 import type {
-  CodexAccountSnapshot,
   CodexApprovalResponse,
   CodexConversationSnapshot,
   CodexMcpServerElicitationAction,
@@ -431,29 +430,6 @@ export function ThreadStageDevStoryPage({
     onReasoningEffortChange: () => {},
     onPermissionModeChange: () => {},
     onQueueingEnabledChange: () => {},
-    onRefreshAccount: async (): Promise<CodexAccountSnapshot> => (
-      authenticatedAccount
-        ? {
-            account: {
-              type: "chatgpt",
-              email: "asc@example.com",
-              planType: "Pro",
-            },
-            requiresOpenAiAuth: false,
-            pendingLogin: null,
-            rateLimits: null,
-          }
-        : {
-            account: null,
-            requiresOpenAiAuth: true,
-            pendingLogin: null,
-            rateLimits: null,
-          }
-    ),
-    onStartChatGptLogin: async () => ({ type: "chatgpt", loginId: "storybook-login", authUrl: "https://example.com" }),
-    onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: async () => {},
-    onLogout: async () => {},
     onStartThreadForSession: async ({ prompt }) => {
       setRuntime((current) => {
         const threadId = "thread_story_started";
@@ -687,7 +663,7 @@ export function ThreadStageDevStoryPage({
     },
     onOpenThread: () => {},
     onCleanBackgroundTerminals: async () => {},
-  }), [authenticatedAccount, scenario.autoAction, surfaceModels.footerModel.conversation?.threadId]);
+  }), [scenario.autoAction, surfaceModels.footerModel.conversation?.threadId]);
 
   const forkFromTurnIntoWorktree = async ({
     threadId,

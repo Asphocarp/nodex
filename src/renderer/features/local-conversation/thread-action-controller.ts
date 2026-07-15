@@ -1,4 +1,3 @@
-import type { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
   GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
   GIT_ACTION_CREATE_PR_PROMPT,
@@ -13,12 +12,10 @@ import type { useCodexAppServerControl } from "./local-conversation-store";
 import { cleanupMaterializedThreadGoalDraft } from "./thread-goal-materialization";
 import type { ThreadStageActions } from "./thread-stage-types";
 
-type AccountActions = ReturnType<typeof useCodexAccountActions>;
 type CodexControl = ReturnType<typeof useCodexAppServerControl>;
 
 export interface ThreadActionControllerInput {
   activeThreadId: string | null;
-  accountActions: AccountActions;
   codexControl: CodexControl;
   currentSessionProjectId: string;
   projectId: string;
@@ -97,15 +94,6 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
   };
 
   const actions = {
-    onRefreshAccount: input.accountActions.refreshAccount,
-    onStartChatGptLogin: input.accountActions.startChatGptLogin,
-    onStartApiKeyLogin: input.accountActions.startApiKeyLogin,
-    onCancelLogin: async (loginId) => {
-      await input.accountActions.cancelLogin(loginId);
-    },
-    onLogout: async () => {
-      await input.accountActions.logout();
-    },
     onCollaborationModeChange: (collaborationMode) => {
       updateThreadSettingsOrDraft({ collaborationMode });
     },

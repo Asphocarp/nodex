@@ -1,30 +1,25 @@
 import { useCallback, useMemo } from "react";
 import { invoke } from "./api";
-import type { CodexAccountSnapshot } from "./types";
 
 export function useCodexAccountActions() {
   const refreshAccount = useCallback(async () => {
-    return (await invoke("codex:account:read")) as CodexAccountSnapshot;
+    return invoke("codex:account:read");
   }, []);
 
   const startChatGptLogin = useCallback(async () => {
-    return (await invoke("codex:account:login:start", { type: "chatgpt" })) as
-      | { type: "apiKey" }
-      | { type: "chatgpt"; loginId: string; authUrl: string };
+    return invoke("codex:account:login:start", { type: "chatgpt" });
   }, []);
 
   const startApiKeyLogin = useCallback(async (apiKey: string) => {
-    return (await invoke("codex:account:login:start", { type: "apiKey", apiKey })) as
-      | { type: "apiKey" }
-      | { type: "chatgpt"; loginId: string; authUrl: string };
+    return invoke("codex:account:login:start", { type: "apiKey", apiKey });
   }, []);
 
   const cancelLogin = useCallback(async (loginId: string) => {
-    return (await invoke("codex:account:login:cancel", loginId)) as { status: "canceled" | "notFound" };
+    return invoke("codex:account:login:cancel", loginId);
   }, []);
 
   const logout = useCallback(async () => {
-    return (await invoke("codex:account:logout")) as boolean;
+    return invoke("codex:account:logout");
   }, []);
 
   return useMemo(() => ({

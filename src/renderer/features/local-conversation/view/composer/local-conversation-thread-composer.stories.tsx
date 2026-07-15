@@ -249,13 +249,6 @@ function buildActions(): ThreadStageActions {
     onPersonalityChange: () => { },
     onPermissionModeChange: () => { },
     onQueueingEnabledChange: () => { },
-    onRefreshAccount: async () => {
-      throw new Error("not implemented");
-    },
-    onStartChatGptLogin: async () => ({ type: "apiKey" }),
-    onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: async () => { },
-    onLogout: async () => { },
     onSendPrompt: async () => { },
     onSteerPrompt: async () => { },
     onInterruptTurn: async () => { },
