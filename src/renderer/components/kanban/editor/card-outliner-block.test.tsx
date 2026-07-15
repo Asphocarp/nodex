@@ -132,7 +132,7 @@ afterEach(() => {
 });
 
 describe("CardOutlinerBlock", () => {
-  test("click-edits through an active collapsed runtime without changing disclosure", async () => {
+  test("pointer-edits through an active collapsed runtime without changing disclosure", async () => {
     const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(1);
     const view = render(
@@ -162,10 +162,12 @@ describe("CardOutlinerBlock", () => {
     );
     if (!frame) throw new Error("Missing Card outliner frame");
 
+    const titleTrigger = view.getByRole("button", {
+      name: "Edit Nested Card title",
+    });
     await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Edit Nested Card title" }),
-      );
+      fireEvent.pointerDown(titleTrigger, { clientX: 144, clientY: 32 });
+      fireEvent.click(titleTrigger);
       await Promise.resolve();
     });
 
@@ -174,7 +176,11 @@ describe("CardOutlinerBlock", () => {
     expect(frame.dataset.cardOutlinerExpanded).toBe("false");
     expect(disclosureStore.isExpanded("nested-card")).toBe(false);
     expect(activeRuntimeProps.mock.lastCall?.[0]).toMatchObject({
-      focusIntent: { kind: "boundary", direction: "up" },
+      focusIntent: {
+        kind: "pointer",
+        clientX: 144,
+        clientY: 32,
+      },
     });
   });
 

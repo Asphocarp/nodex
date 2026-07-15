@@ -98,7 +98,7 @@ No persisted-data migration, schema version change, or NFM migration is required
 7. A parent disclosure wrapper never consumes a modified Enter originating in its disclosed body.
 8. Host and target navigation crosses through an explicit editor-scoped handle, never event bubbling or a Block-ID-global map.
 9. Arrow interception occurs only at visual boundaries and never consumes modified, composing, or range-selection movement.
-10. A pending async focus intent survives lazy loading and provider synchronization and is applied at most once.
+10. A pending async focus intent survives lazy loading, provider synchronization, and initial title subscription without a semantically redundant DOM replacement, and is applied at most once.
 11. A focused editing engagement outranks visibility-only surfaces without exceeding the provider budget.
 12. Missing, deleted, archived, self-referential, and cyclic targets never activate recursive editing.
 

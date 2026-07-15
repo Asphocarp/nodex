@@ -13,6 +13,7 @@ import {
 import * as Y from "yjs";
 import {
   portableRichTextPlainText,
+  portableRichTextSemanticSource,
   readPortableRichTextFromYText,
   type PortableRichText,
 } from "../../../shared/block-documents/portable-rich-text";
@@ -162,6 +163,7 @@ export function CollaborativeCardTitle({
   const [richTitle, setRichTitle] = useState(() =>
     readPortableRichTextFromYText(title),
   );
+  const richTitleSourceRef = useRef(portableRichTextSemanticSource(richTitle));
   const [localOrigin] = useState(() => ({ source: "collaborative-card-title" }));
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [renderRevision, setRenderRevision] = useState(0);
@@ -209,13 +211,18 @@ export function CollaborativeCardTitle({
     });
     undoManagerRef.current = undoManager;
 
-    const handleTitleChange = (): void => {
-      onValueChangeRef.current?.(
-        portableRichTextPlainText(readPortableRichTextFromYText(title)),
-      );
-      if (composingRef.current) return;
-      setRichTitle(readPortableRichTextFromYText(title));
+    const publishRichTitle = (nextRichTitle: PortableRichText): void => {
+      const nextSource = portableRichTextSemanticSource(nextRichTitle);
+      if (nextSource === richTitleSourceRef.current) return;
+      richTitleSourceRef.current = nextSource;
+      setRichTitle(nextRichTitle);
       setRenderRevision((revision) => revision + 1);
+    };
+    const handleTitleChange = (): void => {
+      const nextRichTitle = readPortableRichTextFromYText(title);
+      onValueChangeRef.current?.(portableRichTextPlainText(nextRichTitle));
+      if (composingRef.current) return;
+      publishRichTitle(nextRichTitle);
     };
     const handleBeforeTransaction = (transaction: Y.Transaction): void => {
       if (transaction.origin === localOrigin) return;
@@ -282,10 +289,9 @@ export function CollaborativeCardTitle({
     title.observe(handleTitleChange);
     document.on("beforeTransaction", handleBeforeTransaction);
     document.on("afterTransaction", handleAfterTransaction);
-    setRichTitle(readPortableRichTextFromYText(title));
-    onValueChangeRef.current?.(
-      portableRichTextPlainText(readPortableRichTextFromYText(title)),
-    );
+    const currentRichTitle = readPortableRichTextFromYText(title);
+    publishRichTitle(currentRichTitle);
+    onValueChangeRef.current?.(portableRichTextPlainText(currentRichTitle));
     return () => {
       title.unobserve(handleTitleChange);
       document.off("beforeTransaction", handleBeforeTransaction);
@@ -370,7 +376,9 @@ export function CollaborativeCardTitle({
         origin: localOrigin,
       });
     }
-    setRichTitle(readPortableRichTextFromYText(title));
+    const nextRichTitle = readPortableRichTextFromYText(title);
+    richTitleSourceRef.current = portableRichTextSemanticSource(nextRichTitle);
+    setRichTitle(nextRichTitle);
     if (!hadRelativeSelection) {
       absoluteSelectionRef.current = {
         anchor: draftSelection?.anchor ?? reconciliation.value.length,

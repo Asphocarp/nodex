@@ -164,7 +164,7 @@ export const CollapsedEditing: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The authoritative title stays editable while collapsed; Cmd/Ctrl+Enter toggles this occurrence's body without leaving the title surface.",
+        story: "The authoritative title stays editable while collapsed. Its first pointer activation preserves the clicked caret position; Cmd/Ctrl+Enter toggles this occurrence's body without leaving the title surface.",
       },
     },
   },

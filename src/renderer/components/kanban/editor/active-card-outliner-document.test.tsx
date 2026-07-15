@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import type { CardOutlinerRowChromeProps } from "@/components/block-documents/card-outliner-surface";
 import type { AvailableCardOutlinerTarget } from "@/lib/card-outliner-target";
@@ -141,6 +141,71 @@ function createSurface() {
 describe("ActiveCardOutlinerDocument", () => {
   beforeEach(() => {
     bodyBoundaryFocus.mockClear();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis.document, "caretPositionFromPoint");
+    Reflect.deleteProperty(globalThis.document, "caretRangeFromPoint");
+  });
+
+  test("preserves first-mount pointer placement after title subscription setup", () => {
+    const { document, surface } = createSurface();
+    surfaceState.value = surface;
+    const consumed = vi.fn();
+    const caretRangeFromPoint = vi.fn((clientX: number, clientY: number) => {
+      expect({ clientX, clientY }).toEqual({ clientX: 240, clientY: 80 });
+      const editor = globalThis.document.querySelector<HTMLElement>(
+        '[aria-label="Edit Nested Card title"]',
+      );
+      const text = editor
+        ?.querySelector<HTMLElement>("[data-rich-title-kind='text']")
+        ?.firstChild;
+      if (!(text instanceof Text)) return null;
+      const range = globalThis.document.createRange();
+      range.setStart(text, 6);
+      range.collapse(true);
+      return range;
+    });
+    Object.defineProperties(globalThis.document, {
+      caretPositionFromPoint: {
+        configurable: true,
+        value: undefined,
+      },
+      caretRangeFromPoint: {
+        configurable: true,
+        value: caretRangeFromPoint,
+      },
+    });
+
+    const view = render(
+      <ActiveCardOutlinerDocument
+        target={target}
+        rowProps={rowProps(false)}
+        hostRuntime={hostRuntime}
+        focusIntent={{
+          id: 1,
+          kind: "pointer",
+          clientX: 240,
+          clientY: 80,
+        }}
+        onFocusIntentConsumed={consumed}
+        onTitleFocus={() => undefined}
+        onTitleBlur={() => undefined}
+        onMoveToHostBoundary={() => true}
+        onEscapeToHostShell={() => true}
+      />,
+    );
+    const title = view.getByRole("textbox", {
+      name: "Edit Nested Card title",
+    }) as HTMLDivElement;
+
+    expect(caretRangeFromPoint).toHaveBeenCalledTimes(1);
+    expect(readRichTitleDomSelection(title)).toMatchObject({
+      start: 6,
+      end: 6,
+    });
+    expect(consumed).toHaveBeenCalledWith(1);
+    document.destroy();
   });
 
   test("consumes collapsed entry in the authoritative title without mounting a body", async () => {
