@@ -1,10 +1,12 @@
 import {
   useEffect,
+  useImperativeHandle,
   useRef,
   useMemo,
   useCallback,
   useState,
   type RefObject,
+  type Ref,
 } from "react";
 import {
   SideMenuController,
@@ -64,9 +66,14 @@ import {
 import { resolveFindShortcutSeedQuery } from "./find-shortcut-seed";
 import {
   deferCollapsedToggleVerticalArrowToBrowser,
-  handleArrowFromInlineBlockSelection,
-  handleArrowIntoInlineSummary,
 } from "./inline-view-arrow-nav";
+import {
+  focusEmbeddedEditorBoundary,
+  handleArrowIntoEmbeddedSurface,
+  isEditorAtVisibleBoundary,
+  type EmbeddedSurfaceHostEditor,
+  type VerticalArrowDirection,
+} from "./embedded-surface-arrow-navigation";
 import {
   NfmSideMenu,
   NfmSideMenuOpenProvider,
@@ -225,6 +232,14 @@ interface NfmEditorCommonProps {
   placeholder?: string;
   className?: string;
   surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
+  embeddedBoundary?: {
+    navigationRef: Ref<NfmEditorBoundaryHandle>;
+    onBoundaryArrow: (direction: VerticalArrowDirection) => boolean;
+  };
+}
+
+export interface NfmEditorBoundaryHandle {
+  focusBoundary(direction: VerticalArrowDirection): boolean;
 }
 
 export interface NfmEditorProps extends NfmEditorCommonProps {
@@ -379,6 +394,7 @@ function NfmEditorInstance({
   placeholder = "Add a description...",
   className,
   surfaceWriteFence,
+  embeddedBoundary,
 }: NfmEditorInstanceProps) {
   const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
@@ -1282,6 +1298,18 @@ function NfmEditorInstance({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  useImperativeHandle(
+    embeddedBoundary?.navigationRef,
+    () => ({
+      focusBoundary: (direction) =>
+        focusEmbeddedEditorBoundary(
+          editor as unknown as EmbeddedSurfaceHostEditor,
+          direction,
+        ),
+    }),
+    [editor, embeddedBoundary?.navigationRef],
+  );
+
   useEffect(() => {
     if (!surfaceWriteFence) return;
     return surfaceWriteFence.registerRelocationPreparer(async () => {
@@ -1305,6 +1333,7 @@ function NfmEditorInstance({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof Element) {
+        if (event.target.closest("[data-embedded-surface-input]")) return;
         const nearestEditor = event.target.closest(".nfm-editor");
         if (nearestEditor && nearestEditor !== el) {
           return;
@@ -1337,7 +1366,8 @@ function NfmEditorInstance({
         !event.altKey &&
         !event.shiftKey &&
         !event.ctrlKey &&
-        !event.metaKey
+        !event.metaKey &&
+        !event.isComposing
       ) {
         if (isSpaceShortcut(event)) {
           const focusedImage = resolveFocusedImagePreview(
@@ -1357,34 +1387,32 @@ function NfmEditorInstance({
         }
 
         if (
-          event.key === "ArrowUp" &&
-          handleArrowFromInlineBlockSelection(editor, "prev")
+          (event.key === "ArrowUp" || event.key === "ArrowDown")
+          && handleArrowIntoEmbeddedSurface(
+            editor as unknown as EmbeddedSurfaceHostEditor,
+            event.key === "ArrowUp" ? "up" : "down",
+          )
         ) {
           event.preventDefault();
           return;
         }
 
+        const verticalDirection = event.key === "ArrowUp"
+          ? "up"
+          : event.key === "ArrowDown"
+            ? "down"
+            : null;
         if (
-          event.key === "ArrowDown" &&
-          handleArrowFromInlineBlockSelection(editor, "next")
+          verticalDirection
+          && embeddedBoundary
+          && isEditorAtVisibleBoundary(
+            editor as unknown as EmbeddedSurfaceHostEditor,
+            verticalDirection,
+          )
+          && embeddedBoundary.onBoundaryArrow(verticalDirection)
         ) {
           event.preventDefault();
-          return;
-        }
-
-        if (
-          event.key === "ArrowUp" &&
-          handleArrowIntoInlineSummary(editor, "prev")
-        ) {
-          event.preventDefault();
-          return;
-        }
-
-        if (
-          event.key === "ArrowDown" &&
-          handleArrowIntoInlineSummary(editor, "next")
-        ) {
-          event.preventDefault();
+          event.stopPropagation();
           return;
         }
 
@@ -1479,6 +1507,7 @@ function NfmEditorInstance({
     return () => el.removeEventListener("keydown", handleKeyDown, true);
   }, [
     editor,
+    embeddedBoundary,
     handleSendThreadSectionByBlockId,
     handleOpenThreadSectionThread,
     navigateSearch,

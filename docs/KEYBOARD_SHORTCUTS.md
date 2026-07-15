@@ -119,8 +119,9 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 
 | Shortcut | Action | Scope |
 |----------|--------|-------|
-| `↑` / `↓` | Navigate between inline views | When on inline block selection |
-| `↑` / `↓` | Navigate between cards at boundary | Toggle list card editor |
+| `↑` / `↓` | Traverse Card outliner surfaces | At a visual boundary, moves through the visible host Block order, an authoritative child `card` / `cardRef` title, and its disclosed body Blocks without changing disclosure; hidden collapsed-toggle descendants are skipped |
+| `↑` / `↓` | Navigate between cards at boundary | Top-level Toggle List Card editor |
+| `Escape` | Return from an engaged Card title to its host shell | Keeps Card disclosure unchanged |
 | `Space` | Toggle large image preview | When an image block is focused (open), or while preview modal is open (close) |
 
 ## Forms & Dialogs

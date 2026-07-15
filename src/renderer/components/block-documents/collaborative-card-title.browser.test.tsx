@@ -7,6 +7,7 @@ import {
   replaceYTextWithPortableRichText,
 } from "../../../shared/block-documents/portable-rich-text";
 import {
+  isRichTitleDomSelectionAtVerticalBoundary,
   readRichTitleDomSelection,
   restoreRichTitleDomSelection,
 } from "@/lib/rich-title-editor-dom";
@@ -20,6 +21,43 @@ const createTitle = (value: string) => {
 };
 
 describe("CollaborativeCardTitle in Chromium", () => {
+  test("detects the first and last rendered title lines rather than logical offsets", async () => {
+    const { document, title } = createTitle(
+      "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda",
+    );
+    const view = render(
+      <div style={{ width: 120 }}>
+        <CollaborativeCardTitle title={title} />
+      </div>,
+    );
+    const editor = view.getByRole("textbox", { name: "Card title" }) as HTMLDivElement;
+    const caretTopByIndex: number[] = [];
+
+    await act(async () => {
+      editor.focus();
+      for (let index = 0; index <= title.length; index += 1) {
+        restoreRichTitleDomSelection(editor, index, index);
+        const selection = editor.ownerDocument.getSelection();
+        const rect = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+        caretTopByIndex.push(rect?.top ?? 0);
+      }
+    });
+
+    const lastLineTop = Math.max(...caretTopByIndex);
+    const lastLineIndex = caretTopByIndex.findIndex((top) => top === lastLineTop);
+    expect(new Set(caretTopByIndex).size).toBeGreaterThan(1);
+    expect(lastLineIndex).toBeGreaterThan(0);
+    expect(lastLineIndex).toBeLessThan(title.length);
+
+    restoreRichTitleDomSelection(editor, lastLineIndex, lastLineIndex);
+    expect(isRichTitleDomSelectionAtVerticalBoundary(editor, "down")).toBe(true);
+    expect(isRichTitleDomSelectionAtVerticalBoundary(editor, "up")).toBe(false);
+
+    restoreRichTitleDomSelection(editor, 0, 0);
+    expect(isRichTitleDomSelectionAtVerticalBoundary(editor, "up")).toBe(true);
+    document.destroy();
+  });
+
   test("keeps the caret after sequential local text input", async () => {
     const existing = createTitle("123");
     const existingView = render(

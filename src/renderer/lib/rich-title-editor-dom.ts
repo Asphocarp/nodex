@@ -11,6 +11,13 @@ export interface RichTitleDomPoint {
   readonly offset: number;
 }
 
+export interface RichTitleRect {
+  readonly top: number;
+  readonly bottom: number;
+}
+
+export type RichTitleVerticalDirection = "up" | "down";
+
 const readSegmentStart = (element: Element): number | null => {
   const value = element.getAttribute("data-rich-title-start");
   if (value === null) return null;
@@ -236,6 +243,96 @@ export const restoreRichTitleDomSelection = (
   range.setEnd(focus.node, focus.offset);
   selection.addRange(range);
 };
+
+const richTitleDomLength = (root: HTMLElement): number =>
+  [...root.children].reduce((length, child) => {
+    const start = readSegmentStart(child);
+    const segmentLength = readSegmentLength(child);
+    if (start === null || segmentLength === null) return length;
+    return Math.max(length, start + segmentLength);
+  }, 0);
+
+export function isCaretAtVerticalRectBoundary(
+  caret: RichTitleRect,
+  contentRects: readonly RichTitleRect[],
+  direction: RichTitleVerticalDirection,
+): boolean {
+  return !contentRects.some((rect) => {
+    if (rect.bottom <= rect.top + 1) return false;
+    return direction === "up"
+      ? caret.top - rect.top > (rect.bottom - caret.top) * 2
+      : rect.bottom - caret.bottom > (caret.bottom - rect.top) * 2;
+  });
+}
+
+const readRenderedContentRects = (root: HTMLElement): readonly DOMRect[] => {
+  const rects: DOMRect[] = [];
+  for (const child of root.childNodes) {
+    if (child instanceof Element) {
+      rects.push(...child.getClientRects());
+      continue;
+    }
+    if (!(child instanceof Text) || child.length === 0) continue;
+    const range = root.ownerDocument.createRange();
+    range.selectNodeContents(child);
+    rects.push(...range.getClientRects());
+  }
+  return rects;
+};
+
+export function isRichTitleDomSelectionAtVerticalBoundary(
+  root: HTMLElement,
+  direction: RichTitleVerticalDirection,
+): boolean {
+  const richSelection = readRichTitleDomSelection(root);
+  if (!richSelection || richSelection.start !== richSelection.end) return false;
+
+  const selection = root.ownerDocument.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  const caret = range.getBoundingClientRect();
+  const contentRects = readRenderedContentRects(root);
+  if (caret.height > 0 && contentRects.length > 0) {
+    return isCaretAtVerticalRectBoundary(caret, contentRects, direction);
+  }
+
+  return direction === "up"
+    ? richSelection.start === 0
+    : richSelection.end === richTitleDomLength(root);
+}
+
+export function focusRichTitleDomBoundary(
+  root: HTMLElement,
+  placement: "start" | "end",
+): void {
+  root.focus();
+  const index = placement === "start" ? 0 : richTitleDomLength(root);
+  restoreRichTitleDomSelection(root, index, index);
+}
+
+export function focusRichTitleDomAtPoint(
+  root: HTMLElement,
+  clientX: number,
+  clientY: number,
+): void {
+  root.focus();
+  const documentWithCaret = root.ownerDocument as Document & {
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+    ) => { readonly offsetNode: Node; readonly offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  const position = documentWithCaret.caretPositionFromPoint?.(clientX, clientY);
+  const range = position
+    ? null
+    : documentWithCaret.caretRangeFromPoint?.(clientX, clientY) ?? null;
+  const node = position?.offsetNode ?? range?.startContainer ?? null;
+  const offset = position?.offset ?? range?.startOffset ?? 0;
+  const index = node ? richTitleDomPointToIndex(root, node, offset) : null;
+  const resolvedIndex = index ?? richTitleDomLength(root);
+  restoreRichTitleDomSelection(root, resolvedIndex, resolvedIndex);
+}
 
 /** Reads the browser's uncommitted IME draft using Y.Text-compatible atoms. */
 export const readRichTitleDomDraft = (root: HTMLElement): string =>

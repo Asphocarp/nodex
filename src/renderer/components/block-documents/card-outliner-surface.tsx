@@ -1,5 +1,8 @@
 import {
+  useCallback,
+  useEffect,
   useId,
+  useState,
   type FocusEventHandler,
   type PointerEventHandler,
   type ReactNode,
@@ -12,6 +15,7 @@ import {
   useBlockDisclosure,
 } from "@/lib/block-disclosure-state";
 import {
+  ReferenceSurfaceActivationPriority,
   ReferenceSurfaceActivationBudget,
   referenceSurfaceActivationBudget,
   useReferenceSurfaceActivation,
@@ -29,7 +33,10 @@ export interface CardOutlinerStateDependencies {
 export interface CardOutlinerActivation {
   readonly active: boolean;
   readonly expanded: boolean;
+  readonly titleEngaged: boolean;
   readonly visible: boolean;
+  readonly engageTitle: () => void;
+  readonly releaseTitle: () => void;
   readonly sectionRef: RefCallback<HTMLElement>;
   readonly setExpanded: (expanded: boolean) => void;
   readonly touch: () => void;
@@ -54,18 +61,34 @@ export const useCardOutlinerActivation = ({
   const expanded = expandable && preferredExpanded;
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
+  const [titleEngaged, setTitleEngaged] = useState(false);
+  useEffect(() => {
+    if (!expandable) setTitleEngaged(false);
+  }, [expandable]);
   const active = useReferenceSurfaceActivation(
     surfaceInstanceKey,
-    expandable && expanded && visible,
+    expandable && (titleEngaged || (expanded && visible)),
     activationBudget,
+    titleEngaged
+      ? ReferenceSurfaceActivationPriority.editing
+      : ReferenceSurfaceActivationPriority.visibility,
+  );
+  const engageTitle = useCallback(() => setTitleEngaged(true), []);
+  const releaseTitle = useCallback(() => setTitleEngaged(false), []);
+  const touch = useCallback(
+    () => activationBudget.touch(surfaceInstanceKey),
+    [activationBudget, surfaceInstanceKey],
   );
   return {
     active,
     expanded,
+    titleEngaged,
     visible,
+    engageTitle,
+    releaseTitle,
     sectionRef: visibility.ref,
     setExpanded,
-    touch: () => activationBudget.touch(surfaceInstanceKey),
+    touch,
   };
 };
 

@@ -35,20 +35,24 @@ function ActivationHarness({
     visibilityOverride: true,
   });
   return (
-    <CardOutlinerRow
-      targetBlockId="target"
-      projectId="project"
-      plainTitle={title}
-      title={<PortableRichTitle value={plainTextToPortableRichText(title)} />}
-      expanded={activation.expanded}
-      expandable={expandable}
-      active={activation.active}
-      sectionRef={activation.sectionRef}
-      onExpandedChange={activation.setExpanded}
-      onTouch={activation.touch}
-    >
-      {activation.active ? renderActive() : null}
-    </CardOutlinerRow>
+    <>
+      <CardOutlinerRow
+        targetBlockId="target"
+        projectId="project"
+        plainTitle={title}
+        title={<PortableRichTitle value={plainTextToPortableRichText(title)} />}
+        expanded={activation.expanded}
+        expandable={expandable}
+        active={activation.active}
+        sectionRef={activation.sectionRef}
+        onExpandedChange={activation.setExpanded}
+        onTouch={activation.touch}
+      >
+        {activation.active ? renderActive() : null}
+      </CardOutlinerRow>
+      <button type="button" onClick={activation.engageTitle}>Edit title</button>
+      <button type="button" onClick={activation.releaseTitle}>Leave title</button>
+    </>
   );
 }
 
@@ -84,6 +88,41 @@ describe("CardOutlinerRow", () => {
       await Promise.resolve();
     });
     expect(view.queryByTestId("target-runtime")).toBeNull();
+  });
+
+  test("activates an authoritative title session without disclosing the body", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(1);
+    const renderActive = vi.fn(() => <div data-testid="target-runtime" />);
+    const view = render(
+      <ActivationHarness
+        disclosureStore={disclosureStore}
+        activationBudget={activationBudget}
+        renderActive={renderActive}
+      />,
+    );
+    const frame = view.container.querySelector<HTMLElement>(
+      "[data-card-outliner-target='target']",
+    );
+    if (!frame) throw new Error("Missing Card outliner frame");
+
+    expect(frame.dataset.cardOutlinerActive).toBe("false");
+    expect(frame.dataset.cardOutlinerExpanded).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Edit title" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(frame.dataset.cardOutlinerActive).toBe("true"));
+    expect(frame.dataset.cardOutlinerExpanded).toBe("false");
+    expect(renderActive).toHaveBeenCalled();
+    expect(view.queryByTestId("target-runtime")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Leave title" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(frame.dataset.cardOutlinerActive).toBe("false"));
   });
 
   test("keeps navigation available when inline expansion is disabled", () => {

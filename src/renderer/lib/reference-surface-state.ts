@@ -2,6 +2,11 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 type Listener = () => void;
 
+export const ReferenceSurfaceActivationPriority = {
+  visibility: 0,
+  editing: 1,
+} as const;
+
 const sameStringSet = (
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
@@ -15,15 +20,18 @@ const sameStringSet = (
 
 /**
  * Caps live referenced-document providers across the whole renderer window.
- * Eligible surfaces are ordered by the last user/visibility activation. The
- * most recent `capacity` surfaces stay active; evicted rows remain expanded
- * and automatically resume when a newer surface collapses or leaves view.
+ * Eligible surfaces are ordered by interaction priority and then by the last
+ * user/visibility activation. The first `capacity` surfaces stay active;
+ * evicted rows remain expanded and resume when a higher-ranked surface leaves.
  */
 export class ReferenceSurfaceActivationBudget {
   readonly capacity: number;
 
   private activationSequence = 0;
-  private readonly eligibleSequenceByKey = new Map<string, number>();
+  private readonly eligibleByKey = new Map<
+    string,
+    { readonly sequence: number; readonly priority: number }
+  >();
   private activeKeys = new Set<string>();
   private readonly listeners = new Set<Listener>();
 
@@ -45,43 +53,63 @@ export class ReferenceSurfaceActivationBudget {
 
   getActiveKeys = (): readonly string[] => [...this.activeKeys];
 
-  setEligible = (key: string, eligible: boolean): void => {
-    const isEligible = this.eligibleSequenceByKey.has(key);
-    if (eligible === isEligible) return;
-
-    if (eligible) {
-      this.activationSequence += 1;
-      this.eligibleSequenceByKey.set(key, this.activationSequence);
-    } else {
-      this.eligibleSequenceByKey.delete(key);
+  setEligible = (key: string, eligible: boolean, priority = 0): void => {
+    const current = this.eligibleByKey.get(key);
+    if (!eligible) {
+      if (!current) return;
+      this.eligibleByKey.delete(key);
+      this.recomputeActiveKeys();
+      return;
     }
+
+    if (!current) {
+      this.activationSequence += 1;
+      this.eligibleByKey.set(key, {
+        sequence: this.activationSequence,
+        priority,
+      });
+      this.recomputeActiveKeys();
+      return;
+    }
+
+    if (current.priority === priority) return;
+    this.eligibleByKey.set(key, { ...current, priority });
     this.recomputeActiveKeys();
   };
 
   /** Reopening or explicitly focusing an eligible row makes it most recent. */
   touch = (key: string): void => {
-    if (!this.eligibleSequenceByKey.has(key)) return;
+    const current = this.eligibleByKey.get(key);
+    if (!current) return;
     this.activationSequence += 1;
-    this.eligibleSequenceByKey.set(key, this.activationSequence);
+    this.eligibleByKey.set(key, {
+      ...current,
+      sequence: this.activationSequence,
+    });
     this.recomputeActiveKeys();
   };
 
   clear = (): void => {
-    if (this.eligibleSequenceByKey.size === 0 && this.activeKeys.size === 0)
+    if (this.eligibleByKey.size === 0 && this.activeKeys.size === 0)
       return;
-    this.eligibleSequenceByKey.clear();
+    this.eligibleByKey.clear();
     this.activeKeys = new Set();
     this.emit();
   };
 
   private recomputeActiveKeys(): void {
-    const ordered = [...this.eligibleSequenceByKey.entries()].sort(
-      (left, right) => right[1] - left[1],
+    const ordered = [...this.eligibleByKey.entries()].sort(
+      (left, right) =>
+        right[1].priority - left[1].priority
+        || right[1].sequence - left[1].sequence,
     );
     const nextActiveKeys = new Set(
       ordered.slice(0, this.capacity).map(([key]) => key),
     );
-    if (sameStringSet(this.activeKeys, nextActiveKeys)) return;
+    if (sameStringSet(this.activeKeys, nextActiveKeys)) {
+      this.activeKeys = nextActiveKeys;
+      return;
+    }
     this.activeKeys = nextActiveKeys;
     this.emit();
   }
@@ -98,11 +126,12 @@ export const useReferenceSurfaceActivation = (
   key: string,
   eligible: boolean,
   budget: ReferenceSurfaceActivationBudget = referenceSurfaceActivationBudget,
+  priority = 0,
 ): boolean => {
   useEffect(() => {
-    budget.setEligible(key, eligible);
+    budget.setEligible(key, eligible, priority);
     return () => budget.setEligible(key, false);
-  }, [budget, eligible, key]);
+  }, [budget, eligible, key, priority]);
 
   const getSnapshot = useCallback(() => budget.isActive(key), [budget, key]);
   return useSyncExternalStore(budget.subscribe, getSnapshot, getSnapshot);

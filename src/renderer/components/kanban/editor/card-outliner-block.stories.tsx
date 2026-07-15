@@ -30,11 +30,14 @@ type OutlinerStoryState =
 function CardOutlinerStory({
   state = "available",
   initiallyExpanded = false,
+  initiallyEditing = false,
 }: {
   readonly state?: OutlinerStoryState;
   readonly initiallyExpanded?: boolean;
+  readonly initiallyEditing?: boolean;
 }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [editing, setEditing] = useState(initiallyEditing);
   const [titleDocument] = useState(() => {
     const document = new Y.Doc({ guid: "card-outliner-story" });
     replaceYTextWithPortableRichText(document.getText("title"), RICH_TITLE);
@@ -74,10 +77,14 @@ function CardOutlinerStory({
                   projectId="nodex"
                   plainTitle="Ship Card-as-Page outliner"
                   title={
-                    expanded && state === "available" ? (
+                    (expanded || editing) && state === "available" ? (
                       <CollaborativeCardTitle
                         title={titleDocument.getText("title")}
                         className="px-0 py-0 text-[1em] leading-6 font-normal"
+                        onFocus={() => setEditing(true)}
+                        onBlur={() => {
+                          if (!expanded) setEditing(false);
+                        }}
                       />
                     ) : state === "missing" ? (
                       "Card unavailable"
@@ -88,7 +95,7 @@ function CardOutlinerStory({
                   stateLabel={stateLabel}
                   expanded={expanded}
                   expandable={expandable}
-                  active={expanded && available}
+                  active={(expanded || editing) && available}
                   onExpandedChange={setExpanded}
                   onOpenCard={() => undefined}
                 >
@@ -132,6 +139,10 @@ export const Collapsed: Story = {};
 
 export const Expanded: Story = {
   args: { initiallyExpanded: true },
+};
+
+export const CollapsedEditing: Story = {
+  args: { initiallyEditing: true },
 };
 
 export const Loading: Story = {

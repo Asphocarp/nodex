@@ -144,7 +144,7 @@ Meaningful regression coverage belongs at behavior boundaries:
 - DocumentStore/worker tests: snapshot+tail reconstruction, schema/identity validation, atomic materialization/index commit, cache eviction, and worker failure.
 - relocation/Document operation tests: leases, exact-head conflicts, fault injection, stale update recovery, and all-old/all-new outcomes.
 - Board/read-model tests: exact-head summary projection, bounded payloads, and rejection of stale projections.
-- reference surface tests: collapsed rows create no provider; expanded visible rows mount only the target Document; cycles remain navigation-only.
+- reference surface tests: idle collapsed rows create no provider; explicit Card-title engagement or expanded visibility mounts only the target Document within the provider cap; cycles remain navigation-only.
 
 Use Storybook and manual multi-window review for sync/error chrome and retained editor UX. Do not add tests that merely assert styling strings.
 

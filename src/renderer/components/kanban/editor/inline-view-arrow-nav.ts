@@ -27,48 +27,6 @@ interface EditorForInlineArrowEntry {
   transact: <T>(fn: (tr: { selection: InlineArrowSelection }) => T) => T;
 }
 
-interface EditorForInlineArrowExit {
-  domElement?: ParentNode;
-  setTextCursorPosition: (targetBlock: string, placement: "start" | "end") => void;
-  focus: () => void;
-}
-
-interface InlineSummaryBoundaryHandle {
-  focusBoundarySummary: (direction: InlineArrowDirection) => boolean;
-}
-
-type FocusPlacement = "start" | "end";
-
-const inlineSummaryBoundaryHandles = new Map<string, InlineSummaryBoundaryHandle>();
-
-function getTopLevelBlockIds(editorDom: ParentNode | undefined): string[] {
-  if (!editorDom) return [];
-
-  const queryable = editorDom as ParentNode & {
-    querySelectorAll?: <T extends Element = Element>(selectors: string) => NodeListOf<T>;
-  };
-  if (typeof queryable.querySelectorAll !== "function") return [];
-
-  const scopedBlocks = Array.from(
-    queryable.querySelectorAll<HTMLElement>(":scope > .bn-block-outer > .bn-block[data-id]"),
-  );
-  if (scopedBlocks.length > 0) {
-    return scopedBlocks
-      .map((node) => node.getAttribute("data-id"))
-      .filter((value): value is string => typeof value === "string" && value.length > 0);
-  }
-
-  if (!(editorDom instanceof Element)) return [];
-  return Array.from(editorDom.children)
-    .filter((node): node is HTMLElement =>
-      node instanceof HTMLElement && node.matches(".bn-block-outer"),
-    )
-    .map((outer) => outer.querySelector<HTMLElement>(":scope > .bn-block[data-id]"))
-    .filter((node): node is HTMLElement => node instanceof HTMLElement)
-    .map((node) => node.getAttribute("data-id"))
-    .filter((value): value is string => typeof value === "string" && value.length > 0);
-}
-
 function isCursorAtBlockBoundary(
   editor: EditorForInlineArrowEntry,
   direction: InlineArrowDirection,
@@ -83,21 +41,6 @@ function isCursorAtBlockBoundary(
 
     return $anchor.parentOffset === $anchor.parent.content.size;
   });
-}
-
-function findLinearNeighborBlockId(
-  editorDom: ParentNode | undefined,
-  inlineBlockId: string,
-  direction: InlineArrowDirection,
-): string | null {
-  if (!editorDom || !inlineBlockId) return null;
-
-  const blockIds = getTopLevelBlockIds(editorDom);
-  const inlineIndex = blockIds.indexOf(inlineBlockId);
-  if (inlineIndex === -1) return null;
-
-  const nextIndex = direction === "prev" ? inlineIndex - 1 : inlineIndex + 1;
-  return blockIds[nextIndex] ?? null;
 }
 
 function querySingle(
@@ -241,72 +184,4 @@ export function deferCollapsedToggleVerticalArrowToBrowser(
 
   event.stopImmediatePropagation();
   return true;
-}
-
-export function registerInlineSummaryBoundaryHandle(
-  inlineBlockId: string,
-  handle: InlineSummaryBoundaryHandle,
-): void {
-  if (!inlineBlockId) return;
-  inlineSummaryBoundaryHandles.set(inlineBlockId, handle);
-}
-
-export function unregisterInlineSummaryBoundaryHandle(
-  inlineBlockId: string,
-  handle?: InlineSummaryBoundaryHandle,
-): void {
-  if (!inlineBlockId) return;
-  if (!handle) {
-    inlineSummaryBoundaryHandles.delete(inlineBlockId);
-    return;
-  }
-
-  const current = inlineSummaryBoundaryHandles.get(inlineBlockId);
-  if (current === handle) {
-    inlineSummaryBoundaryHandles.delete(inlineBlockId);
-  }
-}
-
-export function focusInlineSummaryBoundary(
-  inlineBlockId: string,
-  direction: InlineArrowDirection,
-): boolean {
-  const handle = inlineSummaryBoundaryHandles.get(inlineBlockId);
-  if (!handle) return false;
-  return handle.focusBoundarySummary(direction);
-}
-
-export function moveFromInlineSummaryToNeighborBlock(
-  editor: EditorForInlineArrowExit,
-  inlineBlockId: string,
-  direction: InlineArrowDirection,
-): boolean {
-  const neighborId = findLinearNeighborBlockId(editor.domElement, inlineBlockId, direction);
-  if (!neighborId) return false;
-
-  const placement: FocusPlacement = direction === "prev" ? "end" : "start";
-  editor.setTextCursorPosition(neighborId, placement);
-  editor.focus();
-  return true;
-}
-
-export function handleArrowIntoInlineSummary(
-  editor: EditorForInlineArrowEntry,
-  direction: InlineArrowDirection,
-): boolean {
-  const cursor = editor.getTextCursorPosition();
-  const candidate = direction === "prev" ? cursor.prevBlock : cursor.nextBlock;
-  if (!candidate || candidate.type !== "databaseViewRef") return false;
-  if (!isCursorAtBlockBoundary(editor, direction)) return false;
-
-  return focusInlineSummaryBoundary(candidate.id, direction);
-}
-
-export function handleArrowFromInlineBlockSelection(
-  editor: EditorForInlineArrowEntry,
-  direction: InlineArrowDirection,
-): boolean {
-  const cursor = editor.getTextCursorPosition();
-  if (cursor.block.type !== "databaseViewRef") return false;
-  return focusInlineSummaryBoundary(cursor.block.id, direction);
 }

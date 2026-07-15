@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
+  focusRichTitleDomBoundary,
+  isCaretAtVerticalRectBoundary,
+  isRichTitleDomSelectionAtVerticalBoundary,
   readRichTitleDomDraft,
   readRichTitleDomDraftSelection,
   readRichTitleDomSelection,
@@ -76,6 +79,36 @@ describe("rich title editor DOM coordinates", () => {
       anchor: 10,
       focus: 10,
     });
+    root.remove();
+  });
+
+  test("detects rendered vertical boundaries using the ProseMirror rect policy", () => {
+    const contentRects = [
+      { top: 0, bottom: 20 },
+      { top: 20, bottom: 40 },
+      { top: 40, bottom: 60 },
+    ];
+    expect(
+      isCaretAtVerticalRectBoundary({ top: 20, bottom: 40 }, contentRects, "up"),
+    ).toBe(false);
+    expect(
+      isCaretAtVerticalRectBoundary({ top: 20, bottom: 40 }, contentRects, "down"),
+    ).toBe(false);
+    expect(
+      isCaretAtVerticalRectBoundary({ top: 0, bottom: 20 }, contentRects, "up"),
+    ).toBe(true);
+    expect(
+      isCaretAtVerticalRectBoundary({ top: 40, bottom: 60 }, contentRects, "down"),
+    ).toBe(true);
+  });
+
+  test("falls back to logical edges when the DOM environment has no layout", () => {
+    const root = createFixture();
+    focusRichTitleDomBoundary(root, "start");
+    expect(isRichTitleDomSelectionAtVerticalBoundary(root, "up")).toBe(true);
+    expect(isRichTitleDomSelectionAtVerticalBoundary(root, "down")).toBe(false);
+    focusRichTitleDomBoundary(root, "end");
+    expect(isRichTitleDomSelectionAtVerticalBoundary(root, "down")).toBe(true);
     root.remove();
   });
 });

@@ -4,6 +4,7 @@
 - Date: 2026-07-13
 - Owners: Nodex maintainers
 - Extends: ADR 0002 and ADR 0006
+- Refined by: ADR 0012
 
 ## Context
 
@@ -36,7 +37,7 @@ Error, deleted, archived, self-reference, and cycle states retain the same row g
 
 The existing generic `OwnedDocumentReferenceSurface` remains available for body-only owners with a distinct product meaning, currently Synced Block source and Reusable Template source. Card no longer uses that generic shell.
 
-### One expanded target runtime owns header and body
+### One active target runtime owns header and disclosed body
 
 The Card outliner is composed from three layers:
 
@@ -48,7 +49,7 @@ The controller's observed `<section>` is a permanent frame for the mounted Block
 
 The disclosure wrapper and caret are also permanent children of that frame. Projected, loading, active, and failure renderers supply only title/body slots. They must not own or replace the caret: a CSS transition cannot animate an element that React unmounts at the same moment expansion state changes. The stable wrapper keeps native toggle width, a 32-pixel title row with 16/24 typography, and one 24-pixel body indentation while the independent target runtime changes beneath it.
 
-Collapsed rows do not mount a target boundary, provider, or nested editor. They render canonical `CardContentSummary.content.richTitle` through a read-only portable-rich-title renderer. Loading expansion keeps the frame and title row stable and shows a skeleton only in the body slot. A ready expansion atomically replaces the projected title with the collaborative title from the target Y.Text; it does not render a second title.
+Idle collapsed rows do not mount a target boundary, provider, or nested editor. They render canonical `CardContentSummary.content.richTitle` through a read-only portable-rich-title renderer. Explicit title click/focus or adjacent Arrow navigation may engage that concrete row and activate its one authoritative target surface while disclosure remains collapsed. In that state the live target Y.Text replaces the projection in the existing title slot, but the body editor is not constructed. Loading expansion keeps the frame and title row stable and shows a skeleton only in the body slot. A ready expansion reuses the same target surface and reveals its body; it does not render a second title.
 
 The target `BlockDocumentSurface` supplies one Y.Doc, client session, awareness instance, write fence, readiness state, and local undo scope to both title and body. The nested `NfmEditor` continues to receive target Card context and extends the inline ancestor chain, so self and recursive Card references may still navigate to the Card Stage but cannot recursively mount another provider.
 
@@ -60,7 +61,7 @@ Inline Database views may reuse the Card outliner row/controller and the same ta
 
 ## Consequences
 
-Card blocks regain the density and scanning behavior of an outliner while retaining Block-first collaboration correctness. The visual hierarchy now expresses product semantics instead of provider boundaries. Rich title editing in an expanded row is authoritative and concurrent; the collapsed projection remains cheap, rebuildable, and valid for Cards outside every Database.
+Card blocks regain the density and scanning behavior of an outliner while retaining Block-first collaboration correctness. The visual hierarchy now expresses product semantics instead of provider boundaries. Rich title editing is authoritative and concurrent whether the body is collapsed or expanded; idle collapsed projections remain cheap, rebuildable, and valid for Cards outside every Database.
 
 The renderer becomes more explicit: Card is not interchangeable with every document-bearing shell, and the target Document must be hoisted above both header and body. This adds a specialized Adapter but removes duplicated title chrome, permanent type icons, nested panels, and Card-specific use of the generic body-only shell.
 
@@ -80,4 +81,4 @@ Adding a new persisted Block type for the visual row was rejected because `card`
 
 ## Acceptance
 
-In one NFM editor, a zero-membership child `card` and a `cardRef` pointing to the same Card render with the same hollow-caret outliner language. Neither shows permanent File or Link chrome. Collapsed instances create no target provider. Expanding one instance preserves the observed row element, creates one target provider, renders the collaborative rich title in the row, and renders only the target body beneath it. Editing either title or body updates the target Card Y.Doc and leaves the host Y.Doc free of foreign body content. A self or ancestor cycle remains navigable but never mounts recursively. Loading, archived, missing, and error examples are represented in Storybook, while visual verification is performed manually in the product.
+In one NFM editor, a zero-membership child `card` and a `cardRef` pointing to the same Card render with the same hollow-caret outliner language. Neither shows permanent File or Link chrome. Idle collapsed instances create no target provider. Clicking or Arrow-entering a collapsed title activates one target provider and the collaborative rich title without revealing or constructing the body. Expanding that instance preserves the observed row element and runtime, then renders only the target body beneath it. ArrowUp/ArrowDown traverse surrounding host Blocks, the live title, and disclosed body Blocks in visible order. Editing either title or body updates the target Card Y.Doc and leaves the host Y.Doc free of foreign body content. A self or ancestor cycle remains navigable but never mounts recursively. Loading, archived, missing, and error examples are represented in Storybook, while visual verification is performed manually in the product.

@@ -32,4 +32,20 @@ describe("ReferenceSurfaceActivationBudget", () => {
     }
     expect(message).toBe("Reference surface capacity must be a positive integer");
   });
+
+  test("keeps editing-priority surfaces ahead of visibility-only recency", () => {
+    const budget = new ReferenceSurfaceActivationBudget(2);
+    budget.setEligible("expanded-a", true);
+    budget.setEligible("expanded-b", true);
+    budget.setEligible("editing", true, 1);
+
+    expect(budget.getActiveKeys()).toEqual(["editing", "expanded-b"]);
+
+    budget.touch("expanded-a");
+    expect(budget.getActiveKeys()).toEqual(["editing", "expanded-a"]);
+
+    budget.setEligible("editing", true, 0);
+    expect(budget.getActiveKeys()).toEqual(["expanded-a", "editing"]);
+    expect(budget.getActiveKeys()).toHaveLength(2);
+  });
 });

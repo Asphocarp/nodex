@@ -7,6 +7,10 @@ import {
 } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
 import { CardOutlinerBlock } from "./card-outliner-block";
+import {
+  handleArrowIntoEmbeddedSurface,
+  type EmbeddedSurfaceHostEditor,
+} from "./embedded-surface-arrow-navigation";
 
 const targetModel = vi.hoisted(() => ({
   status: "available" as const,
@@ -41,6 +45,8 @@ const targetModel = vi.hoisted(() => ({
   },
 }));
 
+const activeRuntimeProps = vi.hoisted(() => vi.fn());
+
 vi.mock("@/lib/block-reference-queries", () => ({
   useCardTargetReadModel: () => ({
     data: targetModel,
@@ -49,10 +55,18 @@ vi.mock("@/lib/block-reference-queries", () => ({
   }),
 }));
 
-vi.mock("./expanded-card-outliner-document", () => ({
-  ExpandedCardOutlinerDocument: () => (
-    <div data-testid="expanded-card-runtime">Target runtime</div>
-  ),
+vi.mock("./active-card-outliner-document", () => ({
+  ActiveCardOutlinerDocument: (props: { rowProps: { expanded: boolean } }) => {
+    activeRuntimeProps(props);
+    return (
+      <div
+        data-testid="expanded-card-runtime"
+        data-expanded={props.rowProps.expanded ? "true" : "false"}
+      >
+        Target runtime
+      </div>
+    );
+  },
 }));
 
 class ControlledIntersectionObserver implements IntersectionObserver {
@@ -108,6 +122,7 @@ class ControlledIntersectionObserver implements IntersectionObserver {
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 
 afterEach(() => {
+  activeRuntimeProps.mockClear();
   ControlledIntersectionObserver.latest = null;
   Object.defineProperty(globalThis, "IntersectionObserver", {
     configurable: true,
@@ -117,6 +132,113 @@ afterEach(() => {
 });
 
 describe("CardOutlinerBlock", () => {
+  test("click-edits through an active collapsed runtime without changing disclosure", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(1);
+    const view = render(
+      <BlockReferenceRuntimeProvider
+        value={{
+          projectId: "project-a",
+          projectName: "Project A",
+          projectWorkspacePath: null,
+          hostCardId: "host-card",
+          ancestorCardIds: ["host-card"],
+          ancestorDocumentOwnerBlockIds: ["host-card"],
+          isActiveSurface: true,
+        }}
+      >
+        <CardOutlinerBlock
+          relationship="child"
+          shellBlockId="nested-card"
+          targetBlockId="nested-card"
+          disclosureStore={disclosureStore}
+          activationBudget={activationBudget}
+          visibilityOverride={false}
+        />
+      </BlockReferenceRuntimeProvider>,
+    );
+    const frame = view.container.querySelector<HTMLElement>(
+      "[data-card-outliner-target='nested-card']",
+    );
+    if (!frame) throw new Error("Missing Card outliner frame");
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", { name: "Edit Nested Card title" }),
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(view.getByTestId("expanded-card-runtime")).toBeTruthy());
+    expect(frame.dataset.cardOutlinerActive).toBe("true");
+    expect(frame.dataset.cardOutlinerExpanded).toBe("false");
+    expect(disclosureStore.isExpanded("nested-card")).toBe(false);
+    expect(activeRuntimeProps.mock.lastCall?.[0]).toMatchObject({
+      focusIntent: { kind: "boundary", direction: "up" },
+    });
+  });
+
+  test("records a visual-boundary focus intent when the host arrows into a Card", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(1);
+    const cursorMoves: Array<{ id: string; placement?: "start" | "end" }> = [];
+    const hostEditor: EmbeddedSurfaceHostEditor = {
+      document: [
+        { id: "before", type: "paragraph", children: [] },
+        { id: "nested-card", type: "card", children: [] },
+        { id: "after", type: "paragraph", children: [] },
+      ],
+      prosemirrorView: {
+        state: { selection: { empty: true } },
+        dom: document.createElement("div"),
+        endOfTextblock: () => true,
+      },
+      getTextCursorPosition: () => ({
+        block: { id: "before", type: "paragraph" },
+      }),
+      setTextCursorPosition: (id, placement) => {
+        cursorMoves.push({ id, placement });
+      },
+      focus: () => undefined,
+    };
+    render(
+      <BlockReferenceRuntimeProvider
+        value={{
+          projectId: "project-a",
+          projectName: "Project A",
+          projectWorkspacePath: null,
+          hostCardId: "host-card",
+          ancestorCardIds: ["host-card"],
+          ancestorDocumentOwnerBlockIds: ["host-card"],
+          isActiveSurface: true,
+        }}
+      >
+        <CardOutlinerBlock
+          relationship="child"
+          shellBlockId="nested-card"
+          targetBlockId="nested-card"
+          hostEditor={hostEditor}
+          disclosureStore={disclosureStore}
+          activationBudget={activationBudget}
+          visibilityOverride={false}
+        />
+      </BlockReferenceRuntimeProvider>,
+    );
+
+    await act(async () => {
+      expect(handleArrowIntoEmbeddedSurface(hostEditor, "down")).toBe(true);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(activeRuntimeProps).toHaveBeenCalled());
+    expect(activeRuntimeProps.mock.lastCall?.[0]).toMatchObject({
+      focusIntent: { kind: "boundary", direction: "down" },
+      rowProps: { expanded: false },
+    });
+    expect(cursorMoves).toEqual([{ id: "nested-card", placement: "start" }]);
+    expect(disclosureStore.isExpanded("nested-card")).toBe(false);
+  });
+
   test("keeps one observed row mounted while the target runtime activates", async () => {
     Object.defineProperty(globalThis, "IntersectionObserver", {
       configurable: true,
