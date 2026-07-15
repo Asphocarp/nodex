@@ -721,6 +721,8 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
       JOIN project_sessions ps ON ps.id = pst.session_id
       JOIN codex_threads t ON t.thread_id = pst.thread_id
       WHERE pst.thread_id = ?
+      ORDER BY pst.linked_at ASC, pst.session_id ASC
+      LIMIT 1
     `)
     .get(threadId) as DbProjectSessionThread | undefined;
   return row ? rowToThread(row) : null;
@@ -1759,55 +1761,68 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
     throw new Error("Thread project must match the owning session project");
   }
 
-  const nowMs = Date.now();
-  const linkedAt = new Date().toISOString();
-  const existing = getCodexThread(parsed.threadId);
-  const hasForkedFromIdInput = Object.prototype.hasOwnProperty.call(parsed, "forkedFromId");
-  const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(parsed, "managedWorktreePath");
-  upsertCodexThread({
-    projectId,
-    threadId: parsed.threadId,
-    forkedFromId: hasForkedFromIdInput
-      ? (parsed.forkedFromId ?? null)
-      : (existing?.forkedFromId ?? null),
-    source: parsed.parentThreadId
-      ? { parentThreadId: parsed.parentThreadId }
-      : existing?.source ?? null,
-    threadName: parsed.threadName ?? existing?.threadName ?? null,
-    threadPreview: parsed.threadPreview ?? existing?.threadPreview ?? "",
-    modelProvider: parsed.modelProvider ?? existing?.modelProvider ?? "",
-    cwd: parsed.cwd ?? existing?.cwd ?? null,
-    managedWorktreePath: hasManagedWorktreePathInput
-      ? (parsed.managedWorktreePath ?? null)
-      : (existing?.managedWorktreePath ?? null),
-    projectlessOutputDirectory: parsed.projectlessOutputDirectory ?? existing?.projectlessOutputDirectory ?? null,
-    projectlessWorkspaceBrowserRoot: parsed.projectlessWorkspaceBrowserRoot ?? existing?.projectlessWorkspaceBrowserRoot ?? null,
-    statusType: parsed.statusType,
-    statusActiveFlags: parsed.statusActiveFlags,
-    archived: parsed.archived ?? existing?.archived ?? false,
-    createdAt: parsed.createdAt ?? existing?.createdAt ?? nowMs,
-    updatedAt: parsed.updatedAt ?? nowMs,
-    linkedAt: existing?.linkedAt ?? linkedAt,
+  const database = getDb();
+  const attach = database.transaction((): ProjectSessionThreadLink => {
+    const conflictingOwner = listProjectSessionThreadOwners(parsed.threadId)
+      .find((owner) => owner.sessionId !== parsed.sessionId);
+    if (conflictingOwner) {
+      throw new Error(
+        `Thread ${parsed.threadId} is already attached to project session ${conflictingOwner.sessionId}`,
+      );
+    }
+
+    const nowMs = Date.now();
+    const linkedAt = new Date().toISOString();
+    const existing = getCodexThread(parsed.threadId);
+    const hasForkedFromIdInput = Object.prototype.hasOwnProperty.call(parsed, "forkedFromId");
+    const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(parsed, "managedWorktreePath");
+    upsertCodexThread({
+      projectId,
+      threadId: parsed.threadId,
+      forkedFromId: hasForkedFromIdInput
+        ? (parsed.forkedFromId ?? null)
+        : (existing?.forkedFromId ?? null),
+      source: parsed.parentThreadId
+        ? { parentThreadId: parsed.parentThreadId }
+        : existing?.source ?? null,
+      threadName: parsed.threadName ?? existing?.threadName ?? null,
+      threadPreview: parsed.threadPreview ?? existing?.threadPreview ?? "",
+      modelProvider: parsed.modelProvider ?? existing?.modelProvider ?? "",
+      cwd: parsed.cwd ?? existing?.cwd ?? null,
+      managedWorktreePath: hasManagedWorktreePathInput
+        ? (parsed.managedWorktreePath ?? null)
+        : (existing?.managedWorktreePath ?? null),
+      projectlessOutputDirectory: parsed.projectlessOutputDirectory ?? existing?.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot: parsed.projectlessWorkspaceBrowserRoot ?? existing?.projectlessWorkspaceBrowserRoot ?? null,
+      statusType: parsed.statusType,
+      statusActiveFlags: parsed.statusActiveFlags,
+      archived: parsed.archived ?? existing?.archived ?? false,
+      createdAt: parsed.createdAt ?? existing?.createdAt ?? nowMs,
+      updatedAt: parsed.updatedAt ?? nowMs,
+      linkedAt: existing?.linkedAt ?? linkedAt,
+    });
+
+    database.prepare(`
+      INSERT INTO project_session_threads (
+        session_id, thread_id, linked_at
+      ) VALUES (?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        thread_id = excluded.thread_id,
+        linked_at = excluded.linked_at
+    `).run(
+      parsed.sessionId,
+      parsed.threadId,
+      linkedAt,
+    );
+
+    syncProjectSessionUnreadForThread(parsed.threadId);
+
+    const link = getProjectSession(parsed.sessionId)?.thread;
+    if (!link) throw new Error("Unable to attach project session thread");
+    return link;
   });
 
-  getDb().prepare(`
-    INSERT INTO project_session_threads (
-      session_id, thread_id, linked_at
-    ) VALUES (?, ?, ?)
-    ON CONFLICT(session_id) DO UPDATE SET
-      thread_id = excluded.thread_id,
-      linked_at = excluded.linked_at
-  `).run(
-    parsed.sessionId,
-    parsed.threadId,
-    linkedAt,
-  );
-
-  syncProjectSessionUnreadForThread(parsed.threadId);
-
-  const link = getProjectSession(parsed.sessionId)?.thread;
-  if (!link) throw new Error("Unable to attach project session thread");
-  return link;
+  return attach.immediate();
 }
 
 export function detachProjectSessionThread(sessionId: string): boolean {

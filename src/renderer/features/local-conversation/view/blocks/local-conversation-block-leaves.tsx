@@ -1019,6 +1019,10 @@ function resolveHookSummary(entry: CodexConversationItem): {
 export function ThreadHookBlock({ block }: ThreadLeafBlockProps) {
   if (block.type !== "hook") return null;
 
+  return <ThreadHookContent block={block} />;
+}
+
+function ThreadHookContent({ block }: { block: ThreadTranscriptBlockModel }) {
   const [expanded, setExpanded] = useState(false);
   const hook = resolveHookSummary(block.entry);
 
@@ -1387,6 +1391,10 @@ export function ThreadContextCompactionBlock({ block }: ThreadLeafBlockProps) {
 export function ThreadStreamErrorBlock({ block }: ThreadLeafBlockProps) {
   if (block.type !== "streamError") return null;
 
+  return <ThreadStreamErrorContent block={block} />;
+}
+
+function ThreadStreamErrorContent({ block }: { block: ThreadTranscriptBlockModel }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const details = block.entry.additionalDetails?.trim() ?? "";
   const hasDetails = details.length > 0;

@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -169,13 +170,15 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const onKeyDownRef = useRef(onKeyDown);
     const onSlashTriggerChangeRef = useRef(onSlashTriggerChange);
     const placeholderRef = useRef(placeholder);
+    const disabledRef = useRef(disabled);
     valueRef.current = value;
     onChangeRef.current = onChange;
     onKeyDownRef.current = onKeyDown;
     onSlashTriggerChangeRef.current = onSlashTriggerChange;
     placeholderRef.current = placeholder;
+    disabledRef.current = disabled;
 
-    const emitSlashTriggerState = (view: EditorView | null) => {
+    const emitSlashTriggerState = useCallback((view: EditorView | null) => {
       const handler = onSlashTriggerChangeRef.current;
       if (!handler) return;
       if (!view || !view.state.selection.empty) {
@@ -196,9 +199,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         from: promptTextOffsetToDocPosition(view.state.doc, trigger.from),
         to: promptTextOffsetToDocPosition(view.state.doc, trigger.to),
       });
-    };
+    }, []);
 
-    const setText = (text: string) => {
+    const setText = useCallback((text: string) => {
       const view = viewRef.current;
       if (!view) {
         onChangeRef.current(text);
@@ -210,9 +213,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       view.dispatch(transaction);
       emitSlashTriggerState(view);
       return readPromptDocText(view.state.doc);
-    };
+    }, [emitSlashTriggerState]);
 
-    const replaceTextRange = (range: { from: number; to: number; text: string }) => {
+    const replaceTextRange = useCallback((range: { from: number; to: number; text: string }) => {
       const view = viewRef.current;
       if (!view) {
         const nextValue = `${valueRef.current.slice(0, range.from)}${range.text}${valueRef.current.slice(range.to)}`;
@@ -226,7 +229,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       view.focus();
       emitSlashTriggerState(view);
       return readPromptDocText(view.state.doc);
-    };
+    }, [emitSlashTriggerState]);
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -288,7 +291,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           return true;
         }
       },
-    }), []);
+    }), [replaceTextRange, setText]);
 
     useEffect(() => {
       const mount = mountRef.current;
@@ -296,7 +299,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
 
       const view = new EditorView(mount, {
         state: createPromptEditorState(valueRef.current, placeholderRef),
-        editable: () => !disabled,
+        editable: () => !disabledRef.current,
         attributes: {
           "data-virtualkeyboard": "true",
           "data-codex-composer": "true",
@@ -338,7 +341,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         view.destroy();
         viewRef.current = null;
       };
-    }, []);
+    }, [emitSlashTriggerState]);
 
     useEffect(() => {
       const view = viewRef.current;
@@ -359,7 +362,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           },
         },
       });
-    }, [disabled]);
+    }, [disabled, emitSlashTriggerState]);
 
     useEffect(() => {
       const view = viewRef.current;
@@ -373,7 +376,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       }
 
       view.dispatch(view.state.tr.setMeta("prompt-placeholder", placeholder));
-    }, [placeholder, value]);
+    }, [emitSlashTriggerState, placeholder, value]);
 
     return (
       <div

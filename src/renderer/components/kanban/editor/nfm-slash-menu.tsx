@@ -458,10 +458,7 @@ export function NfmSlashMenu({
         query,
       );
     },
-    [
-      allowCardReferences,
-      editor,
-    ],
+    [editor],
   );
 
   return (

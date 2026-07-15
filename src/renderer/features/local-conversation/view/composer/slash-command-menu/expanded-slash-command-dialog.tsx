@@ -1,46 +1,44 @@
-import { useEffect, useMemo, useState } from "react";
-import { groupComposerSlashCommandMatches, filterComposerSlashCommands } from "./slash-command-filter";
-import type { ComposerSlashCommand, ComposerSlashCommandHighlightSource } from "./slash-command-types";
+import { useMemo, useState } from "react";
+import {
+  filterComposerSlashCommands,
+  groupComposerSlashCommandMatches,
+  resolveComposerSlashHighlight,
+} from "./slash-command-filter";
+import type {
+  ComposerSlashCommand,
+  ComposerSlashCommandHighlightIntent,
+} from "./slash-command-types";
 import { SlashCommandList } from "./slash-command-list";
 
 interface ExpandedSlashCommandDialogProps {
-  open: boolean;
   commands: readonly ComposerSlashCommand[];
   composerText: string;
-  highlightedCommandId: string | null;
-  highlightedSource: ComposerSlashCommandHighlightSource;
-  onHighlight: (commandId: string, source: ComposerSlashCommandHighlightSource) => void;
   onSelect: (command: ComposerSlashCommand) => void;
   onClose: () => void;
 }
 
 export function ExpandedSlashCommandDialog({
-  open,
   commands,
   composerText,
-  highlightedCommandId,
-  highlightedSource,
-  onHighlight,
   onSelect,
   onClose,
 }: ExpandedSlashCommandDialogProps) {
   const [query, setQuery] = useState("");
   const [nestedCommand, setNestedCommand] = useState<ComposerSlashCommand | null>(null);
+  const [highlightIntent, setHighlightIntent] = useState<ComposerSlashCommandHighlightIntent>({
+    commandId: null,
+    source: "programmatic",
+  });
   const matches = useMemo(() => filterComposerSlashCommands({ commands, query, composerText }), [
     commands,
     composerText,
     query,
   ]);
   const groups = useMemo(() => groupComposerSlashCommandMatches(matches), [matches]);
-
-  useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setNestedCommand(null);
-    }
-  }, [open]);
-
-  if (!open) return null;
+  const resolvedHighlight = resolveComposerSlashHighlight({
+    matches,
+    intent: highlightIntent,
+  });
 
   const handleSelect = (command: ComposerSlashCommand) => {
     if (command.Content) {
@@ -102,9 +100,9 @@ export function ExpandedSlashCommandDialog({
               <SlashCommandList
                 groups={groups}
                 matches={matches}
-                highlightedCommandId={highlightedCommandId}
-                highlightedSource={highlightedSource}
-                onHighlight={onHighlight}
+                highlightedCommandId={resolvedHighlight.commandId}
+                highlightedSource={resolvedHighlight.source}
+                onHighlight={(commandId, source) => setHighlightIntent({ commandId, source })}
                 onSelect={handleSelect}
               />
             </>

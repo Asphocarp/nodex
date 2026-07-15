@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   detectComposerSlashTrigger,
   filterComposerSlashCommands,
+  resolveComposerSlashHighlight,
   resolveNextSlashHighlight,
   resolvePreservedSlashHighlight,
 } from "./slash-command-filter";
@@ -111,5 +112,13 @@ describe("composer slash command filtering", () => {
     expect(resolvePreservedSlashHighlight({ matches, currentCommandId: null })).toBe("compact");
     expect(resolvePreservedSlashHighlight({ matches: updatedMatches, currentCommandId: "model" })).toBe("model");
     expect(resolvePreservedSlashHighlight({ matches, currentCommandId: "missing" })).toBe("compact");
+    expect(resolveComposerSlashHighlight({
+      matches: updatedMatches,
+      intent: { commandId: "model", source: "pointer" },
+    })).toEqual({ commandId: "model", source: "pointer" });
+    expect(resolveComposerSlashHighlight({
+      matches,
+      intent: { commandId: "missing", source: "pointer" },
+    })).toEqual({ commandId: "compact", source: "programmatic" });
   });
 });

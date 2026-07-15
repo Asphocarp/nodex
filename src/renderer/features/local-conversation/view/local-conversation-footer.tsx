@@ -126,11 +126,12 @@ function LocalConversationFooterComponent({
       canForkTurn: false,
     });
   }, [model.conversation, rightPanelOverlayEnabled]);
+  const latestTurnKey = latestTurn?.turnKey ?? null;
   useEffect(() => {
-    if (!rightPanelOverlayEnabled || !latestTurn) return;
+    if (!rightPanelOverlayEnabled || latestTurnKey === null) return;
 
     setLatestTurnPreviewState("preview");
-  }, [latestTurn?.turnKey, rightPanelOverlayEnabled]);
+  }, [latestTurnKey, rightPanelOverlayEnabled]);
   useEffect(
     () => addScrollListener(setScrollDistanceFromBottomPx),
     [addScrollListener],

@@ -179,10 +179,16 @@ export function BrowserSidebarPanel({
   const command = useCallback(async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
     return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
   }, []);
+  const browserTabId = requireProjectSessionBrowserTabId(tab);
+  const tabInitialUrl = readBrowserConfigUrl(tab);
+  const tabFaviconUrl = readBrowserConfigFavicon(tab);
+  const tabDeviceToolbarVisible = readBrowserConfigDeviceToolbarVisible(tab);
+  const tabProjectId = tab.projectId;
+  const tabTitle = tab.title;
   const browserIdentity = useMemo(() => ({
     browserConversationId: activeSession.id,
-    browserTabId: requireProjectSessionBrowserTabId(tab),
-  }), [activeSession.id, tab]);
+    browserTabId,
+  }), [activeSession.id, browserTabId]);
   const contentSearchBrowserTarget = useMemo(() => {
     if (!activeForContentSearch || pageActionsDisabled) return null;
     return {
@@ -200,16 +206,16 @@ export function BrowserSidebarPanel({
     void command({
       type: "register-tab",
       ...browserIdentity,
-      projectId: tab.projectId,
-      initialUrl: readBrowserConfigUrl(tab),
-      title: tab.title,
-      faviconUrl: readBrowserConfigFavicon(tab),
-      deviceToolbarVisible: readBrowserConfigDeviceToolbarVisible(tab),
+      projectId: tabProjectId,
+      initialUrl: tabInitialUrl,
+      title: tabTitle,
+      faviconUrl: tabFaviconUrl,
+      deviceToolbarVisible: tabDeviceToolbarVisible,
     }).then((result) => {
       if (result.ok && result.snapshot) setSnapshot(result.snapshot);
     });
-    if (tab.projectId !== null) {
-      void command({ type: "local-servers-refresh", projectId: tab.projectId });
+    if (tabProjectId !== null) {
+      void command({ type: "local-servers-refresh", projectId: tabProjectId });
     }
 
     const unsubscribeState = window.api?.on("browser-sidebar-state", (payload) => {
@@ -223,7 +229,7 @@ export function BrowserSidebarPanel({
     });
     const unsubscribeLocalServers = window.api?.on("browser-sidebar-local-servers", (payload) => {
       const next = payload as BrowserSidebarLocalServersSnapshot | undefined;
-      if (tab.projectId === null || next?.projectId !== tab.projectId) return;
+      if (tabProjectId === null || next?.projectId !== tabProjectId) return;
       setLocalServers(next);
     });
     const unsubscribeBrowserUse = window.api?.on("browser-sidebar-browser-use-state", (payload) => {
@@ -242,7 +248,16 @@ export function BrowserSidebarPanel({
       unsubscribeBrowserUseViewport?.();
       unsubscribeBrowserUseCursor?.();
     };
-  }, [browserIdentity, browserRuntimeAvailable, command, tab.projectId, tab.title]);
+  }, [
+    browserIdentity,
+    browserRuntimeAvailable,
+    command,
+    tabDeviceToolbarVisible,
+    tabFaviconUrl,
+    tabInitialUrl,
+    tabProjectId,
+    tabTitle,
+  ]);
 
   useLayoutEffect(() => {
     if (!browserRuntimeAvailable || isBlank) return undefined;

@@ -983,7 +983,15 @@ export function ThreadSummaryPanelSurface({
   const previewReturnFocusRef = useRef<HTMLDivElement | null>(null);
   const gitSummary = useGitSummary(branchCwd, isVisible, gitSummaryRefreshKey);
   const gitActionStatus = useSummaryGitActionStatus(branchCwd, isVisible, gitSummaryRefreshKey);
-  const branch = useSummaryPanelBranchState({ cwd: branchCwd, enabled: isVisible, onErrorMessage });
+  const {
+    branchState,
+    busy: branchBusy,
+    checkoutBranch,
+    createBranch,
+    error: branchError,
+    loading: branchLoading,
+    refreshBranchState,
+  } = useSummaryPanelBranchState({ cwd: branchCwd, enabled: isVisible, onErrorMessage });
   const { data: mcpApps } = useCodexMcpApps({ enabled: isVisible });
   const sourceModel = useMemo(
     () => buildThreadSummaryPanelSourceModel(turns, mcpApps ?? []),
@@ -1026,11 +1034,11 @@ export function ThreadSummaryPanelSurface({
   const staged = sumSnapshotFiles(snapshots.staged);
   const branchDiff = sumSnapshotFiles(snapshots.branch);
   const hasRepository = Object.values(snapshots).some((snapshot) => snapshot?.isGitRepository);
-  const currentBranch = branch.branchState.currentBranch
+  const currentBranch = branchState.currentBranch
     ?? gitActionStatus.status?.currentBranch
     ?? snapshots.branch?.currentBranch
     ?? null;
-  const defaultBranch = branch.branchState.defaultBranch
+  const defaultBranch = branchState.defaultBranch
     ?? gitActionStatus.status?.defaultBranch
     ?? snapshots.branch?.defaultBranch
     ?? null;
@@ -1168,7 +1176,7 @@ export function ThreadSummaryPanelSurface({
   const runTargetLabel = newThreadStartInSelector?.target.runInTarget === "newWorktree" ? "New worktree" : "Local";
   const worktreeAvailable = Boolean(
     branchCwd
-    && (branch.branchState.currentBranch || branch.branchState.defaultBranch || branch.branchState.branches.length > 0),
+    && (branchState.currentBranch || branchState.defaultBranch || branchState.branches.length > 0),
   );
 
   const handleOpenGitReview = useCallback((source: GitReviewSource) => {
@@ -1194,14 +1202,14 @@ export function ThreadSummaryPanelSurface({
   }, [gitSummary.loading, hasRepository]);
   const handleBranchSetupCreated = useCallback(() => {
     setGitSummaryRefreshKey((current) => current + 1);
-    void branch.refreshBranchState();
+    void refreshBranchState();
     if (branchSetupNextAction === "create-pull-request") {
       setCreatePullRequestDialogOpen(true);
     } else if (branchSetupNextAction) {
       setGitActionDialogMode(branchSetupNextAction);
     }
     setBranchSetupNextAction(null);
-  }, [branch.refreshBranchState, branchSetupNextAction]);
+  }, [branchSetupNextAction, refreshBranchState]);
   const handleGitActionDialogOpenChange = useCallback((nextOpen: boolean) => {
     if (nextOpen) return;
     setGitActionDialogMode(null);
@@ -1211,12 +1219,12 @@ export function ThreadSummaryPanelSurface({
   }, []);
   const handleGitActionCompleted = useCallback(() => {
     setGitSummaryRefreshKey((current) => current + 1);
-    void branch.refreshBranchState();
-  }, [branch.refreshBranchState]);
+    void refreshBranchState();
+  }, [refreshBranchState]);
   const handleCreatePullRequestCompleted = useCallback(() => {
     setGitSummaryRefreshKey((current) => current + 1);
-    void branch.refreshBranchState();
-  }, [branch.refreshBranchState]);
+    void refreshBranchState();
+  }, [refreshBranchState]);
   const handleCancelGitAction = useCallback((operationId: string) => {
     void invoke("git:action:cancel", { operationId })
       .finally(() => {
@@ -1399,21 +1407,21 @@ export function ThreadSummaryPanelSurface({
                         title="Create branch"
                         icon={<BranchStatusIcon className="icon-sm shrink-0" />}
                         interactive
-                        disabled={!isVisible || branch.busy}
+                        disabled={!isVisible || branchBusy}
                         onClick={() => handleOpenBranchSetup(null)}
                       />
                     ) : (
                       <BranchSelectorPopover
                         cwd={branchCwd}
-                        state={branch.branchState}
-                        busy={branch.busy}
-                        loading={branch.loading}
-                        error={branch.error}
-                        onRefresh={branch.refreshBranchState}
-                        onCheckout={branch.checkoutBranch}
-                        onCreate={branch.createBranch}
+                        state={branchState}
+                        busy={branchBusy}
+                        loading={branchLoading}
+                        error={branchError}
+                        onRefresh={refreshBranchState}
+                        onCheckout={checkoutBranch}
+                        onCreate={createBranch}
                         selectedBranch={currentBranch}
-                        disabled={!isVisible || !branchCwd || branch.busy}
+                        disabled={!isVisible || !branchCwd || branchBusy}
                         side="left"
                         align="start"
                         sideOffset={4}
@@ -1436,7 +1444,7 @@ export function ThreadSummaryPanelSurface({
                         title="Create branch"
                         icon={<BranchStatusIcon className="icon-sm shrink-0" />}
                         interactive
-                        disabled={!isVisible || branch.busy}
+                        disabled={!isVisible || branchBusy}
                         onClick={() => handleOpenBranchSetup(null)}
                       />
                     ) : null}
@@ -1772,11 +1780,11 @@ export function ThreadSummaryPanelSurface({
       />
       <ThreadSummaryBranchSetupDialog
         open={branchSetupOpen}
-        branches={branch.branchState.branches}
+        branches={branchState.branches}
         currentBranch={currentBranch}
         defaultBranch={defaultBranch}
         threadTitle={activeThreadTitle}
-        onCreateBranch={branch.createBranch}
+        onCreateBranch={createBranch}
         onCreated={handleBranchSetupCreated}
         onErrorMessage={onErrorMessage}
         onOpenChange={handleBranchSetupOpenChange}

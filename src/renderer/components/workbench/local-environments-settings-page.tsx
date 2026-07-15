@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useEffectEvent, useId, useState, type ReactNode, type SVGProps } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useId, useMemo, useState, type ReactNode, type SVGProps } from "react";
 import {
   ChevronLeft,
   Plus,
@@ -932,8 +932,10 @@ export function LocalEnvironmentsSettingsPage({
   renderShell,
   service = DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE,
 }: LocalEnvironmentsSettingsPageProps) {
-  const workspaceProjects = projects.filter((project) => getPrimaryWorkspaceRoot(project));
-  const workspaceProjectIdsKey = workspaceProjects.map((project) => project.id).join("|");
+  const workspaceProjects = useMemo(
+    () => projects.filter((project) => getPrimaryWorkspaceRoot(project)),
+    [projects],
+  );
   const [mode, setMode] = useState<LocalEnvironmentsPageMode>("workspace");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<WorktreeEnvironmentSettingsSnapshot | null>(null);
@@ -947,7 +949,7 @@ export function LocalEnvironmentsSettingsPage({
   const selectedProject =
     workspaceProjects.find((project) => project.id === selectedProjectId)
     ?? null;
-  const applySnapshot = useEffectEvent((nextSnapshot: WorktreeEnvironmentSettingsSnapshot) => {
+  const applySnapshot = useCallback((nextSnapshot: WorktreeEnvironmentSettingsSnapshot) => {
     const project =
       workspaceProjects.find((candidate) => candidate.id === nextSnapshot.projectId)
       ?? null;
@@ -965,9 +967,9 @@ export function LocalEnvironmentsSettingsPage({
       setMode("summary");
       setErrorMessage(null);
     });
-  });
+  }, [workspaceProjects]);
 
-  const loadSnapshot = useEffectEvent(async (projectId: string, configPath?: string | null) => {
+  const loadSnapshot = useCallback(async (projectId: string, configPath?: string | null) => {
     setLoading(true);
     setErrorMessage(null);
 
@@ -979,7 +981,7 @@ export function LocalEnvironmentsSettingsPage({
     } finally {
       setLoading(false);
     }
-  });
+  }, [applySnapshot, service]);
 
   useEffect(() => {
     if (!open || !active) return;
@@ -1019,8 +1021,9 @@ export function LocalEnvironmentsSettingsPage({
     initialConfigPath,
     initialProjectId,
     initializedKey,
+    loadSnapshot,
     open,
-    workspaceProjectIdsKey,
+    workspaceProjects,
   ]);
 
   const normalizedDraft = draft ? normalizeEnvironmentForSave(draft) : null;

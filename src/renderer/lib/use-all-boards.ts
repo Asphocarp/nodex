@@ -61,16 +61,17 @@ export function useBoardsForProjects(
     if (!projectIdsKey) return;
 
     const projectIds = projectIdsKey.split("\n");
+    const refetchTimers = refetchTimersRef.current;
     const scheduleRefetch = (projectId: string) => {
-      if (refetchTimersRef.current.has(projectId)) return;
+      if (refetchTimers.has(projectId)) return;
       const timer = setTimeout(() => {
-        refetchTimersRef.current.delete(projectId);
+        refetchTimers.delete(projectId);
         void queryClient.invalidateQueries({
           queryKey: queryKeys.boards.byProject(projectId),
           exact: true,
         });
       }, BOARD_CHANGE_REFETCH_COALESCE_MS);
-      refetchTimersRef.current.set(projectId, timer);
+      refetchTimers.set(projectId, timer);
     };
     const unsubscribes = projectIds.map((projectId) =>
       subscribeBoardChanges(projectId, (event) => {
@@ -95,20 +96,21 @@ export function useBoardsForProjects(
         unsubscribe();
       }
       for (const projectId of projectIds) {
-        const timer = refetchTimersRef.current.get(projectId);
+        const timer = refetchTimers.get(projectId);
         if (!timer) continue;
         clearTimeout(timer);
-        refetchTimersRef.current.delete(projectId);
+        refetchTimers.delete(projectId);
       }
     };
   }, [projectIdsKey, queryClient]);
 
   useEffect(() => {
+    const refetchTimers = refetchTimersRef.current;
     return () => {
-      for (const timer of refetchTimersRef.current.values()) {
+      for (const timer of refetchTimers.values()) {
         clearTimeout(timer);
       }
-      refetchTimersRef.current.clear();
+      refetchTimers.clear();
     };
   }, []);
 

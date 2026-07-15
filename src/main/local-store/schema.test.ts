@@ -10,22 +10,27 @@ import { resetAssetPathCacheForTests } from "./assets";
 import { LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER } from "./block-first-legacy-schema";
 import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
 import {
-  CARD_REFERENCE_HINT_SCHEMA_VERSION,
   CURRENT_SCHEMA_VERSION,
-  PREVIOUS_SCHEMA_VERSION,
   SHIPPED_SCHEMA_VERSION,
+  getReleaseSchemaVersions,
   getSchemaMigrationTargets,
   migrateSchema58To59,
   migrateSchema59To60,
   migrateSchema60To61,
+  migrateSchema61To62,
 } from "./schema";
+import {
+  createProjectSession,
+  createProjectSessionTab,
+  upsertProjectSessionThreadLink,
+} from "./project-sessions";
 
 const tempDirectories: string[] = [];
 
 const useTempStore = (): string => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v59-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v62-"));
   tempDirectories.push(directory);
   process.env.NODEX_DIR = directory;
   return directory;
@@ -138,32 +143,17 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v61 release boundary", () => {
-  test("routes shipped inputs through the explicit staged boundaries", () => {
-    expect(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION)).toEqual([]);
-    expect(getSchemaMigrationTargets(SHIPPED_SCHEMA_VERSION)).toEqual([
-      CARD_REFERENCE_HINT_SCHEMA_VERSION,
-      PREVIOUS_SCHEMA_VERSION,
-      CURRENT_SCHEMA_VERSION,
-    ]);
-    expect(getSchemaMigrationTargets(26)).toEqual([
-      SHIPPED_SCHEMA_VERSION,
-      CARD_REFERENCE_HINT_SCHEMA_VERSION,
-      PREVIOUS_SCHEMA_VERSION,
-      CURRENT_SCHEMA_VERSION,
-    ]);
-    expect(getSchemaMigrationTargets(57)).toEqual([
-      SHIPPED_SCHEMA_VERSION,
-      CARD_REFERENCE_HINT_SCHEMA_VERSION,
-      PREVIOUS_SCHEMA_VERSION,
-      CURRENT_SCHEMA_VERSION,
-    ]);
-    expect(getSchemaMigrationTargets(PREVIOUS_SCHEMA_VERSION)).toEqual([
-      CURRENT_SCHEMA_VERSION,
-    ]);
-    expect(
-      getSchemaMigrationTargets(CARD_REFERENCE_HINT_SCHEMA_VERSION),
-    ).toEqual([PREVIOUS_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]);
+describe("schema v62 release boundary", () => {
+  test("derives supported versions and targets from one ordered release chain", () => {
+    const releaseVersions = getReleaseSchemaVersions();
+    expect(releaseVersions).toEqual([58, 59, 60, 61, 62]);
+    for (const [index, version] of releaseVersions.entries()) {
+      expect(getSchemaMigrationTargets(version)).toEqual(
+        releaseVersions.slice(index + 1),
+      );
+    }
+    expect(getSchemaMigrationTargets(26)).toEqual(releaseVersions);
+    expect(getSchemaMigrationTargets(57)).toEqual(releaseVersions);
     expect(getSchemaMigrationTargets(0)).toBe(null);
     expect(getSchemaMigrationTargets(999)).toBe(null);
   });
@@ -214,6 +204,22 @@ describe("schema v61 release boundary", () => {
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
   });
 
+  test.each([58, 59, 60, 61])(
+    "runs the ordered release chain from schema v%i",
+    async (sourceVersion) => {
+      useTempStore();
+      await initializeDatabase();
+      getDb().pragma(`user_version = ${sourceVersion}`);
+      closeDatabase();
+
+      await initializeDatabase();
+
+      expect(getDb().pragma("user_version", { simple: true })).toBe(
+        CURRENT_SCHEMA_VERSION,
+      );
+    },
+  );
+
   test("rejects an unreleased development schema without mutating it", async () => {
     useTempStore();
     const database = new Database(getDatabasePath());
@@ -235,9 +241,7 @@ describe("schema v61 release boundary", () => {
 
     migrateSchema58To59(database);
 
-    expect(database.pragma("user_version", { simple: true })).toBe(
-      CARD_REFERENCE_HINT_SCHEMA_VERSION,
-    );
+    expect(database.pragma("user_version", { simple: true })).toBe(59);
     expect(database.pragma("foreign_keys", { simple: true })).toBe(1);
     const names = tableNames(database);
     expect(names.has("codex_unread_threads")).toBe(true);
@@ -280,26 +284,95 @@ describe("schema v61 release boundary", () => {
     useTempStore();
     await initializeDatabase();
     const database = getDb();
-    database.pragma(`user_version = ${CARD_REFERENCE_HINT_SCHEMA_VERSION}`);
+    database.pragma("user_version = 59");
 
     migrateSchema59To60(database);
 
-    expect(database.pragma("user_version", { simple: true })).toBe(
-      PREVIOUS_SCHEMA_VERSION,
-    );
+    expect(database.pragma("user_version", { simple: true })).toBe(60);
   });
 
   test("publishes a clean v60 store as v61", async () => {
     useTempStore();
     await initializeDatabase();
     const database = getDb();
-    database.pragma(`user_version = ${PREVIOUS_SCHEMA_VERSION}`);
+    database.pragma("user_version = 60");
 
     migrateSchema60To61(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(61);
+  });
+
+  test("repairs duplicate thread owners before enforcing one session owner per thread", async () => {
+    useTempStore();
+    await initializeDatabase();
+
+    const database = getDb();
+    const project = database
+      .prepare("SELECT id FROM projects ORDER BY created ASC, id ASC LIMIT 1")
+      .get() as { id: string };
+    const canonicalSession = createProjectSession({
+      projectId: project.id,
+      noThreadFallbackTitle: "Original session",
+    });
+    upsertProjectSessionThreadLink({
+      sessionId: canonicalSession.id,
+      projectId: project.id,
+      threadId: "thread:duplicate-owner",
+      threadName: "Duplicate owner thread",
+    });
+    createProjectSessionTab({
+      sessionId: canonicalSession.id,
+      projectId: project.id,
+      panelId: "right",
+      kind: "terminal",
+      title: "Terminal",
+      config: {
+        projectId: project.id,
+        terminalSessionId: "terminal:canonical-owner",
+      },
+    });
+    const redundantSession = createProjectSession({
+      projectId: project.id,
+      noThreadFallbackTitle: "Materialized shell",
+    });
+
+    database.exec("DROP INDEX idx_project_session_threads_thread");
+    database.prepare(`
+      INSERT INTO project_session_threads (session_id, thread_id, linked_at)
+      VALUES (?, 'thread:duplicate-owner', '2026-01-01T00:00:00.000Z')
+    `).run(redundantSession.id);
+    database.pragma("user_version = 61");
+
+    migrateSchema61To62(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(
       CURRENT_SCHEMA_VERSION,
     );
+    expect(
+      database.prepare(`
+        SELECT session_id AS sessionId
+        FROM project_session_threads
+        WHERE thread_id = 'thread:duplicate-owner'
+      `).all(),
+    ).toEqual([{ sessionId: canonicalSession.id }]);
+    expect(
+      database.prepare(`
+        SELECT archived, unread, pinned
+        FROM project_sessions
+        WHERE id = ?
+      `).get(redundantSession.id),
+    ).toEqual({ archived: 1, unread: 0, pinned: 0 });
+    const threadIndex = (
+      database.pragma("index_list(project_session_threads)") as Array<{
+        name: string;
+        unique: number;
+      }>
+    ).find((index) => index.name === "idx_project_session_threads_thread");
+    expect(threadIndex?.unique).toBe(1);
+    expect(() => database.prepare(`
+      INSERT INTO project_session_threads (session_id, thread_id, linked_at)
+      VALUES (?, 'thread:duplicate-owner', '2026-01-02T00:00:00.000Z')
+    `).run(redundantSession.id)).toThrow(/UNIQUE constraint failed/u);
   });
 
   test("rolls back every v59 schema change when source integrity fails", () => {

@@ -298,7 +298,7 @@ function AutoSizingTextarea({
 
   useLayoutEffect(() => {
     resizeTextarea();
-  }, [resizeTextarea, value]);
+  }, [value]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -311,7 +311,7 @@ function AutoSizingTextarea({
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [resizeTextarea]);
+  }, []);
 
   return (
     <textarea
@@ -638,7 +638,7 @@ export function RequestComposerView({
 
   useLayoutEffect(() => {
     focusPendingTarget();
-  }, [currentIndex, focusPendingTarget, question]);
+  }, [currentIndex, question]);
 
   const navigateQuestion = (
     nextIndex: number,

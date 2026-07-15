@@ -141,16 +141,15 @@ export function useCodexAnimatedPanelState({
   resetKey,
 }: {
   open: boolean;
-  targetSize: number;
+  targetSize: MotionValue<number>;
   reducedMotion: boolean | null;
   animateLayout?: boolean;
   resetKey?: string | number | null;
 }): CodexAnimatedPanelState {
   const initialProgress = open ? 1 : 0;
   const progress = useMotionValue(initialProgress);
-  const targetSizeMotionValue = useMotionValue(targetSize);
   const opacity = useTransform(progress, clampCodexPanelProgress);
-  const animatedSize = useTransform([progress, targetSizeMotionValue], ([latestProgress, latestTargetSize]) =>
+  const animatedSize = useTransform([progress, targetSize], ([latestProgress, latestTargetSize]) =>
     resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize))
   );
   const [mounted, setMounted] = useState(open);
@@ -166,10 +165,6 @@ export function useCodexAnimatedPanelState({
     mountedRef.current = nextMounted;
     setMounted(nextMounted);
   };
-
-  useEffect(() => {
-    targetSizeMotionValue.set(targetSize);
-  }, [targetSize, targetSizeMotionValue]);
 
   useMotionValueEvent(progress, "change", (latestProgress) => {
     setMountedIfChanged(openRef.current || clampCodexPanelProgress(latestProgress) > 0);
@@ -228,7 +223,7 @@ export function useCodexAnimatedPanelState({
     progress,
     opacity,
     animatedSize,
-    targetSize: targetSizeMotionValue,
+    targetSize,
     mounted,
     animating,
   };

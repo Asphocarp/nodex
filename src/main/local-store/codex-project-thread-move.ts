@@ -2,7 +2,6 @@ import type Database from "better-sqlite3";
 import { getDb } from "./database";
 
 export type CodexProjectThreadMoveErrorCode =
-  | "ambiguous_thread_session"
   | "invalid_custom_order"
   | "invalid_placement"
   | "stale_source"
@@ -42,33 +41,18 @@ export interface MoveCodexProjectThreadResult {
   sessionId: string;
   sourceProjectId: string | null;
   targetProjectId: string | null;
-  sourceSessionIdsInOrder: string[];
-  targetSessionIdsInOrder: string[];
-  targetCustomThreadOrder: string[] | null;
-  sidebarOrderError: Error | null;
-}
-
-export interface SetCodexProjectThreadOrderResult {
-  projectId: string;
-  customThreadOrder: string[] | null;
-  sessionIdsInOrder: string[];
 }
 
 interface ThreadSessionOwnerRow {
-  threadId: string;
   threadProjectId: string | null;
   sessionId: string | null;
+  sessionPinned: number | null;
   sessionProjectId: string | null;
 }
 
-interface OrderedSessionRow {
-  id: string;
-  pinned: number;
-  order: number;
-  createdAt: string;
-  threadId: string | null;
+interface ProjectThreadRow {
+  threadId: string;
   threadProjectId: string | null;
-  threadUpdatedAt: number | null;
 }
 
 interface CustomOrderRow {
@@ -142,6 +126,14 @@ function stringifyCustomOrder(orderedThreadIds: readonly string[]): string {
   return JSON.stringify(orderedThreadIds);
 }
 
+function threadOrdersEqual(
+  left: readonly string[] | undefined,
+  right: readonly string[],
+): boolean {
+  if (!left || left.length !== right.length) return false;
+  return left.every((threadId, index) => threadId === right[index]);
+}
+
 function assertUniqueThreadIds(orderedThreadIds: readonly string[]): string[] {
   const validated: string[] = [];
   const seen = new Set<string>();
@@ -160,66 +152,57 @@ function projectExists(database: Database.Database, projectId: string): boolean 
   return database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId) !== undefined;
 }
 
-function listThreadOwners(database: Database.Database, threadId: string): ThreadSessionOwnerRow[] {
-  return database.prepare(`
+function resolveThreadOwner(
+  database: Database.Database,
+  threadId: string,
+): ThreadSessionOwnerRow {
+  const owner = database.prepare(`
     SELECT
-      t.thread_id AS threadId,
       t.project_id AS threadProjectId,
       pst.session_id AS sessionId,
+      ps.pinned AS sessionPinned,
       ps.project_id AS sessionProjectId
     FROM codex_threads t
     LEFT JOIN project_session_threads pst ON pst.thread_id = t.thread_id
     LEFT JOIN project_sessions ps ON ps.id = pst.session_id
     WHERE t.thread_id = ?
-    ORDER BY pst.linked_at ASC, pst.session_id ASC
-  `).all(threadId) as ThreadSessionOwnerRow[];
-}
-
-function resolveThreadOwner(
-  database: Database.Database,
-  threadId: string,
-): ThreadSessionOwnerRow {
-  const owners = listThreadOwners(database, threadId);
-  if (owners.length === 0) {
+  `).get(threadId) as ThreadSessionOwnerRow | undefined;
+  if (!owner) {
     return fail("thread_not_found", `Thread ${threadId} does not exist`);
   }
-  const linkedOwners = owners.filter((owner) => owner.sessionId !== null);
-  if (linkedOwners.length === 0) {
-    return fail("thread_session_not_found", `Thread ${threadId} has no project session`);
-  }
-  if (linkedOwners.length > 1) {
-    return fail("ambiguous_thread_session", `Thread ${threadId} belongs to more than one project session`);
-  }
-  const owner = linkedOwners[0];
-  if (!owner) {
+  if (owner.sessionId === null) {
     return fail("thread_session_not_found", `Thread ${threadId} has no project session`);
   }
   return owner;
 }
 
-function listOrderedSessions(
+function listProjectThreads(
   database: Database.Database,
-  projectId: string | null,
-): OrderedSessionRow[] {
+  projectId: string,
+): ProjectThreadRow[] {
   return database.prepare(`
     SELECT
-      ps.id,
-      ps.pinned,
-      ps."order" AS "order",
-      ps.created_at AS createdAt,
-      pst.thread_id AS threadId,
-      t.project_id AS threadProjectId,
-      t.updated_at AS threadUpdatedAt
+      t.thread_id AS threadId,
+      t.project_id AS threadProjectId
     FROM project_sessions ps
-    LEFT JOIN project_session_threads pst ON pst.session_id = ps.id
-    LEFT JOIN codex_threads t ON t.thread_id = pst.thread_id
-    WHERE ps.project_id IS ?
-    ORDER BY ps."order" ASC, ps.created_at ASC, ps.id ASC
-  `).all(projectId) as OrderedSessionRow[];
+    JOIN project_session_threads pst ON pst.session_id = ps.id
+    JOIN codex_threads t ON t.thread_id = pst.thread_id
+    WHERE ps.project_id = ?
+    ORDER BY
+      t.updated_at DESC,
+      t.created_at DESC,
+      t.thread_id ASC
+  `).all(projectId) as ProjectThreadRow[];
 }
 
-function listThreadIdsInSessionOrder(sessions: readonly OrderedSessionRow[]): string[] {
-  return sessions.flatMap((session) => session.threadId ? [session.threadId] : []);
+function listProjectThreadIds(
+  database: Database.Database,
+  projectId: string,
+): string[] {
+  return listProjectThreads(database, projectId).map((thread) => {
+    if (thread.threadProjectId === projectId) return thread.threadId;
+    return fail("stale_source", `Project ${projectId} has inconsistent thread ownership`);
+  });
 }
 
 function listCustomOrders(database: Database.Database): Map<string, string[]> {
@@ -234,6 +217,10 @@ function listCustomOrders(database: Database.Database): Map<string, string[]> {
     const orderedThreadIds = parseCustomOrder(row.orderedThreadIdsJson);
     return orderedThreadIds === null ? [] : [[row.projectId, orderedThreadIds] as const];
   }));
+}
+
+export function listCodexProjectThreadOrders(): Record<string, string[]> {
+  return Object.fromEntries(listCustomOrders(getDb()));
 }
 
 function writeCustomOrder(
@@ -252,26 +239,6 @@ function writeCustomOrder(
       ordered_thread_ids_json = excluded.ordered_thread_ids_json,
       updated_at = excluded.updated_at
   `).run(projectId, stringifyCustomOrder(orderedThreadIds), now);
-}
-
-function writeSessionOrder(
-  database: Database.Database,
-  projectId: string | null,
-  orderedSessions: readonly OrderedSessionRow[],
-  now: string,
-): void {
-  const update = database.prepare(`
-    UPDATE project_sessions
-    SET "order" = ?, pinned_order = ?, updated_at = ?
-    WHERE id = ? AND project_id IS ?
-  `);
-  let pinnedOrder = 0;
-  for (const [order, session] of orderedSessions.entries()) {
-    const nextPinnedOrder = session.pinned === 1 ? pinnedOrder++ : null;
-    const result = update.run(order, nextPinnedOrder, now, session.id, projectId);
-    if (result.changes === 1) continue;
-    return fail("stale_source", `Session ${session.id} changed project during thread move`);
-  }
 }
 
 function updateThreadOwnershipAndMetadata(input: {
@@ -309,85 +276,31 @@ function updateThreadOwnershipAndMetadata(input: {
   return fail("stale_source", `Thread ${input.threadId} changed project during thread move`);
 }
 
-function insertSessionAtPlacement(input: {
-  targetSessions: readonly OrderedSessionRow[];
-  movedSession: OrderedSessionRow;
-  placement: Placement;
-  anchorSessionId: string | null;
-}): OrderedSessionRow[] {
-  if (input.placement.type === "end") {
-    return [...input.targetSessions, input.movedSession];
+function appendUntrackedThreadIds(
+  trackedThreadIds: readonly string[],
+  currentThreadIds: readonly string[],
+): string[] {
+  const result = [...trackedThreadIds];
+  const seen = new Set(trackedThreadIds);
+  for (const threadId of currentThreadIds) {
+    if (seen.has(threadId)) continue;
+    seen.add(threadId);
+    result.push(threadId);
   }
-  if (input.placement.type === "before") {
-    const targetIndex = input.targetSessions.findIndex(
-      (session) => session.id === input.anchorSessionId,
-    );
-    if (targetIndex < 0) return [...input.targetSessions, input.movedSession];
-    return [
-      ...input.targetSessions.slice(0, targetIndex),
-      input.movedSession,
-      ...input.targetSessions.slice(targetIndex),
-    ];
-  }
-  return [input.movedSession, ...input.targetSessions];
+  return result;
 }
 
-function compareDefaultThreadSessions(
-  left: OrderedSessionRow,
-  right: OrderedSessionRow,
-): number {
-  const updatedAtDelta = (right.threadUpdatedAt ?? 0) - (left.threadUpdatedAt ?? 0);
-  if (updatedAtDelta !== 0) return updatedAtDelta;
-  if (left.order !== right.order) return left.order - right.order;
-  const createdAtDelta = right.createdAt.localeCompare(left.createdAt);
-  if (createdAtDelta !== 0) return createdAtDelta;
-  return left.id.localeCompare(right.id);
-}
-
-function projectDefaultThreadOrder(
-  completeSessions: readonly OrderedSessionRow[],
-): OrderedSessionRow[] {
-  const orderedThreadSessions = completeSessions
-    .filter((session) => session.threadId !== null)
-    .sort(compareDefaultThreadSessions);
-  let nextThreadIndex = 0;
-  return completeSessions.map((session) => {
-    if (session.threadId === null) return session;
-    const replacement = orderedThreadSessions[nextThreadIndex];
-    nextThreadIndex += 1;
-    return replacement ?? session;
-  });
-}
-
-function projectCustomThreadOrder(input: {
-  completeSessions: readonly OrderedSessionRow[];
-  projectId: string;
-  orderedThreadIds: readonly string[];
-}): OrderedSessionRow[] {
-  const threadSessions = input.completeSessions.filter((session) => session.threadId !== null);
-  const sessionByThreadId = new Map<string, OrderedSessionRow>();
-  for (const session of threadSessions) {
-    const threadId = session.threadId;
-    if (!threadId || session.threadProjectId !== input.projectId) {
-      return fail("stale_source", `Project ${input.projectId} has inconsistent thread ownership`);
-    }
-    if (sessionByThreadId.has(threadId)) {
-      return fail("ambiguous_thread_session", `Thread ${threadId} has more than one project session`);
-    }
-    sessionByThreadId.set(threadId, session);
-  }
-  const orderedThreadSessions = input.orderedThreadIds.map((threadId) => {
-    const session = sessionByThreadId.get(threadId);
-    if (session) return session;
-    return fail("invalid_custom_order", `Thread ${threadId} is not in project ${input.projectId}`);
-  });
-  const selectedThreadIds = new Set(input.orderedThreadIds);
-  let nextThreadIndex = 0;
-  return input.completeSessions.map((session) => {
-    if (session.threadId === null || !selectedThreadIds.has(session.threadId)) return session;
-    const replacement = orderedThreadSessions[nextThreadIndex];
-    nextThreadIndex += 1;
-    return replacement ?? session;
+function projectRequestedThreadOrder(input: {
+  completeThreadOrder: readonly string[];
+  requestedThreadIds: readonly string[];
+}): string[] {
+  const requestedThreadIdSet = new Set(input.requestedThreadIds);
+  let requestedIndex = 0;
+  return input.completeThreadOrder.map((threadId) => {
+    if (!requestedThreadIdSet.has(threadId)) return threadId;
+    const replacement = input.requestedThreadIds[requestedIndex];
+    requestedIndex += 1;
+    return replacement ?? threadId;
   });
 }
 
@@ -428,262 +341,186 @@ export function getCodexProjectThreadOrder(projectId: string): string[] | null {
   return row ? parseCustomOrder(row.orderedThreadIdsJson) : null;
 }
 
+/** Persist project-lane manual order without mutating project-session layout. */
 export function setCodexProjectThreadOrder(
   projectId: string,
   orderedThreadIds: readonly string[] | null,
-): SetCodexProjectThreadOrderResult {
+): void {
   projectId = requireId(projectId, "projectId");
   const database = getDb();
-  const setOrder = database.transaction((): SetCodexProjectThreadOrderResult => {
+  const setOrder = database.transaction(() => {
     if (!projectExists(database, projectId)) {
       return fail("target_project_not_found", `Project ${projectId} does not exist`);
     }
 
-    const completeSessions = listOrderedSessions(database, projectId);
-    const requestedThreadOrder = orderedThreadIds === null
-      ? null
-      : assertUniqueThreadIds(orderedThreadIds);
-    const orderedSessions = requestedThreadOrder === null
-      ? projectDefaultThreadOrder(completeSessions)
-      : projectCustomThreadOrder({
-        completeSessions,
-        projectId,
-        orderedThreadIds: requestedThreadOrder,
-      });
-    const customThreadOrder = requestedThreadOrder === null
-      ? null
-      : listThreadIdsInSessionOrder(orderedSessions);
-    const now = new Date().toISOString();
-    writeSessionOrder(database, projectId, orderedSessions, now);
-    if (customThreadOrder === null) {
+    if (orderedThreadIds === null) {
       database.prepare("DELETE FROM codex_project_thread_orders WHERE project_id = ?").run(projectId);
-    } else {
-      writeCustomOrder(database, projectId, customThreadOrder, now);
-    }
-    return {
-      projectId,
-      customThreadOrder: customThreadOrder === null ? null : [...customThreadOrder],
-      sessionIdsInOrder: orderedSessions.map((session) => session.id),
-    };
-  });
-
-  return setOrder.immediate();
-}
-
-export interface CodexProjectThreadMembershipReceipt {
-  threadId: string;
-  sessionId: string;
-  sourceProjectId: string | null;
-  targetProjectId: string | null;
-}
-
-export interface SaveCodexProjectThreadMoveSidebarStateInput {
-  receipt: CodexProjectThreadMembershipReceipt;
-  beforeThreadId?: string | null;
-  insertAtEnd?: boolean;
-  useDefaultOrder?: boolean;
-}
-
-export interface SaveCodexProjectThreadMoveSidebarStateResult {
-  sourceSessionIdsInOrder: string[];
-  targetSessionIdsInOrder: string[];
-  targetCustomThreadOrder: string[] | null;
-}
-
-export function moveCodexProjectThreadMembership(
-  input: Pick<
-    MoveCodexProjectThreadInput,
-    "threadId" | "sourceProjectId" | "targetProjectId" | "threadMetadataPatch"
-  >,
-): CodexProjectThreadMembershipReceipt {
-  const threadId = requireId(input.threadId, "threadId");
-  const sourceProjectId = normalizeProjectScopeId(input.sourceProjectId, "sourceProjectId");
-  const targetProjectId = normalizeProjectScopeId(input.targetProjectId, "targetProjectId");
-  const database = getDb();
-  const moveMembership = database.transaction((): CodexProjectThreadMembershipReceipt => {
-    if (targetProjectId !== null && !projectExists(database, targetProjectId)) {
-      return fail("target_project_not_found", `Project ${targetProjectId} does not exist`);
+      return;
     }
 
-    const owner = resolveThreadOwner(database, threadId);
-    if (owner.threadProjectId !== sourceProjectId || owner.sessionProjectId !== sourceProjectId) {
-      return fail("stale_source", `Thread ${threadId} is no longer in project ${sourceProjectId}`);
-    }
-    const sessionId = owner.sessionId;
-    if (!sessionId) {
-      return fail("thread_session_not_found", `Thread ${threadId} has no project session`);
-    }
-    if (sourceProjectId === targetProjectId) {
-      return { threadId, sessionId, sourceProjectId, targetProjectId };
+    const requestedThreadOrder = assertUniqueThreadIds(orderedThreadIds);
+    const currentThreadIds = listProjectThreadIds(database, projectId);
+    const currentThreadIdSet = new Set(currentThreadIds);
+    for (const threadId of requestedThreadOrder) {
+      if (currentThreadIdSet.has(threadId)) continue;
+      return fail("invalid_custom_order", `Thread ${threadId} is not in project ${projectId}`);
     }
 
-    const now = new Date().toISOString();
-    const moved = database.prepare(`
-      UPDATE project_sessions
-      SET project_id = ?, updated_at = ?
-      WHERE id = ? AND project_id IS ?
-    `).run(targetProjectId, now, sessionId, sourceProjectId);
-    if (moved.changes !== 1) {
-      return fail("stale_source", `Session ${sessionId} changed project during thread move`);
-    }
-    if (targetProjectId !== null) {
-      database.prepare(`
-        UPDATE project_session_tabs
-        SET project_id = ?, updated_at = ?
-        WHERE session_id = ?
-      `).run(targetProjectId, now, sessionId);
-    }
-    updateThreadOwnershipAndMetadata({
-      database,
-      threadId,
-      sourceProjectId,
-      targetProjectId,
-      patch: input.threadMetadataPatch,
+    const trackedThreadIds = appendUntrackedThreadIds(
+      listCustomOrders(database).get(projectId) ?? currentThreadIds,
+      currentThreadIds,
+    );
+    const customThreadOrder = projectRequestedThreadOrder({
+      completeThreadOrder: trackedThreadIds,
+      requestedThreadIds: requestedThreadOrder,
     });
-    database.prepare(`
-      UPDATE thread_search_units
-      SET project_id = ?
-      WHERE thread_id = ?
-    `).run(targetProjectId, threadId);
-    return { threadId, sessionId, sourceProjectId, targetProjectId };
+    const now = new Date().toISOString();
+    writeCustomOrder(database, projectId, customThreadOrder, now);
   });
 
-  return moveMembership.immediate();
+  setOrder.immediate();
 }
 
-export function saveCodexProjectThreadMoveSidebarState(
-  input: SaveCodexProjectThreadMoveSidebarStateInput,
-): SaveCodexProjectThreadMoveSidebarStateResult {
-  const { receipt } = input;
-  const placement = resolvePlacement({
-    threadId: receipt.threadId,
-    sourceProjectId: receipt.sourceProjectId,
-    targetProjectId: receipt.targetProjectId,
-    beforeThreadId: input.beforeThreadId,
-    insertAtEnd: input.insertAtEnd,
-    useDefaultOrder: input.useDefaultOrder,
-  });
-  const sameScope = receipt.sourceProjectId === receipt.targetProjectId;
-  const database = getDb();
-  const saveSidebarState = database.transaction((): SaveCodexProjectThreadMoveSidebarStateResult => {
-    const owner = resolveThreadOwner(database, receipt.threadId);
-    if (
-      owner.sessionId !== receipt.sessionId
-      || owner.threadProjectId !== receipt.targetProjectId
-      || owner.sessionProjectId !== receipt.targetProjectId
-    ) {
-      return fail("stale_source", `Thread ${receipt.threadId} changed after membership save`);
-    }
+function moveCodexProjectThreadMembership(
+  database: Database.Database,
+  input: {
+    threadId: string;
+    sourceProjectId: string | null;
+    targetProjectId: string | null;
+    threadMetadataPatch?: CodexProjectThreadMetadataPatch;
+  },
+): MoveCodexProjectThreadResult {
+  const { threadId, sourceProjectId, targetProjectId } = input;
+  if (targetProjectId !== null && !projectExists(database, targetProjectId)) {
+    return fail("target_project_not_found", `Project ${targetProjectId} does not exist`);
+  }
 
-    const sourceSessions = listOrderedSessions(database, receipt.sourceProjectId);
-    const targetSessions = sameScope
-      ? sourceSessions
-      : listOrderedSessions(database, receipt.targetProjectId);
-    const movedSession = targetSessions.find((session) => session.id === receipt.sessionId);
-    if (!movedSession) {
-      return fail("thread_session_not_found", `Moved session ${receipt.sessionId} is missing`);
-    }
-    const targetSessionsWithoutMoved = targetSessions.filter((session) => (
-      session.id !== receipt.sessionId
+  const owner = resolveThreadOwner(database, threadId);
+  if (owner.threadProjectId !== sourceProjectId || owner.sessionProjectId !== sourceProjectId) {
+    return fail("stale_source", `Thread ${threadId} is no longer in project ${sourceProjectId}`);
+  }
+  const sessionId = owner.sessionId;
+  if (!sessionId) {
+    return fail("thread_session_not_found", `Thread ${threadId} has no project session`);
+  }
+  if (sourceProjectId === targetProjectId) {
+    return { threadId, sessionId, sourceProjectId, targetProjectId };
+  }
+
+  const now = new Date().toISOString();
+  // Session order belongs to the shell. A cross-Project ownership move gets
+  // one deterministic shell placement; sidebar before/end intent is applied
+  // separately to durable thread IDs below.
+  const nextPinnedOrder = owner.sessionPinned === 1
+    ? ((database.prepare(`
+        SELECT MAX(pinned_order) AS maxPinnedOrder
+        FROM project_sessions
+        WHERE project_id IS ? AND pinned = 1 AND archived = 0
+      `).get(targetProjectId) as { maxPinnedOrder: number | null } | undefined)
+        ?.maxPinnedOrder ?? -1) + 1
+    : null;
+  database.prepare(`
+    UPDATE project_sessions
+    SET "order" = "order" + 1, updated_at = ?
+    WHERE project_id IS ?
+  `).run(now, targetProjectId);
+  const moved = database.prepare(`
+    UPDATE project_sessions
+    SET
+      project_id = ?,
+      "order" = 0,
+      pinned_order = ?,
+      updated_at = ?
+    WHERE id = ? AND project_id IS ?
+  `).run(targetProjectId, nextPinnedOrder, now, sessionId, sourceProjectId);
+  if (moved.changes !== 1) {
+    return fail("stale_source", `Session ${sessionId} changed project during thread move`);
+  }
+  if (targetProjectId !== null) {
+    database.prepare(`
+      UPDATE project_session_tabs
+      SET project_id = ?, updated_at = ?
+      WHERE session_id = ?
+    `).run(targetProjectId, now, sessionId);
+  }
+  updateThreadOwnershipAndMetadata({
+    database,
+    threadId,
+    sourceProjectId,
+    targetProjectId,
+    patch: input.threadMetadataPatch,
+  });
+  database.prepare(`
+    UPDATE thread_search_units
+    SET project_id = ?
+    WHERE thread_id = ?
+  `).run(targetProjectId, threadId);
+  return { threadId, sessionId, sourceProjectId, targetProjectId };
+}
+
+function saveCodexProjectThreadMoveSidebarState(
+  database: Database.Database,
+  receipt: MoveCodexProjectThreadResult,
+  placement: Placement,
+): void {
+  const owner = resolveThreadOwner(database, receipt.threadId);
+  if (
+    owner.sessionId !== receipt.sessionId
+    || owner.threadProjectId !== receipt.targetProjectId
+    || owner.sessionProjectId !== receipt.targetProjectId
+  ) {
+    return fail("stale_source", `Thread ${receipt.threadId} changed during move`);
+  }
+
+  const currentCustomOrders = listCustomOrders(database);
+  const changedCustomOrders = new Map<string, string[]>();
+  for (const [projectId, orderedThreadIds] of currentCustomOrders) {
+    const filteredOrder = orderedThreadIds.filter((threadId) => (
+      threadId !== receipt.threadId
     ));
-    const anchorSessionId = placement.type === "before"
-      ? targetSessionsWithoutMoved.find((session) => (
-          session.threadId === placement.beforeThreadId
-        ))?.id ?? null
-      : null;
-    const defaultOrderSessions = sameScope
-      ? targetSessions
-      : [...targetSessionsWithoutMoved, movedSession];
-    let nextTargetSessions = placement.type === "default"
-      ? projectDefaultThreadOrder(defaultOrderSessions)
-      : insertSessionAtPlacement({
-        targetSessions: targetSessionsWithoutMoved,
-        movedSession,
-        placement,
-        anchorSessionId,
-      });
+    if (filteredOrder.length === orderedThreadIds.length) continue;
+    changedCustomOrders.set(projectId, filteredOrder);
+  }
+  if (placement.type !== "default" && receipt.targetProjectId !== null) {
+    const knownTargetThreadIds = listProjectThreadIds(
+      database,
+      receipt.targetProjectId,
+    ).filter((threadId) => threadId !== receipt.threadId);
+    const targetCustomThreadOrder = reconcileTargetCustomOrder({
+      existingTargetOrder: changedCustomOrders.get(receipt.targetProjectId)
+        ?? currentCustomOrders.get(receipt.targetProjectId)
+        ?? [],
+      knownTargetThreadIds,
+      movedThreadId: receipt.threadId,
+      placement,
+    });
+    changedCustomOrders.set(receipt.targetProjectId, targetCustomThreadOrder);
+  }
 
-    const nextCustomOrders = new Map<string, string[]>();
-    for (const [projectId, orderedThreadIds] of listCustomOrders(database)) {
-      nextCustomOrders.set(
-        projectId,
-        orderedThreadIds.filter((orderedThreadId) => orderedThreadId !== receipt.threadId),
-      );
-    }
-    const knownTargetThreadIds = listThreadIdsInSessionOrder(targetSessionsWithoutMoved);
-    let targetCustomThreadOrder: string[] | null = null;
-    if (placement.type !== "default" && receipt.targetProjectId !== null) {
-      targetCustomThreadOrder = reconcileTargetCustomOrder({
-        existingTargetOrder: nextCustomOrders.get(receipt.targetProjectId) ?? [],
-        knownTargetThreadIds,
-        movedThreadId: receipt.threadId,
-        placement,
-      });
-      nextCustomOrders.set(receipt.targetProjectId, targetCustomThreadOrder);
-    } else if (
-      receipt.targetProjectId !== null
-      && nextCustomOrders.has(receipt.targetProjectId)
-    ) {
-      targetCustomThreadOrder = nextCustomOrders.get(receipt.targetProjectId) ?? [];
-    }
-    if (receipt.targetProjectId !== null && targetCustomThreadOrder !== null) {
-      const currentTargetThreadIds = new Set(listThreadIdsInSessionOrder(nextTargetSessions));
-      nextTargetSessions = projectCustomThreadOrder({
-        completeSessions: nextTargetSessions,
-        projectId: receipt.targetProjectId,
-        orderedThreadIds: targetCustomThreadOrder.filter((targetThreadId) => (
-          currentTargetThreadIds.has(targetThreadId)
-        )),
-      });
-    }
-
-    const nextSourceSessions = sameScope ? nextTargetSessions : sourceSessions;
-    const now = new Date().toISOString();
-    writeSessionOrder(database, receipt.sourceProjectId, nextSourceSessions, now);
-    if (!sameScope) {
-      writeSessionOrder(database, receipt.targetProjectId, nextTargetSessions, now);
-    }
-    database.prepare("DELETE FROM codex_project_thread_orders").run();
-    for (const [projectId, orderedThreadIds] of nextCustomOrders) {
-      writeCustomOrder(database, projectId, orderedThreadIds, now);
-    }
-    return {
-      sourceSessionIdsInOrder: nextSourceSessions.map((session) => session.id),
-      targetSessionIdsInOrder: nextTargetSessions.map((session) => session.id),
-      targetCustomThreadOrder,
-    };
-  });
-
-  return saveSidebarState.immediate();
+  const now = new Date().toISOString();
+  for (const [projectId, orderedThreadIds] of changedCustomOrders) {
+    if (threadOrdersEqual(currentCustomOrders.get(projectId), orderedThreadIds)) continue;
+    writeCustomOrder(database, projectId, orderedThreadIds, now);
+  }
 }
 
 export function moveCodexProjectThread(
   input: MoveCodexProjectThreadInput,
 ): MoveCodexProjectThreadResult {
-  resolvePlacement(input);
-  const receipt = moveCodexProjectThreadMembership(input);
-  try {
-    const sidebarState = saveCodexProjectThreadMoveSidebarState({
-      receipt,
-      beforeThreadId: input.beforeThreadId,
-      insertAtEnd: input.insertAtEnd,
-      useDefaultOrder: input.useDefaultOrder,
+  const threadId = requireId(input.threadId, "threadId");
+  const sourceProjectId = normalizeProjectScopeId(input.sourceProjectId, "sourceProjectId");
+  const targetProjectId = normalizeProjectScopeId(input.targetProjectId, "targetProjectId");
+  const placement = resolvePlacement(input);
+  const database = getDb();
+  const move = database.transaction(() => {
+    const receipt = moveCodexProjectThreadMembership(database, {
+      threadId,
+      sourceProjectId,
+      targetProjectId,
+      threadMetadataPatch: input.threadMetadataPatch,
     });
-    return {
-      ...receipt,
-      ...sidebarState,
-      sidebarOrderError: null,
-    };
-  } catch (error) {
-    const database = getDb();
-    return {
-      ...receipt,
-      sourceSessionIdsInOrder: listOrderedSessions(database, receipt.sourceProjectId)
-        .map((session) => session.id),
-      targetSessionIdsInOrder: listOrderedSessions(database, receipt.targetProjectId)
-        .map((session) => session.id),
-      targetCustomThreadOrder: null,
-      sidebarOrderError: error instanceof Error ? error : new Error(String(error)),
-    };
-  }
+    saveCodexProjectThreadMoveSidebarState(database, receipt, placement);
+    return receipt;
+  });
+  return move.immediate();
 }

@@ -1,6 +1,7 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import betterTailwindcss from "eslint-plugin-better-tailwindcss";
 import queryPlugin from "@tanstack/eslint-plugin-query";
+import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 const isBetterTailwindEnabled = process.env.ESLINT_BETTER_TAILWIND === "1";
@@ -40,6 +41,16 @@ const eslintConfig = defineConfig([
   ...(Array.isArray(queryPlugin.configs["flat/recommended"])
     ? queryPlugin.configs["flat/recommended"]
     : [queryPlugin.configs["flat/recommended"]]),
+  {
+    files: ["src/renderer/**/*.{ts,tsx}"],
+    plugins: {
+      "react-hooks": reactHooks,
+    },
+    rules: {
+      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/rules-of-hooks": "error",
+    },
+  },
   ...(isBetterTailwindEnabled
     ? [
       {

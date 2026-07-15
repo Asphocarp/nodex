@@ -88,8 +88,6 @@ export interface CodexSidebarProjectThreadOrderInput {
 }
 
 export interface CodexSidebarProjectThreadOrderResult {
-  projectId: string;
-  sessions: ProjectSessionSummary[];
   snapshot: CodexSidebarSnapshot;
 }
 

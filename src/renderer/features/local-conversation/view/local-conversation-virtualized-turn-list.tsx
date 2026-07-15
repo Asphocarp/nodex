@@ -496,6 +496,7 @@ function LocalConversationVirtualizedTurnListCore({
   const followContentHeightsRef = useRef(new Map<HTMLElement, number>());
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const measurementFrameRef = useRef<number | null>(null);
+  const flushMeasurementsRef = useRef<() => void>(() => {});
   const pendingFollowContentMeasurementRef = useRef(false);
   const pendingLayoutEffectRef = useRef<PendingLayoutEffect | null>(null);
 
@@ -569,41 +570,6 @@ function LocalConversationVirtualizedTurnListCore({
     },
     [emitViewportChange],
   );
-
-  const getResizeObserver = useCallback(() => {
-    if (typeof ResizeObserver === "undefined") return null;
-    if (resizeObserverRef.current) return resizeObserverRef.current;
-    resizeObserverRef.current = new ResizeObserver((entries) => {
-      let followContentChanged = false;
-      for (const entry of entries) {
-        const metadata = observedElementMetadataRef.current.get(entry.target);
-        if (!metadata) continue;
-        const measuredBlockSizePx = readMeasuredBlockSizePx(entry);
-        if (measuredBlockSizePx <= 0) continue;
-        const heightPx = normalizeMeasuredHeightPx(measuredBlockSizePx);
-        if (metadata.kind === "turn") {
-          const turnKey = metadata.turnKey;
-          if (!turnKey) continue;
-          const element = entry.target as HTMLElement;
-          const previous = pendingTurnMeasurementsRef.current.get(turnKey);
-          pendingTurnMeasurementsRef.current.set(turnKey, {
-            element,
-            firstHeightPx: previous?.firstHeightPx ?? heightPx,
-            heightPx,
-          });
-          continue;
-        }
-        const element = entry.target as HTMLElement;
-        const previousHeightPx = followContentHeightsRef.current.get(element);
-        if (previousHeightPx !== heightPx) {
-          followContentHeightsRef.current.set(element, heightPx);
-          followContentChanged = true;
-        }
-      }
-      scheduleMeasurementFlush(followContentChanged);
-    });
-    return resizeObserverRef.current;
-  }, []);
 
   const reportLatestTurnFollowContentHeight = useCallback(() => {
     let heightPx = 0;
@@ -782,16 +748,52 @@ function LocalConversationVirtualizedTurnListCore({
     },
     [flushPendingTurnMeasurements, reportLatestTurnFollowContentHeight],
   );
+  flushMeasurementsRef.current = flushMeasurements;
 
-  function scheduleMeasurementFlush(followContentChanged = false): void {
+  const scheduleMeasurementFlush = useCallback((followContentChanged = false): void => {
     if (followContentChanged) {
       pendingFollowContentMeasurementRef.current = true;
     }
     if (measurementFrameRef.current !== null) return;
     measurementFrameRef.current = window.requestAnimationFrame(() => {
-      flushMeasurements();
+      flushMeasurementsRef.current();
     });
-  }
+  }, []);
+
+  const getResizeObserver = useCallback(() => {
+    if (typeof ResizeObserver === "undefined") return null;
+    if (resizeObserverRef.current) return resizeObserverRef.current;
+    resizeObserverRef.current = new ResizeObserver((entries) => {
+      let followContentChanged = false;
+      for (const entry of entries) {
+        const metadata = observedElementMetadataRef.current.get(entry.target);
+        if (!metadata) continue;
+        const measuredBlockSizePx = readMeasuredBlockSizePx(entry);
+        if (measuredBlockSizePx <= 0) continue;
+        const heightPx = normalizeMeasuredHeightPx(measuredBlockSizePx);
+        if (metadata.kind === "turn") {
+          const turnKey = metadata.turnKey;
+          if (!turnKey) continue;
+          const element = entry.target as HTMLElement;
+          const previous = pendingTurnMeasurementsRef.current.get(turnKey);
+          pendingTurnMeasurementsRef.current.set(turnKey, {
+            element,
+            firstHeightPx: previous?.firstHeightPx ?? heightPx,
+            heightPx,
+          });
+          continue;
+        }
+        const element = entry.target as HTMLElement;
+        const previousHeightPx = followContentHeightsRef.current.get(element);
+        if (previousHeightPx !== heightPx) {
+          followContentHeightsRef.current.set(element, heightPx);
+          followContentChanged = true;
+        }
+      }
+      scheduleMeasurementFlush(followContentChanged);
+    });
+    return resizeObserverRef.current;
+  }, [scheduleMeasurementFlush]);
 
   const observeTurnElement = useCallback(
     (turnKey: string, element: HTMLElement) => {
@@ -817,7 +819,7 @@ function LocalConversationVirtualizedTurnListCore({
         }
       };
     },
-    [getResizeObserver],
+    [getResizeObserver, scheduleMeasurementFlush],
   );
 
   const latestTurnFollowContentCleanupRef = useRef<(() => void) | null>(null);

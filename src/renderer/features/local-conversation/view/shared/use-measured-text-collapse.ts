@@ -188,7 +188,7 @@ export function useMeasuredTextCollapse({
     return () => {
       resizeObserverRef.current?.unobserve(element);
     };
-  }, [element, updateMetrics]);
+  }, [element]);
 
   useLayoutEffect(() => () => {
     resizeObserverRef.current?.disconnect();

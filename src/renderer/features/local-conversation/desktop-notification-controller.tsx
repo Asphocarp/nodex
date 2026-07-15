@@ -257,7 +257,7 @@ export function DesktopNotificationController({
       stopApprovalRequests();
       stopUserInputRequests();
     };
-  }, [isSameFocusedConversation, manager, settings.permissionsEnabled, settings.questionsEnabled, settings.turnMode, shouldSuppressTurnComplete, showNotification]);
+  }, [manager, settings.permissionsEnabled, settings.questionsEnabled, settings.turnMode]);
 
   const handleOpenThread = useEffectEvent((threadId: string) => {
     const summary = manager.readThreadSummary(threadId);
@@ -327,7 +327,7 @@ export function DesktopNotificationController({
         // Notification actions should fail closed; the thread remains available in the UI.
       });
     });
-  }, [handleAction]);
+  }, []);
 
   return null;
 }

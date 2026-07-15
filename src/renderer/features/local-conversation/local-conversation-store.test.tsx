@@ -1,5 +1,5 @@
 import { describe, expect, vi, test } from "vitest";
-import { createElement, useLayoutEffect, useSyncExternalStore } from "react";
+import { createElement, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { act } from "@testing-library/react";
 import type {
   CodexConnectionState,
@@ -402,10 +402,13 @@ function ConversationUserMessages({
     (onStoreChange) => manager.addConversationCallback(threadId, () => onStoreChange()),
     () => manager.readConversation(threadId),
   );
-  const messages = conversation?.turns.flatMap((turn) => turn.items)
-    .filter((item) => item.semanticKind === "userMessage")
-    .map((item) => item.markdownText ?? "")
-    ?? [];
+  const messages = useMemo(
+    () => conversation?.turns.flatMap((turn) => turn.items)
+      .filter((item) => item.semanticKind === "userMessage")
+      .map((item) => item.markdownText ?? "")
+      ?? [],
+    [conversation],
+  );
   useLayoutEffect(() => {
     onCommit?.(messages);
   }, [messages, onCommit]);

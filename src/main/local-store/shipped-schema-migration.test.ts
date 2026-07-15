@@ -180,7 +180,7 @@ afterEach(() => {
   }
 });
 
-describe("shipped schema through v58 staged import to v59 startup", () => {
+describe("shipped schema through v58 staging and current startup migrations", () => {
   test("imports v26 through the legacy filename without exposing checkpoints", async () => {
     const source = seedV26Store();
     const sourceDatabaseHash = sha256File(source.sourceDatabasePath);
@@ -295,7 +295,7 @@ describe("shipped schema through v58 staged import to v59 startup", () => {
     closeDatabase();
     resetAssetPathCacheForTests();
     const freshDirectoryPath = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nodex-schema-v59-fresh-"),
+      path.join(os.tmpdir(), "nodex-schema-current-fresh-"),
     );
     tempDirectories.push(freshDirectoryPath);
     process.env.NODEX_DIR = freshDirectoryPath;

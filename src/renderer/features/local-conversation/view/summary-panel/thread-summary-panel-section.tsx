@@ -154,7 +154,9 @@ export const ThreadSummaryPanelSection = forwardRef<
   autoCollapse,
   onChange,
 }, ref) {
-  const shouldUseReducedMotion = Boolean(useReducedMotion() || useReducedMotionConfig());
+  const prefersReducedMotion = useReducedMotion();
+  const configuredReducedMotion = useReducedMotionConfig();
+  const shouldUseReducedMotion = Boolean(prefersReducedMotion || configuredReducedMotion);
   const [persistedExpanded, setPersistedExpanded] = useState<boolean | null>(() => readPersistedSectionExpanded(sectionKey));
   const [autoCollapseState, setAutoCollapseState] =
     useState<ThreadSummaryPanelSectionAutoCollapseState>("pending");

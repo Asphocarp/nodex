@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  buildCodexSidebarProjectSessionOrder,
   buildCodexSidebarPinnedReorderMutation,
   buildSidebarThreadSyncModel,
   listReorderableCodexSidebarProjectThreadKeys,
@@ -11,7 +10,6 @@ import {
   orderCodexSidebarThreadKeysByManualThreadIds,
   orderCodexSidebarPinnedThreadKeys,
   resolveCodexSidebarThreadHomeContainerId,
-  sortCodexSidebarProjectThreadKeysBySessionOrder,
   sortSidebarThreadKeysForDisplay,
 } from "./codex-sidebar-thread-sync";
 import type { CodexPendingWorktreeEntry } from "../../shared/codex-pending-worktree";
@@ -71,7 +69,8 @@ function makeSnapshot(items: CodexSidebarThreadItem[]): CodexSidebarSnapshot {
         .map((item) => [item.threadId, item.projectId]),
     ),
     projectlessThreadIds: items.filter((item) => item.projectless).map((item) => item.threadId),
-    manualThreadOrder: null,
+    projectThreadOrders: {},
+    projectlessThreadOrder: null,
     generatedAt: 1,
   };
 }
@@ -479,7 +478,7 @@ describe("sortSidebarThreadKeysForDisplay", () => {
   });
 });
 
-describe("manual Chats order", () => {
+describe("manual thread order projection", () => {
   test("reorders only stored real-thread slots and preserves pending, new, and stale identities", () => {
     const threadIdByKey = new Map([
       ["thread:a", "A"],
@@ -511,7 +510,7 @@ describe("manual Chats order", () => {
     ]));
   });
 
-  test("projects one global order independently onto all-unpinned and projectless task slots", () => {
+  test("projects one durable order onto any scoped base list without moving untracked slots", () => {
     const threadIdByKey = new Map([
       ["project:one", "P1"],
       ["chat:a", "A"],
@@ -538,73 +537,20 @@ describe("manual Chats order", () => {
       orderedThreadIds,
       getThreadId,
     }))).toBe(JSON.stringify(["chat:b", "chat:new", "chat:a"]));
+    expect(JSON.stringify(orderCodexSidebarThreadKeysByManualThreadIds({
+      threadKeys: ["chat:b", "chat:a", "chat:new"],
+      orderedThreadIds,
+      getThreadId,
+    }))).toBe(JSON.stringify(["chat:b", "chat:a", "chat:new"]));
   });
 });
 
-describe("pinned project thread order", () => {
-  test("enables child DnD only for a non-null precomputed order and excludes pending rows", () => {
-    const sessionIdByThreadKey = new Map([
-      ["thread:a", "session:a"],
-      ["thread:b", "session:b"],
-    ]);
-
+describe("project thread reorder eligibility", () => {
+  test("enables child DnD for durable threads without requiring loaded session detail", () => {
     expect(JSON.stringify(listReorderableCodexSidebarProjectThreadKeys({
       visibleThreadKeys: ["thread:a", "pending:x", "thread:b"],
-      projectThreadKeysInDisplayOrder: null,
-      sessionIdByThreadKey,
-    }))).toBe(JSON.stringify([]));
-    expect(JSON.stringify(listReorderableCodexSidebarProjectThreadKeys({
-      visibleThreadKeys: ["thread:a", "pending:x", "thread:b"],
-      projectThreadKeysInDisplayOrder: ["thread:a", "pending:x", "thread:b"],
-      sessionIdByThreadKey,
+      getThreadId: (threadKey) => threadKey.startsWith("thread:") ? threadKey : null,
     }))).toBe(JSON.stringify(["thread:a", "thread:b"]));
-  });
-
-  test("projects the project-local session order while keeping unresolved rows stable at the end", () => {
-    const sorted = sortCodexSidebarProjectThreadKeysBySessionOrder({
-      threadKeys: ["thread:b", "pending:x", "thread:a", "database-view"],
-      projectSessionIdsInOrder: ["session:database", "session:a", "session:b"],
-      sessionIdByThreadKey: new Map([
-        ["thread:a", "session:a"],
-        ["thread:b", "session:b"],
-        ["database-view", "session:database"],
-      ]),
-    });
-
-    expect(JSON.stringify(sorted)).toBe(JSON.stringify([
-      "database-view",
-      "thread:a",
-      "thread:b",
-      "pending:x",
-    ]));
-  });
-
-  test("persists one project's full order and preserves every hidden session slot", () => {
-    const orderedSessionIds = buildCodexSidebarProjectSessionOrder({
-      projectSessionIdsInOrder: [
-        "session:a",
-        "session:hidden-database",
-        "session:b",
-        "session:hidden-unloaded",
-        "session:c",
-      ],
-      visibleThreadKeys: ["thread:a", "thread:b", "thread:c"],
-      nextVisibleThreadKeys: ["thread:c", "thread:a", "thread:b"],
-      sessionIdByThreadKey: new Map([
-        ["thread:a", "session:a"],
-        ["thread:b", "session:b"],
-        ["thread:c", "session:c"],
-        ["other-project", "session:other-project"],
-      ]),
-    });
-
-    expect(JSON.stringify(orderedSessionIds)).toBe(JSON.stringify([
-      "session:c",
-      "session:hidden-database",
-      "session:a",
-      "session:hidden-unloaded",
-      "session:b",
-    ]));
   });
 });
 

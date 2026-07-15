@@ -26,7 +26,10 @@ export function useCommandPaletteThreadSearchIndex(
   const threadsKey = useMemo(() => buildThreadsKey(threads), [threads]);
 
   return useMemo(
-    () => createCommandPaletteThreadSearchIndex(threads),
+    () => {
+      void threadsKey;
+      return createCommandPaletteThreadSearchIndex(threads);
+    },
     [threads, threadsKey],
   );
 }

@@ -30,20 +30,19 @@ import {
 } from "./codex-sidebar";
 import {
   replaceVisibleOrder,
-  SidebarDropIndicator,
-  SidebarProjectDndProvider,
   SidebarProjectSortableContext,
-  usePinnedProjectDroppable,
   useSidebarGroupReorderController,
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
+import { SidebarDropIndicator } from "./sidebar-drop-indicator";
+import { SidebarReorderDndProvider } from "./sidebar-reorder-dnd";
 import {
   SidebarThreadDropContainer,
   SidebarThreadDropIndicator,
-  SidebarThreadReorderDndProvider,
   SidebarThreadReorderRows,
   SidebarThreadSortableContext,
   SidebarThreadSortableItem,
+  useSidebarPinnedDropContainer,
   useSidebarThreadReorderController,
   type SidebarThreadDropRequest,
 } from "./sidebar-thread-reorder";
@@ -504,7 +503,7 @@ function CodexSortableProjectSections({
   const unpinnedProjects = useMemo(() => projects.filter((project) => !project.pinned), [projects]);
   const pinnedProjectIds = useMemo(() => pinnedProjects.map((project) => project.id), [pinnedProjects]);
   const unpinnedProjectIds = useMemo(() => unpinnedProjects.map((project) => project.id), [unpinnedProjects]);
-  const pinnedDroppable = usePinnedProjectDroppable();
+  const pinnedDroppable = useSidebarPinnedDropContainer();
 
   const reorderUnpinned = useCallback((nextIds: string[]) => {
     const nextOrderIds = replaceVisibleOrder(projectOrderIds, unpinnedProjectIds, nextIds);
@@ -584,7 +583,10 @@ function CodexSortableProjectSections({
           </CodexSidebarSection>
         </div>
       ) : forceEmptyPinnedDropTarget ? (
-        <div className="absolute inset-x-0 top-0 px-row-x">
+        <div
+          ref={pinnedDroppable.setNodeRef}
+          className="absolute inset-x-0 top-0 px-row-x"
+        >
           <SidebarDropIndicator compensateLayout={false} />
           <div className="h-4" />
         </div>
@@ -629,7 +631,7 @@ function CodexSortableProjectsHarness({
     <NodexTooltipProvider>
       <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
         <div className="app-shell-left-panel relative w-[300px] overflow-visible py-4">
-          <SidebarProjectDndProvider
+          <SidebarReorderDndProvider
             onProjectDrop={(drop) => {
               setProjects((current) => current.map((project) => project.id === drop.projectId
                 ? { ...project, pinned: true, pinnedOrder: sortPinnedStoryProjects(current).length }
@@ -642,7 +644,7 @@ function CodexSortableProjectsHarness({
               forceDropIndicator={dropIndicator}
               forceEmptyPinnedDropTarget={emptyPinnedDropTarget}
             />
-          </SidebarProjectDndProvider>
+          </SidebarReorderDndProvider>
         </div>
       </div>
     </NodexTooltipProvider>
@@ -903,7 +905,7 @@ function CodexPinnedThreadsSortableHarness() {
   return (
     <SidebarProjectsChrome>
       <CodexSidebarSection heading="Pinned" collapsed={false} onToggle={() => {}}>
-        <SidebarThreadReorderDndProvider>
+        <SidebarReorderDndProvider>
           <SidebarThreadSortableContext threadKeys={reorder.displayedVisibleThreadKeys}>
             <div className="isolate flex flex-col [contain:layout]">
               <div className="flex flex-col" role="list" aria-label="Pinned chats">
@@ -936,7 +938,7 @@ function CodexPinnedThreadsSortableHarness() {
               </div>
             </div>
           </SidebarThreadSortableContext>
-        </SidebarThreadReorderDndProvider>
+        </SidebarReorderDndProvider>
       </CodexSidebarSection>
     </SidebarProjectsChrome>
   );
@@ -992,7 +994,7 @@ function CodexPinnedProjectThreadsSortableHarness() {
   return (
     <SidebarProjectsChrome>
       <CodexSidebarSection heading="Pinned" collapsed={false} onToggle={() => {}}>
-        <SidebarThreadReorderDndProvider>
+        <SidebarReorderDndProvider>
           <div className="isolate flex flex-col [contain:layout]">
             <div className="flex flex-col" role="list" aria-label="Pinned projects">
               <CodexProjectRow
@@ -1036,7 +1038,7 @@ function CodexPinnedProjectThreadsSortableHarness() {
               </CodexProjectRow>
             </div>
           </div>
-        </SidebarThreadReorderDndProvider>
+        </SidebarReorderDndProvider>
       </CodexSidebarSection>
     </SidebarProjectsChrome>
   );
@@ -1190,7 +1192,7 @@ function CodexCrossProjectThreadDropHarness() {
 
   return (
     <SidebarProjectsChrome>
-      <SidebarThreadReorderDndProvider
+      <SidebarReorderDndProvider
         getThreadIdByThreadKey={getThreadId}
         homeContainerIdByThreadId={homeContainerIdByThreadId}
         onThreadDrop={handleThreadDrop}
@@ -1249,7 +1251,7 @@ function CodexCrossProjectThreadDropHarness() {
             </div>
           </SidebarThreadDropContainer>
         </CodexSidebarSection>
-      </SidebarThreadReorderDndProvider>
+      </SidebarReorderDndProvider>
     </SidebarProjectsChrome>
   );
 }
@@ -1731,6 +1733,13 @@ export const CodexProjectsLongLabels: Story = {
 
 export const CodexProjectsSortable: Story = {
   render: () => <CodexSortableProjectsHarness />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Interactive project-folder reorder using the production sidebar gesture coordinator. Drag a project label to inspect the compact body-level folder ghost, inert 20% source, suppressed sibling transforms, and line-and-dot insertion boundary.",
+      },
+    },
+  },
 };
 
 export const CodexProjectsDraggingOverProject: Story = {
@@ -1738,7 +1747,7 @@ export const CodexProjectsDraggingOverProject: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Non-layout-shifting project insertion indicator with the link-blue rail and sidebar-filled leading dot.",
+        story: "Non-layout-shifting project insertion indicator with the link-blue rail and sidebar-filled leading dot. The interactive sortable story uses the same 6px activation and same-row midpoint refresh contract as production.",
       },
     },
   },
@@ -1761,7 +1770,7 @@ export const CodexCrossProjectThreadDrop: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Interactive lane-aware transfer across project-local pinned and regular rows, plus projectless Pinned and Chats.",
+        story: "Interactive lane-aware transfer across project-local pinned and regular rows, plus projectless Pinned and Chats. Hover a chat until its rich preview opens, then drag it to exercise the stable tooltip/ref lifecycle.",
       },
     },
   },

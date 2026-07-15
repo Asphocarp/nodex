@@ -351,7 +351,7 @@ export function WorkbenchProcessManagerDialog({
     structuralSharing: false,
     meta: { control },
   });
-  const rows = query.data ?? [];
+  const rows = useMemo(() => query.data ?? [], [query.data]);
   const visibleRows = frozenRows ?? rows;
 
   useEffect(() => {

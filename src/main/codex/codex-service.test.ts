@@ -123,6 +123,7 @@ import {
 } from "./codex-app-server-client";
 import {
   getCodexThread,
+  listPinnedCodexThreadIds,
   setCodexThreadPinned,
   upsertCodexThread,
 } from "./codex-link-repository";
@@ -7887,7 +7888,7 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("keeps committed membership and still unpins when the best-effort sidebar save fails", async () => {
+  test("rolls membership and pin state back when sidebar order persistence fails", async () => {
     const ran = await withTempDatabase(async () => {
       const targetProject = createProject({
         name: "Sidebar save failure target",
@@ -7925,20 +7926,17 @@ describe("codex-service readThread fallback", () => {
       service.on("hostMessage", (message) => hostMessages.push(message));
 
       try {
-        const result = await service.moveSidebarThread({
+        await expect(service.moveSidebarThread({
           hostId: "local",
           threadId: "thr_sidebar_two_phase",
           sourceContainerId: `project-pinned:${defaultProjectId}`,
           targetContainerId: `project:${targetProject.id}`,
           beforeThreadId: "thr_sidebar_two_phase_anchor",
-        });
+        })).rejects.toThrow("injected sidebar order failure");
 
-        expect(result.status).toBe("moved");
-        expect(getCodexThread("thr_sidebar_two_phase")?.projectId).toBe(targetProject.id);
-        if (result.status === "moved") {
-          expect(result.snapshot.pinnedThreadIds.includes("thr_sidebar_two_phase")).toBe(false);
-        }
-        expect(hostMessages.filter((message) => message.type === "sidebarSyncUpdated").length).toBe(1);
+        expect(getCodexThread("thr_sidebar_two_phase")?.projectId).toBe(defaultProjectId);
+        expect(listPinnedCodexThreadIds()).toContain("thr_sidebar_two_phase");
+        expect(hostMessages.some((message) => message.type === "sidebarSyncUpdated")).toBe(false);
       } finally {
         await service.shutdown();
       }
@@ -8111,22 +8109,21 @@ describe("codex-service readThread fallback", () => {
       const service = createService();
       const hostMessages: CodexHostMessage[] = [];
       service.on("hostMessage", (message) => hostMessages.push(message));
+      const sessionChanges = collectProjectSessionChangeEvents();
 
       try {
         const result = await service.setSidebarProjectThreadOrder({
           projectId: defaultProjectId,
           orderedThreadIds: ["thr_project_order_b", "thr_project_order_a"],
         });
-        const orderedThreadIds = result.sessions.flatMap((session) => (
-          session.thread ? [session.thread.threadId] : []
-        ));
-
-        expect(JSON.stringify(orderedThreadIds)).toBe(JSON.stringify([
+        expect(JSON.stringify(result.snapshot.projectThreadOrders[defaultProjectId])).toBe(JSON.stringify([
           "thr_project_order_b",
           "thr_project_order_a",
         ]));
         expect(hostMessages.filter((message) => message.type === "sidebarSyncUpdated").length).toBe(1);
+        expect(sessionChanges.events).toEqual([]);
       } finally {
+        sessionChanges.dispose();
         await service.shutdown();
       }
     });
@@ -8134,7 +8131,7 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("persists the global manual order while replacing only Chats-visible slots", async () => {
+  test("persists projectless manual order while replacing only Chats-visible slots", async () => {
     const ran = await withTempDatabase(async () => {
       for (const [threadId, projectId] of [
         ["thr_chats_order_a", null],
@@ -8167,7 +8164,6 @@ describe("codex-service readThread fallback", () => {
         const result = await service.setSidebarChatsThreadOrder({
           threadIdsInDisplayOrder: [
             "thr_chats_order_a",
-            "thr_chats_order_project",
             "thr_chats_order_b",
           ],
           visibleThreadIds: ["thr_chats_order_a", "thr_chats_order_b"],
@@ -8176,10 +8172,9 @@ describe("codex-service readThread fallback", () => {
 
         expect(JSON.stringify(result.orderedThreadIds)).toBe(JSON.stringify([
           "thr_chats_order_b",
-          "thr_chats_order_project",
           "thr_chats_order_a",
         ]));
-        expect(JSON.stringify(result.snapshot.manualThreadOrder)).toBe(
+        expect(JSON.stringify(result.snapshot.projectlessThreadOrder)).toBe(
           JSON.stringify(result.orderedThreadIds),
         );
         expect(hostMessages.filter((message) => message.type === "sidebarSyncUpdated").length).toBe(1);

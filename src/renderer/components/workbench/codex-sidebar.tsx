@@ -10,7 +10,7 @@ import { forwardRef, useEffect, useMemo, useState } from "react";
 import { FolderOpen, FolderPlus, Pencil, Smile, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
-import { CSS, type Transform } from "@dnd-kit/utilities";
+import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
 import {
   BranchStatusIcon,
   CodexArchiveIcon,
@@ -54,8 +54,7 @@ import {
   useSidebarProjectDndState,
 } from "./sidebar-project-group-dnd";
 import {
-  useSidebarThreadDropContainer,
-  useSidebarThreadProjectDropContainerId,
+  useSidebarThreadProjectDropTargets,
 } from "./sidebar-thread-reorder";
 import { StableWorktreeCreateDialog } from "./stable-worktree-create-dialog";
 import { suggestStableWorktreeProjectName } from "./stable-worktree-production";
@@ -94,6 +93,10 @@ export function getCodexSidebarSortableStyle(
 
 export function stopCodexSidebarRowActionPropagation(event: SidebarRowActionEvent) {
   event.stopPropagation();
+}
+
+function clearCodexSidebarTextSelection(): void {
+  document.getSelection()?.removeAllRanges();
 }
 
 function isMacPlatform() {
@@ -592,30 +595,19 @@ export function CodexProjectRow({
   const sortableEnabled = allowProjectReorder && Boolean(groupDndController);
   const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
   const [canCreateStableWorktree, setCanCreateStableWorktree] = useState(false);
-  const threadContainerId = useSidebarThreadProjectDropContainerId(project.id);
-  const wholeThreadDropTarget = useSidebarThreadDropContainer({
-    containerId: threadContainerId,
-    targetProjectKind: "local",
-  });
-  const rowThreadDropTarget = useSidebarThreadDropContainer({
-    containerId: threadContainerId,
-    projectDropZone: "project-row",
-    targetProjectKind: "local",
-  });
-  const iconThreadDropTarget = useSidebarThreadDropContainer({
-    containerId: threadContainerId,
-    projectDropZone: "project-icon",
-    targetProjectKind: "local",
-  });
-  const gutterThreadDropTarget = useSidebarThreadDropContainer({
-    containerId: threadContainerId,
-    projectDropZone: "project-gutter",
+  const {
+    gutter: gutterThreadDropTarget,
+    icon: iconThreadDropTarget,
+    row: rowThreadDropTarget,
+    whole: wholeThreadDropTarget,
+  } = useSidebarThreadProjectDropTargets({
+    projectId: project.id,
     targetProjectKind: "local",
   });
   const sortableId = getSidebarGroupDndId(project.id);
   const { activeProjectId, projectDragActive } = useSidebarProjectDndState();
   const dragOverlay = useMemo(() => (
-    <div className="flex h-token-nav-row max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
+    <div className="flex h-[var(--height-token-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
       <span className="flex size-5 shrink-0 items-center justify-center">
         <CodexProjectFolderIcon className="icon-xs shrink-0" />
       </span>
@@ -641,6 +633,10 @@ export function CodexProjectRow({
     disabled: !sortableEnabled,
     data: sortableData,
   });
+  const projectRowRef = useCombinedRefs(
+    setNodeRef,
+    wholeThreadDropTarget.setNodeRef,
+  );
   const activeProjectDrag = isDragging || activeProjectId === project.id;
   const sortableStyle = sortableEnabled && !projectDragActive && transform
     ? getCodexSidebarSortableStyle(transform, transition)
@@ -683,10 +679,7 @@ export function CodexProjectRow({
 
   return (
     <div
-      ref={(node) => {
-        setNodeRef(node);
-        wholeThreadDropTarget.setNodeRef(node);
-      }}
+      ref={projectRowRef}
       className={cn(
         "group/cwd relative flex flex-col",
         activeProjectDrag && "opacity-20",
@@ -696,6 +689,7 @@ export function CodexProjectRow({
       )}
       style={sortableStyle}
       inert={activeProjectDrag ? true : undefined}
+      onPointerDownCapture={sortableEnabled ? clearCodexSidebarTextSelection : undefined}
       role="listitem"
       aria-label={project.name}
     >
@@ -1297,7 +1291,7 @@ export function CodexSidebarThreadRow({
         delayDuration={CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS}
         interactive
         disabled={item.disabled}
-        open={resolvedHoverCardOpen}
+        open={hoverCardOpen}
         onOpenChange={handleHoverCardOpenChange}
       >
         {row}

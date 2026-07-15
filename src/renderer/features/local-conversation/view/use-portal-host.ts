@@ -68,13 +68,17 @@ function resolveServerPortalHost(): null {
 }
 
 export function usePortalHost(target: PortalHostTarget): HTMLElement | null {
+  const { attribute, conversationId, fallbackId } = target;
   const subscribe = useCallback(
-    (onStoreChange: () => void) => subscribeToPortalHost(target, onStoreChange),
-    [target.attribute, target.conversationId, target.fallbackId],
+    (onStoreChange: () => void) => subscribeToPortalHost(
+      { attribute, conversationId, fallbackId },
+      onStoreChange,
+    ),
+    [attribute, conversationId, fallbackId],
   );
   const getSnapshot = useCallback(
-    () => resolvePortalHost(target),
-    [target.attribute, target.conversationId, target.fallbackId],
+    () => resolvePortalHost({ attribute, conversationId, fallbackId }),
+    [attribute, conversationId, fallbackId],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, resolveServerPortalHost);

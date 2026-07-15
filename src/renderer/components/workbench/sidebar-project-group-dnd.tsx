@@ -1,42 +1,29 @@
 import {
-  closestCenter,
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  pointerWithin,
-  PointerSensor,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type CollisionDetection,
   type DragCancelEvent,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  sortableKeyboardCoordinates,
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { createPortal } from "react-dom";
 import {
   createContext,
   useCallback,
   useContext,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 export const SIDEBAR_GROUP_DND_PREFIX = "sidebar-group:";
 export const PINNED_PROJECT_CONTAINER_ID = "pinned";
-export const PINNED_PROJECT_DROPPABLE_ID = `sidebar-thread-container:${PINNED_PROJECT_CONTAINER_ID}`;
 
 export interface SidebarGroupDndController {
   handleDragStart?: (event: DragStartEvent) => void;
-  handleDragOver?: (event: DragOverEvent, pointerY: number | null) => void;
+  handleDragOver?: (event: DragMoveEvent | DragOverEvent, pointerY: number | null) => void;
   handleDragCancel?: (event: DragCancelEvent | DragEndEvent) => void;
   handleDragEnd: (event: DragEndEvent, pointerY: number | null) => void;
 }
@@ -48,30 +35,21 @@ export interface SidebarGroupDndPayload {
   projectId: string;
 }
 
-export interface SidebarThreadContainerDndPayload {
-  kind: "sidebar-thread-container";
-  containerId: string;
-}
-
-type SidebarDndPayload =
-  | SidebarGroupDndPayload
-  | SidebarThreadContainerDndPayload;
-
 interface SidebarProjectDndContextValue {
   activeProjectId: string | null;
   projectDragActive: boolean;
+  reportError: (error: unknown) => void;
 }
+
+const DEFAULT_REPORT_ERROR = (error: unknown): void => {
+  console.error("Sidebar project reorder failed", error);
+};
 
 const SidebarProjectDndContext = createContext<SidebarProjectDndContextValue>({
   activeProjectId: null,
   projectDragActive: false,
+  reportError: DEFAULT_REPORT_ERROR,
 });
-
-interface SidebarProjectDragOverlayState {
-  node: ReactNode;
-  projectId: string;
-  zoom: number;
-}
 
 interface SidebarDropRect {
   bottom: number;
@@ -92,67 +70,11 @@ export function parseSidebarGroupDndId(id: string): string | null {
   return projectId.length > 0 ? projectId : null;
 }
 
-function readSidebarDndPayload(value: unknown): SidebarDndPayload | null {
+export function readSidebarGroupDndPayload(value: unknown): SidebarGroupDndPayload | null {
   if (!value || typeof value !== "object") return null;
-  const kind = Reflect.get(value, "kind");
-  if (kind === "sidebar-group") return value as SidebarGroupDndPayload;
-  if (kind === "sidebar-thread-container") return value as SidebarThreadContainerDndPayload;
-  return null;
-}
-
-const sidebarProjectCollisionDetection: CollisionDetection = (args) => {
-  const activePayload = readSidebarDndPayload(args.active.data.current);
-  if (activePayload?.kind !== "sidebar-group") return closestCenter(args);
-
-  const eligibleContainers = args.droppableContainers.filter((container) => {
-    const payload = readSidebarDndPayload(container.data.current);
-    return (
-      (
-        payload?.kind === "sidebar-group"
-        && payload.controller === activePayload.controller
-      )
-      || (
-        payload?.kind === "sidebar-thread-container"
-        && payload.containerId === PINNED_PROJECT_CONTAINER_ID
-      )
-    );
-  });
-  const eligibleArgs = {
-    ...args,
-    droppableContainers: eligibleContainers,
-  };
-  const pointerCollisions = pointerWithin({
-    ...eligibleArgs,
-    droppableContainers: eligibleContainers.filter((container) =>
-      readSidebarDndPayload(container.data.current)?.kind === "sidebar-group"
-    ),
-  });
-  if (pointerCollisions.length > 0) return pointerCollisions;
-  if (!args.pointerCoordinates) return closestCenter(eligibleArgs);
-
-  const { x, y } = args.pointerCoordinates;
-  return closestCenter({
-    ...eligibleArgs,
-    collisionRect: {
-      ...args.collisionRect,
-      bottom: y,
-      height: 0,
-      left: x,
-      right: x,
-      top: y,
-      width: 0,
-    },
-  });
-};
-
-function readWindowZoom(event: Event): number {
-  if (typeof window === "undefined") return 1;
-  const target = event.target;
-  if (!(target instanceof Element)) return 1;
-
-  const rawZoom = window.getComputedStyle(target).getPropertyValue("--codex-window-zoom");
-  const zoom = Number.parseFloat(rawZoom);
-  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  return Reflect.get(value, "kind") === "sidebar-group"
+    ? value as SidebarGroupDndPayload
+    : null;
 }
 
 function sameStringOrder(left: readonly string[], right: readonly string[]): boolean {
@@ -213,129 +135,27 @@ export function resolveSidebarGroupDropTarget({
   return { beforeGroupId };
 }
 
-export function SidebarProjectDndProvider({
+export function SidebarProjectDndStateProvider({
+  activeProjectId,
   children,
-  onProjectDrop,
+  onError = DEFAULT_REPORT_ERROR,
 }: {
+  activeProjectId: string | null;
   children: ReactNode;
-  onProjectDrop?: (drop: { projectId: string; targetContainerId: string }) => void;
+  onError?: (error: unknown) => void;
 }) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-  const [activeProject, setActiveProject] = useState<SidebarProjectDragOverlayState | null>(null);
-  const pointerYRef = useRef<number | null>(null);
-  const collisionDetection = useCallback<CollisionDetection>((args) => {
-    pointerYRef.current = args.pointerCoordinates?.y ?? null;
-    return sidebarProjectCollisionDetection(args);
-  }, []);
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    const payload = readSidebarDndPayload(event.active.data.current);
-    if (payload?.kind !== "sidebar-group") return;
-    setActiveProject({
-      node: payload.dragOverlay,
-      projectId: payload.projectId,
-      zoom: readWindowZoom(event.activatorEvent),
-    });
-    payload.controller.handleDragStart?.(event);
-  }, []);
-
-  const handleDragOver = useCallback((event: DragOverEvent) => {
-    const payload = readSidebarDndPayload(event.active.data.current);
-    if (payload?.kind !== "sidebar-group") return;
-    payload.controller.handleDragOver?.(event, pointerYRef.current);
-  }, []);
-
-  const handleDragCancel = useCallback((event: DragCancelEvent) => {
-    const payload = readSidebarDndPayload(event.active.data.current);
-    if (payload?.kind === "sidebar-group") {
-      payload.controller.handleDragCancel?.(event);
-    }
-    pointerYRef.current = null;
-    setActiveProject(null);
-  }, []);
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const payload = readSidebarDndPayload(event.active.data.current);
-    if (payload?.kind !== "sidebar-group") {
-      pointerYRef.current = null;
-      setActiveProject(null);
-      return;
-    }
-
-    const pointerY = pointerYRef.current;
-    pointerYRef.current = null;
-    setActiveProject(null);
-    const overPayload = readSidebarDndPayload(event.over?.data.current);
-    if (
-      overPayload?.kind === "sidebar-thread-container"
-      && overPayload.containerId === PINNED_PROJECT_CONTAINER_ID
-    ) {
-      payload.controller.handleDragCancel?.(event);
-      onProjectDrop?.({
-        projectId: payload.projectId,
-        targetContainerId: overPayload.containerId,
-      });
-      return;
-    }
-
-    payload.controller.handleDragEnd(event, pointerY);
-  }, [onProjectDrop]);
-
   const contextValue = useMemo(
     () => ({
-      activeProjectId: activeProject?.projectId ?? null,
-      projectDragActive: activeProject !== null,
+      activeProjectId,
+      projectDragActive: activeProjectId !== null,
+      reportError: onError,
     }),
-    [activeProject],
-  );
-  const overlay = typeof document === "undefined" ? null : createPortal(
-    <DragOverlay
-      adjustScale={false}
-      className="pointer-events-none"
-      dropAnimation={null}
-      zIndex={2_147_483_647}
-    >
-      {activeProject ? (
-        <div
-          aria-hidden
-          className="[--height-token-nav-row:30px] [--radius-token-row:10px]"
-          inert
-          style={{
-            height: `calc(100% / ${activeProject.zoom})`,
-            transform: `scale(${activeProject.zoom})`,
-            transformOrigin: "top left",
-            width: `calc(100% / ${activeProject.zoom})`,
-          }}
-        >
-          <div className="w-fit max-w-80 overflow-hidden rounded-[var(--radius-token-row)] border border-token-border bg-token-bg-primary opacity-70 shadow-lg">
-            {activeProject.node}
-          </div>
-        </div>
-      ) : null}
-    </DragOverlay>,
-    document.body,
+    [activeProjectId, onError],
   );
 
   return (
     <SidebarProjectDndContext.Provider value={contextValue}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={collisionDetection}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragCancel={handleDragCancel}
-        onDragEnd={handleDragEnd}
-      >
-        {children}
-        {overlay}
-      </DndContext>
+      {children}
     </SidebarProjectDndContext.Provider>
   );
 }
@@ -363,10 +183,14 @@ export function useSidebarGroupReorderController({
   dropIndicatorIndex: number | null;
   groupIds: string[];
 } {
+  const { reportError } = useContext(SidebarProjectDndContext);
   const [dropTarget, setDropTarget] = useState<SidebarGroupDropTarget | null>(null);
-  const [pendingGroupIds, setPendingGroupIds] = useState<string[] | null>(null);
-  const displayedGroupIds = pendingGroupIds !== null && sameStringSet(pendingGroupIds, groupIds)
-    ? pendingGroupIds
+  const [pendingGroupOrder, setPendingGroupOrder] = useState<{
+    nextGroupIds: string[];
+  } | null>(null);
+  const displayedGroupIds = pendingGroupOrder !== null
+    && sameStringSet(pendingGroupOrder.nextGroupIds, groupIds)
+    ? pendingGroupOrder.nextGroupIds
     : groupIds;
 
   const resolveDropTarget = useCallback((
@@ -401,14 +225,26 @@ export function useSidebarGroupReorderController({
         activeId,
         target.beforeGroupId,
       );
-      setPendingGroupIds(nextGroupIds);
-      void Promise.resolve(reorderGroups(nextGroupIds))
-        .catch(() => undefined)
+      const pendingOrder = {
+        nextGroupIds,
+      };
+      setPendingGroupOrder(pendingOrder);
+
+      let request: void | Promise<void>;
+      try {
+        request = reorderGroups(nextGroupIds);
+      } catch (error) {
+        setPendingGroupOrder((current) => current === pendingOrder ? null : current);
+        reportError(error);
+        return;
+      }
+      void Promise.resolve(request)
+        .catch(reportError)
         .finally(() => {
-          setPendingGroupIds(null);
+          setPendingGroupOrder((current) => current === pendingOrder ? null : current);
         });
     },
-  }), [displayedGroupIds, reorderGroups, resolveDropTarget]);
+  }), [displayedGroupIds, reorderGroups, reportError, resolveDropTarget]);
 
   const dropIndicatorIndex = dropTarget === null
     ? null
@@ -442,41 +278,6 @@ export function SidebarProjectSortableContext({
       {children}
     </SortableContext>
   );
-}
-
-export function usePinnedProjectDroppable() {
-  const { projectDragActive } = useContext(SidebarProjectDndContext);
-  const payload = useMemo<SidebarThreadContainerDndPayload>(
-    () => ({ kind: "sidebar-thread-container", containerId: PINNED_PROJECT_CONTAINER_ID }),
-    [],
-  );
-  const droppable = useDroppable({
-    id: PINNED_PROJECT_DROPPABLE_ID,
-    disabled: !projectDragActive,
-    data: payload,
-  });
-
-  return {
-    ...droppable,
-    projectDragActive,
-  };
-}
-
-export function SidebarDropIndicator({
-  compensateLayout = true,
-}: {
-  compensateLayout?: boolean;
-}) {
-  const indicator = (
-    <div
-      aria-hidden
-      className="relative h-0 before:absolute before:top-[-1px] before:right-2 before:left-2 before:h-0.5 before:rounded-full before:bg-token-text-link-foreground before:content-[''] after:absolute after:top-[-4px] after:left-1 after:size-2 after:rounded-full after:border-2 after:border-token-text-link-foreground after:bg-token-side-bar-background after:content-['']"
-      role="presentation"
-    />
-  );
-  if (!compensateLayout) return indicator;
-
-  return <div className="-mb-px">{indicator}</div>;
 }
 
 export function replaceVisibleOrder(

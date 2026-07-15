@@ -6,8 +6,6 @@ import {
   CodexProjectThreadMoveError,
   getCodexProjectThreadOrder,
   moveCodexProjectThread,
-  moveCodexProjectThreadMembership,
-  saveCodexProjectThreadMoveSidebarState,
   setCodexProjectThreadOrder,
 } from "./codex-project-thread-move";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -142,11 +140,12 @@ function snapshotMoveState(threadId: string): string {
 }
 
 describe("Codex project thread move storage", () => {
-  test("moves one real thread atomically before an anchor while preserving hidden and session-only order", async () => {
+  test("moves one real thread atomically while keeping sidebar placement out of session layout", async () => {
     const ran = await withTempDatabase(() => {
       const source = createProject({ name: "Source", sources: ["/tmp/source"] });
       const target = createProject({ name: "Target", sources: ["/tmp/target"] });
       const third = createProject({ name: "Third", sources: ["/tmp/third"] });
+      const unrelated = createProject({ name: "Unrelated", sources: ["/tmp/unrelated"] });
       const sourceDatabaseView = databaseViewSessionId(source.id);
       const targetDatabaseView = databaseViewSessionId(target.id);
       const movedSession = createThreadSession(source.id, "thread-moved", "Moved");
@@ -157,6 +156,7 @@ describe("Codex project thread move storage", () => {
         noThreadFallbackTitle: "Session only",
       });
       const targetAnchorSession = createThreadSession(target.id, "thread-target-anchor", "Target anchor");
+      createThreadSession(unrelated.id, "thread-unrelated", "Unrelated");
 
       reorderProjectSessions(source.id, [sourceDatabaseView, movedSession, sourceHiddenSession]);
       reorderProjectSessions(target.id, [
@@ -214,6 +214,12 @@ describe("Codex project thread move storage", () => {
       setCodexProjectThreadOrder(source.id, ["thread-moved", "thread-source-hidden"]);
       seedCustomOrder(target.id, ["thread-target-hidden"]);
       seedCustomOrder(third.id, ["thread-moved", "thread-third-hidden"]);
+      seedCustomOrder(unrelated.id, ["thread-unrelated"]);
+      getDb().prepare(`
+        UPDATE codex_project_thread_orders
+        SET updated_at = 'unrelated-sentinel'
+        WHERE project_id = ?
+      `).run(unrelated.id);
 
       const result = moveCodexProjectThread({
         threadId: "thread-moved",
@@ -229,23 +235,17 @@ describe("Codex project thread move storage", () => {
 
       expect(result.threadId).toBe("thread-moved");
       expect(result.sessionId).toBe(movedSession);
-      expect(JSON.stringify(result.sourceSessionIdsInOrder)).toBe(JSON.stringify([
+      expect(JSON.stringify(listRawSessionIds(source.id))).toBe(JSON.stringify([
         sourceDatabaseView,
         sourceHiddenSession,
       ]));
-      expect(JSON.stringify(result.targetSessionIdsInOrder)).toBe(JSON.stringify([
+      expect(JSON.stringify(listRawSessionIds(target.id))).toBe(JSON.stringify([
+        movedSession,
         targetDatabaseView,
         targetHiddenSession,
         targetSessionOnly.id,
-        movedSession,
         targetAnchorSession,
       ]));
-      expect(JSON.stringify(listRawSessionIds(source.id))).toBe(
-        JSON.stringify(result.sourceSessionIdsInOrder),
-      );
-      expect(JSON.stringify(listRawSessionIds(target.id))).toBe(
-        JSON.stringify(result.targetSessionIdsInOrder),
-      );
       expect(JSON.stringify(getCodexProjectThreadOrder(source.id))).toBe(
         JSON.stringify(["thread-source-hidden"]),
       );
@@ -255,6 +255,13 @@ describe("Codex project thread move storage", () => {
       expect(JSON.stringify(getCodexProjectThreadOrder(third.id))).toBe(
         JSON.stringify(["thread-third-hidden"]),
       );
+      expect(JSON.stringify(getCodexProjectThreadOrder(unrelated.id))).toBe(
+        JSON.stringify(["thread-unrelated"]),
+      );
+      expect(readScalar<string>(
+        "SELECT updated_at AS value FROM codex_project_thread_orders WHERE project_id = ?",
+        unrelated.id,
+      )).toBe("unrelated-sentinel");
 
       expect(readScalar<string>(
         "SELECT project_id AS value FROM codex_threads WHERE thread_id = ?",
@@ -317,17 +324,17 @@ describe("Codex project thread move storage", () => {
       seedCustomOrder(target.id, ["thread-default-target", "thread-default-move"]);
       seedCustomOrder(third.id, ["thread-default-move"]);
 
-      const result = moveCodexProjectThread({
+      moveCodexProjectThread({
         threadId: "thread-default-move",
         sourceProjectId: source.id,
         targetProjectId: target.id,
         useDefaultOrder: true,
       });
 
-      expect(JSON.stringify(result.targetSessionIdsInOrder)).toBe(JSON.stringify([
+      expect(JSON.stringify(listRawSessionIds(target.id))).toBe(JSON.stringify([
         movedSession,
-        targetFixedSession,
         targetThreadSession,
+        targetFixedSession,
       ]));
       expect(JSON.stringify(getCodexProjectThreadOrder(source.id))).toBe("[]");
       expect(JSON.stringify(getCodexProjectThreadOrder(target.id))).toBe(
@@ -356,18 +363,18 @@ describe("Codex project thread move storage", () => {
         .run(100, "thread-default-b");
       setCodexProjectThreadOrder(target.id, ["thread-default-b", "thread-default-a"]);
 
-      const result = moveCodexProjectThread({
+      moveCodexProjectThread({
         threadId: "thread-default-new",
         sourceProjectId: source.id,
         targetProjectId: target.id,
         useDefaultOrder: true,
       });
 
-      expect(JSON.stringify(result.targetSessionIdsInOrder)).toBe(JSON.stringify([
+      expect(JSON.stringify(listRawSessionIds(target.id))).toBe(JSON.stringify([
         movedSession,
+        targetASession,
         fixedSession,
         targetBSession,
-        targetASession,
       ]));
       expect(JSON.stringify(getCodexProjectThreadOrder(target.id))).toBe(JSON.stringify([
         "thread-default-b",
@@ -387,30 +394,32 @@ describe("Codex project thread move storage", () => {
       const targetThreadSession = createThreadSession(target.id, "thread-tail-target", "Tail target");
 
       expect(getCodexProjectThreadOrder(target.id) === null).toBe(true);
-      const emptyOrderResult = setCodexProjectThreadOrder(empty.id, []);
-      expect(JSON.stringify(emptyOrderResult.customThreadOrder)).toBe("[]");
+      setCodexProjectThreadOrder(empty.id, []);
       expect(JSON.stringify(getCodexProjectThreadOrder(empty.id))).toBe("[]");
 
-      const result = moveCodexProjectThread({
+      moveCodexProjectThread({
         threadId: "thread-tail-move",
         sourceProjectId: source.id,
         targetProjectId: target.id,
         insertAtEnd: true,
       });
 
-      expect(result.targetSessionIdsInOrder.at(-1)).toBe(movedSession);
-      expect(result.targetSessionIdsInOrder.includes(targetThreadSession)).toBe(true);
+      expect(JSON.stringify(listRawSessionIds(target.id))).toBe(JSON.stringify([
+        movedSession,
+        targetThreadSession,
+        databaseViewSessionId(target.id),
+      ]));
       expect(JSON.stringify(getCodexProjectThreadOrder(target.id))).toBe(
         JSON.stringify(["thread-tail-target", "thread-tail-move"]),
       );
-      expect(setCodexProjectThreadOrder(target.id, null).customThreadOrder === null).toBe(true);
+      setCodexProjectThreadOrder(target.id, null);
       expect(getCodexProjectThreadOrder(target.id) === null).toBe(true);
     });
 
     if (!ran) expect(true).toBe(true);
   });
 
-  test("persists real-thread custom order by replacing only linked-thread session slots", async () => {
+  test("persists sidebar order independently from project-session layout order", async () => {
     const ran = await withTempDatabase(() => {
       const project = createProject({ name: "Custom slots", sources: ["/tmp/custom-slots"] });
       const fixedDatabaseView = databaseViewSessionId(project.id);
@@ -429,22 +438,17 @@ describe("Codex project thread move storage", () => {
         threadC,
       ]);
 
-      const custom = setCodexProjectThreadOrder(project.id, [
+      const sessionLayoutBefore = listRawSessionIds(project.id);
+      setCodexProjectThreadOrder(project.id, [
         "thread-slot-c",
+        "thread-slot-b",
         "thread-slot-a",
       ]);
 
-      expect(JSON.stringify(custom.sessionIdsInOrder)).toBe(JSON.stringify([
-        threadC,
-        fixedDatabaseView,
-        threadB,
-        sessionOnly.id,
-        threadA,
-      ]));
       expect(JSON.stringify(listRawSessionIds(project.id))).toBe(
-        JSON.stringify(custom.sessionIdsInOrder),
+        JSON.stringify(sessionLayoutBefore),
       );
-      expect(JSON.stringify(custom.customThreadOrder)).toBe(
+      expect(JSON.stringify(getCodexProjectThreadOrder(project.id))).toBe(
         JSON.stringify(["thread-slot-c", "thread-slot-b", "thread-slot-a"]),
       );
 
@@ -454,16 +458,11 @@ describe("Codex project thread move storage", () => {
         .run(200, "thread-slot-a");
       getDb().prepare("UPDATE codex_threads SET updated_at = ? WHERE thread_id = ?")
         .run(100, "thread-slot-c");
-      const projectedDefault = setCodexProjectThreadOrder(project.id, null);
+      setCodexProjectThreadOrder(project.id, null);
 
-      expect(projectedDefault.customThreadOrder === null).toBe(true);
-      expect(JSON.stringify(projectedDefault.sessionIdsInOrder)).toBe(JSON.stringify([
-        threadB,
-        fixedDatabaseView,
-        threadA,
-        sessionOnly.id,
-        threadC,
-      ]));
+      expect(JSON.stringify(listRawSessionIds(project.id))).toBe(
+        JSON.stringify(sessionLayoutBefore),
+      );
       expect(getCodexProjectThreadOrder(project.id) === null).toBe(true);
     });
 
@@ -483,20 +482,16 @@ describe("Codex project thread move storage", () => {
       getDb().prepare("UPDATE codex_threads SET updated_at = ? WHERE thread_id = ?")
         .run(200, "thread-same-other");
 
-      const result = moveCodexProjectThread({
+      const sessionLayoutBefore = listRawSessionIds(project.id);
+      moveCodexProjectThread({
         threadId: "thread-same-move",
         sourceProjectId: project.id,
         targetProjectId: project.id,
         useDefaultOrder: true,
       });
 
-      expect(JSON.stringify(result.targetSessionIdsInOrder)).toBe(JSON.stringify([
-        otherSession,
-        fixedDatabaseView,
-        movedSession,
-      ]));
-      expect(JSON.stringify(result.sourceSessionIdsInOrder)).toBe(
-        JSON.stringify(result.targetSessionIdsInOrder),
+      expect(JSON.stringify(listRawSessionIds(project.id))).toBe(
+        JSON.stringify(sessionLayoutBefore),
       );
       expect(JSON.stringify(getCodexProjectThreadOrder(project.id))).toBe(
         JSON.stringify(["thread-same-other"]),
@@ -548,15 +543,17 @@ describe("Codex project thread move storage", () => {
       );
       setCodexProjectThreadOrder(source.id, ["thread-chats-move"]);
 
-      const toChats = moveCodexProjectThread({
+      moveCodexProjectThread({
         threadId: "thread-chats-move",
         sourceProjectId: source.id,
         targetProjectId: null,
-        insertAtEnd: true,
+        useDefaultOrder: true,
       });
 
-      expect(toChats.targetSessionIdsInOrder.at(-1)).toBe(movedSession);
-      expect(toChats.targetSessionIdsInOrder.includes(projectlessThreadSession)).toBe(true);
+      expect(JSON.stringify(listRawSessionIds(null))).toBe(JSON.stringify([
+        movedSession,
+        projectlessThreadSession,
+      ]));
       expect(readScalar<string>(
         "SELECT project_id AS value FROM codex_threads WHERE thread_id = ?",
         "thread-chats-move",
@@ -575,16 +572,22 @@ describe("Codex project thread move storage", () => {
       )).toBe(null);
       expect(JSON.stringify(getCodexProjectThreadOrder(source.id))).toBe("[]");
 
-      const toProject = moveCodexProjectThread({
+      moveCodexProjectThread({
         threadId: "thread-chats-move",
         sourceProjectId: null,
         targetProjectId: target.id,
         beforeThreadId: "thread-chats-anchor",
       });
 
-      expect(toProject.targetSessionIdsInOrder.indexOf(movedSession) + 1).toBe(
-        toProject.targetSessionIdsInOrder.indexOf(targetAnchorSession),
-      );
+      expect(JSON.stringify(listRawSessionIds(target.id))).toBe(JSON.stringify([
+        movedSession,
+        targetAnchorSession,
+        databaseViewSessionId(target.id),
+      ]));
+      expect(JSON.stringify(getCodexProjectThreadOrder(target.id))).toBe(JSON.stringify([
+        "thread-chats-move",
+        "thread-chats-anchor",
+      ]));
       expect(readScalar<string>(
         "SELECT project_id AS value FROM codex_threads WHERE thread_id = ?",
         "thread-chats-move",
@@ -609,13 +612,12 @@ describe("Codex project thread move storage", () => {
       createThreadSession(source.id, "thread-failure-move", "Failure move");
       setCodexProjectThreadOrder(source.id, ["thread-failure-move"]);
       seedCustomOrder(target.id, ["thread-target-hidden"]);
-      const missingAnchor = moveCodexProjectThread({
+      moveCodexProjectThread({
         threadId: "thread-failure-move",
         sourceProjectId: source.id,
         targetProjectId: target.id,
         beforeThreadId: "thread-missing-anchor",
       });
-      expect(missingAnchor.sidebarOrderError).toBe(null);
       expect(readScalar<string>(
         "SELECT project_id AS value FROM codex_threads WHERE thread_id = ?",
         "thread-failure-move",
@@ -640,6 +642,34 @@ describe("Codex project thread move storage", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("rolls membership and manual order back together when sidebar persistence fails", async () => {
+    const ran = await withTempDatabase(() => {
+      const source = createProject({ name: "Source atomic", sources: ["/tmp/source-atomic"] });
+      const target = createProject({ name: "Target atomic", sources: ["/tmp/target-atomic"] });
+      createThreadSession(source.id, "thread-atomic", "Atomic move");
+      createThreadSession(target.id, "thread-atomic-target", "Atomic target");
+      setCodexProjectThreadOrder(source.id, ["thread-atomic"]);
+      const before = snapshotMoveState("thread-atomic");
+      getDb().exec(`
+        CREATE TRIGGER reject_project_thread_order_write
+        BEFORE INSERT ON codex_project_thread_orders
+        BEGIN
+          SELECT RAISE(ABORT, 'reject project thread order write');
+        END
+      `);
+
+      expect(() => moveCodexProjectThread({
+        threadId: "thread-atomic",
+        sourceProjectId: source.id,
+        targetProjectId: target.id,
+        insertAtEnd: true,
+      })).toThrow("reject project thread order write");
+      expect(snapshotMoveState("thread-atomic")).toBe(before);
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("tolerates corrupt project order state without blocking membership or sidebar repair", async () => {
     const ran = await withTempDatabase(() => {
       const source = createProject({ name: "Source corrupt order", sources: ["/tmp/source-corrupt"] });
@@ -654,10 +684,11 @@ describe("Codex project thread move storage", () => {
         ) VALUES (?, ?, ?)
       `).run(target.id, corruptOrder, new Date().toISOString());
 
-      const receipt = moveCodexProjectThreadMembership({
+      moveCodexProjectThread({
         threadId: "thread-corrupt-order",
         sourceProjectId: source.id,
         targetProjectId: target.id,
+        insertAtEnd: true,
       });
       expect(readScalar<string>(
         "SELECT project_id AS value FROM codex_threads WHERE thread_id = ?",
@@ -667,16 +698,7 @@ describe("Codex project thread move storage", () => {
         "SELECT project_id AS value FROM project_sessions WHERE id = ?",
         movedSession,
       )).toBe(target.id);
-      expect(readScalar<string>(
-        "SELECT ordered_thread_ids_json AS value FROM codex_project_thread_orders WHERE project_id = ?",
-        target.id,
-      )).toBe(corruptOrder);
-
-      const sidebarState = saveCodexProjectThreadMoveSidebarState({
-        receipt,
-        insertAtEnd: true,
-      });
-      expect(sidebarState.targetSessionIdsInOrder.includes(movedSession)).toBe(true);
+      expect(listRawSessionIds(target.id).includes(movedSession)).toBe(true);
       expect(readScalar<string>(
         "SELECT ordered_thread_ids_json AS value FROM codex_project_thread_orders WHERE project_id = ?",
         target.id,
@@ -686,30 +708,4 @@ describe("Codex project thread move storage", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("rejects ambiguous thread ownership before changing either project", async () => {
-    const ran = await withTempDatabase(() => {
-      const source = createProject({ name: "Source ambiguous", sources: ["/tmp/source-ambiguous"] });
-      const target = createProject({ name: "Target ambiguous", sources: ["/tmp/target-ambiguous"] });
-      createThreadSession(source.id, "thread-ambiguous", "Ambiguous");
-      const duplicateSession = createProjectSession({
-        projectId: source.id,
-        noThreadFallbackTitle: "Duplicate owner",
-      });
-      getDb().prepare(`
-        INSERT INTO project_session_threads (session_id, thread_id, linked_at)
-        VALUES (?, ?, ?)
-      `).run(duplicateSession.id, "thread-ambiguous", new Date().toISOString());
-      const before = snapshotMoveState("thread-ambiguous");
-
-      expect(errorCode(() => moveCodexProjectThread({
-        threadId: "thread-ambiguous",
-        sourceProjectId: source.id,
-        targetProjectId: target.id,
-        insertAtEnd: true,
-      }))).toBe("ambiguous_thread_session");
-      expect(snapshotMoveState("thread-ambiguous")).toBe(before);
-    });
-
-    if (!ran) expect(true).toBe(true);
-  });
 });

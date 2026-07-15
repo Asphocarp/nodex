@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   parseBranchSelectorState,
@@ -26,6 +34,7 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import type {
+  CardStageCardModel,
   CardStageCoreCard,
   CardStageDatabaseProperties,
 } from "@/lib/card-stage-card";
@@ -158,6 +167,45 @@ interface CardStageFormState {
   assignee: string;
   agentStatus: string;
   agentBlocked: boolean;
+}
+
+interface CardStageMetadataSourceVersion {
+  readonly cardId: string;
+  readonly metadataRevision: number;
+  readonly databaseMembershipId: string | null;
+  readonly hasCompatibilityProperties: boolean;
+}
+
+function readCardStageMetadataSourceVersion(
+  cardModel: CardStageCardModel | null,
+): CardStageMetadataSourceVersion | null {
+  if (!cardModel) return null;
+
+  const databaseContext = cardModel.databaseContext;
+  return {
+    cardId: cardModel.card.id,
+    metadataRevision: cardModel.card.revision,
+    databaseMembershipId:
+      databaseContext.kind === "member"
+        ? databaseContext.membership.id
+        : null,
+    hasCompatibilityProperties:
+      databaseContext.kind === "member"
+      && databaseContext.compatibilityProperties !== null,
+  };
+}
+
+function areCardStageMetadataSourceVersionsEqual(
+  left: CardStageMetadataSourceVersion | null,
+  right: CardStageMetadataSourceVersion | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+
+  return left.cardId === right.cardId
+    && left.metadataRevision === right.metadataRevision
+    && left.databaseMembershipId === right.databaseMembershipId
+    && left.hasCompatibilityProperties === right.hasCompatibilityProperties;
 }
 
 function toPriorityUpdate(
@@ -303,6 +351,8 @@ export function useCardStageController(
     columnId: string;
   } | null>(null);
   const currentCardIdRef = useRef<string | null>(null);
+  const appliedMetadataSourceVersionRef =
+    useRef<CardStageMetadataSourceVersion | null>(null);
   const assigneeSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const agentStatusSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -386,6 +436,10 @@ export function useCardStageController(
     },
     [onUpdate],
   );
+  const runPreviousCardUpdate = useEffectEvent(
+    (nextCardId: string, updates: Partial<CardInput>) =>
+      runUpdate(nextCardId, updates),
+  );
 
   const clearDraftDirtyFromAck = useCallback(
     (
@@ -436,6 +490,9 @@ export function useCardStageController(
     onCompleteOccurrence: databaseProperties ? onCompleteOccurrence : undefined,
     onSkipOccurrence: databaseProperties ? onSkipOccurrence : undefined,
   });
+  const applyRecurrenceState = schedule.applyRecurrenceState;
+  const applyScheduleState = schedule.applyScheduleState;
+  const draftOverlayCardId = card?.id ?? null;
 
   useEffect(() => {
     formStateRef.current = {
@@ -450,12 +507,12 @@ export function useCardStageController(
   }, [priority, estimate, dueDate, tags, assignee, agentStatus, agentBlocked]);
 
   useEffect(() => {
-    if (!card) return;
+    if (!draftOverlayCardId) return;
 
     return () => {
-      clearCardDraftOverlay(projectId, card.id);
+      clearCardDraftOverlay(projectId, draftOverlayCardId);
     };
-  }, [projectId, card?.id]);
+  }, [draftOverlayCardId, projectId]);
 
   useEffect(() => {
     if (!card) return;
@@ -551,9 +608,24 @@ export function useCardStageController(
 
   useEffect(() => {
     const cardId = card?.id ?? null;
+    const metadataSourceVersion = readCardStageMetadataSourceVersion(cardModel);
     const prevCardId = currentCardIdRef.current;
     if (cardId === prevCardId) {
       if (!card) return;
+
+      // Command callbacks and projection objects may be recreated by a parent
+      // render. Metadata revision and Database membership are the authority for
+      // whether this external form snapshot changed. Record the latest objects
+      // for card-switch flushing, but never dispatch React state for an already
+      // applied source version.
+      prevCardRef.current = { card, databaseProperties, columnId };
+      if (areCardStageMetadataSourceVersionsEqual(
+        appliedMetadataSourceVersionRef.current,
+        metadataSourceVersion,
+      )) {
+        return;
+      }
+      appliedMetadataSourceVersionRef.current = metadataSourceVersion;
 
       const state = formStateRef.current;
       const nextDueDate = databaseProperties?.dueDate
@@ -606,10 +678,9 @@ export function useCardStageController(
       setCurrentColumnId((current) => (current === columnId ? current : columnId));
       if (databaseProperties) {
         const scheduleCard = { ...card, ...databaseProperties };
-        schedule.applyScheduleState(scheduleCard);
-        schedule.applyRecurrenceState(scheduleCard);
+        applyScheduleState(scheduleCard);
+        applyRecurrenceState(scheduleCard);
       }
-      prevCardRef.current = { card, databaseProperties, columnId };
       return;
     }
 
@@ -647,7 +718,7 @@ export function useCardStageController(
       ;
 
       if (hasAnyChanges) {
-        void runUpdate(targetCard.id, {
+        void runPreviousCardUpdate(targetCard.id, {
           ...(targetDatabase
             ? {
                 ...toPriorityUpdate(state.priority, targetDatabase.priority),
@@ -667,6 +738,7 @@ export function useCardStageController(
     }
 
     currentCardIdRef.current = cardId;
+    appliedMetadataSourceVersionRef.current = metadataSourceVersion;
 
     if (card) {
       setTitle(card.title);
@@ -679,8 +751,8 @@ export function useCardStageController(
       );
       if (databaseProperties) {
         const scheduleCard = { ...card, ...databaseProperties };
-        schedule.applyScheduleState(scheduleCard);
-        schedule.applyRecurrenceState(scheduleCard);
+        applyScheduleState(scheduleCard);
+        applyRecurrenceState(scheduleCard);
       }
       setTags([...(databaseProperties?.tags ?? [])]);
       setAssignee(databaseProperties?.assignee || "");
@@ -706,14 +778,14 @@ export function useCardStageController(
     prevCardRef.current = null;
   }, [
     card,
+    cardModel,
     clearAllDraftDirty,
     columnId,
     databaseProperties,
-    runUpdate,
     readCurrentScrollTopForCard,
     saveScrollTopForCard,
-    schedule.applyRecurrenceState,
-    schedule.applyScheduleState,
+    applyRecurrenceState,
+    applyScheduleState,
   ]);
 
   useLayoutEffect(() => {

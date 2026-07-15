@@ -426,6 +426,8 @@ export function MultiAgentActionSurface({
   items: CodexConversationItem[];
   onOpenThread?: OpenMultiAgentThread;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
   const normalizedItems = items
     .map((item) => normalizeMultiAgentActionPayload(item.rawItem))
     .filter((item): item is CodexMultiAgentActionPayload => item !== null && item.action !== "wait");
@@ -436,8 +438,6 @@ export function MultiAgentActionSurface({
 
   const resolvedStatus = resolveGroupStatus(normalizedItems);
   const isInProgress = resolvedStatus === "inProgress";
-  const [expanded, setExpanded] = useState(false);
-  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
   const rowModels = renderRows(normalizedItems, onOpenThread, childMemberships);
   const targetCount = countTargets(normalizedItems);
   const countLabel = getCountLabel(targetCount);

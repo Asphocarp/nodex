@@ -331,7 +331,10 @@ function DateMentionPopoverBody({
   const endDateValue = payload.end ? dateMentionValueToIsoDate(payload.end) : null;
   const startTime = dateMentionValueToTime(payload.start);
   const endTime = payload.end ? dateMentionValueToTime(payload.end) : null;
-  const startDate = isoDateToDate(startDateValue) ?? new Date();
+  const startDate = useMemo(
+    () => isoDateToDate(startDateValue) ?? new Date(),
+    [startDateValue],
+  );
   const selectedRange = payload.end
     ? { from: startDate, to: isoDateToDate(endDateValue ?? startDateValue) ?? startDate }
     : { from: startDate, to: undefined };
@@ -343,7 +346,7 @@ function DateMentionPopoverBody({
   useEffect(() => {
     setDateInput(startDateValue);
     setMonth(startDate);
-  }, [startDateValue]);
+  }, [startDate, startDateValue]);
 
   const patchPayload = (nextPayload: NfmDateMentionInlineContent) => {
     onPatch(dateMentionPayloadToProps(nextPayload));

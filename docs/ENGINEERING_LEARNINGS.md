@@ -290,6 +290,52 @@ returned model before documenting or fixing behavior. When framework-owned DOM
 or lifecycle state changes unexpectedly, identify who owns the mutation before
 changing how the local code responds.
 
+### State-writing callback refs require stable identities
+
+React detaches and reattaches a callback ref when its function identity changes.
+If a composed ref includes an inline state-writing callback, cleanup can write
+`null`, attachment can write the DOM node, and the resulting render can create a
+new ref identity that repeats the cycle. The characteristic failure is
+`dispatchSetState -> setRef -> Array.map -> setRef`, ending in `Maximum update
+depth exceeded`.
+
+Treat drag state, registration churn, Strict Mode, and an open floating surface
+as trigger pressure, not automatically as the leaf defect. Close unstable ref
+loops in the overlay dependency tree first. Then keep gesture-time droppable
+identities stable, memoize multi-owner refs, and preserve a stable sortable host
+around any deliberately keyed interaction child. Dismissing a tooltip inside
+`onDragStart` is only timing mitigation because it joins the same synchronous
+update burst.
+
+For lane-aware sidebar project drops, keep one physical project registration
+(`project:<id>`) for the whole gesture and resolve the semantic pinned or regular
+destination only when evaluating policy or dispatching the drop. Encoding the
+source lane in the droppable id makes every project ref detach and reattach at
+drag start even though none of the project DOM nodes changed.
+
+Test this class of failure in Chromium with real mounted overlay content and the
+full gesture tree, failing on page and console errors. jsdom cannot prove
+callback-ref commit behavior, and source-string checks do not prove that the
+runtime dependency graph carries the fix. Radix documents the React 19 failure
+mechanism and stable-setter repair in
+[radix-ui/primitives#3967](https://github.com/radix-ui/primitives/pull/3967).
+
+### Continuous geometry stays outside owner React state
+
+ResizeObserver dimensions and pointer-resize samples are visual signals, not
+application state. Feed them into stable shared observers and MotionValues,
+derive dependent sizes in the same graph, and bind those values directly to
+motion elements. Project into React state only when a guarded semantic value
+changes, such as a breakpoint class, layout mode, or boolean capability. This
+keeps unrelated authoritative updates from synchronously replaying geometry
+state writes during the commit phase.
+
+An Effect Event is not a stable dependency token: React intentionally gives the
+function returned by `useEffectEvent` a new identity on every render. Call it
+from an Effect, but never list it in that Effect's dependencies. Enforce this at
+the shell/geometry boundary with the official hooks lint rules; a post-commit
+measurement loop is too expensive to rediscover through runtime testing alone.
+
 ## Source-of-truth map
 
 | Topic | Authoritative document |

@@ -229,65 +229,13 @@ export function replaceVisibleCodexSidebarThreadKeyOrder(input: {
   });
 }
 
-/** A non-null precomputed order is the exact enablement gate for project-thread DnD. */
 export function listReorderableCodexSidebarProjectThreadKeys(input: {
   visibleThreadKeys: readonly string[];
-  projectThreadKeysInDisplayOrder: readonly string[] | null;
-  sessionIdByThreadKey: ReadonlyMap<string, string>;
+  getThreadId: (threadKey: string) => string | null;
 }): string[] {
-  if (input.projectThreadKeysInDisplayOrder === null) return [];
-  const projectThreadKeySet = new Set(input.projectThreadKeysInDisplayOrder);
   return input.visibleThreadKeys.filter((threadKey) => (
-    projectThreadKeySet.has(threadKey) && input.sessionIdByThreadKey.has(threadKey)
+    input.getThreadId(threadKey) !== null
   ));
-}
-
-export function sortCodexSidebarProjectThreadKeysBySessionOrder(input: {
-  threadKeys: readonly string[];
-  projectSessionIdsInOrder: readonly string[];
-  sessionIdByThreadKey: ReadonlyMap<string, string>;
-}): string[] {
-  const sessionOrderById = new Map(
-    input.projectSessionIdsInOrder.map((sessionId, index) => [sessionId, index] as const),
-  );
-  return input.threadKeys
-    .map((threadKey, sourceIndex) => ({
-      threadKey,
-      sourceIndex,
-      sessionOrder: sessionOrderById.get(input.sessionIdByThreadKey.get(threadKey) ?? "")
-        ?? Number.MAX_SAFE_INTEGER,
-    }))
-    .sort((left, right) => (
-      left.sessionOrder - right.sessionOrder || left.sourceIndex - right.sourceIndex
-    ))
-    .map(({ threadKey }) => threadKey);
-}
-
-export function buildCodexSidebarProjectSessionOrder(input: {
-  projectSessionIdsInOrder: readonly string[];
-  visibleThreadKeys: readonly string[];
-  nextVisibleThreadKeys: readonly string[];
-  sessionIdByThreadKey: ReadonlyMap<string, string>;
-}): string[] {
-  const visibleSessionIds = input.visibleThreadKeys.flatMap((threadKey) => {
-    const sessionId = input.sessionIdByThreadKey.get(threadKey);
-    return sessionId ? [sessionId] : [];
-  });
-  const nextVisibleSessionIds = input.nextVisibleThreadKeys.flatMap((threadKey) => {
-    const sessionId = input.sessionIdByThreadKey.get(threadKey);
-    return sessionId ? [sessionId] : [];
-  });
-  if (
-    visibleSessionIds.length !== input.visibleThreadKeys.length
-    || nextVisibleSessionIds.length !== input.nextVisibleThreadKeys.length
-  ) {
-    return [...input.projectSessionIdsInOrder];
-  }
-  return replaceVisibleCodexSidebarThreadKeyOrder({
-    threadKeysInDisplayOrder: input.projectSessionIdsInOrder,
-    visibleThreadKeys: visibleSessionIds,
-    nextVisibleThreadKeys: nextVisibleSessionIds,
-  });
 }
 
 /** Exact visible-slot replacement used before persisting the real pinned IDs. */
@@ -400,9 +348,6 @@ function compareSidebarThreadSortEntries(left: SidebarThreadSortEntry, right: Si
 
   const updatedAtDelta = resolveItemUpdatedAt(right) - resolveItemUpdatedAt(left);
   if (updatedAtDelta !== 0) return updatedAtDelta;
-
-  const sessionOrderDelta = resolveItemSessionOrder(left) - resolveItemSessionOrder(right);
-  if (sessionOrderDelta !== 0) return sessionOrderDelta;
 
   const createdAtDelta = resolveItemCreatedAt(right) - resolveItemCreatedAt(left);
   if (createdAtDelta !== 0) return createdAtDelta;

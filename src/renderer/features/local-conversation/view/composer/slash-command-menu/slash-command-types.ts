@@ -54,6 +54,11 @@ export interface ComposerSlashCommandGroup {
 
 export type ComposerSlashCommandHighlightSource = "keyboard" | "pointer" | "programmatic";
 
+export interface ComposerSlashCommandHighlightIntent {
+  commandId: string | null;
+  source: ComposerSlashCommandHighlightSource;
+}
+
 export interface ComposerSlashCommandMatch {
   command: ComposerSlashCommand;
   score: number;

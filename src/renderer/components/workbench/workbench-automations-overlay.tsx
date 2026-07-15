@@ -1,5 +1,5 @@
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -2712,6 +2712,9 @@ export function WorkbenchAutomationSidePanelTab({
       : baseDraft;
   };
   const [draft, setDraft] = useState<WorkbenchAutomationDraft>(() => createEditorDraft());
+  const resetEditorDraft = useEffectEvent(() => {
+    setDraft(createEditorDraft());
+  });
   const validation = validateWorkbenchAutomationDraft(draft);
   const dirty = isWorkbenchAutomationDraftDirty({
     draft,
@@ -2721,8 +2724,7 @@ export function WorkbenchAutomationSidePanelTab({
   const lastTitleRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const nextDraft = createEditorDraft();
-    setDraft(nextDraft);
+    resetEditorDraft();
   }, [effectiveAutomation?.id, draftSeed?.id, effectiveMode]);
 
   useEffect(() => {
@@ -2805,13 +2807,16 @@ export function WorkbenchAutomationSidePanelTab({
       setMutating(false);
     }
   };
+  const autoSaveAutomation = useEffectEvent((nextDraft: WorkbenchAutomationDraft) => (
+    saveAutomation(nextDraft)
+  ));
 
   useEffect(() => {
     if (isProposal) return;
     if (effectiveMode !== "edit" || effectiveAutomation === null) return;
     if (!validation.canSave || !dirty || mutating) return;
     const timeout = window.setTimeout(() => {
-      void saveAutomation(draft);
+      void autoSaveAutomation(draft);
     }, 600);
     return () => window.clearTimeout(timeout);
   }, [dirty, draft, effectiveAutomation, effectiveMode, isProposal, mutating, validation.canSave]);
@@ -3040,6 +3045,13 @@ export function WorkbenchAutomationsRouteShell({
   const [initialCreateDraft, setInitialCreateDraft] = useState<WorkbenchAutomationDraft | null>(() =>
     detailMode === "create" ? cloneWorkbenchAutomationDraft(createRouteDraft()) : null
   );
+  const resetRouteDraft = useEffectEvent(() => {
+    const nextDraft = createRouteDraft();
+    setDraft(nextDraft);
+    setInitialCreateDraft(detailMode === "create" ? cloneWorkbenchAutomationDraft(nextDraft) : null);
+    failedEditUpdateRef.current = null;
+    pendingEditActionRef.current = null;
+  });
   const draftValidation = validateWorkbenchAutomationDraft(draft);
   const editDraftDirty = detailMode === "edit" && selectedAutomation !== null
     ? isWorkbenchAutomationDraftDirty({ draft, existing: selectedAutomation })
@@ -3065,11 +3077,7 @@ export function WorkbenchAutomationsRouteShell({
   }, [detailRailOpen, onDetailRailOpenChange]);
 
   useEffect(() => {
-    const nextDraft = createRouteDraft();
-    setDraft(nextDraft);
-    setInitialCreateDraft(detailMode === "create" ? cloneWorkbenchAutomationDraft(nextDraft) : null);
-    failedEditUpdateRef.current = null;
-    pendingEditActionRef.current = null;
+    resetRouteDraft();
   }, [detailMode, selectedAutomation?.id, createDraftSeed?.id]);
 
   useEffect(() => {
@@ -3285,8 +3293,7 @@ export function WorkbenchAutomationsRouteShell({
     };
     flushPendingEditAction();
   };
-
-  useEffect(() => {
+  const refreshPendingEditAction = useEffectEvent(() => {
     if (!pendingEditActionRef.current) return;
     const pendingUpdate = getPendingEditUpdateInput();
     if (!pendingUpdate) return;
@@ -3295,6 +3302,13 @@ export function WorkbenchAutomationsRouteShell({
       update: pendingUpdate,
     };
     flushPendingEditAction();
+  });
+  const persistPendingEditUpdate = useEffectEvent((update: CodexScheduledAutomationUpdateInput) => (
+    saveAutomationUpdateInput(update, { trackFailedEdit: true })
+  ));
+
+  useEffect(() => {
+    refreshPendingEditAction();
   }, [mutatingAutomationId, pendingEditUpdateInput]);
 
   useEffect(() => {
@@ -3310,7 +3324,7 @@ export function WorkbenchAutomationsRouteShell({
 
     const timeout = window.setTimeout(() => {
       if (areAutomationUpdateInputsEqual(failedEditUpdateRef.current, pendingEditUpdateInput)) return;
-      void saveAutomationUpdateInput(pendingEditUpdateInput, { trackFailedEdit: true });
+      void persistPendingEditUpdate(pendingEditUpdateInput);
     }, 600);
     return () => window.clearTimeout(timeout);
   }, [mutatingAutomationId, pendingEditUpdateInput]);

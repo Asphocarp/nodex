@@ -34,7 +34,7 @@ export function useMeasuredElementHeight() {
     return () => {
       resizeObserverRef.current?.unobserve(element);
     };
-  }, [element, updateHeight]);
+  }, [element]);
 
   useLayoutEffect(() => () => {
     resizeObserverRef.current?.disconnect();

@@ -10,6 +10,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -2357,7 +2358,7 @@ function ReviewFileTreePane({
         clearTimeout(scrollTimerRef.current);
         scrollTimerRef.current = null;
       }
-      delete listRef.current?.dataset.isScrolling;
+      delete listNode.dataset.isScrolling;
       observer?.disconnect();
     };
   }, [isVirtualized, rows.length]);
@@ -2871,6 +2872,7 @@ export function ReviewDiffPanel({
     Record<string, boolean>
   >({});
   const fullContentsLoadingPathsRef = useRef<Record<string, boolean>>({});
+  const fullContentsGenerationRef = useRef(0);
   const gitLoadRequestIdRef = useRef(0);
   const gitFileDiffLoadRequestIdRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -2878,6 +2880,10 @@ export function ReviewDiffPanel({
   const reviewThreadId = conversation?.threadId ?? threadId ?? null;
   const pendingReviewCommentAttachments =
     useReviewDiffCommentAttachments(reviewThreadId);
+  const selectedTurnDiffEntryId = selectedTurnDiff?.entryId ?? null;
+  const hasSelectedTurnDiff = selectedTurnDiff !== null;
+  const selectedTurnDiffPatch = selectedTurnDiff?.patch ?? null;
+  const selectedTurnDiffSource = selectedTurnDiff?.source ?? null;
 
   const reviewCwd = isTranscriptReviewSource(source)
     ? source === "selected-turn"
@@ -2893,19 +2899,17 @@ export function ReviewDiffPanel({
   }, [conversation?.threadId]);
 
   useEffect(() => {
-    if (!selectedTurnDiff) {
+    void selectedTurnDiffEntryId;
+    void selectedTurnDiffPatch;
+    if (!hasSelectedTurnDiff) {
       setSource((current) =>
         current === "selected-turn" ? "last-turn" : current,
       );
       return;
     }
 
-    setSource(selectedTurnDiff.source ?? "selected-turn");
-  }, [
-    selectedTurnDiff?.entryId,
-    selectedTurnDiff?.patch,
-    selectedTurnDiff?.source,
-  ]);
+    setSource(selectedTurnDiffSource ?? "selected-turn");
+  }, [hasSelectedTurnDiff, selectedTurnDiffEntryId, selectedTurnDiffPatch, selectedTurnDiffSource]);
 
   useEffect(() => {
     if (initialSourceRequestKey === null) return;
@@ -2970,7 +2974,7 @@ export function ReviewDiffPanel({
     [conversation, parsePatchFiles, projectWorkspacePath, selectedTurnDiff],
   );
 
-  const loadGitSnapshot = async (
+  const loadGitSnapshot = useCallback(async (
     nextSource: GitReviewSource,
     nextCwd: string,
   ): Promise<GitReviewSnapshot> => {
@@ -2982,9 +2986,9 @@ export function ReviewDiffPanel({
       operationSource: "review_model",
       requestId: `review:${nextCwd}:${nextSource}:${commitSha ?? ""}`,
     }) as Promise<GitReviewSnapshot>;
-  };
+  }, [commitSha, hideWhitespace, invoke]);
 
-  const loadGitFileDiffs = async (
+  const loadGitFileDiffs = useEffectEvent(async (
     entries: ReviewFileEntry[],
   ): Promise<ReviewDiffResult | null> => {
     if (!isGitReviewSource(source)) return null;
@@ -3002,9 +3006,9 @@ export function ReviewDiffPanel({
       operationSource: "review_model",
       requestId: `review:${normalizedCwd}:${source}:${commitSha ?? ""}:files:${entries.map((entry) => entry.revision ?? entry.displayPath).join("|")}`,
     }) as Promise<ReviewDiffResult>;
-  };
+  });
 
-  const loadReviewFileContents = async (
+  const loadReviewFileContents = useEffectEvent(async (
     entry: ReviewFileEntry,
   ): Promise<GitReviewFileContents> => {
     if (!entry.safety.renderable || !entry.fileDiff) {
@@ -3070,7 +3074,7 @@ export function ReviewDiffPanel({
     return isGitReviewFileContentsResult(result)
       ? normalizeGitReviewFileContentsResult(result)
       : buildUnavailableReviewFullContents(entry);
-  };
+  });
 
   useEffect(() => {
     if (isTranscriptReviewSource(source)) {
@@ -3141,7 +3145,7 @@ export function ReviewDiffPanel({
         window.clearTimeout(loadTimerId);
       }
     };
-  }, [commitSha, hideWhitespace, reviewCwd, source]);
+  }, [loadGitSnapshot, reviewCwd, source]);
 
   const snapshot = useMemo(() => {
     if (source === "selected-turn") return selectedTurnSnapshot;
@@ -3228,16 +3232,24 @@ export function ReviewDiffPanel({
       }),
     [
       snapshot.files,
-      snapshot.files.length,
       totalChangedBytes,
       totalChangedLines,
     ],
   );
 
   useEffect(() => {
+    const generation = fullContentsGenerationRef.current + 1;
+    fullContentsGenerationRef.current = generation;
+    fullContentsLoadingPathsRef.current = {};
     setFullContentsByPath({});
     setFullContentsLoadingPaths({});
     clearContentSearchMarks(reviewContentRootRef.current);
+
+    return () => {
+      if (fullContentsGenerationRef.current === generation) {
+        fullContentsGenerationRef.current += 1;
+      }
+    };
   }, [snapshot.patch, source]);
 
   useEffect(() => {
@@ -3441,8 +3453,6 @@ export function ReviewDiffPanel({
   }, [
     commitSha,
     gitLoadStatus,
-    hideWhitespace,
-    reviewCwd,
     source,
     visibleFiles,
   ]);
@@ -3685,15 +3695,14 @@ export function ReviewDiffPanel({
     });
     if (nextEntries.length === 0) return;
 
-    let cancelled = false;
+    const generation = fullContentsGenerationRef.current;
+    const nextLoadingPaths = { ...loadingPaths };
+    for (const entry of nextEntries) {
+      nextLoadingPaths[entry.displayPath] = true;
+    }
+    fullContentsLoadingPathsRef.current = nextLoadingPaths;
     startTransition(() => {
-      setFullContentsLoadingPaths((current) => {
-        const next = { ...current };
-        for (const entry of nextEntries) {
-          next[entry.displayPath] = true;
-        }
-        return next;
-      });
+      setFullContentsLoadingPaths(nextLoadingPaths);
     });
 
     void Promise.all(
@@ -3718,7 +3727,7 @@ export function ReviewDiffPanel({
         return { entry, result };
       }),
     ).then((results) => {
-      if (cancelled) return;
+      if (fullContentsGenerationRef.current !== generation) return;
       startTransition(() => {
         setFullContentsByPath((current) => {
           const next = { ...current };
@@ -3732,14 +3741,11 @@ export function ReviewDiffPanel({
           for (const { entry } of results) {
             delete next[entry.displayPath];
           }
+          fullContentsLoadingPathsRef.current = next;
           return next;
         });
       });
     });
-
-    return () => {
-      cancelled = true;
-    };
   }, [fullContentsByPath, loadFullFilesEnabled, source, visibleFiles]);
 
   const handleCreateGitRepository = async () => {

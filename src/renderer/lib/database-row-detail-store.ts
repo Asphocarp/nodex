@@ -342,8 +342,11 @@ export function useDatabaseRowDetails(
 ): DatabaseRowDetailsSnapshot {
   const requestKey = summaries.map((card) => `${card.id}:${card.revision ?? ""}`).join("|");
   const detailKeys = useMemo(
-    () => summaries.map((summary) => detailKey(projectId, summary.id)),
-    [projectId, requestKey],
+    () => {
+      void requestKey;
+      return summaries.map((summary) => detailKey(projectId, summary.id));
+    },
+    [projectId, requestKey, summaries],
   );
   const subscribe = useMemo(
     () => (listener: Listener) => subscribeKeys(detailKeys, listener),
@@ -370,6 +373,7 @@ export function useDatabaseRowDetails(
   }, [projectId, requestKey, summaries]);
 
   return useMemo(() => {
+    void requestKey;
     const cards = new Map<string, Card>();
     let loading = false;
     let error: string | null = null;

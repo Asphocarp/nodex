@@ -32,7 +32,8 @@ const EMPTY_SIDEBAR_SNAPSHOT: CodexSidebarSnapshot = {
   pinnedThreadIds: [],
   projectAssignments: {},
   projectlessThreadIds: [],
-  manualThreadOrder: null,
+  projectThreadOrders: {},
+  projectlessThreadOrder: null,
   revision: 0,
   generatedAt: 0,
 };
@@ -240,29 +241,35 @@ export function useSidebarThreadSyncModel(input: {
     projects,
   }), [projects, snapshot]);
 
+  const applySnapshot = useCallback((nextSnapshot: CodexSidebarSnapshot) => {
+    queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), nextSnapshot);
+    queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), nextSnapshot.pinnedThreadIds);
+  }, [queryClient]);
+
+  const refresh = useCallback(async () => {
+    const result = await syncSidebarThreads("force", "manual");
+    return result.snapshot;
+  }, [syncSidebarThreads]);
+
+  const setPinned = useCallback(async (threadId: string, pinned: boolean) => {
+    const refreshed = await invoke("codex:threads:pinned:set", threadId, { pinned });
+    applySnapshot(refreshed);
+    return refreshed;
+  }, [applySnapshot]);
+
+  const reorderPinned = useCallback(async (orderedThreadIds: readonly string[]) => {
+    const refreshed = await invoke("codex:threads:pinned:reorder", [...orderedThreadIds]);
+    applySnapshot(refreshed);
+    return refreshed;
+  }, [applySnapshot]);
+
   return {
     snapshot,
     model,
     loading: query.isLoading,
-    applySnapshot: (nextSnapshot) => {
-      queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), nextSnapshot);
-      queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), nextSnapshot.pinnedThreadIds);
-    },
-    refresh: async () => {
-      const result = await syncSidebarThreads("force", "manual");
-      return result.snapshot;
-    },
-    setPinned: async (threadId: string, pinned: boolean) => {
-      const refreshed = await invoke("codex:threads:pinned:set", threadId, { pinned });
-      queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), refreshed);
-      queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), refreshed.pinnedThreadIds);
-      return refreshed;
-    },
-    reorderPinned: async (orderedThreadIds: readonly string[]) => {
-      const refreshed = await invoke("codex:threads:pinned:reorder", [...orderedThreadIds]);
-      queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), refreshed);
-      queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), refreshed.pinnedThreadIds);
-      return refreshed;
-    },
+    applySnapshot,
+    refresh,
+    setPinned,
+    reorderPinned,
   };
 }

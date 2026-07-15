@@ -505,7 +505,7 @@ function NfmEditorInstance({
 
   const uploadFile = useCallback(
     async (file: File) => uploadImageAsset(file),
-    [projectId],
+    [],
   );
 
   const resolveFileUrl = useCallback(
@@ -1307,7 +1307,7 @@ function NfmEditorInstance({
           direction,
         ),
     }),
-    [editor, embeddedBoundary?.navigationRef],
+    [editor],
   );
 
   useEffect(() => {

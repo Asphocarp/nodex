@@ -1,6 +1,7 @@
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandGroup,
+  ComposerSlashCommandHighlightIntent,
   ComposerSlashCommandTrigger,
   ComposerSlashCommandMatch,
   ComposerSlashTriggerState,
@@ -139,6 +140,22 @@ export function resolvePreservedSlashHighlight(input: {
   if (currentStillVisible) return input.currentCommandId;
 
   return input.matches[0]?.command.id ?? null;
+}
+
+export function resolveComposerSlashHighlight(input: {
+  matches: readonly ComposerSlashCommandMatch[];
+  intent: ComposerSlashCommandHighlightIntent;
+}): ComposerSlashCommandHighlightIntent {
+  const commandId = resolvePreservedSlashHighlight({
+    matches: input.matches,
+    currentCommandId: input.intent.commandId,
+  });
+  return {
+    commandId,
+    source: commandId === input.intent.commandId
+      ? input.intent.source
+      : "programmatic",
+  };
 }
 
 function matchSlashCommand(command: ComposerSlashCommand, normalizedQuery: string): ComposerSlashCommandMatch | null {

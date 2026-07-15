@@ -682,6 +682,8 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   const controller = useLocalConversationThreadScrollController();
   const reducedMotion = useReducedMotion();
   const footerRef = useRef<HTMLDivElement | null>(null);
+  const preserveScrollPositionForNextLayout = controller.preserveScrollPositionForNextLayout;
+  const scrollElement = controller.scrollElement;
   useRemoteHostedPipHostLayoutReporter();
 
   useImperativeHandle(ref, () => ({
@@ -689,12 +691,11 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   }), [controller.scrollToBottom]);
 
   useEffect(() => {
-    const scrollElement = controller.scrollElement;
     const footerElement = footerRef.current;
     if (!scrollElement || !footerElement) return undefined;
 
     const syncFooterPadding = () => {
-      controller.preserveScrollPositionForNextLayout();
+      preserveScrollPositionForNextLayout();
       const footerHeight = footerElement.getBoundingClientRect().height;
       scrollElement.style.setProperty("--thread-scroll-padding-bottom", `${footerHeight + 16}px`);
     };
@@ -713,7 +714,7 @@ export const LocalConversationThreadScrollLayout = forwardRef<
     return () => {
       resizeObserver.disconnect();
     };
-  }, [controller.preserveScrollPositionForNextLayout, controller.scrollElement, footer]);
+  }, [footer, preserveScrollPositionForNextLayout, scrollElement]);
 
   const motionStyle = contentX == null ? undefined : { x: contentX };
 

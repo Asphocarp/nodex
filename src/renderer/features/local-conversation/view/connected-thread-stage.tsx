@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
@@ -207,6 +207,7 @@ function ConnectedThreadStageHeader({
     [
       account,
       activeThreadId,
+      actions.onOpenSideChat,
       connection,
       input,
       summaryFields,
@@ -573,6 +574,7 @@ function ConnectedThreadStageFooter({
       input.projectId,
       input.projectWorkspacePath,
       input.reasoningEffortOptions,
+      input.selectedPersonality,
       liveCollaborationMode,
       liveThreadSettings,
       pendingSteers,
@@ -695,11 +697,14 @@ export function ConnectedThreadStage({
   const latestTurnKey = latestTurn
     ? buildCodexTurnOccurrenceKey(latestTurn.turnId, turns.length - 1)
     : null;
-  const markActiveConversationAsRead = (requireWindowFocus: boolean) => {
+  const markActiveConversationAsRead = useCallback((requireWindowFocus: boolean) => {
     if (!threadViewportActive || !activeThreadId || !conversation?.hasUnreadTurn) return;
     if (requireWindowFocus && typeof document !== "undefined" && !document.hasFocus()) return;
     void markLocalConversationAsRead(activeThreadId).catch(() => {});
-  };
+  }, [activeThreadId, conversation?.hasUnreadTurn, threadViewportActive]);
+  const markActiveConversationAsReadOnFocus = useEffectEvent(() => {
+    markActiveConversationAsRead(true);
+  });
   const summaryPanelContentProps = useMemo(
     () => ({
       activeThreadId,
@@ -739,7 +744,6 @@ export function ConnectedThreadStage({
       input.newThreadStartInSelector,
       input.projectWorkspacePath,
       actions,
-      actions.onOpenThread,
       turns,
     ],
   );
@@ -760,7 +764,10 @@ export function ConnectedThreadStage({
   }, [activeThreadId, backgroundAgentDetail]);
 
   useEffect(() => {
-    const handleFocus = () => markActiveConversationAsRead(true);
+    void latestTurn?.status;
+    void latestTurnKey;
+    void newestCanonicalRequest;
+    const handleFocus = () => markActiveConversationAsReadOnFocus();
     window.addEventListener("focus", handleFocus);
     if (document.hasFocus()) handleFocus();
     return () => window.removeEventListener("focus", handleFocus);

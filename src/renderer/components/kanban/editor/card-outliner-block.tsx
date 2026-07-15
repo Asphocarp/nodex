@@ -100,6 +100,7 @@ export function CardOutlinerBlock({
     activationBudget,
     visibilityOverride,
   });
+  const { engageTitle } = activation;
   const nextFocusIntentId = useRef(0);
   const projectedPointerIntent = useRef<{
     readonly clientX: number;
@@ -111,18 +112,18 @@ export function CardOutlinerBlock({
   const requestBoundaryFocus = useCallback((direction: VerticalArrowDirection) => {
     if (!expandable) return false;
     nextFocusIntentId.current += 1;
-    activation.engageTitle();
+    engageTitle();
     setFocusIntent({
       id: nextFocusIntentId.current,
       kind: "boundary",
       direction,
     });
     return true;
-  }, [activation.engageTitle, expandable]);
+  }, [engageTitle, expandable]);
   const requestPointerFocus = useCallback((clientX: number, clientY: number) => {
     if (!expandable) return false;
     nextFocusIntentId.current += 1;
-    activation.engageTitle();
+    engageTitle();
     setFocusIntent({
       id: nextFocusIntentId.current,
       kind: "pointer",
@@ -130,7 +131,7 @@ export function CardOutlinerBlock({
       clientY,
     });
     return true;
-  }, [activation.engageTitle, expandable]);
+  }, [engageTitle, expandable]);
 
   useEffect(() => {
     if (!hostEditor || !expandable) return;

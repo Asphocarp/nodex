@@ -322,6 +322,7 @@ export function CalendarGrid({
     axis: "vertical",
     retryFrames: 2,
   });
+  const retainedScrollRef = retainedScroll.ref;
 
   const setEventPreviewSynced = useCallback((nextPreview: CalendarEventPreviewState | null) => {
     eventPreviewRef.current = nextPreview;
@@ -405,12 +406,12 @@ export function CalendarGrid({
 
   const setScrollRef = useCallback(
     (node: HTMLDivElement | null) => {
-      retainedScroll.ref(node);
+      retainedScrollRef(node);
       scrollRef.current = node;
       if (!node) return;
       updateLayoutMetrics();
     },
-    [retainedScroll.ref, updateLayoutMetrics],
+    [retainedScrollRef, updateLayoutMetrics],
   );
 
   useEffect(() => {

@@ -124,6 +124,7 @@ interface SideMenuBlock {
 }
 
 interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
+  domElement?: HTMLElement | null;
   isEditable?: boolean;
   getBlock?: (blockId: string) => SideMenuBlock | undefined;
   getParentBlock?: (blockId: string) => unknown;
@@ -616,8 +617,8 @@ function focusNfmSideMenuReturnTarget(
   editor: SideMenuEditorRuntime,
   returnFocusElement: HTMLElement,
 ) {
-  if (editor.prosemirrorView?.dom === returnFocusElement && editor.prosemirrorView.focus) {
-    editor.prosemirrorView.focus();
+  if (editor.domElement === returnFocusElement) {
+    editor.focus?.();
     return;
   }
 
@@ -1375,9 +1376,12 @@ function NfmSideMenuPopup({
   );
   const selectedTopLevelBlock = topLevelSelectedBlocks[0] ?? block ?? null;
   const currentBlockId = selectedTopLevelBlock ? getCurrentBlockId(selectedTopLevelBlock) : null;
-  const colorTargetBlocks = selectedActionBlocks.length > 0
-    ? selectedActionBlocks
-    : block ? [block] : [];
+  const colorTargetBlocks = useMemo(
+    () => selectedActionBlocks.length > 0
+      ? selectedActionBlocks
+      : block ? [block] : [],
+    [block, selectedActionBlocks],
+  );
   const colorSupport = useMemo(() => {
     if (colorTargetBlocks.length === 0) return { text: false, background: false };
 
@@ -1464,7 +1468,7 @@ function NfmSideMenuPopup({
     const returnFocusElement = resolveNfmSideMenuReturnFocusElement({
       reason,
       returnFocusElement: openState.returnFocusElement,
-      editorRoot: editor.prosemirrorView?.dom ?? null,
+      editorRoot: editor.domElement ?? null,
     });
 
     if (shouldReturnFocusAfterNfmSideMenuClose({
@@ -1602,7 +1606,7 @@ function NfmSideMenuPopup({
       }
       const shouldConsumePointer = shouldConsumeNfmSideMenuOutsidePointerTarget({
         target: event.target,
-        editorRoot: editor.prosemirrorView?.dom ?? null,
+        editorRoot: editor.domElement ?? null,
       });
 
       if (shouldConsumePointer) {
@@ -1626,7 +1630,7 @@ function NfmSideMenuPopup({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [close, openState, visible]);
+  }, [close, editor, openState, visible]);
 
   useEffect(() => {
     if (!openState || !visible) return;
@@ -1846,8 +1850,9 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
       ?? editor.getTextCursorPosition?.().block;
     if (!block) return false;
 
+    const editorRoot = editor.domElement ?? null;
     const reference = resolveNfmSideMenuReference({
-      root: editor.prosemirrorView?.dom ?? null,
+      root: editorRoot,
       blockId: getCurrentBlockId(block),
       fallbackRect: input.anchorRect,
     });
@@ -1856,7 +1861,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
     return openForBlock({
       block,
       reference,
-      returnFocusElement: input.returnFocusElement ?? editor.prosemirrorView?.dom ?? null,
+      returnFocusElement: input.returnFocusElement ?? editorRoot,
       outsidePressIgnoreElement: input.outsidePressIgnoreElement ?? null,
     });
   }, [editor, openForBlock]);
@@ -1913,7 +1918,7 @@ export function NfmSideMenuShortcutController() {
       if (!event.metaKey && !event.ctrlKey) return;
       if (event.shiftKey || event.altKey) return;
 
-      const editorRoot = editor.prosemirrorView?.dom;
+      const editorRoot = editor.domElement;
       if (editorRoot && document.activeElement && !editorRoot.contains(document.activeElement)) {
         return;
       }

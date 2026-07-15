@@ -77,16 +77,23 @@ export function handleTabShortcut(
 }
 
 export function useTabShortcuts(actions: TabShortcutActions): void {
+  const { activeTabId, closeTab, onRequestAddTab, setActiveTab, tabs } = actions;
   useEffect(() => {
     const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (handleTabShortcut(e, actions, isMac)) {
+      if (handleTabShortcut(e, {
+        activeTabId,
+        closeTab,
+        onRequestAddTab,
+        setActiveTab,
+        tabs,
+      }, isMac)) {
         e.preventDefault();
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [actions.tabs, actions.activeTabId, actions.setActiveTab, actions.closeTab, actions.onRequestAddTab]);
+  }, [activeTabId, closeTab, onRequestAddTab, setActiveTab, tabs]);
 }

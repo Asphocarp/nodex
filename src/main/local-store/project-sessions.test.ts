@@ -1145,6 +1145,42 @@ describe("project session service", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("rejects a second session owner without partially rewriting thread metadata", async () => {
+    const ran = await withTempDatabase(async () => {
+      const owner = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "Owner",
+      });
+      const contender = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "Contender",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: owner.id,
+        projectId,
+        threadId: "thread-single-session-owner",
+        threadName: "Original title",
+      });
+
+      expect(() => upsertProjectSessionThreadLink({
+        sessionId: contender.id,
+        projectId,
+        threadId: "thread-single-session-owner",
+        threadName: "Conflicting title",
+      })).toThrow(
+        `Thread thread-single-session-owner is already attached to project session ${owner.id}`,
+      );
+
+      expect(listProjectSessionThreadOwners("thread-single-session-owner")).toEqual([
+        { sessionId: owner.id, projectId },
+      ]);
+      expect(getProjectSession(owner.id)?.thread?.threadName).toBe("Original title");
+      expect(getProjectSession(contender.id)?.thread).toBe(null);
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("inherits durable unread state when a session materializes its thread link", async () => {
     const ran = await withTempDatabase(async () => {
       const threadId = "thread-unread-before-session-link";

@@ -41,7 +41,10 @@ export function useCommandPaletteCardSearchIndex(
   cards: CommandPaletteCard[],
 ): CommandPaletteCardSearchIndex | null {
   const cardsKey = useMemo(() => buildCardsKey(cards), [cards]);
-  const fastIndex = useMemo(() => createCommandPaletteCardFastSearchIndex(cards), [cards, cardsKey]);
+  const fastIndex = useMemo(() => {
+    void cardsKey;
+    return createCommandPaletteCardFastSearchIndex(cards);
+  }, [cards, cardsKey]);
   const latestCardsRef = useRef(cards);
   latestCardsRef.current = cards;
   const [state, setState] = useState<CommandPaletteCardSearchIndexState>(() => ({

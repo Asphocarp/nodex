@@ -81,6 +81,7 @@ function useCommandPaletteCards(
   }, [open, stores]);
 
   return useMemo(() => {
+    void version;
     let loading = false;
     const cards: CommandPaletteCard[] = [];
 

@@ -4,6 +4,7 @@ import { act } from "react";
 import { render } from "@/test/dom";
 import {
   dispatchSidebarThreadDragEnd,
+  getSidebarThreadProjectDropContainerId,
   getSidebarThreadContainerEdgeInsetY,
   moveSidebarThreadBefore,
   resolveDisplayedVisibleThreadKeys,
@@ -12,8 +13,8 @@ import {
   resolveSidebarThreadDropTarget,
   resolveSidebarThreadExternalDropTarget,
   resolveSidebarThreadKeysWithPendingDrops,
+  resolveSidebarThreadContainerTargetId,
   resolveSidebarThreadProjectDropContainerId,
-  SidebarThreadReorderDndProvider,
   SidebarThreadReorderRows,
   SidebarThreadSortableContext,
   SidebarThreadSortableItem,
@@ -23,6 +24,7 @@ import {
   type SidebarThreadItemDndPayload,
   type SidebarThreadReorderController,
 } from "./sidebar-thread-reorder";
+import { SidebarReorderDndProvider } from "./sidebar-reorder-dnd";
 
 const SOURCE_RECT = { top: 60, bottom: 90 };
 const TARGET_RECT = { top: 0, bottom: 30 };
@@ -279,6 +281,38 @@ describe("cross-container sidebar thread targeting", () => {
     expect(target?.useDefaultOrder).toBe(true);
   });
 
+  test("keeps a project droppable id stable while resolving a pinned source at the drop boundary", () => {
+    const containerPayload: SidebarThreadContainerDndPayload = {
+      kind: "sidebar-thread-container",
+      containerId: getSidebarThreadProjectDropContainerId("beta"),
+      preserveSourceProjectLane: true,
+      targetProjectKind: "local",
+    };
+    const pinnedActivePayload = makeSidebarThreadPayload({
+      containerId: "project-pinned:alpha",
+      controller,
+      threadId: "thread-alpha",
+      threadKey: "local:thread-alpha",
+    });
+    const target = resolveSidebarThreadExternalDropTarget(
+      makeRichDragEndEvent({
+        activePayload: pinnedActivePayload,
+        overId: "sidebar-thread-container:project:beta",
+        overPayload: containerPayload,
+      }),
+      16,
+      () => null,
+    );
+
+    expect(containerPayload.containerId).toBe("project:beta");
+    expect(resolveSidebarThreadContainerTargetId(
+      containerPayload,
+      "project-pinned:alpha",
+    )).toBe("project-pinned:beta");
+    expect(target?.targetContainerId).toBe("project-pinned:beta");
+    expect(target?.useDefaultOrder).toBe(true);
+  });
+
   test("matches project container edge geometry from the reference coordinator", () => {
     expect(getSidebarThreadContainerEdgeInsetY({
       kind: "sidebar-thread-container",
@@ -426,6 +460,7 @@ describe("cross-container drag completion", () => {
       }),
       getThreadIdByThreadKey: () => null,
       homeContainerIdByThreadId: new Map(),
+      onError() {},
       onThreadDrop() {
         externalDropCount += 1;
       },
@@ -483,6 +518,7 @@ describe("cross-container drag completion", () => {
       }),
       getThreadIdByThreadKey: () => null,
       homeContainerIdByThreadId: new Map([["thread-alpha", "project:alpha"]]),
+      onError() {},
       onThreadDrop(drop) {
         drops.push(drop);
         return request.promise;
@@ -691,6 +727,41 @@ describe("optimistic sidebar thread order", () => {
       await Promise.resolve();
     });
   });
+
+  test("reports a failed reorder and rolls back its optimistic order", async () => {
+    const failure = new Error("persistence failed");
+    const errors: unknown[] = [];
+    let latest!: ReturnType<typeof useSidebarThreadReorderController>;
+
+    function Harness() {
+      latest = useSidebarThreadReorderController({
+        visibleThreadKeys: ["alpha", "beta", "gamma"],
+        onVisibleThreadOrderChange() {
+          return Promise.reject(failure);
+        },
+      });
+      return null;
+    }
+
+    render(
+      <SidebarReorderDndProvider onThreadError={(error) => errors.push(error)}>
+        <Harness />
+      </SidebarReorderDndProvider>,
+    );
+
+    await act(async () => {
+      latest.controller.handleDragEnd(makeDragEndEvent({
+        activeThreadKey: "gamma",
+        overThreadKey: "alpha",
+      }), 4);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(errors).toEqual([failure]);
+    expect(latest.displayedVisibleThreadKeys).toEqual(["alpha", "beta", "gamma"]);
+  });
 });
 
 describe("sidebar thread sortable wrapper", () => {
@@ -699,7 +770,7 @@ describe("sidebar thread sortable wrapper", () => {
       handleDragEnd() {},
     };
     const view = render(
-      <SidebarThreadReorderDndProvider>
+      <SidebarReorderDndProvider>
         <SidebarThreadSortableContext threadKeys={["local:alpha"]}>
           <div role="list">
             <SidebarThreadSortableItem
@@ -710,7 +781,7 @@ describe("sidebar thread sortable wrapper", () => {
             </SidebarThreadSortableItem>
           </div>
         </SidebarThreadSortableContext>
-      </SidebarThreadReorderDndProvider>,
+      </SidebarReorderDndProvider>,
     );
 
     const row = view.getByRole("listitem");
@@ -722,7 +793,7 @@ describe("sidebar thread sortable wrapper", () => {
 
   test("keeps a visible pending project row outside the sortable child set", () => {
     const view = render(
-      <SidebarThreadReorderDndProvider>
+      <SidebarReorderDndProvider>
         <div role="list">
           <SidebarThreadReorderRows
             visibleThreadKeys={["thread:alpha", "pending:worktree", "thread:beta"]}
@@ -733,7 +804,7 @@ describe("sidebar thread sortable wrapper", () => {
             )}
           />
         </div>
-      </SidebarThreadReorderDndProvider>,
+      </SidebarReorderDndProvider>,
     );
 
     expect(view.getByTestId("thread:alpha").closest("[role='button']") !== null).toBe(true);

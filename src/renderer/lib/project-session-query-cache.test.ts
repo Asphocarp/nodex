@@ -109,6 +109,26 @@ describe("project session query cache", () => {
     queryClient.clear();
   });
 
+  test("summary refresh patches cached detail without replacing loaded panel state", () => {
+    const queryClient = createQueryClient();
+    const detail = createSession({ displayTitle: "Stale title", order: 7 });
+    seedProjectSessionDetail(queryClient, detail);
+    const summary = projectSessionToSummary(createSession({
+      displayTitle: "Current title",
+      order: 2,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    }));
+
+    setProjectSessionSummaries(queryClient, "project-1", [summary]);
+
+    const cached = getCachedProjectSessionDetail(queryClient, detail.id);
+    expect(cached?.displayTitle).toBe("Current title");
+    expect(cached?.order).toBe(2);
+    expect(cached?.panels).toBe(detail.panels);
+    expect(cached?.tabs).toBe(detail.tabs);
+    queryClient.clear();
+  });
+
   test("archive and delete events evict cached detail", async () => {
     const queryClient = createQueryClient();
     const session = createSession();

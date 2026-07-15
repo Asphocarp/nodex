@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   animate,
   useMotionValue,
@@ -17,6 +17,7 @@ import {
   shouldAnimateCodexSidebarToggle,
   shouldSuppressCodexSidebarHoverOpen,
 } from "./codex-sidebar-auto-reveal";
+import { useDistinctState } from "./use-distinct-state";
 
 export interface CodexSidebarMotionSetOpenOptions {
   animate?: boolean;
@@ -104,33 +105,13 @@ export function useCodexSidebarMotionState({
   const animatedWidth = useTransform([progress, targetWidthMotionValue], ([latestProgress, latestTargetWidth]) =>
     resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetWidth))
   );
-  const [logicalOpen, setLogicalOpen] = useState(initialOpen);
-  const [mounted, setMounted] = useState(initialOpen);
-  const [animating, setAnimating] = useState(false);
-  const logicalOpenRef = useRef(initialOpen);
-  const mountedRef = useRef(initialOpen);
-  const animatingRef = useRef(false);
+  const [logicalOpen, setLogicalOpenIfChanged, getLogicalOpen] =
+    useDistinctState(initialOpen);
+  const [mounted, setMountedIfChanged] = useDistinctState(initialOpen);
+  const [animating, setAnimatingIfChanged] = useDistinctState(false);
   const reducedMotionRef = useRef(reducedMotion);
   const animationRef = useRef<ReturnType<typeof animate> | null>(null);
   const animationGenerationRef = useRef(0);
-
-  const setLogicalOpenIfChanged = useCallback((nextOpen: boolean) => {
-    if (logicalOpenRef.current === nextOpen) return;
-    logicalOpenRef.current = nextOpen;
-    setLogicalOpen(nextOpen);
-  }, []);
-
-  const setMountedIfChanged = useCallback((nextMounted: boolean) => {
-    if (mountedRef.current === nextMounted) return;
-    mountedRef.current = nextMounted;
-    setMounted(nextMounted);
-  }, []);
-
-  const setAnimatingIfChanged = useCallback((nextAnimating: boolean) => {
-    if (animatingRef.current === nextAnimating) return;
-    animatingRef.current = nextAnimating;
-    setAnimating(nextAnimating);
-  }, []);
 
   useEffect(() => {
     reducedMotionRef.current = reducedMotion;
@@ -146,12 +127,12 @@ export function useCodexSidebarMotionState({
 
   useMotionValueEvent(progress, "change", (latestProgress) => {
     setMountedIfChanged(resolveCodexSidebarMotionMounted({
-      logicalOpen: logicalOpenRef.current,
+      logicalOpen: getLogicalOpen(),
       progress: latestProgress,
     }));
   });
 
-  const getOpen = useCallback(() => logicalOpenRef.current, []);
+  const getOpen = getLogicalOpen;
 
   const setOpen = useCallback((
     nextOpen: boolean,
@@ -208,7 +189,7 @@ export function useCodexSidebarMotionState({
         animationRef.current = null;
         setAnimatingIfChanged(false);
         setMountedIfChanged(resolveCodexSidebarMotionMounted({
-          logicalOpen: logicalOpenRef.current,
+          logicalOpen: getLogicalOpen(),
           progress: progress.get(),
         }));
       },
@@ -216,6 +197,7 @@ export function useCodexSidebarMotionState({
     animationRef.current = controls;
     return resolution;
   }, [
+    getLogicalOpen,
     progress,
     setAnimatingIfChanged,
     setLogicalOpenIfChanged,

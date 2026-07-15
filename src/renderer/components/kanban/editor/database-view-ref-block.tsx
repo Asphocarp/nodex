@@ -11,46 +11,61 @@ const EmbeddedReferencedCardDocument = lazy(() =>
   })),
 );
 
+function DatabaseViewRefBlock({
+  blockId,
+  databaseViewId,
+  displayHint,
+}: {
+  blockId: string;
+  databaseViewId: string;
+  displayHint: string;
+}) {
+  const host = useBlockReferenceHostRuntime();
+  const view = useDatabaseViewReadModel(
+    host?.projectId ?? "",
+    databaseViewId.trim(),
+    host?.hostCardId ?? undefined,
+  );
+  return (
+    <DatabaseViewReferenceSurface
+      referenceKey={`database-view-ref:${blockId}`}
+      displayHint={displayHint}
+      model={view.data}
+      loading={view.loading}
+      error={view.error}
+      hostCardId={host?.hostCardId}
+      ancestorCardIds={host?.ancestorCardIds}
+      onOpenCard={host?.openCard}
+      renderDocument={({ projectId, card, isActive }) => (
+        <Suspense
+          fallback={
+            <div className="py-2 text-sm text-token-description-foreground">
+              Opening Card…
+            </div>
+          }
+        >
+          <EmbeddedReferencedCardDocument
+            projectId={projectId}
+            card={card}
+            isActive={isActive && (host?.isActiveSurface ?? true)}
+            hostRuntime={host}
+          />
+        </Suspense>
+      )}
+    />
+  );
+}
+
 /** A durable View reference; query rows never become host ProseMirror children. */
 export const createDatabaseViewRefBlockSpec = createReactBlockSpec(
   databaseViewRefBlockConfig,
   {
-    render: ({ block }) => {
-      const host = useBlockReferenceHostRuntime();
-      const databaseViewId = block.props.databaseViewId.trim();
-      const view = useDatabaseViewReadModel(
-        host?.projectId ?? "",
-        databaseViewId,
-        host?.hostCardId ?? undefined,
-      );
-      return (
-        <DatabaseViewReferenceSurface
-          referenceKey={`database-view-ref:${block.id}`}
-          displayHint={block.props.displayHint}
-          model={view.data}
-          loading={view.loading}
-          error={view.error}
-          hostCardId={host?.hostCardId}
-          ancestorCardIds={host?.ancestorCardIds}
-          onOpenCard={host?.openCard}
-          renderDocument={({ projectId, card, isActive }) => (
-            <Suspense
-              fallback={
-                <div className="py-2 text-sm text-token-description-foreground">
-                  Opening Card…
-                </div>
-              }
-            >
-              <EmbeddedReferencedCardDocument
-                projectId={projectId}
-                card={card}
-                isActive={isActive && (host?.isActiveSurface ?? true)}
-                hostRuntime={host}
-              />
-            </Suspense>
-          )}
-        />
-      );
-    },
+    render: ({ block }) => (
+      <DatabaseViewRefBlock
+        blockId={block.id}
+        databaseViewId={block.props.databaseViewId}
+        displayHint={block.props.displayHint}
+      />
+    ),
   },
 );

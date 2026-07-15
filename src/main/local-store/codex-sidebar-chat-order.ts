@@ -116,17 +116,14 @@ function assertCurrentUnpinnedTasks(
   return currentThreads;
 }
 
-function assertProjectlessVisibleThreads(input: {
+function assertProjectlessThreads(input: {
   currentThreads: ReadonlyMap<string, CurrentThreadRow>;
-  taskThreadIds: readonly string[];
-  visibleThreadIds: readonly string[];
+  threadIds: readonly string[];
 }): void {
-  const taskThreadIdSet = new Set(input.taskThreadIds);
-  for (const threadId of input.visibleThreadIds) {
+  for (const threadId of input.threadIds) {
     const thread = input.currentThreads.get(threadId);
     if (
-      taskThreadIdSet.has(threadId)
-      && thread
+      thread
       && thread.projectId === null
       && thread.archived === 0
       && thread.pinned === 0
@@ -233,14 +230,16 @@ export function setCodexSidebarChatOrder(
     );
     assertSameThreadIdSet(visibleThreadIds, nextVisibleThreadIds);
     const currentThreads = assertCurrentUnpinnedTasks(database, taskThreadIds);
-    assertProjectlessVisibleThreads({
+    assertProjectlessThreads({
       currentThreads,
-      taskThreadIds,
-      visibleThreadIds,
+      threadIds: taskThreadIds,
     });
 
+    const taskThreadIdSet = new Set(taskThreadIds);
     const completeThreadOrder = appendNewTaskThreadIds(
-      readCustomOrder(database) ?? taskThreadIds,
+      (readCustomOrder(database) ?? taskThreadIds).filter((threadId) => (
+        taskThreadIdSet.has(threadId)
+      )),
       taskThreadIds,
     );
     const nextCustomThreadOrder = replaceVisibleThreadIdSlots({

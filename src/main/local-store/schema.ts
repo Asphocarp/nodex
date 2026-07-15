@@ -29,9 +29,25 @@ import { finalizeCardNfmIdentityProjection } from "./card-nfm-projection-finaliz
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CARD_REFERENCE_HINT_SCHEMA_VERSION = 59;
-export const PREVIOUS_SCHEMA_VERSION = 60;
-export const CURRENT_SCHEMA_VERSION = 61;
+export const CURRENT_SCHEMA_VERSION = 62;
+
+interface ReleaseSchemaMigrationStep {
+  readonly fromVersion: number;
+  readonly toVersion: number;
+  readonly migrate: (db: Database.Database) => void;
+}
+
+const RELEASE_SCHEMA_MIGRATION_STEPS = [
+  {
+    fromVersion: SHIPPED_SCHEMA_VERSION,
+    toVersion: 59,
+    migrate: migrateSchema58To59,
+  },
+  { fromVersion: 59, toVersion: 60, migrate: migrateSchema59To60 },
+  { fromVersion: 60, toVersion: 61, migrate: migrateSchema60To61 },
+  { fromVersion: 61, toVersion: 62, migrate: migrateSchema61To62 },
+] satisfies readonly ReleaseSchemaMigrationStep[];
+
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
@@ -2877,32 +2893,22 @@ export interface EnsureDatabaseOptions {
   onMigrationProgress?: (progress: DatabaseMigrationProgress) => void;
 }
 
+export function getReleaseSchemaVersions(): number[] {
+  return [
+    SHIPPED_SCHEMA_VERSION,
+    ...RELEASE_SCHEMA_MIGRATION_STEPS.map((step) => step.toVersion),
+  ];
+}
+
 export function getSchemaMigrationTargets(
   currentVersion: number,
 ): number[] | null {
-  if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === PREVIOUS_SCHEMA_VERSION) {
-    return [CURRENT_SCHEMA_VERSION];
-  }
-  if (currentVersion === CARD_REFERENCE_HINT_SCHEMA_VERSION) {
-    return [PREVIOUS_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION];
-  }
-  if (currentVersion === SHIPPED_SCHEMA_VERSION) {
-    return [
-      CARD_REFERENCE_HINT_SCHEMA_VERSION,
-      PREVIOUS_SCHEMA_VERSION,
-      CURRENT_SCHEMA_VERSION,
-    ];
-  }
+  const releaseVersions = getReleaseSchemaVersions();
   if (currentVersion === 26 || currentVersion === 57) {
-    return [
-      SHIPPED_SCHEMA_VERSION,
-      CARD_REFERENCE_HINT_SCHEMA_VERSION,
-      PREVIOUS_SCHEMA_VERSION,
-      CURRENT_SCHEMA_VERSION,
-    ];
+    return releaseVersions;
   }
-  return null;
+  const currentIndex = releaseVersions.indexOf(currentVersion);
+  return currentIndex === -1 ? null : releaseVersions.slice(currentIndex + 1);
 }
 
 function getUserVersion(db: Database.Database): number {
@@ -6543,7 +6549,7 @@ export function migrateSchema58To59(db: Database.Database): void {
           `Schema v59 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
         );
       }
-      setUserVersion(db, CARD_REFERENCE_HINT_SCHEMA_VERSION);
+      setUserVersion(db, 59);
     });
     migrate.immediate();
   } finally {
@@ -6555,7 +6561,7 @@ export function migrateSchema58To59(db: Database.Database): void {
 
 export function migrateSchema59To60(db: Database.Database): void {
   const sourceVersion = getUserVersion(db);
-  if (sourceVersion !== CARD_REFERENCE_HINT_SCHEMA_VERSION) {
+  if (sourceVersion !== 59) {
     throw new Error(
       `Schema v59 to v60 migration requires v59, received v${sourceVersion}`,
     );
@@ -6569,14 +6575,14 @@ export function migrateSchema59To60(db: Database.Database): void {
         `Schema v60 migration found ${foreignKeyViolations.length} foreign-key violation(s)`,
       );
     }
-    setUserVersion(db, PREVIOUS_SCHEMA_VERSION);
+    setUserVersion(db, 60);
   });
   publish.immediate();
 }
 
 export function migrateSchema60To61(db: Database.Database): void {
   const sourceVersion = getUserVersion(db);
-  if (sourceVersion !== PREVIOUS_SCHEMA_VERSION) {
+  if (sourceVersion !== 60) {
     throw new Error(
       `Schema v60 to v61 migration requires v60, received v${sourceVersion}`,
     );
@@ -6590,9 +6596,168 @@ export function migrateSchema60To61(db: Database.Database): void {
         `Schema v61 migration found ${foreignKeyViolations.length} foreign-key violation(s)`,
       );
     }
-    setUserVersion(db, CURRENT_SCHEMA_VERSION);
+    setUserVersion(db, 61);
   });
   publish.immediate();
+}
+
+interface DuplicateProjectSessionThreadOwnerRow {
+  readonly threadId: string;
+  readonly threadProjectId: string | null;
+  readonly sessionId: string;
+  readonly sessionProjectId: string | null;
+  readonly archived: number;
+  readonly pinned: number;
+  readonly tabCount: number;
+  readonly sessionCreatedAt: string;
+  readonly linkedAt: string;
+}
+
+function compareDuplicateProjectSessionThreadOwners(
+  left: DuplicateProjectSessionThreadOwnerRow,
+  right: DuplicateProjectSessionThreadOwnerRow,
+): number {
+  const leftMatchesThreadScope = left.sessionProjectId === left.threadProjectId ? 1 : 0;
+  const rightMatchesThreadScope = right.sessionProjectId === right.threadProjectId ? 1 : 0;
+  if (leftMatchesThreadScope !== rightMatchesThreadScope) {
+    return rightMatchesThreadScope - leftMatchesThreadScope;
+  }
+  if (left.archived !== right.archived) return left.archived - right.archived;
+  if (left.tabCount !== right.tabCount) return right.tabCount - left.tabCount;
+  if (left.pinned !== right.pinned) return right.pinned - left.pinned;
+
+  const createdAtDelta = left.sessionCreatedAt.localeCompare(right.sessionCreatedAt);
+  if (createdAtDelta !== 0) return createdAtDelta;
+  const linkedAtDelta = left.linkedAt.localeCompare(right.linkedAt);
+  if (linkedAtDelta !== 0) return linkedAtDelta;
+  return left.sessionId.localeCompare(right.sessionId);
+}
+
+function repairDuplicateProjectSessionThreadOwners(db: Database.Database): void {
+  const duplicateOwners = db.prepare(`
+    SELECT
+      link.thread_id AS threadId,
+      thread.project_id AS threadProjectId,
+      session.id AS sessionId,
+      session.project_id AS sessionProjectId,
+      session.archived AS archived,
+      session.pinned AS pinned,
+      COUNT(tab.id) AS tabCount,
+      session.created_at AS sessionCreatedAt,
+      link.linked_at AS linkedAt
+    FROM project_session_threads link
+    JOIN project_sessions session ON session.id = link.session_id
+    JOIN codex_threads thread ON thread.thread_id = link.thread_id
+    LEFT JOIN project_session_tabs tab ON tab.session_id = session.id
+    WHERE link.thread_id IN (
+      SELECT thread_id
+      FROM project_session_threads
+      GROUP BY thread_id
+      HAVING COUNT(*) > 1
+    )
+    GROUP BY link.thread_id, session.id
+    ORDER BY link.thread_id ASC, session.id ASC
+  `).all() as DuplicateProjectSessionThreadOwnerRow[];
+  if (duplicateOwners.length === 0) return;
+
+  const ownersByThreadId = new Map<string, DuplicateProjectSessionThreadOwnerRow[]>();
+  for (const owner of duplicateOwners) {
+    const owners = ownersByThreadId.get(owner.threadId) ?? [];
+    owners.push(owner);
+    ownersByThreadId.set(owner.threadId, owners);
+  }
+
+  const detachOwner = db.prepare(`
+    DELETE FROM project_session_threads
+    WHERE session_id = ? AND thread_id = ?
+  `);
+  const archiveRedundantSession = db.prepare(`
+    UPDATE project_sessions
+    SET archived = 1,
+        archived_at = COALESCE(archived_at, ?),
+        unread = 0,
+        pinned = 0,
+        pinned_order = NULL,
+        updated_at = ?
+    WHERE id = ?
+  `);
+  const now = new Date().toISOString();
+
+  for (const [threadId, owners] of ownersByThreadId) {
+    const [, ...redundantOwners] = owners.sort(compareDuplicateProjectSessionThreadOwners);
+    for (const redundantOwner of redundantOwners) {
+      const detached = detachOwner.run(redundantOwner.sessionId, threadId);
+      if (detached.changes !== 1) {
+        throw new Error(
+          `Could not detach duplicate thread owner ${redundantOwner.sessionId} for ${threadId}`,
+        );
+      }
+      archiveRedundantSession.run(now, now, redundantOwner.sessionId);
+    }
+  }
+}
+
+export function migrateSchema61To62(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 61) {
+    throw new Error(
+      `Schema v61 to v62 migration requires v61, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    repairDuplicateProjectSessionThreadOwners(db);
+    db.exec(`
+      DROP INDEX IF EXISTS idx_project_session_threads_thread;
+      CREATE UNIQUE INDEX idx_project_session_threads_thread
+        ON project_session_threads(thread_id);
+    `);
+
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v62 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 62);
+  });
+  migrate.immediate();
+}
+
+function migrateReleaseSchemaToCurrent(
+  db: Database.Database,
+  sourceVersion: number,
+): void {
+  if (sourceVersion === CURRENT_SCHEMA_VERSION) return;
+
+  const sourceStepIndex = RELEASE_SCHEMA_MIGRATION_STEPS.findIndex(
+    (step) => step.fromVersion === sourceVersion,
+  );
+  if (sourceStepIndex === -1) {
+    throw new Error(`No release migration starts at schema v${sourceVersion}`);
+  }
+
+  let migratedVersion = sourceVersion;
+  for (const step of RELEASE_SCHEMA_MIGRATION_STEPS.slice(sourceStepIndex)) {
+    if (step.fromVersion !== migratedVersion) {
+      throw new Error(
+        `Broken release migration chain at v${migratedVersion}: next step starts at v${step.fromVersion}`,
+      );
+    }
+    step.migrate(db);
+    migratedVersion = getUserVersion(db);
+    if (migratedVersion !== step.toVersion) {
+      throw new Error(
+        `Schema v${step.fromVersion} migration published v${migratedVersion}, expected v${step.toVersion}`,
+      );
+    }
+  }
+
+  if (migratedVersion !== CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `Release migration chain stopped at v${migratedVersion}, expected v${CURRENT_SCHEMA_VERSION}`,
+    );
+  }
 }
 
 export function publishShippedSchemaImport(
@@ -6633,9 +6798,7 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
-  migrateSchema58To59(db);
-  migrateSchema59To60(db);
-  migrateSchema60To61(db);
+  migrateReleaseSchemaToCurrent(db, SHIPPED_SCHEMA_VERSION);
 }
 
 function seedDefaultProjectIfMissing(db: Database.Database): void {
@@ -6680,21 +6843,21 @@ export function ensureDatabase(): void {
     const currentVersion = getUserVersion(db);
     if (currentVersion === 0) {
       resetDatabaseToLatestSchema(db);
-    } else if (currentVersion === SHIPPED_SCHEMA_VERSION) {
-      migrateSchema58To59(db);
-      migrateSchema59To60(db);
-      migrateSchema60To61(db);
-    } else if (currentVersion === CARD_REFERENCE_HINT_SCHEMA_VERSION) {
-      migrateSchema59To60(db);
-      migrateSchema60To61(db);
-    } else if (currentVersion === PREVIOUS_SCHEMA_VERSION) {
-      migrateSchema60To61(db);
-    } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
-      throw new Error(
-        currentVersion === 26 || currentVersion === 57
-          ? `Nodex database schema v${currentVersion} requires the staged startup migrator`
-          : `Unsupported Nodex database schema version ${currentVersion}. Expected ${CURRENT_SCHEMA_VERSION}. Delete or recreate the local database if you want a fresh start.`,
-      );
+    } else {
+      const migrationTargets = getSchemaMigrationTargets(currentVersion);
+      if (currentVersion === 26 || currentVersion === 57) {
+        throw new Error(
+          `Nodex database schema v${currentVersion} requires the staged startup migrator`,
+        );
+      }
+      if (!migrationTargets) {
+        throw new Error(
+          `Unsupported Nodex database schema version ${currentVersion}. Expected ${CURRENT_SCHEMA_VERSION}. Delete or recreate the local database if you want a fresh start.`,
+        );
+      }
+      if (migrationTargets.length > 0) {
+        migrateReleaseSchemaToCurrent(db, currentVersion);
+      }
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");

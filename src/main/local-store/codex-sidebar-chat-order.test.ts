@@ -115,7 +115,7 @@ function errorCode(run: () => void): string | null {
 }
 
 describe("Codex sidebar Chats order storage", () => {
-  test("replaces only visible projectless slots in the global manual order", async () => {
+  test("replaces visible projectless slots and prunes out-of-scope stored ids", async () => {
     const ran = await withTempDatabase(() => {
       const project = createProject({ name: "Project", sources: ["/tmp/project"] });
       insertThread({ threadId: "chat-a" });
@@ -134,7 +134,6 @@ describe("Codex sidebar Chats order storage", () => {
       const result = setCodexSidebarChatOrder({
         threadIdsInDisplayOrder: [
           "chat-a",
-          "project-task",
           "chat-hidden",
           "chat-b",
           "chat-new",
@@ -145,8 +144,6 @@ describe("Codex sidebar Chats order storage", () => {
 
       const expected = [
         "chat-b",
-        "project-task",
-        "stale-task",
         "chat-hidden",
         "chat-a",
         "chat-new",
@@ -158,7 +155,7 @@ describe("Codex sidebar Chats order storage", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("starts the first manual order from the complete displayed task order", async () => {
+  test("starts the first manual order from the complete displayed Chats order", async () => {
     const ran = await withTempDatabase(() => {
       const project = createProject({ name: "Project", sources: ["/tmp/project"] });
       insertThread({ threadId: "chat-a" });
@@ -166,13 +163,13 @@ describe("Codex sidebar Chats order storage", () => {
       insertThread({ threadId: "chat-b" });
 
       const result = setCodexSidebarChatOrder({
-        threadIdsInDisplayOrder: ["project-task", "chat-a", "chat-b"],
+        threadIdsInDisplayOrder: ["chat-a", "chat-b"],
         visibleThreadIds: ["chat-a", "chat-b"],
         nextVisibleThreadIds: ["chat-b", "chat-a"],
       });
 
       expect(JSON.stringify(result.orderedThreadIds)).toBe(
-        JSON.stringify(["project-task", "chat-b", "chat-a"]),
+        JSON.stringify(["chat-b", "chat-a"]),
       );
     });
     if (!ran) expect(true).toBe(true);
@@ -210,15 +207,13 @@ describe("Codex sidebar Chats order storage", () => {
       seedChatOrder(["chat-a", "project-task", "chat-b", "dormant-task"]);
 
       const reconciled = setCodexSidebarChatOrder({
-        threadIdsInDisplayOrder: ["chat-a", "project-task", "chat-b"],
+        threadIdsInDisplayOrder: ["chat-a", "chat-b"],
         visibleThreadIds: ["chat-b", "chat-a"],
         nextVisibleThreadIds: ["chat-a", "chat-b"],
       });
       expect(JSON.stringify(reconciled.orderedThreadIds)).toBe(JSON.stringify([
         "chat-a",
-        "project-task",
         "chat-b",
-        "dormant-task",
       ]));
       const afterReconcile = readRawOrder();
       expect(errorCode(() => setCodexSidebarChatOrder({

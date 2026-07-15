@@ -344,6 +344,9 @@ export function ReadonlyNfmBlockNotePreview({
   const toggleBlockIdsRef = useRef<string[]>([]);
 
   const previewDocument = useMemo(() => {
+    void cardId;
+    void historyId;
+    void projectId;
     cleanupToggleStates(toggleBlockIdsRef.current);
     const nextDocument = createReadonlyNfmPreviewDocument(content);
     toggleBlockIdsRef.current = setToggleStates(nextDocument.toggleStates);

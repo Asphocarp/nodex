@@ -25,10 +25,11 @@ export const KanbanBoardScrollContainer = forwardRef<HTMLDivElement, ViewScrollC
       axis: "both",
       retryFrames: 2,
     });
+    const retainedScrollRef = retainedScroll.ref;
     const setContainerRef = useCallback((node: HTMLDivElement | null) => {
-      retainedScroll.ref(node);
+      retainedScrollRef(node);
       setForwardedRef(ref, node);
-    }, [ref, retainedScroll.ref]);
+    }, [ref, retainedScrollRef]);
 
     return (
       <div

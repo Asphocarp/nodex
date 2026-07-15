@@ -101,12 +101,12 @@ import {
   filterComposerSlashCommands,
   groupComposerSlashCommandMatches,
   inactiveSlashTrigger,
+  resolveComposerSlashHighlight,
   resolveNextSlashHighlight,
-  resolvePreservedSlashHighlight,
 } from "./slash-command-menu/slash-command-filter";
 import type {
   ComposerSlashCommand,
-  ComposerSlashCommandHighlightSource,
+  ComposerSlashCommandHighlightIntent,
   ComposerSlashTriggerState,
 } from "./slash-command-menu/slash-command-types";
 import {
@@ -161,11 +161,6 @@ const SERVICE_TIER_OPTIONS = [
     description: "1.5x speed, increased usage",
   },
 ];
-
-interface SlashHighlightState {
-  commandId: string | null;
-  source: ComposerSlashCommandHighlightSource;
-}
 
 function isElectronLikeComposerEnvironment(): boolean {
   if (typeof window === "undefined") {
@@ -1054,6 +1049,7 @@ function IntelligenceSelectorDropdown({
 }
 
 export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }: ThreadComposerProps) {
+  const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
   const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
@@ -1063,7 +1059,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [pastedTextAttachments, setPastedTextAttachments] = useState<ComposerPastedTextAttachment[]>([]);
   const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
   const [slashTrigger, setSlashTrigger] = useState<ComposerSlashTriggerState>(() => inactiveSlashTrigger());
-  const [slashHighlight, setSlashHighlight] = useState<SlashHighlightState>({
+  const [inlineSlashHighlightIntent, setInlineSlashHighlightIntent] = useState<ComposerSlashCommandHighlightIntent>({
     commandId: null,
     source: "programmatic",
   });
@@ -1247,7 +1243,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     const target = model.newThreadTarget;
     const goalActionAvailable = model.conversation !== null
       ? Boolean(actions.onSetThreadGoal)
-      : Boolean(actions.onStartThreadForSession) && canStartNewThreadTarget(model);
+      : Boolean(actions.onStartThreadForSession) && canStartNewThread;
     const goalDraftResult = buildComposerThreadGoalDraft({
       promptRaw: input.prompt,
       goalActionAvailable,
@@ -1391,6 +1387,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }, [
     actions,
     attachmentState,
+    canStartNewThread,
     composerThreadId,
     goalModeActive,
     hasAttachments,
@@ -1409,7 +1406,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     defaultValues: { prompt: "" },
     onSubmit: async ({ value, formApi }) => {
       const actionState = resolveStageThreadsComposerActionState({
-        canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+        canSendPrompt: model.conversation !== null || canStartNewThread,
         isThreadRunning: model.isThreadRunning,
         busyAction,
         hasDraftContent: value.prompt.trim().length > 0 || hasAttachments || goalModeActive,
@@ -1597,7 +1594,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       const nextPrompt = insertDictationTranscript(transcript);
       window.setTimeout(() => {
         const actionState = resolveStageThreadsComposerActionState({
-          canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+          canSendPrompt: model.conversation !== null || canStartNewThread,
           isThreadRunning: model.isThreadRunning,
           busyAction,
           hasDraftContent: nextPrompt.trim().length > 0 || hasAttachments || goalModeActive,
@@ -1854,8 +1851,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     modes: model.collaborationModes,
     dismissed: planKeywordSuggestionDismissed || goalModeActive,
   });
-  const highlightedSlashCommandId = slashHighlight.commandId;
-  const highlightedSlashCommandSource = slashHighlight.source;
+  const resolvedInlineSlashHighlight = resolveComposerSlashHighlight({
+    matches: slashMatches,
+    intent: inlineSlashHighlightIntent,
+  });
+  const highlightedInlineSlashCommandId = slashMenuOpen
+    ? resolvedInlineSlashHighlight.commandId
+    : null;
+  const highlightedInlineSlashCommandSource = slashMenuOpen
+    ? resolvedInlineSlashHighlight.source
+    : "programmatic";
   const promptHistoryScopeKey = model.conversation?.threadId
     ?? model.threadId
     ?? model.newThreadTarget?.sessionId
@@ -1903,26 +1908,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   resetPromptHistorySelectionRef.current = resetHistorySelection;
 
   useEffect(() => {
-    if (!slashMenuOpen) {
-      setSlashHighlight((current) => {
-        if (current.commandId === null && current.source === "programmatic") return current;
-        return { commandId: null, source: "programmatic" };
-      });
-      return;
-    }
-
-    setSlashHighlight((current) => {
-      const commandId = resolvePreservedSlashHighlight({
-        matches: slashMatches,
-        currentCommandId: current.commandId,
-      });
-      const source = commandId === current.commandId ? current.source : "programmatic";
-      if (current.commandId === commandId && current.source === source) return current;
-      return { commandId, source };
-    });
-  }, [slashMatches, slashMenuOpen]);
-
-  useEffect(() => {
     if (prompt.trim().length > 0 && model.selectedCollaborationMode !== "plan") {
       return;
     }
@@ -1932,14 +1917,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const closeSlashMenu = useCallback(() => {
     setSlashTrigger(inactiveSlashTrigger());
     setNestedSlashCommand(null);
-    setSlashHighlight({ commandId: null, source: "programmatic" });
+    setInlineSlashHighlightIntent({ commandId: null, source: "programmatic" });
   }, []);
 
   const handleSlashTriggerChange = useCallback((nextTrigger: ComposerSlashTriggerState) => {
     setSlashTrigger(nextTrigger);
     if (nextTrigger.active) {
       setNestedSlashCommand(null);
+      return;
     }
+    setInlineSlashHighlightIntent({ commandId: null, source: "programmatic" });
   }, []);
 
   const clearInlineSlashTrigger = useCallback((trigger: ComposerSlashTriggerState) => {
@@ -1991,29 +1978,25 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     if (slashMenuOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (nestedSlashCommand) {
-          setNestedSlashCommand(null);
-          return true;
-        }
         closeSlashMenu();
         return true;
       }
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        setSlashHighlight((current) => ({
+        setInlineSlashHighlightIntent({
           commandId: resolveNextSlashHighlight({
             matches: slashMatches,
-            currentCommandId: current.commandId,
+            currentCommandId: highlightedInlineSlashCommandId,
             direction: event.key === "ArrowDown" ? "next" : "previous",
           }),
           source: "keyboard",
-        }));
+        });
         return true;
       }
 
       if (event.key === "Enter" && !nestedSlashCommand) {
-        const highlighted = slashMatches.find((match) => match.command.id === highlightedSlashCommandId)?.command
+        const highlighted = slashMatches.find((match) => match.command.id === highlightedInlineSlashCommandId)?.command
           ?? slashMatches[0]?.command
           ?? null;
         if (highlighted) {
@@ -2048,7 +2031,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       ? event.nativeEvent.isComposing
       : event.isComposing;
     const actionState = resolveStageThreadsComposerActionState({
-      canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+      canSendPrompt: model.conversation !== null || canStartNewThread,
       isThreadRunning: model.isThreadRunning,
       busyAction,
       hasDraftContent: prompt.trim().length > 0 || hasAttachments || goalModeActive,
@@ -2084,17 +2067,15 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     return true;
   }, [
     busyAction,
+    canStartNewThread,
     closeSlashMenu,
     goalModeActive,
     hasAttachments,
-    highlightedSlashCommandId,
+    highlightedInlineSlashCommandId,
     model.composerEnterBehavior,
     model.conversation,
-    model.isCloudNewThreadTarget,
     model.isQueueingEnabled,
-    model.isNewThreadTab,
     model.isThreadRunning,
-    model.newThreadTarget,
     nestedSlashCommand,
     handlePromptHistoryKeyDown,
     planModeAvailable,
@@ -2113,7 +2094,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
   const composerActionState = resolveStageThreadsComposerActionState({
-    canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+    canSendPrompt: model.conversation !== null || canStartNewThread,
     isThreadRunning: model.isThreadRunning,
     busyAction,
     hasDraftContent,
@@ -2122,7 +2103,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const isSendPending = busyAction === "send" && composerActionState.action === "send";
   const canRunPrimaryAction = Boolean(
     hasDraftContent &&
-    (model.conversation !== null || canStartNewThreadTarget(model)),
+    (model.conversation !== null || canStartNewThread),
   );
   const handleCancelGoalReplacement = useCallback(() => {
     if (busyAction !== null) return;
@@ -2152,7 +2133,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           : "Do anything"
         : "Select a card or session before starting a new thread"
       : "Select a thread";
-  const isPromptEditorDisabled = (model.conversation === null && !canStartNewThreadTarget(model)) || busyAction !== null;
+  const isPromptEditorDisabled = (model.conversation === null && !canStartNewThread) || busyAction !== null;
   const primaryShortcutKeys = resolveShortcutKeycapTokens({
     accelerator: resolveThreadComposerPrimaryShortcutAccelerator({
       enterBehavior: model.composerEnterBehavior,
@@ -2189,13 +2170,13 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           open={slashMenuOpen}
           groups={slashGroups}
           matches={slashMatches}
-          highlightedCommandId={highlightedSlashCommandId}
-          highlightedSource={highlightedSlashCommandSource}
+          highlightedCommandId={highlightedInlineSlashCommandId}
+          highlightedSource={highlightedInlineSlashCommandSource}
           nestedCommand={nestedSlashCommand}
-          onHighlight={(commandId, source) => setSlashHighlight({ commandId, source })}
+          onHighlight={(commandId, source) => setInlineSlashHighlightIntent({ commandId, source })}
           onSelect={(command) => selectSlashCommand(command, "inline")}
           onClose={closeSlashMenu}
-          onBack={() => setNestedSlashCommand(null)}
+          onBack={closeSlashMenu}
         />
         {dictationToastMessage ? (
           <button
@@ -2507,16 +2488,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         </div>
       </div>
 
-      <ExpandedSlashCommandDialog
-        open={slashDialogOpen}
-        commands={slashCommands}
-        composerText={prompt}
-        highlightedCommandId={highlightedSlashCommandId}
-        highlightedSource={highlightedSlashCommandSource}
-        onHighlight={(commandId, source) => setSlashHighlight({ commandId, source })}
-        onSelect={(command) => selectSlashCommand(command, "dialog")}
-        onClose={() => setSlashDialogOpen(false)}
-      />
+      {slashDialogOpen ? (
+        <ExpandedSlashCommandDialog
+          commands={slashCommands}
+          composerText={prompt}
+          onSelect={(command) => selectSlashCommand(command, "dialog")}
+          onClose={() => setSlashDialogOpen(false)}
+        />
+      ) : null}
       <ThreadGoalReplacementConfirmationDialog
         confirmation={goalReplacementConfirmation}
         pending={busyAction !== null}

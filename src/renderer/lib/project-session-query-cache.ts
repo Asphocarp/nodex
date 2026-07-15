@@ -48,6 +48,16 @@ export function setProjectSessionSummaries(
   projectId: string | null,
   summaries: readonly ProjectSessionSummary[],
 ): void {
+  for (const summary of summaries) {
+    queryClient.setQueryData<ProjectSession | null | undefined>(
+      queryKeys.projectSessions.detail(summary.id),
+      (current) => current ? {
+        ...summary,
+        panels: current.panels,
+        tabs: current.tabs,
+      } : current,
+    );
+  }
   queryClient.setQueryData(
     queryKeys.projectSessions.summaries(projectId),
     sortProjectSessionSummariesForSidebar([...summaries]),

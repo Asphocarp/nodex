@@ -131,11 +131,13 @@ function renderController(
   dependencies: CardStageControllerDependencies = {},
 ) {
   let controller: CardStageController | null = null;
+  let renderCount = 0;
 
   function Harness({ nextProps, children }: {
     nextProps: CardStageProps;
     children?: ReactNode;
   }) {
+    renderCount += 1;
     controller = useCardStageController(nextProps, dependencies);
     return <>{children}</>;
   }
@@ -149,10 +151,38 @@ function renderController(
       if (!controller) throw new Error("Expected Card Stage controller");
       return controller;
     },
+    get renderCount(): number {
+      return renderCount;
+    },
+    rerender(nextProps: CardStageProps): void {
+      view.rerender(<Harness nextProps={nextProps} />);
+    },
   };
 }
 
 describe("useCardStageController", () => {
+  test("does not resynchronize an unchanged metadata revision when command props are recreated", async () => {
+    const initialCard = buildCard();
+    const result = renderController(buildProps({
+      card: toStageModel(initialCard),
+      onUpdate: async (_cardId, patch) => updatedResult(initialCard, patch),
+    }));
+    await settleAsyncRender();
+    const settledRenderCount = result.renderCount;
+
+    const equivalentCard = buildCard();
+    await act(async () => {
+      result.rerender(buildProps({
+        card: toStageModel(equivalentCard),
+        onUpdate: async (_cardId, patch) => updatedResult(equivalentCard, patch),
+      }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(result.renderCount - settledRenderCount).toBe(1);
+  });
+
   test("keeps collaborative title changes out of metadata writes", async () => {
     const updates: Partial<CardInput>[] = [];
     const leftTitles: string[] = [];

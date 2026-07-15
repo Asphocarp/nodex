@@ -32,12 +32,12 @@ export function AutomaticApprovalReviewRow({
   isExpandable?: boolean;
   item: CodexConversationItem;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const review = normalizeAutomaticApprovalReviewPayload(item.rawItem);
   if (!review) return null;
 
   const details = buildAutomaticApprovalReviewSummary(review);
   const title = buildAutomaticApprovalReviewTitle(review);
-  const [expanded, setExpanded] = useState(false);
   const isInProgress = review.status === "inProgress";
   const isHighRiskDenied = review.status === "denied" && review.riskLevel === "high";
 

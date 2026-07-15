@@ -346,6 +346,12 @@ import {
   type CodexSidebarPointerSnapshot,
 } from "@/lib/codex-sidebar-auto-reveal";
 import { useCodexSidebarMotionState } from "@/lib/codex-sidebar-motion";
+import { useDistinctState } from "@/lib/use-distinct-state";
+import {
+  useElementSizeMotionValues,
+  useMotionValueState,
+  useSyncedMotionValue,
+} from "@/lib/resize-observer-motion-values";
 import {
   CodexAutomationsIcon,
   CodexCloseIcon,
@@ -409,21 +415,19 @@ import {
 } from "./pending-worktree-cancel-recovery";
 import {
   replaceVisibleOrder,
-  SidebarDropIndicator,
-  SidebarProjectDndProvider,
   SidebarProjectSortableContext,
-  usePinnedProjectDroppable,
   useSidebarGroupReorderController,
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
+import { SidebarDropIndicator } from "./sidebar-drop-indicator";
+import { SidebarReorderDndProvider } from "./sidebar-reorder-dnd";
 import {
   resolveSidebarThreadKeysWithPendingDrops,
   SidebarThreadDropContainer,
-  SidebarThreadReorderDndProvider,
   SidebarThreadReorderRows,
   SidebarThreadSortableRows,
   usePendingSidebarThreadDrops,
-  useSidebarThreadDropContainer,
+  useSidebarPinnedDropContainer,
   useSidebarThreadReorderController,
   type SidebarThreadDropRequest,
 } from "./sidebar-thread-reorder";
@@ -433,7 +437,6 @@ import {
   orderCodexSidebarThreadKeysByManualThreadIds,
   replaceVisibleCodexSidebarThreadKeyOrder,
   resolveCodexSidebarThreadHomeContainerId,
-  sortCodexSidebarProjectThreadKeysBySessionOrder,
   sortSidebarThreadKeysForDisplay,
   type CodexSidebarProjectGroup,
   type CodexSidebarThreadSyncModel,
@@ -490,6 +493,22 @@ const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-to
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
+
+type CodexShellWidthClass = "narrow" | "medium" | "wide";
+
+function resolveCodexShellWidthClass(width: number): CodexShellWidthClass {
+  if (width <= CODEX_SHELL_NARROW_WIDTH_PX) return "narrow";
+  if (width <= CODEX_SHELL_MEDIUM_WIDTH_PX) return "medium";
+  return "wide";
+}
+
+function reportSidebarThreadReorderError(): void {
+  toast.danger("Couldn’t reorder task");
+}
+
+function reportSidebarProjectReorderError(): void {
+  toast.danger("Couldn’t reorder project");
+}
 const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const RETAINED_SESSION_CAP = 4;
@@ -694,7 +713,6 @@ interface CardStageHistoryModalContext {
 
 interface RetainedSessionEntry {
   sessionId: string;
-  lastActiveAtMs: number;
 }
 
 interface BuildRetainedSessionEntriesInput {
@@ -703,7 +721,6 @@ interface BuildRetainedSessionEntriesInput {
   previousEntries: readonly RetainedSessionEntry[];
   knownSessionIds: ReadonlySet<string>;
   getSessionDetail: (sessionId: string) => ProjectSession | null | undefined;
-  nowMs: number;
   cap: number;
 }
 
@@ -1163,10 +1180,8 @@ function buildRetainedSessionEntries({
   previousEntries,
   knownSessionIds,
   getSessionDetail,
-  nowMs,
   cap,
 }: BuildRetainedSessionEntriesInput): RetainedSessionEntry[] {
-  const previousEntriesById = new Map(previousEntries.map((entry) => [entry.sessionId, entry]));
   const orderedSessionIds = activeSessionId
     ? [
         activeSessionId,
@@ -1185,16 +1200,21 @@ function buildRetainedSessionEntries({
     const detail = activeSession?.id === sessionId ? activeSession : getSessionDetail(sessionId);
     if (!isRetainableProjectSession(detail, knownSessionIds)) continue;
 
-    nextEntries.push({
-      sessionId,
-      lastActiveAtMs: sessionId === activeSessionId
-        ? nowMs
-        : previousEntriesById.get(sessionId)?.lastActiveAtMs ?? nowMs,
-    });
+    nextEntries.push({ sessionId });
     if (nextEntries.length >= cap) break;
   }
 
   return nextEntries;
+}
+
+function areRetainedSessionEntriesEqual(
+  currentEntries: readonly RetainedSessionEntry[],
+  nextEntries: readonly RetainedSessionEntry[],
+): boolean {
+  return currentEntries.length === nextEntries.length
+    && currentEntries.every((entry, index) => (
+      entry.sessionId === nextEntries[index]?.sessionId
+    ));
 }
 
 export function shouldSynchronouslyRevealSession({
@@ -1569,11 +1589,6 @@ function readCodexWindowZoom(root: HTMLElement | null): number {
   const rawZoom = root ? window.getComputedStyle(root).getPropertyValue("--codex-window-zoom") : "";
   const parsedZoom = Number.parseFloat(rawZoom);
   return Number.isFinite(parsedZoom) && parsedZoom > 0 ? parsedZoom : 1;
-}
-
-function readCodexViewportWidth(root: HTMLElement | null): number {
-  if (typeof window === "undefined") return 0;
-  return window.innerWidth / readCodexWindowZoom(root);
 }
 
 function readCodexRootFontSize(): number {
@@ -2408,22 +2423,17 @@ export function WorkbenchShell({
   const [pendingProcessOutputOpen, setPendingProcessOutputOpen] = useState<ProcessOutputPanelTarget | null>(null);
   const [activePlanKeyBySession, setActivePlanKeyBySession] = useState<Record<string, string>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
-  const [retainedSessionEntries, setRetainedSessionEntries] = useState<RetainedSessionEntry[]>([]);
-  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
-  const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
-  const [bottomPanelDragHeight, setBottomPanelDragHeight] = useState<number | null>(null);
-  const [sessionContentWidth, setSessionContentWidth] = useState(0);
-  const [sessionContentHeight, setSessionContentHeight] = useState(0);
-  const [appShellWidth, setAppShellWidth] = useState(() =>
-    typeof window === "undefined" ? 0 : window.innerWidth,
-  );
-  const [rootFontSizePx, setRootFontSizePx] = useState(readCodexRootFontSize);
+  const [
+    retainedSessionEntries,
+    setRetainedSessionEntries,
+    getRetainedSessionEntries,
+  ] = useDistinctState<RetainedSessionEntry[]>([], areRetainedSessionEntriesEqual);
   const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
   const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [automationsDetailRailOpen, setAutomationsDetailRailOpen] = useState(false);
-  const [automationsDetailRailWidth, setAutomationsDetailRailWidth] = useState(AUTOMATION_DETAIL_RAIL_DEFAULT_WIDTH);
+  const automationsDetailRailRequestedWidth = useMotionValue(AUTOMATION_DETAIL_RAIL_DEFAULT_WIDTH);
   const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
   const [automationsHeaderPortalElement, setAutomationsHeaderPortalElement] = useState<HTMLDivElement | null>(null);
   const [automationsDetailRailPortalElement, setAutomationsDetailRailPortalElement] = useState<HTMLDivElement | null>(null);
@@ -2442,15 +2452,22 @@ export function WorkbenchShell({
     mode: "root" as CommandMenuMode,
     initialQuery: "",
   });
-  const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
-  const [floatingSidebarResizing, setFloatingSidebarResizing] = useState(false);
-  const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
-  const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
+  const [
+    floatingSidebarVisible,
+    setFloatingSidebarVisible,
+    getFloatingSidebarVisible,
+  ] = useDistinctState(false);
+  const [floatingSidebarResizing, setFloatingSidebarResizing] =
+    useDistinctState(false);
+  const [sidebarHoverSuppressed, setSidebarHoverSuppressed] =
+    useDistinctState(false);
+  const [sidebarTriggerHovered, setSidebarTriggerHovered] =
+    useDistinctState(false);
   const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
-  const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] = useState(false);
+  const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] =
+    useDistinctState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
-  const [sessionContentElement, setSessionContentElement] = useState<HTMLDivElement | null>(null);
   const workbenchRootRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
@@ -2585,7 +2602,10 @@ export function WorkbenchShell({
   const setRealSidebarTargetWidth = realSidebarMotion.setTargetWidth;
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
-  const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
+  const activeSessions = useMemo(
+    () => activeProject ? sessionsByProject[activeProject.id] ?? [] : [],
+    [activeProject, sessionsByProject],
+  );
   const selectedActiveSession = activeSessions.find((session) => session.id === activeSessionId)
     ?? projectlessSessions.find((session) => session.id === activeSessionId)
     ?? null;
@@ -2677,12 +2697,18 @@ export function WorkbenchShell({
 
     refreshSidebarSessionScopes(refreshProjectSessionSummariesForId, affectedProjectIds, result.projectlessChanged);
   }, [refreshSidebarSessionScopes]);
-  const sidebarThreadSync = useSidebarThreadSyncModel({
+  const {
+    applySnapshot: applySidebarThreadSnapshot,
+    model: sidebarThreadModel,
+    refresh: refreshSidebarThreadSnapshot,
+    reorderPinned: reorderPinnedSidebarThreads,
+    setPinned: setSidebarThreadPinned,
+  } = useSidebarThreadSyncModel({
     projects,
     onSessionsAffected: handleSidebarSessionsAffected,
   });
-  const refreshSidebarThreadSnapshot = sidebarThreadSync.refresh;
-  const [sidebarArchiveSuppressedKeys, setSidebarArchiveSuppressedKeys] = useState<Set<string>>(() => new Set());
+  const [sidebarArchivePendingKeys, setSidebarArchivePendingKeys] = useState<Set<string>>(() => new Set());
+  const sidebarArchivePendingKeysRef = useRef<ReadonlySet<string>>(sidebarArchivePendingKeys);
   const knownSessions = useMemo(
     () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
     [projectlessSessions, sessionsByProject],
@@ -2712,21 +2738,6 @@ export function WorkbenchShell({
     [processManagerThreads],
   );
   const processManagerConversationsById = useConversationSubset(processManagerThreadIds);
-  useEffect(() => {
-    setSidebarArchiveSuppressedKeys((current) => {
-      if (current.size === 0) return current;
-
-      const liveKeys = new Set(sidebarThreadSync.model.threadItemsByKey.keys());
-      for (const session of knownSessions) {
-        if (!session.archived) {
-          liveKeys.add(`local:session:${session.id}`);
-        }
-      }
-
-      const next = new Set([...current].filter((key) => liveKeys.has(key)));
-      return next.size === current.size ? current : next;
-    });
-  }, [knownSessions, sidebarThreadSync.model.threadItemsByKey]);
   const workbenchCodexControl = useCodexAppServerControl(activeProject?.id ?? activeProjectId);
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId,
@@ -2846,22 +2857,73 @@ export function WorkbenchShell({
     rightPanelCollapsed,
     rightPanelFullWidth,
   ]);
-  const shellMainContentWidth = Math.max(
-    0,
-    appShellWidth - (sidebarOpen ? sidebarWidth : 0),
+  const readShellBodyFallbackSize = useCallback(() => {
+    if (typeof window === "undefined") return { height: 0, width: 0 };
+    const windowZoom = readCodexWindowZoom(workbenchRootRef.current);
+    return {
+      height: window.innerHeight / windowZoom,
+      width: window.innerWidth / windowZoom,
+    };
+  }, []);
+  const initialShellBodySize = readShellBodyFallbackSize();
+  const shellBodySize = useElementSizeMotionValues({
+    initialHeight: initialShellBodySize.height,
+    initialWidth: initialShellBodySize.width,
+    readFallbackSize: readShellBodyFallbackSize,
+  });
+  const rootFontSize = useMotionValue(readCodexRootFontSize());
+  const rightPanelRequestedWidth = useMotionValue(
+    rightPanel?.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
   );
-  const rightPanelSizingWidth = Math.max(sessionContentWidth, shellMainContentWidth);
-  const regularRightPanelWidth = clampRegularRightPanelWidth(
-    rightPanelDragWidth ?? rightPanel?.size.widthPx ?? rightPanelWidth,
-    rightPanelSizingWidth,
+  const bottomPanelRequestedHeight = useMotionValue(
+    bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
   );
-  const bottomPanelHeight = clampBottomPanelHeight(
-    bottomPanelDragHeight ?? bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
-    sessionContentHeight,
+  useLayoutEffect(() => {
+    rightPanelRequestedWidth.set(
+      rightPanel?.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
+    );
+  }, [activeSession?.id, rightPanel?.size.widthPx, rightPanelRequestedWidth]);
+  useLayoutEffect(() => {
+    bottomPanelRequestedHeight.set(
+      bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
+    );
+  }, [activeSession?.id, bottomPanel?.size.heightPx, bottomPanelRequestedHeight]);
+
+  const rightPanelFullWidthValue = useSyncedMotionValue(rightPanelFullWidth ? 1 : 0);
+  const sidePanelOpenValue = useSyncedMotionValue(sidePanelOpen ? 1 : 0);
+  const sidebarOpenValue = useSyncedMotionValue(sidebarOpen ? 1 : 0);
+  const activeSessionValue = useSyncedMotionValue(activeSession ? 1 : 0);
+  const shellMainContentWidth = useTransform(
+    [shellBodySize.width, realSidebarMotion.targetWidth, sidebarOpenValue],
+    ([latestShellWidth, latestSidebarWidth, latestSidebarOpen]) => Math.max(
+      0,
+      Number(latestShellWidth) - (
+        Number(latestSidebarOpen) > 0 ? Number(latestSidebarWidth) : 0
+      ),
+    ),
   );
-  const rightPanelTargetWidth = rightPanelFullWidth
-    ? Math.max(rightPanelSizingWidth, regularRightPanelWidth)
-    : regularRightPanelWidth;
+  const regularRightPanelWidth = useTransform(
+    [rightPanelRequestedWidth, shellMainContentWidth],
+    ([latestRequestedWidth, latestSizingWidth]) => clampRegularRightPanelWidth(
+      Number(latestRequestedWidth),
+      Number(latestSizingWidth),
+    ),
+  );
+  const bottomPanelHeight = useTransform(
+    [bottomPanelRequestedHeight, shellBodySize.height],
+    ([latestRequestedHeight, latestShellHeight]) => clampBottomPanelHeight(
+      Number(latestRequestedHeight),
+      Number(latestShellHeight),
+    ),
+  );
+  const rightPanelTargetWidth = useTransform(
+    [shellMainContentWidth, regularRightPanelWidth, rightPanelFullWidthValue],
+    ([latestSizingWidth, latestRegularWidth, latestFullWidth]) => (
+      Number(latestFullWidth) > 0
+        ? Math.max(Number(latestSizingWidth), Number(latestRegularWidth))
+        : Number(latestRegularWidth)
+    ),
+  );
   const rightPanelMotion = useCodexAnimatedPanelState({
     open: sidePanelOpen,
     targetSize: rightPanelTargetWidth,
@@ -2875,9 +2937,9 @@ export function WorkbenchShell({
     resetKey: activeSession?.id ?? null,
   });
   const rightPanelAnimatedWidth = useTransform(
-    [rightPanelMotion.progress, rightPanelMotion.targetSize],
-    ([latestProgress, latestTargetSize]) =>
-      rightPanelFullWidth
+    [rightPanelMotion.progress, rightPanelMotion.targetSize, rightPanelFullWidthValue],
+    ([latestProgress, latestTargetSize, latestFullWidth]) =>
+      Number(latestFullWidth) > 0
         ? 0
         : resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize)),
   );
@@ -2894,29 +2956,63 @@ export function WorkbenchShell({
     bottomPanelMotion.animatedSize,
     (latestHeight) => `${latestHeight}px`,
   );
-  const mainContentTargetWidth = activeSession
-    ? resolveCodexMainContentTargetWidth({
-        shellWidth: appShellWidth,
-        leftSidebarOpen: sidebarOpen,
-        leftSidebarWidth: sidebarWidth,
-        rightPanelOpen: sidePanelOpen,
-        rightPanelWidth: regularRightPanelWidth,
-        rightPanelFullWidth,
-      })
-    : 0;
+  const mainContentTargetWidth = useTransform(
+    [
+      shellBodySize.width,
+      realSidebarMotion.targetWidth,
+      sidebarOpenValue,
+      regularRightPanelWidth,
+      sidePanelOpenValue,
+      rightPanelFullWidthValue,
+      activeSessionValue,
+    ],
+    ([
+      latestShellWidth,
+      latestSidebarWidth,
+      latestSidebarOpen,
+      latestRightPanelWidth,
+      latestSidePanelOpen,
+      latestRightPanelFullWidth,
+      latestActiveSession,
+    ]) => Number(latestActiveSession) > 0
+      ? resolveCodexMainContentTargetWidth({
+          shellWidth: Number(latestShellWidth),
+          leftSidebarOpen: Number(latestSidebarOpen) > 0,
+          leftSidebarWidth: Number(latestSidebarWidth),
+          rightPanelOpen: Number(latestSidePanelOpen) > 0,
+          rightPanelWidth: Number(latestRightPanelWidth),
+          rightPanelFullWidth: Number(latestRightPanelFullWidth) > 0,
+        })
+      : 0,
+  );
   const appShellMainContentLayout = "thread-edge-scroll" as const;
-  const appShellHeaderEdgeScroll = resolveCodexHeaderEdgeScroll({
-    layout: appShellMainContentLayout,
-    mainContentWidth: mainContentTargetWidth,
-    rootFontSizePx,
-    rightPanelFullWidth,
-  });
+  const appShellHeaderEdgeScrollValue = useTransform(
+    [mainContentTargetWidth, rootFontSize, rightPanelFullWidthValue],
+    ([latestMainContentWidth, latestRootFontSize, latestRightPanelFullWidth]) => (
+      resolveCodexHeaderEdgeScroll({
+        layout: appShellMainContentLayout,
+        mainContentWidth: Number(latestMainContentWidth),
+        rootFontSizePx: Number(latestRootFontSize),
+        rightPanelFullWidth: Number(latestRightPanelFullWidth) > 0,
+      }) ? 1 : 0
+    ),
+  );
+  const appShellHeaderEdgeScroll = useMotionValueState(appShellHeaderEdgeScrollValue) > 0;
   const appShellMainContentFrameBorderVisible = resolveCodexMainContentFrameBorder({
     rightPanelOpen: sidePanelOpen,
     headerEdgeScroll: appShellHeaderEdgeScroll,
   });
+  const threadSummaryPanelLayoutModeValue = useTransform(
+    mainContentTargetWidth,
+    resolveCodexSummaryPanelLayoutMode,
+  );
   const threadSummaryPanelLayoutMode: ThreadSummaryPanelLayoutMode =
-    resolveCodexSummaryPanelLayoutMode(mainContentTargetWidth);
+    useMotionValueState(threadSummaryPanelLayoutModeValue);
+  const shellWidthClassValue = useTransform(
+    shellBodySize.width,
+    resolveCodexShellWidthClass,
+  );
+  const shellWidthClass = useMotionValueState(shellWidthClassValue);
   const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
     sidebar?.topLevelSectionOrder,
   );
@@ -3187,27 +3283,19 @@ export function WorkbenchShell({
       projectId,
       orderedThreadIds,
     });
-    setProjectSessionSummaries(queryClient, projectId, result.sessions);
     startTransition(() => {
-      setSessionsByProject((current) => ({
-        ...current,
-        [projectId]: mergeLoadedProjectSessionSummaries(
-          current[projectId] ?? [],
-          result.sessions,
-        ),
-      }));
-      sidebarThreadSync.applySnapshot(result.snapshot);
+      applySidebarThreadSnapshot(result.snapshot);
     });
-  }, [queryClient, sidebarThreadSync]);
+  }, [applySidebarThreadSnapshot]);
 
   const reorderChatsThreadsForSidebar = useCallback(async (
     input: CodexSidebarChatsThreadOrderInput,
   ) => {
     const result = await invoke("codex:sidebar:chats-thread-order:set", input);
     startTransition(() => {
-      sidebarThreadSync.applySnapshot(result.snapshot);
+      applySidebarThreadSnapshot(result.snapshot);
     });
-  }, [sidebarThreadSync]);
+  }, [applySidebarThreadSnapshot]);
 
   const moveSidebarThreadForSidebar = useCallback(async (
     drop: SidebarThreadDropRequest,
@@ -3219,60 +3307,55 @@ export function WorkbenchShell({
       throw new Error("Invalid sidebar thread move container");
     }
 
-    try {
-      const placement: CodexSidebarThreadMovePlacement = drop.useDefaultOrder
-        ? { beforeThreadId: null, useDefaultOrder: true }
-        : drop.insertAtEnd
-          ? { beforeThreadId: null, insertAtEnd: true }
-          : drop.beforeThreadId === null
-            ? { beforeThreadId: null }
-            : { beforeThreadId: drop.beforeThreadId };
-      const moveInput: CodexSidebarThreadMoveInput = {
-        hostId: "local",
-        threadId: drop.threadId,
-        sourceContainerId: drop.sourceContainerId,
-        targetContainerId: drop.targetContainerId,
-        ...placement,
-      };
-      const result = await invoke("codex:sidebar:thread:move", moveInput);
-      if (result.status === "blocked") {
-        setBlockedSidebarThreadMove(result);
-        return;
-      }
-      if (result.status === "unchanged") return;
-
-      const scopes = new Map([
-        [result.source.projectId ?? "__projectless__", result.source] as const,
-        [result.destination.projectId ?? "__projectless__", result.destination] as const,
-      ]);
-      for (const scope of scopes.values()) {
-        setProjectSessionSummaries(queryClient, scope.projectId, scope.sessions);
-      }
-      startTransition(() => {
-        const projectless = scopes.get("__projectless__");
-        if (projectless) {
-          setProjectlessSessions((current) => (
-            mergeLoadedProjectSessionSummaries(current, projectless.sessions)
-          ));
-        }
-        setSessionsByProject((current) => {
-          const next = { ...current };
-          for (const scope of scopes.values()) {
-            if (scope.projectId === null) continue;
-            next[scope.projectId] = mergeLoadedProjectSessionSummaries(
-              current[scope.projectId] ?? [],
-              scope.sessions,
-            );
-          }
-          return next;
-        });
-        sidebarThreadSync.applySnapshot(result.snapshot);
-      });
-    } catch (error) {
-      toast.danger("Couldn’t move task");
-      throw error;
+    const placement: CodexSidebarThreadMovePlacement = drop.useDefaultOrder
+      ? { beforeThreadId: null, useDefaultOrder: true }
+      : drop.insertAtEnd
+        ? { beforeThreadId: null, insertAtEnd: true }
+        : drop.beforeThreadId === null
+          ? { beforeThreadId: null }
+          : { beforeThreadId: drop.beforeThreadId };
+    const moveInput: CodexSidebarThreadMoveInput = {
+      hostId: "local",
+      threadId: drop.threadId,
+      sourceContainerId: drop.sourceContainerId,
+      targetContainerId: drop.targetContainerId,
+      ...placement,
+    };
+    const result = await invoke("codex:sidebar:thread:move", moveInput);
+    if (result.status === "blocked") {
+      setBlockedSidebarThreadMove(result);
+      return;
     }
-  }, [queryClient, sidebarThreadSync]);
+    if (result.status === "unchanged") return;
+
+    const scopes = new Map([
+      [result.source.projectId ?? "__projectless__", result.source] as const,
+      [result.destination.projectId ?? "__projectless__", result.destination] as const,
+    ]);
+    for (const scope of scopes.values()) {
+      setProjectSessionSummaries(queryClient, scope.projectId, scope.sessions);
+    }
+    startTransition(() => {
+      const projectless = scopes.get("__projectless__");
+      if (projectless) {
+        setProjectlessSessions((current) => (
+          mergeLoadedProjectSessionSummaries(current, projectless.sessions)
+        ));
+      }
+      setSessionsByProject((current) => {
+        const next = { ...current };
+        for (const scope of scopes.values()) {
+          if (scope.projectId === null) continue;
+          next[scope.projectId] = mergeLoadedProjectSessionSummaries(
+            current[scope.projectId] ?? [],
+            scope.sessions,
+          );
+        }
+        return next;
+      });
+      applySidebarThreadSnapshot(result.snapshot);
+    });
+  }, [applySidebarThreadSnapshot, queryClient]);
 
   const refreshProjectSessionSummaries = useCallback(async (projectId: string | null) => {
     const key = projectId ?? "__projectless__";
@@ -3301,7 +3384,7 @@ export function WorkbenchShell({
         projectSessionSummaryRefreshInFlightRef.current.delete(key);
       }
     }
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     refreshProjectSessionSummariesRef.current = refreshProjectSessionSummaries;
@@ -3385,33 +3468,24 @@ export function WorkbenchShell({
         warmProjectSessionDbViewBoards(detail);
       })
       .catch(() => undefined);
-  }, [activeSession?.id, mergeSessionInState, queryClient, warmProjectSessionDbViewBoards]);
+  }, [activeSession, mergeSessionInState, queryClient, warmProjectSessionDbViewBoards]);
 
   useEffect(() => {
-    setRetainedSessionEntries((current) => {
-      const next = buildRetainedSessionEntries({
-        activeSessionId: activeRenderSession?.id ?? null,
-        activeSession: activeRenderSession,
-        previousEntries: current,
-        knownSessionIds,
-        getSessionDetail: (sessionId) => getCachedProjectSessionDetail(queryClient, sessionId),
-        nowMs: Date.now(),
-        cap: RETAINED_SESSION_CAP,
-      });
-
-      if (
-        next.length === current.length
-        && next.every((entry, index) =>
-          entry.sessionId === current[index]?.sessionId
-          && entry.lastActiveAtMs === current[index]?.lastActiveAtMs
-        )
-      ) {
-        return current;
-      }
-
-      return next;
-    });
-  }, [activeRenderSession, knownSessionIds, queryClient]);
+    setRetainedSessionEntries(buildRetainedSessionEntries({
+      activeSessionId: activeRenderSession?.id ?? null,
+      activeSession: activeRenderSession,
+      previousEntries: getRetainedSessionEntries(),
+      knownSessionIds,
+      getSessionDetail: (sessionId) => getCachedProjectSessionDetail(queryClient, sessionId),
+      cap: RETAINED_SESSION_CAP,
+    }));
+  }, [
+    activeRenderSession,
+    getRetainedSessionEntries,
+    knownSessionIds,
+    queryClient,
+    setRetainedSessionEntries,
+  ]);
 
   const retainedSessionRenderEntries = useMemo(() => {
     const entries: Array<{ session: ProjectSession; isActive: boolean }> = [];
@@ -3483,59 +3557,15 @@ export function WorkbenchShell({
     void refreshAllSessions();
   }, [refreshAllSessions]);
 
-  const measureSessionContent = useEffectEvent(() => {
-    if (!sessionContentElement) {
-      setSessionContentWidth((current) => current === 0 ? current : 0);
-      setSessionContentHeight((current) => current === 0 ? current : 0);
-      return;
-    }
-
-    const rect = sessionContentElement.getBoundingClientRect();
-    setSessionContentWidth((current) => current === rect.width ? current : rect.width);
-    setSessionContentHeight((current) => current === rect.height ? current : rect.height);
-  });
-
-  const setSessionContentRef = useCallback((node: HTMLDivElement | null) => {
-    setSessionContentElement(node);
-  }, []);
-
-  useLayoutEffect(() => {
-    measureSessionContent();
-
-    if (!sessionContentElement) return undefined;
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measureSessionContent);
-      return () => {
-        window.removeEventListener("resize", measureSessionContent);
-      };
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
-      measureSessionContent();
-    });
-    resizeObserver.observe(sessionContentElement);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [activeSession?.id, measureSessionContent, sessionContentElement]);
-
   useEffect(() => {
-    const measure = () => {
-      setAppShellWidth(readCodexViewportWidth(workbenchRootRef.current));
-      setRootFontSizePx(readCodexRootFontSize());
-    };
+    const measure = () => rootFontSize.set(readCodexRootFontSize());
 
     measure();
     window.addEventListener("resize", measure);
     return () => {
       window.removeEventListener("resize", measure);
     };
-  }, []);
-
-  useEffect(() => {
-    setRightPanelWidth((current) => clampRegularRightPanelWidth(current, rightPanelSizingWidth));
-  }, [rightPanelSizingWidth]);
+  }, [rootFontSize]);
 
   useEffect(() => {
     const nextProjectId = projects.some((project) => project.id === dbProjectId)
@@ -3635,6 +3665,7 @@ export function WorkbenchShell({
   }, [
     activeProjectId,
     buildSnapshotForSession,
+    mergeSessionInState,
     queryClient,
     recordShellNavigation,
     retainedSessionEntries,
@@ -3661,7 +3692,7 @@ export function WorkbenchShell({
     if (session.thread) {
       const nextPinned = !session.pinned;
       try {
-        await sidebarThreadSync.setPinned(session.thread.threadId, nextPinned);
+        await setSidebarThreadPinned(session.thread.threadId, nextPinned);
         const updatedSessions = await refreshProjectSessions(session.projectId);
         const updatedSession = updatedSessions.find((candidate) => candidate.id === session.id);
         if (updatedSession) mergeSessionInState(updatedSession);
@@ -3700,7 +3731,7 @@ export function WorkbenchShell({
       setSessionsByProject((current) => ({ ...current, [projectId]: previousSessions }));
       toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
     }
-  }, [mergeSessionInState, refreshProjectSessions, sessionsByProject, sidebarThreadSync]);
+  }, [mergeSessionInState, refreshProjectSessions, sessionsByProject, setSidebarThreadPinned]);
 
   const toggleSidebarThreadPinned = useCallback(async (item: CodexSidebarThreadItem) => {
     if (item.disabled) return;
@@ -3716,7 +3747,7 @@ export function WorkbenchShell({
         );
         return;
       }
-      await sidebarThreadSync.setPinned(item.threadId, nextPinned);
+      await setSidebarThreadPinned(item.threadId, nextPinned);
       const session = item.sessionId
         ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
         : null;
@@ -3728,7 +3759,7 @@ export function WorkbenchShell({
     } catch {
       toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
     }
-  }, [knownSessions, mergeSessionInState, refreshProjectSessions, sidebarThreadSync]);
+  }, [knownSessions, mergeSessionInState, refreshProjectSessions, setSidebarThreadPinned]);
 
   const selectSidebarThread = useCallback(async (item: CodexSidebarThreadItem) => {
     if (item.disabled) return;
@@ -3819,101 +3850,94 @@ export function WorkbenchShell({
     }
   }, [activeSessionId, activeSessions, refreshProjectSessions, refreshSidebarThreadSnapshot, selectSession]);
 
-  const resolveSidebarArchiveSuppressionKeyForSession = useCallback((session: ProjectSession) => {
-    for (const [key, item] of sidebarThreadSync.model.threadItemsByKey) {
+  const resolveSidebarArchivePendingKeyForSession = useCallback((session: ProjectSession) => {
+    for (const [key, item] of sidebarThreadModel.threadItemsByKey) {
       if (item.sessionId === session.id) return key;
       if (session.thread && item.threadId === session.thread.threadId) return key;
     }
 
     return `local:session:${session.id}`;
-  }, [sidebarThreadSync.model.threadItemsByKey]);
+  }, [sidebarThreadModel.threadItemsByKey]);
 
-  const suppressSidebarArchiveKey = useCallback((key: string) => {
-    setSidebarArchiveSuppressedKeys((current) => {
-      if (current.has(key)) return current;
-      return new Set([...current, key]);
-    });
+  const beginSidebarArchive = useCallback((key: string): boolean => {
+    const current = sidebarArchivePendingKeysRef.current;
+    if (current.has(key)) return false;
+
+    const next = new Set(current);
+    next.add(key);
+    sidebarArchivePendingKeysRef.current = next;
+    setSidebarArchivePendingKeys(next);
+    return true;
   }, []);
 
-  const releaseSidebarArchiveKey = useCallback((key: string) => {
-    setSidebarArchiveSuppressedKeys((current) => {
-      if (!current.has(key)) return current;
-      const next = new Set(current);
-      next.delete(key);
-      return next;
-    });
+  const finishSidebarArchive = useCallback((key: string) => {
+    const current = sidebarArchivePendingKeysRef.current;
+    if (!current.has(key)) return;
+
+    const next = new Set(current);
+    next.delete(key);
+    sidebarArchivePendingKeysRef.current = next;
+    setSidebarArchivePendingKeys(next);
   }, []);
 
-  const archiveSessionWithSidebarSuppression = useCallback(async (session: ProjectSession) => {
-    const suppressionKey = resolveSidebarArchiveSuppressionKeyForSession(session);
-    if (sidebarArchiveSuppressedKeys.has(suppressionKey)) return;
+  const archiveSessionWithSidebarPendingState = useCallback(async (session: ProjectSession) => {
+    const pendingKey = resolveSidebarArchivePendingKeyForSession(session);
+    if (!beginSidebarArchive(pendingKey)) return;
 
-    suppressSidebarArchiveKey(suppressionKey);
-    const archived = await archiveSession(session, { showToast: false });
-
-    if (!archived) {
-      releaseSidebarArchiveKey(suppressionKey);
-      toast.danger("Failed to archive chat");
+    try {
+      const archived = await archiveSession(session, { showToast: false });
+      if (!archived) toast.danger("Failed to archive chat");
+    } finally {
+      finishSidebarArchive(pendingKey);
     }
   }, [
     archiveSession,
-    releaseSidebarArchiveKey,
-    resolveSidebarArchiveSuppressionKeyForSession,
-    sidebarArchiveSuppressedKeys,
-    suppressSidebarArchiveKey,
+    beginSidebarArchive,
+    finishSidebarArchive,
+    resolveSidebarArchivePendingKeyForSession,
   ]);
 
   const archiveSidebarThreadItem = useCallback(async (item: CodexSidebarThreadItem) => {
-    if (item.disabled || sidebarArchiveSuppressedKeys.has(item.key)) return;
+    if (item.disabled || !beginSidebarArchive(item.key)) return;
 
-    suppressSidebarArchiveKey(item.key);
-    if (item.kind === "pending-worktree") {
-      if (!item.pendingWorktreeId) {
-        releaseSidebarArchiveKey(item.key);
-        return;
-      }
-      try {
+    try {
+      if (item.kind === "pending-worktree") {
+        if (!item.pendingWorktreeId) return;
         await invoke(
           "codex:pending-worktree:cancel",
           item.hostId,
           item.pendingWorktreeId,
         );
         if (item.threadId === pendingWorktreeClientThreadId) closePendingWorktreeRoute();
-      } catch {
-        releaseSidebarArchiveKey(item.key);
-        toast.danger("Failed to cancel worktree setup");
+        return;
       }
-      return;
-    }
-    const session = item.sessionId
-      ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
-      : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
 
-    if (session) {
-      const archived = await archiveSession(session, { showToast: false });
-      if (!archived) {
-        releaseSidebarArchiveKey(item.key);
-        toast.danger("Failed to archive chat");
+      const session = item.sessionId
+        ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+        : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
+      if (session) {
+        const archived = await archiveSession(session, { showToast: false });
+        if (!archived) toast.danger("Failed to archive chat");
+        return;
       }
-      return;
-    }
 
-    try {
       await invoke("codex:thread:archive", item.threadId);
       await refreshSidebarThreadSnapshot();
     } catch {
-      releaseSidebarArchiveKey(item.key);
-      toast.danger("Failed to archive chat");
+      toast.danger(item.kind === "pending-worktree"
+        ? "Failed to cancel worktree setup"
+        : "Failed to archive chat");
+    } finally {
+      finishSidebarArchive(item.key);
     }
   }, [
     archiveSession,
+    beginSidebarArchive,
     closePendingWorktreeRoute,
+    finishSidebarArchive,
     knownSessions,
     pendingWorktreeClientThreadId,
     refreshSidebarThreadSnapshot,
-    releaseSidebarArchiveKey,
-    sidebarArchiveSuppressedKeys,
-    suppressSidebarArchiveKey,
   ]);
 
   const toggleSessionUnread = useCallback(async (session: ProjectSession) => {
@@ -4001,7 +4025,7 @@ export function WorkbenchShell({
       return;
     }
     if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.archive) {
-      await archiveSessionWithSidebarSuppression(session);
+      await archiveSessionWithSidebarPendingState(session);
       return;
     }
     if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread) {
@@ -4044,7 +4068,7 @@ export function WorkbenchShell({
       await onOpenProjectSessionInNewWindow?.(session);
     }
   }, [
-    archiveSessionWithSidebarSuppression,
+    archiveSessionWithSidebarPendingState,
     copySessionText,
     forkSession,
     toggleSessionUnread,
@@ -7521,7 +7545,7 @@ export function WorkbenchShell({
       null,
       { respectActiveElementGuard: true },
     );
-  }, [cycleFocusedPanelTab, panelTabCycleRequest]);
+  }, [panelTabCycleRequest]);
 
   useEffect(() => {
     if (!panelTabCloseRequest) return;
@@ -7529,7 +7553,7 @@ export function WorkbenchShell({
     if (lastHandledPanelTabCloseRequestTickRef.current === panelTabCloseRequest.tick) return;
     lastHandledPanelTabCloseRequestTickRef.current = panelTabCloseRequest.tick;
     closeFocusedPanelTab(null, { respectActiveElementGuard: true });
-  }, [closeFocusedPanelTab, panelTabCloseRequest]);
+  }, [panelTabCloseRequest]);
 
   const resizeRightPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -7539,13 +7563,19 @@ export function WorkbenchShell({
     const windowZoom = readCodexWindowZoom(root);
     const resizeHandle = event.currentTarget;
     const pointerId = event.pointerId;
-    const sizingWidth = rightPanelSizingWidth;
+    const sizingWidth = shellMainContentWidth.get();
     const startX = event.clientX / windowZoom;
-    const startWidth = regularRightPanelWidth;
+    const startWidth = regularRightPanelWidth.get();
+    const restoreRequestedWidth = () => {
+      rightPanelRequestedWidth.set(clampRegularRightPanelWidth(
+        activeSession?.panels.right.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
+        sizingWidth,
+      ));
+    };
 
     let latestWidth = startWidth;
     let closedByResize = false;
-    setRightPanelDragWidth(startWidth);
+    rightPanelRequestedWidth.set(startWidth);
     const onPointerMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
       if (closedByResize) return;
@@ -7554,15 +7584,14 @@ export function WorkbenchShell({
       if (rawWidth < RIGHT_PANEL_MIN_WIDTH) {
         closedByResize = true;
         latestWidth = RIGHT_PANEL_MIN_WIDTH;
-        setRightPanelDragWidth(null);
+        restoreRequestedWidth();
         void setActivePanelCollapsed("right", true);
         return;
       }
 
       const nextWidth = clampRegularRightPanelWidth(rawWidth, sizingWidth);
       latestWidth = nextWidth;
-      setRightPanelDragWidth(nextWidth);
-      setRightPanelWidth(nextWidth);
+      rightPanelRequestedWidth.set(nextWidth);
     };
 
     const cleanupPointerResize = () => {
@@ -7581,21 +7610,25 @@ export function WorkbenchShell({
       cleanupPointerResize();
       void (async () => {
         try {
-          if (!activeSession || closedByResize) return;
+          if (!activeSession || closedByResize) {
+            restoreRequestedWidth();
+            return;
+          }
           await updateActivePanel("right", {
             size: {
               ...activeSession.panels.right.size,
               widthPx: latestWidth,
             },
           });
-        } finally {
-          setRightPanelDragWidth(null);
+        } catch (error) {
+          restoreRequestedWidth();
+          toast.danger(error instanceof Error ? error.message : "Unable to resize panel");
         }
       })();
     };
     const onPointerCancel = () => {
       cleanupPointerResize();
-      setRightPanelDragWidth(null);
+      restoreRequestedWidth();
     };
 
     document.body.style.userSelect = "none";
@@ -7603,7 +7636,14 @@ export function WorkbenchShell({
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
-  }, [activeSession, regularRightPanelWidth, rightPanelSizingWidth, setActivePanelCollapsed, updateActivePanel]);
+  }, [
+    activeSession,
+    regularRightPanelWidth,
+    rightPanelRequestedWidth,
+    setActivePanelCollapsed,
+    shellMainContentWidth,
+    updateActivePanel,
+  ]);
 
   const resizeAutomationDetailRail = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -7613,15 +7653,20 @@ export function WorkbenchShell({
     const windowZoom = readCodexWindowZoom(root);
     const resizeHandle = event.currentTarget;
     const pointerId = event.pointerId;
-    const sizingWidth = shellMainContentWidth;
+    const sizingWidth = shellMainContentWidth.get();
     const startX = event.clientX / windowZoom;
-    const startWidth = clampAutomationDetailRailWidth(automationsDetailRailWidth, sizingWidth);
+    const startWidth = clampAutomationDetailRailWidth(
+      automationsDetailRailRequestedWidth.get(),
+      sizingWidth,
+    );
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
       const pointerX = moveEvent.clientX / windowZoom;
       const rawWidth = startWidth + startX - pointerX;
-      setAutomationsDetailRailWidth(clampAutomationDetailRailWidth(rawWidth, sizingWidth));
+      automationsDetailRailRequestedWidth.set(
+        clampAutomationDetailRailWidth(rawWidth, sizingWidth),
+      );
     };
 
     const cleanupPointerResize = () => {
@@ -7648,7 +7693,7 @@ export function WorkbenchShell({
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
-  }, [automationsDetailRailWidth, shellMainContentWidth]);
+  }, [automationsDetailRailRequestedWidth, shellMainContentWidth]);
 
   const resizeBottomPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -7659,10 +7704,17 @@ export function WorkbenchShell({
     const resizeHandle = event.currentTarget;
     const pointerId = event.pointerId;
     const startY = event.clientY / windowZoom;
-    const startHeight = bottomPanelHeight;
+    const sizingHeight = shellBodySize.height.get();
+    const startHeight = bottomPanelHeight.get();
+    const restoreRequestedHeight = () => {
+      bottomPanelRequestedHeight.set(clampBottomPanelHeight(
+        activeSession?.panels.bottom.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
+        sizingHeight,
+      ));
+    };
     let latestHeight = startHeight;
     let closedByResize = false;
-    setBottomPanelDragHeight(startHeight);
+    bottomPanelRequestedHeight.set(startHeight);
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
@@ -7672,14 +7724,14 @@ export function WorkbenchShell({
       if (rawHeight < BOTTOM_PANEL_MIN_HEIGHT) {
         closedByResize = true;
         latestHeight = BOTTOM_PANEL_MIN_HEIGHT;
-        setBottomPanelDragHeight(null);
+        restoreRequestedHeight();
         void setActivePanelCollapsed("bottom", true);
         return;
       }
 
-      const nextHeight = clampBottomPanelHeight(rawHeight, sessionContentHeight);
+      const nextHeight = clampBottomPanelHeight(rawHeight, sizingHeight);
       latestHeight = nextHeight;
-      setBottomPanelDragHeight(nextHeight);
+      bottomPanelRequestedHeight.set(nextHeight);
     };
 
     const cleanupPointerResize = () => {
@@ -7698,21 +7750,25 @@ export function WorkbenchShell({
       cleanupPointerResize();
       void (async () => {
         try {
-          if (!activeSession || closedByResize) return;
+          if (!activeSession || closedByResize) {
+            restoreRequestedHeight();
+            return;
+          }
           await updateActivePanel("bottom", {
             size: {
               ...activeSession.panels.bottom.size,
               heightPx: latestHeight,
             },
           });
-        } finally {
-          setBottomPanelDragHeight(null);
+        } catch (error) {
+          restoreRequestedHeight();
+          toast.danger(error instanceof Error ? error.message : "Unable to resize panel");
         }
       })();
     };
     const onPointerCancel = () => {
       cleanupPointerResize();
-      setBottomPanelDragHeight(null);
+      restoreRequestedHeight();
     };
 
     document.body.style.userSelect = "none";
@@ -7720,7 +7776,14 @@ export function WorkbenchShell({
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
-  }, [activeSession, bottomPanelHeight, sessionContentHeight, setActivePanelCollapsed, updateActivePanel]);
+  }, [
+    activeSession,
+    bottomPanelHeight,
+    bottomPanelRequestedHeight,
+    setActivePanelCollapsed,
+    shellBodySize.height,
+    updateActivePanel,
+  ]);
 
   const activePanelCardStageCardIdsByProject = useMemo<ReadonlyMap<string, ReadonlySet<string>>>(() => {
     if (!activeRenderSession || !activeSessionPanelModel) return new Map();
@@ -7734,6 +7797,8 @@ export function WorkbenchShell({
     browserBoundsSyncTriggerByPanel: Partial<Record<PanelId, MotionValue<number>>> = {},
     sessionIsActive = false,
   ): PanelGroupTabsByPanel => {
+    // Rebuild terminal tab descriptors when the external session store changes.
+    void terminalSessionVersion;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const chromeContext = resolveProjectTargetTabChromeContext(tab, session, projects);
       const transientPanelTab = isTransientPanelTab(tab);
@@ -7978,18 +8043,13 @@ export function WorkbenchShell({
     cardStageSessionSnapshotRef,
     closeAutomationPanelTab,
     closeTab,
+    composerEnterBehavior,
     createBrowserTabToRight,
     createManualTab,
-    mcpAppActiveTabByPanel,
-    mcpAppTabsBySession,
-    planActiveTabByPanel,
-    planTabsBySession,
-    processOutputActiveTabByPanel,
-    processOutputTabsBySession,
+    ensureBlankSessionForProject,
     onLeaveCardStageCard,
     onReminderHandled,
     openAutomations,
-    openSideChat,
     openMcpAppSidePanel,
     openHooksSettings,
     openCardTab,
@@ -7998,7 +8058,6 @@ export function WorkbenchShell({
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
-    openSummaryGitReview,
     openTurnDiffReview,
     openTurnDiffFileInSidePanel,
     pendingReminderOpen,
@@ -8014,6 +8073,7 @@ export function WorkbenchShell({
     selectedTurnDiffReviewTarget,
     summaryGitReviewRequest,
     terminalSessionVersion,
+    threadQueueFollowUpsEnabled,
     toggleCardStageHistoryModal,
   ]);
 
@@ -8107,7 +8167,13 @@ export function WorkbenchShell({
     setFloatingSidebarVisible(false);
     pendingSidebarPersistedOpenRef.current = nextOpen;
     applySidebarCollapsed(collapsed);
-  }, [applySidebarCollapsed, setRealSidebarOpen]);
+  }, [
+    applySidebarCollapsed,
+    setFloatingSidebarVisible,
+    setRealSidebarOpen,
+    setSidebarHoverSuppressed,
+    setSidebarTriggerHovered,
+  ]);
 
   const applySidebarWidth = useCallback((
     width: number,
@@ -8136,7 +8202,12 @@ export function WorkbenchShell({
     } else {
       setLocalSidebarWidth(nextWidth);
     }
-  }, [setRealSidebarTargetWidth, setSidebarCollapsedWithCodexState, setSidebarWidth]);
+  }, [
+    setFloatingSidebarVisible,
+    setRealSidebarTargetWidth,
+    setSidebarCollapsedWithCodexState,
+    setSidebarWidth,
+  ]);
 
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsedWithCodexState(getRealSidebarOpen());
@@ -8177,7 +8248,7 @@ export function WorkbenchShell({
     return onRegisterSidebarToggleHandler(() => {
       handleRegisteredSidebarToggle();
     });
-  }, [handleRegisteredSidebarToggle, onRegisterSidebarToggleHandler]);
+  }, [onRegisterSidebarToggleHandler]);
 
   useEffect(() => {
     if (lastHandledSidebarToggleRequestTickRef.current === sidebarToggleRequestTick) return;
@@ -8194,12 +8265,15 @@ export function WorkbenchShell({
     if (sidebarLogicalCollapsed) return;
     setFloatingSidebarVisible(false);
     setSidebarHoverSuppressed(false);
-  }, [sidebarLogicalCollapsed]);
+  }, [
+    setFloatingSidebarVisible,
+    setSidebarHoverSuppressed,
+    sidebarLogicalCollapsed,
+  ]);
 
   useEffect(() => {
-    if (appShellWidth <= 0) return;
-    const atMediumWidth = appShellWidth <= CODEX_SHELL_MEDIUM_WIDTH_PX;
-    const atNarrowWidth = appShellWidth <= CODEX_SHELL_NARROW_WIDTH_PX;
+    const atMediumWidth = shellWidthClass !== "wide";
+    const atNarrowWidth = shellWidthClass === "narrow";
     const crossedMediumWidth = atMediumWidth !== shellAtMediumWidthRef.current;
     const crossedNarrowWidth = atNarrowWidth !== shellAtNarrowWidthRef.current;
     if (!crossedMediumWidth && !crossedNarrowWidth) return;
@@ -8250,11 +8324,12 @@ export function WorkbenchShell({
     }
   }, [
     activeSession,
-    appShellWidth,
     recordShellNavigation,
+    setFloatingSidebarFocusActive,
     setSidebarCollapsedWithCodexState,
     sidePanelOpen,
     sidebarOpen,
+    shellWidthClass,
     updateActivePanel,
   ]);
 
@@ -8269,9 +8344,10 @@ export function WorkbenchShell({
   // Single source of truth for sidebar auto-reveal visibility. Reads the latest
   // pointer X (passed in) plus non-pointer inputs from a ref, so it can be
   // invoked from both the pointermove handler and the input-change effect below.
-  // `setFloatingSidebarVisible`/`setSidebarHoverSuppressed` no-op when their
-  // value is unchanged, so calling this on every pointer move does not re-render
-  // unless the reveal state actually flips.
+  // These setters compare against ref-backed current values before entering
+  // React. Returning the current value from a functional state updater is too
+  // late: the update has already been enqueued and can join a nested update
+  // cycle while another Workbench transition is pending.
   const recomputeFloatingSidebarVisibility = useCallback((pointerX: number | null) => {
     const inputs = sidebarVisibilityInputsRef.current;
     if (inputs.sidebarHoverSuppressed) {
@@ -8286,16 +8362,17 @@ export function WorkbenchShell({
       return;
     }
 
-    setFloatingSidebarVisible((current) => deriveCodexSidebarFloatingVisibility({
+    const currentlyVisible = getFloatingSidebarVisible();
+    setFloatingSidebarVisible(deriveCodexSidebarFloatingVisibility({
       pointerX,
       leftPanelWidthPx: inputs.sidebarWidth,
       sidebarOpen: !inputs.sidebarCollapsed,
       sidebarAnimating: inputs.sidebarAnimating,
       hoverSuppressed: false,
       focusOverride: inputs.floatingSidebarFocusActive,
-      currentlyVisible: current,
+      currentlyVisible,
     }));
-  }, []);
+  }, [getFloatingSidebarVisible, setFloatingSidebarVisible, setSidebarHoverSuppressed]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -8354,7 +8431,7 @@ export function WorkbenchShell({
       document.removeEventListener("focusin", updateFloatingSidebarFocusActive);
       document.removeEventListener("focusout", updateFloatingSidebarFocusActive);
     };
-  }, []);
+  }, [setFloatingSidebarFocusActive]);
 
   useEffect(() => {
     // Keep the ref the pointermove handler reads in sync, then recompute once
@@ -8988,12 +9065,16 @@ export function WorkbenchShell({
         ? sidebarHeaderActions
         : headerActions;
   const automationsDetailRailMounted = Boolean(automationsRouteShell && automationsDetailRailOpen);
-  const automationsDetailRailResolvedWidth = automationsDetailRailMounted
-    ? clampAutomationDetailRailWidth(automationsDetailRailWidth, shellMainContentWidth)
-    : 0;
-  const automationsHeaderRightInset = automationsDetailRailMounted
-    ? automationsDetailRailResolvedWidth
-    : 0;
+  const automationsDetailRailOpenValue = useSyncedMotionValue(automationsDetailRailMounted ? 1 : 0);
+  const automationsDetailRailResolvedWidth = useTransform(
+    [automationsDetailRailOpenValue, automationsDetailRailRequestedWidth, shellMainContentWidth],
+    ([latestOpen, latestRequestedWidth, latestShellWidth]) => Number(latestOpen) > 0
+      ? clampAutomationDetailRailWidth(
+          Number(latestRequestedWidth),
+          Number(latestShellWidth),
+        )
+      : 0,
+  );
 
   const renameSessionDialog = (
     <RenameChatDialog
@@ -9161,17 +9242,24 @@ export function WorkbenchShell({
     const sessionPanelGroupTabs = isActive
       ? panelGroupTabs
       : buildPanelGroupTabsForSession(session, model, visibleCardStageCardIdsByProject, {}, false);
-    const sessionRegularRightPanelWidth = isActive
-      ? regularRightPanelWidth
-      : clampRegularRightPanelWidth(model.rightPanel.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH, rightPanelSizingWidth);
+    const latestShellMainContentWidth = shellMainContentWidth.get();
+    const latestShellBodyHeight = shellBodySize.height.get();
+    const inactiveRegularRightPanelWidth = clampRegularRightPanelWidth(
+      model.rightPanel.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
+      latestShellMainContentWidth,
+    );
+    const inactiveBottomPanelHeight = clampBottomPanelHeight(
+      model.bottomPanel.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
+      latestShellBodyHeight,
+    );
     const sessionBottomPanelHeight = isActive
       ? bottomPanelHeight
-      : clampBottomPanelHeight(model.bottomPanel.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT, sessionContentHeight);
+      : inactiveBottomPanelHeight;
     const sessionRightPanelTargetWidth = isActive
       ? rightPanelTargetWidth
       : model.rightPanelFullWidth
-        ? Math.max(rightPanelSizingWidth, sessionRegularRightPanelWidth)
-        : sessionRegularRightPanelWidth;
+        ? Math.max(latestShellMainContentWidth, inactiveRegularRightPanelWidth)
+        : inactiveRegularRightPanelWidth;
     const sessionRightPanelMounted = isActive ? rightPanelMotion.mounted : model.sidePanelOpen;
     const sessionBottomPanelMounted = isActive ? bottomPanelMotion.mounted : model.bottomPanelOpen;
     const sessionRightPanelOpacity = isActive ? rightPanelMotion.opacity : 1;
@@ -9210,7 +9298,6 @@ export function WorkbenchShell({
     return (
       <RetainedActivity key={session.id} mode={isActive ? "visible" : "hidden"}>
         <div
-          ref={isActive ? setSessionContentRef : undefined}
           aria-hidden={isActive ? undefined : "true"}
           className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
           data-retained-session-id={session.id}
@@ -9330,7 +9417,7 @@ export function WorkbenchShell({
                 ) : null}
 
                 <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
-                  <div
+                  <motion.div
                     ref={isActive ? setRightPanelComposerOverlayTarget : undefined}
                     data-right-panel-composer-overlay-host="true"
                     className={cn(
@@ -9341,7 +9428,7 @@ export function WorkbenchShell({
                       width: sessionRightPanelTargetWidth,
                       minWidth: sessionRightPanelTargetWidth,
                       "--thread-content-top-inset": "calc(var(--spacing) * 8)",
-                    } as React.CSSProperties}
+                    } as MotionStyle}
                   >
                     <PanelGroupTree
                       sessionId={session.id}
@@ -9418,7 +9505,7 @@ export function WorkbenchShell({
                         return resizePanelGroup("right", branchId, ratio);
                       }}
                     />
-                  </div>
+                  </motion.div>
                 </div>
               </motion.aside>
             ) : null}
@@ -9446,7 +9533,7 @@ export function WorkbenchShell({
                 </div>
               ) : null}
               <div className="absolute inset-0 min-h-0 overflow-hidden">
-                <div
+                <motion.div
                   className="absolute inset-x-0 top-0 min-h-0 border-t border-token-border bg-token-main-surface-primary"
                   style={{
                     height: sessionBottomPanelHeight,
@@ -9534,7 +9621,7 @@ export function WorkbenchShell({
                       </div>
                     </div>
                   ) : null}
-                </div>
+                </motion.div>
               </div>
             </motion.section>
           ) : null}
@@ -9603,14 +9690,14 @@ export function WorkbenchShell({
               onMeasuredRailWidthChange={setHeaderLeftRailWidth}
             />
             {appShellHeaderCenterVisible ? (
-              <div
+              <motion.div
                 aria-hidden={automationsRouteShell == null && rightPanelFullWidth ? "true" : undefined}
                 data-testid="app-shell-header-context-menu-surface"
                 className={cn(
                   "pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden [contain:layout_paint] pe-2",
                   automationsRouteShell == null && rightPanelFullWidth && "invisible",
                 )}
-                style={automationsHeaderRightInset > 0 ? { marginRight: automationsHeaderRightInset } : undefined}
+                style={{ marginRight: automationsDetailRailResolvedWidth }}
               >
                 {automationsRouteShell ? (
                   <div
@@ -9632,7 +9719,7 @@ export function WorkbenchShell({
                     />
                   </>
                 )}
-              </div>
+              </motion.div>
             ) : null}
             <HeaderShellSlot
               side="right"
@@ -9645,7 +9732,12 @@ export function WorkbenchShell({
             />
           </header>
 
-        <div className="relative flex max-h-full min-h-0 w-full flex-1">
+        <div
+          ref={shellBodySize.ref}
+          data-app-shell-summary-layout={threadSummaryPanelLayoutMode}
+          data-app-shell-width-class={shellWidthClass}
+          className="relative flex max-h-full min-h-0 w-full flex-1"
+        >
           {settingsRouteShell ? (
             settingsRouteShell
           ) : (
@@ -9659,7 +9751,7 @@ export function WorkbenchShell({
               contextMenuSessionId={contextMenuSessionId}
               sessionsByProject={sessionsByProject}
               projectlessSessions={projectlessSessions}
-              sidebarThreadModel={sidebarThreadSync.model}
+              sidebarThreadModel={sidebarThreadModel}
               pendingStableWorktrees={pendingStableWorktrees}
               expandedProjectIds={expandedProjectIds}
               pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
@@ -9718,14 +9810,14 @@ export function WorkbenchShell({
               onReorderProjectThreads={reorderProjectThreadsForSidebar}
               onReorderChatsThreads={reorderChatsThreadsForSidebar}
               onMoveSidebarThread={moveSidebarThreadForSidebar}
-              onReorderPinnedThreads={sidebarThreadSync.reorderPinned}
+              onReorderPinnedThreads={reorderPinnedSidebarThreads}
               onOpenSettings={openSettings}
               account={codexAccount}
               connection={codexConnection}
               onRefreshAccount={codexAccountActions.refreshAccount}
               onLogout={handleCodexAccountLogout}
               onAccountErrorMessage={handleCodexAccountErrorMessage}
-              sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
+              sidebarArchivePendingKeys={sidebarArchivePendingKeys}
             />
           ) : null}
 
@@ -9755,7 +9847,7 @@ export function WorkbenchShell({
                   contextMenuSessionId={contextMenuSessionId}
                   sessionsByProject={sessionsByProject}
                   projectlessSessions={projectlessSessions}
-                  sidebarThreadModel={sidebarThreadSync.model}
+                  sidebarThreadModel={sidebarThreadModel}
                   pendingStableWorktrees={pendingStableWorktrees}
                   expandedProjectIds={expandedProjectIds}
                   pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
@@ -9812,14 +9904,14 @@ export function WorkbenchShell({
                   onReorderProjectThreads={reorderProjectThreadsForSidebar}
                   onReorderChatsThreads={reorderChatsThreadsForSidebar}
                   onMoveSidebarThread={moveSidebarThreadForSidebar}
-                  onReorderPinnedThreads={sidebarThreadSync.reorderPinned}
+                  onReorderPinnedThreads={reorderPinnedSidebarThreads}
                   onOpenSettings={openSettings}
                   account={codexAccount}
                   connection={codexConnection}
                   onRefreshAccount={codexAccountActions.refreshAccount}
                   onLogout={handleCodexAccountLogout}
                   onAccountErrorMessage={handleCodexAccountErrorMessage}
-                  sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
+                  sidebarArchivePendingKeys={sidebarArchivePendingKeys}
                 />
               </motion.div>
             ) : null}
@@ -9845,7 +9937,7 @@ export function WorkbenchShell({
                 {automationsRouteShell}
               </main>
               {automationsDetailRailMounted ? (
-                <aside
+                <motion.aside
                   data-app-shell-focus-area="right-panel"
                   data-testid="automation-detail-rail"
                   data-right-panel-width-mode="regular"
@@ -9868,17 +9960,17 @@ export function WorkbenchShell({
                   </div>
 
                   <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
-                    <div
+                    <motion.div
                       ref={setAutomationsDetailRailPortalElement}
                       className="absolute top-0 bottom-0 left-0 min-w-0 border-l border-token-border bg-token-main-surface-primary"
                       style={{
                         width: automationsDetailRailResolvedWidth,
                         minWidth: automationsDetailRailResolvedWidth,
                         "--thread-content-top-inset": "calc(var(--spacing) * 8)",
-                      } as React.CSSProperties}
+                      } as MotionStyle}
                     />
                   </div>
-                </aside>
+                </motion.aside>
               ) : null}
             </>
           ) : (
@@ -10249,8 +10341,6 @@ function SidebarProjectThreadRowsContent({
   pinnedThreadKeys,
   sortablePinnedThreadKeys,
   threadKeys,
-  projectThreadKeysInDisplayOrder,
-  sessionIdByThreadKey,
   expanded,
   forcedVisibleKey,
   suppressedKeys,
@@ -10266,8 +10356,6 @@ function SidebarProjectThreadRowsContent({
   pinnedThreadKeys: string[];
   sortablePinnedThreadKeys: string[];
   threadKeys: string[];
-  projectThreadKeysInDisplayOrder: string[] | null;
-  sessionIdByThreadKey: ReadonlyMap<string, string>;
   expanded: boolean;
   forcedVisibleKey: string | null;
   suppressedKeys: ReadonlySet<string>;
@@ -10295,12 +10383,11 @@ function SidebarProjectThreadRowsContent({
     containerId: regularContainerId,
     pendingThreadDrops,
     threadKeys,
-    threadKeysInDisplayOrder: projectThreadKeysInDisplayOrder,
+    threadKeysInDisplayOrder: threadKeys,
     getThreadId,
   }), [
     getThreadId,
     pendingThreadDrops,
-    projectThreadKeysInDisplayOrder,
     regularContainerId,
     threadKeys,
   ]);
@@ -10315,9 +10402,8 @@ function SidebarProjectThreadRowsContent({
     visibleThreadKeys: optimisticRegularThreadKeys.filter(
       (threadKey) => !suppressedKeys.has(threadKey),
     ),
-    projectThreadKeysInDisplayOrder: optimisticRegularThreadKeys,
-    sessionIdByThreadKey,
-  }), [optimisticRegularThreadKeys, sessionIdByThreadKey, suppressedKeys]);
+    getThreadId,
+  }), [getThreadId, optimisticRegularThreadKeys, suppressedKeys]);
   const persistVisibleRegularThreadOrder = useCallback(async ({
     visibleThreadKeys,
     nextVisibleThreadKeys,
@@ -10490,7 +10576,7 @@ function SidebarThreadOrganizerSections({
   onReorderProjectThreads,
   onReorderChatsThreads,
   onReorderPinnedThreads,
-  sidebarArchiveSuppressedKeys,
+  sidebarArchivePendingKeys,
 }: {
   activeProjectId: string;
   activeSessionId: string | null;
@@ -10534,18 +10620,14 @@ function SidebarThreadOrganizerSections({
   onReorderProjectThreads: (projectId: string, orderedThreadIds: string[]) => Promise<void>;
   onReorderChatsThreads: (input: CodexSidebarChatsThreadOrderInput) => Promise<void>;
   onReorderPinnedThreads: (orderedThreadIds: readonly string[]) => Promise<unknown>;
-  sidebarArchiveSuppressedKeys: ReadonlySet<string>;
+  sidebarArchivePendingKeys: ReadonlySet<string>;
 }) {
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
   const [projectlessThreadListExpanded, setProjectlessThreadListExpanded] = useState(false);
   const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<string[]>([]);
-  const pinnedProjectDropTarget = usePinnedProjectDroppable();
-  const pinnedThreadDropTarget = useSidebarThreadDropContainer({
-    containerId: "pinned",
-    targetProjectKind: "local",
-  });
+  const pinnedDropTarget = useSidebarPinnedDropContainer();
   const sessionsById = useMemo(() => {
     const entries = [
       ...Object.values(sessionsByProject).flat(),
@@ -10609,24 +10691,6 @@ function SidebarThreadOrganizerSections({
     }
     return itemsByKey;
   }, [fallbackThreadItems, model.threadItemsByKey]);
-  const projectSessionIdByThreadKey = useMemo(() => {
-    const entries = [...sidebarThreadItemsByKey].flatMap(([threadKey, item]) => {
-      const session = item.sessionId
-        ? sessionsById.get(item.sessionId)
-        : sessionsByThreadId.get(item.threadId);
-      return session ? [[threadKey, session.id] as const] : [];
-    });
-    return new Map(entries);
-  }, [sessionsById, sessionsByThreadId, sidebarThreadItemsByKey]);
-  const sortableProjectSessionIdByThreadKey = useMemo(() => {
-    const entries = [...sidebarThreadItemsByKey].flatMap(([threadKey, item]) => {
-      const session = item.sessionId
-        ? sessionsById.get(item.sessionId)
-        : sessionsByThreadId.get(item.threadId);
-      return session?.thread ? [[threadKey, session.id] as const] : [];
-    });
-    return new Map(entries);
-  }, [sessionsById, sessionsByThreadId, sidebarThreadItemsByKey]);
   const getSidebarRealThreadId = useCallback((threadKey: string) => {
     const item = sidebarThreadItemsByKey.get(threadKey);
     if (!item || item.pendingWorktreeId) return null;
@@ -10636,16 +10700,6 @@ function SidebarThreadOrganizerSections({
       : sessionsByThreadId.get(item.threadId);
     return session?.thread?.threadId ?? null;
   }, [model.threadItemsByKey, sessionsById, sessionsByThreadId, sidebarThreadItemsByKey]);
-  const projectSessionIdsInOrderByProject = useMemo(() => {
-    const entries = Object.entries(sessionsByProject).map(([projectId, sessions]) => {
-      const sessionIds = [...sessions]
-        .filter((session) => !session.archived)
-        .sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt))
-        .map((session) => session.id);
-      return [projectId, sessionIds] as const;
-    });
-    return new Map(entries);
-  }, [sessionsByProject]);
   const allPinnedThreadKeys = useMemo(() => {
     const fallbackPinnedThreadKeys = sortSidebarThreadKeysForDisplay({
       threadKeys: fallbackThreadItems
@@ -10667,13 +10721,13 @@ function SidebarThreadOrganizerSections({
   const sortablePinnedStandaloneThreadKeys = useMemo(() =>
     pinnedStandaloneThreadKeys.filter((threadKey) =>
       model.threadItemsByKey.has(threadKey)
-      && !sidebarArchiveSuppressedKeys.has(threadKey)
-    ), [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchiveSuppressedKeys]);
+      && !sidebarArchivePendingKeys.has(threadKey)
+    ), [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchivePendingKeys]);
   const fallbackPinnedStandaloneThreadKeys = useMemo(() =>
     pinnedStandaloneThreadKeys.filter((threadKey) =>
       !model.threadItemsByKey.has(threadKey)
-      && !sidebarArchiveSuppressedKeys.has(threadKey)
-    ), [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchiveSuppressedKeys]);
+      && !sidebarArchivePendingKeys.has(threadKey)
+    ), [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchivePendingKeys]);
   const reorderVisiblePinnedThreads = useCallback(async ({
     visibleThreadKeys,
     nextVisibleThreadKeys,
@@ -10716,10 +10770,10 @@ function SidebarThreadOrganizerSections({
   const canonicalUnpinnedThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
     threadKeys: [
       ...model.snapshot.items
-        .filter((item) => !item.pinned && !sidebarArchiveSuppressedKeys.has(item.key))
+        .filter((item) => !item.pinned && !sidebarArchivePendingKeys.has(item.key))
         .map((item) => item.key),
       ...fallbackThreadItems
-        .filter((item) => !item.pinned && !sidebarArchiveSuppressedKeys.has(item.key))
+        .filter((item) => !item.pinned && !sidebarArchivePendingKeys.has(item.key))
         .map((item) => item.key),
     ],
     itemsByKey: sidebarThreadItemsByKey,
@@ -10728,44 +10782,8 @@ function SidebarThreadOrganizerSections({
     fallbackThreadItems,
     model.snapshot.items,
     sessionsById,
-    sidebarArchiveSuppressedKeys,
+    sidebarArchivePendingKeys,
     sidebarThreadItemsByKey,
-  ]);
-  const allUnpinnedThreadKeysInDisplayOrder = useMemo(() => {
-    const manualThreadOrder = model.snapshot.manualThreadOrder;
-    if (manualThreadOrder === null) return canonicalUnpinnedThreadKeys;
-    return orderCodexSidebarThreadKeysByManualThreadIds({
-      threadKeys: canonicalUnpinnedThreadKeys,
-      orderedThreadIds: manualThreadOrder,
-      getThreadId: getSidebarRealThreadId,
-    });
-  }, [canonicalUnpinnedThreadKeys, getSidebarRealThreadId, model.snapshot.manualThreadOrder]);
-  const reorderVisibleProjectlessThreads = useCallback(async ({
-    visibleThreadKeys,
-    nextVisibleThreadKeys,
-  }: {
-    visibleThreadKeys: string[];
-    nextVisibleThreadKeys: string[];
-  }) => {
-    const listRealThreadIds = (threadKeys: readonly string[]) => threadKeys.flatMap((threadKey) => {
-      const threadId = getSidebarRealThreadId(threadKey);
-      return threadId === null ? [] : [threadId];
-    });
-    const visibleThreadIds = listRealThreadIds(visibleThreadKeys);
-    const nextVisibleThreadIds = listRealThreadIds(nextVisibleThreadKeys);
-    if (
-      visibleThreadIds.length !== visibleThreadKeys.length
-      || nextVisibleThreadIds.length !== nextVisibleThreadKeys.length
-    ) return;
-    await onReorderChatsThreads({
-      threadIdsInDisplayOrder: listRealThreadIds(allUnpinnedThreadKeysInDisplayOrder),
-      visibleThreadIds,
-      nextVisibleThreadIds,
-    });
-  }, [
-    allUnpinnedThreadKeysInDisplayOrder,
-    getSidebarRealThreadId,
-    onReorderChatsThreads,
   ]);
   const projectGroups = useMemo(() => model.projectGroups.map((group) => {
     const projectPinnedThreadKeySet = new Set([
@@ -10787,24 +10805,25 @@ function SidebarThreadOrganizerSections({
       itemsByKey: sidebarThreadItemsByKey,
       sessionsById,
     });
-    const threadKeys = unpinnedThreadKeys;
-    const projectSessionIdsInOrder = projectSessionIdsInOrderByProject.get(group.project.id) ?? [];
-    const projectThreadKeysInDisplayOrder = sortCodexSidebarProjectThreadKeysBySessionOrder({
-      threadKeys,
-      projectSessionIdsInOrder,
-      sessionIdByThreadKey: projectSessionIdByThreadKey,
-    });
+    const manualThreadOrder = model.snapshot.projectThreadOrders[group.project.id];
+    const threadKeys = manualThreadOrder
+      ? orderCodexSidebarThreadKeysByManualThreadIds({
+          threadKeys: unpinnedThreadKeys,
+          orderedThreadIds: manualThreadOrder,
+          getThreadId: getSidebarRealThreadId,
+        })
+      : unpinnedThreadKeys;
     return {
       project: group.project,
       pinnedThreadKeys,
-      threadKeys: projectThreadKeysInDisplayOrder,
+      threadKeys,
     };
   }), [
     allPinnedThreadKeys,
     fallbackThreadItems,
+    getSidebarRealThreadId,
     model.projectGroups,
-    projectSessionIdByThreadKey,
-    projectSessionIdsInOrderByProject,
+    model.snapshot.projectThreadOrders,
     sessionsById,
     sidebarThreadItemsByKey,
   ]);
@@ -10891,11 +10910,7 @@ function SidebarThreadOrganizerSections({
       visibleGroupIds,
       nextVisibleGroupIds,
     );
-    return onReorderProjects({ orderedProjectIds })
-      .then(() => undefined)
-      .catch(() => {
-        toast.danger("Failed to reorder projects");
-      });
+    return onReorderProjects({ orderedProjectIds }).then(() => undefined);
   }, [onReorderProjects, projectOrderIds]);
   const reorderVisiblePinnedProjectGroups = useCallback((
     visibleGroupIds: string[],
@@ -10906,21 +10921,17 @@ function SidebarThreadOrganizerSections({
       visibleGroupIds,
       nextVisibleGroupIds,
     );
-    return onSetPinnedProjectOrder({ orderedProjectIds })
-      .then(() => undefined)
-      .catch(() => {
-        toast.danger("Failed to reorder pinned projects");
-      });
+    return onSetPinnedProjectOrder({ orderedProjectIds }).then(() => undefined);
   }, [onSetPinnedProjectOrder, pinnedProjectIds]);
   const hasVisiblePinnedStandaloneThreads = pinnedStandaloneThreadKeys.some((threadKey) =>
-    !sidebarArchiveSuppressedKeys.has(threadKey)
+    !sidebarArchivePendingKeys.has(threadKey)
   );
   const hasVisiblePinnedSectionItems = hasVisiblePinnedStandaloneThreads || pinnedProjectGroups.length > 0;
   const projectlessThreadKeys = useMemo(() => {
     const canonicalProjectlessThreadKeys = canonicalUnpinnedThreadKeys.filter((threadKey) => (
       sidebarThreadItemsByKey.get(threadKey)?.projectless === true
     ));
-    const manualThreadOrder = model.snapshot.manualThreadOrder;
+    const manualThreadOrder = model.snapshot.projectlessThreadOrder;
     if (manualThreadOrder === null) return canonicalProjectlessThreadKeys;
     return orderCodexSidebarThreadKeysByManualThreadIds({
       threadKeys: canonicalProjectlessThreadKeys,
@@ -10930,8 +10941,35 @@ function SidebarThreadOrganizerSections({
   }, [
     canonicalUnpinnedThreadKeys,
     getSidebarRealThreadId,
-    model.snapshot.manualThreadOrder,
+    model.snapshot.projectlessThreadOrder,
     sidebarThreadItemsByKey,
+  ]);
+  const reorderVisibleProjectlessThreads = useCallback(async ({
+    visibleThreadKeys,
+    nextVisibleThreadKeys,
+  }: {
+    visibleThreadKeys: string[];
+    nextVisibleThreadKeys: string[];
+  }) => {
+    const listRealThreadIds = (threadKeys: readonly string[]) => threadKeys.flatMap((threadKey) => {
+      const threadId = getSidebarRealThreadId(threadKey);
+      return threadId === null ? [] : [threadId];
+    });
+    const visibleThreadIds = listRealThreadIds(visibleThreadKeys);
+    const nextVisibleThreadIds = listRealThreadIds(nextVisibleThreadKeys);
+    if (
+      visibleThreadIds.length !== visibleThreadKeys.length
+      || nextVisibleThreadIds.length !== nextVisibleThreadKeys.length
+    ) return;
+    await onReorderChatsThreads({
+      threadIdsInDisplayOrder: listRealThreadIds(projectlessThreadKeys),
+      visibleThreadIds,
+      nextVisibleThreadIds,
+    });
+  }, [
+    getSidebarRealThreadId,
+    onReorderChatsThreads,
+    projectlessThreadKeys,
   ]);
   const activeThreadKey = useMemo(() => {
     if (activePendingClientThreadId) {
@@ -11003,7 +11041,7 @@ function SidebarThreadOrganizerSections({
           : item.kind === "pending-worktree" && onPendingWorktreeTitleDoubleClick
             ? (_item, event) => onPendingWorktreeTitleDoubleClick(item, event)
             : undefined}
-        archivePending={sidebarArchiveSuppressedKeys.has(item.key)}
+        archivePending={sidebarArchivePendingKeys.has(item.key)}
         onArchive={onArchiveSidebarThread}
         onTogglePinned={session && onToggleSessionPinned
           ? () => onToggleSessionPinned(session)
@@ -11024,7 +11062,7 @@ function SidebarThreadOrganizerSections({
     onToggleSidebarThreadPinned,
     projectLabelById,
     resolveSessionForItem,
-    sidebarArchiveSuppressedKeys,
+    sidebarArchivePendingKeys,
     sidebarThreadItemsByKey,
   ]);
 
@@ -11046,7 +11084,7 @@ function SidebarThreadOrganizerSections({
       expanded={options.expanded ?? false}
       onExpandedChange={options.onExpandedChange}
       forcedVisibleKey={options.forcedVisibleKey ?? null}
-      suppressedKeys={sidebarArchiveSuppressedKeys}
+      suppressedKeys={sidebarArchivePendingKeys}
     >
       {(pagination, pager) => (
         <div className="isolate flex flex-col [contain:layout]">
@@ -11061,7 +11099,7 @@ function SidebarThreadOrganizerSections({
         </div>
       )}
     </CodexSidebarPaginatedItems>
-  ), [loadingSessions, renderThreadRow, sidebarArchiveSuppressedKeys]);
+  ), [loadingSessions, renderThreadRow, sidebarArchivePendingKeys]);
 
   const renderProjectGroupRows = (
     groups: typeof projectGroups,
@@ -11124,19 +11162,15 @@ function SidebarThreadOrganizerSections({
                     pinnedThreadKeys={pinnedThreadKeys}
                     sortablePinnedThreadKeys={pinnedThreadKeys.filter((threadKey) => (
                       model.threadItemsByKey.has(threadKey)
-                      && !sidebarArchiveSuppressedKeys.has(threadKey)
+                      && !sidebarArchivePendingKeys.has(threadKey)
                     ))}
                     threadKeys={threadKeys}
-                    projectThreadKeysInDisplayOrder={
-                      threadKeys
-                    }
-                    sessionIdByThreadKey={sortableProjectSessionIdByThreadKey}
                     expanded={threadListExpanded}
                     onExpandedChange={(nextExpanded) => {
                       setProjectThreadListExpanded(project.id, nextExpanded);
                     }}
                     forcedVisibleKey={activeThreadKey}
-                    suppressedKeys={sidebarArchiveSuppressedKeys}
+                    suppressedKeys={sidebarArchivePendingKeys}
                     loading={loadingSessions}
                     onPinnedThreadOrderChange={reorderVisiblePinnedThreads}
                     onProjectThreadOrderChange={onReorderProjectThreads}
@@ -11156,26 +11190,32 @@ function SidebarThreadOrganizerSections({
   );
 
   const renderPinnedSection = () => {
-    if (!hasVisiblePinnedSectionItems && !pinnedProjectDropTarget.projectDragActive) return null;
+    if (
+      !hasVisiblePinnedSectionItems
+      && !pinnedDropTarget.projectDragActive
+      && !pinnedDropTarget.isExternalThreadDropTarget
+    ) {
+      return null;
+    }
 
     if (!hasVisiblePinnedSectionItems) {
       return (
         <div
-          ref={(node) => {
-            pinnedProjectDropTarget.setNodeRef(node);
-            pinnedThreadDropTarget.setNodeRef(node);
-          }}
+          ref={pinnedDropTarget.setNodeRef}
           className={cn(
             "-my-4 px-row-x",
-            pinnedProjectDropTarget.isOver
+            pinnedDropTarget.projectDragActive
+              && pinnedDropTarget.isOver
               && "rounded-[10px] bg-token-bg-secondary/40 ring-1 ring-inset ring-token-border",
-            pinnedThreadDropTarget.isExternalThreadDropTarget
-              && pinnedThreadDropTarget.isOver
+            pinnedDropTarget.isExternalThreadDropTarget
+              && pinnedDropTarget.isOver
               && "rounded-[10px] bg-token-bg-secondary/40",
           )}
         >
           <div className="h-4">
-            {pinnedProjectDropTarget.isOver ? <SidebarDropIndicator compensateLayout={false} /> : null}
+            {pinnedDropTarget.projectDragActive && pinnedDropTarget.isOver
+              ? <SidebarDropIndicator compensateLayout={false} />
+              : null}
           </div>
         </div>
       );
@@ -11183,14 +11223,11 @@ function SidebarThreadOrganizerSections({
 
     return (
       <div
-        ref={(node) => {
-          pinnedProjectDropTarget.setNodeRef(node);
-          pinnedThreadDropTarget.setNodeRef(node);
-        }}
+        ref={pinnedDropTarget.setNodeRef}
         className={cn(
           "relative",
-          pinnedThreadDropTarget.isExternalThreadDropTarget
-            && pinnedThreadDropTarget.isOver
+          pinnedDropTarget.isExternalThreadDropTarget
+            && pinnedDropTarget.isOver
             && "rounded-lg bg-token-list-hover-background",
         )}
       >
@@ -11266,7 +11303,7 @@ function SidebarThreadOrganizerSections({
           expanded={projectlessThreadListExpanded}
           onExpandedChange={setProjectlessThreadListExpanded}
           forcedVisibleKey={activeThreadKey}
-          suppressedKeys={sidebarArchiveSuppressedKeys}
+          suppressedKeys={sidebarArchivePendingKeys}
           loading={loadingSessions}
           onVisibleThreadOrderChange={reorderVisibleProjectlessThreads}
           renderThread={renderThreadRow}
@@ -11338,7 +11375,7 @@ function ProjectSessionSidebar({
   onRefreshAccount,
   onLogout,
   onAccountErrorMessage,
-  sidebarArchiveSuppressedKeys,
+  sidebarArchivePendingKeys,
 }: {
   floating?: boolean;
   header?: ReactNode;
@@ -11403,7 +11440,7 @@ function ProjectSessionSidebar({
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
   onLogout: () => Promise<void>;
   onAccountErrorMessage: (message: string | null) => void;
-  sidebarArchiveSuppressedKeys: ReadonlySet<string>;
+  sidebarArchivePendingKeys: ReadonlySet<string>;
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [scrolledContentUnderHeader, setScrolledContentUnderHeader] = useState(false);
@@ -11613,13 +11650,15 @@ function ProjectSessionSidebar({
                   </div>
                 </div>
               </div>
-              <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
-                <SidebarThreadReorderDndProvider
-                  getThreadIdByThreadKey={getSidebarThreadIdByKey}
-                  homeContainerIdByThreadId={homeContainerIdByThreadId}
-                  onThreadDrop={onMoveSidebarThread}
-                >
-                  <SidebarThreadOrganizerSections
+              <SidebarReorderDndProvider
+                getThreadIdByThreadKey={getSidebarThreadIdByKey}
+                homeContainerIdByThreadId={homeContainerIdByThreadId}
+                onProjectError={reportSidebarProjectReorderError}
+                onProjectDrop={handleProjectDrop}
+                onThreadError={reportSidebarThreadReorderError}
+                onThreadDrop={onMoveSidebarThread}
+              >
+                <SidebarThreadOrganizerSections
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSessionId}
                   activePendingClientThreadId={activePendingClientThreadId}
@@ -11659,10 +11698,9 @@ function ProjectSessionSidebar({
                   onReorderProjectThreads={onReorderProjectThreads}
                   onReorderChatsThreads={onReorderChatsThreads}
                   onReorderPinnedThreads={onReorderPinnedThreads}
-                  sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
-                  />
-                </SidebarThreadReorderDndProvider>
-              </SidebarProjectDndProvider>
+                  sidebarArchivePendingKeys={sidebarArchivePendingKeys}
+                />
+              </SidebarReorderDndProvider>
             </div>
 
             <LeftSidebarFooter
@@ -12049,6 +12087,8 @@ function SessionThreadPage({
   const newThreadEnvironmentWorkspaceRoot = projectWorkspaceRootOrNull(startInSelectorProject);
   const effectiveProjectId = summary ? projectId : selectedNewThreadProject?.id ?? projectId;
   const codexControl = useCodexAppServerControl(effectiveProjectId);
+  const loadModels = codexControl.loadModels;
+  const listCollaborationModes = codexControl.listCollaborationModes;
   const threadStartProgress = useCodexThreadStartProgress(effectiveProjectId, session.id);
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
@@ -12067,11 +12107,11 @@ function SessionThreadPage({
   }, [projectId, projects, selectedNewThreadProjectId]);
 
   useEffect(() => {
-    void codexControl.loadModels().catch(() => undefined);
-    void codexControl.listCollaborationModes()
+    void loadModels().catch(() => undefined);
+    void listCollaborationModes()
       .then(setCollaborationModes)
       .catch(() => setCollaborationModes([]));
-  }, [codexControl.loadModels, codexControl.listCollaborationModes, effectiveProjectId]);
+  }, [listCollaborationModes, loadModels]);
 
   useEffect(() => {
     const cwd = summary?.cwd?.trim();
@@ -12230,10 +12270,10 @@ function SessionThreadPage({
     onToggleSummaryComputerUsePip,
     onConsumeNewThreadComposerIntent,
     onRequestRenameThread,
+    projectId,
     changeNewThreadEnvironment,
     refreshNewThreadEnvironments,
     effectiveProjectId,
-    session.projectId,
     selectedCollaborationMode,
     summary?.threadId,
   ]);
@@ -12450,22 +12490,22 @@ function BackgroundAgentSessionTab({
   const conversation = useConversation(tab.threadId);
   const accountActions = useCodexAccountActions();
   const codexControl = useCodexAppServerControl(tab.projectId);
+  const loadModels = codexControl.loadModels;
+  const listCollaborationModes = codexControl.listCollaborationModes;
+  const requestThreadStreamSnapshot = codexControl.requestThreadStreamSnapshot;
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
 
   useEffect(() => {
-    void codexControl.loadModels().catch(() => undefined);
-    void codexControl.listCollaborationModes()
+    void loadModels().catch(() => undefined);
+    void listCollaborationModes()
       .then(setCollaborationModes)
       .catch(() => setCollaborationModes([]));
-  }, [codexControl.loadModels, codexControl.listCollaborationModes]);
+  }, [listCollaborationModes, loadModels]);
 
   useEffect(() => {
-    void codexControl.requestThreadStreamSnapshot(tab.threadId).catch(() => undefined);
-  }, [
-    codexControl.requestThreadStreamSnapshot,
-    tab.threadId,
-  ]);
+    void requestThreadStreamSnapshot(tab.threadId).catch(() => undefined);
+  }, [requestThreadStreamSnapshot, tab.threadId]);
 
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,
@@ -12593,16 +12633,18 @@ function SideChatSessionTab({
   const conversation = useConversation(tab.threadId);
   const accountActions = useCodexAccountActions();
   const codexControl = useCodexAppServerControl(tab.projectId);
+  const loadModels = codexControl.loadModels;
+  const listCollaborationModes = codexControl.listCollaborationModes;
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
 
   useEffect(() => {
     if (tab.status !== "ready") return;
-    void codexControl.loadModels().catch(() => undefined);
-    void codexControl.listCollaborationModes()
+    void loadModels().catch(() => undefined);
+    void listCollaborationModes()
       .then(setCollaborationModes)
       .catch(() => setCollaborationModes([]));
-  }, [codexControl.loadModels, codexControl.listCollaborationModes, tab.status]);
+  }, [listCollaborationModes, loadModels, tab.status]);
 
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,

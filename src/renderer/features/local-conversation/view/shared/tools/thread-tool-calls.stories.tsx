@@ -419,7 +419,6 @@ function ToolCallStory({
   automaticApprovalReviews?: CodexTranscriptEntry[];
 }) {
   const ToolComponent = getToolComponent(item);
-  if (!ToolComponent) return null;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -457,6 +456,8 @@ function ToolCallStory({
       window.cancelAnimationFrame(nestedFrameId);
     };
   }, [autoExpandCommandLine, autoOpen]);
+
+  if (!ToolComponent) return null;
 
   return (
     <StorySurface title={title} description={description}>

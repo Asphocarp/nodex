@@ -3,6 +3,7 @@ import { DropCursorExtension } from "@blocknote/core/extensions";
 import { BlockNoteViewRaw } from "@blocknote/react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
 
 const settleEditor = async (): Promise<void> => {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -10,6 +11,37 @@ const settleEditor = async (): Promise<void> => {
 };
 
 describe("BlockNote view lifecycle in Chromium", () => {
+  test("mounts the NFM side-menu provider before the editor view is available", async () => {
+    const editor = BlockNoteEditor.create({
+      initialContent: [{ id: "block-1", type: "paragraph", content: "One" }],
+    });
+    expect(editor.headless).toBe(true);
+
+    const view = render(
+      <BlockNoteViewRaw
+        editor={editor}
+        formattingToolbar={false}
+        linkToolbar={false}
+        slashMenu={false}
+        sideMenu={false}
+        tableHandles={false}
+      >
+        <NfmSideMenuOpenProvider>
+          <div data-testid="nfm-editor-child" />
+        </NfmSideMenuOpenProvider>
+      </BlockNoteViewRaw>,
+    );
+
+    try {
+      await act(settleEditor);
+      expect(view.getByTestId("nfm-editor-child")).not.toBeNull();
+      expect(editor.headless).toBe(false);
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
   test("changes editability without replacing the mounted EditorView or its NodeViews", async () => {
     const editor = BlockNoteEditor.create({
       initialContent: [{ id: "block-1", type: "paragraph", content: "One" }],

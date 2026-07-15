@@ -1,7 +1,7 @@
 import {
   startTransition,
+  useCallback,
   useEffect,
-  useEffectEvent,
   useRef,
   useState,
 } from "react";
@@ -68,16 +68,21 @@ export function DatabaseManagementDialogController({
   const [error, setError] = useState<string | null>(null);
   const readSequence = useRef(0);
   const mutationSequence = useRef(0);
+  const snapshotRef = useRef(snapshot);
+  const selectedDatabaseBlockIdRef = useRef(selectedDatabaseBlockId);
+  snapshotRef.current = snapshot;
+  selectedDatabaseBlockIdRef.current = selectedDatabaseBlockId;
 
-  const applySnapshot = useEffectEvent((
+  const applySnapshot = useCallback((
     next: DatabaseReadSnapshot<GeneralDatabaseManagement>,
     preferredDatabaseBlockId?: string | null,
   ) => {
+    const currentSnapshot = snapshotRef.current;
     if (
-      snapshot &&
-      snapshot.projectId === next.projectId &&
-      snapshot.storeEpoch === next.storeEpoch &&
-      snapshot.changeLogSeq > next.changeLogSeq
+      currentSnapshot &&
+      currentSnapshot.projectId === next.projectId &&
+      currentSnapshot.storeEpoch === next.storeEpoch &&
+      currentSnapshot.changeLogSeq > next.changeLogSeq
     ) {
       return;
     }
@@ -87,19 +92,21 @@ export function DatabaseManagementDialogController({
       ),
     );
     const preferred = preferredDatabaseBlockId?.trim() || null;
-    const selected = selectedDatabaseBlockId?.trim() || null;
+    const selected = selectedDatabaseBlockIdRef.current?.trim() || null;
     const nextSelected =
       (preferred && candidateIds.has(preferred) ? preferred : null) ??
       (selected && candidateIds.has(selected) ? selected : null) ??
       next.value?.catalog.databases[0]?.database.blockId ??
       null;
+    snapshotRef.current = next;
+    selectedDatabaseBlockIdRef.current = nextSelected;
     startTransition(() => {
       setSnapshot(next);
       setSelectedDatabaseBlockId(nextSelected);
     });
-  });
+  }, []);
 
-  const refresh = useEffectEvent(async () => {
+  const refresh = useCallback(async () => {
     const sequence = ++readSequence.current;
     try {
       const next = await readDatabaseManagementAuthority(projectId);
@@ -110,7 +117,7 @@ export function DatabaseManagementDialogController({
       if (sequence !== readSequence.current) return;
       setError(messageForError(nextError));
     }
-  });
+  }, [applySnapshot, initialDatabaseBlockId, projectId]);
 
   useEffect(() => {
     if (!open) return;
@@ -119,7 +126,7 @@ export function DatabaseManagementDialogController({
     return subscribeDatabaseChanges(projectId, () => {
       void refresh();
     });
-  }, [initialDatabaseBlockId, open, projectId]);
+  }, [initialDatabaseBlockId, open, projectId, refresh]);
 
   const mutate = async (
     buildIntent: (authority: DatabaseManagementAuthority) => DatabaseManagementIntent,

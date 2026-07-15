@@ -1032,7 +1032,6 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     );
   }, [
     focusedStage,
-    navigateToStage,
     recordNavigation,
     setFocusedStageState,
     slidingWindowPaneCount,

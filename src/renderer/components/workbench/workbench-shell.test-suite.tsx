@@ -3,6 +3,7 @@ import {
   Fragment,
   createElement,
   createRef,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -535,7 +536,7 @@ const MockOwnedBlockDocumentBoundary = ({
       },
     };
   });
-  const reload = async (): Promise<void> => {
+  const reload = useCallback(async (): Promise<void> => {
     if (!fetchDescriptor) return;
     const descriptor = await fetchDescriptor(projectId, ownerBlockId);
     setModel({
@@ -544,10 +545,10 @@ const MockOwnedBlockDocumentBoundary = ({
       projectId,
       ownerBlockId,
     });
-  };
+  }, [fetchDescriptor, ownerBlockId, projectId]);
   useEffect(() => {
     void reload();
-  }, [fetchDescriptor, ownerBlockId, projectId]);
+  }, [reload]);
   return children(model, { reload });
 };
 
@@ -1612,7 +1613,8 @@ function renderWorkbench({
   sessionsByProject = { alpha: [makeSession()] },
   projectlessSessions = [],
   sidebarSnapshotItems = [],
-  manualThreadOrder = null,
+  projectThreadOrders = {},
+  projectlessThreadOrder = null,
   sidebarSyncChangedProjectIds = [],
   sidebarSyncProjectlessChanged = false,
   searchByProject = {},
@@ -1633,7 +1635,8 @@ function renderWorkbench({
   sessionsByProject?: Record<string, ProjectSession[]>;
   projectlessSessions?: ProjectSession[];
   sidebarSnapshotItems?: CodexSidebarThreadItem[];
-  manualThreadOrder?: string[] | null;
+  projectThreadOrders?: Record<string, string[]>;
+  projectlessThreadOrder?: string[] | null;
   sidebarSyncChangedProjectIds?: string[];
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
@@ -1787,17 +1790,19 @@ function renderWorkbench({
   let sessionState = projectlessSessions.length > 0
     ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
     : sessionsByProject;
+  let sidebarItemState = sidebarSnapshotItems;
   const runNowAutomationIds: string[] = [];
   const buildSidebarSnapshot = () => ({
-    items: sidebarSnapshotItems,
-    pinnedThreadIds: sidebarSnapshotItems.filter((item) => item.pinned).map((item) => item.threadId),
+    items: sidebarItemState,
+    pinnedThreadIds: sidebarItemState.filter((item) => item.pinned).map((item) => item.threadId),
     projectAssignments: Object.fromEntries(
-      sidebarSnapshotItems
+      sidebarItemState
         .filter((item): item is CodexSidebarThreadItem & { projectId: string } => typeof item.projectId === "string")
         .map((item) => [item.threadId, item.projectId]),
     ),
-    projectlessThreadIds: sidebarSnapshotItems.filter((item) => item.projectless).map((item) => item.threadId),
-    manualThreadOrder,
+    projectlessThreadIds: sidebarItemState.filter((item) => item.projectless).map((item) => item.threadId),
+    projectThreadOrders,
+    projectlessThreadOrder,
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
@@ -2037,7 +2042,8 @@ function renderWorkbench({
           .map((session) => session.thread?.threadId),
         projectAssignments: {},
         projectlessThreadIds: [],
-        manualThreadOrder: null,
+        projectThreadOrders: {},
+        projectlessThreadOrder: null,
         generatedAt: 1,
       };
     }
@@ -2295,6 +2301,9 @@ function renderWorkbench({
           : session.thread,
       };
       sessionState = replaceSession(sessionState, updated);
+      sidebarItemState = sidebarItemState.filter((item) => (
+        item.sessionId !== sessionId && item.threadId !== session.thread?.threadId
+      ));
       return updated;
     }
     if (channel === "codex:thread:archive") {
@@ -2317,6 +2326,7 @@ function renderWorkbench({
           )),
         ]),
       );
+      sidebarItemState = sidebarItemState.filter((item) => item.threadId !== threadId);
       return true;
     }
     if (channel === "project-session-panels:update") {
@@ -3032,7 +3042,7 @@ function setWindowInnerWidthForTest(width: number): void {
   });
 }
 
-function installSessionContentMeasurementForTest({
+function installShellBodyMeasurementForTest({
   width,
   height,
 }: {
@@ -3060,16 +3070,15 @@ function installSessionContentMeasurementForTest({
     left: 0,
     toJSON: () => ({}),
   }) as DOMRect;
-  const isMeasuredSessionContent = (element: Element): boolean =>
+  const isMeasuredShellBody = (element: Element): boolean =>
     element instanceof HTMLElement
-    && element.querySelector('[data-testid="session-thread-page"]') !== null
-    && element.querySelector('[data-testid="session-right-panel"]') !== null;
+    && element.hasAttribute("data-app-shell-summary-layout");
 
   Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
     configurable: true,
     writable: true,
     value(this: HTMLElement) {
-      if (!isMeasuredSessionContent(this)) {
+      if (!isMeasuredShellBody(this)) {
         return originalGetBoundingClientRect.call(this);
       }
       return this.isConnected ? makeRect(width, height) : makeRect(0, 0);
@@ -3213,8 +3222,8 @@ describe(`workbench session shell / ${scope}`, () => {
   test("only reveals retained cached sessions synchronously", () => {
     const cachedSession = makeSession({ id: "session:alpha:warm" });
     const retainedEntries = [
-      { sessionId: "session:alpha:warm", lastActiveAtMs: 2 },
-      { sessionId: "session:alpha:other", lastActiveAtMs: 1 },
+      { sessionId: "session:alpha:warm" },
+      { sessionId: "session:alpha:other" },
     ];
 
     expect(shouldSynchronouslyRevealSession({
@@ -3758,6 +3767,65 @@ describe(`workbench session shell / ${scope}`, () => {
       call[0] === "codex:thread:archive"
       && call[1] === "thread-snapshot-only"
     )).toBe(true);
+  });
+
+  test("sidebar archive pending state is released when snapshot-only archive fails", async () => {
+    const snapshotOnlyItem: CodexSidebarThreadItem = {
+      key: "local:thread-archive-failure",
+      kind: "local",
+      hostId: "local",
+      threadId: "thread-archive-failure",
+      sessionId: null,
+      projectId: null,
+      title: "Archive failure",
+      preview: "",
+      cwd: null,
+      updatedAt: 10,
+      createdAt: 1,
+      pinned: false,
+      pinnedOrder: null,
+      unread: false,
+      archived: false,
+      statusType: "idle",
+      statusActiveFlags: [],
+      projectless: true,
+      disabled: false,
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+      sidebarSnapshotItems: [snapshotOnlyItem],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const baseInvoke = mockInvokeImpl;
+    if (!baseInvoke) throw new Error("Expected the workbench invoke mock");
+    let rejectArchive!: (reason?: unknown) => void;
+    const archiveRequest = new Promise<unknown>((_resolve, reject) => {
+      rejectArchive = reject;
+    });
+    mockInvokeImpl = async (channel, ...args) => {
+      if (channel === "codex:thread:archive") return await archiveRequest;
+      return await baseInvoke(channel, ...args);
+    };
+
+    const row = getThreadRow(screen.container, "Archive failure");
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Archive chat" }));
+      await Promise.resolve();
+    });
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive failure"]')).toBe(null);
+
+    await act(async () => {
+      rejectArchive(new Error("archive failed"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getThreadRow(screen.container, "Archive failure")).not.toBeNull();
+    expect(__getNodexToastSnapshotForTests().some((toastItem) => (
+      toastItem.kind === "plain" && toastItem.title === "Failed to archive chat"
+    ))).toBe(true);
   });
 
   test("sidebar pin button promotes pinned sessions above unpinned siblings", async () => {
@@ -4445,7 +4513,8 @@ describe(`workbench session shell / ${scope}`, () => {
         pinnedThreadIds: [],
         projectAssignments: {},
         projectlessThreadIds: [],
-        manualThreadOrder: null,
+        projectThreadOrders: {},
+        projectlessThreadOrder: null,
         generatedAt: 2,
       },
       source: "app-server",
@@ -4676,7 +4745,7 @@ describe(`workbench session shell / ${scope}`, () => {
     const screen = renderWorkbench({
       projectlessSessions,
       sidebarSnapshotItems: projectlessSessions.map(makeSidebarSnapshotItemForSession),
-      manualThreadOrder: ["thread-chat-b", "thread-chat-a"],
+      projectlessThreadOrder: ["thread-chat-b", "thread-chat-a"],
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -4686,6 +4755,74 @@ describe(`workbench session shell / ${scope}`, () => {
       "Chat B",
       "Chat New",
       "Chat A",
+    ]));
+  });
+
+  test("keeps project manual slots stable across session selection while recency places new rows", async () => {
+    const pinned = makeAttachedSession({
+      id: "session:alpha:pinned",
+      threadId: "thread-alpha-pinned",
+      title: "Pinned Alpha",
+      pinned: true,
+      pinnedOrder: 0,
+    });
+    const chatA = makeAttachedSession({
+      id: "session:alpha:a",
+      threadId: "thread-alpha-a",
+      title: "Alpha A",
+      order: 0,
+    });
+    const chatNew = makeAttachedSession({
+      id: "session:alpha:new",
+      threadId: "thread-alpha-new",
+      title: "Alpha New",
+      order: 1,
+    });
+    const chatB = makeAttachedSession({
+      id: "session:alpha:b",
+      threadId: "thread-alpha-b",
+      title: "Alpha B",
+      order: 2,
+    });
+    if (!pinned.thread || !chatA.thread || !chatNew.thread || !chatB.thread) {
+      throw new Error("Expected attached project sessions");
+    }
+    pinned.thread.updatedAt = 400;
+    chatA.thread.updatedAt = 300;
+    chatNew.thread.updatedAt = 200;
+    chatB.thread.updatedAt = 100;
+    const sessions = [pinned, chatA, chatNew, chatB];
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: sessions },
+      sidebarSnapshotItems: sessions.map(makeSidebarSnapshotItemForSession),
+      projectThreadOrders: {
+        alpha: ["thread-alpha-b", "thread-alpha-a"],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const alphaGroup = getSidebarProjectGroup(
+      getSidebarSection(screen.container, "Projects"),
+      "alpha",
+    );
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
+      "Pinned Alpha",
+      "Alpha B",
+      "Alpha New",
+      "Alpha A",
+    ]));
+
+    await act(async () => {
+      fireEvent.click(getThreadRow(alphaGroup, "Alpha A"));
+      await Promise.resolve();
+    });
+
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
+      "Pinned Alpha",
+      "Alpha B",
+      "Alpha New",
+      "Alpha A",
     ]));
   });
 
@@ -4922,7 +5059,7 @@ describe(`workbench session shell / ${scope}`, () => {
   });
 
   test("restores full-width right-panel geometry after returning from settings", async () => {
-    const measurement = installSessionContentMeasurementForTest({ width: 850, height: 640 });
+    const measurement = installShellBodyMeasurementForTest({ width: 850, height: 640 });
     try {
       const screen = renderWorkbench();
       await settleAsyncRender();
@@ -4931,8 +5068,9 @@ describe(`workbench session shell / ${scope}`, () => {
       const rightPanel = screen.getByTestId("session-right-panel");
       expect(rightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
       await waitFor(() => {
-        expect(rightPanel.getAttribute("style")?.includes("width: 850px")).toBe(true);
+        expect(rightPanel.style.width).toBe("550px");
       });
+      const fullWidthBeforeSettings = rightPanel.style.width;
 
       const settingsButton = screen.container.querySelector('button[title="Settings"]');
       if (!(settingsButton instanceof HTMLElement)) {
@@ -4961,7 +5099,9 @@ describe(`workbench session shell / ${scope}`, () => {
       const restoredThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
       const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
       expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
-      expect(restoredRightPanel.getAttribute("style")?.includes("width: 850px")).toBe(true);
+      await waitFor(() => {
+        expect(restoredRightPanel.style.width).toBe(fullWidthBeforeSettings);
+      });
       expect(restoredThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
       expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
     } finally {
@@ -7029,6 +7169,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    await waitFor(() => {
+      expect(screen.container.querySelector("[data-app-shell-summary-layout]")?.getAttribute("data-app-shell-summary-layout"))
+        .toBe("overlay");
+    });
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("false");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
@@ -7060,14 +7205,18 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => {
-      const input = call[3] as { collapsed?: boolean; size?: { fullWidth?: boolean } } | undefined;
-      return call[0] === "project-session-panels:update"
-        && call[1] === "session:alpha:thread"
-        && call[2] === "right"
-        && input?.collapsed === true
-        && input.size?.fullWidth === false;
-    })).toBe(true);
+    await waitFor(() => {
+      expect(screen.container.querySelector("[data-app-shell-width-class]")?.getAttribute("data-app-shell-width-class"))
+        .toBe("medium");
+      expect(invokeCalls.some((call) => {
+        const input = call[3] as { collapsed?: boolean; size?: { fullWidth?: boolean } } | undefined;
+        return call[0] === "project-session-panels:update"
+          && call[1] === "session:alpha:thread"
+          && call[2] === "right"
+          && input?.collapsed === true
+          && input.size?.fullWidth === false;
+      })).toBe(true);
+    });
 
     setWindowInnerWidthForTest(719);
     await act(async () => {
@@ -7794,7 +7943,9 @@ describe(`workbench session shell / ${scope}`, () => {
         await Promise.resolve();
       });
 
-      expect(bottomPanelSizer.getAttribute("style")?.includes("height: 240px")).toBe(true);
+      await waitFor(() => {
+        expect(bottomPanelSizer.getAttribute("style")?.includes("height: 240px")).toBe(true);
+      });
       expect(invokeCalls.some((call) =>
         call[0] === "project-session-panels:update"
         && call[1] === "session:alpha:terminal"

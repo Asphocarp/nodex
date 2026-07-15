@@ -440,6 +440,7 @@ import {
   replaceCodexThreadWritableRoots,
 } from "../local-store/codex-thread-writable-roots";
 import {
+  listCodexProjectThreadOrders,
   moveCodexProjectThread,
   setCodexProjectThreadOrder,
 } from "../local-store/codex-project-thread-move";
@@ -7245,13 +7246,6 @@ export class CodexService extends EventEmitter {
       throw error;
     }
 
-    if (moved.sidebarOrderError) {
-      this.logger.warn("Failed to save sidebar order after moving task", {
-        threadId,
-        error: moved.sidebarOrderError.message,
-      });
-    }
-
     if (pinned || targetLocation.pinned) {
       try {
         this.persistThreadPinnedState(
@@ -7266,12 +7260,12 @@ export class CodexService extends EventEmitter {
         });
       }
     }
-    dbNotifier.notifyProjectSessionsChanged(
-      moved.sourceProjectId,
-      "move",
-      moved.sessionId,
-    );
     if (moved.targetProjectId !== moved.sourceProjectId) {
+      dbNotifier.notifyProjectSessionsChanged(
+        moved.sourceProjectId,
+        "move",
+        moved.sessionId,
+      );
       dbNotifier.notifyProjectSessionsChanged(
         moved.targetProjectId,
         "move",
@@ -7318,7 +7312,6 @@ export class CodexService extends EventEmitter {
     const parsed = CodexSidebarProjectThreadOrderInputSchema.parse(input);
     const run = () => {
       setCodexProjectThreadOrder(parsed.projectId, parsed.orderedThreadIds);
-      dbNotifier.notifyProjectSessionsChanged(parsed.projectId, "reorder");
       const metadata = createSidebarThreadSyncMetadata();
       markSidebarSyncScopeChanged(metadata, parsed.projectId);
       const syncResult = this.emitSidebarSyncUpdatedFromMetadata(
@@ -7326,8 +7319,6 @@ export class CodexService extends EventEmitter {
         "session-change",
       );
       return {
-        projectId: parsed.projectId,
-        sessions: projectSessionService.listProjectSessionSummaries(parsed.projectId),
         snapshot: syncResult.snapshot,
       };
     };
@@ -7965,12 +7956,14 @@ export class CodexService extends EventEmitter {
       return left.threadId.localeCompare(right.threadId);
     });
 
-    const snapshot = {
+    const projectThreadOrders = listCodexProjectThreadOrders();
+    const snapshot: CodexSidebarSnapshot = {
       items,
       pinnedThreadIds,
       projectAssignments,
       projectlessThreadIds,
-      manualThreadOrder: getCodexSidebarChatOrder(),
+      projectThreadOrders,
+      projectlessThreadOrder: getCodexSidebarChatOrder(),
       revision: this.sidebarSnapshotRevision,
       generatedAt: Date.now(),
     };
@@ -7991,6 +7984,7 @@ export class CodexService extends EventEmitter {
       itemCount: items.length,
       pinnedThreadCount: pinnedThreadIds.length,
       projectAssignmentCount: Object.keys(projectAssignments).length,
+      projectThreadOrderCount: Object.keys(projectThreadOrders).length,
       projectlessThreadCount: projectlessThreadIds.length,
       approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
       durationMs: getDevRuntimeMetricDurationMs(startedAt),
