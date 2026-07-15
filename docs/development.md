@@ -13,6 +13,11 @@ pnpm install
 Nodex pins Node `24.15.0` in `.node-version` and pnpm `11.11.0` in
 `package.json`. Use those versions before running a frozen install.
 
+The install lifecycle runs `electron-builder install-app-deps`, which rebuilds
+`better-sqlite3` and `node-pty` for Electron. Do not run `pnpm rebuild` for these
+packages: it can replace the Electron-compatible binaries with host-Node
+binaries.
+
 Start the desktop app in development mode:
 
 ```bash
@@ -53,9 +58,61 @@ The test commands follow production boundaries:
 - `pnpm test:electron-runtime` runs native persistence probes.
 - `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/SQLite chain.
 
+Use the matching runtime when running one test file:
+
+```bash
+# Pure Node/shared logic
+pnpm exec vitest run --config vitest.node.config.ts <test-file>
+
+# Renderer/jsdom behavior
+pnpm exec vitest run --config vitest.renderer.config.ts <test-file>
+
+# Electron main process, local store, and native addons
+pnpm test:main <test-file>
+
+# Electron integration behavior
+pnpm test:integration <test-file>
+```
+
+Do not run `vitest.main.config.ts` or `vitest.integration.config.ts` directly.
+Those configs fail fast outside Electron so that host Node cannot reach an
+Electron-built native addon.
+
 During implementation, run the narrow test file or runtime suite affected by the
 change. Run the complete validation set once after the final edit set is stable;
 `test:all` is the handoff and release gate, not the inner development loop.
+
+## Native Addon ABI Errors
+
+Electron and the host Node executable can report the same Node version while
+using different native module ABIs. `better-sqlite3` and `node-pty` therefore
+must be loaded by the runtime they were rebuilt for. An error containing
+`compiled against a different Node.js version` or mismatched
+`NODE_MODULE_VERSION` values usually means the wrong runtime launched the code;
+it does not necessarily mean dependencies are stale.
+
+First, rerun the operation through the repository command that owns its runtime.
+For a main/store test, use `pnpm test:main <test-file>`; for an integration
+test, use `pnpm test:integration <test-file>`. Reinstalling is unnecessary
+when the failing command invoked either Electron Vitest config directly.
+
+If a host-Node rebuild already replaced the native binaries, restore the
+repository's Electron target from the repository root:
+
+```bash
+pnpm exec electron-builder install-app-deps
+```
+
+To diagnose an unfamiliar environment, compare the runtime-reported ABIs:
+
+```bash
+node -p "process.versions.modules"
+ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -p "process.versions.modules"
+```
+
+Different values are expected. Do not try to make one native binary serve both
+runtimes; keep native-addon work on the Electron-owned test and application
+paths.
 
 ## Related Technical Docs
 

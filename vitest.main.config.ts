@@ -1,4 +1,7 @@
 import { defineConfig } from "vitest/config";
+import { assertElectronTestRuntime } from "./config/electron-test-runtime";
+
+assertElectronTestRuntime("main");
 
 export default defineConfig({
   test: {

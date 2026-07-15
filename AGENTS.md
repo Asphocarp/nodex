@@ -42,6 +42,9 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 ## Runtime and Tooling
 - Package manager: pnpm
 - Development runtime: Node 24.15.0
+- Native addons: `better-sqlite3` and `node-pty` are rebuilt for Electron by
+  `postinstall`; host Node and Electron have different ABIs even when they report
+  the same Node version.
 - Test runner: Vitest; Playwright for Chromium and Electron E2E
 - Language: TypeScript (`strict` mode)
 - Desktop shell: Electron + electron-vite
@@ -116,7 +119,14 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 
 ## Testing Expectations
 - Use a two-tier validation strategy: run targeted checks while iterating, then run required handoff checks once after the final edit set is stable.
-- Prefer targeted tests while iterating: `pnpm exec vitest run --config <config> <path-to-test>`
+- Match targeted test commands to their runtime:
+  - Node/shared tests: `pnpm exec vitest run --config vitest.node.config.ts <path-to-test>`
+  - Renderer/jsdom tests: `pnpm exec vitest run --config vitest.renderer.config.ts <path-to-test>`
+  - Main/store tests: `pnpm test:main <path-to-test>`
+  - Electron integration tests: `pnpm test:integration <path-to-test>`
+- Never invoke `vitest.main.config.ts` or `vitest.integration.config.ts` directly
+  with host Node. Those suites must use the repository scripts so
+  Electron-built native addons load under Electron's ABI.
 - Match checks to the changed surface while iterating:
   - Pure helpers/domain logic: run the related unit test file.
   - Renderer workflow changes: run the related renderer test(s) plus `pnpm run typecheck` when types or props changed.
