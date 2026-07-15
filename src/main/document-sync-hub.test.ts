@@ -46,10 +46,13 @@ import type {
 } from "../shared/block-transfer";
 import {
   CreateInputSchema,
+  CreateCardsV3InputSchema,
+  CreateCardsV3OutputSchema,
   CreateOutputSchema,
   TransferBlocksInputSchema,
   TransferBlocksOutputSchema,
   type NodexAgentCreateCardCommand,
+  type NodexAgentCreateCardsCommand,
   type NodexAgentTransferCommand,
 } from "../shared/nodex-agent-tools";
 import {
@@ -268,7 +271,6 @@ const nodexAgentCreateCommand = (): NodexAgentCreateCardCommand => ({
     destination: {
       kind: "document",
       documentId: "doc-source",
-      ifRevision: "opaque-revision",
       at: { kind: "end" },
     },
   }),
@@ -284,6 +286,39 @@ const nodexAgentCreateCommand = (): NodexAgentCreateCardCommand => ({
   },
 });
 
+const nodexAgentCreateCardsCommand = (): NodexAgentCreateCardsCommand => {
+  const card = nodexAgentCreateCommand();
+  return {
+    threadId: card.threadId,
+    callId: "call-create-cards",
+    projectId: card.projectId,
+    requestHash: "c".repeat(64),
+    mutationId: "nodex-create-cards:test",
+    storeEpoch: card.storeEpoch,
+    input: CreateCardsV3InputSchema.parse({
+      destination: { kind: "card", cardId: "card-parent" },
+      cards: [{ title: "Created A" }, { title: "Created B" }],
+    }),
+    destination: card.destination,
+    cards: [
+      {
+        input: card.input,
+        cardId: "card-created-a",
+        bodyBlockIds: ["body-created-a"],
+        primaryMembershipId: "membership-primary-a",
+        targetMembershipId: "membership-target-a",
+      },
+      {
+        input: card.input,
+        cardId: "card-created-b",
+        bodyBlockIds: ["body-created-b"],
+        primaryMembershipId: "membership-primary-b",
+        targetMembershipId: "membership-target-b",
+      },
+    ],
+  };
+};
+
 const nodexAgentTransferCommand = (): NodexAgentTransferCommand => {
   const intent = blockTransferIntent();
   const preparation = blockTransferPreparation(intent, 0, 0);
@@ -296,11 +331,10 @@ const nodexAgentTransferCommand = (): NodexAgentTransferCommand => {
     storeEpoch: intent.storeEpoch,
     input: TransferBlocksInputSchema.parse({
       mode: "copy",
-      items: [{ blockId: "card-source", ifLocationRevision: "location-revision" }],
+      blockIds: ["card-source"],
       destination: {
         kind: "document",
         documentId: "doc-target",
-        ifRevision: "document-revision",
         at: { kind: "end" },
       },
     }),
@@ -1970,19 +2004,18 @@ describe("DocumentSyncHub", () => {
           ok: true,
           value: {
             output: CreateOutputSchema.parse({
-              schemaVersion: 1,
               data: {
                 resource: {
                   kind: "card",
                   blockId: "card-created",
                   documentId: "document:card-created",
-                  documentRevision: "document-revision",
-                  locationRevision: "location-revision",
+                  location: { kind: "space" },
+                  bodyBlockCount: 1,
                   createdBodyBlockIds: ["body-created"],
                 },
-                receipt: { duplicate: false },
               },
             }),
+            duplicate: false,
             documentCommits: [{
               documentId: "doc-source",
               generation: 1,
@@ -2051,6 +2084,51 @@ describe("DocumentSyncHub", () => {
     expect(executeCalls).toBe(1);
   });
 
+  test("leases one prepared Document closure for an atomic Agent Card batch", async () => {
+    const command = nodexAgentCreateCardsCommand();
+    let executeCalls = 0;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      executeNodexAgentCreateCards: async () => {
+        executeCalls += 1;
+        return {
+          ok: true,
+          value: {
+            output: CreateCardsV3OutputSchema.parse({
+              data: {
+                cards: command.cards.map((card) => ({
+                  cardId: card.cardId,
+                  location: { kind: "card", cardId: "card-parent" },
+                  bodyBlocksCreated: card.bodyBlockIds.length,
+                })),
+                created: 2,
+              },
+            }),
+            duplicate: false,
+            documentCommits: [],
+            affectedDatabaseBlockIds: ["database-primary"],
+            changeLogSeq: 10,
+          },
+        };
+      },
+    });
+    const leaseDocuments = [{
+      documentId: "doc-source",
+      generation: 1,
+      expectedHeadSeq: 0,
+    }];
+
+    const result = await hub.executeNodexAgentCreateCards(command, leaseDocuments);
+    expect(result.ok).toBe(true);
+    expect(executeCalls).toBe(1);
+    const mismatched = await hub.executeNodexAgentCreateCards(command, []);
+    expect(mismatched).toMatchObject({
+      ok: false,
+      error: { code: "internal_error" },
+    });
+    expect(executeCalls).toBe(1);
+  });
+
   test("leases the prepared Document closure for an Agent Block transfer", async () => {
     const command = nodexAgentTransferCommand();
     let executeCalls = 0;
@@ -2062,20 +2140,18 @@ describe("DocumentSyncHub", () => {
           ok: true,
           value: {
             output: TransferBlocksOutputSchema.parse({
-              schemaVersion: 1,
               data: {
                 mode: "copy",
                 results: [{
                   sourceBlockId: "card-source",
                   resultBlockId: "card-copy",
                   location: { kind: "document", documentId: "doc-target" },
-                  locationRevision: "location-revision-after",
                   transformation: "preserved",
                 }],
                 copiedBlockIds: { "card-source": "card-copy" },
-                receipt: { duplicate: false },
               },
             }),
+            duplicate: false,
             documentCommits: [
               {
                 documentId: "doc-owned-source",

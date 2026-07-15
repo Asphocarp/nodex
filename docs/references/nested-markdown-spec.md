@@ -1,6 +1,7 @@
-### Notion-flavored Markdown
-Notion-flavored Markdown is a variant of standard Markdown with additional features to support all Block and Rich text types.
-Use tabs for indentation.
+# Nested Markdown
+
+Nested Markdown is Nodex's lossless text projection for Block trees. Standard Markdown covers familiar Blocks and inline formatting; Nodex tags cover product-specific structures that Markdown cannot represent. One literal tab per level expresses Block nesting. Leading spaces remain authored text and are never reinterpreted as nesting.
+
 Use backslashes to escape characters. For example, \* will render as * and not as a bold delimiter.
 These are the characters that should be escaped: \ * ~ ` $ [ ] < > { } | ^
 Block types:
@@ -68,9 +69,17 @@ The `uuid` attribute is the opaque Codex app-server thread/session id. It is req
 Nodex extensions for owning Cards and Card mentions:
 <card uuid="{{CARD_BLOCK_ID}}" />
 <mention-card url="nodex://cards/{{CARD_BLOCK_ID}}" />
-An owning `card` Block is a childless shell whose `uuid` is its own stable Card Block identity. During an exact-head whole-NFM replacement, that UUID may preserve or reorder only a Card already owned by the same Document; it never creates, copies, or moves a Card implicitly. Those operations require Nodex's typed ownership commands. A `mention-card` is a childless non-owning mention. Its required URL must resolve through the `nodex://cards/<card-id>` deeplink contract and is canonicalized on serialization. Historical `<card />` and `<card-ref ... />` tags are decode-only and are never emitted by current materialization.
+An owning `card` Block is a childless shell whose `uuid` is its own stable Card Block identity. During a semantically guarded whole-body replacement, that UUID may preserve or reorder only a Card already owned by the same Document; it never creates, copies, or moves a Card implicitly. Those operations require Nodex's typed ownership commands. A `mention-card` is a childless non-owning mention. Its required URL must resolve through the `nodex://cards/<card-id>` deeplink contract and is canonicalized on serialization. Historical `<card />` and `<card-ref ... />` tags are decode-only and are never emitted by current materialization.
 
-For Agent round trips, writable NFM must be the complete canonical serialization of the selected Document or subtree. A truncated preview is not a Document and must never be accepted as replacement input. Whole-NFM replacement is exact-head and all-or-nothing; multiple text patches match against the same canonical source, must identify exact non-overlapping spans, and apply simultaneously. Bulk insertion accepts a complete NFM Block forest at the Document start/end or before/after/inside a stable Block anchor, never at a character offset or fuzzy text ellipsis. Card title is separate Document authority, and any ownership change or deletion of an owning `card` shell requires a typed host operation plus its explicit destructive gate.
+## Agent wire contract
+
+Agent tools use the full name **Nested Markdown** in descriptions and the compact field name `markdown` on the wire. Exact patches use `oldMarkdown` and `newMarkdown`; `format: "markdown"` selects this representation when an explicit format is required. `fetch` returns complete canonical Nested Markdown by default, and `get_context({ include: { markdownGuide: true } })` returns the extended authoring guide on demand.
+
+Writable Nested Markdown must be the complete canonical serialization of the selected Document or subtree. A truncated preview is not a Document and must never be accepted as replacement input. Whole-body replacement is all-or-nothing and requires a body ETag, so an unrelated title change does not invalidate it. Multiple text patches instead match exact `oldMarkdown` fragments against one current canonical source, must satisfy their requested match counts, reject overlaps, and apply simultaneously without a Document-wide validator. Bulk insertion is additive: it accepts a complete Nested Markdown Block forest at the Document start/end or before/after/inside a stable Block anchor, never at a character offset or fuzzy text ellipsis, and resolves the anchor against current state. Card title is a separate semantic unit with its own ETag, while any ownership change or deletion of an owning `card` shell requires a typed host operation plus its explicit destructive gate.
+
+### Inline Markdown titles
+
+Agent-facing Card titles use a bounded, single-line inline Markdown subset rather than a rich-text JSON tree. The lossless subset contains plain text, bold, italic, strikethrough, underline/color spans, inline code, links, `<mention-thread uuid="..." />`, and `<mention-date ... />`. Tabs, line breaks, Block syntax, attachments, agent configuration, and Card Blocks or mentions reject instead of being silently flattened. Title and body remain separate semantic units with separate ETags.
 
 Nodex extension for inline date mentions:
 <mention-date start="YYYY-MM-DD" format="relative" />
@@ -180,7 +189,7 @@ Color precedence (highest to lowest):
 3. Column color (<col color="gray">)
 Contents of table cells:
 - Table cells can only contain rich text. Other block types (headings, lists, images, etc.) are not supported.
-- To apply rich text formatting inside of table cells, use Notion-flavored Markdown syntax, not HTML. For instance, bold text in a table should be wrapped in **, not <strong>.
+- To apply rich text formatting inside of table cells, use Nested Markdown syntax, not HTML. For instance, bold text in a table should be wrapped in **, not <strong>.
 Equation:
 $$
 Equation
@@ -198,7 +207,7 @@ Callout:
 	Children
 </callout>
 Callouts can contain multiple blocks and nested children, not just inline rich text. Each child block should be indented.
-For any formatting inside of callout blocks, use Notion-flavored Markdown, not HTML. For instance, bold text in a callout should be wrapped in **, not <strong>.
+For any formatting inside of callout blocks, use Nested Markdown, not HTML. For instance, bold text in a callout should be wrapped in **, not <strong>.
 Columns:
 <columns>
 	<column>

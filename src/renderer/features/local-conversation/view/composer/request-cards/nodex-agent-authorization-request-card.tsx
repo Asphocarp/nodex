@@ -52,6 +52,7 @@ function buildComposerRequest(
 }
 
 function AuthorizationBody({ request }: { request: NodexAgentAuthorizationRequest }) {
+  const contentPreview = request.preview.markdownPreview ?? request.preview.nfmPreview;
   return (
     <div className="flex min-w-0 flex-col gap-2 px-4 pb-1 text-sm">
       <div className="text-token-text-secondary">{request.preview.summary}</div>
@@ -68,9 +69,9 @@ function AuthorizationBody({ request }: { request: NodexAgentAuthorizationReques
           ))}
         </div>
       ) : null}
-      {request.preview.nfmPreview ? (
+      {contentPreview ? (
         <pre className="max-h-40 overflow-auto rounded-lg bg-token-foreground/5 px-3 py-2 text-size-code leading-5 text-token-text-secondary">
-          {request.preview.nfmPreview}
+          {contentPreview}
         </pre>
       ) : null}
     </div>

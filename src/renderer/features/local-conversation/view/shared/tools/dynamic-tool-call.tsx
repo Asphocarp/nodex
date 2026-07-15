@@ -2,9 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CalendarClock, Check, Circle, CircleX, LoaderCircle } from "lucide-react";
 import type { CodexDynamicToolCallView } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
+import {
+  resolveNodexDynamicToolCallPresentation,
+  type NodexDynamicToolPresentationIcon,
+} from "../../../projection/tool-metadata/nodex-dynamic-tool-call-presentation";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import type { ToolComponentProps } from "./get-tool-component";
 import { ThreadActivityDisclosure } from "./tool-primitives";
+import { DynamicToolCallInspector } from "./dynamic-tool-call-inspector";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 import { CodexAppActivityIcon, CodexCreatedTaskIcon } from "./codex-tool-icons";
 import {
@@ -429,6 +434,41 @@ function SettingsToolCall({
   );
 }
 
+function nodexPresentationIcon(icon: NodexDynamicToolPresentationIcon) {
+  switch (icon) {
+    case "database": return semanticToolIcon("settings");
+    case "read": return semanticToolIcon("list-files");
+    case "search": return semanticToolIcon("code-searching");
+    case "transfer":
+    case "write": return semanticToolIcon("edit-files");
+  }
+}
+
+function NodexAppToolCall({
+  call,
+  variant = "row",
+}: {
+  call: CodexDynamicToolCallView;
+  variant?: DynamicToolCallRenderVariant;
+}) {
+  const presentation = resolveNodexDynamicToolCallPresentation(call);
+  if (!presentation) return null;
+
+  return (
+    <DynamicToolRegistryLabelRow
+      active={!call.completed}
+      icon={variant === "summary-text" ? null : (
+        <ToolActivityIcon
+          descriptor={nodexPresentationIcon(presentation.icon)}
+          className="icon-xs shrink-0 text-token-conversation-body"
+        />
+      )}
+      label={presentation.label}
+      variant={variant}
+    />
+  );
+}
+
 interface ChromeTabMetadata {
   faviconUrl: string | null;
   title: string | null;
@@ -571,6 +611,8 @@ function renderRegisteredDynamicToolCall({
     case "codexAppThread":
       if (!resolveDynamicToolRegistryLabel(call)) return null;
       return <CodexAppThreadToolCall call={call} onOpenThread={onOpenThread} variant={variant} />;
+    case "nodexApp":
+      return <NodexAppToolCall call={call} variant={variant} />;
     case "settings":
       if (!resolveDynamicToolRegistryLabel(call)) return null;
       return <SettingsToolCall call={call} variant={variant} />;
@@ -641,9 +683,11 @@ export function DynamicToolCall({ item, onOpenSummaryScheduledAutomation, onOpen
 
   if (!call) return null;
 
+  const nodexPresentation = resolveNodexDynamicToolCallPresentation(call);
+  let content: ReactNode = null;
   const entry = getDynamicToolRegistryEntry(call);
   if (entry) {
-    const rendered = renderRegisteredDynamicToolCall({
+    content = renderRegisteredDynamicToolCall({
       call,
       entry,
       currentThreadId: item.threadId,
@@ -651,8 +695,11 @@ export function DynamicToolCall({ item, onOpenSummaryScheduledAutomation, onOpen
       onOpenThread,
       variant: "row",
     });
-    if (rendered) return rendered;
   }
 
-  return <DynamicToolFallbackLabel call={call} />;
+  return (
+    <DynamicToolCallInspector item={item} call={call} nodexPresentation={nodexPresentation}>
+      {content ?? <DynamicToolFallbackLabel call={call} />}
+    </DynamicToolCallInspector>
+  );
 }

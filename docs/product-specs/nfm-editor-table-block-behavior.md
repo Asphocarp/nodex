@@ -10,7 +10,7 @@ NFM descriptions support simple editable tables in Card Stage, inline toggle-lis
 ## Syntax and Persistence
 
 - GFM pipe tables parse as NFM `table` blocks and remain serialized as pipe tables while they only use GFM-expressible state: rows, cells, header row, and column alignment.
-- When a table uses non-GFM state such as header column, fixed column widths, fit-page-width, row/column/cell color, colspan, or rowspan, serialization upgrades that block to the lossless NFM `<table>` extension documented in `docs/references/notion-flavored-markdown-spec.md`.
+- When a table uses non-GFM state such as header column, fixed column widths, fit-page-width, row/column/cell color, colspan, or rowspan, serialization upgrades that block to the lossless NFM `<table>` extension documented in `docs/references/nested-markdown-spec.md`.
 - Tables are top-level or nested NFM blocks but are childless at the persistence boundary. Table cells contain inline NFM rich text only; block children, images, card refs, thread sections, and other block content are not valid inside cells.
 - Card descriptions continue to persist as plain NFM text. No SQLite schema migration is required.
 

@@ -7,11 +7,10 @@ import type {
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import {
-  decodeNodexAgentToken,
-  mintNodexAgentToken,
-  NodexAgentTokenError,
-  type NodexAgentTokenKind,
-} from "../local-store/nodex-agent-token-codec";
+  decodeNodexAgentCursor,
+  mintNodexAgentCursor,
+  NodexAgentCursorError,
+} from "../local-store/nodex-agent-cursor-codec";
 
 export const NODEX_AGENT_RESPONSE_MAX_BYTES = 256 * 1024;
 
@@ -103,18 +102,6 @@ export function parseJsonValue(value: string, label: string): JsonValue {
   }
 }
 
-export function mintRevision(
-  database: Database.Database,
-  input: {
-    readonly kind: Exclude<NodexAgentTokenKind, "cursor">;
-    readonly projectId: string;
-    readonly subject: readonly string[];
-    readonly state: Readonly<Record<string, JsonValue>>;
-  },
-): string {
-  return mintNodexAgentToken(database, input);
-}
-
 export function readCursorState(
   database: Database.Database,
   input: {
@@ -127,8 +114,7 @@ export function readCursorState(
 ): { readonly offset: number } {
   if (!input.token) return { offset: 0 };
   try {
-    const payload = decodeNodexAgentToken(database, input.token, {
-      kind: "cursor",
+    const payload = decodeNodexAgentCursor(database, input.token, {
       projectId: input.projectId,
       subject: input.subject,
     });
@@ -141,19 +127,10 @@ export function readCursorState(
         input.recovery ?? "restart_search",
       );
     }
-    const offset = payload.state.offset;
-    if (typeof offset === "number" && Number.isInteger(offset) && offset >= 0) {
-      return { offset };
-    }
-    throw new NodexAgentReadError(
-      "cursor_stale",
-      "The cursor does not contain a valid page position",
-      false,
-      input.recovery ?? "restart_search",
-    );
+    return { offset: payload.offset };
   } catch (error) {
     if (error instanceof NodexAgentReadError) throw error;
-    if (error instanceof NodexAgentTokenError) {
+    if (error instanceof NodexAgentCursorError) {
       throw new NodexAgentReadError(
         "cursor_stale",
         error.message,
@@ -174,12 +151,7 @@ export function mintCursor(
     readonly state: Readonly<Record<string, JsonValue>>;
   },
 ): string {
-  return mintNodexAgentToken(database, {
-    kind: "cursor",
-    projectId: input.projectId,
-    subject: input.subject,
-    state: { ...input.state, offset: input.offset },
-  });
+  return mintNodexAgentCursor(database, input);
 }
 
 export function toBlockLocation(row: {

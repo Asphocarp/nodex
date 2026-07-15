@@ -14,7 +14,6 @@ import {
   EditDatabaseOutputSchema,
   type EditDatabaseOutput,
   type ExecuteNodexAgentDatabaseEditResult,
-  type JsonValue,
   type NodexAgentDatabaseEditCommand,
   type PrepareNodexAgentDatabaseEditRequest,
   type PrepareNodexAgentDatabaseEditResult,
@@ -22,10 +21,10 @@ import {
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { applyDatabaseMutation } from "../local-store/database-kernel";
 import {
-  decodeNodexAgentToken,
-  NodexAgentTokenError,
-  type NodexAgentTokenKind,
-} from "../local-store/nodex-agent-token-codec";
+  assertNodexAgentEtag,
+  mintNodexAgentEtag,
+  NodexAgentEtagError,
+} from "../local-store/nodex-agent-etag";
 import {
   nodexAgentCallIdentity,
   readNodexAgentCallReceipt,
@@ -33,18 +32,22 @@ import {
   type NodexAgentCallReceiptRow,
 } from "./call-receipts";
 import {
-  mintRevision,
   NodexAgentReadError,
   nodexAgentFingerprint,
   parseJsonValue,
   readFailure,
   requireProject,
 } from "./read-support";
+import {
+  databaseValueEtagState,
+  viewPlacementEtagState,
+} from "./semantic-guards";
 
 interface MembershipValueRow {
   readonly membership_id: string;
   readonly membership_revision: number;
   readonly property_schema_revision: number;
+  readonly value_json: string;
   readonly value_revision: number;
   readonly value_type: DatabasePropertyValueType;
   readonly config_json: string;
@@ -65,56 +68,10 @@ interface PlacementRow {
   readonly group_value_revision: number;
 }
 
-function coordinate(value: JsonValue | undefined, label: string): number {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-  throw new NodexAgentReadError(
-    "conflict",
-    `${label} revision is incomplete`,
-    false,
-    "query_database_again",
-  );
-}
-
-function decodeRevision(
-  database: Database.Database,
-  input: {
-    readonly token: string;
-    readonly kind: Exclude<NodexAgentTokenKind, "cursor">;
-    readonly projectId: string;
-    readonly subject: readonly string[];
-  },
-) {
-  try {
-    return decodeNodexAgentToken(database, input.token, {
-      kind: input.kind,
-      projectId: input.projectId,
-      subject: input.subject,
-    });
-  } catch (error) {
-    if (!(error instanceof NodexAgentTokenError)) throw error;
-    throw new NodexAgentReadError(
-      error.code === "invalid_token" ? "invalid_arguments" : "conflict",
-      error.message,
-      false,
-      "query_database_again",
-      { resourceId: input.subject.at(-1), domainCode: error.code },
-    );
-  }
-}
-
-function requireDatabaseSchema(
+function requireDatabase(
   database: Database.Database,
   request: PrepareNodexAgentDatabaseEditRequest,
-): number {
-  const token = decodeRevision(database, {
-    token: request.input.ifSchemaRevision,
-    kind: "database_schema",
-    projectId: request.projectId,
-    subject: [request.input.databaseBlockId],
-  });
-  const revision = coordinate(token.state.revision, "Database schema");
+): void {
   const row = database.prepare(
     `
     SELECT capability.schema_revision
@@ -128,13 +85,13 @@ function requireDatabaseSchema(
   `).get(request.input.databaseBlockId, request.projectId) as
     | { readonly schema_revision: number }
     | undefined;
-  if (row?.schema_revision === revision) return revision;
+  if (row) return;
   throw new NodexAgentReadError(
-    "conflict",
-    `Database ${request.input.databaseBlockId} schema changed after it was read`,
+    "not_found",
+    `Database ${request.input.databaseBlockId} is unavailable`,
     false,
     "query_database_again",
-    { resourceId: request.input.databaseBlockId, domainCode: "database_schema_conflict" },
+    { resourceId: request.input.databaseBlockId, domainCode: "database_not_found" },
   );
 }
 
@@ -153,6 +110,7 @@ function readMembershipValue(
       membership.id AS membership_id,
       membership.revision AS membership_revision,
       property.schema_revision AS property_schema_revision,
+      COALESCE(value.value_json, 'null') AS value_json,
       COALESCE(value.revision, 0) AS value_revision,
       property.value_type, property.config_json
     FROM database_memberships membership
@@ -197,24 +155,26 @@ function compileValueSet(
     blockId: edit.blockId,
     propertyId: edit.propertyId,
   });
-  const token = decodeRevision(database, {
-    token: edit.ifRevision,
-    kind: "database_value",
-    projectId: request.projectId,
-    subject: [request.input.databaseBlockId, edit.blockId, edit.propertyId],
-  });
-  const exact = token.state.membershipId === row.membership_id
-    && coordinate(token.state.membershipRevision, "Membership") === row.membership_revision
-    && coordinate(token.state.propertySchemaRevision, "Property schema")
-      === row.property_schema_revision
-    && coordinate(token.state.valueRevision, "Database value") === row.value_revision;
-  if (!exact) {
+  try {
+    assertNodexAgentEtag(database, edit.ifMatch, databaseValueEtagState({
+      projectId: request.projectId,
+      databaseBlockId: request.input.databaseBlockId,
+      blockId: edit.blockId,
+      propertyId: edit.propertyId,
+      value: parseJsonValue(row.value_json, "Database value"),
+      membershipId: row.membership_id,
+      membershipRevision: row.membership_revision,
+      propertySchemaRevision: row.property_schema_revision,
+      valueRevision: row.value_revision,
+    }));
+  } catch (error) {
+    if (!(error instanceof NodexAgentEtagError)) throw error;
     throw new NodexAgentReadError(
-      "conflict",
-      `Value ${edit.blockId}/${edit.propertyId} changed after it was read`,
+      error.code === "invalid_etag" ? "invalid_arguments" : "conflict",
+      error.message,
       false,
-      "query_database_again",
-      { resourceId: edit.blockId, domainCode: "database_value_conflict" },
+      error.code === "invalid_etag" ? "none" : "query_database_again",
+      { resourceId: edit.blockId, domainCode: error.code },
     );
   }
   try {
@@ -357,42 +317,77 @@ function readPlacement(
   );
 }
 
-function validatePlacementToken(
+function nextPlacementId(
+  database: Database.Database,
+  input: {
+    readonly viewId: string;
+    readonly projectId: string;
+    readonly blockId: string;
+    readonly groupKey: string | null;
+  },
+): string | null {
+  const row = database.prepare(
+    `
+    SELECT candidate.block_id
+    FROM database_view_positions current
+    INNER JOIN database_view_positions candidate
+      ON candidate.view_id = current.view_id
+     AND candidate.project_id = current.project_id
+     AND candidate.group_key IS current.group_key
+     AND (
+       candidate.rank_key > current.rank_key
+       OR (candidate.rank_key = current.rank_key AND candidate.block_id > current.block_id)
+     )
+    WHERE current.view_id = ? AND current.project_id = ?
+      AND current.block_id = ? AND current.group_key IS ?
+    ORDER BY candidate.rank_key, candidate.block_id
+    LIMIT 1
+    `,
+  ).get(input.viewId, input.projectId, input.blockId, input.groupKey) as
+    | { readonly block_id: string }
+    | undefined;
+  return row?.block_id ?? null;
+}
+
+function validatePlacementEtag(
   database: Database.Database,
   request: PrepareNodexAgentDatabaseEditRequest,
   input: {
     readonly view: ViewRow;
     readonly blockId: string;
-    readonly token: string;
+    readonly etag: string;
     readonly placement: PlacementRow;
-    readonly groupPropertyId: string | null;
   },
 ): void {
-  const token = decodeRevision(database, {
-    token: input.token,
-    kind: "view_placement",
-    projectId: request.projectId,
-    subject: [input.view.id, input.blockId],
-  });
-  const exact = token.state.databaseBlockId === request.input.databaseBlockId
-    && coordinate(token.state.viewRevision, "View") === input.view.revision
-    && token.state.membershipId === input.placement.membership_id
-    && coordinate(token.state.membershipRevision, "Membership")
-      === input.placement.membership_revision
-    && coordinate(token.state.positionRevision, "View position")
-      === input.placement.position_revision
-    && token.state.groupPropertyId === input.groupPropertyId
-    && coordinate(token.state.groupValueRevision, "Group value")
-      === input.placement.group_value_revision
-    && token.state.groupKey === input.placement.group_key;
-  if (exact) return;
-  throw new NodexAgentReadError(
-    "conflict",
-    `Block ${input.blockId} View placement changed after it was read`,
-    false,
-    "query_database_again",
-    { resourceId: input.blockId, domainCode: "view_position_conflict" },
-  );
+  try {
+    assertNodexAgentEtag(database, input.etag, viewPlacementEtagState({
+      projectId: request.projectId,
+      databaseBlockId: request.input.databaseBlockId,
+      viewId: input.view.id,
+      blockId: input.blockId,
+      groupKey: input.placement.group_key,
+      beforeBlockId: nextPlacementId(database, {
+        viewId: input.view.id,
+        projectId: request.projectId,
+        blockId: input.blockId,
+        groupKey: input.placement.group_key,
+      }),
+      membershipId: input.placement.membership_id,
+      membershipRevision: input.placement.membership_revision,
+      viewRevision: input.view.revision,
+      positionRevision: input.placement.position_revision,
+      groupValueRevision: input.placement.group_value_revision,
+    }));
+  } catch (error) {
+    if (!(error instanceof NodexAgentEtagError)) throw error;
+    throw new NodexAgentReadError(
+      error.code === "invalid_etag" ? "invalid_arguments" : "conflict",
+      error.message,
+      false,
+      error.code === "invalid_etag" ? "none" : "query_database_again",
+      { resourceId: input.blockId, domainCode: error.code },
+    );
+  }
 }
 
 function beforePlacementId(
@@ -452,24 +447,6 @@ function compileViewPlacement(
     request.input.databaseBlockId,
     edit.viewId,
   );
-  const viewToken = decodeRevision(database, {
-    token: edit.ifViewRevision,
-    kind: "view",
-    projectId: request.projectId,
-    subject: [edit.viewId],
-  });
-  if (
-    viewToken.state.databaseBlockId !== request.input.databaseBlockId
-    || coordinate(viewToken.state.revision, "View") !== view.revision
-  ) {
-    throw new NodexAgentReadError(
-      "conflict",
-      `View ${edit.viewId} changed after it was read`,
-      false,
-      "query_database_again",
-      { resourceId: edit.viewId, domainCode: "view_conflict" },
-    );
-  }
   const config = parseGeneralDatabaseViewConfig(JSON.parse(view.config_json) as unknown);
   const groupPropertyId = config.group?.propertyId ?? null;
   const groupKey = edit.groupKey ?? null;
@@ -489,12 +466,11 @@ function compileViewPlacement(
       blockId: item.blockId,
       groupPropertyId,
     });
-    validatePlacementToken(database, request, {
+    validatePlacementEtag(database, request, {
       view,
       blockId: item.blockId,
-      token: item.ifRevision,
+      etag: item.ifMatch,
       placement,
-      groupPropertyId,
     });
     return { item, placement };
   });
@@ -572,11 +548,7 @@ function replayOutput(receipt: NodexAgentCallReceiptRow): EditDatabaseOutput {
   if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
     throw new Error("Agent Database edit result metadata is invalid");
   }
-  const output = EditDatabaseOutputSchema.parse(metadata.output);
-  return EditDatabaseOutputSchema.parse({
-    ...output,
-    data: { ...output.data, receipt: { duplicate: true } },
-  });
+  return EditDatabaseOutputSchema.parse(metadata.output);
 }
 
 function prepareDatabaseEdit(
@@ -584,7 +556,6 @@ function prepareDatabaseEdit(
   request: PrepareNodexAgentDatabaseEditRequest,
 ): PrepareNodexAgentDatabaseEditResult {
   requireProject(database, request.projectId);
-  requireDatabaseSchema(database, request);
   const key = { ...request, tool: "edit_database" };
   const identity = nodexAgentCallIdentity(key);
   const requestHash = nodexAgentFingerprint({
@@ -599,6 +570,7 @@ function prepareDatabaseEdit(
       return { ok: true, value: { kind: "completed", output: replayOutput(existing) } };
     }
   }
+  requireDatabase(database, request);
   const operations = request.input.edits.flatMap((edit): readonly DatabaseMutationOperation[] => {
     if (edit.kind === "value.set") {
       return [compileValueSet(database, request, edit)];
@@ -691,11 +663,26 @@ function outputDatabaseEdit(
     }
     return [];
   });
+  const uniquePlacements = [...new Map(placementTargets.map((target) => [
+    `${target.blockId}\0${target.viewId}`,
+    target,
+  ])).values()];
+  const includeEtags = command.input.return?.etags === true;
   return EditDatabaseOutputSchema.parse({
-    schemaVersion: 1,
     data: {
       databaseBlockId: command.input.databaseBlockId,
-      valueRevisions: uniqueValues.map((target) => {
+      effects: {
+        valuesSet: command.input.edits.filter((edit) => edit.kind === "value.set").length,
+        setsChanged: command.input.edits.filter(
+          (edit) => edit.kind === "value.add_remove",
+        ).length,
+        placementsChanged: command.input.edits.reduce(
+          (count, edit) => count + (edit.kind === "view.place" ? edit.items.length : 0),
+          0,
+        ),
+      },
+      ...(includeEtags ? { etags: {
+        values: uniqueValues.map((target) => {
         const row = readMembershipValue(database, {
           projectId: command.projectId,
           databaseBlockId: command.input.databaseBlockId,
@@ -705,20 +692,20 @@ function outputDatabaseEdit(
         return {
           blockId: target.blockId,
           propertyId: target.propertyId,
-          revision: mintRevision(database, {
-            kind: "database_value",
+          etag: mintNodexAgentEtag(database, databaseValueEtagState({
             projectId: command.projectId,
-            subject: [command.input.databaseBlockId, target.blockId, target.propertyId],
-            state: {
-              membershipId: row.membership_id,
-              membershipRevision: row.membership_revision,
-              propertySchemaRevision: row.property_schema_revision,
-              valueRevision: row.value_revision,
-            },
-          }),
+            databaseBlockId: command.input.databaseBlockId,
+            blockId: target.blockId,
+            propertyId: target.propertyId,
+            value: parseJsonValue(row.value_json, "Database value"),
+            membershipId: row.membership_id,
+            membershipRevision: row.membership_revision,
+            propertySchemaRevision: row.property_schema_revision,
+            valueRevision: row.value_revision,
+          })),
         };
       }),
-      placementRevisions: placementTargets.map((target) => {
+        placements: uniquePlacements.map((target) => {
         const view = readView(
           database,
           command.projectId,
@@ -739,24 +726,27 @@ function outputDatabaseEdit(
         return {
           blockId: target.blockId,
           viewId: target.viewId,
-          revision: mintRevision(database, {
-            kind: "view_placement",
+          etag: mintNodexAgentEtag(database, viewPlacementEtagState({
             projectId: command.projectId,
-            subject: [target.viewId, target.blockId],
-            state: {
-              databaseBlockId: command.input.databaseBlockId,
-              viewRevision: view.revision,
-              membershipId: placement.membership_id,
-              membershipRevision: placement.membership_revision,
-              positionRevision: placement.position_revision,
-              groupPropertyId,
-              groupValueRevision: placement.group_value_revision,
+            databaseBlockId: command.input.databaseBlockId,
+            viewId: target.viewId,
+            blockId: target.blockId,
+            groupKey: placement.group_key,
+            beforeBlockId: nextPlacementId(database, {
+              viewId: target.viewId,
+              projectId: command.projectId,
+              blockId: target.blockId,
               groupKey: placement.group_key,
-            },
-          }),
+            }),
+            membershipId: placement.membership_id,
+            membershipRevision: placement.membership_revision,
+            viewRevision: view.revision,
+            positionRevision: placement.position_revision,
+            groupValueRevision: placement.group_value_revision,
+          })),
         };
       }),
-      receipt: { duplicate: false },
+      } } : {}),
     },
   });
 }
@@ -785,6 +775,7 @@ function executeDatabaseEdit(
       ok: true,
       value: {
         output: replayOutput(callReceipt),
+        duplicate: true,
         affectedDatabaseBlockIds: [],
         changeLogSeq: 0,
       },
@@ -819,6 +810,7 @@ function executeDatabaseEdit(
     ok: true,
     value: {
       output,
+      duplicate: false,
       affectedDatabaseBlockIds: result.value.affectedDatabaseBlockIds,
       changeLogSeq: result.value.changeLogSeq,
     },

@@ -86,4 +86,28 @@ describe("NodexAgentAuthorizationRequestCard", () => {
     });
     expect(responses).toEqual([{ decision: "allow_once" }]);
   });
+
+  test("renders the v3 Nested Markdown preview without changing the compact surface", async () => {
+    const v3Request: NodexAgentAuthorizationRequest = {
+      ...request("write"),
+      tool: "create_cards",
+      preview: {
+        ...request("write").preview,
+        nfmPreview: undefined,
+        markdownPreview: "▶ Rollout\n\t- [ ] Alpha",
+      },
+    };
+    const { getByText } = render(
+      <TooltipProvider>
+        <NodexAgentAuthorizationRequestCard
+          request={v3Request}
+          onRespond={async () => {}}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(getByText(/▶ Rollout/)).toBeTruthy();
+    expect(getByText(/Alpha/)).toBeTruthy();
+  });
 });

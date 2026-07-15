@@ -939,6 +939,33 @@ describe("buildRendererItemStream", () => {
     expect(items[0]?.searchableText).toContain("Alpha cohort");
   });
 
+  test("indexes a v3 Nested Markdown authorization preview", () => {
+    const items = buildRendererItemStream({
+      entries: [],
+      requests: [{
+        type: "nodexAgentAuthorization",
+        requestId: "nodex-auth-v3",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "call-v3",
+        tool: "create_cards",
+        effect: "write",
+        preview: {
+          title: "Create launch Cards",
+          summary: "Create two complete Cards.",
+          details: [{ label: "Destination", value: "Project Space" }],
+          markdownPreview: "## Launch\n\n- Alpha cohort",
+        },
+        createdAt: 6,
+      }],
+      turnStatus: "inProgress",
+    });
+
+    expect(items[0]?.searchableText).toContain("Project Space");
+    expect(items[0]?.searchableText).toContain("Alpha cohort");
+  });
+
   test("does not synthesize worked-for rows in the flat renderer item stream", () => {
     const items = buildRendererItemStream({
       entries: [

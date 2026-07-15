@@ -1,0 +1,76 @@
+import { z } from "zod";
+import { MAX_CARD_WRITE_BODY_BYTES } from "../card-limits";
+import { MAX_PORTABLE_RICH_TEXT_BYTES } from "../block-documents/portable-rich-text";
+import { parseInlineMarkdownTitle } from "../nfm/agent-title";
+import {
+  BlockIdSchema,
+  JsonValueSchema,
+  PropertyIdSchema,
+  SiblingAnchorSchema,
+  ViewIdSchema,
+} from "./base-schemas";
+
+export const InlineMarkdownTitleSchema = z.string()
+  .max(MAX_PORTABLE_RICH_TEXT_BYTES)
+  .superRefine((markdown, context) => {
+    try {
+      parseInlineMarkdownTitle(markdown);
+    } catch (error) {
+      context.addIssue({
+        code: "custom",
+        message: error instanceof Error ? error.message : "Invalid inline Markdown title",
+      });
+    }
+  })
+  .describe("Single-line title using Nested Markdown's title-safe inline subset");
+
+export const NestedMarkdownSchema = z.string()
+  .max(MAX_CARD_WRITE_BODY_BYTES)
+  .refine(
+    (markdown) => new TextEncoder().encode(markdown).byteLength <= MAX_CARD_WRITE_BODY_BYTES,
+    `Nested Markdown must be at most ${MAX_CARD_WRITE_BODY_BYTES} UTF-8 bytes`,
+  );
+
+export const DatabaseValueDraftV3Schema = z.strictObject({
+  propertyId: PropertyIdSchema,
+  value: JsonValueSchema,
+});
+
+export const DatabaseDestinationViewV3Schema = z.strictObject({
+  viewId: ViewIdSchema,
+  groupKey: z.string().max(4_096).nullable().optional(),
+  at: SiblingAnchorSchema.optional(),
+});
+
+export const CardLocationV3Schema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("space") }),
+  z.strictObject({ kind: z.literal("card"), cardId: BlockIdSchema }),
+  z.strictObject({ kind: z.literal("database"), databaseBlockId: BlockIdSchema }),
+]);
+
+export const CardDestinationV3Schema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("space"),
+    at: SiblingAnchorSchema.optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("card"),
+    cardId: BlockIdSchema,
+    at: SiblingAnchorSchema.optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("database"),
+    databaseBlockId: BlockIdSchema,
+    view: DatabaseDestinationViewV3Schema.optional(),
+  }),
+]);
+
+export function uniqueSelectorList<T extends readonly [string, ...string[]]>(
+  selectors: T,
+  maximum = selectors.length,
+) {
+  return z.array(z.enum(selectors)).max(maximum).refine(
+    (values) => new Set(values).size === values.length,
+    "Return selectors must be unique",
+  );
+}

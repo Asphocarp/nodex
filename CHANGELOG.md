@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added semantic Card revision history with exact read-only title/body previews, meaningful automatic edit checkpoints, named and operation-linked revisions, forward restore, and bounded long-term retention.
-- Added Project-bound `nodex_app` tools that let agents find and read Blocks, Cards, Databases, and Views; create complete many-Block Cards from NFM; and perform revision-safe document, ownership, and Database edits with inline write authorization.
+- Added the Project-bound `nodex_app@3` catalog: agents can `search → fetch`, query saved Views or run advanced Database queries, create complete Card batches from Nested Markdown, update Cards through text or stable-Block intents, and move or duplicate Cards with sparse Code Mode-friendly results, semantic write authorization, and fully inspectable transcript calls.
 - Added a Hooks settings page with source/project/plugin deep links from hook feedback, app-server-backed discovery, hook review and trust controls, enable toggles, and cross-window refresh after config changes.
 - Added an optional Auto-review prompt after repeated manual approvals, with a permanent keep-manual choice and one-click switching to `Approve for me`.
 - Added one trusted command boundary for creating, transforming, and safely deleting Synced Blocks, Reusable Templates, and Canvas documents, available through Electron, browser HTTP/SSE, the renderer API, and `nodex block command` with exact-retry receipts.

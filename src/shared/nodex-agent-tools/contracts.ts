@@ -53,7 +53,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   get_block: defineNodexAgentToolContract({
     description:
-      "Read one known Block by stable identity. For Cards or document Blocks, request a summary, complete canonical NFM, or paged structural Blocks together with opaque revisions for safe later edits.",
+      "Read one known Block by stable identity. Request selected properties, a summary, complete canonical NFM, or paged structural Blocks; prepare only the short ETags required by a specific later overwrite.",
     inputSchema: GetBlockInputSchema,
     outputSchema: GetBlockOutputSchema,
     deferLoading: false,
@@ -69,7 +69,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   query_database: defineNodexAgentToolContract({
     description:
-      "Query a persisted Database View or run a typed ad-hoc Database filter/sort. Returns schema, values, placement state, and opaque revisions needed for later Database edits.",
+      "Query a persisted Database View or run a typed ad-hoc Database filter/sort. Reads are validator-free by default and can prepare short ETags only for selected value or placement edits.",
     inputSchema: QueryDatabaseInputSchema,
     outputSchema: QueryDatabaseOutputSchema,
     deferLoading: true,
@@ -77,7 +77,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   create: defineNodexAgentToolContract({
     description:
-      "Atomically create one complete aggregate. Version 1 creates a Card with a title and optional multi-Block NFM body directly in Space, a Document, or a Database with initial values and View placement.",
+      "Atomically create one complete Card with a title and optional multi-Block NFM body directly in Space, a Document, or a Database with initial values and View placement.",
     inputSchema: CreateInputSchema,
     outputSchema: CreateOutputSchema,
     deferLoading: true,
@@ -85,12 +85,12 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   edit_document: defineNodexAgentToolContract({
     description:
-      "Atomically edit one Card document and optional title. Prefer complete NFM replace for substantial rewrites, NFM insert for appending many Blocks, exact simultaneous NFM patches for focused text edits, and stable Block operations for identity-sensitive changes.",
+      "Atomically edit one Card document and optional title. NFM insert and exact simultaneous patches use semantic matching; whole replacement and destructive stable-Block changes use narrow ifMatch ETags.",
     inputSchema: EditDocumentInputSchema,
     outputSchema: EditDocumentOutputSchema,
     deferLoading: true,
     classifyEffect: (input: z.output<typeof EditDocumentInputSchema>) => {
-      if (input.body?.kind === "nfm.patch" || input.body?.kind === "nfm.replace") {
+      if (input.body?.kind === "nfm.replace") {
         return "destructive";
       }
       if (
@@ -112,7 +112,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   edit_database: defineNodexAgentToolContract({
     description:
-      "Atomically change typed Database values or persisted View placement. Membership changes use transfer_blocks; schema and View-definition changes are intentionally not exposed in version 1.",
+      "Atomically change typed Database values or persisted View placement. Membership changes use transfer_blocks; schema and View-definition changes are intentionally not exposed by this contract.",
     inputSchema: EditDatabaseInputSchema,
     outputSchema: EditDatabaseOutputSchema,
     deferLoading: true,

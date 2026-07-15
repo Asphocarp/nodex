@@ -1,18 +1,17 @@
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import {
-  NODEX_AGENT_TOOL_SCHEMA_VERSION,
   NODEX_APP_TOOL_NAMESPACE,
-  NODEX_APP_TOOLSET_REVISION,
   type NodexAgentAccess,
   type ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import {
   NodexAgentDynamicToolFailure,
-  nodexAgentDynamicService,
   type NodexAgentDynamicExecutionContext,
 } from "../agent-tools/dynamic-service";
+import { nodexAgentV3DynamicService } from "../agent-tools/dynamic-service-v3";
 import { DynamicToolRegistryError } from "./dynamic-tool-registry";
+import { buildNodexAgentV3DynamicToolCatalog } from "./nodex-dynamic-tool-registry";
 
 function buildFailure(
   code: ToolFailure["error"]["code"],
@@ -21,7 +20,6 @@ function buildFailure(
   retryable = false,
 ): ToolFailure {
   return {
-    schemaVersion: NODEX_AGENT_TOOL_SCHEMA_VERSION,
     error: { code, message, retryable, recovery },
   };
 }
@@ -67,10 +65,7 @@ function mapRegistryFailure(error: DynamicToolRegistryError): ToolFailure {
 }
 
 export function buildNodexAgentDynamicToolSpecs() {
-  return nodexAgentDynamicService.registry.buildCatalog([{
-    namespace: NODEX_APP_TOOL_NAMESPACE,
-    toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-  }]);
+  return buildNodexAgentV3DynamicToolCatalog();
 }
 
 export async function executeNodexAgentDynamicToolCall(
@@ -98,7 +93,7 @@ export async function executeNodexAgentDynamicToolCall(
   }
 
   try {
-    const result = await nodexAgentDynamicService.registry.execute(
+    const result = await nodexAgentV3DynamicService.registry.execute(
       {
         namespace: NODEX_APP_TOOL_NAMESPACE,
         toolsetRevision: input.toolsetRevision,

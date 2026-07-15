@@ -133,9 +133,9 @@ Scheduler and Calendar reads begin with `scheduled_card_index`, never the wide C
 
 The materialization committed with each Card Document head supplies title, NFM, preview, references, and assets to Card-named read models. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes a projection back into content or metadata authority.
 
-### NFM
+### Nested Markdown (internal NFM)
 
-NFM is Nodex's public text interchange format. It is used for genesis import, explicit compare-and-swap replacement, export, and materialized reads. NFM does not preserve every internal identity and is never a collaborative write authority.
+Nested Markdown is Nodex's public text interchange format; internal modules and persisted compatibility identifiers may still call it NFM. It is used for genesis import, explicit compare-and-swap replacement, export, and materialized reads. Nested Markdown does not preserve every internal identity and is never a collaborative write authority.
 
 There is no ordinary whole-Card update transport. Card lifecycle, Block/Database properties, and Document content use separate typed commands. Retired Card creation/deletion/description endpoints return `410 Gone` with their authoritative replacements. A whole-body NFM import must use `ReplaceDocumentFromNfm` with the current Document generation and head; renderer editing always emits Yjs updates instead.
 

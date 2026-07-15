@@ -93,18 +93,36 @@ import type {
 import type {
   CompleteNodexAgentDocumentEditRequest,
   CompleteNodexAgentDocumentEditResult,
+  CompleteNodexAgentCardUpdateRequest,
+  CompleteNodexAgentCardUpdateResult,
   ExecuteNodexAgentCreateResult,
+  ExecuteNodexAgentCreateCardsResult,
+  ExecuteNodexAgentDuplicateCardResult,
+  ExecuteNodexAgentMoveCardsResult,
   ExecuteNodexAgentDatabaseEditResult,
   ExecuteNodexAgentTransferResult,
   NodexAgentCreateCardCommand,
+  NodexAgentCreateCardsCommand,
+  NodexAgentDuplicateCardCommand,
+  NodexAgentMoveCardsCommand,
   NodexAgentDatabaseEditCommand,
   NodexAgentTransferCommand,
   NodexAgentReadCommandResult,
   NodexAgentReadRequest,
+  NodexAgentV3ReadCommandResult,
+  NodexAgentV3ReadRequest,
   PrepareNodexAgentDocumentEditRequest,
   PrepareNodexAgentDocumentEditResult,
+  PrepareNodexAgentCardUpdateRequest,
+  PrepareNodexAgentCardUpdateResult,
   PrepareNodexAgentCreateRequest,
   PrepareNodexAgentCreateResult,
+  PrepareNodexAgentCreateCardsRequest,
+  PrepareNodexAgentCreateCardsResult,
+  PrepareNodexAgentDuplicateCardRequest,
+  PrepareNodexAgentDuplicateCardResult,
+  PrepareNodexAgentMoveCardsRequest,
+  PrepareNodexAgentMoveCardsResult,
   PrepareNodexAgentDatabaseEditRequest,
   PrepareNodexAgentDatabaseEditResult,
   PrepareNodexAgentTransferRequest,
@@ -134,6 +152,10 @@ export type BlockMutationWorkerRequest =
       payload: NodexAgentReadRequest;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "readNodexAgentV3Tool";
+      payload: NodexAgentV3ReadRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "prepareNodexAgentDocumentEdit";
       payload: PrepareNodexAgentDocumentEditRequest;
     })
@@ -142,12 +164,44 @@ export type BlockMutationWorkerRequest =
       payload: CompleteNodexAgentDocumentEditRequest;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentCardUpdate";
+      payload: PrepareNodexAgentCardUpdateRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "completeNodexAgentCardUpdate";
+      payload: CompleteNodexAgentCardUpdateRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "prepareNodexAgentCreate";
       payload: PrepareNodexAgentCreateRequest;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "executeNodexAgentCreate";
       payload: NodexAgentCreateCardCommand;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentCreateCards";
+      payload: PrepareNodexAgentCreateCardsRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "executeNodexAgentCreateCards";
+      payload: NodexAgentCreateCardsCommand;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentDuplicateCard";
+      payload: PrepareNodexAgentDuplicateCardRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "executeNodexAgentDuplicateCard";
+      payload: NodexAgentDuplicateCardCommand;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentMoveCards";
+      payload: PrepareNodexAgentMoveCardsRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "executeNodexAgentMoveCards";
+      payload: NodexAgentMoveCardsCommand;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "prepareNodexAgentTransfer";
@@ -375,10 +429,19 @@ export type BlockDocumentWorkerResult =
 export type BlockMutationWorkerResult =
   | CardOccurrenceMutationResult
   | NodexAgentReadCommandResult
+  | NodexAgentV3ReadCommandResult
   | PrepareNodexAgentDocumentEditResult
   | CompleteNodexAgentDocumentEditResult
+  | PrepareNodexAgentCardUpdateResult
+  | CompleteNodexAgentCardUpdateResult
   | PrepareNodexAgentCreateResult
   | ExecuteNodexAgentCreateResult
+  | PrepareNodexAgentCreateCardsResult
+  | ExecuteNodexAgentCreateCardsResult
+  | PrepareNodexAgentDuplicateCardResult
+  | ExecuteNodexAgentDuplicateCardResult
+  | PrepareNodexAgentMoveCardsResult
+  | ExecuteNodexAgentMoveCardsResult
   | PrepareNodexAgentTransferResult
   | ExecuteNodexAgentTransferResult
   | PrepareNodexAgentDatabaseEditResult

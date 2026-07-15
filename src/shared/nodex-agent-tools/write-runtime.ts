@@ -25,7 +25,13 @@ export interface NodexAgentCallIdentity {
   readonly callId: string;
 }
 
+export type NodexAgentDocumentEditTool =
+  | "edit_document"
+  | "update_card"
+  | "advanced_update_card";
+
 export interface PrepareNodexAgentDocumentEditRequest extends NodexAgentCallIdentity {
+  readonly tool: NodexAgentDocumentEditTool;
   readonly projectId: string;
   readonly input: EditDocumentInput;
 }
@@ -45,6 +51,7 @@ export type PrepareNodexAgentDocumentEditResult =
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
 export interface CompleteNodexAgentDocumentEditRequest extends NodexAgentCallIdentity {
+  readonly tool: NodexAgentDocumentEditTool;
   readonly projectId: string;
   readonly result: DocumentOperationResult;
 }
@@ -122,6 +129,7 @@ export type ExecuteNodexAgentCreateResult =
       readonly ok: true;
       readonly value: {
         readonly output: CreateOutput;
+        readonly duplicate: boolean;
         readonly documentCommits: readonly RelocationDocumentCommit[];
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
@@ -145,6 +153,18 @@ export interface PrepareNodexAgentTransferRequest extends NodexAgentCallIdentity
   readonly input: TransferBlocksInput;
 }
 
+export interface NodexAgentTransferAuthorizationEvidence {
+  readonly roots: Readonly<Record<string, {
+    readonly type: string;
+    readonly transformation: "preserved" | "promote" | "wrap";
+    readonly wrapperReason?:
+      | "type_requires_wrapper"
+      | "unsupported_primary_content"
+      | "unmapped_type_state";
+  }>>;
+  readonly documentIds: readonly string[];
+}
+
 export type PrepareNodexAgentTransferResult =
   | {
       readonly ok: true;
@@ -154,6 +174,7 @@ export type PrepareNodexAgentTransferResult =
             readonly kind: "prepared";
             readonly command: NodexAgentTransferCommand;
             readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+            readonly authorization: NodexAgentTransferAuthorizationEvidence;
           };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
@@ -163,6 +184,7 @@ export type ExecuteNodexAgentTransferResult =
       readonly ok: true;
       readonly value: {
         readonly output: TransferBlocksOutput;
+        readonly duplicate: boolean;
         readonly documentCommits: readonly RelocationDocumentCommit[];
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
@@ -201,6 +223,7 @@ export type ExecuteNodexAgentDatabaseEditResult =
       readonly ok: true;
       readonly value: {
         readonly output: EditDatabaseOutput;
+        readonly duplicate: boolean;
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
       };

@@ -83,8 +83,14 @@ import {
 } from "../shared/block-transfer";
 import type {
   ExecuteNodexAgentCreateResult,
+  ExecuteNodexAgentCreateCardsResult,
+  ExecuteNodexAgentDuplicateCardResult,
+  ExecuteNodexAgentMoveCardsResult,
   ExecuteNodexAgentTransferResult,
   NodexAgentCreateCardCommand,
+  NodexAgentCreateCardsCommand,
+  NodexAgentDuplicateCardCommand,
+  NodexAgentMoveCardsCommand,
   NodexAgentLeaseDocument,
   NodexAgentTransferCommand,
 } from "../shared/nodex-agent-tools";
@@ -155,6 +161,15 @@ export interface DocumentSyncDurableBackend {
   executeNodexAgentCreate?(
     command: NodexAgentCreateCardCommand,
   ): Promise<ExecuteNodexAgentCreateResult>;
+  executeNodexAgentCreateCards?(
+    command: NodexAgentCreateCardsCommand,
+  ): Promise<ExecuteNodexAgentCreateCardsResult>;
+  executeNodexAgentDuplicateCard?(
+    command: NodexAgentDuplicateCardCommand,
+  ): Promise<ExecuteNodexAgentDuplicateCardResult>;
+  executeNodexAgentMoveCards?(
+    command: NodexAgentMoveCardsCommand,
+  ): Promise<ExecuteNodexAgentMoveCardsResult>;
   executeNodexAgentTransfer?(
     command: NodexAgentTransferCommand,
   ): Promise<ExecuteNodexAgentTransferResult>;
@@ -647,6 +662,45 @@ const nodexAgentCreateFailure = (
   },
 });
 
+const nodexAgentCreateCardsFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentCreateCardsResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
+const nodexAgentDuplicateCardFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentDuplicateCardResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
+const nodexAgentMoveCardsFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentMoveCardsResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
 const nodexAgentTransferFailure = (
   message: string,
   recovery: "get_block_again" | "none" = "none",
@@ -662,6 +716,9 @@ const nodexAgentTransferFailure = (
 
 type NodexAgentLeasedMutationResult =
   | ExecuteNodexAgentCreateResult
+  | ExecuteNodexAgentCreateCardsResult
+  | ExecuteNodexAgentDuplicateCardResult
+  | ExecuteNodexAgentMoveCardsResult
   | ExecuteNodexAgentTransferResult;
 
 type SuccessfulNodexAgentLeasedMutation = Extract<
@@ -1921,6 +1978,83 @@ export class DocumentSyncHub {
       failure: nodexAgentCreateFailure,
       operationLabel: "Agent create",
       conflictMessage: "Destination Document changed while preparing Card creation",
+    });
+  };
+
+  executeNodexAgentCreateCards = async (
+    command: NodexAgentCreateCardsCommand,
+    leaseDocuments: readonly NodexAgentLeaseDocument[],
+  ): Promise<ExecuteNodexAgentCreateCardsResult> => {
+    const execute = this.backend.executeNodexAgentCreateCards;
+    if (!execute) {
+      return nodexAgentCreateCardsFailure(
+        "The durable Agent Card batch writer is unavailable",
+      );
+    }
+    const expectedLeaseDocuments = command.destination.kind === "document"
+      ? [{
+          documentId: command.destination.documentId,
+          generation: command.destination.generation,
+          expectedHeadSeq: command.destination.expectedHeadSeq,
+        }]
+      : [];
+    const exactLeaseInput = expectedLeaseDocuments.length === leaseDocuments.length
+      && expectedLeaseDocuments.every((expected, index) => {
+        const received = leaseDocuments[index];
+        return received?.documentId === expected.documentId
+          && received.generation === expected.generation
+          && received.expectedHeadSeq === expected.expectedHeadSeq;
+      });
+    if (!exactLeaseInput) {
+      return nodexAgentCreateCardsFailure(
+        "Agent Card batch lease closure does not match its prepared destination",
+      );
+    }
+    return await this.executeNodexAgentLeasedMutation({
+      storeEpoch: command.storeEpoch,
+      leaseDocuments,
+      execute: async () => await execute(command),
+      failure: nodexAgentCreateCardsFailure,
+      operationLabel: "Agent Card batch create",
+      conflictMessage: "Destination Document changed while preparing Card creation",
+    });
+  };
+
+  executeNodexAgentDuplicateCard = async (
+    command: NodexAgentDuplicateCardCommand,
+  ): Promise<ExecuteNodexAgentDuplicateCardResult> => {
+    const execute = this.backend.executeNodexAgentDuplicateCard;
+    if (!execute) {
+      return nodexAgentDuplicateCardFailure(
+        "The durable Agent Card duplicate writer is unavailable",
+      );
+    }
+    return await this.executeNodexAgentLeasedMutation({
+      storeEpoch: command.storeEpoch,
+      leaseDocuments: command.leaseDocuments,
+      execute: async () => await execute(command),
+      failure: nodexAgentDuplicateCardFailure,
+      operationLabel: "Agent Card duplicate",
+      conflictMessage: "A duplicated Card Document changed while preparing the copy",
+    });
+  };
+
+  executeNodexAgentMoveCards = async (
+    command: NodexAgentMoveCardsCommand,
+  ): Promise<ExecuteNodexAgentMoveCardsResult> => {
+    const execute = this.backend.executeNodexAgentMoveCards;
+    if (!execute) {
+      return nodexAgentMoveCardsFailure(
+        "The durable Agent Card move writer is unavailable",
+      );
+    }
+    return await this.executeNodexAgentLeasedMutation({
+      storeEpoch: command.storeEpoch,
+      leaseDocuments: command.leaseDocuments,
+      execute: async () => await execute(command),
+      failure: nodexAgentMoveCardsFailure,
+      operationLabel: "Agent Card move",
+      conflictMessage: "A moved Card Document changed while preparing relocation",
     });
   };
 

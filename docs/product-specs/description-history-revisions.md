@@ -390,4 +390,4 @@ Coverage for this feature should include:
 
 - [Main product spec](./nodex-product-spec.md)
 - [Reliability](../RELIABILITY.md)
-- [Notion-flavored Markdown spec](../references/notion-flavored-markdown-spec.md)
+- [Nested Markdown spec](../references/nested-markdown-spec.md)

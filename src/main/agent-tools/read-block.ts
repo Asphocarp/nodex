@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { blockNoteToNfm } from "../../shared/block-documents/nfm-blocknote-adapter";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
+import { canonicalizePortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { extractPlainText } from "../../shared/nfm/extract-text";
 import { serializeNfm } from "../../shared/nfm/serializer";
 import {
@@ -10,10 +11,10 @@ import {
   type GetBlockOutput,
   type JsonValue,
 } from "../../shared/nodex-agent-tools";
+import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import {
   assertResponseSize,
   mintCursor,
-  mintRevision,
   NodexAgentReadError,
   nodexAgentFingerprint,
   parseJsonValue,
@@ -21,6 +22,13 @@ import {
   requireProject,
   toBlockLocation,
 } from "./read-support";
+import {
+  databaseValueEtagState,
+  documentBlockEtagState,
+  documentBodyEtagState,
+  documentSubtreeEtagState,
+  titleEtagState,
+} from "./semantic-guards";
 
 interface BlockRow {
   readonly id: string;
@@ -201,8 +209,9 @@ function readDatabaseValues(
   database: Database.Database,
   projectId: string,
   blockId: string,
+  propertyIds: readonly string[] | undefined,
 ): readonly DatabaseValueRow[] {
-  return database.prepare(
+  const rows = database.prepare(
     `
     SELECT
       membership.id AS membership_id,
@@ -210,14 +219,14 @@ function readDatabaseValues(
       membership.database_block_id,
       property.id AS property_id,
       property.schema_revision AS property_schema_revision,
-      value.value_json,
-      value.revision AS value_revision
+      COALESCE(value.value_json, 'null') AS value_json,
+      COALESCE(value.revision, 0) AS value_revision
     FROM database_memberships membership
     INNER JOIN database_properties property
       ON property.database_block_id = membership.database_block_id
      AND property.project_id = membership.project_id
      AND property.lifecycle = 'active'
-    INNER JOIN database_property_values value
+    LEFT JOIN database_property_values value
       ON value.membership_id = membership.id
      AND value.property_id = property.id
      AND value.database_block_id = membership.database_block_id
@@ -227,16 +236,29 @@ function readDatabaseValues(
       AND membership.removed_at IS NULL
     ORDER BY property.rank_key, property.id
   `).all(blockId, projectId) as readonly DatabaseValueRow[];
+  if (!propertyIds) return rows;
+  const byPropertyId = new Map(rows.map((row) => [row.property_id, row] as const));
+  const missing = propertyIds.find((propertyId) => !byPropertyId.has(propertyId));
+  if (missing) {
+    throw new NodexAgentReadError(
+      "not_found",
+      `Database property ${missing} was not found for Block ${blockId}`,
+      false,
+      "query_database_again",
+      { resourceId: missing, domainCode: "database_value_not_found" },
+    );
+  }
+  return propertyIds.map((propertyId) => byPropertyId.get(propertyId) as DatabaseValueRow);
 }
 
-function readDatabaseSchemaRevision(
+function hasDatabaseCapability(
   database: Database.Database,
   projectId: string,
   blockId: string,
-): number | null {
+): boolean {
   const row = database.prepare(
     `
-    SELECT capability.schema_revision
+    SELECT 1
     FROM database_capabilities capability
     INNER JOIN blocks block
       ON block.id = capability.block_id
@@ -245,8 +267,39 @@ function readDatabaseSchemaRevision(
      AND block.lifecycle <> 'deleted'
     WHERE capability.block_id = ? AND capability.project_id = ?
     LIMIT 1
-  `).get(blockId, projectId) as { readonly schema_revision: number } | undefined;
-  return row?.schema_revision ?? null;
+  `).get(blockId, projectId);
+  return row !== undefined;
+}
+
+type BlockGuardKind = "block.update" | "block.delete";
+
+function requestedBlockGuards(request: GetBlockInput): ReadonlyMap<string, BlockGuardKind> {
+  const guards = new Map<string, BlockGuardKind>();
+  for (const preparation of request.prepareFor ?? []) {
+    if (preparation.kind !== "block.update" && preparation.kind !== "block.delete") continue;
+    for (const blockId of preparation.blockIds) {
+      const existing = guards.get(blockId);
+      if (!existing || existing === preparation.kind) {
+        guards.set(blockId, preparation.kind);
+        continue;
+      }
+      throw new NodexAgentReadError(
+        "invalid_arguments",
+        `Block ${blockId} cannot be prepared for update and deletion in one read`,
+        false,
+        "none",
+        { resourceId: blockId, domainCode: "ambiguous_block_preparation" },
+      );
+    }
+  }
+  return guards;
+}
+
+function preparedValuePropertyIds(request: GetBlockInput): ReadonlySet<string> {
+  return new Set(
+    (request.prepareFor ?? []).flatMap((preparation) =>
+      preparation.kind === "value.set" ? preparation.propertyIds : []),
+  );
 }
 
 function documentBody(
@@ -261,6 +314,19 @@ function documentBody(
   const requested = input.request.include === undefined
     ? { format: "nfm" as const }
     : input.request.include.document;
+  const blockGuards = requestedBlockGuards(input.request);
+  const preparesBody = input.request.prepareFor?.some(
+    (preparation) => preparation.kind === "document.replace",
+  ) === true;
+  if (!requested && (preparesBody || blockGuards.size > 0)) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      "Document preparation requires a matching document representation",
+      false,
+      "none",
+      { resourceId: input.block.id, domainCode: "document_representation_required" },
+    );
+  }
   if (!requested) return null;
   if (requested.format !== "blocks" && input.request.page) {
     throw new NodexAgentReadError(
@@ -291,6 +357,25 @@ function documentBody(
     ? input.document.nfm as string
     : serializeNfm(blockNoteToNfm(selectedRoots));
 
+  if (preparesBody && (requested.format !== "nfm" || scope !== "owner")) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      "Document replacement preparation requires the complete owner NFM representation",
+      false,
+      "none",
+      { resourceId: input.document.id, domainCode: "document_body_not_returned" },
+    );
+  }
+  if (blockGuards.size > 0 && requested.format !== "blocks") {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      "Block update or deletion preparation requires the blocks representation",
+      false,
+      "none",
+      { resourceId: input.document.id, domainCode: "block_representation_required" },
+    );
+  }
+
   if (requested.format === "summary") {
     return { body: { format: "summary", text: extractPlainText(selectedNfm, 4_096) } };
   }
@@ -300,6 +385,13 @@ function documentBody(
         format: "nfm",
         content: selectedNfm,
         contentHash: createHash("sha256").update(selectedNfm).digest("hex"),
+        ...(preparesBody ? {
+          etag: mintNodexAgentEtag(database, documentBodyEtagState({
+            projectId: input.projectId,
+            documentId: input.document.id,
+            nfm: selectedNfm,
+          })),
+        } : {}),
       },
     };
   }
@@ -335,10 +427,40 @@ function documentBody(
     recovery: "get_block_again",
   });
   const pageRecords = records.slice(offset, offset + limit);
+  const pageIds = new Set(pageRecords.map((record) => record.blockId));
+  const unavailablePreparedId = [...blockGuards.keys()].find((blockId) =>
+    !pageIds.has(blockId) || !findNode(selectedRoots, blockId));
+  if (unavailablePreparedId) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      `Prepared Block ${unavailablePreparedId} is not present in the returned page and scope`,
+      false,
+      "get_block_again",
+      { resourceId: unavailablePreparedId, domainCode: "prepared_block_not_returned" },
+    );
+  }
+  const preparedRecords = pageRecords.map((record) => {
+    const guardKind = blockGuards.get(record.blockId);
+    if (!guardKind) return record;
+    const node = findNode(selectedRoots, record.blockId)?.node;
+    if (!node) return record;
+    const state = guardKind === "block.update"
+      ? documentBlockEtagState({
+        projectId: input.projectId,
+        documentId: input.document.id,
+        block: node,
+      })
+      : documentSubtreeEtagState({
+        projectId: input.projectId,
+        documentId: input.document.id,
+        block: node,
+      });
+    return { ...record, etag: mintNodexAgentEtag(database, state) };
+  });
   const nextOffset = offset + pageRecords.length;
   const hasMore = nextOffset < records.length;
   return {
-    body: { format: "blocks", blocks: pageRecords },
+    body: { format: "blocks", blocks: preparedRecords },
     page: {
       hasMore,
       ...(hasMore ? {
@@ -382,89 +504,127 @@ export function readNodexAgentBlock(
       { resourceId: documentId, domainCode: "document_not_found" },
     );
   }
+  const preparesDocument = request.prepareFor?.some((preparation) =>
+    preparation.kind === "document.replace"
+    || preparation.kind === "block.update"
+    || preparation.kind === "block.delete") === true;
+  if (preparesDocument && !document) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      `Block ${block.id} does not belong to a readable Document`,
+      false,
+      "none",
+      { resourceId: block.id, domainCode: "document_not_available" },
+    );
+  }
 
   const body = document
     ? documentBody(database, { projectId, request, block, document })
     : null;
+  const propertySelection = request.include?.properties?.propertyIds;
+  const preparedPropertyIds = preparedValuePropertyIds(request);
+  if (preparedPropertyIds.size > 0 && !request.include?.properties) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      "Database value preparation requires properties in the read representation",
+      false,
+      "none",
+      { resourceId: block.id, domainCode: "property_representation_required" },
+    );
+  }
+  const unselectedPreparedProperty = propertySelection
+    ? [...preparedPropertyIds].find(
+      (propertyId) => !new Set<string>(propertySelection).has(propertyId),
+    )
+    : undefined;
+  if (unselectedPreparedProperty) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      `Prepared property ${unselectedPreparedProperty} is not selected for return`,
+      false,
+      "none",
+      { resourceId: unselectedPreparedProperty, domainCode: "prepared_property_not_returned" },
+    );
+  }
   const valueRows = request.include?.properties
-    ? readDatabaseValues(database, projectId, block.id)
+    ? readDatabaseValues(database, projectId, block.id, propertySelection)
     : [];
-  const schemaRevision = request.include?.database || request.include === undefined
-    ? readDatabaseSchemaRevision(database, projectId, block.id)
-    : null;
-  const richTitle = document?.owner_block_id === block.id && document.title_rich_json
-    ? parseJsonValue(document.title_rich_json, `Document ${document.id} rich title`)
+  const includeDatabase = (request.include?.database || request.include === undefined)
+    && hasDatabaseCapability(database, projectId, block.id);
+  const richTitle = document?.owner_block_id === block.id && document.title_rich_json !== null
+    ? canonicalizePortableRichText(
+      parseJsonValue(document.title_rich_json, `Document ${document.id} rich title`),
+    )
     : null;
   const title = document?.owner_block_id === block.id && document.title !== null
-    ? Array.isArray(richTitle) && richTitle.length > 0
+    ? richTitle && richTitle.length > 0
       ? { kind: "rich" as const, richText: richTitle }
       : { kind: "plain" as const, text: document.title }
     : undefined;
+  const preparesTitle = request.prepareFor?.some(
+    (preparation) => preparation.kind === "title.set",
+  ) === true;
+  if (preparesTitle && (!title || !richTitle || !document)) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      `Block ${block.id} does not expose an editable Document title`,
+      false,
+      "none",
+      { resourceId: block.id, domainCode: "title_not_available" },
+    );
+  }
 
   const rawOutput = {
-    schemaVersion: 1,
     data: {
       block: {
         blockId: block.id,
         type: block.type,
-        ...(title ? { title } : {}),
+        ...(title ? {
+          title: {
+            value: title,
+            ...(preparesTitle && richTitle && document ? {
+              etag: mintNodexAgentEtag(database, titleEtagState({
+                projectId,
+                documentId: document.id,
+                richTitle,
+              })),
+            } : {}),
+          },
+        } : {}),
         lifecycle: block.lifecycle,
         location: toBlockLocation(block),
-        locationRevision: mintRevision(database, {
-          kind: "location",
-          projectId,
-          subject: [block.id],
-          state: {
-            revision: block.location_revision,
-            locationKind: block.location_kind,
-            containingDocumentId: block.containing_document_id,
-            containingDatabaseId: block.containing_database_id,
-          },
-        }),
         ...(request.include?.properties ? {
-          properties: Object.fromEntries(valueRows.map((row) => [row.property_id, {
-            value: parseJsonValue(row.value_json, `Database value ${row.property_id}`),
-            revision: mintRevision(database, {
-              kind: "database_value",
-              projectId,
-              subject: [row.database_block_id, block.id, row.property_id],
-              state: {
-                membershipId: row.membership_id,
-                membershipRevision: row.membership_revision,
-                propertySchemaRevision: row.property_schema_revision,
-                valueRevision: row.value_revision,
-              },
-            }),
-          }])),
+          properties: Object.fromEntries(valueRows.map((row) => {
+            const value = parseJsonValue(row.value_json, `Database value ${row.property_id}`);
+            return [row.property_id, {
+              value,
+              ...(preparedPropertyIds.has(row.property_id) ? {
+                etag: mintNodexAgentEtag(database, databaseValueEtagState({
+                  projectId,
+                  databaseBlockId: row.database_block_id,
+                  blockId: block.id,
+                  propertyId: row.property_id,
+                  value,
+                  membershipId: row.membership_id,
+                  membershipRevision: row.membership_revision,
+                  propertySchemaRevision: row.property_schema_revision,
+                  valueRevision: row.value_revision,
+                })),
+              } : {}),
+            }];
+          })),
         } : {}),
       },
       ...(document && body ? {
         document: {
           documentId: document.id,
           ownerBlockId: document.owner_block_id,
-          revision: mintRevision(database, {
-            kind: "document",
-            projectId,
-            subject: [document.id],
-            state: {
-              generation: document.generation,
-              headSeq: document.head_seq,
-              schemaKey: document.schema_key,
-              schemaVersion: document.schema_version,
-            },
-          }),
           body: body.body,
         },
       } : {}),
-      ...(schemaRevision !== null ? {
+      ...(includeDatabase ? {
         database: {
           databaseBlockId: block.id,
-          schemaRevision: mintRevision(database, {
-            kind: "database_schema",
-            projectId,
-            subject: [block.id],
-            state: { revision: schemaRevision },
-          }),
         },
       } : {}),
     },

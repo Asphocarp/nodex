@@ -7,6 +7,7 @@ import { createUuidV7 } from "../../shared/card-id";
 import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
 import {
   BlockIdSchema,
+  CreateCardsV3InputSchema,
   CreateInputSchema,
   type BlockId,
   type CreateInput,
@@ -15,7 +16,12 @@ import { applyCardLifecycleMutation } from "../local-store/card-block-lifecycle"
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
 import { createProject } from "../local-store/projects";
-import { executeNodexAgentCreate, prepareNodexAgentCreate } from "./create-service";
+import {
+  executeNodexAgentCreate,
+  executeNodexAgentCreateCards,
+  prepareNodexAgentCreate,
+  prepareNodexAgentCreateCards,
+} from "./create-service";
 import { readNodexAgentTool } from "./read-service";
 
 interface Fixture {
@@ -111,6 +117,150 @@ function readContext(fixture: Fixture) {
 }
 
 describe("Nodex Agent create service", () => {
+  sqliteTest("creates and replays an ordered atomic Card batch with inline-Markdown titles", async () => {
+    await withFixture((fixture) => {
+      const batchInput = CreateCardsV3InputSchema.parse({
+        destination: { kind: "space", at: { kind: "end" } },
+        cards: [
+          { title: "**First**", markdown: "First body\n\t- [ ] Nested" },
+          { title: "[Second](https://example.com)", markdown: "Second body" },
+        ],
+        return: ["block_ids", "etags"],
+      });
+      const request = {
+        threadId: "thread-v3",
+        callId: "batch-space",
+        projectId: fixture.projectId,
+        input: batchInput,
+      };
+      const prepared = prepareNodexAgentCreateCards(fixture.database, request);
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Card batch was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.previews.map((preview) => preview.title)).toEqual([
+        "First",
+        "Second",
+      ]);
+      const executed = executeNodexAgentCreateCards(
+        fixture.database,
+        prepared.value.command,
+      );
+      if (!executed.ok) throw new Error(executed.error.message);
+      expect(executed.value.output.data).toMatchObject({
+        created: 2,
+        cards: [
+          {
+            cardId: prepared.value.command.cards[0]?.cardId,
+            location: { kind: "space" },
+            bodyBlocksCreated: 2,
+            blockIds: [expect.any(String), expect.any(String)],
+            etags: { title: expect.stringMatching(/^nxe1\./u) },
+          },
+          {
+            cardId: prepared.value.command.cards[1]?.cardId,
+            location: { kind: "space" },
+            bodyBlocksCreated: 1,
+          },
+        ],
+      });
+      const replay = prepareNodexAgentCreateCards(fixture.database, request);
+      expect(replay.ok && replay.value.kind === "completed"
+        ? replay.value.output
+        : null).toEqual(executed.value.output);
+      const receipt = fixture.database.prepare(
+        "SELECT tool FROM nodex_agent_call_receipts WHERE call_id = ?",
+      ).get("batch-space") as { readonly tool: string };
+      expect(receipt.tool).toBe("create_cards");
+    });
+  });
+
+  sqliteTest("places a Card batch into one parent Card in input order", async () => {
+    await withFixture((fixture) => {
+      const hostId = createExistingCard(fixture, { title: "Host", nfm: "Before\nAfter" });
+      const host = readNodexAgentTool(fixture.database, {
+        tool: "get_block",
+        projectId: fixture.projectId,
+        input: { blockId: hostId, include: { document: { format: "blocks" } } },
+      });
+      const body = host.ok && host.tool === "get_block"
+        ? host.output.data.document?.body
+        : undefined;
+      const firstBlockId = body?.format === "blocks" ? body.blocks[0]?.blockId : undefined;
+      if (!firstBlockId) throw new Error("Host anchor is unavailable");
+      const prepared = prepareNodexAgentCreateCards(fixture.database, {
+        threadId: "thread-v3",
+        callId: "batch-card",
+        projectId: fixture.projectId,
+        input: CreateCardsV3InputSchema.parse({
+          destination: {
+            kind: "card",
+            cardId: hostId,
+            at: { kind: "after", blockId: firstBlockId },
+          },
+          cards: [{ title: "Child A" }, { title: "Child B" }],
+        }),
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Card batch was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.leaseDocuments).toHaveLength(1);
+      const executed = executeNodexAgentCreateCards(
+        fixture.database,
+        prepared.value.command,
+      );
+      if (!executed.ok) throw new Error(executed.error.message);
+      const hostDocumentId = prepared.value.leaseDocuments[0]?.documentId;
+      const materialization = fixture.database.prepare(
+        "SELECT nfm FROM document_materializations WHERE document_id = ?",
+      ).get(hostDocumentId) as { readonly nfm: string };
+      expect(materialization.nfm).toBe([
+        "Before",
+        `<card uuid="${prepared.value.command.cards[0]?.cardId}" />`,
+        `<card uuid="${prepared.value.command.cards[1]?.cardId}" />`,
+        "After",
+      ].join("\n"));
+      expect(executed.value.output.data.cards.map((card) => card.location)).toEqual([
+        { kind: "card", cardId: hostId },
+        { kind: "card", cardId: hostId },
+      ]);
+    });
+  });
+
+  sqliteTest("rolls back every Card in a batch when a late aggregate seam fails", async () => {
+    await withFixture((fixture) => {
+      const prepared = prepareNodexAgentCreateCards(fixture.database, {
+        threadId: "thread-v3",
+        callId: "batch-rollback",
+        projectId: fixture.projectId,
+        input: CreateCardsV3InputSchema.parse({
+          destination: { kind: "space" },
+          cards: [
+            { title: "Rollback A", markdown: "Body A" },
+            { title: "Rollback B", markdown: "Body B" },
+          ],
+        }),
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error("Card batch was not prepared");
+      }
+      const result = executeNodexAgentCreateCards(
+        fixture.database,
+        prepared.value.command,
+        { faultInjector: (point) => {
+          if (point === "before_receipt") throw new Error("injected late failure");
+        } },
+      );
+      expect(result).toMatchObject({ ok: false, error: { code: "internal_error" } });
+      for (const card of prepared.value.command.cards) {
+        expect(fixture.database.prepare("SELECT 1 FROM blocks WHERE id = ?").get(card.cardId))
+          .toBeUndefined();
+      }
+      expect(fixture.database.prepare(
+        "SELECT status FROM nodex_agent_call_receipts WHERE mutation_id = ?",
+      ).get(prepared.value.command.mutationId)).toEqual({ status: "prepared" });
+    });
+  });
+
   sqliteTest("creates a complete rich-title Card with nested NFM directly in Space", async () => {
     await withFixture((fixture) => {
       const prepared = prepare(fixture, "space-create", input({
@@ -126,6 +276,7 @@ describe("Nodex Agent create service", () => {
           },
         },
         destination: { kind: "space", at: { kind: "end" } },
+        return: { blockIds: true },
       }));
       expect(prepared.ok).toBe(true);
       if (!prepared.ok || prepared.value.kind !== "prepared") return;
@@ -136,9 +287,9 @@ describe("Nodex Agent create service", () => {
           kind: "card",
           blockId: prepared.value.command.cardId,
           documentId: `document:${prepared.value.command.cardId}`,
+          bodyBlockCount: prepared.value.createdBodyBlockIds.length,
           createdBodyBlockIds: prepared.value.createdBodyBlockIds,
         },
-        receipt: { duplicate: false },
       });
       const row = fixture.database.prepare(
         `
@@ -191,7 +342,6 @@ describe("Nodex Agent create service", () => {
         destination: {
           kind: "document",
           documentId: host.output.data.document.documentId,
-          ifRevision: host.output.data.document.revision,
           at: { kind: "before", blockId: afterId },
         },
       }));
@@ -238,11 +388,9 @@ describe("Nodex Agent create service", () => {
         destination: {
           kind: "database",
           databaseBlockId: database.databaseBlockId,
-          ifSchemaRevision: database.schemaRevision,
           values: [{ propertyId: status.propertyId, value: "in_progress" }],
           view: {
             viewId: view.viewId,
-            ifRevision: view.revision,
             groupKey: "in_progress",
             at: { kind: "end" },
           },
@@ -256,8 +404,6 @@ describe("Nodex Agent create service", () => {
       expect(executed.ok ? executed.value.output.data : null).toMatchObject({
         database: {
           databaseBlockId: database.databaseBlockId,
-          valueRevisions: { [status.propertyId]: expect.stringMatching(/^nxt1\./) },
-          placementRevision: expect.stringMatching(/^nxt1\./),
         },
       });
       const row = fixture.database.prepare(
@@ -283,7 +429,6 @@ describe("Nodex Agent create service", () => {
         destination: {
           kind: "database",
           databaseBlockId: database.databaseBlockId,
-          ifSchemaRevision: database.schemaRevision,
         },
       });
       const prepared = prepare(fixture, "membership-only", createInput);
@@ -291,15 +436,19 @@ describe("Nodex Agent create service", () => {
         throw new Error("Create was not prepared");
       }
       const first = executeNodexAgentCreate(fixture.database, prepared.value.command);
+      const executedReplay = executeNodexAgentCreate(
+        fixture.database,
+        prepared.value.command,
+      );
       const replay = prepare(fixture, "membership-only", createInput);
 
       expect(first.ok ? first.value.output.data.database : null).toEqual({
         databaseBlockId: database.databaseBlockId,
-        valueRevisions: {},
       });
       expect(replay.ok && replay.value.kind === "completed"
-        ? replay.value.output.data.receipt
-        : null).toEqual({ duplicate: true });
+        ? replay.value.output.data.database
+        : null).toEqual({ databaseBlockId: database.databaseBlockId });
+      expect(executedReplay.ok ? executedReplay.value.duplicate : null).toBe(true);
       const positionCount = fixture.database.prepare(
         "SELECT COUNT(*) AS count FROM database_view_positions WHERE block_id = ?",
       ).get(prepared.value.command.cardId) as { readonly count: number };

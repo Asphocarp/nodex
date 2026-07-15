@@ -45,7 +45,7 @@ function dispatchNodexAgentRead(
   }
 }
 
-/** Capture every read-model coordinate and mint its tokens inside one SQLite snapshot. */
+/** Capture each read result and any explicitly requested guards inside one SQLite snapshot. */
 export function readNodexAgentTool(
   database: Database.Database,
   request: NodexAgentReadRequest,

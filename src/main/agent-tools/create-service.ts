@@ -14,31 +14,32 @@ import {
   DATABASE_MUTATION_CONTRACT_VERSION,
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
-  parseGeneralDatabaseViewConfig,
   type DatabaseJsonValue,
   type DatabaseMutationOperation,
 } from "../../shared/database-kernel";
 import {
+  CreateInputSchema,
+  CreateCardsV3OutputSchema,
   CreateOutputSchema,
   resolveDocumentAnchor,
   type CreateInput,
   type CreateOutput,
+  type ExecuteNodexAgentCreateCardsResult,
   type ExecuteNodexAgentCreateResult,
-  type JsonValue,
   type NodexAgentCreateCardCommand,
+  type NodexAgentCreateCardsCommand,
+  type PrepareNodexAgentCreateCardsRequest,
+  type PrepareNodexAgentCreateCardsResult,
   type PrepareNodexAgentCreateRequest,
   type PrepareNodexAgentCreateResult,
   type PreparedNodexAgentCreateDestination,
 } from "../../shared/nodex-agent-tools";
+import { parseInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import { applyBlockTransfer } from "../local-store/block-transfers";
 import { applyCardLifecycleMutation } from "../local-store/card-block-lifecycle";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { applyDatabaseMutation } from "../local-store/database-kernel";
-import {
-  decodeNodexAgentToken,
-  NodexAgentTokenError,
-  type NodexAgentTokenKind,
-} from "../local-store/nodex-agent-token-codec";
+import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import {
   nodexAgentCallIdentity,
   readNodexAgentCallReceipt,
@@ -46,13 +47,19 @@ import {
   type NodexAgentCallReceiptRow,
 } from "./call-receipts";
 import {
-  mintRevision,
   NodexAgentReadError,
   nodexAgentFingerprint,
   parseJsonValue,
   readFailure,
   requireProject,
+  toBlockLocation,
 } from "./read-support";
+import {
+  documentBodyEtagState,
+  titleEtagState,
+} from "./semantic-guards";
+import { requireCardDocumentId, toCardLocation } from "./card-adapter";
+import { publicV3Failure } from "./v3-errors";
 
 interface DocumentDestinationRow {
   readonly generation: number;
@@ -71,14 +78,6 @@ interface DatabasePropertyRow {
   readonly value_type: Parameters<typeof parseDatabasePropertyConfig>[0];
   readonly config_json: string;
   readonly schema_revision: number;
-}
-
-interface DatabaseValueRow {
-  readonly membership_id: string;
-  readonly membership_revision: number;
-  readonly property_id: string;
-  readonly property_schema_revision: number;
-  readonly value_revision: number;
 }
 
 interface CreateExecutionOptions {
@@ -101,46 +100,6 @@ function parseStringArray(value: string, label: string): string[] {
     "none",
     { domainCode: "corrupt_agent_receipt" },
   );
-}
-
-function coordinate(value: JsonValue | undefined, label: string): number {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-  throw new NodexAgentReadError(
-    "conflict",
-    `${label} revision is incomplete`,
-    false,
-    "get_block_again",
-  );
-}
-
-function decodeRevision(
-  database: Database.Database,
-  input: {
-    readonly token: string;
-    readonly kind: Exclude<NodexAgentTokenKind, "cursor">;
-    readonly projectId: string;
-    readonly subject: readonly string[];
-    readonly recovery: "get_block_again" | "query_database_again";
-  },
-) {
-  try {
-    return decodeNodexAgentToken(database, input.token, {
-      kind: input.kind,
-      projectId: input.projectId,
-      subject: input.subject,
-    });
-  } catch (error) {
-    if (!(error instanceof NodexAgentTokenError)) throw error;
-    throw new NodexAgentReadError(
-      error.code === "invalid_token" ? "invalid_arguments" : "conflict",
-      error.message,
-      false,
-      input.recovery,
-      { resourceId: input.subject.at(-1), domainCode: error.code },
-    );
-  }
 }
 
 function richTitle(input: CreateInput): PortableRichText | undefined {
@@ -265,25 +224,7 @@ function prepareDocumentDestination(
   projectId: string,
   destination: Extract<CreateInput["destination"], { readonly kind: "document" }>,
 ): PreparedNodexAgentCreateDestination {
-  const token = decodeRevision(database, {
-    token: destination.ifRevision,
-    kind: "document",
-    projectId,
-    subject: [destination.documentId],
-    recovery: "get_block_again",
-  });
-  const generation = coordinate(token.state.generation, "Document generation");
-  const expectedHeadSeq = coordinate(token.state.headSeq, "Document head");
   const row = readDocumentDestination(database, projectId, destination.documentId);
-  if (row.generation !== generation || row.head_seq !== expectedHeadSeq) {
-    throw new NodexAgentReadError(
-      "conflict",
-      `Document ${destination.documentId} changed after it was read`,
-      false,
-      "get_block_again",
-      { resourceId: destination.documentId, domainCode: "document_revision_conflict" },
-    );
-  }
   const blockTree = parseJsonValue(
     row.block_tree_json as string,
     `Document ${destination.documentId} Block tree`,
@@ -292,8 +233,8 @@ function prepareDocumentDestination(
   return {
     kind: "document",
     documentId: destination.documentId,
-    generation,
-    expectedHeadSeq,
+    generation: row.generation,
+    expectedHeadSeq: row.head_seq,
     ...anchor,
   };
 }
@@ -362,14 +303,6 @@ function prepareDatabaseDestination(
   projectId: string,
   destination: Extract<CreateInput["destination"], { readonly kind: "database" }>,
 ): PreparedNodexAgentCreateDestination {
-  const schemaToken = decodeRevision(database, {
-    token: destination.ifSchemaRevision,
-    kind: "database_schema",
-    projectId,
-    subject: [destination.databaseBlockId],
-    recovery: "query_database_again",
-  });
-  const schemaRevision = coordinate(schemaToken.state.revision, "Database schema");
   const databaseRow = database.prepare(
     `
     SELECT capability.schema_revision
@@ -392,15 +325,7 @@ function prepareDatabaseDestination(
       { resourceId: destination.databaseBlockId, domainCode: "database_not_found" },
     );
   }
-  if (databaseRow.schema_revision !== schemaRevision) {
-    throw new NodexAgentReadError(
-      "conflict",
-      `Database ${destination.databaseBlockId} schema changed after it was read`,
-      false,
-      "query_database_again",
-      { resourceId: destination.databaseBlockId, domainCode: "database_schema_conflict" },
-    );
-  }
+  const schemaRevision = databaseRow.schema_revision;
   validateValueDrafts(
     database,
     projectId,
@@ -409,23 +334,6 @@ function prepareDatabaseDestination(
   );
   if (!destination.view) {
     return { kind: "database", databaseBlockId: destination.databaseBlockId, schemaRevision };
-  }
-  const viewToken = decodeRevision(database, {
-    token: destination.view.ifRevision,
-    kind: "view",
-    projectId,
-    subject: [destination.view.viewId],
-    recovery: "query_database_again",
-  });
-  const viewRevision = coordinate(viewToken.state.revision, "Database View");
-  const tokenDatabaseId = viewToken.state.databaseBlockId;
-  if (tokenDatabaseId !== destination.databaseBlockId) {
-    throw new NodexAgentReadError(
-      "conflict",
-      `View ${destination.view.viewId} does not belong to the destination Database`,
-      false,
-      "query_database_again",
-    );
   }
   const viewRow = database.prepare(
     `
@@ -436,15 +344,16 @@ function prepareDatabaseDestination(
   `).get(destination.view.viewId, destination.databaseBlockId, projectId) as
     | { readonly revision: number }
     | undefined;
-  if (!viewRow || viewRow.revision !== viewRevision) {
+  if (!viewRow) {
     throw new NodexAgentReadError(
-      "conflict",
-      `View ${destination.view.viewId} changed after it was read`,
+      "not_found",
+      `View ${destination.view.viewId} is unavailable in the destination Database`,
       false,
       "query_database_again",
-      { resourceId: destination.view.viewId, domainCode: "view_revision_conflict" },
+      { resourceId: destination.view.viewId, domainCode: "view_not_found" },
     );
   }
+  const viewRevision = viewRow.revision;
   const groupKey = destination.view.groupKey ?? null;
   const positionRows = database.prepare(
     `
@@ -503,11 +412,7 @@ function replayOutput(receipt: NodexAgentCallReceiptRow): CreateOutput {
       "none",
     );
   }
-  const output = CreateOutputSchema.parse(metadata.output);
-  return CreateOutputSchema.parse({
-    ...output,
-    data: { ...output.data, receipt: { duplicate: true } },
-  });
+  return CreateOutputSchema.parse(metadata.output);
 }
 
 function prepareCreate(
@@ -964,161 +869,96 @@ function assertPreparedAuthority(
   }
 }
 
-function createOutput(
+function buildCreateOutput(
   database: Database.Database,
   command: NodexAgentCreateCardCommand,
 ): CreateOutput {
   const block = database.prepare(
     `
-    SELECT location_revision, location_kind,
-      containing_document_id, containing_database_id
-    FROM blocks WHERE id = ? AND project_id = ?
+    SELECT block.location_kind, block.containing_document_id,
+      block.containing_database_id, block_index.parent_block_id
+    FROM blocks block
+    LEFT JOIN document_block_index block_index
+      ON block_index.block_id = block.id
+     AND block_index.document_id = block.containing_document_id
+    WHERE block.id = ? AND block.project_id = ?
   `).get(command.cardId, command.projectId) as {
-    readonly location_revision: number;
     readonly location_kind: "space" | "document" | "database";
     readonly containing_document_id: string | null;
     readonly containing_database_id: string | null;
+    readonly parent_block_id: string | null;
   };
-  const document = database.prepare(
-    "SELECT generation, head_seq, schema_key, schema_version FROM documents WHERE id = ?",
-  ).get(`document:${command.cardId}`) as {
-    readonly generation: number;
-    readonly head_seq: number;
-    readonly schema_key: string;
-    readonly schema_version: number;
+  const materialization = database.prepare(
+    `
+    SELECT materialization.title_rich_json, materialization.nfm
+    FROM document_materializations materialization
+    INNER JOIN documents document
+      ON document.id = materialization.document_id
+     AND document.generation = materialization.generation
+     AND document.head_seq = materialization.projected_seq
+     AND document.schema_version = materialization.schema_version
+     AND document.readiness = 'ready'
+    WHERE materialization.document_id = ? AND document.project_id = ?
+    `,
+  ).get(`document:${command.cardId}`, command.projectId) as {
+    readonly title_rich_json: string;
+    readonly nfm: string;
   };
-  const destination = command.destination;
-  const valueRows = destination.kind === "database"
-    ? database.prepare(
-        `
-        SELECT
-          value.membership_id, membership.revision AS membership_revision,
-          value.property_id, property.schema_revision AS property_schema_revision,
-          value.revision AS value_revision
-        FROM database_property_values value
-        INNER JOIN database_memberships membership
-          ON membership.id = value.membership_id
-        INNER JOIN database_properties property
-          ON property.id = value.property_id
-        WHERE membership.card_block_id = ?
-          AND membership.database_block_id = ?
-          AND membership.project_id = ?
-          AND membership.removed_at IS NULL
-      `,
-      ).all(command.cardId, destination.databaseBlockId, command.projectId) as DatabaseValueRow[]
-    : [];
-  const requestedPropertyIds = command.input.destination.kind === "database"
-    ? new Set((command.input.destination.values ?? []).map((draft) => draft.propertyId))
-    : new Set<string>();
-  const placement = destination.kind === "database" && destination.view
-    ? database.prepare(
-        `
-        SELECT position.revision, position.group_key, membership.id AS membership_id,
-          membership.revision AS membership_revision
-        FROM database_view_positions position
-        INNER JOIN database_memberships membership
-          ON membership.card_block_id = position.block_id
-         AND membership.database_block_id = ?
-         AND membership.project_id = position.project_id
-         AND membership.removed_at IS NULL
-        WHERE position.view_id = ? AND position.block_id = ?
-          AND position.project_id = ?
-      `,
-      ).get(
-        destination.databaseBlockId,
-        destination.view.viewId,
-        command.cardId,
-        command.projectId,
-      ) as {
-        readonly revision: number;
-        readonly group_key: string | null;
-        readonly membership_id: string;
-        readonly membership_revision: number;
-      } | undefined
-    : undefined;
-  const groupPropertyId = destination.kind === "database" && destination.view
-    ? (() => {
-        const row = database.prepare(
-          "SELECT config_json FROM database_views WHERE id = ?",
-        ).get(destination.view.viewId) as { readonly config_json: string } | undefined;
-        if (!row) return null;
-        return parseGeneralDatabaseViewConfig(
-          JSON.parse(row.config_json) as unknown,
-        ).group?.propertyId ?? null;
-      })()
-    : null;
-  const groupValueRevision = groupPropertyId
-    ? valueRows.find((row) => row.property_id === groupPropertyId)?.value_revision ?? 0
-    : 0;
+  if (!block || !materialization) {
+    throw new NodexAgentReadError(
+      "internal_error",
+      "The created Card does not have exact current authority",
+      true,
+      "retry_same",
+    );
+  }
+  const documentId = `document:${command.cardId}`;
+  const richTitle = parseJsonValue(
+    materialization.title_rich_json,
+    `Document ${documentId} rich title`,
+  ) as unknown as PortableRichText;
+  const returnOptions = command.input.return;
   const output = CreateOutputSchema.parse({
-    schemaVersion: 1,
     data: {
       resource: {
         kind: "card",
         blockId: command.cardId,
-        documentId: `document:${command.cardId}`,
-        documentRevision: mintRevision(database, {
-          kind: "document",
-          projectId: command.projectId,
-          subject: [`document:${command.cardId}`],
-          state: {
-            generation: document.generation,
-            headSeq: document.head_seq,
-            schemaKey: document.schema_key,
-            schemaVersion: document.schema_version,
+        documentId,
+        location: toBlockLocation(block),
+        bodyBlockCount: command.bodyBlockIds.length,
+        ...(returnOptions?.blockIds === true
+          ? { createdBodyBlockIds: command.bodyBlockIds }
+          : {}),
+        ...(returnOptions?.etags === true ? {
+          etags: {
+            title: mintNodexAgentEtag(database, titleEtagState({
+              projectId: command.projectId,
+              documentId,
+              richTitle,
+            })),
+            body: mintNodexAgentEtag(database, documentBodyEtagState({
+              projectId: command.projectId,
+              documentId,
+              nfm: materialization.nfm,
+            })),
           },
-        }),
-        locationRevision: mintRevision(database, {
-          kind: "location",
-          projectId: command.projectId,
-          subject: [command.cardId],
-          state: {
-            revision: block.location_revision,
-            locationKind: block.location_kind,
-            containingDocumentId: block.containing_document_id,
-            containingDatabaseId: block.containing_database_id,
-          },
-        }),
-        createdBodyBlockIds: command.bodyBlockIds,
+        } : {}),
       },
-      ...(destination.kind === "database" ? {
+      ...(command.destination.kind === "database" ? {
         database: {
-          databaseBlockId: destination.databaseBlockId,
-          valueRevisions: Object.fromEntries(valueRows
-            .filter((row) => requestedPropertyIds.has(row.property_id))
-            .map((row) => [row.property_id, mintRevision(database, {
-              kind: "database_value",
-              projectId: command.projectId,
-              subject: [destination.databaseBlockId, command.cardId, row.property_id],
-              state: {
-                membershipId: row.membership_id,
-                membershipRevision: row.membership_revision,
-                propertySchemaRevision: row.property_schema_revision,
-                valueRevision: row.value_revision,
-              },
-            })])),
-          ...(destination.view && placement ? {
-            placementRevision: mintRevision(database, {
-              kind: "view_placement",
-              projectId: command.projectId,
-              subject: [destination.view.viewId, command.cardId],
-              state: {
-                databaseBlockId: destination.databaseBlockId,
-                viewRevision: destination.view.viewRevision,
-                membershipId: placement.membership_id,
-                membershipRevision: placement.membership_revision,
-                positionRevision: placement.revision,
-                groupPropertyId,
-                groupValueRevision,
-                groupKey: placement.group_key,
-              },
-            }),
-          } : {}),
+          databaseBlockId: command.destination.databaseBlockId,
         },
       } : {}),
-      receipt: { duplicate: false },
     },
   });
+  return output;
+}
+
+function createOutput(
+  database: Database.Database,
+  command: NodexAgentCreateCardCommand,
+): CreateOutput {
+  const output = buildCreateOutput(database, command);
   database.prepare(
     `
     UPDATE nodex_agent_call_receipts
@@ -1165,6 +1005,7 @@ function executeCreate(
       ok: true,
       value: {
         output: replayOutput(receipt),
+        duplicate: true,
         documentCommits: [],
         affectedDatabaseBlockIds: [],
         changeLogSeq: 0,
@@ -1182,6 +1023,7 @@ function executeCreate(
     ok: true,
     value: {
       output: createOutput(database, command),
+      duplicate: false,
       documentCommits: placement?.documentCommits ?? [],
       affectedDatabaseBlockIds: [...new Set([
         ...(lifecycle.databaseBlockId ? [lifecycle.databaseBlockId] : []),
@@ -1195,6 +1037,461 @@ function executeCreate(
       ),
     },
   };
+}
+
+function replayCreateCardsOutput(receipt: NodexAgentCallReceiptRow) {
+  const metadata = parseJsonValue(
+    receipt.result_metadata_json,
+    `Agent call ${receipt.call_identity} result metadata`,
+  );
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    throw new NodexAgentReadError(
+      "internal_error",
+      "Agent Card batch result metadata is invalid",
+      false,
+      "none",
+    );
+  }
+  return CreateCardsV3OutputSchema.parse(metadata.output);
+}
+
+function normalizedCreateInput(
+  database: Database.Database,
+  projectId: string,
+  batch: PrepareNodexAgentCreateCardsRequest["input"],
+  index: number,
+): CreateInput {
+  const draft = batch.cards[index];
+  if (!draft) throw new Error(`Card draft ${index} is unavailable`);
+  const destination = batch.destination.kind === "space"
+    ? batch.destination
+    : batch.destination.kind === "card"
+      ? {
+          kind: "document" as const,
+          documentId: requireCardDocumentId(database, projectId, batch.destination.cardId),
+          at: batch.destination.at ?? { kind: "end" as const },
+        }
+      : {
+          ...batch.destination,
+          ...(draft.values ? { values: draft.values } : {}),
+        };
+  return CreateInputSchema.parse({
+    resource: {
+      kind: "card",
+      title: {
+        kind: "rich",
+        richText: [...parseInlineMarkdownTitle(draft.title)],
+      },
+      ...(draft.markdown !== undefined
+        ? { body: { format: "nfm", content: draft.markdown } }
+        : {}),
+    },
+    destination,
+    ...(batch.return
+      ? {
+          return: {
+            ...(batch.return.includes("block_ids") ? { blockIds: true } : {}),
+            ...(batch.return.includes("etags") ? { etags: true } : {}),
+          },
+        }
+      : {}),
+  });
+}
+
+function preparedCreateCard(
+  input: CreateInput,
+  allocate: () => string,
+) {
+  requireNonBlankTitle(input);
+  const cardId = allocate();
+  const nfm = input.resource.body?.content ?? "";
+  let genesis;
+  try {
+    genesis = createCardDocumentGenesis({
+      documentId: `document:${cardId}`,
+      ...(richTitle(input)
+        ? { richTitle: richTitle(input) as PortableRichText }
+        : { title: plainTitle(input) }),
+      nfm,
+      allocateBlockId: allocate,
+    });
+  } catch (error) {
+    throw new NodexAgentReadError(
+      "invalid_nfm",
+      error instanceof Error ? error.message : "Card Nested Markdown is invalid",
+      false,
+      "none",
+    );
+  }
+  let bodyBlockIds: readonly string[];
+  try {
+    const blocks = flattenBlocks(genesis.materialization.blockTree);
+    if (blocks.some((block) => block.type === "card")) {
+      throw new NodexAgentReadError(
+        "invalid_nfm",
+        "Card creation Nested Markdown cannot create an owning nested Card; use create_cards",
+        false,
+        "none",
+      );
+    }
+    bodyBlockIds = blocks.map((block) => block.id);
+  } finally {
+    genesis.document.destroy();
+  }
+  return {
+    input,
+    cardId,
+    bodyBlockIds,
+    primaryMembershipId: allocate(),
+    targetMembershipId: allocate(),
+  };
+}
+
+function prepareCreateCards(
+  database: Database.Database,
+  request: PrepareNodexAgentCreateCardsRequest,
+): PrepareNodexAgentCreateCardsResult {
+  requireProject(database, request.projectId);
+  const key = { ...request, tool: "create_cards" };
+  const identity = nodexAgentCallIdentity(key);
+  const requestHash = nodexAgentFingerprint({
+    tool: "create_cards",
+    projectId: request.projectId,
+    input: request.input,
+  });
+  const existing = readNodexAgentCallReceipt(database, identity);
+  if (existing) {
+    requireMatchingNodexAgentCallReceipt(existing, key, requestHash);
+    if (existing.status === "committed") {
+      return {
+        ok: true,
+        value: { kind: "completed", output: replayCreateCardsOutput(existing) },
+      };
+    }
+  }
+
+  const inputs = request.input.cards.map((_, index) =>
+    normalizedCreateInput(database, request.projectId, request.input, index)
+  );
+  const allocations = existing
+    ? parseStringArray(existing.allocations_json, "Agent Card batch allocation receipt")
+    : [];
+  let allocationIndex = 0;
+  const allocate = (): string => {
+    const value = allocations[allocationIndex] ?? createUuidV7();
+    if (allocationIndex === allocations.length) allocations.push(value);
+    allocationIndex += 1;
+    return value;
+  };
+  const cards = inputs.map((input) => preparedCreateCard(input, allocate));
+  const destinations = inputs.map((input) =>
+    prepareNodexAgentDestination(database, request.projectId, input.destination)
+  );
+  const destination = destinations[0];
+  if (!destination || destinations.some((candidate) =>
+    JSON.stringify(candidate) !== JSON.stringify(destination)
+  )) {
+    throw new NodexAgentReadError(
+      "internal_error",
+      "Card batch destination did not resolve consistently",
+      false,
+      "none",
+    );
+  }
+  const storeEpoch = readBlockStoreEpoch(database);
+  if (!storeEpoch) {
+    throw new NodexAgentReadError(
+      "internal_error",
+      "The Nodex store has no epoch",
+      false,
+      "none",
+    );
+  }
+  const mutationId = existing?.mutation_id ?? `nodex-create-cards:${identity}`;
+  const now = new Date().toISOString();
+  if (existing) {
+    database.prepare(
+      `
+      UPDATE nodex_agent_call_receipts
+      SET allocations_json = ?, updated_at = ?
+      WHERE call_identity = ? AND status = 'prepared'
+    `).run(JSON.stringify(allocations), now, identity);
+  } else {
+    database.prepare(
+      `
+      INSERT INTO nodex_agent_call_receipts (
+        call_identity, thread_id, call_id, project_id, tool, request_hash,
+        mutation_id, allocations_json, result_metadata_json, status,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'create_cards', ?, ?, ?, '{}', 'prepared', ?, ?)
+    `).run(
+      identity,
+      request.threadId,
+      request.callId,
+      request.projectId,
+      requestHash,
+      mutationId,
+      JSON.stringify(allocations),
+      now,
+      now,
+    );
+  }
+  const command: NodexAgentCreateCardsCommand = {
+    threadId: request.threadId,
+    callId: request.callId,
+    projectId: request.projectId,
+    requestHash,
+    mutationId,
+    storeEpoch,
+    input: request.input,
+    destination,
+    cards,
+  };
+  return {
+    ok: true,
+    value: {
+      kind: "prepared",
+      command,
+      leaseDocuments: destination.kind === "document"
+        ? [{
+            documentId: destination.documentId,
+            generation: destination.generation,
+            expectedHeadSeq: destination.expectedHeadSeq,
+          }]
+        : [],
+      previews: cards.map((card) => ({
+        cardId: card.cardId,
+        title: plainTitle(card.input),
+        bodyBlockCount: card.bodyBlockIds.length,
+        targetMarkdown: card.input.resource.body?.content ?? "",
+      })),
+    },
+  };
+}
+
+function batchCardCommand(
+  command: NodexAgentCreateCardsCommand,
+  index: number,
+): NodexAgentCreateCardCommand {
+  const card = command.cards[index];
+  if (!card) throw new Error(`Prepared Card ${index} is unavailable`);
+  return {
+    threadId: command.threadId,
+    callId: command.callId,
+    projectId: command.projectId,
+    requestHash: command.requestHash,
+    mutationId: `${command.mutationId}:card:${index}`,
+    storeEpoch: command.storeEpoch,
+    destination: command.destination,
+    ...card,
+  };
+}
+
+function applyBatchSpaceOrDocumentPlacement(
+  database: Database.Database,
+  command: NodexAgentCreateCardsCommand,
+  lifecycles: readonly ReturnType<typeof applyLifecycleGenesis>[],
+) {
+  if (command.destination.kind === "database") return null;
+  const memberships = lifecycles.map((lifecycle, index) => {
+    const card = command.cards[index];
+    if (!card || !lifecycle.databaseBlockId || !lifecycle.membershipId) {
+      throw new Error("Card batch genesis did not create its primary membership");
+    }
+    return { card, lifecycle };
+  });
+  const sourceDatabaseBlockId = memberships[0]?.lifecycle.databaseBlockId;
+  if (!sourceDatabaseBlockId || memberships.some(
+    ({ lifecycle }) => lifecycle.databaseBlockId !== sourceDatabaseBlockId,
+  )) {
+    throw new Error("Card batch genesis did not share one primary Database");
+  }
+  const target = command.destination.kind === "space"
+    ? {
+        kind: "space" as const,
+        ...(command.destination.beforeBlockId
+          ? { beforeBlockId: command.destination.beforeBlockId }
+          : {}),
+      }
+    : {
+        kind: "document" as const,
+        documentId: command.destination.documentId,
+        generation: command.destination.generation,
+        expectedHeadSeq: command.destination.expectedHeadSeq,
+        ...(command.destination.parentBlockId
+          ? { parentBlockId: command.destination.parentBlockId }
+          : {}),
+        ...(command.destination.beforeBlockId
+          ? { beforeBlockId: command.destination.beforeBlockId }
+          : {}),
+      };
+  const result = applyBlockTransfer(database, {
+    version: 1,
+    operationId: `${command.mutationId}:placement`,
+    projectId: command.projectId,
+    storeEpoch: command.storeEpoch,
+    clientSessionId: `nodex-agent:${command.threadId}`,
+    actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
+    mode: "move",
+    rootBlockIds: memberships.map(({ card }) => card.cardId),
+    expectedLocationRevisions: Object.fromEntries(memberships.map(({ card, lifecycle }) =>
+      [card.cardId, lifecycle.locationRevision]
+    )),
+    source: {
+      kind: "database",
+      databaseBlockId: sourceDatabaseBlockId,
+      memberships: Object.fromEntries(memberships.map(({ card, lifecycle }) => [
+        card.cardId,
+        { membershipId: lifecycle.membershipId as string, revision: 1 },
+      ])),
+    },
+    target,
+  });
+  if (result.ok) return result.value;
+  throwDomainFailure({
+    message: result.error.message,
+    code: result.error.code,
+    recovery: command.destination.kind === "document" ? "get_block_again" : "none",
+  });
+}
+
+function createdCardV3Output(
+  database: Database.Database,
+  command: NodexAgentCreateCardsCommand,
+  index: number,
+) {
+  const card = command.cards[index];
+  if (!card) throw new Error(`Created Card ${index} is unavailable`);
+  const legacy = buildCreateOutput(database, batchCardCommand(command, index));
+  return {
+    cardId: card.cardId,
+    location: toCardLocation(database, command.projectId, legacy.data.resource.location),
+    bodyBlocksCreated: card.bodyBlockIds.length,
+    ...(command.input.return?.includes("block_ids")
+      ? { blockIds: card.bodyBlockIds }
+      : {}),
+    ...(legacy.data.resource.etags ? { etags: legacy.data.resource.etags } : {}),
+  };
+}
+
+function createCardsOutput(
+  database: Database.Database,
+  command: NodexAgentCreateCardsCommand,
+) {
+  const output = CreateCardsV3OutputSchema.parse({
+    data: {
+      cards: command.cards.map((_, index) => createdCardV3Output(database, command, index)),
+      created: command.cards.length,
+    },
+  });
+  database.prepare(
+    `
+    UPDATE nodex_agent_call_receipts
+    SET status = 'committed', result_metadata_json = ?, updated_at = ?
+    WHERE call_identity = ? AND status = 'prepared'
+  `).run(
+    JSON.stringify({ output }),
+    new Date().toISOString(),
+    nodexAgentCallIdentity({ ...command, tool: "create_cards" }),
+  );
+  return output;
+}
+
+function executeCreateCards(
+  database: Database.Database,
+  command: NodexAgentCreateCardsCommand,
+  options: CreateExecutionOptions,
+): ExecuteNodexAgentCreateCardsResult {
+  const key = { ...command, tool: "create_cards" };
+  const identity = nodexAgentCallIdentity(key);
+  const receipt = readNodexAgentCallReceipt(database, identity);
+  if (!receipt) {
+    throw new NodexAgentReadError(
+      "idempotency_collision",
+      "No matching prepared Agent Card batch exists",
+      false,
+      "none",
+    );
+  }
+  requireMatchingNodexAgentCallReceipt(receipt, key, command.requestHash);
+  if (receipt.mutation_id !== command.mutationId) {
+    throw new NodexAgentReadError(
+      "idempotency_collision",
+      "Prepared Agent Card batch mutation identity changed",
+      false,
+      "none",
+    );
+  }
+  if (receipt.status === "committed") {
+    return {
+      ok: true,
+      value: {
+        output: replayCreateCardsOutput(receipt),
+        duplicate: true,
+        documentCommits: [],
+        affectedDatabaseBlockIds: [],
+        changeLogSeq: 0,
+      },
+    };
+  }
+  assertPreparedAuthority(database, batchCardCommand(command, 0));
+  const lifecycles = command.cards.map((_, index) =>
+    applyLifecycleGenesis(database, batchCardCommand(command, index))
+  );
+  options.faultInjector?.("after_genesis");
+  const placement = applyBatchSpaceOrDocumentPlacement(database, command, lifecycles);
+  const databaseReceipts = command.destination.kind === "database"
+    ? command.cards.flatMap((_, index) =>
+        applyDatabasePlacement(database, batchCardCommand(command, index))
+      )
+    : [];
+  options.faultInjector?.("after_placement");
+  options.faultInjector?.("before_receipt");
+  return {
+    ok: true,
+    value: {
+      output: createCardsOutput(database, command),
+      duplicate: false,
+      documentCommits: placement?.documentCommits ?? [],
+      affectedDatabaseBlockIds: [...new Set([
+        ...lifecycles.flatMap((lifecycle) =>
+          lifecycle.databaseBlockId ? [lifecycle.databaseBlockId] : []
+        ),
+        ...(placement?.affectedDatabaseBlockIds ?? []),
+        ...databaseReceipts.flatMap((result) => result.affectedDatabaseBlockIds),
+      ])].sort((left, right) => left.localeCompare(right)),
+      changeLogSeq: Math.max(
+        ...lifecycles.map((lifecycle) => lifecycle.changeLogSeq),
+        placement?.changeLogSeq ?? 0,
+        ...databaseReceipts.map((result) => result.changeLogSeq),
+      ),
+    },
+  };
+}
+
+export function prepareNodexAgentCreateCards(
+  database: Database.Database,
+  request: PrepareNodexAgentCreateCardsRequest,
+): PrepareNodexAgentCreateCardsResult {
+  try {
+    return database.transaction(() => prepareCreateCards(database, request)).immediate();
+  } catch (error) {
+    const failure = readFailure(error);
+    return { ok: false, error: publicV3Failure(failure.error) };
+  }
+}
+
+export function executeNodexAgentCreateCards(
+  database: Database.Database,
+  command: NodexAgentCreateCardsCommand,
+  options: CreateExecutionOptions = {},
+): ExecuteNodexAgentCreateCardsResult {
+  try {
+    return database.transaction(() => executeCreateCards(database, command, options)).immediate();
+  } catch (error) {
+    const failure = readFailure(error);
+    return { ok: false, error: publicV3Failure(failure.error) };
+  }
 }
 
 export function prepareNodexAgentCreate(

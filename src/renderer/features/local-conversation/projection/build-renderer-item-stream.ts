@@ -454,7 +454,7 @@ function resolveRequestSearchableText(request: CodexTurnScopedConversationReques
     return [
       request.preview.summary,
       ...request.preview.details.map((detail) => `${detail.label} ${detail.value}`),
-      request.preview.nfmPreview ?? "",
+      request.preview.markdownPreview ?? request.preview.nfmPreview ?? "",
     ].join("\n").trim();
   }
 

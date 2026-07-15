@@ -156,7 +156,6 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
     if (j >= len) return null;
 
     const rawText = input.slice(i + 1, j);
-    const text = unescapeNfm(rawText);
     if (j + 1 >= len || input[j + 1] !== "(") return null;
 
     const urlStart = j + 2;
@@ -174,7 +173,16 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
 
     const href = input.slice(urlStart, urlEnd);
     i = urlEnd + 1;
-    return { type: "link", text, href, styles: { ...styles } };
+    const parsedLabel = parseInlineContent(rawText);
+    const uniformLabel = parsedLabel.length === 1 && parsedLabel[0]?.type === "text"
+      ? parsedLabel[0]
+      : null;
+    return {
+      type: "link",
+      text: uniformLabel?.text ?? unescapeNfm(rawText),
+      href,
+      styles: { ...styles, ...(uniformLabel?.styles ?? {}) },
+    };
   }
 
   function tryParseSpan(styles: NfmStyleSet): NfmInlineContent[] | null {

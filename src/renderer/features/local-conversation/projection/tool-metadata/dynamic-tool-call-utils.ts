@@ -1,6 +1,10 @@
 import { formatCodexScheduledAutomationRruleSummary } from "../../../../lib/codex-scheduled-automation-display";
 import { formatDynamicToolCallMarkdownFallback } from "../../../../../shared/codex-dynamic-tool-markdown";
 import { CODEX_CLIENT_THREAD_ID_PREFIX } from "../../../../../shared/codex-client-thread";
+import {
+  NODEX_APP_V2_TOOLS,
+  NODEX_APP_V3_TOOLS,
+} from "../../../../../shared/nodex-agent-tools/identity";
 import type {
   CodexConversationItem,
   CodexDynamicToolCallView,
@@ -14,6 +18,7 @@ import type {
   CodexScheduledAutomationUpdateInput,
 } from "../../../../lib/types";
 import { humanizeIdentifier } from "./tool-call-utils";
+import { resolveNodexDynamicToolCallPresentation } from "./nodex-dynamic-tool-call-presentation";
 
 const CODEX_APP_NAMESPACE = "codex_app";
 const CHROME_EXTENSION_NAMESPACE = "chrome_extension";
@@ -35,6 +40,7 @@ export type DynamicToolRendererKind =
   | "automationUpdate"
   | "chromeTabContext"
   | "codexAppThread"
+  | "nodexApp"
   | "settings";
 
 export type DynamicToolRegistryEntry = {
@@ -684,6 +690,15 @@ function resolveAutomationUpdateSummaryKey(call: CodexDynamicToolCallView): stri
 }
 
 const DYNAMIC_TOOL_REGISTRY: DynamicToolRegistryEntry[] = [
+  ...[...new Set([...NODEX_APP_V2_TOOLS, ...NODEX_APP_V3_TOOLS])].map(
+    (tool): DynamicToolRegistryEntry => ({
+    namespace: "nodex_app",
+    tool,
+    rendererKind: "nodexApp",
+    resolveLabel: (call) => resolveNodexDynamicToolCallPresentation(call)?.label ?? null,
+    getCompletedSummaryPartKey: (call) => call.callId,
+    }),
+  ),
   {
     namespace: CODEX_APP_NAMESPACE,
     tool: "automation_update",

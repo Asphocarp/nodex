@@ -355,16 +355,16 @@ export const NodexAgentAuthorization: Story = {
           threadId: "thread-story",
           turnId: "turn-story",
           itemId: "call-story",
-          tool: "edit_document",
+          tool: "update_card",
           effect: "write",
           preview: {
             title: "Append rollout plan",
             summary: "Append four Blocks to “Launch brief”.",
             details: [
-              { label: "Document", value: "Launch brief" },
-              { label: "Method", value: "nfm.insert" },
+              { label: "Card", value: "Launch brief" },
+              { label: "Method", value: "insert" },
             ],
-            nfmPreview: "## Rollout\n\n- Alpha cohort\n- Measure activation\n- Expand gradually",
+            markdownPreview: "## Rollout\n\n- Alpha cohort\n- Measure activation\n- Expand gradually",
           },
           createdAt: 1,
         }}
@@ -388,16 +388,16 @@ export const NodexAgentDestructiveAuthorization: Story = {
           threadId: "thread-story",
           turnId: "turn-story",
           itemId: "call-destructive-story",
-          tool: "edit_document",
+          tool: "update_card",
           effect: "destructive",
           preview: {
             title: "Replace launch brief body",
             summary: "Delete three existing Blocks and create the replacement outline.",
             details: [
-              { label: "Document", value: "Launch brief" },
-              { label: "Method", value: "nfm.replace" },
+              { label: "Card", value: "Launch brief" },
+              { label: "Method", value: "replace" },
             ],
-            nfmPreview: "# Launch brief\n\n## Revised scope\n\nThe former rollout sections will be removed.",
+            markdownPreview: "# Launch brief\n\n## Revised scope\n\nThe former rollout sections will be removed.",
           },
           createdAt: 1,
         }}

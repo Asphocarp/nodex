@@ -2401,7 +2401,7 @@ export const DynamicToolCallFallbackRows: Story = {
   render: () => (
     <StorySurface
       title="Dynamic Tool Call Fallback Rows"
-      description="Generic dynamic tools render as compact rows without result or argument panels."
+      description="Generic dynamic tools stay compact and expose arguments, output, and exact raw protocol data on demand."
     >
       <ConversationStorySurface>
         <div className="flex flex-col gap-1">
@@ -2427,6 +2427,93 @@ export const DynamicToolCallFallbackRows: Story = {
             completed: true,
             args: { depth: 2 },
             contentText: "done",
+          })} />
+        </div>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const NodexDynamicToolCalls: Story = {
+  render: () => (
+    <StorySurface
+      title="Nodex Dynamic Tool Calls"
+      description="Nodex calls keep search intent, Card targets, and destinations visible when compact; Nested Markdown edits show an inline diff before the full inspector."
+    >
+      <ConversationStorySurface>
+        <div className="flex flex-col gap-3">
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "nodex-search",
+            namespace: "nodex_app",
+            tool: "search",
+            completed: true,
+            args: { query: "migrtion", target: "cards", scope: { kind: "project" } },
+            contentText: JSON.stringify({
+              schemaVersion: 1,
+              data: {
+                target: "cards",
+                results: [
+                  { kind: "card", blockId: "card-1", title: "Migration plan" },
+                  { kind: "card", blockId: "card-2", title: "Migration checklist" },
+                ],
+              },
+            }),
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "nodex-create-cards",
+            namespace: "nodex_app",
+            tool: "create_cards",
+            completed: true,
+            args: {
+              destination: { kind: "space" },
+              cards: [{
+                title: "Migration plan",
+                markdown: "# Migration plan\n\n## Checklist\n- [ ] Back up data",
+              }],
+            },
+            contentText: JSON.stringify({
+              data: {
+                cards: [{
+                  cardId: "card-migration-plan",
+                  location: { kind: "space" },
+                  bodyBlocksCreated: 3,
+                }],
+                created: 1,
+              },
+            }),
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "nodex-update-card",
+            namespace: "nodex_app",
+            tool: "update_card",
+            completed: true,
+            args: {
+              cardId: "card-migration-plan",
+              body: {
+                kind: "patch",
+                patches: [
+                  {
+                    oldMarkdown: "## Draft\n- [ ] Back up data",
+                    newMarkdown: "## Ready\n- [x] Back up data",
+                  },
+                  {
+                    oldMarkdown: "Owner: TBD",
+                    newMarkdown: "Owner: Ada",
+                  },
+                ],
+              },
+            },
+            contentText: JSON.stringify({
+              data: {
+                cardId: "card-migration-plan",
+                effects: {
+                  created: 0,
+                  updated: 3,
+                  moved: 0,
+                  deleted: 0,
+                },
+              },
+            }),
           })} />
         </div>
       </ConversationStorySurface>

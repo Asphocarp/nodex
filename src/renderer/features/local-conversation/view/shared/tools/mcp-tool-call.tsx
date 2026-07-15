@@ -1,12 +1,6 @@
 import { motion } from "motion/react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { CodeBracketsIcon, CodexPanelRightVisibleIcon } from "@/components/shared/icons";
-import {
-  NodexDialog as Dialog,
-  NodexDialogContent as DialogContent,
-  NodexDialogHeader as DialogHeader,
-  NodexDialogTitle as DialogTitle,
-} from "../../../../../components/ui/dialog";
+import { useEffect, useId, useMemo, useState } from "react";
+import { CodexPanelRightVisibleIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import type {
   CodexMcpToolCallContentBlock,
@@ -19,7 +13,6 @@ import { useMcpResource, useMcpServerStatuses } from "../../../../../lib/use-mcp
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
-import { CopyMessageActionButton } from "../thread-message-actions";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
 import { ThreadActivityHeader, ThreadActivityShell, ToolErrorDetail } from "./tool-primitives";
@@ -30,6 +23,7 @@ import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
 import { resolveMcpToolDisplayName } from "./mcp-tool-call-labels";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
 import { useThreadMcpApps } from "./mcp-apps-context";
+import { ToolCallCodePanel, ToolCallRawDialog } from "./tool-call-inspection";
 import {
   buildMcpAppSidePanelInput,
   isMcpAppHtmlTooLarge,
@@ -83,53 +77,6 @@ function appendAnnotations(text: string, annotations: unknown): string {
   return `${text}\nAnnotations: ${formatted}`;
 }
 
-function McpCodePanel({
-  title,
-  content,
-  copyText,
-  bodyClassName,
-  preClassName,
-  stickyHeaderClassName,
-}: {
-  title: string;
-  content: string;
-  copyText?: string;
-  bodyClassName?: string;
-  preClassName?: string;
-  stickyHeaderClassName?: string;
-}) {
-  return (
-    <div
-      className="bg-token-text-code-block-background border-token-border-heavy relative overflow-clip rounded-lg border contain-inline-size dark"
-      data-theme="dark"
-    >
-      <div
-        className={cn(
-          "sticky top-0 z-10 flex items-center justify-between py-1 ps-2 pe-2 font-sans text-sm text-token-description-foreground select-none",
-          stickyHeaderClassName,
-        )}
-      >
-        <div className="min-w-0 truncate">{title}</div>
-        <div className="flex items-center">
-          {copyText ? (
-            <CopyMessageActionButton
-              text={copyText}
-              label="Copy"
-              copiedLabel="Copied"
-              tooltipLabel="Copy"
-              copiedTooltipLabel="Copied"
-              className="enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background"
-            />
-          ) : null}
-        </div>
-      </div>
-      <div className={cn("text-size-chat max-h-48 overflow-y-auto p-2", bodyClassName)} dir="ltr">
-        <pre className={cn("m-0 whitespace-pre-wrap break-words", preClassName)}>{content}</pre>
-      </div>
-    </div>
-  );
-}
-
 function McpEmbeddedResourceBlock({
   block,
 }: {
@@ -181,7 +128,7 @@ function McpUnknownBlock({ value }: { value: unknown }) {
 function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
   if (block.type === "text") {
     return (
-      <McpCodePanel
+      <ToolCallCodePanel
         title="plaintext"
         content={appendAnnotations(block.text, block.annotations)}
         preClassName="[&_*]:text-token-non-assistant-body-descendant text-token-description-foreground/80 m-0 whitespace-pre-wrap break-words font-sans text-size-chat leading-relaxed extension:leading-normal"
@@ -244,88 +191,6 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
   }
 
   return <McpUnknownBlock value={block.raw} />;
-}
-
-function McpRawOutputDialog({
-  open,
-  onOpenChange,
-  server,
-  tool,
-  rawOutput,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  server: string;
-  tool: string;
-  rawOutput: string;
-}) {
-  const dialogId = useId();
-  const contentRef = useRef<HTMLDivElement | null>(null);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <NodexTooltip
-        tooltipContent="Show raw tool call output"
-        side="top"
-        delayDuration={0}
-      >
-        <button
-          type="button"
-          className={cn(
-            "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 justify-center p-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
-            electronToolIconSizeClassName,
-          )}
-          aria-label="Show raw tool call output"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls={dialogId}
-          data-state={open ? "open" : "closed"}
-          onClick={() => {
-            onOpenChange(true);
-          }}
-        >
-          <CodeBracketsIcon />
-        </button>
-      </NodexTooltip>
-      <DialogContent
-        id={dialogId}
-        ref={contentRef}
-        tabIndex={-1}
-        showCloseButton={false}
-        aria-describedby={undefined}
-        className="codex-dialog fixed left-1/2 top-1/2 z-50 w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 gap-0 rounded-3xl border-none bg-token-dropdown-background/90 p-0 text-token-foreground shadow-lg ring-[0.5px] ring-token-border backdrop-blur-xl outline-none sm:max-w-[520px]"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          contentRef.current?.focus();
-        }}
-      >
-        <div>
-          <div className="flex flex-col gap-0 px-5 py-5 text-base leading-normal tracking-normal">
-            <div className="flex w-full flex-col pt-3 first:pt-0">
-              <div className="flex flex-col items-start gap-3">
-                <div className="flex min-w-0 flex-1 flex-col gap-1 self-stretch">
-                  <DialogHeader className="gap-0 text-left">
-                    <DialogTitle className="heading-dialog min-w-0 font-semibold">
-                      Raw {server}.{tool} tool call output
-                    </DialogTitle>
-                  </DialogHeader>
-                </div>
-              </div>
-            </div>
-            <div className="flex w-full flex-col pt-3 first:pt-0">
-              <McpCodePanel
-                title="json"
-                content={rawOutput}
-                copyText={rawOutput}
-                bodyClassName="max-h-128 overflow-auto p-2"
-                stickyHeaderClassName="rounded-t-lg"
-              />
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function McpAppLoadingPlaceholder({ resource }: { resource: McpRenderableResource | null }) {
@@ -429,7 +294,7 @@ function McpResultBody({
         <p className="text-token-description-foreground/80">Tool returned no content</p>
       ) : null}
       {shouldShowStructuredContent && displayStructuredContentJson ? (
-        <McpCodePanel
+        <ToolCallCodePanel
           title="json"
           content={displayStructuredContentJson}
           preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
@@ -458,12 +323,12 @@ function McpResultBody({
               </button>
             </NodexTooltip>
           ) : null}
-          <McpRawOutputDialog
+          <ToolCallRawDialog
             open={rawDialogOpen}
             onOpenChange={onRawDialogOpenChange}
-            server={payload.invocation.server}
-            tool={payload.invocation.tool}
-            rawOutput={rawOutput}
+            title={`Raw ${payload.invocation.server}.${payload.invocation.tool} tool call output`}
+            rawValue={rawOutput}
+            triggerLabel="Show raw tool call output"
           />
         </div>
       ) : null}

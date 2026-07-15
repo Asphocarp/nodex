@@ -44,6 +44,7 @@ import type {
   CodexHooksStateUpdateInput,
 } from "../../shared/codex-hooks";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import { NODEX_APP_TOOLSET_REVISION } from "../../shared/nodex-agent-tools";
 import type {
   AppInfo,
   ListMcpServerStatusResponse,
@@ -1450,7 +1451,7 @@ test("history projection applies MCP, dynamic, collab, and web special-family ru
           tool: "fixture_tool",
           arguments: { value: true },
           status: "completed",
-          contentItems: [{ type: "inputText", text: "hidden generic output" }],
+          contentItems: [{ type: "inputText", text: "canonical generic output" }],
           success: true,
           durationMs: 6,
         },
@@ -1508,7 +1509,12 @@ test("history projection applies MCP, dynamic, collab, and web special-family ru
     expect(mcp?.mcpToolCall?.completed).toBe(true);
     expect(mcp?.toolCall === undefined).toBe(true);
     expect(dynamic?.dynamicToolCall?.completed).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(dynamic?.dynamicToolCall ?? {}, "contentItems")).toBe(false);
+    expect(dynamic?.dynamicToolCall?.contentItems).toEqual([{
+      type: "inputText",
+      text: "canonical generic output",
+    }]);
+    expect(dynamic?.dynamicToolCall?.success).toBe(true);
+    expect(dynamic?.dynamicToolCall?.durationMs).toBe(6);
     expect(spawn?.semanticKind).toBe("multiAgentAction");
     expect(spawn?.toolCall === undefined).toBe(true);
     expect(web?.webSearch?.completed).toBe(false);
@@ -4171,7 +4177,7 @@ describe("codex-service scheduled automations", () => {
         expect((threadStartParams?.dynamicTools?.length ?? 0) > 0).toBe(true);
         expect(getCodexThreadDynamicToolCatalogs("thread-automation")).toEqual([
           { namespace: "codex_app", toolsetRevision: 1 },
-          { namespace: "nodex_app", toolsetRevision: 1 },
+          { namespace: "nodex_app", toolsetRevision: NODEX_APP_TOOLSET_REVISION },
         ]);
 
         const titleRequest = requests.find((request) => request.method === "thread/name/set");
@@ -23133,7 +23139,6 @@ describe("codex-service approval fallback", () => {
 
         expect(response.success).toBe(false);
         expect(JSON.parse(response.contentItems[0]?.text ?? "null")).toEqual({
-          schemaVersion: 1,
           error: {
             code: "tool_catalog_stale",
             message: "This task was not launched with the Nodex agent-tool catalog",

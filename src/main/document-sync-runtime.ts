@@ -29,6 +29,12 @@ export const documentSyncHub = new DocumentSyncHub({
     (await blockMutationWriter.applyBlockTransfer(request)).result,
   executeNodexAgentCreate: async (command) =>
     (await blockMutationWriter.executeNodexAgentCreate(command)).result,
+  executeNodexAgentCreateCards: async (command) =>
+    (await blockMutationWriter.executeNodexAgentCreateCards(command)).result,
+  executeNodexAgentDuplicateCard: async (command) =>
+    (await blockMutationWriter.executeNodexAgentDuplicateCard(command)).result,
+  executeNodexAgentMoveCards: async (command) =>
+    (await blockMutationWriter.executeNodexAgentMoveCards(command)).result,
   executeNodexAgentTransfer: async (command) =>
     (await blockMutationWriter.executeNodexAgentTransfer(command)).result,
 });

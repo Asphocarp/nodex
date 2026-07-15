@@ -14,8 +14,8 @@ import {
   EditDocumentOutputSchema,
   type CompleteNodexAgentDocumentEditRequest,
   type CompleteNodexAgentDocumentEditResult,
+  type EditDocumentInput,
   type EditDocumentOutput,
-  type JsonValue,
   type PrepareNodexAgentDocumentEditRequest,
   type PrepareNodexAgentDocumentEditResult,
 } from "../../shared/nodex-agent-tools";
@@ -25,11 +25,11 @@ import type {
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { readCommittedDocumentOperationResult } from "../local-store/block-document-operations";
 import {
-  decodeNodexAgentToken,
-  NodexAgentTokenError,
-} from "../local-store/nodex-agent-token-codec";
+  assertNodexAgentEtag,
+  mintNodexAgentEtag,
+  NodexAgentEtagError,
+} from "../local-store/nodex-agent-etag";
 import {
-  mintRevision,
   NODEX_AGENT_RESPONSE_MAX_BYTES,
   NodexAgentReadError,
   nodexAgentFingerprint,
@@ -37,6 +37,12 @@ import {
   readFailure,
   requireProject,
 } from "./read-support";
+import {
+  documentBlockEtagState,
+  documentBodyEtagState,
+  documentSubtreeEtagState,
+  titleEtagState,
+} from "./semantic-guards";
 
 import {
   nodexAgentCallIdentity,
@@ -175,16 +181,74 @@ function toMaterialization(row: DocumentMaterializationRow): CardDocumentMateria
   };
 }
 
-function tokenCoordinate(value: JsonValue | undefined, key: string): number {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
+function findBlock(
+  blocks: readonly BlockTreeNode[],
+  blockId: string,
+): BlockTreeNode | undefined {
+  for (const block of blocks) {
+    if (block.id === blockId) return block;
+    const nested = findBlock(block.children, blockId);
+    if (nested) return nested;
   }
-  throw new NodexAgentReadError(
-    "conflict",
-    `Document revision is missing ${key}`,
-    false,
-    "get_block_again",
-  );
+  return undefined;
+}
+
+function assertDocumentPreconditions(
+  database: Database.Database,
+  request: PrepareNodexAgentDocumentEditRequest,
+  current: CardDocumentMaterialization,
+): void {
+  try {
+    if (request.input.title) {
+      assertNodexAgentEtag(database, request.input.title.ifMatch, titleEtagState({
+        projectId: request.projectId,
+        documentId: request.input.documentId,
+        richTitle: current.richTitle,
+      }));
+    }
+    if (request.input.body?.kind === "nfm.replace") {
+      assertNodexAgentEtag(database, request.input.body.ifMatch, documentBodyEtagState({
+        projectId: request.projectId,
+        documentId: request.input.documentId,
+        nfm: current.nfm,
+      }));
+    }
+    if (request.input.body?.kind !== "blocks") return;
+    for (const edit of request.input.body.edits) {
+      if (edit.kind !== "update" && edit.kind !== "delete") continue;
+      const block = findBlock(current.blockTree, edit.blockId);
+      if (!block) {
+        throw new NodexAgentReadError(
+          "conflict",
+          `Document Block ${edit.blockId} no longer exists`,
+          false,
+          "get_block_again",
+          { resourceId: edit.blockId, domainCode: "document_block_missing" },
+        );
+      }
+      const expected = edit.kind === "delete"
+        ? documentSubtreeEtagState({
+          projectId: request.projectId,
+          documentId: request.input.documentId,
+          block,
+        })
+        : documentBlockEtagState({
+          projectId: request.projectId,
+          documentId: request.input.documentId,
+          block,
+        });
+      assertNodexAgentEtag(database, edit.ifMatch, expected);
+    }
+  } catch (error) {
+    if (!(error instanceof NodexAgentEtagError)) throw error;
+    throw new NodexAgentReadError(
+      error.code === "invalid_etag" ? "invalid_arguments" : "conflict",
+      error.message,
+      false,
+      error.code === "invalid_etag" ? "none" : "get_block_again",
+      { resourceId: request.input.documentId, domainCode: error.code },
+    );
+  }
 }
 
 function mutationRequest(input: {
@@ -222,17 +286,6 @@ function mutationRequest(input: {
   };
 }
 
-function compactReplayOutput(output: EditDocumentOutput): EditDocumentOutput {
-  return EditDocumentOutputSchema.parse({
-    ...output,
-    data: {
-      ...output.data,
-      body: { contentOmitted: true },
-      receipt: { duplicate: false },
-    },
-  });
-}
-
 function replayOutput(receipt: NodexAgentCallReceiptRow): EditDocumentOutput {
   const metadata = parseJsonValue(
     receipt.result_metadata_json,
@@ -246,20 +299,16 @@ function replayOutput(receipt: NodexAgentCallReceiptRow): EditDocumentOutput {
       "none",
     );
   }
-  const output = EditDocumentOutputSchema.parse(metadata.output);
-  return EditDocumentOutputSchema.parse({
-    ...output,
-    data: { ...output.data, receipt: { duplicate: true } },
-  });
+  return EditDocumentOutputSchema.parse(metadata.output);
 }
 
 function finishDocumentEdit(
   database: Database.Database,
   request: CompleteNodexAgentDocumentEditRequest,
 ): EditDocumentOutput {
-  const identity = nodexAgentCallIdentity({ ...request, tool: "edit_document" });
+  const identity = nodexAgentCallIdentity(request);
   const receipt = readNodexAgentCallReceipt(database, identity);
-  if (!receipt || receipt.project_id !== request.projectId || receipt.tool !== "edit_document") {
+  if (!receipt || receipt.project_id !== request.projectId || receipt.tool !== request.tool) {
     throw new NodexAgentReadError(
       "idempotency_collision",
       "No matching prepared Agent document edit exists",
@@ -319,41 +368,59 @@ function finishDocumentEdit(
     && !Array.isArray(preparedMetadata.localBlockIds)
     ? preparedMetadata.localBlockIds
     : {};
+  const returnOptions = typeof preparedMetadata === "object"
+    && preparedMetadata !== null
+    && !Array.isArray(preparedMetadata)
+    && typeof preparedMetadata.returnOptions === "object"
+    && preparedMetadata.returnOptions !== null
+    && !Array.isArray(preparedMetadata.returnOptions)
+    ? preparedMetadata.returnOptions as Readonly<Record<string, unknown>>
+    : {};
   const current = readCurrentDocument(database, request.projectId, request.result.documentId);
   const exactResultHead = current.generation === request.result.generation
     && current.head_seq === request.result.headSeq;
-  const body = exactResultHead && current.nfm !== null
+  const body = returnOptions.nfm === true && exactResultHead && current.nfm !== null
     ? {
       format: "nfm" as const,
       content: current.nfm,
       contentHash: createHash("sha256").update(current.nfm).digest("hex"),
     }
-    : { contentOmitted: true as const };
+    : undefined;
+  const materialization = exactResultHead ? toMaterialization(current) : null;
   const rawOutput = {
-    schemaVersion: 1,
     data: {
       documentId: request.result.documentId,
-      revision: mintRevision(database, {
-        kind: "document",
-        projectId: request.projectId,
-        subject: [request.result.documentId],
-        state: {
-          generation: request.result.generation,
-          headSeq: request.result.headSeq,
-          schemaKey: current.schema_key,
-          schemaVersion: current.schema_version,
-        },
-      }),
       effects: {
-        createdBlockIds: request.result.createdBlockIds,
-        localBlockIds,
-        copiedBlockIds: {},
-        updatedBlockIds: request.result.updatedBlockIds,
-        movedBlockIds: request.result.movedBlockIds,
-        deletedBlockIds: request.result.deletedBlockIds,
+        created: request.result.createdBlockIds.length,
+        updated: request.result.updatedBlockIds.length,
+        moved: request.result.movedBlockIds.length,
+        deleted: request.result.deletedBlockIds.length,
+        ...(returnOptions.blockIds === true ? {
+          blockIds: {
+            created: request.result.createdBlockIds,
+            local: localBlockIds,
+            copied: {},
+            updated: request.result.updatedBlockIds,
+            moved: request.result.movedBlockIds,
+            deleted: request.result.deletedBlockIds,
+          },
+        } : {}),
       },
-      body,
-      receipt: { duplicate: request.result.duplicate },
+      ...(body ? { body } : {}),
+      ...(returnOptions.etags === true && materialization ? {
+        etags: {
+          title: mintNodexAgentEtag(database, titleEtagState({
+            projectId: request.projectId,
+            documentId: request.result.documentId,
+            richTitle: materialization.richTitle,
+          })),
+          body: mintNodexAgentEtag(database, documentBodyEtagState({
+            projectId: request.projectId,
+            documentId: request.result.documentId,
+            nfm: materialization.nfm,
+          })),
+        },
+      } : {}),
     },
   };
   const output = EditDocumentOutputSchema.parse(
@@ -361,35 +428,36 @@ function finishDocumentEdit(
       ? rawOutput
       : {
         ...rawOutput,
-        data: { ...rawOutput.data, body: { contentOmitted: true } },
+        data: { ...rawOutput.data, body: undefined },
       },
   );
-  const compact = compactReplayOutput(output);
   database.prepare(
     `
     UPDATE nodex_agent_call_receipts
     SET status = 'committed', result_metadata_json = ?, updated_at = ?
     WHERE call_identity = ? AND status = 'prepared'
-  `).run(JSON.stringify({ output: compact }), new Date().toISOString(), identity);
+  `).run(JSON.stringify({ output }), new Date().toISOString(), identity);
   return output;
 }
 
-function prepareDocumentEdit(
+export function prepareNodexAgentDocumentEditWithResolver(
   database: Database.Database,
-  request: PrepareNodexAgentDocumentEditRequest,
+  request: Omit<PrepareNodexAgentDocumentEditRequest, "input">,
+  requestInput: unknown,
+  resolveInput: () => EditDocumentInput,
 ): PrepareNodexAgentDocumentEditResult {
   requireProject(database, request.projectId);
-  const identity = nodexAgentCallIdentity({ ...request, tool: "edit_document" });
+  const identity = nodexAgentCallIdentity(request);
   const requestHash = nodexAgentFingerprint({
-    tool: "edit_document",
+    tool: request.tool,
     projectId: request.projectId,
-    input: request.input,
+    input: requestInput,
   });
   const existing = readNodexAgentCallReceipt(database, identity);
   if (existing) {
     requireMatchingNodexAgentCallReceipt(
       existing,
-      { ...request, tool: "edit_document" },
+      request,
       requestHash,
     );
     if (existing.status === "committed") {
@@ -405,37 +473,13 @@ function prepareDocumentEdit(
     }
   }
 
-  let token;
-  try {
-    token = decodeNodexAgentToken(database, request.input.ifRevision, {
-      kind: "document",
-      projectId: request.projectId,
-      subject: [request.input.documentId],
-    });
-  } catch (error) {
-    if (error instanceof NodexAgentTokenError) {
-      throw new NodexAgentReadError(
-        error.code === "invalid_token" ? "invalid_arguments" : "conflict",
-        error.message,
-        false,
-        "get_block_again",
-        { resourceId: request.input.documentId, domainCode: error.code },
-      );
-    }
-    throw error;
-  }
-  const generation = tokenCoordinate(token.state.generation, "generation");
-  const headSeq = tokenCoordinate(token.state.headSeq, "headSeq");
-  const current = readCurrentDocument(database, request.projectId, request.input.documentId);
-  if (current.generation !== generation || current.head_seq !== headSeq) {
-    throw new NodexAgentReadError(
-      "conflict",
-      `Document ${request.input.documentId} changed after it was read`,
-      false,
-      "get_block_again",
-      { resourceId: request.input.documentId, domainCode: "document_revision_conflict" },
-    );
-  }
+  const input = resolveInput();
+  const editRequest: PrepareNodexAgentDocumentEditRequest = { ...request, input };
+  const current = readCurrentDocument(database, request.projectId, input.documentId);
+  const materialization = toMaterialization(current);
+  assertDocumentPreconditions(database, editRequest, materialization);
+  const generation = current.generation;
+  const headSeq = current.head_seq;
   const allocations = existing
     ? parseStringArray(existing.allocations_json, "Agent allocation receipt")
     : [];
@@ -449,9 +493,9 @@ function prepareDocumentEdit(
   let compiled;
   try {
     compiled = compileAgentDocumentEdit({
-      documentId: request.input.documentId,
-      current: toMaterialization(current),
-      edit: request.input,
+      documentId: input.documentId,
+      current: materialization,
+      edit: input,
       allocateBlockId,
     });
   } catch (error) {
@@ -463,23 +507,23 @@ function prepareDocumentEdit(
         error.code === "nfm_patch_mismatch" || error.code === "nfm_patch_overlap"
           ? "get_block_again"
           : "none",
-        { resourceId: request.input.documentId, domainCode: error.code },
+        { resourceId: input.documentId, domainCode: error.code },
       );
     }
     throw error;
   }
   const mutationId = existing?.mutation_id ?? `nodex-edit:${identity}`;
   const storeEpoch = readBlockStoreEpoch(database);
-  if (!storeEpoch || storeEpoch !== token.storeEpoch) {
+  if (!storeEpoch) {
     throw new NodexAgentReadError(
-      "conflict",
-      "The Nodex store changed after this Document was read",
+      "internal_error",
+      "The Nodex store epoch is unavailable",
       false,
-      "get_block_again",
+      "none",
     );
   }
   const mutation = mutationRequest({
-    request,
+    request: editRequest,
     mutationId,
     storeEpoch,
     generation,
@@ -489,6 +533,7 @@ function prepareDocumentEdit(
   const now = new Date().toISOString();
   const preparationMetadata = JSON.stringify({
     localBlockIds: compiled.effects.localBlockIds,
+    returnOptions: input.return ?? {},
   });
   if (existing) {
     database.prepare(
@@ -504,12 +549,13 @@ function prepareDocumentEdit(
         call_identity, thread_id, call_id, project_id, tool, request_hash,
         mutation_id, allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'edit_document', ?, ?, ?, ?, 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
       request.callId,
       request.projectId,
+      request.tool,
       requestHash,
       mutationId,
       JSON.stringify(allocations),
@@ -534,7 +580,13 @@ export function prepareNodexAgentDocumentEdit(
   request: PrepareNodexAgentDocumentEditRequest,
 ): PrepareNodexAgentDocumentEditResult {
   try {
-    return database.transaction(() => prepareDocumentEdit(database, request)).immediate();
+    const { input, ...identity } = request;
+    return database.transaction(() => prepareNodexAgentDocumentEditWithResolver(
+      database,
+      identity,
+      input,
+      () => input,
+    )).immediate();
   } catch (error) {
     return readFailure(error);
   }

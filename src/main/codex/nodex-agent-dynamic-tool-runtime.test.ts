@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { NodexAgentAccess } from "../../shared/nodex-agent-tools";
+import {
+  NODEX_APP_TOOLSET_REVISION,
+  NODEX_APP_V2_TOOLSET_REVISION,
+  type NodexAgentAccess,
+} from "../../shared/nodex-agent-tools";
 import {
   buildNodexAgentDynamicToolSpecs,
   executeNodexAgentDynamicToolCall,
@@ -19,14 +23,16 @@ describe("Nodex agent dynamic-tool runtime", () => {
 
     expect(catalog.name).toBe("nodex_app");
     expect(catalog.tools.map((tool) => tool.name)).toEqual([
-      "create",
-      "edit_database",
-      "edit_document",
-      "get_block",
+      "advanced_query_database",
+      "advanced_update_card",
+      "create_cards",
+      "duplicate_card",
+      "fetch",
       "get_context",
-      "query_database",
+      "move_cards",
+      "query_database_view",
       "search",
-      "transfer_blocks",
+      "update_card",
     ]);
   });
 
@@ -55,15 +61,37 @@ describe("Nodex agent dynamic-tool runtime", () => {
       recovery: "start_new_task",
     });
 
+    const retired = await executeNodexAgentDynamicToolCall({
+      threadId: "thread-v2",
+      turnId: "turn-1",
+      callId: "call-v2",
+      namespace: "nodex_app",
+      tool: "get_block",
+      arguments: { blockId: "card-old" },
+    }, {
+      toolsetRevision: NODEX_APP_V2_TOOLSET_REVISION,
+      projectId: "project-1",
+      access,
+      authorize: async () => "deny",
+    });
+    const retiredFailure = JSON.parse(retired.contentItems[0]?.type === "inputText"
+      ? retired.contentItems[0].text
+      : "null") as { error?: { code?: string; recovery?: string } };
+    expect(retired.success).toBe(false);
+    expect(retiredFailure.error).toMatchObject({
+      code: "tool_catalog_stale",
+      recovery: "start_new_task",
+    });
+
     const invalid = await executeNodexAgentDynamicToolCall({
       threadId: "thread-1",
       turnId: "turn-1",
       callId: "call-2",
       namespace: "nodex_app",
-      tool: "get_block",
+      tool: "fetch",
       arguments: {},
     }, {
-      toolsetRevision: 1,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       projectId: "project-1",
       access,
       authorize: async () => "deny",

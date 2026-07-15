@@ -31,11 +31,8 @@ describe("parser-inline link escapes", () => {
     const once = repeatRoundTrip(input, 1);
     const afterMany = repeatRoundTrip(input, 22);
 
+    expect(once).toBe(input);
     expect(afterMany).toBe(once);
-
-    const backslashRuns = [...afterMany.matchAll(/(\\+)\*/g)];
-    expect(backslashRuns.length).toBe(4);
-    expect(backslashRuns.every((match) => match[1].length === 1)).toBe(true);
   });
 
   test("invalid span color parses as plain text content", () => {

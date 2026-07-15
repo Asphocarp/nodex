@@ -20,6 +20,7 @@ import type {
   CanvasSceneSyncRequest,
 } from "../shared/block-documents/canvas-scene-sync";
 import type { BlockTransferRequest } from "../shared/block-transfer";
+import { BlockIdSchema } from "../shared/nodex-agent-tools";
 
 class FakeWorker implements BlockMutationWorkerLike {
   readonly messages: BlockMutationWorkerRequest[] = [];
@@ -155,6 +156,44 @@ describe("BlockMutationWriter", () => {
     expect((await pending).result).toMatchObject({
       ok: false,
       error: { code: "project_context_required" },
+    });
+    expect(published).toEqual([]);
+  });
+
+  test("routes v3 Card-first reads through the worker without publishing mutation events", async () => {
+    const worker = new FakeWorker();
+    const published: BoardChangeEvent[] = [];
+    const writer = new BlockMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: (event) => published.push(event),
+    });
+    const pending = writer.readNodexAgentV3Tool({
+      tool: "fetch",
+      projectId: "project-1",
+      input: { id: BlockIdSchema.parse("card-1") },
+    });
+    const command = worker.messages[0];
+    expect(command?.type).toBe("readNodexAgentV3Tool");
+    if (!command || command.type !== "readNodexAgentV3Tool") return;
+    worker.emitMessage({
+      id: command.id,
+      ok: true,
+      result: {
+        ok: false,
+        error: {
+          code: "not_found",
+          message: "Card card-1 was not found",
+          retryable: false,
+          recovery: "none",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(command.mutationId),
+    });
+
+    expect((await pending).result).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
     });
     expect(published).toEqual([]);
   });

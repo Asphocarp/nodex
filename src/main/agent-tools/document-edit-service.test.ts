@@ -8,7 +8,9 @@ import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
 import type { DocumentMutationRequest } from "../../shared/block-documents";
 import {
   BlockIdSchema,
+  AdvancedUpdateCardV3InputSchema,
   EditDocumentInputSchema,
+  UpdateCardV3InputSchema,
   type BlockId,
   type EditDocumentInput,
 } from "../../shared/nodex-agent-tools";
@@ -24,6 +26,10 @@ import {
   completeNodexAgentDocumentEdit,
   prepareNodexAgentDocumentEdit,
 } from "./document-edit-service";
+import {
+  completeNodexAgentCardUpdate,
+  prepareNodexAgentCardUpdate,
+} from "./card-update-v3";
 import { readNodexAgentTool } from "./read-service";
 
 interface Fixture {
@@ -34,8 +40,9 @@ interface Fixture {
 
 interface DocumentSnapshot {
   readonly documentId: string;
-  readonly revision: string;
   readonly nfm: string;
+  readonly titleEtag: string;
+  readonly bodyEtag: string;
 }
 
 const supportsBetterSqlite = (() => {
@@ -100,7 +107,10 @@ function readDocument(fixture: Fixture, cardId: BlockId): DocumentSnapshot {
   const result = readNodexAgentTool(fixture.database, {
     tool: "get_block",
     projectId: fixture.projectId,
-    input: { blockId: cardId },
+    input: {
+      blockId: cardId,
+      prepareFor: [{ kind: "title.set" }, { kind: "document.replace" }],
+    },
   });
   if (!result.ok || result.tool !== "get_block") {
     throw new Error("Could not read fixture Card");
@@ -109,10 +119,14 @@ function readDocument(fixture: Fixture, cardId: BlockId): DocumentSnapshot {
   if (!document || document.body.format !== "nfm") {
     throw new Error("Fixture Card has no NFM Document");
   }
+  const titleEtag = result.output.data.block.title?.etag;
+  const bodyEtag = document.body.etag;
+  if (!titleEtag || !bodyEtag) throw new Error("Fixture write ETags are unavailable");
   return {
     documentId: document.documentId,
-    revision: document.revision,
     nfm: document.body.content,
+    titleEtag,
+    bodyEtag,
   };
 }
 
@@ -150,6 +164,7 @@ function prepare(
   input: EditDocumentInput,
 ) {
   return prepareNodexAgentDocumentEdit(fixture.database, {
+    tool: "edit_document",
     threadId: "thread-1",
     callId,
     projectId: fixture.projectId,
@@ -158,18 +173,186 @@ function prepare(
 }
 
 describe("Nodex Agent Document edit service", () => {
+  sqliteTest("adapts Card-first Nested Markdown updates and replays before stale guards", async () => {
+    await withFixture((fixture) => {
+      const cardId = createCard(fixture, { title: "Before", nfm: "Alpha\nKeep" });
+      const before = readDocument(fixture, cardId);
+      const input = UpdateCardV3InputSchema.parse({
+        cardId,
+        title: { markdown: "**After**", ifMatch: before.titleEtag },
+        body: {
+          kind: "patch",
+          patches: [{ oldMarkdown: "Alpha", newMarkdown: "Beta" }],
+        },
+        return: ["markdown", "etags"],
+      });
+      const prepared = prepareNodexAgentCardUpdate(fixture.database, {
+        tool: "update_card",
+        threadId: "thread-v3",
+        callId: "update-card",
+        projectId: fixture.projectId,
+        input,
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Card update was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.targetMarkdown).toBe("Beta\nKeep");
+      const committed = applyMutation(fixture, prepared.value.mutation);
+      if (!committed.ok) throw new Error(committed.error.message);
+      const completed = completeNodexAgentCardUpdate(fixture.database, {
+        tool: "update_card",
+        threadId: "thread-v3",
+        callId: "update-card",
+        projectId: fixture.projectId,
+        cardId,
+        result: committed.value,
+      });
+      expect(completed.ok ? completed.output.data : null).toMatchObject({
+        cardId,
+        body: { format: "markdown", markdown: "Beta\nKeep" },
+        etags: {
+          title: expect.stringMatching(/^nxe1\./u),
+          body: expect.stringMatching(/^nxe1\./u),
+        },
+      });
+      const receipt = fixture.database.prepare(
+        "SELECT tool FROM nodex_agent_call_receipts WHERE call_id = ?",
+      ).get("update-card") as { readonly tool: string };
+      expect(receipt.tool).toBe("update_card");
+
+      const mismatch = prepareNodexAgentCardUpdate(fixture.database, {
+        tool: "update_card",
+        threadId: "thread-v3",
+        callId: "patch-mismatch",
+        projectId: fixture.projectId,
+        input: UpdateCardV3InputSchema.parse({
+          cardId,
+          body: {
+            kind: "patch",
+            patches: [{ oldMarkdown: "Missing", newMarkdown: "Replacement" }],
+          },
+        }),
+      });
+      expect(mismatch).toMatchObject({
+        ok: false,
+        error: { code: "conflict", recovery: "fetch_again" },
+      });
+      expect(JSON.stringify(mismatch)).not.toMatch(/nfm/iu);
+
+      const current = readDocument(fixture, cardId);
+      const concurrent = prepare(fixture, "concurrent", edit({
+        documentId: current.documentId,
+        body: {
+          kind: "nfm.replace",
+          ifMatch: current.bodyEtag,
+          content: "Concurrent",
+        },
+      }));
+      if (!concurrent.ok || concurrent.value.kind !== "prepared") {
+        throw new Error("Concurrent update was not prepared");
+      }
+      const concurrentCommit = applyMutation(fixture, concurrent.value.mutation);
+      if (!concurrentCommit.ok) throw new Error(concurrentCommit.error.message);
+
+      const replayed = prepareNodexAgentCardUpdate(fixture.database, {
+        tool: "update_card",
+        threadId: "thread-v3",
+        callId: "update-card",
+        projectId: fixture.projectId,
+        input,
+      });
+      expect(replayed.ok && replayed.value.kind === "completed"
+        ? replayed.value.output.data.body
+        : null).toMatchObject({ markdown: "Beta\nKeep" });
+      expect(readDocument(fixture, cardId).nfm).toBe("Concurrent");
+    });
+  });
+
+  sqliteTest("routes advanced stable-Block updates through the same receipt kernel", async () => {
+    await withFixture((fixture) => {
+      const cardId = createCard(fixture, { title: "Advanced", nfm: "Paragraph" });
+      const fetched = readNodexAgentTool(fixture.database, {
+        tool: "get_block",
+        projectId: fixture.projectId,
+        input: {
+          blockId: cardId,
+          include: { document: { format: "blocks" } },
+          prepareFor: [{ kind: "block.update", blockIds: [] }],
+        },
+      });
+      if (!fetched.ok || fetched.tool !== "get_block") throw new Error("Fetch failed");
+      const block = fetched.output.data.document?.body.format === "blocks"
+        ? fetched.output.data.document.body.blocks[0]
+        : undefined;
+      if (!block) throw new Error("Fixture body Block is unavailable");
+      const preparedFetch = readNodexAgentTool(fixture.database, {
+        tool: "get_block",
+        projectId: fixture.projectId,
+        input: {
+          blockId: cardId,
+          include: { document: { format: "blocks" } },
+          prepareFor: [{ kind: "block.update", blockIds: [block.blockId] }],
+        },
+      });
+      if (!preparedFetch.ok || preparedFetch.tool !== "get_block") {
+        throw new Error("Prepared fetch failed");
+      }
+      const preparedBlock = preparedFetch.output.data.document?.body.format === "blocks"
+        ? preparedFetch.output.data.document.body.blocks[0]
+        : undefined;
+      if (!preparedBlock?.etag) throw new Error("Block update ETag is unavailable");
+      const input = AdvancedUpdateCardV3InputSchema.parse({
+        cardId,
+        edits: [{
+          kind: "update",
+          blockId: preparedBlock.blockId,
+          ifMatch: preparedBlock.etag,
+          patch: { props: { textAlignment: "center" } },
+        }],
+      });
+      const prepared = prepareNodexAgentCardUpdate(fixture.database, {
+        tool: "advanced_update_card",
+        threadId: "thread-v3",
+        callId: "advanced-update",
+        projectId: fixture.projectId,
+        input,
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Advanced update was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      const committed = applyMutation(fixture, prepared.value.mutation);
+      if (!committed.ok) throw new Error(committed.error.message);
+      const completed = completeNodexAgentCardUpdate(fixture.database, {
+        tool: "advanced_update_card",
+        threadId: "thread-v3",
+        callId: "advanced-update",
+        projectId: fixture.projectId,
+        cardId,
+        result: committed.value,
+      });
+      expect(completed.ok ? completed.output.data : null).toMatchObject({
+        cardId,
+        effects: { updated: 1 },
+      });
+      const receipt = fixture.database.prepare(
+        "SELECT tool FROM nodex_agent_call_receipts WHERE call_id = ?",
+      ).get("advanced-update") as { readonly tool: string };
+      expect(receipt.tool).toBe("advanced_update_card");
+    });
+  });
+
   sqliteTest("appends a nested multi-Block NFM fragment in one committed call", async () => {
     await withFixture((fixture) => {
       const cardId = createCard(fixture, { title: "Before", nfm: "Existing" });
       const before = readDocument(fixture, cardId);
       const prepared = prepare(fixture, "append", edit({
         documentId: before.documentId,
-        ifRevision: before.revision,
         body: {
           kind: "nfm.insert",
           at: { kind: "end" },
           content: "# Added\nParent\n\t- [ ] Nested task",
         },
+        return: { nfm: true, blockIds: true },
       }));
       expect(prepared.ok).toBe(true);
       if (!prepared.ok || prepared.value.kind !== "prepared") return;
@@ -178,6 +361,7 @@ describe("Nodex Agent Document edit service", () => {
       expect(committed.ok).toBe(true);
       if (!committed.ok) return;
       const completed = completeNodexAgentDocumentEdit(fixture.database, {
+        tool: "edit_document",
         threadId: "thread-1",
         callId: "append",
         projectId: fixture.projectId,
@@ -190,8 +374,10 @@ describe("Nodex Agent Document edit service", () => {
           format: "nfm",
           content: "Existing\n# Added\nParent\n\t- [ ] Nested task",
         },
-        effects: { createdBlockIds: expect.arrayContaining([expect.any(String)]) },
-        receipt: { duplicate: false },
+        effects: {
+          created: expect.any(Number),
+          blockIds: { created: expect.arrayContaining([expect.any(String)]) },
+        },
       });
       expect(readDocument(fixture, cardId).nfm).toBe(
         "Existing\n# Added\nParent\n\t- [ ] Nested task",
@@ -205,12 +391,15 @@ describe("Nodex Agent Document edit service", () => {
       const before = readDocument(fixture, cardId);
       const prepared = prepare(fixture, "replace", edit({
         documentId: before.documentId,
-        ifRevision: before.revision,
         title: {
-          kind: "rich",
-          richText: [{ type: "text", text: "After", styles: { bold: true } }],
+          value: {
+            kind: "rich",
+            richText: [{ type: "text", text: "After", styles: { bold: true } }],
+          },
+          ifMatch: before.titleEtag,
         },
-        body: { kind: "nfm.replace", content: "# New body" },
+        body: { kind: "nfm.replace", ifMatch: before.bodyEtag, content: "# New body" },
+        return: { nfm: true },
       }));
       if (!prepared.ok || prepared.value.kind !== "prepared") {
         throw new Error("Edit was not prepared");
@@ -218,6 +407,7 @@ describe("Nodex Agent Document edit service", () => {
       const committed = applyMutation(fixture, prepared.value.mutation);
       if (!committed.ok) throw new Error(committed.error.message);
       const completed = completeNodexAgentDocumentEdit(fixture.database, {
+        tool: "edit_document",
         threadId: "thread-1",
         callId: "replace",
         projectId: fixture.projectId,
@@ -241,7 +431,6 @@ describe("Nodex Agent Document edit service", () => {
       const before = readDocument(fixture, cardId);
       const input = edit({
         documentId: before.documentId,
-        ifRevision: before.revision,
         body: {
           kind: "blocks",
           edits: [{
@@ -254,6 +443,7 @@ describe("Nodex Agent Document edit service", () => {
             },
           }],
         },
+        return: { nfm: true, blockIds: true },
       });
       const first = prepare(fixture, "lost-response", input);
       if (!first.ok || first.value.kind !== "prepared") {
@@ -273,18 +463,19 @@ describe("Nodex Agent Document edit service", () => {
         ? recovered.value.output.data
         : null).toMatchObject({
           effects: {
-            localBlockIds: { "new-paragraph": expect.any(String) },
-            createdBlockIds: [expect.any(String)],
+            created: 1,
+            blockIds: {
+              local: { "new-paragraph": expect.any(String) },
+              created: [expect.any(String)],
+            },
           },
           body: { format: "nfm", content: "One\nTwo" },
-          receipt: { duplicate: true },
         });
       const replayed = prepare(fixture, "lost-response", input);
       expect(replayed.ok && replayed.value.kind === "completed"
         ? replayed.value.output.data
         : null).toMatchObject({
-          body: { contentOmitted: true },
-          receipt: { duplicate: true },
+          body: { format: "nfm", content: "One\nTwo" },
         });
       expect(readDocument(fixture, cardId).nfm).toBe("One\nTwo");
       const writes = fixture.database.prepare(
@@ -294,14 +485,13 @@ describe("Nodex Agent Document edit service", () => {
     });
   });
 
-  sqliteTest("rejects stale revisions and reused call identities with changed semantics", async () => {
+  sqliteTest("rejects stale ETags and reused call identities with changed semantics", async () => {
     await withFixture((fixture) => {
       const cardId = createCard(fixture, { title: "Conflict", nfm: "Alpha" });
       const before = readDocument(fixture, cardId);
       const firstInput = edit({
         documentId: before.documentId,
-        ifRevision: before.revision,
-        body: { kind: "nfm.patch", patches: [{ oldNfm: "Alpha", newNfm: "Beta" }] },
+        body: { kind: "nfm.replace", ifMatch: before.bodyEtag, content: "Beta" },
       });
       const prepared = prepare(fixture, "same-call", firstInput);
       if (!prepared.ok || prepared.value.kind !== "prepared") {
@@ -310,7 +500,7 @@ describe("Nodex Agent Document edit service", () => {
 
       const changedSemantics = prepare(fixture, "same-call", edit({
         ...firstInput,
-        body: { kind: "nfm.patch", patches: [{ oldNfm: "Alpha", newNfm: "Gamma" }] },
+        body: { kind: "nfm.replace", ifMatch: before.bodyEtag, content: "Gamma" },
       }));
       expect(changedSemantics).toMatchObject({
         ok: false,

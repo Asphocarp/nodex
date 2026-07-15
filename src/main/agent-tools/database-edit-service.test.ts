@@ -11,6 +11,7 @@ import {
   EditDatabaseInputSchema,
   type BlockId,
   type EditDatabaseInput,
+  type QueryDatabaseInput,
 } from "../../shared/nodex-agent-tools";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
@@ -87,10 +88,8 @@ function createDatabaseCard(fixture: Fixture, callId: string, title: string): Bl
       destination: {
         kind: "database",
         databaseBlockId: database.databaseBlockId,
-        ifSchemaRevision: database.schemaRevision,
         view: {
           viewId: view.viewId,
-          ifRevision: view.revision,
           groupKey: "draft",
         },
       },
@@ -104,12 +103,18 @@ function createDatabaseCard(fixture: Fixture, callId: string, title: string): Bl
   return result.value.output.data.resource.blockId;
 }
 
-function queryPrimaryView(fixture: Fixture) {
+function queryPrimaryView(
+  fixture: Fixture,
+  prepareFor?: QueryDatabaseInput["prepareFor"],
+) {
   const { view } = databaseContext(fixture);
   const result = readNodexAgentTool(fixture.database, {
     tool: "query_database",
     projectId: fixture.projectId,
-    input: { source: { kind: "view", viewId: view.viewId } },
+    input: {
+      source: { kind: "view", viewId: view.viewId },
+      ...(prepareFor ? { prepareFor } : {}),
+    },
   });
   if (!result.ok || result.tool !== "query_database") throw new Error("Query failed");
   return result.output.data;
@@ -134,20 +139,25 @@ describe("Nodex Agent Database edit service", () => {
       const cardId = createDatabaseCard(fixture, "create-value", "Value Card");
       const query = queryPrimaryView(fixture);
       const status = query.database.properties.find((property) => property.name === "Status");
-      const row = query.rows.find((candidate) => candidate.blockId === cardId);
+      if (!status) throw new Error("Status authority is unavailable");
+      const guarded = queryPrimaryView(fixture, [{
+        kind: "value.set",
+        propertyIds: [status.propertyId],
+      }]);
+      const row = guarded.rows.find((candidate) => candidate.blockId === cardId);
       if (!status || !row) throw new Error("Status authority is unavailable");
       const observed = row.values[status.propertyId];
-      if (!observed) throw new Error("Status value is unavailable");
+      if (!observed?.etag) throw new Error("Status value ETag is unavailable");
       const prepared = prepare(fixture, "set-status", EditDatabaseInputSchema.parse({
         databaseBlockId: query.database.databaseBlockId,
-        ifSchemaRevision: query.database.schemaRevision,
         edits: [{
           kind: "value.set",
           blockId: cardId,
           propertyId: status.propertyId,
-          ifRevision: observed.revision,
+          ifMatch: observed.etag,
           value: "in_progress",
         }],
+        return: { etags: true },
       }));
       if (!prepared.ok || prepared.value.kind !== "prepared") {
         throw new Error(`Database edit was not prepared: ${JSON.stringify(prepared)}`);
@@ -163,24 +173,21 @@ describe("Nodex Agent Database edit service", () => {
 
       expect(first.ok ? first.value.output.data : null).toMatchObject({
         databaseBlockId: query.database.databaseBlockId,
-        valueRevisions: [{ blockId: cardId, propertyId: status.propertyId }],
-        receipt: { duplicate: false },
+        effects: { valuesSet: 1, setsChanged: 0, placementsChanged: 0 },
+        etags: { values: [{ blockId: cardId, propertyId: status.propertyId }] },
       });
-      expect(replay.ok ? replay.value.output.data.receipt : null).toEqual({
-        duplicate: true,
-      });
+      expect(replay.ok ? replay.value.duplicate : null).toBe(true);
       const refreshed = queryPrimaryView(fixture);
       expect(refreshed.rows.find((candidate) => candidate.blockId === cardId)
         ?.values[status.propertyId]?.value).toBe("in_progress");
 
       const stale = prepare(fixture, "stale-status", EditDatabaseInputSchema.parse({
         databaseBlockId: query.database.databaseBlockId,
-        ifSchemaRevision: query.database.schemaRevision,
         edits: [{
           kind: "value.set",
           blockId: cardId,
           propertyId: status.propertyId,
-          ifRevision: observed.revision,
+          ifMatch: observed.etag,
           value: "done",
         }],
       }));
@@ -195,27 +202,31 @@ describe("Nodex Agent Database edit service", () => {
     await withFixture((fixture) => {
       const first = createDatabaseCard(fixture, "create-first", "First");
       const second = createDatabaseCard(fixture, "create-second", "Second");
-      const query = queryPrimaryView(fixture);
+      const query = queryPrimaryView(fixture, [{ kind: "view.place" }]);
       const status = query.database.properties.find((property) => property.name === "Status");
       const firstRow = query.rows.find((row) => row.blockId === first);
       const secondRow = query.rows.find((row) => row.blockId === second);
-      if (!query.view || !status || !firstRow?.placement || !secondRow?.placement) {
+      if (
+        !query.view
+        || !status
+        || !firstRow?.placement?.etag
+        || !secondRow?.placement?.etag
+      ) {
         throw new Error("Grouped View authority is unavailable");
       }
       const prepared = prepare(fixture, "place-cards", EditDatabaseInputSchema.parse({
         databaseBlockId: query.database.databaseBlockId,
-        ifSchemaRevision: query.database.schemaRevision,
         edits: [{
           kind: "view.place",
           viewId: query.view.viewId,
-          ifViewRevision: query.view.revision,
           items: [
-            { blockId: first, ifRevision: firstRow.placement.revision },
-            { blockId: second, ifRevision: secondRow.placement.revision },
+            { blockId: first, ifMatch: firstRow.placement.etag },
+            { blockId: second, ifMatch: secondRow.placement.etag },
           ],
           groupKey: "in_progress",
           at: { kind: "end" },
         }],
+        return: { etags: true },
       }));
       if (!prepared.ok || prepared.value.kind !== "prepared") {
         throw new Error(`Placement was not prepared: ${JSON.stringify(prepared)}`);
@@ -226,14 +237,11 @@ describe("Nodex Agent Database edit service", () => {
       );
 
       expect(result.ok ? result.value.output.data : null).toMatchObject({
-        valueRevisions: expect.arrayContaining([
-          expect.objectContaining({ blockId: first, propertyId: status.propertyId }),
-          expect.objectContaining({ blockId: second, propertyId: status.propertyId }),
-        ]),
-        placementRevisions: expect.arrayContaining([
+        effects: { valuesSet: 0, setsChanged: 0, placementsChanged: 2 },
+        etags: { placements: expect.arrayContaining([
           expect.objectContaining({ blockId: first, viewId: query.view.viewId }),
           expect.objectContaining({ blockId: second, viewId: query.view.viewId }),
-        ]),
+        ]) },
       });
       const refreshed = queryPrimaryView(fixture);
       for (const cardId of [first, second]) {
@@ -292,7 +300,6 @@ describe("Nodex Agent Database edit service", () => {
       const query = queryPrimaryView(fixture);
       const prepared = prepare(fixture, "add-tag", EditDatabaseInputSchema.parse({
         databaseBlockId: query.database.databaseBlockId,
-        ifSchemaRevision: query.database.schemaRevision,
         edits: [{
           kind: "value.add_remove",
           blockId: cardId,
@@ -309,11 +316,11 @@ describe("Nodex Agent Database edit service", () => {
         prepared.value.command,
       );
 
-      expect(result.ok ? result.value.output.data.valueRevisions : null)
-        .toEqual([expect.objectContaining({
-          blockId: cardId,
-          propertyId: tags.propertyId,
-        })]);
+      expect(result.ok ? result.value.output.data.effects : null).toEqual({
+        valuesSet: 0,
+        setsChanged: 1,
+        placementsChanged: 0,
+      });
       const refreshed = queryPrimaryView(fixture);
       expect(refreshed.rows.find((row) => row.blockId === cardId)
         ?.values[tags.propertyId]?.value).toEqual(["agent"]);

@@ -4,19 +4,14 @@ import {
   BlockIdSchema,
   BlockLocationSchema,
   createToolSuccessSchema,
-  DatabaseSchemaRevisionSchema,
-  DatabaseValueRevisionSchema,
   DocumentAnchorSchema,
   DocumentIdSchema,
-  DocumentRevisionSchema,
+  ETagSchema,
   JsonValueSchema,
-  LocationRevisionSchema,
   PropertyIdSchema,
   SiblingAnchorSchema,
   TextInputSchema,
   ViewIdSchema,
-  ViewPlacementRevisionSchema,
-  ViewRevisionSchema,
 } from "./base-schemas";
 
 const NfmContentSchema = z.string().max(MAX_CARD_WRITE_BODY_BYTES).refine(
@@ -31,7 +26,6 @@ export const DatabaseValueDraftSchema = z.strictObject({
 
 const DatabaseDestinationViewSchema = z.strictObject({
   viewId: ViewIdSchema,
-  ifRevision: ViewRevisionSchema,
   groupKey: z.string().max(4_096).nullable().optional(),
   at: SiblingAnchorSchema.optional(),
 });
@@ -44,13 +38,11 @@ export const CreateDestinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("document"),
     documentId: DocumentIdSchema,
-    ifRevision: DocumentRevisionSchema,
     at: DocumentAnchorSchema,
   }),
   z.strictObject({
     kind: z.literal("database"),
     databaseBlockId: BlockIdSchema,
-    ifSchemaRevision: DatabaseSchemaRevisionSchema,
     values: z.array(DatabaseValueDraftSchema).max(512).optional(),
     view: DatabaseDestinationViewSchema.optional(),
   }),
@@ -66,6 +58,10 @@ export const CreateInputSchema = z.strictObject({
     }).optional(),
   }),
   destination: CreateDestinationSchema,
+  return: z.strictObject({
+    blockIds: z.boolean().optional(),
+    etags: z.boolean().optional(),
+  }).optional(),
 });
 
 export const CreateDataSchema = z.strictObject({
@@ -73,16 +69,17 @@ export const CreateDataSchema = z.strictObject({
     kind: z.literal("card"),
     blockId: BlockIdSchema,
     documentId: DocumentIdSchema,
-    documentRevision: DocumentRevisionSchema,
-    locationRevision: LocationRevisionSchema,
-    createdBodyBlockIds: z.array(BlockIdSchema),
+    location: BlockLocationSchema,
+    bodyBlockCount: z.number().int().min(0),
+    createdBodyBlockIds: z.array(BlockIdSchema).optional(),
+    etags: z.strictObject({
+      title: ETagSchema,
+      body: ETagSchema,
+    }).optional(),
   }),
   database: z.strictObject({
     databaseBlockId: BlockIdSchema,
-    valueRevisions: z.record(PropertyIdSchema, DatabaseValueRevisionSchema),
-    placementRevision: ViewPlacementRevisionSchema.optional(),
   }).optional(),
-  receipt: z.strictObject({ duplicate: z.boolean() }),
 });
 
 export const CreateOutputSchema = createToolSuccessSchema(CreateDataSchema);
@@ -133,6 +130,7 @@ export const StableBlockEditSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("update"),
     blockId: BlockIdSchema,
+    ifMatch: ETagSchema,
     patch: BlockUpdatePatchSchema,
   }),
   z.strictObject({
@@ -143,6 +141,7 @@ export const StableBlockEditSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("delete"),
     blockId: BlockIdSchema,
+    ifMatch: ETagSchema,
   }),
 ]);
 
@@ -158,6 +157,7 @@ export const DocumentBodyEditSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("nfm.replace"),
+    ifMatch: ETagSchema,
     content: NfmContentSchema,
   }),
   z.strictObject({
@@ -168,11 +168,18 @@ export const DocumentBodyEditSchema = z.discriminatedUnion("kind", [
 
 export const EditDocumentInputSchema = z.strictObject({
   documentId: DocumentIdSchema,
-  ifRevision: DocumentRevisionSchema,
-  title: TextInputSchema.optional(),
+  title: z.strictObject({
+    value: TextInputSchema,
+    ifMatch: ETagSchema,
+  }).optional(),
   body: DocumentBodyEditSchema.optional(),
   safety: z.strictObject({
     allowDeletingOwnedBlocks: z.boolean().optional(),
+  }).optional(),
+  return: z.strictObject({
+    nfm: z.boolean().optional(),
+    blockIds: z.boolean().optional(),
+    etags: z.boolean().optional(),
   }).optional(),
 }).refine(
   (input) => input.title !== undefined || input.body !== undefined,
@@ -183,24 +190,29 @@ const BlockIdMapSchema = z.record(BlockIdSchema, BlockIdSchema);
 
 export const EditDocumentDataSchema = z.strictObject({
   documentId: DocumentIdSchema,
-  revision: DocumentRevisionSchema,
   effects: z.strictObject({
-    createdBlockIds: z.array(BlockIdSchema),
-    localBlockIds: z.record(z.string(), BlockIdSchema),
-    copiedBlockIds: BlockIdMapSchema,
-    updatedBlockIds: z.array(BlockIdSchema),
-    movedBlockIds: z.array(BlockIdSchema),
-    deletedBlockIds: z.array(BlockIdSchema),
+    created: z.number().int().min(0),
+    updated: z.number().int().min(0),
+    moved: z.number().int().min(0),
+    deleted: z.number().int().min(0),
+    blockIds: z.strictObject({
+      created: z.array(BlockIdSchema),
+      local: z.record(z.string(), BlockIdSchema),
+      copied: BlockIdMapSchema,
+      updated: z.array(BlockIdSchema),
+      moved: z.array(BlockIdSchema),
+      deleted: z.array(BlockIdSchema),
+    }).optional(),
   }),
-  body: z.union([
-    z.strictObject({
-      format: z.literal("nfm"),
-      content: z.string(),
-      contentHash: z.string().min(1).max(512),
-    }),
-    z.strictObject({ contentOmitted: z.literal(true) }),
-  ]),
-  receipt: z.strictObject({ duplicate: z.boolean() }),
+  body: z.strictObject({
+    format: z.literal("nfm"),
+    content: z.string(),
+    contentHash: z.string().min(1).max(512),
+  }).optional(),
+  etags: z.strictObject({
+    title: ETagSchema,
+    body: ETagSchema,
+  }).optional(),
 });
 
 export const EditDocumentOutputSchema = createToolSuccessSchema(EditDocumentDataSchema);
@@ -213,26 +225,35 @@ export const TransferDestinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("document"),
     documentId: DocumentIdSchema,
-    ifRevision: DocumentRevisionSchema,
     at: DocumentAnchorSchema,
   }),
   z.strictObject({
     kind: z.literal("database"),
     databaseBlockId: BlockIdSchema,
-    ifSchemaRevision: DatabaseSchemaRevisionSchema,
     values: z.array(DatabaseValueDraftSchema).max(512).optional(),
     view: DatabaseDestinationViewSchema.optional(),
   }),
 ]);
 
-export const TransferBlocksInputSchema = z.strictObject({
-  mode: z.enum(["move", "copy"]),
-  items: z.array(z.strictObject({
-    blockId: BlockIdSchema,
-    ifLocationRevision: LocationRevisionSchema,
-  })).min(1).max(16),
-  destination: TransferDestinationSchema,
+const TransferReturnSchema = z.strictObject({
+  blockMap: z.boolean().optional(),
 });
+
+export const TransferBlocksInputSchema = z.discriminatedUnion("mode", [
+  z.strictObject({
+    mode: z.literal("move"),
+    blockIds: z.array(BlockIdSchema).min(1).max(16),
+    from: BlockLocationSchema,
+    destination: TransferDestinationSchema,
+    return: TransferReturnSchema.optional(),
+  }),
+  z.strictObject({
+    mode: z.literal("copy"),
+    blockIds: z.array(BlockIdSchema).min(1).max(16),
+    destination: TransferDestinationSchema,
+    return: TransferReturnSchema.optional(),
+  }),
+]);
 
 export const TransferBlocksDataSchema = z.strictObject({
   mode: z.enum(["move", "copy"]),
@@ -240,11 +261,9 @@ export const TransferBlocksDataSchema = z.strictObject({
     sourceBlockId: BlockIdSchema,
     resultBlockId: BlockIdSchema,
     location: BlockLocationSchema,
-    locationRevision: LocationRevisionSchema,
     transformation: z.enum(["preserved", "wrapped", "promoted"]),
   })).max(16),
-  copiedBlockIds: BlockIdMapSchema,
-  receipt: z.strictObject({ duplicate: z.boolean() }),
+  copiedBlockIds: BlockIdMapSchema.optional(),
 });
 
 export const TransferBlocksOutputSchema = createToolSuccessSchema(TransferBlocksDataSchema);
@@ -254,7 +273,7 @@ export const DatabaseEditSchema = z.discriminatedUnion("kind", [
     kind: z.literal("value.set"),
     blockId: BlockIdSchema,
     propertyId: PropertyIdSchema,
-    ifRevision: DatabaseValueRevisionSchema,
+    ifMatch: ETagSchema,
     value: JsonValueSchema,
   }),
   z.strictObject({
@@ -267,10 +286,9 @@ export const DatabaseEditSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("view.place"),
     viewId: ViewIdSchema,
-    ifViewRevision: ViewRevisionSchema,
     items: z.array(z.strictObject({
       blockId: BlockIdSchema,
-      ifRevision: ViewPlacementRevisionSchema,
+      ifMatch: ETagSchema,
     })).min(1).max(32),
     groupKey: z.string().max(4_096).nullable().optional(),
     at: SiblingAnchorSchema.optional(),
@@ -279,23 +297,31 @@ export const DatabaseEditSchema = z.discriminatedUnion("kind", [
 
 export const EditDatabaseInputSchema = z.strictObject({
   databaseBlockId: BlockIdSchema,
-  ifSchemaRevision: DatabaseSchemaRevisionSchema,
   edits: z.array(DatabaseEditSchema).min(1).max(32),
+  return: z.strictObject({
+    etags: z.boolean().optional(),
+  }).optional(),
 });
 
 export const EditDatabaseDataSchema = z.strictObject({
   databaseBlockId: BlockIdSchema,
-  valueRevisions: z.array(z.strictObject({
-    blockId: BlockIdSchema,
-    propertyId: PropertyIdSchema,
-    revision: DatabaseValueRevisionSchema,
-  })),
-  placementRevisions: z.array(z.strictObject({
-    blockId: BlockIdSchema,
-    viewId: ViewIdSchema,
-    revision: ViewPlacementRevisionSchema,
-  })),
-  receipt: z.strictObject({ duplicate: z.boolean() }),
+  effects: z.strictObject({
+    valuesSet: z.number().int().min(0),
+    setsChanged: z.number().int().min(0),
+    placementsChanged: z.number().int().min(0),
+  }),
+  etags: z.strictObject({
+    values: z.array(z.strictObject({
+      blockId: BlockIdSchema,
+      propertyId: PropertyIdSchema,
+      etag: ETagSchema,
+    })),
+    placements: z.array(z.strictObject({
+      blockId: BlockIdSchema,
+      viewId: ViewIdSchema,
+      etag: ETagSchema,
+    })),
+  }).optional(),
 });
 
 export const EditDatabaseOutputSchema = createToolSuccessSchema(EditDatabaseDataSchema);

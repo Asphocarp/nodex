@@ -41,6 +41,8 @@
     "sync:codex-theme:utilities": "tsx scripts/sync-codex-theme-utilities.ts",
     "sync:codex-theme:surface": "tsx scripts/sync-codex-theme-surface.ts",
     "audit:codex-utility-contract": "tsx scripts/audit-codex-utility-contract.ts",
+    "agent-tools:measure": "tsx scripts/measure-nodex-agent-tools.ts",
+    "agent-tools:benchmark": "tsx scripts/run-nodex-agent-comprehension-benchmark.ts",
     "sync:icons": "tsx scripts/sync-app-icons.ts",
     "stage:codex-runtime:mac": "tsx scripts/stage-codex-runtime.ts --target-platform darwin --target-arch $(node -p \"process.arch\") --out .generated/codex-runtime",
     "stage:codex-runtime:mac:arm64": "tsx scripts/stage-codex-runtime.ts --target-platform darwin --target-arch arm64 --out .generated/codex-runtime",

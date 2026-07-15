@@ -1,12 +1,13 @@
 import {
-  NODEX_AGENT_TOOL_SCHEMA_VERSION,
   type CreateInput,
   type EditDatabaseInput,
   type EditDocumentInput,
   type NodexAgentAccess,
   type NodexAgentAuthorizationDecision,
   type NodexAgentAuthorizationPreview,
-  type NodexAgentToolName,
+  type NodexAgentTransferAuthorizationEvidence,
+  type NodexAgentV2ToolName,
+  type NodexAgentV3ToolName,
   type ToolFailure,
   type TransferBlocksInput,
 } from "../../shared/nodex-agent-tools";
@@ -17,14 +18,28 @@ import {
   type NodexAgentToolHandlers,
 } from "../codex/nodex-dynamic-tool-registry";
 import type { DynamicToolEffect } from "../codex/dynamic-tool-registry";
+import {
+  authorizationFootprint,
+  sameAuthorizationFootprint,
+  type NodexAgentAuthorizationFootprint,
+} from "./authorization-footprint";
 
 const NODEX_AGENT_EXECUTION_TIMEOUT_MS = 30_000;
 const MAX_AUTHORIZATION_NFM_PREVIEW_CHARS = 1_600;
 
-type NodexAgentWriteTool = Extract<
-  NodexAgentToolName,
-  "create" | "edit_document" | "transfer_blocks" | "edit_database"
->;
+export type NodexAgentWriteTool =
+  | Extract<
+      NodexAgentV2ToolName,
+      "create" | "edit_document" | "transfer_blocks" | "edit_database"
+    >
+  | Extract<
+      NodexAgentV3ToolName,
+      | "create_cards"
+      | "update_card"
+      | "advanced_update_card"
+      | "move_cards"
+      | "duplicate_card"
+    >;
 
 export interface NodexAgentDynamicAuthorizationInput {
   readonly threadId: string;
@@ -67,14 +82,13 @@ export interface NodexAgentDynamicServiceOptions {
   readonly executionTimeoutMs?: number;
 }
 
-function toolFailure(
+export function toolFailure(
   code: ToolFailure["error"]["code"],
   message: string,
   recovery: ToolFailure["error"]["recovery"],
   retryable = false,
 ): ToolFailure {
   return {
-    schemaVersion: NODEX_AGENT_TOOL_SCHEMA_VERSION,
     error: { code, message, retryable, recovery },
   };
 }
@@ -86,11 +100,11 @@ export class NodexAgentDynamicToolFailure extends Error {
   }
 }
 
-function fail(failure: ToolFailure): never {
+export function fail(failure: ToolFailure): never {
   throw new NodexAgentDynamicToolFailure(failure);
 }
 
-function projectRequired(context: NodexAgentDynamicExecutionContext): string {
+export function projectRequired(context: NodexAgentDynamicExecutionContext): string {
   if (context.projectId) return context.projectId;
   return fail(toolFailure(
     "project_context_required",
@@ -172,14 +186,29 @@ function editDocumentPreview(
   };
 }
 
-function transferPreview(input: TransferBlocksInput): NodexAgentAuthorizationPreview {
+function transferPreview(
+  input: TransferBlocksInput,
+  authorization: NodexAgentTransferAuthorizationEvidence,
+): NodexAgentAuthorizationPreview {
   const verb = input.mode === "copy" ? "Copy" : "Move";
+  const transformations = Object.entries(authorization.roots)
+    .filter(([, evidence]) => evidence.transformation !== "preserved")
+    .map(([blockId, evidence]) => `${blockId}: ${evidence.transformation}`);
   return {
-    title: `${verb} ${input.items.length} Nodex Block${input.items.length === 1 ? "" : "s"}`,
-    summary: `${verb} the selected root Block${input.items.length === 1 ? "" : "s"} and their owned content.`,
+    title: `${verb} ${input.blockIds.length} Nodex Block${input.blockIds.length === 1 ? "" : "s"}`,
+    summary: `${verb} the selected root Block${input.blockIds.length === 1 ? "" : "s"} and their owned content.`,
     details: [
       { label: "Destination", value: destinationLabel(input.destination) },
-      { label: "Roots", value: input.items.map((item) => item.blockId).join(", ") },
+      { label: "Roots", value: input.blockIds.join(", ") },
+      ...(transformations.length > 0
+        ? [{ label: "Transformations", value: transformations.join(", ") }]
+        : []),
+      ...(authorization.documentIds.length > 0
+        ? [{
+            label: "Document scope",
+            value: `${authorization.documentIds.length} Document${authorization.documentIds.length === 1 ? "" : "s"}`,
+          }]
+        : []),
     ],
   };
 }
@@ -198,6 +227,133 @@ function editDatabasePreview(input: EditDatabaseInput): NodexAgentAuthorizationP
       },
     ],
   };
+}
+
+function destinationResource(
+  destination:
+    | { readonly kind: "space" }
+    | { readonly kind: "document"; readonly documentId: string }
+    | { readonly kind: "database"; readonly databaseBlockId: string },
+): string {
+  if (destination.kind === "space") return "space";
+  if (destination.kind === "document") return `document:${destination.documentId}`;
+  return `database:${destination.databaseBlockId}`;
+}
+
+function createFootprint(input: {
+  readonly projectId: string;
+  readonly request: CreateInput;
+  readonly bodyBlockCount: number;
+}): NodexAgentAuthorizationFootprint {
+  return authorizationFootprint({
+    tool: "create",
+    projectId: input.projectId,
+    effect: "write",
+    resources: [destinationResource(input.request.destination)],
+    deletions: [],
+    transformations: ["card.create", `body-blocks:${input.bodyBlockCount}`],
+  });
+}
+
+function documentFootprint(input: {
+  readonly projectId: string;
+  readonly request: EditDocumentInput;
+  readonly effects: {
+    readonly createdBlockIds: readonly string[];
+    readonly updatedBlockIds: readonly string[];
+    readonly movedBlockIds: readonly string[];
+    readonly deletedBlockIds: readonly string[];
+    readonly deletedOwnerBlockIds: readonly string[];
+  };
+}): NodexAgentAuthorizationFootprint {
+  const destructive = input.effects.deletedBlockIds.length > 0
+    || input.request.body?.kind === "nfm.replace";
+  return authorizationFootprint({
+    tool: "edit_document",
+    projectId: input.projectId,
+    effect: destructive ? "destructive" : "write",
+    resources: [
+      `document:${input.request.documentId}`,
+      ...input.effects.createdBlockIds.map((id) => `block:${id}`),
+      ...input.effects.updatedBlockIds.map((id) => `block:${id}`),
+      ...input.effects.movedBlockIds.map((id) => `block:${id}`),
+      ...input.effects.deletedBlockIds.map((id) => `block:${id}`),
+    ],
+    deletions: [
+      ...input.effects.deletedBlockIds.map((id) => `block:${id}`),
+      ...input.effects.deletedOwnerBlockIds.map((id) => `owner:${id}`),
+    ],
+    transformations: [
+      ...(input.request.title ? ["title.set"] : []),
+      ...(input.request.body ? [input.request.body.kind] : []),
+    ],
+  });
+}
+
+function transferFootprint(input: {
+  readonly projectId: string;
+  readonly request: TransferBlocksInput;
+  readonly authorization: NodexAgentTransferAuthorizationEvidence;
+}): NodexAgentAuthorizationFootprint {
+  const source = input.request.mode === "move"
+    ? destinationResource(input.request.from)
+    : "copy-source:current";
+  return authorizationFootprint({
+    tool: "transfer_blocks",
+    projectId: input.projectId,
+    effect: "write",
+    resources: [
+      source,
+      destinationResource(input.request.destination),
+      ...input.request.blockIds.map((id) => `block:${id}`),
+      ...input.authorization.documentIds.map((id) => `document:${id}`),
+    ],
+    deletions: [],
+    transformations: input.request.blockIds.map((id) => {
+      const evidence = input.authorization.roots[id];
+      if (!evidence) return `${input.request.mode}:${id}:unknown`;
+      const reason = evidence.wrapperReason ? `:${evidence.wrapperReason}` : "";
+      return `${input.request.mode}:${id}:${evidence.type}:${evidence.transformation}${reason}->${input.request.destination.kind}`;
+    }),
+  });
+}
+
+function databaseFootprint(input: {
+  readonly projectId: string;
+  readonly request: EditDatabaseInput;
+}): NodexAgentAuthorizationFootprint {
+  return authorizationFootprint({
+    tool: "edit_database",
+    projectId: input.projectId,
+    effect: "write",
+    resources: [
+      `database:${input.request.databaseBlockId}`,
+      ...input.request.edits.flatMap((edit) => {
+        if (edit.kind === "view.place") {
+          return [
+            `view:${edit.viewId}`,
+            ...edit.items.map((item) => `placement:${edit.viewId}:${item.blockId}`),
+          ];
+        }
+        return [`value:${edit.blockId}:${edit.propertyId}`];
+      }),
+    ],
+    deletions: [],
+    transformations: input.request.edits.map((edit) => edit.kind),
+  });
+}
+
+function requireStableAuthorizationFootprint(
+  before: NodexAgentAuthorizationFootprint,
+  after: NodexAgentAuthorizationFootprint,
+): void {
+  if (sameAuthorizationFootprint(before, after)) return;
+  fail(toolFailure(
+    "conflict",
+    "The mutation scope changed while authorization was pending; review and retry the call",
+    "retry_same",
+    true,
+  ));
 }
 
 async function requireAuthorization(
@@ -226,7 +382,46 @@ async function requireAuthorization(
   ));
 }
 
-async function withExecutionTimeout<T>(
+type CompletedWritePreflight<TOutput> = {
+  readonly kind: "completed";
+  readonly output: TOutput;
+};
+
+export async function prepareAuthorizedWrite<
+  TOutput,
+  TPrepared extends { readonly kind: "prepared" },
+>(
+  context: NodexAgentDynamicExecutionContext,
+  input: {
+    readonly prepare: () => Promise<CompletedWritePreflight<TOutput> | TPrepared>;
+    readonly footprint: (prepared: TPrepared) => NodexAgentAuthorizationFootprint;
+    readonly authorization: (
+      prepared: TPrepared,
+    ) => Omit<
+      NodexAgentDynamicAuthorizationInput,
+      "threadId" | "callId" | "projectId" | "effect"
+    >;
+  },
+): Promise<CompletedWritePreflight<TOutput> | TPrepared> {
+  const prepared = await input.prepare();
+  if (prepared.kind === "completed") return prepared;
+
+  const approvedFootprint = input.footprint(prepared);
+  await requireAuthorization(context, {
+    ...input.authorization(prepared),
+    effect: approvedFootprint.effect,
+  });
+
+  const refreshed = await input.prepare();
+  if (refreshed.kind === "completed") return refreshed;
+  requireStableAuthorizationFootprint(
+    approvedFootprint,
+    input.footprint(refreshed),
+  );
+  return refreshed;
+}
+
+export async function withExecutionTimeout<T>(
   run: () => Promise<T>,
   timeoutMs: number,
 ): Promise<T> {
@@ -267,7 +462,7 @@ export class NodexAgentDynamicService {
           access: context.access,
           input,
         })).result;
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         if (result.tool !== "get_context") throw new Error("Nodex read tool mismatch");
         return result.output;
       },
@@ -277,7 +472,7 @@ export class NodexAgentDynamicService {
           projectId: projectRequired(context),
           input,
         })).result;
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         if (result.tool !== "get_block") throw new Error("Nodex read tool mismatch");
         return result.output;
       },
@@ -287,7 +482,7 @@ export class NodexAgentDynamicService {
           projectId: projectRequired(context),
           input,
         })).result;
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         if (result.tool !== "search") throw new Error("Nodex read tool mismatch");
         return result.output;
       },
@@ -297,31 +492,41 @@ export class NodexAgentDynamicService {
           projectId: projectRequired(context),
           input,
         })).result;
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         if (result.tool !== "query_database") throw new Error("Nodex read tool mismatch");
         return result.output;
       },
       create: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const prepared = (await this.writer.prepareNodexAgentCreate({
+        const request = {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
           input,
-        })).result;
-        if (!prepared.ok) return fail({ schemaVersion: 1, error: prepared.error });
-        if (prepared.value.kind === "completed") return prepared.value.output;
-        await requireAuthorization(context, {
-          tool: "create",
-          effect: "write",
-          preview: createPreview(
-            input,
-            prepared.value.createdBodyBlockIds.length,
-            prepared.value.targetNfm,
-          ),
+        };
+        const prepared = await prepareAuthorizedWrite(context, {
+          prepare: async () => {
+            const result = (await this.writer.prepareNodexAgentCreate(request)).result;
+            if (!result.ok) return fail({ error: result.error });
+            return result.value;
+          },
+          footprint: (value) => createFootprint({
+            projectId,
+            request: input,
+            bodyBlockCount: value.createdBodyBlockIds.length,
+          }),
+          authorization: (value) => ({
+            tool: "create",
+            preview: createPreview(
+              input,
+              value.createdBodyBlockIds.length,
+              value.targetNfm,
+            ),
+          }),
         });
-        const command = prepared.value.command;
-        const leaseDocuments = prepared.value.leaseDocuments;
+        if (prepared.kind === "completed") return prepared.output;
+        const command = prepared.command;
+        const leaseDocuments = prepared.leaseDocuments;
         const result = await withExecutionTimeout(
           async () => await this.documentHub.executeNodexAgentCreate(
             command,
@@ -329,31 +534,40 @@ export class NodexAgentDynamicService {
           ),
           this.executionTimeoutMs,
         );
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         return result.value.output;
       },
       edit_document: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const prepared = (await this.writer.prepareNodexAgentDocumentEdit({
+        const request = {
+          tool: "edit_document" as const,
           threadId: context.threadId,
           callId: context.callId,
           projectId,
           input,
-        })).result;
-        if (!prepared.ok) return fail({ schemaVersion: 1, error: prepared.error });
-        if (prepared.value.kind === "completed") return prepared.value.output;
-        const destructive = prepared.value.effects.deletedBlockIds.length > 0
-          || input.body?.kind === "nfm.replace";
-        await requireAuthorization(context, {
-          tool: "edit_document",
-          effect: destructive ? "destructive" : "write",
-          preview: editDocumentPreview(
-            input,
-            prepared.value.effects,
-            prepared.value.targetNfm,
-          ),
+        };
+        const prepared = await prepareAuthorizedWrite(context, {
+          prepare: async () => {
+            const result = (await this.writer.prepareNodexAgentDocumentEdit(request)).result;
+            if (!result.ok) return fail({ error: result.error });
+            return result.value;
+          },
+          footprint: (value) => documentFootprint({
+            projectId,
+            request: input,
+            effects: value.effects,
+          }),
+          authorization: (value) => ({
+            tool: "edit_document",
+            preview: editDocumentPreview(
+              input,
+              value.effects,
+              value.targetNfm,
+            ),
+          }),
         });
-        const mutation = prepared.value.mutation;
+        if (prepared.kind === "completed") return prepared.output;
+        const mutation = prepared.mutation;
         const mutationResult = await withExecutionTimeout(
           async () => await this.documentHub.applyDocumentMutation(
             mutation,
@@ -370,62 +584,79 @@ export class NodexAgentDynamicService {
           ));
         }
         const completed = (await this.writer.completeNodexAgentDocumentEdit({
+          tool: "edit_document",
           threadId: context.threadId,
           callId: context.callId,
           projectId,
           result: mutationResult.value,
         })).result;
-        if (!completed.ok) return fail({ schemaVersion: 1, error: completed.error });
+        if (!completed.ok) return fail({ error: completed.error });
         return completed.output;
       },
       transfer_blocks: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const prepared = (await this.writer.prepareNodexAgentTransfer({
+        const request = {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
           input,
-        })).result;
-        if (!prepared.ok) return fail({ schemaVersion: 1, error: prepared.error });
-        if (prepared.value.kind === "completed") return prepared.value.output;
-        await requireAuthorization(context, {
-          tool: "transfer_blocks",
-          effect: "write",
-          preview: transferPreview(input),
+        };
+        const prepared = await prepareAuthorizedWrite(context, {
+          prepare: async () => {
+            const result = (await this.writer.prepareNodexAgentTransfer(request)).result;
+            if (!result.ok) return fail({ error: result.error });
+            return result.value;
+          },
+          footprint: (value) => transferFootprint({
+            projectId,
+            request: input,
+            authorization: value.authorization,
+          }),
+          authorization: (value) => ({
+            tool: "transfer_blocks",
+            preview: transferPreview(input, value.authorization),
+          }),
         });
-        const command = prepared.value.command;
+        if (prepared.kind === "completed") return prepared.output;
+        const command = prepared.command;
         const result = await withExecutionTimeout(
           async () => await this.documentHub.executeNodexAgentTransfer(
             command,
           ),
           this.executionTimeoutMs,
         );
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         return result.value.output;
       },
       edit_database: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const prepared = (await this.writer.prepareNodexAgentDatabaseEdit({
+        const request = {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
           input,
-        })).result;
-        if (!prepared.ok) return fail({ schemaVersion: 1, error: prepared.error });
-        if (prepared.value.kind === "completed") return prepared.value.output;
-        await requireAuthorization(context, {
-          tool: "edit_database",
-          effect: "write",
-          preview: editDatabasePreview(input),
+        };
+        const prepared = await prepareAuthorizedWrite(context, {
+          prepare: async () => {
+            const result = (await this.writer.prepareNodexAgentDatabaseEdit(request)).result;
+            if (!result.ok) return fail({ error: result.error });
+            return result.value;
+          },
+          footprint: () => databaseFootprint({ projectId, request: input }),
+          authorization: () => ({
+            tool: "edit_database",
+            preview: editDatabasePreview(input),
+          }),
         });
-        const command = prepared.value.command;
+        if (prepared.kind === "completed") return prepared.output;
+        const command = prepared.command;
         const result = await withExecutionTimeout(
           async () => (await this.writer.executeNodexAgentDatabaseEdit(
             command,
           )).result,
           this.executionTimeoutMs,
         );
-        if (!result.ok) return fail({ schemaVersion: 1, error: result.error });
+        if (!result.ok) return fail({ error: result.error });
         return result.value.output;
       },
     };

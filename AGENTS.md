@@ -87,7 +87,7 @@ Use these docs as the source of truth:
 - Current quality grading and gaps: `docs/QUALITY_SCORE.md`
 - Cross-cutting engineering principles and knowledge routing: `docs/ENGINEERING_LEARNINGS.md`
 - Product behavior specifications: `docs/product-specs/`
-- External/reference specs (NFM format, examples): `docs/references/`
+- External/reference specs (Nested Markdown format, examples): `docs/references/`
 
 ## Documentation Update Rules
 Documentation maintenance is an active, required responsibility for every agent task.

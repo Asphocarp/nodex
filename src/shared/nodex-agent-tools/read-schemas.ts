@@ -11,18 +11,13 @@ import {
   BlockLocationSchema,
   createPageInputSchema,
   createToolSuccessSchema,
-  DatabaseSchemaRevisionSchema,
-  DatabaseValueRevisionSchema,
   DocumentIdSchema,
-  DocumentRevisionSchema,
+  ETagSchema,
   JsonValueSchema,
-  LocationRevisionSchema,
   ProjectIdSchema,
   PropertyIdSchema,
   TextInputSchema,
   ViewIdSchema,
-  ViewPlacementRevisionSchema,
-  ViewRevisionSchema,
 } from "./base-schemas";
 
 export const DatabasePropertyValueTypeSchema = z.enum([
@@ -89,13 +84,11 @@ const DatabaseSummarySchema = z.strictObject({
   databaseBlockId: BlockIdSchema,
   name: z.string(),
   isPrimary: z.boolean(),
-  schemaRevision: DatabaseSchemaRevisionSchema,
   views: z.array(z.strictObject({
     viewId: ViewIdSchema,
     name: z.string(),
     kind: GeneralDatabaseViewKindSchema,
     isPrimary: z.boolean(),
-    revision: ViewRevisionSchema,
   })),
 });
 
@@ -135,6 +128,7 @@ export const DocumentBlockRecordSchema = z.strictObject({
   type: z.string().min(1).max(256),
   props: z.record(z.string(), JsonValueSchema),
   content: JsonValueSchema.optional(),
+  etag: ETagSchema.optional(),
 });
 
 export const DocumentRepresentationSchema = z.discriminatedUnion("format", [
@@ -143,6 +137,7 @@ export const DocumentRepresentationSchema = z.discriminatedUnion("format", [
     format: z.literal("nfm"),
     content: z.string(),
     contentHash: z.string().min(1).max(512),
+    etag: ETagSchema.optional(),
   }),
   z.strictObject({
     format: z.literal("blocks"),
@@ -150,10 +145,29 @@ export const DocumentRepresentationSchema = z.discriminatedUnion("format", [
   }),
 ]);
 
+const GetBlockPrepareForSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("title.set") }),
+  z.strictObject({ kind: z.literal("document.replace") }),
+  z.strictObject({
+    kind: z.literal("block.update"),
+    blockIds: z.array(BlockIdSchema).min(1).max(512),
+  }),
+  z.strictObject({
+    kind: z.literal("block.delete"),
+    blockIds: z.array(BlockIdSchema).min(1).max(512),
+  }),
+  z.strictObject({
+    kind: z.literal("value.set"),
+    propertyIds: z.array(PropertyIdSchema).min(1).max(512),
+  }),
+]);
+
 export const GetBlockInputSchema = z.strictObject({
   blockId: BlockIdSchema,
   include: z.strictObject({
-    properties: z.boolean().optional(),
+    properties: z.strictObject({
+      propertyIds: z.array(PropertyIdSchema).max(512).optional(),
+    }).optional(),
     database: z.boolean().optional(),
     document: z.strictObject({
       format: z.enum(["summary", "nfm", "blocks"]),
@@ -161,6 +175,7 @@ export const GetBlockInputSchema = z.strictObject({
       maxDepth: z.number().int().min(0).max(512).optional(),
     }).optional(),
   }).optional(),
+  prepareFor: z.array(GetBlockPrepareForSchema).max(8).optional(),
   page: createPageInputSchema(100).optional(),
 });
 
@@ -168,24 +183,24 @@ export const GetBlockDataSchema = z.strictObject({
   block: z.strictObject({
     blockId: BlockIdSchema,
     type: z.string().min(1).max(256),
-    title: TextInputSchema.optional(),
+    title: z.strictObject({
+      value: TextInputSchema,
+      etag: ETagSchema.optional(),
+    }).optional(),
     lifecycle: z.enum(["active", "archived", "deleted"]),
     location: BlockLocationSchema,
-    locationRevision: LocationRevisionSchema,
     properties: z.record(PropertyIdSchema, z.strictObject({
       value: JsonValueSchema,
-      revision: DatabaseValueRevisionSchema,
+      etag: ETagSchema.optional(),
     })).optional(),
   }),
   document: z.strictObject({
     documentId: DocumentIdSchema,
     ownerBlockId: BlockIdSchema,
-    revision: DocumentRevisionSchema,
     body: DocumentRepresentationSchema,
   }).optional(),
   database: z.strictObject({
     databaseBlockId: BlockIdSchema,
-    schemaRevision: DatabaseSchemaRevisionSchema,
   }).optional(),
 });
 
@@ -303,6 +318,13 @@ export const QueryDatabaseInputSchema = z.strictObject({
     propertyIds: z.array(PropertyIdSchema).max(512).optional(),
     documentSummary: z.boolean().optional(),
   }).optional(),
+  prepareFor: z.array(z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("value.set"),
+      propertyIds: z.array(PropertyIdSchema).min(1).max(512),
+    }),
+    z.strictObject({ kind: z.literal("view.place") }),
+  ])).max(4).optional(),
   page: createPageInputSchema(200).optional(),
 });
 
@@ -310,7 +332,6 @@ export const QueryDatabaseDataSchema = z.strictObject({
   database: z.strictObject({
     databaseBlockId: BlockIdSchema,
     name: z.string(),
-    schemaRevision: DatabaseSchemaRevisionSchema,
     properties: z.array(z.strictObject({
       propertyId: PropertyIdSchema,
       name: z.string(),
@@ -322,20 +343,18 @@ export const QueryDatabaseDataSchema = z.strictObject({
     viewId: ViewIdSchema,
     name: z.string(),
     kind: GeneralDatabaseViewKindSchema,
-    revision: ViewRevisionSchema,
   }).optional(),
   rows: z.array(z.strictObject({
     blockId: BlockIdSchema,
     title: z.string(),
-    locationRevision: LocationRevisionSchema,
     values: z.record(PropertyIdSchema, z.strictObject({
       value: JsonValueSchema,
-      revision: DatabaseValueRevisionSchema,
+      etag: ETagSchema.optional(),
     })),
     placement: z.strictObject({
       viewId: ViewIdSchema,
       groupKey: z.string().nullable(),
-      revision: ViewPlacementRevisionSchema,
+      etag: ETagSchema.optional(),
     }).optional(),
     documentSummary: z.string().optional(),
   })).max(200),

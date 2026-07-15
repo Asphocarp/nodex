@@ -308,6 +308,37 @@ describe("dynamic tool registry", () => {
     })).toBe("Read tab");
   });
 
+  test("uses Nodex semantic labels and call identity in collapsed activity summaries", () => {
+    const searchCall = dynamicCall({
+      callId: "nodex-search-1",
+      namespace: "nodex_app",
+      tool: "search",
+      arguments: { query: "migrtion", target: "cards" },
+      contentItems: [{
+        type: "inputText",
+        text: JSON.stringify({
+          data: { target: "cards", results: [{ kind: "card" }] },
+        }),
+      }],
+    });
+
+    expect(getDynamicToolRegistryEntry(searchCall)?.rendererKind).toBe("nodexApp");
+    expect(buildDynamicToolCallSummaryPartKey(searchCall)).toBe("nodex_app:search:nodex-search-1");
+    expect(resolveDynamicToolLabel({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      entryId: "entry-1",
+      itemId: "item-1",
+      type: "dynamicToolCall",
+      kind: "toolCall",
+      semanticKind: "dynamicToolCall",
+      status: "completed",
+      createdAt: 1,
+      updatedAt: 1,
+      dynamicToolCall: searchCall,
+    })).toBe("Searched cards for “migrtion” · 1 result");
+  });
+
   test("matches Electron dynamic fallback labels for completed and active rows", () => {
     expect(resolveDynamicToolFallbackLabel(dynamicCall({
       tool: "automation_update",

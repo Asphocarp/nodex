@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import {
   agentActivityV2DynamicGenericActiveItem,
+  agentActivityV2DynamicGenericFailedItem,
   agentActivityV2McpAppContextPrecedenceItem,
   agentActivityV2MultiActionCommandItem,
   agentActivityV2WebSearchItem,
@@ -231,6 +232,19 @@ describe("projectCodexCanonicalTurnItemViews", () => {
     expect(generatedImage?.generatedImage?.src).toBe("data:image/png;base64,aW1hZ2U=");
     expect(subagent?.subagentActivity?.displayName).toBe("Code review agent");
     expect(subagent?.subagentActivity?.displayStatus).toBe("updated");
+  });
+
+  test("preserves ordinary dynamic-tool output, outcome, duration, and exact raw item", () => {
+    const canonical = materializeCodexCanonicalProtocolItem(agentActivityV2DynamicGenericFailedItem);
+    const view = project([canonical])[0];
+
+    expect(view?.dynamicToolCall?.contentItems).toEqual([{
+      type: "inputText",
+      text: "sanitized dynamic output",
+    }]);
+    expect(view?.dynamicToolCall?.success).toBe(false);
+    expect(view?.dynamicToolCall?.durationMs).toBe(12);
+    expect(view?.rawItem).toBe(canonical);
   });
 
   test("folds only consecutive image views and resets across hidden raw items", () => {

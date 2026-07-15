@@ -16,16 +16,20 @@ import {
   queryGeneralDatabaseAdHoc,
   queryGeneralDatabaseView,
 } from "../local-store/database-query";
+import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import {
   assertResponseSize,
   mintCursor,
-  mintRevision,
   NodexAgentReadError,
   nodexAgentFingerprint,
   readCursorState,
   readProjectChangeLogSeq,
   requireProject,
 } from "./read-support";
+import {
+  databaseValueEtagState,
+  viewPlacementEtagState,
+} from "./semantic-guards";
 
 interface DatabaseQuerySnapshot {
   readonly database: GeneralDatabaseViewQuery["database"];
@@ -89,6 +93,39 @@ function selectedProperties(
   return propertyIds.map((propertyId) => byId.get(propertyId) as GeneralDatabasePropertyDefinition);
 }
 
+function preparedValuePropertyIds(input: QueryDatabaseInput): ReadonlySet<string> {
+  return new Set(
+    (input.prepareFor ?? []).flatMap((preparation) =>
+      preparation.kind === "value.set" ? preparation.propertyIds : []),
+  );
+}
+
+function readNextPlacementIds(
+  database: Database.Database,
+  input: {
+    readonly projectId: string;
+    readonly viewId: string;
+  },
+): ReadonlyMap<string, string | null> {
+  const rows = database.prepare(
+    `
+    SELECT block_id, group_key
+    FROM database_view_positions
+    WHERE project_id = ? AND view_id = ?
+    ORDER BY group_key, rank_key, block_id
+  `).all(input.projectId, input.viewId) as readonly {
+    readonly block_id: string;
+    readonly group_key: string | null;
+  }[];
+  return new Map(rows.map((row, index) => {
+    const next = rows[index + 1];
+    return [
+      row.block_id,
+      next?.group_key === row.group_key ? next.block_id : null,
+    ] as const;
+  }));
+}
+
 export function readNodexAgentDatabaseQuery(
   database: Database.Database,
   projectId: string,
@@ -98,6 +135,34 @@ export function readNodexAgentDatabaseQuery(
   const query = readQuery(database, projectId, input);
   const properties = selectedProperties(query.properties, input.select?.propertyIds);
   const propertyIds = new Set(properties.map((property) => property.id));
+  const preparedPropertyIds = preparedValuePropertyIds(input);
+  const unselectedPreparedProperty = [...preparedPropertyIds].find(
+    (propertyId) => !propertyIds.has(propertyId),
+  );
+  if (unselectedPreparedProperty) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      `Prepared property ${unselectedPreparedProperty} is not selected for return`,
+      false,
+      "none",
+      { resourceId: unselectedPreparedProperty, domainCode: "prepared_property_not_returned" },
+    );
+  }
+  const preparesPlacement = input.prepareFor?.some(
+    (preparation) => preparation.kind === "view.place",
+  ) === true;
+  if (preparesPlacement && !query.view) {
+    throw new NodexAgentReadError(
+      "invalid_arguments",
+      "View placement preparation requires a View query source",
+      false,
+      "none",
+      { resourceId: query.database.blockId, domainCode: "view_source_required" },
+    );
+  }
+  const nextPlacementIds = preparesPlacement && query.view
+    ? readNextPlacementIds(database, { projectId, viewId: query.view.id })
+    : new Map<string, string | null>();
   const changeLogSeq = readProjectChangeLogSeq(database, projectId);
   const fingerprint = nodexAgentFingerprint({
     source: input.source,
@@ -119,21 +184,29 @@ export function readNodexAgentDatabaseQuery(
   });
   const limit = input.page?.limit ?? 50;
   const pageRows = query.rows.slice(offset, offset + limit);
+  const missingPreparedPlacement = preparesPlacement
+    ? pageRows.find((row) => row.position === null)
+    : undefined;
+  if (missingPreparedPlacement) {
+    throw new NodexAgentReadError(
+      "projection_not_ready",
+      `Block ${missingPreparedPlacement.card.blockId} has no current View placement`,
+      true,
+      "query_database_again",
+      {
+        resourceId: missingPreparedPlacement.card.blockId,
+        domainCode: "view_position_not_found",
+      },
+    );
+  }
   const nextOffset = offset + pageRows.length;
   const hasMore = nextOffset < query.rows.length;
 
   const rawOutput = {
-    schemaVersion: 1,
     data: {
       database: {
         databaseBlockId: query.database.blockId,
         name: query.database.name,
-        schemaRevision: mintRevision(database, {
-          kind: "database_schema",
-          projectId,
-          subject: [query.database.blockId],
-          state: { revision: query.database.schemaRevision },
-        }),
         properties: properties.map((property) => ({
           propertyId: property.id,
           name: property.name,
@@ -146,15 +219,6 @@ export function readNodexAgentDatabaseQuery(
           viewId: query.view.id,
           name: query.view.name,
           kind: query.view.kind,
-          revision: mintRevision(database, {
-            kind: "view",
-            projectId,
-            subject: [query.view.id],
-            state: {
-              databaseBlockId: query.database.blockId,
-              revision: query.view.revision,
-            },
-          }),
         },
       } : {}),
       rows: pageRows.map((row) => {
@@ -165,57 +229,44 @@ export function readNodexAgentDatabaseQuery(
         return {
           blockId: row.card.blockId,
           title: row.card.content?.title ?? "",
-          locationRevision: mintRevision(database, {
-            kind: "location",
-            projectId,
-            subject: [row.card.blockId],
-            state: {
-              revision: row.card.locationRevision,
-              locationKind: row.card.location.kind,
-              containingDocumentId: row.card.location.kind === "document"
-                ? row.card.location.documentId
-                : null,
-              containingDatabaseId: row.card.location.kind === "database"
-                ? row.card.location.databaseBlockId
-                : null,
-            },
-          }),
           values: Object.fromEntries(Object.entries(row.values)
             .filter(([propertyId]) => propertyIds.has(propertyId))
             .map(([propertyId, value]) => [propertyId, {
               value: value.value,
-              revision: mintRevision(database, {
-                kind: "database_value",
-                projectId,
-                subject: [query.database.blockId, row.card.blockId, propertyId],
-                state: {
+              ...(preparedPropertyIds.has(propertyId) ? {
+                etag: mintNodexAgentEtag(database, databaseValueEtagState({
+                  projectId,
+                  databaseBlockId: query.database.blockId,
+                  blockId: row.card.blockId,
+                  propertyId,
+                  value: value.value as JsonValue,
                   membershipId: row.membership.id,
                   membershipRevision: row.membership.revision,
                   propertySchemaRevision:
                     query.properties.find((property) => property.id === propertyId)?.revision ?? 0,
                   valueRevision: value.revision,
-                },
-              }),
+                })),
+              } : {}),
             }])),
           ...(query.view && row.position ? {
             placement: {
               viewId: query.view.id,
               groupKey: row.position.groupKey,
-              revision: mintRevision(database, {
-                kind: "view_placement",
-                projectId,
-                subject: [query.view.id, row.card.blockId],
-                state: {
+              ...(preparesPlacement ? {
+                etag: mintNodexAgentEtag(database, viewPlacementEtagState({
+                  projectId,
                   databaseBlockId: query.database.blockId,
-                  viewRevision: query.view.revision,
+                  viewId: query.view.id,
+                  blockId: row.card.blockId,
+                  groupKey: row.position.groupKey,
+                  beforeBlockId: nextPlacementIds.get(row.card.blockId) ?? null,
                   membershipId: row.membership.id,
                   membershipRevision: row.membership.revision,
+                  viewRevision: query.view.revision,
                   positionRevision: row.position.revision,
-                  groupPropertyId: groupPropertyId ?? null,
                   groupValueRevision,
-                  groupKey: row.position.groupKey,
-                },
-              }),
+                })),
+              } : {}),
             },
           } : {}),
           ...(input.select?.documentSummary && row.card.content

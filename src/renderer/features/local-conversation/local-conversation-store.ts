@@ -9348,6 +9348,8 @@ function isNodexAgentAuthorizationRequest(
       && typeof detail.value === "string"
     )
     || (preview.nfmPreview !== undefined && typeof preview.nfmPreview !== "string")
+    || (preview.markdownPreview !== undefined
+      && typeof preview.markdownPreview !== "string")
   ) {
     return false;
   }
@@ -9362,6 +9364,11 @@ function isNodexAgentAuthorizationRequest(
       || request.tool === "edit_document"
       || request.tool === "transfer_blocks"
       || request.tool === "edit_database"
+      || request.tool === "create_cards"
+      || request.tool === "update_card"
+      || request.tool === "advanced_update_card"
+      || request.tool === "move_cards"
+      || request.tool === "duplicate_card"
     )
     && (request.effect === "write" || request.effect === "destructive")
     && typeof request.createdAt === "number"

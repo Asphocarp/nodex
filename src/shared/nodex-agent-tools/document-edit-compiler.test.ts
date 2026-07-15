@@ -10,6 +10,8 @@ import {
 } from "./document-edit-compiler";
 import { EditDocumentInputSchema } from "./write-schemas";
 
+const ETAG = `nxe1.${"a".repeat(43)}`;
+
 function materialization(
   nfm: string,
   title = "Before",
@@ -44,7 +46,6 @@ describe("Nodex Agent Document edit compiler", () => {
       current: materialization("Existing"),
       edit: edit({
         documentId: "document-1",
-        ifRevision: "revision-1",
         body: {
           kind: "nfm.insert",
           at: { kind: "end" },
@@ -91,7 +92,6 @@ describe("Nodex Agent Document edit compiler", () => {
       current: materialization("Alpha\nBeta"),
       edit: edit({
         documentId: "document-1",
-        ifRevision: "revision-1",
         body: {
           kind: "nfm.patch",
           patches: [
@@ -125,12 +125,14 @@ describe("Nodex Agent Document edit compiler", () => {
       current: materialization("Old body"),
       edit: edit({
         documentId: "document-1",
-        ifRevision: "revision-1",
         title: {
-          kind: "rich",
-          richText: [{ type: "text", text: "New title", styles: { bold: true } }],
+          value: {
+            kind: "rich",
+            richText: [{ type: "text", text: "New title", styles: { bold: true } }],
+          },
+          ifMatch: ETAG,
         },
-        body: { kind: "nfm.replace", content: "# New body" },
+        body: { kind: "nfm.replace", content: "# New body", ifMatch: ETAG },
       }),
       allocateBlockId: allocator("replace"),
     });
@@ -152,8 +154,7 @@ describe("Nodex Agent Document edit compiler", () => {
         current,
         edit: edit({
           documentId: "document-1",
-          ifRevision: "revision-1",
-          body: { kind: "nfm.replace", content: "Keep" },
+          body: { kind: "nfm.replace", content: "Keep", ifMatch: ETAG },
           ...(allowDeletingOwnedBlocks === undefined ? {} : {
             safety: { allowDeletingOwnedBlocks },
           }),
@@ -178,7 +179,6 @@ describe("Nodex Agent Document edit compiler", () => {
       current,
       edit: edit({
         documentId: "document-1",
-        ifRevision: "revision-1",
         body: {
           kind: "blocks",
           edits: [{

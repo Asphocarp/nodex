@@ -5,13 +5,13 @@ import {
 } from "../../shared/codex-dynamic-tool-identity";
 import {
   NODEX_APP_TOOL_NAMESPACE,
-  NODEX_APP_TOOLSET_REVISION,
+  NODEX_APP_V3_TOOLSET_REVISION,
 } from "../../shared/nodex-agent-tools";
 import type { DynamicToolCatalogSelection } from "./dynamic-tool-registry";
 
 const CURRENT_TOOLSET_REVISION_BY_NAMESPACE = new Map<string, number>([
   [CODEX_APP_TOOL_NAMESPACE, CODEX_APP_TOOLSET_REVISION],
-  [NODEX_APP_TOOL_NAMESPACE, NODEX_APP_TOOLSET_REVISION],
+  [NODEX_APP_TOOL_NAMESPACE, NODEX_APP_V3_TOOLSET_REVISION],
 ]);
 
 export function resolveDynamicToolCatalogBindings(

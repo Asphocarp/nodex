@@ -434,7 +434,7 @@ export function compileAgentDocumentEdit(input: {
   readonly edit: EditDocumentInput;
   readonly allocateBlockId: () => string;
 }): CompiledAgentDocumentEdit {
-  const richTitle = toRichTitle(input.edit.title);
+  const richTitle = toRichTitle(input.edit.title?.value);
   const localBlockIds = new Map<string, string>();
   let mutation: CompiledAgentDocumentEditMutation;
   let materialization: CardDocumentMaterialization;

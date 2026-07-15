@@ -117,16 +117,27 @@ import type {
   BlockMutationWorkerResult,
 } from "./block-mutation-worker-protocol";
 import { readNodexAgentTool } from "./agent-tools/read-service";
+import { readNodexAgentV3Tool } from "./agent-tools/read-v3";
 import {
   completeNodexAgentDocumentEdit,
   prepareNodexAgentDocumentEdit,
 } from "./agent-tools/document-edit-service";
 import {
+  completeNodexAgentCardUpdate,
+  prepareNodexAgentCardUpdate,
+} from "./agent-tools/card-update-v3";
+import {
+  executeNodexAgentCreateCards,
   executeNodexAgentCreate,
+  prepareNodexAgentCreateCards,
   prepareNodexAgentCreate,
 } from "./agent-tools/create-service";
 import {
+  executeNodexAgentDuplicateCard,
+  executeNodexAgentMoveCards,
   executeNodexAgentTransfer,
+  prepareNodexAgentDuplicateCard,
+  prepareNodexAgentMoveCards,
   prepareNodexAgentTransfer,
 } from "./agent-tools/transfer-service";
 import {
@@ -579,15 +590,21 @@ async function runRequest(
   switch (request.type) {
     case "readNodexAgentTool":
       return readNodexAgentTool(getDb(), request.payload);
+    case "readNodexAgentV3Tool":
+      return readNodexAgentV3Tool(getDb(), request.payload);
     case "prepareNodexAgentDocumentEdit":
       return prepareNodexAgentDocumentEdit(getDb(), request.payload);
     case "completeNodexAgentDocumentEdit":
       return completeNodexAgentDocumentEdit(getDb(), request.payload);
+    case "prepareNodexAgentCardUpdate":
+      return prepareNodexAgentCardUpdate(getDb(), request.payload);
+    case "completeNodexAgentCardUpdate":
+      return completeNodexAgentCardUpdate(getDb(), request.payload);
     case "prepareNodexAgentCreate":
       return prepareNodexAgentCreate(getDb(), request.payload);
     case "executeNodexAgentCreate": {
       const result = executeNodexAgentCreate(getDb(), request.payload);
-      if (!result.ok || result.value.output.data.receipt.duplicate) return result;
+      if (!result.ok || result.value.duplicate) return result;
       try {
         publishCardTargetContentChange(
           result.value.output.data.resource.documentId,
@@ -613,11 +630,99 @@ async function runRequest(
       }
       return result;
     }
+    case "prepareNodexAgentCreateCards":
+      return prepareNodexAgentCreateCards(getDb(), request.payload);
+    case "executeNodexAgentCreateCards": {
+      const result = executeNodexAgentCreateCards(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+      for (const card of result.value.output.data.cards) {
+        try {
+          publishCardTargetContentChange(`document:${card.cardId}`);
+          const summary = readDatabaseCardSummaryById(getDb(), card.cardId);
+          if (summary) {
+            dbNotifier.notifyChange(
+              request.payload.projectId,
+              "create",
+              summary.status,
+              card.cardId,
+              { summary },
+            );
+          }
+        } catch (error) {
+          postLog("error", "Committed Nodex Agent Card batch fanout failed", {
+            projectId: request.payload.projectId,
+            cardId: card.cardId,
+            mutationId: request.payload.mutationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return result;
+    }
+    case "prepareNodexAgentDuplicateCard":
+      return prepareNodexAgentDuplicateCard(getDb(), request.payload);
+    case "executeNodexAgentDuplicateCard": {
+      const result = executeNodexAgentDuplicateCard(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+      try {
+        const cardId = result.value.output.data.cardId;
+        publishCardTargetContentChange(`document:${cardId}`);
+        const summary = readDatabaseCardSummaryById(getDb(), cardId);
+        if (summary) {
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            "create",
+            summary.status,
+            cardId,
+            { summary },
+          );
+        }
+      } catch (error) {
+        postLog("error", "Committed Nodex Agent Card duplicate fanout failed", {
+          projectId: request.payload.projectId,
+          sourceCardId: request.payload.input.cardId,
+          mutationId: request.payload.mutationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
+    case "prepareNodexAgentMoveCards":
+      return prepareNodexAgentMoveCards(getDb(), request.payload);
+    case "executeNodexAgentMoveCards": {
+      const result = executeNodexAgentMoveCards(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+      try {
+        for (const commit of result.value.documentCommits) {
+          blockDocumentRuntime.invalidate(commit.documentId);
+          publishCardTargetContentChange(commit.documentId);
+        }
+        for (const card of result.value.output.data.cards) {
+          publishCardTargetChange(card.cardId, "location");
+          const summary = readDatabaseCardSummaryById(getDb(), card.cardId);
+          if (!summary) continue;
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            "update",
+            summary.status,
+            card.cardId,
+            { summary, mutationId: request.payload.mutationId },
+          );
+        }
+      } catch (error) {
+        postLog("error", "Committed Nodex Agent Card move fanout failed", {
+          projectId: request.payload.projectId,
+          mutationId: request.payload.mutationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
     case "prepareNodexAgentTransfer":
       return prepareNodexAgentTransfer(getDb(), request.payload);
     case "executeNodexAgentTransfer": {
       const result = executeNodexAgentTransfer(getDb(), request.payload);
-      if (!result.ok || result.value.output.data.receipt.duplicate) return result;
+      if (!result.ok || result.value.duplicate) return result;
       try {
         for (const commit of result.value.documentCommits) {
           blockDocumentRuntime.invalidate(commit.documentId);
@@ -651,7 +756,7 @@ async function runRequest(
       return prepareNodexAgentDatabaseEdit(getDb(), request.payload);
     case "executeNodexAgentDatabaseEdit": {
       const result = executeNodexAgentDatabaseEdit(getDb(), request.payload);
-      if (!result.ok || result.value.output.data.receipt.duplicate) return result;
+      if (!result.ok || result.value.duplicate) return result;
       const cardIds = [...new Set(request.payload.mutation.operations.flatMap(
         (operation) => {
           if (

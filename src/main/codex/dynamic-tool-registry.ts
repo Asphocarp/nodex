@@ -90,7 +90,7 @@ function formatZodIssues(error: z.ZodError): string[] {
   });
 }
 
-function toProtocolJsonSchema(
+export function toProtocolJsonSchema(
   schema: z.ZodType,
 ): DynamicToolFunctionSpec["inputSchema"] {
   return z.toJSONSchema(schema) as DynamicToolFunctionSpec["inputSchema"];

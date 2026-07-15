@@ -1,4 +1,4 @@
-import type { NodexAgentToolName } from "./base-schemas";
+import type { NodexAgentV2ToolName, NodexAgentV3ToolName } from "./identity";
 
 export const NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD =
   "nodex-agent-authorization" as const;
@@ -19,6 +19,7 @@ export interface NodexAgentAuthorizationPreview {
   readonly summary: string;
   readonly details: readonly NodexAgentAuthorizationDetail[];
   readonly nfmPreview?: string;
+  readonly markdownPreview?: string;
 }
 
 export interface NodexAgentAuthorizationRequest {
@@ -28,10 +29,19 @@ export interface NodexAgentAuthorizationRequest {
   readonly threadId: string;
   readonly turnId: string;
   readonly itemId: string;
-  readonly tool: Extract<
-    NodexAgentToolName,
-    "create" | "edit_document" | "transfer_blocks" | "edit_database"
-  >;
+  readonly tool:
+    | Extract<
+        NodexAgentV2ToolName,
+        "create" | "edit_document" | "transfer_blocks" | "edit_database"
+      >
+    | Extract<
+        NodexAgentV3ToolName,
+        | "create_cards"
+        | "update_card"
+        | "advanced_update_card"
+        | "move_cards"
+        | "duplicate_card"
+      >;
   readonly effect: "write" | "destructive";
   readonly preview: NodexAgentAuthorizationPreview;
   readonly createdAt: number;

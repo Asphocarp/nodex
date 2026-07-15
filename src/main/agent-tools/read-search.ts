@@ -399,6 +399,7 @@ function searchBlocks(
   database: Database.Database,
   projectId: string,
   input: SearchInput & { readonly target: "blocks" },
+  cardOwnedBlocksOnly: boolean,
 ): readonly {
   readonly kind: "block";
   readonly blockId: string;
@@ -413,6 +414,7 @@ function searchBlocks(
   return searchDocumentBlockUnits(database, {
     projectId,
     query: input.query,
+    ...(cardOwnedBlocksOnly ? { ownerType: "card" as const } : {}),
     includeArchived: input.filters?.includeArchived === true,
     sourceKinds: ["document_title", "document_block"],
     blockTypes: input.filters?.blockTypes,
@@ -436,6 +438,7 @@ export function readNodexAgentSearch(
   database: Database.Database,
   projectId: string,
   input: SearchInput,
+  options: { readonly cardOwnedBlocksOnly?: boolean } = {},
 ): SearchOutput {
   requireProject(database, projectId);
   validateScope(database, projectId, input.scope);
@@ -443,6 +446,7 @@ export function readNodexAgentSearch(
   const changeLogSeq = readProjectChangeLogSeq(database, projectId);
   const fingerprint = nodexAgentFingerprint({
     target,
+    cardOwnedBlocksOnly: options.cardOwnedBlocksOnly === true,
     query: input.query,
     scope: input.scope ?? { kind: "project" },
     filters: input.filters ?? {},
@@ -459,14 +463,18 @@ export function readNodexAgentSearch(
     expected: cursorState,
   });
   const allResults = target === "blocks"
-    ? searchBlocks(database, projectId, input as SearchInput & { readonly target: "blocks" })
+    ? searchBlocks(
+      database,
+      projectId,
+      input as SearchInput & { readonly target: "blocks" },
+      options.cardOwnedBlocksOnly === true,
+    )
     : searchCards(database, projectId, input);
   const limit = input.page?.limit ?? 20;
   const results = allResults.slice(offset, offset + limit);
   const nextOffset = offset + results.length;
   const hasMore = nextOffset < allResults.length;
   const rawOutput = {
-    schemaVersion: 1,
     data: { target, results },
     page: {
       hasMore,

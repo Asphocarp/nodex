@@ -622,17 +622,16 @@ function projectDynamicToolCall(
   if (item.tool === "automation_update") return projectAutomationUpdate(item, context);
   if (item.tool === "load_workspace_dependencies") return [];
 
-  const carriesResult = item.tool === "create_thread" || item.tool === "handoff_thread";
   const dynamicToolCall: CodexDynamicToolCallView = {
     callId: item.id,
     namespace: item.namespace,
     tool: item.tool,
     arguments: item.arguments,
     status: item.status,
+    contentItems: item.contentItems,
+    success: item.success,
+    durationMs: item.durationMs,
     completed: item.status === "completed" || item.status === "failed",
-    ...(carriesResult
-      ? { contentItems: item.contentItems, success: item.success }
-      : {}),
   };
   return [{
     ...buildBaseView(item, context),

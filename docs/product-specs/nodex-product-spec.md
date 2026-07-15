@@ -227,7 +227,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | `id` | string | Yes | Canonical lowercase UUID-v7 Block identity; Card has no separate storage ID |
 | `title` | string | Yes | Plain-text projection of `Y.Text("title")` (max 2,000 chars); used by search, tables, accessibility, and plain CLI output |
 | `richTitle` | portable rich text | Yes on current reads | Canonical styled/link/mention projection of the Card Document title; structured transports preserve it without loading the body |
-| `description` | string | No | Read/export projection of `Y.XmlFragment("body")` as [NFM](../references/notion-flavored-markdown-spec.md), including image/attachment/thread/date syntax (max 1,000,000 projected chars); never a collaborative write field |
+| `description` | string | No | Read/export projection of `Y.XmlFragment("body")` as [Nested Markdown](../references/nested-markdown-spec.md), including image/attachment/thread/date syntax (max 1,000,000 projected chars); never a collaborative write field |
 | `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
 | `estimate` | enum | No | xs, s, m, l, xl |
 | `tags` | string[] | No | Custom labels (default: [], max 64 tags, each max 64 chars) |
@@ -544,7 +544,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - **Desktop**: Electron with electron-vite (v5) + Vite 7
 - **UI**: React 19, shadcn/ui, Tailwind CSS
 - **Block Editor**: BlockNote (@blocknote/core, @blocknote/react, @blocknote/shadcn)
-- **Description Format**: [Notion-flavored Markdown (NFM)](../references/notion-flavored-markdown-spec.md) with custom parser/serializer
+- **Description Format**: [Nested Markdown](../references/nested-markdown-spec.md) with custom parser/serializer
 - **HTTP Server**: Hono (embedded in main process)
 - **HTTP Server Port**: Configurable via `[server].port` / `NODEX_PORT` (default 51283)
 - **Drag & Drop**: @atlaskit/pragmatic-drag-and-drop, @atlaskit/pragmatic-drag-and-drop-auto-scroll
@@ -1276,26 +1276,36 @@ Detailed CI behavior, job responsibilities, secrets, artifact naming, and recove
 
 ### Project-bound dynamic tools
 
-New eligible Codex tasks that start inside a Nodex Project receive the `nodex_app@1` dynamic-tool catalog. The namespace is for Nodex content and structure; Codex host controls such as task handoff, terminal access, and automations remain under `codex_app`. A task keeps the catalog revision with which it started. Resuming an older task never hot-injects a newer contract; a missing or retired catalog returns a structured response that directs the agent to start a new task.
+New eligible Codex tasks that start inside a Nodex Project receive the `nodex_app@3` dynamic-tool catalog. The namespace is for Nodex content and structure; Codex host controls such as task handoff, terminal access, and automations remain under `codex_app`. A task keeps the catalog revision with which it started. Resuming a v2 task never hot-injects v3 semantics; a retired catalog returns `tool_catalog_stale` and directs the agent to start a new task.
 
-The public catalog is intentionally small and intent-first:
+The thread transcript presents these calls as Nodex operations, not opaque function names. Compact rows identify the search phrase and result count, fetched Card, saved View or ad-hoc Database query, created titles, updated content, move destination, and duplicated Card identity. Nested Markdown inserts, exact patches, and replacements include bounded inline diffs; exact patches show removed and added source lines, while operations without prior source never fabricate deletions. Every visible call has an expandable inspector for exact arguments and output plus an exact raw app-server item dialog for debugging. Historical v2 calls remain readable even though they are no longer executable.
+
+The public catalog is intent-first:
 
 | Tool | Intent |
 |------|--------|
-| `get_context` | Read the active Project's structure, capabilities, and NFM guidance. |
-| `get_block` | Read one Block and, when applicable, its complete canonical NFM or stable-ID tree. |
-| `search` | Find Cards or Blocks through exact identity/body evidence and typo-tolerant title/property evidence. |
-| `query_database` | Read a Database or View with typed filters, sorts, values, and opaque pagination. |
-| `create` | Atomically create one complete Card, including rich title, many-Block NFM body, location, membership values, and optional View placement. |
-| `edit_document` | Change a title and/or body through structural NFM insertion, simultaneous exact NFM patches, whole-NFM replacement, or stable-ID Block operations. |
-| `transfer_blocks` | Move or copy Blocks between Space, Document, and Database containers without encoding a Kanban-only action. |
-| `edit_database` | Change typed values, membership, schema, View configuration, grouping, or placement at the Database authority boundary. |
+| `get_context` | Read the active Project binding, capabilities, Database/View catalog, or opt-in Nested Markdown guide. |
+| `search` | Discover Cards or body Blocks through stable identity, exact body evidence, and typo-tolerant Card metadata. |
+| `fetch` | Fetch a known stable ID; default to complete canonical Nested Markdown or explicitly request a summary/stable-Block tree. |
+| `query_database_view` | Execute one saved View's persisted filters, sorts, grouping, and row order. |
+| `advanced_query_database` | Run a temporary typed filter/sort against one known Database. |
+| `create_cards` | Atomically create one to sixteen complete Cards at one shared destination with inline-Markdown titles and optional many-Block bodies. |
+| `update_card` | Update one Card title/body through Nested Markdown insertion, simultaneous exact patches, or guarded whole-body replacement. |
+| `advanced_update_card` | Apply identity-sensitive stable-Block edits after `fetch({ format: "blocks" })`. |
+| `move_cards` | Atomically move one to sixteen existing Card roots to one destination while Nodex resolves their current sources. |
+| `duplicate_card` | Copy one complete Card ownership subtree to a destination with fresh identities. |
 
-Reads are automatic and Project-scoped. Writes are prepared against one exact store snapshot before consent, so the authorization card can show resolved semantic effects rather than raw model arguments. `Allow for task` grants only ordinary writes to the verified root task, active Project, current app session, and current store epoch; descendants may inherit that verified grant. Deletes, protected-owner changes, and other identity-destructive effects always require per-call confirmation. Denial, timeout, owner loss, archive, Project/store change, restart, or a headless task without a trusted renderer leaves the store unchanged.
+`get_context`, `search`, and `fetch` are eager; both query tools and every write are deferred. Reads are automatic and Project-scoped. Ordinary reads return no concurrency validators. A bounded typed `prepareFor` list asks only for the short title/body/Block ETags required by the next semantic write. Writes perform mutation-free semantic preflight before consent, re-resolve current authority afterward, and execute only when the fresh effect/resource/deletion/transformation footprint still matches what was approved. `Allow for task` grants only ordinary writes to the verified root task, active Project, current app session, and current store epoch; descendants may inherit that verified grant. Deletes, protected-owner changes, and other identity-destructive effects always require per-call confirmation. Denial, timeout, owner loss, archive, Project/store change, restart, or a headless task without a trusted renderer leaves the store unchanged.
 
-NFM is the primary bulk-content representation. Read results are either complete canonical NFM or a typed size error; truncated content is never writable. One `create` call can therefore build a full many-Block Card, while one `edit_document` call can append a complete Block forest or apply multiple non-overlapping exact replacements against the same source revision. Structural insertion uses Document start/end or stable Block anchors, never character offsets or fuzzy ellipses. Whole replacement cannot implicitly create, copy, move, or delete an owning Card; ownership changes use typed placement commands and protected deletion remains explicit.
+Nested Markdown is the primary Agent bulk-content representation and uses the compact wire name `markdown`. It is ordinary Markdown plus Nodex tags, with one literal tab per child Block level; spaces remain authored content and do not nest. For example, the string `"▶ Toggle title\n\tChild paragraph\n\t- [ ] Child task"` creates a toggle with two children. Read results are either complete canonical content or a typed size error; truncated content is never writable. One `create_cards` call can therefore build several full many-Block Cards, while one `update_card` call can append a complete Block forest or apply multiple non-overlapping exact `oldMarkdown`/`newMarkdown` replacements against the same current source without carrying a whole-Document revision. Structural insertion uses Document start/end or stable Block anchors, never character offsets or fuzzy ellipses. Whole replacement cannot implicitly create, copy, move, or delete an owning Card; ownership changes use `move_cards`/`duplicate_card`, and protected deletion remains explicit.
 
-Opaque revisions and cursors are compare tokens, not capabilities. They bind the Project, store epoch, resource identity, and canonical state needed by that operation. Stale, tampered, cross-resource, cross-Project, and post-restore tokens fail closed. Dynamic-call receipts bind the app-server thread/call identity separately from canonical mutation receipts, so an exact retry can recover a committed result after response loss without storing NFM or hidden document history in the receipt ledger.
+Card titles are direct inline Markdown strings, not `{ kind: "plain" | "rich" }` trees. The supported single-line subset preserves text styles, links, thread mentions, and date mentions. Block syntax, attachments, Card mentions, tabs, and newlines fail validation rather than being silently flattened. Title and body keep separate ETags.
+
+ETags and cursors are opaque proofs, not capabilities. An ETag is a fixed 48-character digest that binds one internal guard kind, Project, store epoch, resource identity, and current semantic state without embedding that state. Cursors use a separate self-contained format because pagination must recover offset and snapshot coordinates. Stale, tampered, cross-resource, cross-Project, membership-ABA, and post-restore reuse fails closed. Dynamic-call receipts bind the app-server thread/call identity separately from canonical mutation receipts, so an exact retry can recover a committed sparse result before validating current guards and without storing body content or hidden document history in the receipt ledger.
+
+The current Codex dynamic-tool transport returns JSON text. In Code Mode, parse each result once, retain intermediate Markdown, rows, cursors, and ETags inside one JavaScript pipeline, serialize dependent writes, and expose only a bounded final summary through `text()`. Every nested call remains individually visible and raw-inspectable in the transcript. Native structured dynamic-tool output remains an app-server protocol upgrade because the current dynamic-tool declaration, response, and Code Mode adapter do not carry an output schema or structured value.
+
+Independent value editing for an existing same-Database membership is intentionally absent from v3. New or relocated Database memberships may receive initial values, and `move_cards` can change saved-View placement. A future property-editing tool must begin from a focused user intent rather than restoring the retired generic `edit_database` union.
 
 ### Design: CLI + REST API
 
@@ -1488,18 +1498,18 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 
 ### Why BlockNote for the Editor?
 - **Notion-like UX out of the box**: Drag handles, slash menu, block selection, formatting toolbar
-- **Native block nesting**: Children blocks are first-class (crucial for NFM's tab-indented structure)
+- **Native block nesting**: Children blocks are first-class (crucial for Nested Markdown's tab-indented structure)
 - **Built on ProseMirror/Tiptap**: Battle-tested engine, active development
 - **Custom block types**: `createReactBlockSpec` for callout blocks (extensible for future types)
 - **shadcn/ui integration**: `@blocknote/shadcn` uses the same UI primitives as the rest of the app
 
-### Why Notion-Flavored Markdown (NFM)?
-- **Notion compatibility**: Same format used by Notion API, enabling future integrations
+### Why Nested Markdown?
+- **Familiar base, lossless extensions**: Standard Markdown stays readable while Nodex tags preserve product-specific Blocks without a lossy importer
 - **Block-level structure**: Tab indentation for children, `{color="Color"}` attributes, XML-like advanced blocks
 - **Editor-local indentation boundaries**: If `Tab` or `Shift+Tab` cannot change nesting, the keystroke is swallowed instead of moving focus into hover-only editor chrome
 - **Human-readable**: Descriptions remain readable in raw text (CLI, database inspection)
 - **Custom parser/serializer**: Pure functions in `src/renderer/lib/nfm/`, independent of editor library
-- **Three-layer architecture**: NFM string ↔ NfmBlock tree ↔ BlockNote blocks — clean separation of concerns
+- **Three-layer architecture**: Nested Markdown string ↔ internal `NfmBlock` tree ↔ BlockNote blocks — clean separation of concerns
 - **Read-only renderer**: Card previews use `NfmRenderer` (lightweight, no editor overhead)
 
 ---

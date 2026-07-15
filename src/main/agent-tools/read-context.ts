@@ -7,7 +7,7 @@ import {
   type NodexAgentAccess,
 } from "../../shared/nodex-agent-tools";
 import { readGeneralDatabaseCatalog } from "../local-store/database-query";
-import { mintRevision, requireProject } from "./read-support";
+import { requireProject } from "./read-support";
 
 export function readNodexAgentContext(
   database: Database.Database,
@@ -19,7 +19,6 @@ export function readNodexAgentContext(
 ): GetContextOutput {
   if (!input.projectId) {
     return GetContextOutputSchema.parse({
-      schemaVersion: 1,
       data: {
         project: null,
         access: input.access,
@@ -34,7 +33,6 @@ export function readNodexAgentContext(
     ? readGeneralDatabaseCatalog(input.projectId, database)
     : null;
   return GetContextOutputSchema.parse({
-    schemaVersion: 1,
     data: {
       project: { projectId: input.projectId, name: projectName },
       access: input.access,
@@ -43,12 +41,6 @@ export function readNodexAgentContext(
           databaseBlockId: descriptor.database.blockId,
           name: descriptor.database.name,
           isPrimary: descriptor.database.isPrimary,
-          schemaRevision: mintRevision(database, {
-            kind: "database_schema",
-            projectId: input.projectId as string,
-            subject: [descriptor.database.blockId],
-            state: { revision: descriptor.database.schemaRevision },
-          }),
           views: descriptor.views
             .filter((view) => view.lifecycle === "active")
             .map((view) => ({
@@ -56,15 +48,6 @@ export function readNodexAgentContext(
               name: view.name,
               kind: view.kind,
               isPrimary: view.isPrimary,
-              revision: mintRevision(database, {
-                kind: "view",
-                projectId: input.projectId as string,
-                subject: [view.id],
-                state: {
-                  databaseBlockId: view.databaseBlockId,
-                  revision: view.revision,
-                },
-              }),
             })),
         })),
       } : {}),

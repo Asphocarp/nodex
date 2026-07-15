@@ -9,23 +9,12 @@ import {
   NFM_DATE_MENTION_TIME_FORMATS,
 } from "../nfm/date-mention";
 import { NFM_COLORS } from "../nfm/types";
-
-export const NODEX_APP_TOOL_NAMESPACE = "nodex_app" as const;
-export const NODEX_APP_TOOLSET_REVISION = 1 as const;
-export const NODEX_AGENT_TOOL_SCHEMA_VERSION = 1 as const;
-
-export const NODEX_APP_TOOLS = [
-  "get_context",
-  "get_block",
-  "search",
-  "query_database",
-  "create",
-  "edit_document",
-  "transfer_blocks",
-  "edit_database",
-] as const;
-
-export type NodexAgentToolName = (typeof NODEX_APP_TOOLS)[number];
+export {
+  NODEX_APP_TOOLS,
+  NODEX_APP_TOOL_NAMESPACE,
+  NODEX_APP_TOOLSET_REVISION,
+  type NodexAgentToolName,
+} from "./identity";
 
 const boundedIdentity = (description: string) =>
   z.string().trim().min(1).max(512).describe(description);
@@ -43,18 +32,9 @@ export const PropertyIdSchema = boundedIdentity("Stable Nodex Database Property 
 export const CursorSchema = z.string().min(1).max(16_384)
   .describe("Opaque cursor bound to the captured Project snapshot")
   .brand<"Cursor">();
-
-const revision = <TName extends string>(kind: TName) =>
-  z.string().min(1).max(16_384)
-    .describe(`Opaque ${kind} snapshot revision`)
-    .brand<`Revision:${TName}`>();
-
-export const DocumentRevisionSchema = revision("document");
-export const LocationRevisionSchema = revision("location");
-export const DatabaseSchemaRevisionSchema = revision("database_schema");
-export const DatabaseValueRevisionSchema = revision("database_value");
-export const ViewRevisionSchema = revision("view");
-export const ViewPlacementRevisionSchema = revision("view_placement");
+export const ETagSchema = z.string().regex(/^nxe1\.[A-Za-z0-9_-]{43}$/u)
+  .describe("Opaque validator for one observed semantic state")
+  .brand<"ETag">();
 
 export const JsonValueSchema = z.json();
 
@@ -157,6 +137,7 @@ export const BlockLocationSchema = z.discriminatedUnion("kind", [
 export const RecoveryActionSchema = z.enum([
   "retry_same",
   "get_block_again",
+  "fetch_again",
   "query_database_again",
   "restart_search",
   "request_authorization",
@@ -188,7 +169,6 @@ export const ToolErrorCodeSchema = z.enum([
 ]);
 
 export const ToolFailureSchema = z.strictObject({
-  schemaVersion: z.literal(NODEX_AGENT_TOOL_SCHEMA_VERSION),
   error: z.strictObject({
     code: ToolErrorCodeSchema,
     message: z.string().min(1).max(4_096),
@@ -203,7 +183,6 @@ export const ToolFailureSchema = z.strictObject({
 
 export function createToolSuccessSchema<TData extends z.ZodType>(data: TData) {
   return z.strictObject({
-    schemaVersion: z.literal(NODEX_AGENT_TOOL_SCHEMA_VERSION),
     data,
     page: PageOutputSchema.optional(),
   });
@@ -215,12 +194,7 @@ export type DocumentId = z.infer<typeof DocumentIdSchema>;
 export type ViewId = z.infer<typeof ViewIdSchema>;
 export type PropertyId = z.infer<typeof PropertyIdSchema>;
 export type Cursor = z.infer<typeof CursorSchema>;
-export type DocumentRevision = z.infer<typeof DocumentRevisionSchema>;
-export type LocationRevision = z.infer<typeof LocationRevisionSchema>;
-export type DatabaseSchemaRevision = z.infer<typeof DatabaseSchemaRevisionSchema>;
-export type DatabaseValueRevision = z.infer<typeof DatabaseValueRevisionSchema>;
-export type ViewRevision = z.infer<typeof ViewRevisionSchema>;
-export type ViewPlacementRevision = z.infer<typeof ViewPlacementRevisionSchema>;
+export type ETag = z.infer<typeof ETagSchema>;
 export type JsonValue = z.infer<typeof JsonValueSchema>;
 export type TextInput = z.infer<typeof TextInputSchema>;
 export type SiblingAnchor = z.infer<typeof SiblingAnchorSchema>;
