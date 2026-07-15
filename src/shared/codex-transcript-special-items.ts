@@ -1,5 +1,19 @@
+import collabAgentStateJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/CollabAgentState.schema.json";
+import collabAgentToolJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/CollabAgentTool.schema.json";
+import collabAgentToolCallStatusJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/CollabAgentToolCallStatus.schema.json";
+import guardianApprovalReviewJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/GuardianApprovalReview.schema.json";
+import type {
+  CollabAgentState,
+  CollabAgentStatus,
+  CollabAgentTool,
+  CollabAgentToolCallStatus,
+  GuardianApprovalReview,
+  GuardianWarningNotification,
+  ThreadItem,
+} from "@nodex/codex-app-server-protocol/v2";
 import { z } from "zod";
 import { extractCodexThreadSubagentMetadata } from "./codex-subagent-metadata";
+import { createGeneratedCodexSchema } from "./generated-codex-schema";
 import { CodexUnknownRecordSchema } from "./schemas/codex";
 
 const NullableStringSchema = z.string().nullable().optional().catch(null).transform((value) => value ?? null);
@@ -8,68 +22,27 @@ const NullableFiniteNumberSchema = z.number().finite().nullable().optional().cat
 export const AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX =
   "Automatic approval review rejected too many approval requests for this turn";
 
-const CodexAutomaticApprovalReviewStatusSchema = z.enum([
-  "approved",
-  "denied",
-  "aborted",
-  "inProgress",
-  "timedOut",
-]);
+const CodexAutomaticApprovalReviewSchema =
+  createGeneratedCodexSchema<GuardianApprovalReview>(guardianApprovalReviewJsonSchema);
+const CodexMultiAgentActionNameSchema =
+  createGeneratedCodexSchema<CollabAgentTool>(collabAgentToolJsonSchema);
+const CodexMultiAgentActionStatusSchema =
+  createGeneratedCodexSchema<CollabAgentToolCallStatus>(collabAgentToolCallStatusJsonSchema);
+const CodexMultiAgentAgentStateSchema =
+  createGeneratedCodexSchema<CollabAgentState>(collabAgentStateJsonSchema);
 
-const CodexAutomaticApprovalReviewRiskLevelSchema = z.enum([
-  "high",
-  "medium",
-  "low",
-  "critical",
-]);
+export type CodexAutomaticApprovalReviewStatus = GuardianApprovalReview["status"];
+export type CodexAutomaticApprovalReviewRiskLevel = NonNullable<GuardianApprovalReview["riskLevel"]>;
 
-const CodexAutomaticApprovalReviewUserAuthorizationSchema = z.enum([
-  "unknown",
-  "low",
-  "medium",
-  "high",
-]);
-
-const CodexMultiAgentActionNameSchema = z.enum([
-  "spawnAgent",
-  "sendInput",
-  "resumeAgent",
-  "closeAgent",
-  "wait",
-]);
-
-const CodexMultiAgentActionStatusSchema = z.enum([
-  "inProgress",
-  "completed",
-  "failed",
-]);
-
-const CodexMultiAgentAgentStatusSchema = z.enum([
-  "pendingInit",
-  "running",
-  "interrupted",
-  "shutdown",
-  "completed",
-  "errored",
-  "notFound",
-]);
-
-export type CodexAutomaticApprovalReviewStatus = z.infer<typeof CodexAutomaticApprovalReviewStatusSchema>;
-export type CodexAutomaticApprovalReviewRiskLevel = z.infer<typeof CodexAutomaticApprovalReviewRiskLevelSchema>;
-
-export interface CodexAutomaticApprovalReviewPayload {
+export type CodexAutomaticApprovalReviewPayload = GuardianApprovalReview & {
   targetItemId: string | null;
-  status: CodexAutomaticApprovalReviewStatus;
   riskScore: number | null;
-  riskLevel: CodexAutomaticApprovalReviewRiskLevel | null;
-  userAuthorization: "unknown" | "low" | "medium" | "high" | null;
-  rationale: string | null;
   action: unknown;
-}
+};
 
-export type CodexMultiAgentActionName = z.infer<typeof CodexMultiAgentActionNameSchema>;
-export type CodexMultiAgentActionStatus = z.infer<typeof CodexMultiAgentActionStatusSchema>;
-export type CodexMultiAgentAgentStatus = z.infer<typeof CodexMultiAgentAgentStatusSchema>;
+export type CodexMultiAgentActionName = CollabAgentTool;
+export type CodexMultiAgentActionStatus = CollabAgentToolCallStatus;
+export type CodexMultiAgentAgentStatus = CollabAgentStatus;
 
 export interface CodexMultiAgentReceiverThread {
   threadId: string;
@@ -82,43 +55,41 @@ export interface CodexMultiAgentReceiverThread {
   } | null;
 }
 
-export interface CodexMultiAgentAgentState {
-  status: CodexMultiAgentAgentStatus;
-  message: string | null;
-}
+export type CodexMultiAgentAgentState = CollabAgentState;
+
+type CodexProtocolMultiAgentAction = Extract<ThreadItem, { type: "collabAgentToolCall" }>;
 
 export interface CodexMultiAgentActionPayload {
-  id: string | null;
-  action: CodexMultiAgentActionName;
-  status: CodexMultiAgentActionStatus;
-  senderThreadId: string | null;
-  receiverThreadIds: string[];
+  id: CodexProtocolMultiAgentAction["id"] | null;
+  action: CodexProtocolMultiAgentAction["tool"];
+  status: CodexProtocolMultiAgentAction["status"];
+  senderThreadId: CodexProtocolMultiAgentAction["senderThreadId"] | null;
+  receiverThreadIds: CodexProtocolMultiAgentAction["receiverThreadIds"];
   receiverThreads: CodexMultiAgentReceiverThread[];
-  prompt: string | null;
-  model: string | null;
-  reasoningEffort: string | null;
+  prompt: CodexProtocolMultiAgentAction["prompt"];
+  model: CodexProtocolMultiAgentAction["model"];
+  reasoningEffort: CodexProtocolMultiAgentAction["reasoningEffort"];
   agentsStates: Record<string, CodexMultiAgentAgentState>;
 }
 
 const CodexAutomaticApprovalReviewRecordSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
-  const status = CodexAutomaticApprovalReviewStatusSchema.safeParse(value.status);
-  if (!status.success) {
+  const review = CodexAutomaticApprovalReviewSchema.safeParse({
+    status: value.status,
+    riskLevel: value.riskLevel ?? null,
+    userAuthorization: value.userAuthorization ?? null,
+    rationale: value.rationale ?? null,
+  });
+  if (!review.success) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Invalid automatic approval review status",
+      message: "Invalid automatic approval review",
     });
     return z.NEVER;
   }
 
-  const riskLevel = CodexAutomaticApprovalReviewRiskLevelSchema.safeParse(value.riskLevel);
-  const userAuthorization = CodexAutomaticApprovalReviewUserAuthorizationSchema.safeParse(value.userAuthorization);
-
   return {
-    status: status.data,
+    ...review.data,
     riskScore: NullableFiniteNumberSchema.parse(value.riskScore),
-    riskLevel: riskLevel.success ? riskLevel.data : null,
-    userAuthorization: userAuthorization.success ? userAuthorization.data : null,
-    rationale: NullableStringSchema.parse(value.rationale),
   };
 });
 
@@ -172,16 +143,9 @@ const CodexReceiverThreadsSchema = z.array(z.unknown()).transform((value) =>
 
 const CodexAgentsStatesSchema = CodexUnknownRecordSchema.transform((value) =>
   Object.entries(value).reduce<Record<string, CodexMultiAgentAgentState>>((acc, [threadId, rawState]) => {
-    const state = CodexUnknownRecordSchema.safeParse(rawState);
+    const state = CodexMultiAgentAgentStateSchema.safeParse(rawState);
     if (!state.success) return acc;
-
-    const status = CodexMultiAgentAgentStatusSchema.safeParse(state.data.status);
-    if (!status.success) return acc;
-
-    acc[threadId] = {
-      status: status.data,
-      message: NullableStringSchema.parse(state.data.message),
-    };
+    acc[threadId] = state.data;
     return acc;
   }, {}),
 );
@@ -332,14 +296,10 @@ export function buildAutomaticApprovalReviewActionSummary(action: unknown): stri
   return "Request";
 }
 
-export function shouldShowAutoReviewInterruptionWarning(rawNotification: unknown): boolean {
-  const candidate = CodexUnknownRecordSchema.safeParse(rawNotification);
-  if (!candidate.success) return false;
-
-  if (candidate.data.kind === "tooManyDenials") return true;
-
-  const message = candidate.data.message;
-  return typeof message === "string" && message.startsWith(AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX);
+export function shouldShowAutoReviewInterruptionWarning(
+  notification: GuardianWarningNotification,
+): boolean {
+  return notification.message.startsWith(AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX);
 }
 
 export function normalizeMultiAgentActionPayload(rawItem: unknown): CodexMultiAgentActionPayload | null {

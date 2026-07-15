@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {},
+  "enum": [
+    "completed",
+    "interrupted",
+    "failed",
+    "inProgress"
+  ],
+  "title": "TurnStatus",
+  "type": "string"
+}

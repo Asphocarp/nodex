@@ -18,6 +18,10 @@ import {
   resolveCodexPatchSuccess,
 } from "../../../../../../shared/codex-file-change";
 import { normalizeCodexAppInfoLogos } from "../../../../../../shared/codex-app-info";
+import type {
+  CodexAutomaticApprovalReviewRiskLevel,
+  CodexAutomaticApprovalReviewStatus,
+} from "../../../../../../shared/codex-transcript-special-items";
 import {
   ThreadAgentActivityGroupBlock,
 } from "../../blocks/local-conversation-block-leaves";
@@ -311,8 +315,8 @@ function buildFileChangeAgentActivityBlock({
 }
 
 type StoryAutoReview = {
-  status: "approved" | "denied" | "aborted" | "inProgress" | "timedOut";
-  riskLevel?: "high" | "medium" | "low" | "critical" | null;
+  status: CodexAutomaticApprovalReviewStatus;
+  riskLevel?: CodexAutomaticApprovalReviewRiskLevel | null;
   rationale?: string | null;
 };
 

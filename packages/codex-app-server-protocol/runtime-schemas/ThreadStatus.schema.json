@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "definitions__ThreadActiveFlag": {
+      "enum": [
+        "waitingOnApproval",
+        "waitingOnUserInput"
+      ],
+      "type": "string"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "type": {
+          "enum": [
+            "notLoaded"
+          ],
+          "title": "NotLoadedThreadStatusType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "NotLoadedThreadStatus",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "enum": [
+            "idle"
+          ],
+          "title": "IdleThreadStatusType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "IdleThreadStatus",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "enum": [
+            "systemError"
+          ],
+          "title": "SystemErrorThreadStatusType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SystemErrorThreadStatus",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "activeFlags": {
+          "items": {
+            "$ref": "#/definitions/definitions__ThreadActiveFlag"
+          },
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "active"
+          ],
+          "title": "ActiveThreadStatusType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activeFlags",
+        "type"
+      ],
+      "title": "ActiveThreadStatus",
+      "type": "object"
+    }
+  ],
+  "title": "ThreadStatus"
+}

@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "definitions__GuardianApprovalReviewStatus": {
+      "description": "[UNSTABLE] Lifecycle state for an approval auto-review.",
+      "enum": [
+        "inProgress",
+        "approved",
+        "denied",
+        "timedOut",
+        "aborted"
+      ],
+      "type": "string"
+    },
+    "definitions__GuardianRiskLevel": {
+      "description": "[UNSTABLE] Risk level assigned by approval auto-review.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "type": "string"
+    },
+    "definitions__GuardianUserAuthorization": {
+      "description": "[UNSTABLE] Authorization level assigned by approval auto-review.",
+      "enum": [
+        "unknown",
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "[UNSTABLE] Temporary approval auto-review payload used by `item/autoApprovalReview/*` notifications. This shape is expected to change soon.",
+  "properties": {
+    "rationale": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "riskLevel": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/definitions__GuardianRiskLevel"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "$ref": "#/definitions/definitions__GuardianApprovalReviewStatus"
+    },
+    "userAuthorization": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/definitions__GuardianUserAuthorization"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "GuardianApprovalReview",
+  "type": "object"
+}

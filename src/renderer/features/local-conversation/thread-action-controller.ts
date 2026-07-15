@@ -222,11 +222,10 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       const threadId = requireActiveThreadId(input.activeThreadId, "Stopping Codex");
       await input.codexControl.interruptTurn(threadId, turnId);
     },
-    onRespondApproval: async (requestId, kind, decision, context) => {
+    onRespondApproval: async (requestId, response, context) => {
       await input.codexControl.respondApproval(
         requestId,
-        kind,
-        decision,
+        response,
         context?.conversationId ?? null,
       );
     },

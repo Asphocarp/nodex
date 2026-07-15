@@ -7,7 +7,6 @@ import {
 } from "./codex-conversation-state";
 import {
   groupCodexCommandOutputUpdatesByConversation,
-  parseCodexCommandOutputUpdate,
   reduceCodexCommandOutputRawTurns,
   reduceCodexConversationCommandOutput,
   reduceCodexConversationTerminalCommands,
@@ -348,26 +347,10 @@ describe("canonical command-execution stream reduction", () => {
     );
   });
 
-  test("parses nullable turns and groups updates without reordering", () => {
-    const first = parseCodexCommandOutputUpdate(
-      "item/commandExecution/outputDelta",
-      { threadId: "a", turnId: 42, itemId: "one", delta: "1" },
-    );
-    const second = parseCodexCommandOutputUpdate(
-      "item/commandExecution/outputDelta",
-      { threadId: "b", turnId: "turn-b", itemId: "two", delta: "2" },
-    );
-    const third = parseCodexCommandOutputUpdate(
-      "item/commandExecution/outputDelta",
-      { threadId: "a", itemId: "three", delta: "3" },
-    );
-
-    expect(first?.turnId).toBe(null);
-    expect(second?.turnId).toBe("turn-b");
-    expect(third?.turnId).toBe(null);
-    if (!first || !second || !third) {
-      throw new Error("Expected valid command-output updates");
-    }
+  test("groups updates without reordering", () => {
+    const first = { conversationId: "a", turnId: null, itemId: "one", delta: "1" };
+    const second = { conversationId: "b", turnId: "turn-b", itemId: "two", delta: "2" };
+    const third = { conversationId: "a", turnId: null, itemId: "three", delta: "3" };
 
     const grouped = groupCodexCommandOutputUpdatesByConversation([
       first,
@@ -379,6 +362,5 @@ describe("canonical command-execution stream reduction", () => {
       "one,three",
     );
     expect(grouped.get("b")?.[0]).toBe(second);
-    expect(parseCodexCommandOutputUpdate("other/method", {})).toBe(null);
   });
 });

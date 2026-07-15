@@ -65,7 +65,6 @@ import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/T
 import type { ThreadSettings } from "@nodex/codex-app-server-protocol/v2/ThreadSettings";
 import type { ThreadSettingsUpdateParams } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateParams";
 import type { ThreadSettingsUpdateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateResponse";
-import type { ThreadSettingsUpdatedNotification } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdatedNotification";
 import type { Thread } from "@nodex/codex-app-server-protocol/v2/Thread";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
@@ -91,9 +90,8 @@ import type {
   CodexAccountSnapshot,
   CodexAgentMode,
   CodexAutomationRunsUpdatedEvent,
-  CodexApprovalDecision,
-  CodexApprovalKind,
   CodexApprovalRequest,
+  CodexApprovalResponse,
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
@@ -183,8 +181,8 @@ import type {
   CodexThreadStartForSessionResult,
   CodexThreadStartMemoryPreferences,
   CodexThreadOwnerNotificationAckInput,
+  CodexThreadOwnerNotification,
   CodexThreadOwnerStreamStatePublishInput,
-  CodexThreadOwnerNotificationMethod,
   CodexThreadOwnerServerRequest,
   CodexTurnStartOptions,
   TerminalSessionSnapshot,
@@ -206,6 +204,10 @@ import type {
   WorktreeEnvironmentOption,
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
+} from "../../shared/types";
+import {
+  getCodexThreadOwnerNotificationThreadId,
+  isCodexThreadOwnerNotification,
 } from "../../shared/types";
 import type {
   BrowserSidebarBrowserUseStateSnapshot,
@@ -247,7 +249,12 @@ import {
   type CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
 import { parseInlineContent } from "../../shared/nfm";
-import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
+import {
+  CodexThreadGoalSchema,
+  CodexThreadGoalStatusSchema,
+  CodexThreadStatusSchema,
+  parseCodexThreadTokenUsage,
+} from "../../shared/schemas/codex";
 import { buildCodexBackgroundProcessRow } from "./background-process-rows";
 import {
   MAX_PROJECT_SESSION_TITLE_LENGTH,
@@ -345,8 +352,9 @@ import {
 import { buildCodexTurnOccurrenceKey } from "../../shared/codex-turn-identity";
 import {
   groupCodexFrameTextDeltasByConversation,
-  parseCodexFrameTextDelta,
+  isCodexFrameTextDeltaNotification,
   reduceCodexConversationFrameTextDeltas,
+  toCodexFrameTextDelta,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta";
 import {
   CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS,
@@ -356,19 +364,22 @@ import {
 } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import {
   groupCodexCommandOutputUpdatesByConversation,
-  parseCodexCommandOutputUpdate,
+  isCodexCommandOutputNotification,
   reduceCodexConversationCommandOutput,
   reduceCodexConversationTerminalCommands,
+  toCodexCommandOutputUpdate,
 } from "../../shared/codex-conversation-state/codex-command-execution-stream";
 import {
   CodexCommandOutputQueue,
   type CodexCommandOutputUpdate,
 } from "../../shared/codex-conversation-state/codex-command-output-queue";
 import {
-  parseCodexFileChangePatchUpdate,
-  parseCodexMcpToolCallProgressUpdate,
+  isCodexFileChangePatchUpdatedNotification,
+  isCodexMcpToolCallProgressNotification,
   reduceCodexConversationFileChangePatch,
   reduceCodexConversationMcpToolCallProgress,
+  toCodexFileChangePatchUpdate,
+  toCodexMcpToolCallProgressUpdate,
   type CodexFileChangePatchUpdate,
   type CodexMcpToolCallProgressUpdate,
 } from "../../shared/codex-conversation-state/codex-file-change-stream";
@@ -679,13 +690,13 @@ const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
   "The following is the Codex agent history",
   "The following is the Codex agent history added since your last approval assessment",
 ] as const;
-const CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS = new Set([
+const CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS = new Set<CodexServerNotification["method"]>([
   "item/agentMessage/delta",
   "item/plan/delta",
   "item/reasoning/summaryTextDelta",
   "item/reasoning/textDelta",
   "item/commandExecution/outputDelta",
-]);
+] satisfies readonly CodexServerNotification["method"][]);
 const CODEX_HEARTBEAT_TURN_COMPLETION_TIMEOUT_MS = 10 * 60_000;
 const CODEX_HEARTBEAT_ROLLOUT_TAIL_BYTES = 256 * 1024;
 const CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set(["task_complete", "response_item", "event_msg"]);
@@ -1097,8 +1108,7 @@ interface AutomationUpdateToolResult {
 
 interface BufferedResumeNotification {
   type: "notification";
-  method: string;
-  params: unknown;
+  notification: CodexServerNotification;
 }
 
 interface BufferedResumeRequest {
@@ -1214,7 +1224,7 @@ interface StructuredThreadTitleClient {
   startTurn: (params: Record<string, unknown>) => Promise<unknown>;
   interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
   unsubscribeThread: (threadId: string) => Promise<unknown>;
-  onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
+  onNotification: (handler: (notification: CodexServerNotification) => void) => () => void;
 }
 
 interface RunStructuredThreadTitleInput {
@@ -1235,12 +1245,12 @@ interface GenerateThreadTitleAdapterInput {
     interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
     unsubscribeThread: (threadId: string) => Promise<unknown>;
     registerInternalNotificationHandler: (
-      handler: (notification: { method: string; params: unknown }) => void,
+      handler: (notification: CodexServerNotification) => void,
     ) => () => void;
   };
 }
 
-type InternalNotificationHandler = (notification: { method: string; params: unknown }) => void;
+type InternalNotificationHandler = (notification: CodexServerNotification) => void;
 
 type CodexCanonicalHydrationInput = Pick<
   ThreadResumeResponse,
@@ -1683,11 +1693,11 @@ function readStringField(record: Record<string, unknown> | null, key: string): s
   return typeof value === "string" ? value : null;
 }
 
-function shouldLogAssistantStreamingNotification(method: string): boolean {
+function shouldLogAssistantStreamingNotification(
+  method: CodexThreadOwnerNotification["method"],
+): boolean {
   return method === "turn/started"
     || method === "turn/completed"
-    || method === "turn/interrupted"
-    || method === "turn/failed"
     || method === "item/started"
     || method === "item/completed"
     || method === "item/agentMessage/delta"
@@ -1699,22 +1709,21 @@ function isAssistantStreamingDebugEnabled(): boolean {
 }
 
 function summarizeAssistantStreamingNotification(
-  method: string,
-  params: unknown,
+  notification: CodexThreadOwnerNotification,
 ): Record<string, unknown> {
-  const payload = asRecord(params);
-  const item = asRecord(payload?.item);
-  const turn = asRecord(payload?.turn);
-  const delta = typeof payload?.delta === "string" ? payload.delta : null;
+  const { method, params } = notification;
+  const item = "item" in params ? params.item : null;
+  const turn = "turn" in params ? params.turn : null;
+  const delta = "delta" in params ? params.delta : null;
 
   return {
     method,
-    threadId: readStringField(payload, "threadId") ?? readStringField(item, "threadId"),
-    turnId: readStringField(payload, "turnId") ?? readStringField(turn, "id"),
-    turnStatus: readStringField(turn, "status") ?? readStringField(payload, "status"),
-    itemId: readStringField(payload, "itemId") ?? readStringField(item, "id"),
-    itemType: readStringField(item, "type"),
-    itemStatus: readStringField(item, "status"),
+    threadId: getCodexThreadOwnerNotificationThreadId(notification),
+    turnId: "turnId" in params ? params.turnId : turn?.id ?? null,
+    turnStatus: turn?.status ?? null,
+    itemId: "itemId" in params ? params.itemId : item?.id ?? null,
+    itemType: item?.type ?? null,
+    itemStatus: item && "status" in item ? item.status : null,
     deltaLength: delta?.length ?? null,
   };
 }
@@ -1737,23 +1746,6 @@ function resolveCodexHomeDir(): string {
   const envCodexHome = process.env.CODEX_HOME?.trim();
   if (envCodexHome) return envCodexHome;
   return path.join(resolveHomeDir(), ".codex");
-}
-
-function parseThreadStatusType(value: unknown): CodexThreadStatusType | null {
-  if (value === "active" || value === "idle" || value === "systemError" || value === "notLoaded") {
-    return value;
-  }
-  if (value === "system_error") return "systemError";
-  if (value === "not_loaded") return "notLoaded";
-  return null;
-}
-
-function parseThreadActiveFlags(value: unknown): CodexThreadActiveFlag[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(
-    (flag): flag is CodexThreadActiveFlag =>
-      flag === "waitingOnApproval" || flag === "waitingOnUserInput",
-  );
 }
 
 function buildThreadRuntimeStatus(
@@ -1798,54 +1790,14 @@ function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThread
 }
 
 function parseThreadStatus(status: unknown): ParsedThreadStatus {
-  const directStatus = parseThreadStatusType(status);
-  if (directStatus) {
+  const parsed = CodexThreadStatusSchema.safeParse(status);
+  if (parsed.success) {
+    const statusType = parsed.data.type;
+    const activeFlags = statusType === "active" ? parsed.data.activeFlags : [];
     return {
-      statusType: directStatus,
-      statusActiveFlags: [],
-      threadRuntimeStatus: buildThreadRuntimeStatus(directStatus, []),
-    };
-  }
-
-  if (typeof status !== "object" || status === null) {
-    return {
-      statusType: "notLoaded",
-      statusActiveFlags: [],
-      threadRuntimeStatus: buildThreadRuntimeStatus("notLoaded", []),
-    };
-  }
-
-  const candidate = status as {
-    type?: unknown;
-    status?: unknown;
-    isActive?: unknown;
-    activeFlags?: unknown;
-    active_flags?: unknown;
-  };
-  const statusType = parseThreadStatusType(candidate.type) ?? parseThreadStatusType(candidate.status);
-  if (statusType === "active") {
-    const activeFlags = parseThreadActiveFlags(candidate.activeFlags ?? candidate.active_flags);
-    return {
-      statusType: "active",
+      statusType,
       statusActiveFlags: activeFlags,
-      threadRuntimeStatus: buildThreadRuntimeStatus("active", activeFlags),
-    };
-  }
-
-  if (statusType) {
-    return {
-      statusType,
-      statusActiveFlags: [],
-      threadRuntimeStatus: buildThreadRuntimeStatus(statusType, []),
-    };
-  }
-
-  if (typeof candidate.isActive === "boolean") {
-    const statusType = candidate.isActive ? "active" : "idle";
-    return {
-      statusType,
-      statusActiveFlags: [],
-      threadRuntimeStatus: buildThreadRuntimeStatus(statusType, []),
+      threadRuntimeStatus: parsed.data,
     };
   }
 
@@ -1873,12 +1825,7 @@ function shouldShowThreadGoalResumeConfirmation(status: ThreadGoal["status"]): b
 }
 
 function isThreadGoalStatus(value: unknown): value is ThreadGoal["status"] {
-  return value === "active" ||
-    value === "paused" ||
-    value === "blocked" ||
-    value === "usageLimited" ||
-    value === "budgetLimited" ||
-    value === "complete";
+  return CodexThreadGoalStatusSchema.safeParse(value).success;
 }
 
 function normalizeThreadGoalSetParams(input: ThreadGoalSetParams): ThreadGoalSetParams {
@@ -1926,30 +1873,8 @@ function readThreadGoalSetParams(threadId: string, params: Record<string, unknow
 }
 
 function parseThreadGoalPayload(value: unknown): ThreadGoal | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Partial<ThreadGoal>;
-  if (
-    typeof candidate.threadId !== "string" ||
-    typeof candidate.objective !== "string" ||
-    !isThreadGoalStatus(candidate.status) ||
-    typeof candidate.tokensUsed !== "number" ||
-    typeof candidate.timeUsedSeconds !== "number" ||
-    typeof candidate.createdAt !== "number" ||
-    typeof candidate.updatedAt !== "number"
-  ) {
-    return null;
-  }
-
-  return {
-    threadId: candidate.threadId,
-    objective: candidate.objective,
-    status: candidate.status,
-    tokenBudget: typeof candidate.tokenBudget === "number" ? candidate.tokenBudget : null,
-    tokensUsed: candidate.tokensUsed,
-    timeUsedSeconds: candidate.timeUsedSeconds,
-    createdAt: candidate.createdAt,
-    updatedAt: candidate.updatedAt,
-  };
+  const parsed = CodexThreadGoalSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function parseThreadParentThreadId(thread: Record<string, unknown>): string | null {
@@ -2071,16 +1996,18 @@ function previewText(value: string, maxLength = 160): string {
 }
 
 function normalizeCodexServiceTier(value: unknown): CodexServiceTier {
-  return value === "fast" ? "fast" : null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized !== "standard" ? normalized : null;
 }
 
-function formatServiceTierForReporting(value: unknown): "standard" | "fast" {
+function formatServiceTierForReporting(value: unknown): string {
   return normalizeCodexServiceTier(value) ?? "standard";
 }
 
-function buildServiceTierParams(value: unknown): { serviceTier?: "fast" } {
+function buildServiceTierParams(value: unknown): { serviceTier?: string } {
   const normalized = normalizeCodexServiceTier(value);
-  return normalized === "fast" ? { serviceTier: normalized } : {};
+  return normalized ? { serviceTier: normalized } : {};
 }
 
 function createTextUserInput(text: string): TurnStartParams["input"][number] {
@@ -2474,56 +2401,6 @@ function makeTurnStatus(value: unknown): CodexTurnStatus {
   }
   if (value === "in_progress") return "inProgress";
   return "inProgress";
-}
-
-function resolveNotificationTurnStatus(method: string): CodexTurnStatus | null {
-  if (method === "turn/started") return "inProgress";
-  if (method === "turn/completed") return "completed";
-  if (method === "turn/interrupted") return "interrupted";
-  if (method === "turn/failed") return "failed";
-  return null;
-}
-
-function parseItemLifecycleNotification(
-  method: "item/started" | "item/completed",
-  params: unknown,
-): CodexItemLifecycleNotification | null {
-  const payload = asRecord(params);
-  const timestampKey = method === "item/started" ? "startedAtMs" : "completedAtMs";
-  const timestampCandidate = payload?.[timestampKey];
-  const observedAtMs = typeof timestampCandidate === "number"
-    && Number.isFinite(timestampCandidate)
-    ? timestampCandidate
-    : Date.now();
-  if (
-    typeof payload?.threadId !== "string"
-    || typeof payload.turnId !== "string"
-    || !isCodexCanonicalProtocolItem(payload.item)
-  ) {
-    return null;
-  }
-
-  if (method === "item/started") {
-    return {
-      method,
-      params: {
-        threadId: payload.threadId,
-        turnId: payload.turnId,
-        item: payload.item,
-        startedAtMs: observedAtMs,
-      },
-    };
-  }
-
-  return {
-    method,
-    params: {
-      threadId: payload.threadId,
-      turnId: payload.turnId,
-      item: payload.item,
-      completedAtMs: observedAtMs,
-    },
-  };
 }
 
 function asTerminalTurnStatus(status: CodexTurnStatus): Exclude<CodexTurnStatus, "inProgress"> | null {
@@ -3085,10 +2962,9 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  private registerInternalThreadFromStartedNotification(method: string, params: unknown): void {
-    if (method !== "thread/started") return;
-    const payload = asRecord(params);
-    const thread = asRecord(payload?.thread);
+  private registerInternalThreadFromStartedNotification(notification: CodexServerNotification): void {
+    if (notification.method !== "thread/started") return;
+    const thread = asRecord(notification.params.thread);
     if (!thread) return;
 
     const threadSource = parseThreadSourceValue(thread.threadSource);
@@ -3106,10 +2982,9 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private registerSubagentThreadFromStartedNotification(method: string, params: unknown): void {
-    if (method !== "thread/started") return;
-    const payload = asRecord(params);
-    const thread = asRecord(payload?.thread);
+  private registerSubagentThreadFromStartedNotification(notification: CodexServerNotification): void {
+    if (notification.method !== "thread/started") return;
+    const thread = asRecord(notification.params.thread);
     if (!thread || (!parseThreadParentThreadId(thread) && !isSubagentThreadSpawnSource(thread.source) && !hasCodexSubagentSource(thread.source))) return;
 
     const threadId = typeof thread.id === "string" ? thread.id.trim() : "";
@@ -3117,8 +2992,8 @@ export class CodexService extends EventEmitter {
     this.subagentThreadIds.add(threadId);
   }
 
-  private resolveNotificationThreadId(params: unknown): string | null {
-    const eventParams = asRecord(params);
+  private resolveNotificationThreadId(notification: CodexServerNotification): string | null {
+    const eventParams = asRecord(notification.params);
     const eventThreadId = parseEventThreadId(eventParams);
     if (eventThreadId) return eventThreadId;
 
@@ -3129,7 +3004,10 @@ export class CodexService extends EventEmitter {
     return null;
   }
 
-  private shouldDropUnopenedSubagentDeltaNotification(method: string, threadId: string | null): boolean {
+  private shouldDropUnopenedSubagentDeltaNotification(
+    method: CodexServerNotification["method"],
+    threadId: string | null,
+  ): boolean {
     const normalizedThreadId = threadId?.trim();
     if (!normalizedThreadId) return false;
     return CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS.has(method)
@@ -3149,9 +3027,9 @@ export class CodexService extends EventEmitter {
       }
     }
 
-    this.registerInternalThreadFromStartedNotification(notification.method, notification.params);
-    this.registerSubagentThreadFromStartedNotification(notification.method, notification.params);
-    const threadId = this.resolveNotificationThreadId(notification.params);
+    this.registerInternalThreadFromStartedNotification(notification);
+    this.registerSubagentThreadFromStartedNotification(notification);
+    const threadId = this.resolveNotificationThreadId(notification);
     if (threadId && this.internalThreadIds.has(threadId)) {
       this.logger.debug("Suppressed internal Codex thread notification from visible pipeline", {
         threadId,
@@ -3169,7 +3047,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    void this.handleNotification(notification.method, notification.params);
+    void this.handleNotification(notification);
   }
 
   private emitHostMessage(message: CodexHostMessage): void {
@@ -3185,34 +3063,33 @@ export class CodexService extends EventEmitter {
     this.threadStartNotificationDeferralDepth += 1;
   }
 
-  private bufferThreadStartNotificationIfNeeded(method: string, params: unknown): boolean {
-    const threadId = parseEventThreadId(asRecord(params));
+  private bufferThreadStartNotificationIfNeeded(notification: CodexServerNotification): boolean {
+    const threadId = parseEventThreadId(asRecord(notification.params));
     if (!threadId) return false;
     const existing = this.threadStartNotificationBuffersByThreadId.get(threadId);
     if (existing) {
-      existing.push({ type: "notification", method, params });
+      existing.push({ type: "notification", notification });
       return true;
     }
-    if (method !== "thread/started") return false;
+    if (notification.method !== "thread/started") return false;
     if (this.threadStartNotificationDeferralDepth === 0) return false;
     if (this.readyDeferredThreadStartThreadIds.has(threadId)) return false;
 
     this.deferredThreadStartThreadIds.add(threadId);
     this.threadStartNotificationBuffersByThreadId.set(threadId, [
-      { type: "notification", method, params },
+      { type: "notification", notification },
     ]);
     return true;
   }
 
   private bufferNotificationForReplayIfNeeded(
-    method: string,
-    params: unknown,
+    notification: CodexServerNotification,
     options: HandleNotificationOptions = {},
   ): boolean {
-    if (!options.bypassResumeBuffer && this.bufferResumeNotificationIfNeeded(method, params)) {
+    if (!options.bypassResumeBuffer && this.bufferResumeNotificationIfNeeded(notification)) {
       return true;
     }
-    return this.bufferThreadStartNotificationIfNeeded(method, params);
+    return this.bufferThreadStartNotificationIfNeeded(notification);
   }
 
   private async completeThreadStartNotificationDeferral(threadId: string | null): Promise<void> {
@@ -3258,26 +3135,26 @@ export class CodexService extends EventEmitter {
         continue;
       }
       try {
-        await this.handleNotification(event.method, event.params);
+        await this.handleNotification(event.notification);
       } catch (error) {
         this.logger.error("Failed to replay deferred thread-start notification", {
           threadId,
-          method: event.method,
+          method: event.notification.method,
           error,
         });
       }
     }
   }
 
-  private bufferResumeNotificationIfNeeded(method: string, params: unknown): boolean {
-    const payload = asRecord(params);
+  private bufferResumeNotificationIfNeeded(notification: CodexServerNotification): boolean {
+    const payload = asRecord(notification.params);
     const threadId = parseEventThreadId(payload);
     if (!threadId) return false;
 
     const buffer = this.resumeNotificationBuffersByThreadId.get(threadId);
     if (!buffer) return false;
 
-    buffer.push({ type: "notification", method, params });
+    buffer.push({ type: "notification", notification });
     return true;
   }
 
@@ -3328,7 +3205,7 @@ export class CodexService extends EventEmitter {
         continue;
       }
 
-      await this.handleNotification(event.method, event.params);
+      await this.handleNotification(event.notification);
     }
   }
 
@@ -3402,10 +3279,10 @@ export class CodexService extends EventEmitter {
 
     for (const event of events) {
       if (event.type !== "notification") continue;
-      const payload = asRecord(event.params);
+      const payload = asRecord(event.notification.params);
       if (parseEventThreadId(payload) !== threadId) continue;
 
-      if (event.method === "item/completed") {
+      if (event.notification.method === "item/completed") {
         const item = asRecord(payload?.item);
         if (item?.type !== "agentMessage" || typeof item.id !== "string") continue;
         completedAgentDeltaKeys.add(buildKey(
@@ -3416,8 +3293,8 @@ export class CodexService extends EventEmitter {
         continue;
       }
       if (
-        event.method !== "item/agentMessage/delta"
-        && event.method !== "item/commandExecution/outputDelta"
+        event.notification.method !== "item/agentMessage/delta"
+        && event.notification.method !== "item/commandExecution/outputDelta"
       ) {
         continue;
       }
@@ -3425,13 +3302,13 @@ export class CodexService extends EventEmitter {
       const delta = typeof payload?.delta === "string" ? payload.delta : null;
       if (!itemId || delta === null) continue;
       const turnId = parseEventTurnId(payload);
-      const key = buildKey(event.method, turnId, itemId);
+      const key = buildKey(event.notification.method, turnId, itemId);
       const existing = bufferedDeltasByKey.get(key);
       if (existing) {
         existing.text.push(delta);
       } else {
         bufferedDeltasByKey.set(key, {
-          method: event.method,
+          method: event.notification.method,
           turnId,
           itemId,
           text: [delta],
@@ -3469,18 +3346,18 @@ export class CodexService extends EventEmitter {
         continue;
       }
       if (
-        event.method !== "item/agentMessage/delta"
-        && event.method !== "item/commandExecution/outputDelta"
+        event.notification.method !== "item/agentMessage/delta"
+        && event.notification.method !== "item/commandExecution/outputDelta"
       ) {
         deduped.push(event);
         continue;
       }
-      const payload = asRecord(event.params);
+      const payload = asRecord(event.notification.params);
       const itemId = typeof payload?.itemId === "string" ? payload.itemId : null;
       const delta = typeof payload?.delta === "string" ? payload.delta : null;
       if (!itemId || delta === null) continue;
-      const key = buildKey(event.method, parseEventTurnId(payload), itemId);
-      if (event.method === "item/agentMessage/delta" && completedAgentDeltaKeys.has(key)) {
+      const key = buildKey(event.notification.method, parseEventTurnId(payload), itemId);
+      if (event.notification.method === "item/agentMessage/delta" && completedAgentDeltaKeys.has(key)) {
         continue;
       }
       const duplicateCharacters = duplicateCharactersByKey.get(key) ?? 0;
@@ -3488,12 +3365,26 @@ export class CodexService extends EventEmitter {
       duplicateCharactersByKey.set(key, duplicateCharacters - consumedCharacters);
       const remainingDelta = delta.slice(consumedCharacters);
       if (!remainingDelta) continue;
+      if (remainingDelta === delta) {
+        deduped.push(event);
+        continue;
+      }
+      if (event.notification.method === "item/agentMessage/delta") {
+        deduped.push({
+          type: "notification",
+          notification: {
+            ...event.notification,
+            params: { ...event.notification.params, delta: remainingDelta },
+          },
+        });
+        continue;
+      }
       deduped.push({
         type: "notification",
-        method: event.method,
-        params: remainingDelta === delta
-          ? event.params
-          : { ...payload, delta: remainingDelta },
+        notification: {
+          ...event.notification,
+          params: { ...event.notification.params, delta: remainingDelta },
+        },
       });
     }
     return deduped;
@@ -4086,25 +3977,28 @@ export class CodexService extends EventEmitter {
   }
 
   private forwardNotificationToRendererOwner(
-    method: CodexThreadOwnerNotificationMethod,
-    payload: Record<string, unknown>,
+    notification: CodexServerNotification,
   ): boolean {
-    if (typeof payload.threadId !== "string") return false;
-    return this.forwardNotificationToRendererOwnerForConversation(payload.threadId, method, payload);
+    if (!isCodexThreadOwnerNotification(notification)) return false;
+    return this.forwardNotificationToRendererOwnerForConversation(
+      getCodexThreadOwnerNotificationThreadId(notification),
+      notification,
+    );
   }
 
   private forwardNotificationToRendererOwnerForConversation(
     conversationId: string,
-    method: CodexThreadOwnerNotificationMethod,
-    params: unknown,
+    notification: CodexServerNotification,
   ): boolean {
+    if (!isCodexThreadOwnerNotification(notification)) return false;
+    const { method } = notification;
     const targetClientId = this.rendererOwnerClientIdByConversationId.get(conversationId);
     if (!targetClientId) {
       if (isAssistantStreamingDebugEnabled() && shouldLogAssistantStreamingNotification(method)) {
         this.logger.info("Assistant streaming debug", {
           phase: "main-no-renderer-owner",
           conversationId,
-          ...summarizeAssistantStreamingNotification(method, params),
+          ...summarizeAssistantStreamingNotification(notification),
         });
       }
       return false;
@@ -4117,16 +4011,15 @@ export class CodexService extends EventEmitter {
         conversationId,
         targetClientId,
         sequence,
-        ...summarizeAssistantStreamingNotification(method, params),
+        ...summarizeAssistantStreamingNotification(notification),
       });
     }
 
     return this.emitRendererOwnerHostMessage(conversationId, {
       type: "threadOwnerNotification",
       hostId: DEFAULT_CODEX_HOST_ID,
-      method,
       sequence,
-      params,
+      notification,
     });
   }
 
@@ -8800,9 +8693,7 @@ export class CodexService extends EventEmitter {
       const unsubscribe = this.registerInternalNotificationHandler((notification) => {
         if (
           notification.method !== "turn/started" &&
-          notification.method !== "turn/completed" &&
-          notification.method !== "turn/interrupted" &&
-          notification.method !== "turn/failed"
+          notification.method !== "turn/completed"
         ) {
           return;
         }
@@ -10670,7 +10561,7 @@ export class CodexService extends EventEmitter {
 
   private reduceCanonicalMainTurnLifecycle(input: {
     threadId: string;
-    method: "turn/started" | "turn/completed" | "turn/interrupted" | "turn/failed";
+    method: "turn/started" | "turn/completed";
     turn: Pick<Turn, "id" | "status" | "error" | "startedAt" | "completedAt" | "durationMs">;
     observedAtMs: number;
   }): string | null {
@@ -15180,19 +15071,20 @@ export class CodexService extends EventEmitter {
       throw new Error(`Renderer client ${sourceClientId ?? "unknown"} is not owner for ${conversationId}`);
     }
 
-    const params = asRecord(input.request.params);
-    if (!params || params.threadId !== conversationId) {
+    const request = input.request;
+    const untrustedParams = asRecord(request.params);
+    if (!untrustedParams || untrustedParams.threadId !== conversationId) {
       throw new Error(`Owner app-server request '${input.request.method}' must target ${conversationId}`);
     }
 
-    switch (input.request.method) {
+    switch (request.method) {
       case "thread/rollback": {
+        const params = request.params;
         await this.waitForRendererOwnerNotificationDrain(conversationId);
-        const numTurns = getFiniteNumber(params.numTurns);
+        const { numTurns, turnId } = params;
         if (numTurns !== 1) {
           throw new Error("Owner thread/rollback currently supports numTurns: 1");
         }
-        const turnId = readStringField(params, "turnId");
         if (turnId) {
           const currentDetail = this.serializeThreadDetail(conversationId);
           if (!currentDetail) {
@@ -15222,13 +15114,12 @@ export class CodexService extends EventEmitter {
         return rollbackResult;
       }
       case "thread/fork": {
+        const { turnId, message } = request.params;
         await this.waitForRendererOwnerNotificationDrain(conversationId);
-        const turnId = readStringField(params, "turnId");
-        const message = readStringField(params, "message");
         if (!turnId) {
           throw new Error("Owner thread/fork requires a turnId");
         }
-        if (message === null) {
+        if (typeof message !== "string") {
           throw new Error("Owner thread/fork requires a message");
         }
         return await this.forkConversationFromTurn(conversationId, turnId, message, {
@@ -15237,16 +15128,14 @@ export class CodexService extends EventEmitter {
         });
       }
       case "turn/start": {
+        const params = request.params;
         await this.waitForRendererOwnerNotificationDrain(conversationId);
-        const prompt = readStringField(params, "prompt") ?? "";
-        const opts = asRecord(params.opts);
-        const promptInput = asRecord(params.promptInput);
-        const clientUserMessageId = readStringField(params, "clientUserMessageId") ?? undefined;
+        const { clientUserMessageId, opts, prompt, promptInput } = params;
         const startOverrides: StartTurnOverrides | undefined = opts || promptInput || clientUserMessageId
           ? {
-              ...(opts ? opts as CodexTurnStartOptions : {}),
-              ...(promptInput && !asRecord(opts)?.promptInput
-                ? { promptInput: promptInput as unknown as CodexPromptInput }
+              ...(opts ?? {}),
+              ...(promptInput && !opts?.promptInput
+                ? { promptInput }
                 : {}),
               ...(clientUserMessageId ? { clientUserMessageId } : {}),
             }
@@ -15260,27 +15149,31 @@ export class CodexService extends EventEmitter {
         return result;
       }
       case "turn/steer":
-        return await this.steerTurn(input.request.params as CodexSteerTurnInput, { emitSourceNullUpdates: false });
+        return await this.steerTurn(request.params, { emitSourceNullUpdates: false });
       case "turn/interrupt":
         return await this.interruptTurn(
           conversationId,
-          readStringField(params, "turnId") ?? undefined,
+          request.params.turnId,
           { emitSourceNullUpdates: false },
         );
       case "thread/settings/update":
         return await this.updateThreadSettingsForNextTurn(
           conversationId,
-          asRecord(params.patch) as CodexConversationThreadSettingsPatch,
+          request.params.patch,
           { emitSourceNullUpdates: false },
         );
       case "thread/goal/set": {
-        return await this.setThreadGoal(readThreadGoalSetParams(conversationId, params));
+        return await this.setThreadGoal(readThreadGoalSetParams(conversationId, untrustedParams));
       }
       case "thread/goal/clear":
         await this.clearThreadGoal(conversationId);
         return null;
       case "thread/memoryMode/set": {
-        const mode = params.mode === "enabled" ? "enabled" : params.mode === "disabled" ? "disabled" : null;
+        const mode = request.params.mode === "enabled"
+          ? "enabled"
+          : request.params.mode === "disabled"
+            ? "disabled"
+            : null;
         if (!mode) throw new Error("Invalid thread memory mode");
         await this.setThreadMemoryMode({ threadId: conversationId, mode });
         return null;
@@ -15289,8 +15182,7 @@ export class CodexService extends EventEmitter {
         await this.startThreadCompaction(conversationId);
         return null;
       case "thread/backgroundTerminals/list": {
-        const cursor = readStringField(params, "cursor");
-        const limit = getFiniteNumber(params.limit);
+        const { cursor = null, limit } = request.params;
         return await this.client.request<"thread/backgroundTerminals/list", ThreadBackgroundTerminalsListResponse>(
           "thread/backgroundTerminals/list",
           {
@@ -15301,7 +15193,7 @@ export class CodexService extends EventEmitter {
         );
       }
       case "thread/backgroundTerminals/terminate": {
-        const processId = readStringField(params, "processId");
+        const { processId } = request.params;
         if (!processId) {
           throw new Error("Owner thread/backgroundTerminals/terminate requires a processId");
         }
@@ -16494,8 +16386,10 @@ export class CodexService extends EventEmitter {
         case "item/fileChange/requestApproval":
           await this.respondToApproval(
             request.id,
-            getCodexApprovalKindForRequestMethod(request.method),
-            "decline",
+            {
+              kind: getCodexApprovalKindForRequestMethod(request.method),
+              decision: "decline",
+            },
             threadId,
           );
           break;
@@ -16809,10 +16703,10 @@ export class CodexService extends EventEmitter {
 
   async respondToApproval(
     requestId: RequestId,
-    kind: CodexApprovalKind,
-    decision: CodexApprovalDecision,
+    response: CodexApprovalResponse,
     conversationId?: string,
   ): Promise<boolean> {
+    const { kind, decision } = response;
     const pending = conversationId
       ? this.pendingApprovals.find(
           requestId,
@@ -16849,16 +16743,19 @@ export class CodexService extends EventEmitter {
       streamRole: record.streamRole,
     });
     if (record.streamRole === "follower") {
-      await this.client.request(
-        kind === "command"
-          ? THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD
-          : THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD,
-        {
+      if (response.kind === "command") {
+        await this.client.request(THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD, {
           conversationId: pending.request.threadId,
           requestId,
-          decision,
-        },
-      );
+          decision: response.decision,
+        });
+      } else {
+        await this.client.request(THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD, {
+          conversationId: pending.request.threadId,
+          requestId,
+          decision: response.decision,
+        });
+      }
       for (const selectedPending of selectedPendings) {
         selectedPending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
       }
@@ -21178,13 +21075,13 @@ export class CodexService extends EventEmitter {
   }
 
   private async handleNotification(
-    method: string,
-    params: unknown,
+    notification: CodexServerNotification,
     options: HandleNotificationOptions = {},
   ): Promise<void> {
-    if (this.bufferNotificationForReplayIfNeeded(method, params, options)) {
+    if (this.bufferNotificationForReplayIfNeeded(notification, options)) {
       return;
     }
+    const { method, params } = notification;
 
     if (method === "thread/started") {
       const thread =
@@ -21220,14 +21117,10 @@ export class CodexService extends EventEmitter {
       if (summary) {
         if (this.getMaybeConversationRecord(summary.threadId)?.canonicalState) {
           this.reduceCanonicalMainThreadMetadataNotification(
-            { method, params } as CodexServerNotification,
+            notification,
           );
         }
-        const ownerRouted = this.forwardNotificationToRendererOwnerForConversation(
-          summary.threadId,
-          "thread/started",
-          { thread },
-        );
+        const ownerRouted = this.forwardNotificationToRendererOwnerForConversation(summary.threadId, notification);
         this.logger.info("Received Codex thread started notification", {
           threadId: summary.threadId,
           projectId: summary.projectId,
@@ -21259,17 +21152,12 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "thread/status/changed") {
-      const payload =
-        typeof params === "object" && params !== null
-          ? params as Record<string, unknown>
-          : null;
+      const payload = params;
 
-      if (!payload || typeof payload.threadId !== "string") return;
-
-      const ownerRouted = this.forwardNotificationToRendererOwner("thread/status/changed", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const parsed = parseThreadStatus(payload.status);
       const effects = this.reduceCanonicalMainThreadMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
       );
       this.logger.info("Received Codex thread status change", {
         threadId: payload.threadId,
@@ -21390,24 +21278,11 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "thread/name/updated") {
-      const payload =
-        typeof params === "object" && params !== null
-          ? params as Record<string, unknown>
-          : null;
-      if (!payload || typeof payload.threadId !== "string") return;
-      const name = typeof payload.threadName === "string"
-        ? payload.threadName
-        : typeof payload.name === "string"
-          ? payload.name
-          : null;
-      const ownerRouted = typeof name === "string" && name.trim().length > 0
-        ? this.forwardNotificationToRendererOwner("thread/name/updated", payload)
-        : false;
+      const payload = params;
+      const name = payload.threadName ?? null;
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       if (name?.trim()) {
-        this.reduceCanonicalMainThreadMetadataNotification({
-          method,
-          params: { ...payload, threadName: name },
-        } as CodexServerNotification);
+        this.reduceCanonicalMainThreadMetadataNotification(notification);
       }
       const updated = updateCodexThreadName(payload.threadId, name);
       if (updated) {
@@ -21425,11 +21300,8 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "thread/settings/updated") {
-      const payload = asRecord(params) as ThreadSettingsUpdatedNotification | null;
-      if (!payload || typeof payload.threadId !== "string") return;
-      const ownerRouted = asRecord((payload as { threadSettings?: ThreadSettings }).threadSettings)
-        ? this.forwardNotificationToRendererOwner("thread/settings/updated", payload as unknown as Record<string, unknown>)
-        : false;
+      const payload = params;
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
 
       const known = getCodexThread(payload.threadId);
       if (!known && !this.getMaybeConversationRecord(payload.threadId)) {
@@ -21438,7 +21310,7 @@ export class CodexService extends EventEmitter {
       }
 
       this.reduceCanonicalMainThreadMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
       );
 
       if (known) {
@@ -21464,20 +21336,16 @@ export class CodexService extends EventEmitter {
       method === "thread/goal/updated" ||
       method === "thread/goal/cleared"
     ) {
-      const payload = asRecord(params);
-      if (!payload || typeof payload.threadId !== "string") return;
-      const goal = method === "thread/goal/updated"
-        ? parseThreadGoalPayload(payload.goal)
+      const payload = params;
+      const goal = notification.method === "thread/goal/updated"
+        ? notification.params.goal
         : null;
-      if (method === "thread/goal/updated" && !goal) return;
-      const ownerRouted = method === "thread/goal/updated" || method === "thread/goal/cleared"
-        ? this.forwardNotificationToRendererOwner(method, payload)
-        : false;
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const shouldClearCompletedGoal = !ownerRouted && goal
         ? this.shouldClearNewCompletedThreadGoal(payload.threadId, goal)
         : false;
       const effects = this.reduceCanonicalMainThreadMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
       );
       if (shouldClearCompletedGoal || (
         !ownerRouted && effects.some((effect) => effect.type === "clearCompletedGoal")
@@ -21504,14 +21372,13 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "thread/tokenUsage/updated") {
-      const payload = asRecord(params);
-      if (!payload || typeof payload.threadId !== "string") return;
+      const payload = params;
 
-      const tokenUsage = parseCodexThreadTokenUsage(payload.tokenUsage ?? payload.token_usage);
+      const tokenUsage = parseCodexThreadTokenUsage(payload.tokenUsage);
       if (!tokenUsage) return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("thread/tokenUsage/updated", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       this.reduceCanonicalMainThreadMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
       );
       if (!ownerRouted) {
         this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
@@ -21521,57 +21388,20 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    if (
-      method === "turn/started" ||
-      method === "turn/completed" ||
-      method === "turn/interrupted" ||
-      method === "turn/failed"
-    ) {
-      const payload =
-        typeof params === "object" && params !== null
-          ? params as Record<string, unknown>
-          : null;
-      if (!payload) return;
+    if (method === "turn/started" || method === "turn/completed") {
+      const payload = params;
+      const { threadId, turn: turnRecord } = payload;
 
-      const fallbackStatus = resolveNotificationTurnStatus(method);
-      const turnRecord = (() => {
-        if (typeof payload.turn === "object" && payload.turn !== null) {
-          return { ...(payload.turn as Record<string, unknown>) };
-        }
-        if (typeof payload.turnId === "string") {
-          return {
-            id: payload.turnId,
-            status: payload.status,
-          } as Record<string, unknown>;
-        }
-        return null;
-      })();
-      if (!turnRecord) return;
-      if (!Object.prototype.hasOwnProperty.call(turnRecord, "status")) {
-        turnRecord.status = payload.status;
-      }
-      if (turnRecord.status === undefined && fallbackStatus) {
-        turnRecord.status = fallbackStatus;
-      }
-
-      const threadId =
-        typeof payload.threadId === "string"
-          ? payload.threadId
-          : typeof turnRecord.threadId === "string"
-            ? turnRecord.threadId
-            : null;
-      if (!threadId) return;
-
-      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       if (method !== "turn/started" && !ownerRouted) {
         if (this.drainRendererOwnerNotificationsBefore(threadId, () => {
-          void this.handleNotification(method, params, options);
+          void this.handleNotification(notification, options);
         })) {
           return;
         }
         if (method === "turn/completed") {
           if (this.frameTextDeltaQueue.drainBefore(() => {
-            void this.handleNotification(method, params, options);
+            void this.handleNotification(notification, options);
           })) {
             return;
           }
@@ -21608,7 +21438,6 @@ export class CodexService extends EventEmitter {
         turnId: observedTurn.turnId,
         status: observedTurn.status,
       });
-      const error = asRecord(turnRecord.error);
       const canonicalTurnId = this.reduceCanonicalMainTurnLifecycle({
         threadId,
         method,
@@ -21616,21 +21445,10 @@ export class CodexService extends EventEmitter {
         turn: {
           id: observedTurn.turnId,
           status: observedTurn.status,
-          error: error
-            ? {
-                message: typeof error.message === "string" ? error.message : "Codex error",
-                codexErrorInfo: (error.codexErrorInfo ?? null) as NonNullable<
-                  Turn["error"]
-                >["codexErrorInfo"],
-                additionalDetails:
-                  typeof error.additionalDetails === "string"
-                    ? error.additionalDetails
-                    : null,
-              }
-            : null,
-          startedAt: getFiniteNumber(turnRecord.startedAt ?? turnRecord.started_at),
-          completedAt: getFiniteNumber(turnRecord.completedAt ?? turnRecord.completed_at),
-          durationMs: getFiniteNumber(turnRecord.durationMs ?? turnRecord.duration_ms),
+          error: turnRecord.error,
+          startedAt: turnRecord.startedAt,
+          completedAt: turnRecord.completedAt,
+          durationMs: turnRecord.durationMs,
         },
       });
       if (!canonicalTurnId) return;
@@ -21665,9 +21483,9 @@ export class CodexService extends EventEmitter {
     if (method === "turn/plan/updated") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("turn/plan/updated", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       this.publishCanonicalMainTurnMetadata(payload.threadId, turnIds, ownerRouted);
@@ -21685,10 +21503,10 @@ export class CodexService extends EventEmitter {
       ) {
         return;
       }
-      const ownerRouted = this.forwardNotificationToRendererOwner("model/safetyBuffering/updated", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       if (typeof payload.turnId !== "string") return;
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       const turn = this.getKnownTurn(payload.threadId, payload.turnId);
@@ -21702,9 +21520,9 @@ export class CodexService extends EventEmitter {
       if (!payload || typeof payload.threadId !== "string") return;
       const run = asRecord(payload.run);
       if (!run) return;
-      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       this.publishCanonicalMainTurnMetadata(payload.threadId, turnIds, ownerRouted);
@@ -21714,9 +21532,9 @@ export class CodexService extends EventEmitter {
     if (method === "turn/diff/updated") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("turn/diff/updated", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       const turn = this.getKnownTurn(payload.threadId, payload.turnId);
@@ -21728,9 +21546,9 @@ export class CodexService extends EventEmitter {
     if (method === "model/rerouted") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string") return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("model/rerouted", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       this.publishCanonicalMainTurnMetadata(payload.threadId, turnIds, ownerRouted);
@@ -21740,9 +21558,9 @@ export class CodexService extends EventEmitter {
     if (method === "item/autoApprovalReview/started" || method === "item/autoApprovalReview/completed") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string") return;
-      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       this.publishCanonicalMainTurnMetadata(payload.threadId, turnIds, ownerRouted);
@@ -21752,34 +21570,28 @@ export class CodexService extends EventEmitter {
     if (method === "guardianWarning") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string") return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("guardianWarning", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-        { method, params } as CodexServerNotification,
+        notification,
         Date.now(),
       );
       this.publishCanonicalMainTurnMetadata(payload.threadId, turnIds, ownerRouted);
       return;
     }
 
-    if (method === "item/started" || method === "item/completed") {
-      const notification = parseItemLifecycleNotification(method, params);
-      if (!notification) return;
+    if (notification.method === "item/started" || notification.method === "item/completed") {
       const payload = notification.params;
-      const incomingPayload = asRecord(params);
       const { threadId } = payload;
-      const ownerRouted = this.forwardNotificationToRendererOwner(
-        method,
-        incomingPayload ?? payload as unknown as Record<string, unknown>,
-      );
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
 
       if (method === "item/completed" && !ownerRouted) {
         if (this.drainRendererOwnerNotificationsBefore(threadId, () => {
-          void this.handleNotification(method, params, options);
+          void this.handleNotification(notification, options);
         })) {
           return;
         }
         if (this.frameTextDeltaQueue.drainBefore(() => {
-          void this.handleNotification(method, params, options);
+          void this.handleNotification(notification, options);
         })) {
           return;
         }
@@ -21814,10 +21626,9 @@ export class CodexService extends EventEmitter {
       || method === "item/reasoning/summaryTextDelta"
       || method === "item/reasoning/textDelta"
     ) {
-      const frameTextDelta = parseCodexFrameTextDelta(method, params);
-      if (!frameTextDelta) return;
-      const payload = params as Record<string, unknown>;
-      if (this.forwardNotificationToRendererOwner(method, payload)) {
+      if (!isCodexFrameTextDeltaNotification(notification)) return;
+      const frameTextDelta = toCodexFrameTextDelta(notification);
+      if (this.forwardNotificationToRendererOwner(notification)) {
         this.applyFrameTextDeltas([frameTextDelta], { publishMainFallback: false });
         return;
       }
@@ -21836,15 +21647,14 @@ export class CodexService extends EventEmitter {
       ) {
         return;
       }
-      this.forwardNotificationToRendererOwner("item/reasoning/summaryPartAdded", payload);
+      this.forwardNotificationToRendererOwner(notification);
       return;
     }
 
     if (method === "item/commandExecution/outputDelta") {
-      const update = parseCodexCommandOutputUpdate(method, params);
-      const payload = asRecord(params);
-      if (!update || !payload) return;
-      if (this.forwardNotificationToRendererOwner("item/commandExecution/outputDelta", payload)) {
+      if (!isCodexCommandOutputNotification(notification)) return;
+      const update = toCodexCommandOutputUpdate(notification);
+      if (this.forwardNotificationToRendererOwner(notification)) {
         this.outputDeltaQueue.enqueue(update);
         return;
       }
@@ -21853,13 +21663,7 @@ export class CodexService extends EventEmitter {
         this.emitHostMessage({
           type: "mcpNotification",
           hostId: DEFAULT_CODEX_HOST_ID,
-          method: "item/commandExecution/outputDelta",
-          params: {
-            threadId: update.conversationId,
-            turnId: update.turnId,
-            itemId: update.itemId,
-            delta: update.delta,
-          },
+          notification,
         });
       }
       this.outputDeltaQueue.enqueue(update);
@@ -21877,7 +21681,7 @@ export class CodexService extends EventEmitter {
         return;
       }
 
-      this.forwardNotificationToRendererOwner("item/commandExecution/terminalInteraction", payload);
+      this.forwardNotificationToRendererOwner(notification);
       this.applyTerminalInteraction({
         threadId: payload.threadId,
         turnId: typeof payload.turnId === "string" ? payload.turnId : null,
@@ -21898,27 +21702,22 @@ export class CodexService extends EventEmitter {
       ) {
         return;
       }
-      this.forwardNotificationToRendererOwner("item/fileChange/outputDelta", payload);
+      this.forwardNotificationToRendererOwner(notification);
       return;
     }
 
     if (method === "item/fileChange/patchUpdated") {
-      const update = parseCodexFileChangePatchUpdate(method, params);
-      const payload = asRecord(params);
-      if (!update || !payload) return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("item/fileChange/patchUpdated", payload);
+      if (!isCodexFileChangePatchUpdatedNotification(notification)) return;
+      const update = toCodexFileChangePatchUpdate(notification);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       this.applyFileChangePatchUpdate(update, ownerRouted);
       return;
     }
 
     if (method === "item/mcpToolCall/progress") {
-      const update = parseCodexMcpToolCallProgressUpdate(method, params);
-      const payload = asRecord(params);
-      if (!update || !payload) return;
-      const ownerRouted = this.forwardNotificationToRendererOwner(
-        "item/mcpToolCall/progress",
-        payload,
-      );
+      if (!isCodexMcpToolCallProgressNotification(notification)) return;
+      const update = toCodexMcpToolCallProgressUpdate(notification);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       this.applyMcpToolCallProgressUpdate(update, ownerRouted);
       return;
     }
@@ -21930,7 +21729,7 @@ export class CodexService extends EventEmitter {
       if (typeof requestId !== "string" && typeof requestId !== "number") return;
       const threadId = payload.threadId;
       if (typeof threadId !== "string") return;
-      const ownerRouted = this.forwardNotificationToRendererOwner("serverRequest/resolved", payload);
+      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       this.resolvePendingServerRequest(threadId, requestId, {
         suppressConversationSync: ownerRouted,
       });
@@ -21990,12 +21789,12 @@ export class CodexService extends EventEmitter {
           ? errorRecord.additionalDetails
           : null;
       const ownerRouted = threadId && turnId && errorRecord
-        ? this.forwardNotificationToRendererOwner("error", payload as Record<string, unknown>)
+        ? this.forwardNotificationToRendererOwner(notification)
         : false;
 
       if (threadId && turnId) {
         const turnIds = this.reduceCanonicalMainTurnMetadataNotification(
-          { method, params } as CodexServerNotification,
+          notification,
           Date.now(),
         );
         this.publishCanonicalMainTurnMetadata(threadId, turnIds, Boolean(ownerRouted));

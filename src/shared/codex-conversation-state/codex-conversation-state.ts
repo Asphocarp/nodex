@@ -24,6 +24,7 @@ import type {
   Turn,
   TurnPlanStep,
   TurnStartParams,
+  ToolRequestUserInputOption,
   UserInput,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadTokenUsage } from "@nodex/codex-app-server-protocol/v2/ThreadTokenUsage";
@@ -131,10 +132,7 @@ type CodexCanonicalJsonObject = Readonly<{
   [key: string]: JsonValue | undefined;
 }>;
 
-export interface CodexCanonicalUserInputOption {
-  readonly label: string;
-  readonly description: string;
-}
+export type CodexCanonicalUserInputOption = Readonly<ToolRequestUserInputOption>;
 
 /** Exact `t0` historical shape; protocol-only flags are intentionally absent. */
 export interface CodexCanonicalUserInputQuestion {

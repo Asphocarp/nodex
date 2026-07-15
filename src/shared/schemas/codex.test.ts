@@ -1,26 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { parseCodexThreadTokenUsage } from "./codex";
+import {
+  CodexReasoningEffortSchema,
+  CodexThreadStatusTypeSchema,
+  parseCodexThreadTokenUsage,
+} from "./codex";
 
-describe("codex schemas", () => {
-  test("parses thread token usage from snake_case and camelCase fields", () => {
-    const snakeCase = parseCodexThreadTokenUsage({
-      total_token_usage: {
-        total_tokens: 12,
-        input_tokens: 5,
-        cached_input_tokens: 1,
-        output_tokens: 6,
-        reasoning_output_tokens: 2,
-      },
-      last_token_usage: {
-        total_tokens: 4,
-        input_tokens: 2,
-        cached_input_tokens: 0,
-        output_tokens: 2,
-        reasoning_output_tokens: 1,
-      },
-      model_context_window: 200_000,
-    });
-    const camelCase = parseCodexThreadTokenUsage({
+describe("generated Codex schemas", () => {
+  test("parses the current generated thread token usage shape", () => {
+    const value = {
       total: {
         totalTokens: 12,
         inputTokens: 5,
@@ -36,58 +23,27 @@ describe("codex schemas", () => {
         reasoningOutputTokens: 1,
       },
       modelContextWindow: null,
-    });
+    };
 
-    expect(JSON.stringify(snakeCase)).toBe(JSON.stringify({
-      total: {
-        totalTokens: 12,
-        inputTokens: 5,
-        cachedInputTokens: 1,
-        outputTokens: 6,
-        reasoningOutputTokens: 2,
-      },
-      last: {
-        totalTokens: 4,
-        inputTokens: 2,
-        cachedInputTokens: 0,
-        outputTokens: 2,
-        reasoningOutputTokens: 1,
-      },
-      modelContextWindow: 200_000,
-    }));
-    expect(JSON.stringify(camelCase)).toBe(JSON.stringify({
-      total: {
-        totalTokens: 12,
-        inputTokens: 5,
-        cachedInputTokens: 1,
-        outputTokens: 6,
-        reasoningOutputTokens: 2,
-      },
-      last: {
-        totalTokens: 4,
-        inputTokens: 2,
-        cachedInputTokens: 0,
-        outputTokens: 2,
-        reasoningOutputTokens: 1,
-      },
-      modelContextWindow: null,
-    }));
+    expect(parseCodexThreadTokenUsage(value)).toEqual(value);
   });
 
-  test("drops invalid thread token usage payloads", () => {
-    const parsed = parseCodexThreadTokenUsage({
-      total: {
-        totalTokens: 12,
-      },
-      last: {
-        totalTokens: 4,
-        inputTokens: 2,
-        cachedInputTokens: 0,
-        outputTokens: 2,
-        reasoningOutputTokens: 1,
-      },
-    });
+  test("rejects historical spellings and invalid current payloads at the live boundary", () => {
+    expect(parseCodexThreadTokenUsage({
+      total_token_usage: {},
+      last_token_usage: {},
+      model_context_window: null,
+    })).toBeUndefined();
+    expect(parseCodexThreadTokenUsage({
+      total: { totalTokens: 12 },
+      last: {},
+      modelContextWindow: null,
+    })).toBeUndefined();
+  });
 
-    expect(parsed).toBe(undefined);
+  test("accepts dynamic reasoning efforts while deriving closed status values", () => {
+    expect(CodexReasoningEffortSchema.parse("future-effort")).toBe("future-effort");
+    expect(CodexThreadStatusTypeSchema.safeParse("active").success).toBe(true);
+    expect(CodexThreadStatusTypeSchema.safeParse("future-status").success).toBe(false);
   });
 });

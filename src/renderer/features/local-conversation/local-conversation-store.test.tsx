@@ -15,6 +15,7 @@ import type {
   ThreadGoal,
   ThreadRollbackResponse,
   ThreadSettings,
+  Turn,
   TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexAppServerManager as CodexAppServerManagerInstance } from "./local-conversation-store";
@@ -632,6 +633,19 @@ function buildAssistantMessage(
   };
 }
 
+function buildProtocolTurn(overrides: Pick<Turn, "id"> & Partial<Turn>): Turn {
+  return {
+    items: [],
+    itemsView: "full",
+    status: "inProgress",
+    error: null,
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    ...overrides,
+  };
+}
+
 function buildUserMessage(
   threadId: string,
   turnId: string,
@@ -773,18 +787,6 @@ async function waitForCondition(predicate: () => boolean, timeoutMs: number): Pr
 }
 
 describe("local-conversation-store", () => {
-  test("accepts empty thread ids for exact server-request withdrawal parsing", async () => {
-    const { parseOwnerServerRequestResolvedPayload } = await import("./local-conversation-store");
-
-    expect(JSON.stringify(parseOwnerServerRequestResolvedPayload({
-      threadId: "",
-      requestId: 73,
-    }))).toBe(JSON.stringify({ threadId: "", requestId: 73 }));
-    expect(parseOwnerServerRequestResolvedPayload({
-      requestId: 73,
-    })).toBe(null);
-  });
-
   test("dedupes older-turn loads and applies the returned paged snapshot", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -1797,30 +1799,35 @@ describe("local-conversation-store", () => {
       animationFrameCallbacks.length = 0;
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 19,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-replacement",
-          item: {
-            id: "assistant-replacement",
-            type: "agentMessage",
-            text: "",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-replacement",
+            item: {
+              id: "assistant-replacement",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
       await flushAsyncWork(2);
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 20,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-replacement",
-          itemId: "assistant-replacement",
-          delta: "partial",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-replacement",
+            itemId: "assistant-replacement",
+            delta: "partial",
+          },
         },
       });
       if (animationFrameCallbacks.length > 0) {
@@ -1873,30 +1880,35 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 40,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-replacement",
-          item: {
-            id: "assistant-replacement",
-            type: "agentMessage",
-            text: "partial final",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-replacement",
+            item: {
+              id: "assistant-replacement",
+              type: "agentMessage",
+              text: "partial final",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
       await flushAsyncWork(2);
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/completed",
         sequence: 41,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-replacement",
-            status: "completed",
+        notification: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-replacement",
+              status: "completed",
+            }),
           },
         },
       });
@@ -2309,13 +2321,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "owner",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "owner",
+          },
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -2394,13 +2408,15 @@ describe("local-conversation-store", () => {
       const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-resume-owner",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: " tail",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-resume-owner",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: " tail",
+          },
         },
       });
       await waitForCondition(() => invokeRecords.some((record) => {
@@ -2721,13 +2737,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "hello",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "hello",
+          },
         },
       });
 
@@ -2813,9 +2831,14 @@ describe("local-conversation-store", () => {
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "serverRequest/resolved",
         sequence: 2,
-        params: { threadId: "thread-1", requestId: "input-without-canonical" },
+        notification: {
+          method: "serverRequest/resolved",
+          params: {
+            threadId: "thread-1",
+            requestId: "input-without-canonical",
+          },
+        },
       });
       await flushAsyncWork();
 
@@ -2880,13 +2903,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "must not reconstruct",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "must not reconstruct",
+          },
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -2985,37 +3010,43 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/plan/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "plan-1",
-          delta: "1. Inspect\n",
+        notification: {
+          method: "item/plan/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "plan-1",
+            delta: "1. Inspect\n",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryTextDelta",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
-          delta: "Thinking",
+        notification: {
+          method: "item/reasoning/summaryTextDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 0,
+            delta: "Thinking",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/textDelta",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          contentIndex: 0,
-          delta: "private chain",
+        notification: {
+          method: "item/reasoning/textDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            contentIndex: 0,
+            delta: "private chain",
+          },
         },
       });
 
@@ -3089,37 +3120,43 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/goal/updated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          goal: {
+        notification: {
+          method: "thread/goal/updated",
+          params: {
+            turnId: null,
             threadId: "thread-1",
-            objective: "Finish parity",
-            status: "active",
-            tokenBudget: 40000,
-            tokensUsed: 10,
-            timeUsedSeconds: 2,
-            createdAt: 100,
-            updatedAt: 101,
+            goal: {
+              threadId: "thread-1",
+              objective: "Finish parity",
+              status: "active",
+              tokenBudget: 40000,
+              tokensUsed: 10,
+              timeUsedSeconds: 2,
+              createdAt: 100,
+              updatedAt: 101,
+            },
           },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/goal/updated",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          goal: {
+        notification: {
+          method: "thread/goal/updated",
+          params: {
+            turnId: null,
             threadId: "thread-1",
-            objective: "Finish parity",
-            status: "complete",
-            tokenBudget: 40000,
-            tokensUsed: 200,
-            timeUsedSeconds: 30,
-            createdAt: 100,
-            updatedAt: 102,
+            goal: {
+              threadId: "thread-1",
+              objective: "Finish parity",
+              status: "complete",
+              tokenBudget: 40000,
+              tokensUsed: 200,
+              timeUsedSeconds: 30,
+              createdAt: 100,
+              updatedAt: 102,
+            },
           },
         },
       });
@@ -3127,10 +3164,12 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/goal/cleared",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
+        notification: {
+          method: "thread/goal/cleared",
+          params: {
+            threadId: "thread-1",
+          },
         },
       });
       await flushAsyncWork();
@@ -3211,17 +3250,20 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: "",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "assistant-1",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -3239,17 +3281,20 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: "done",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "assistant-1",
+              type: "agentMessage",
+              text: "done",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -3333,32 +3378,36 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          startedAtMs: 100,
-          item: {
-            id: "review-mode-marker",
-            type: "exitedReviewMode",
-            review: "Review the current changes",
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            startedAtMs: 100,
+            item: {
+              id: "review-mode-marker",
+              type: "exitedReviewMode",
+              review: "Review the current changes",
+            },
           },
         },
       });
       await flushAsyncWork();
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          completedAtMs: 120,
-          item: {
-            id: "review-mode-marker",
-            type: "exitedReviewMode",
-            review: "Review the current changes",
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            completedAtMs: 120,
+            item: {
+              id: "review-mode-marker",
+              type: "exitedReviewMode",
+              review: "Review the current changes",
+            },
           },
         },
       });
@@ -3428,16 +3477,18 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          startedAtMs: 100,
-          item: {
-            id: "target",
-            type: "enteredReviewMode",
-            review: "Review target",
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            startedAtMs: 100,
+            item: {
+              id: "target",
+              type: "enteredReviewMode",
+              review: "Review target",
+            },
           },
         },
       });
@@ -3457,48 +3508,52 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          startedAtMs: 120,
-          item: {
-            id: "target",
-            type: "commandExecution",
-            command: "printf target",
-            cwd: "/tmp",
-            processId: null,
-            source: "agent",
-            status: "inProgress",
-            commandActions: [],
-            aggregatedOutput: null,
-            exitCode: null,
-            durationMs: null,
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            startedAtMs: 120,
+            item: {
+              id: "target",
+              type: "commandExecution",
+              command: "printf target",
+              cwd: "/tmp",
+              processId: null,
+              source: "agent",
+              status: "inProgress",
+              commandActions: [],
+              aggregatedOutput: null,
+              exitCode: null,
+              durationMs: null,
+            },
           },
         },
       });
       await flushAsyncWork();
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          completedAtMs: 130,
-          item: {
-            id: "target",
-            type: "commandExecution",
-            command: "printf target",
-            cwd: "/tmp",
-            processId: null,
-            source: "agent",
-            status: "completed",
-            commandActions: [],
-            aggregatedOutput: "target\n",
-            exitCode: 0,
-            durationMs: 10,
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            completedAtMs: 130,
+            item: {
+              id: "target",
+              type: "commandExecution",
+              command: "printf target",
+              cwd: "/tmp",
+              processId: null,
+              source: "agent",
+              status: "completed",
+              commandActions: [],
+              aggregatedOutput: "target\n",
+              exitCode: 0,
+              durationMs: 10,
+            },
           },
         },
       });
@@ -3565,16 +3620,18 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          completedAtMs: 110,
-          item: {
-            id: "shared-id",
-            type: "exitedReviewMode",
-            review: "Mismatched hidden completion",
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            completedAtMs: 110,
+            item: {
+              id: "shared-id",
+              type: "exitedReviewMode",
+              review: "Mismatched hidden completion",
+            },
           },
         },
       });
@@ -3662,18 +3719,20 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-after-hidden-placeholder",
-          startedAtMs: 200,
-          item: {
-            id: "assistant-after-hidden-placeholder",
-            type: "agentMessage",
-            text: "",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-after-hidden-placeholder",
+            startedAtMs: 200,
+            item: {
+              id: "assistant-after-hidden-placeholder",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -3768,16 +3827,21 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "heartbeat-matching-steer",
-            type: "userMessage",
-            clientId: null,
-            content: [{ type: "text", text: heartbeatText, text_elements: [] }],
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "heartbeat-matching-steer",
+              type: "userMessage",
+              clientId: null,
+              content: [
+                { type: "text", text: heartbeatText, text_elements: [] },
+              ],
+            },
           },
         },
       });
@@ -3788,16 +3852,25 @@ describe("local-conversation-store", () => {
       const differentHeartbeatText = heartbeatText.replace("check fixture", "check another fixture");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "heartbeat-not-matching-steer",
-            type: "userMessage",
-            clientId: null,
-            content: [{ type: "text", text: differentHeartbeatText, text_elements: [] }],
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "heartbeat-not-matching-steer",
+              type: "userMessage",
+              clientId: null,
+              content: [
+                {
+                  type: "text",
+                  text: differentHeartbeatText,
+                  text_elements: [],
+                },
+              ],
+            },
           },
         },
       });
@@ -3856,28 +3929,33 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta,
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta,
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: delta,
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "assistant-1",
+              type: "agentMessage",
+              text: delta,
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -3941,13 +4019,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-1",
-            status: "inProgress",
+        notification: {
+          method: "turn/started",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-1",
+              status: "inProgress",
+            }),
           },
         },
       });
@@ -3955,14 +4035,16 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-1",
-            status: "completed",
-            durationMs: 42,
+        notification: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-1",
+              status: "completed",
+              durationMs: 42,
+            }),
           },
         },
       });
@@ -4038,13 +4120,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/status/changed",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          status: {
-            type: "active",
-            activeFlags: ["waitingOnApproval"],
+        notification: {
+          method: "thread/status/changed",
+          params: {
+            threadId: "thread-1",
+            status: {
+              type: "active",
+              activeFlags: ["waitingOnApproval"],
+            },
           },
         },
       });
@@ -4118,12 +4202,14 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/diff/updated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          diff: "diff --git a/file.ts b/file.ts",
+        notification: {
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            diff: "diff --git a/file.ts b/file.ts",
+          },
         },
       });
       await flushAsyncWork();
@@ -4216,43 +4302,48 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/name/updated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          threadName: "New name",
+        notification: {
+          method: "thread/name/updated",
+          params: {
+            threadId: "thread-1",
+            threadName: "New name",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/settings/updated",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          threadSettings: {
-            cwd: "/repo-next",
-            approvalPolicy: "on-request",
-            approvalsReviewer: "user",
-            sandboxPolicy: {
-              type: "workspaceWrite",
-              writableRoots: ["/repo-next"],
-              networkAccess: false,
-              excludeTmpdirEnvVar: false,
-              excludeSlashTmp: false,
-            },
-            activePermissionProfile: null,
-            model: "gpt-5.4-codex",
-            modelProvider: "openai-next",
-            serviceTier: "fast",
-            effort: "high",
-            summary: "concise",
-            personality: "pragmatic",
-            multiAgentMode: "explicitRequestOnly",
-            collaborationMode: {
-              mode: "plan",
-              settings: {
-                model: "gpt-5.4-codex",
-                reasoning_effort: "high",
+        notification: {
+          method: "thread/settings/updated",
+          params: {
+            threadId: "thread-1",
+            threadSettings: {
+              cwd: "/repo-next",
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandboxPolicy: {
+                type: "workspaceWrite",
+                writableRoots: ["/repo-next"],
+                networkAccess: false,
+                excludeTmpdirEnvVar: false,
+                excludeSlashTmp: false,
+              },
+              activePermissionProfile: null,
+              model: "gpt-5.4-codex",
+              modelProvider: "openai-next",
+              serviceTier: "fast",
+              effort: "high",
+              summary: "concise",
+              personality: "pragmatic",
+              multiAgentMode: "explicitRequestOnly",
+              collaborationMode: {
+                mode: "plan",
+                settings: {
+                  model: "gpt-5.4-codex",
+                  reasoning_effort: "high",
+                  developer_instructions: null,
+                },
               },
             },
           },
@@ -4260,26 +4351,29 @@ describe("local-conversation-store", () => {
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/tokenUsage/updated",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          tokenUsage: {
-            total: {
-              totalTokens: 100,
-              inputTokens: 60,
-              cachedInputTokens: 10,
-              outputTokens: 40,
-              reasoningOutputTokens: 15,
+        notification: {
+          method: "thread/tokenUsage/updated",
+          params: {
+            turnId: "turn-1",
+            threadId: "thread-1",
+            tokenUsage: {
+              total: {
+                totalTokens: 100,
+                inputTokens: 60,
+                cachedInputTokens: 10,
+                outputTokens: 40,
+                reasoningOutputTokens: 15,
+              },
+              last: {
+                totalTokens: 20,
+                inputTokens: 12,
+                cachedInputTokens: 2,
+                outputTokens: 8,
+                reasoningOutputTokens: 3,
+              },
+              modelContextWindow: 128000,
             },
-            last: {
-              totalTokens: 20,
-              inputTokens: 12,
-              cachedInputTokens: 2,
-              outputTokens: 8,
-              reasoningOutputTokens: 3,
-            },
-            modelContextWindow: 128000,
           },
         },
       });
@@ -4367,30 +4461,35 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/started",
         sequence: 1,
-        params: {
-          thread: {
-            id: "thread-1",
-            sessionId: "thread-1",
-            forkedFromId: null,
-            parentThreadId: null,
-            preview: "Started preview",
-            ephemeral: false,
-            modelProvider: "openai-responses",
-            createdAt: 10,
-            updatedAt: 20,
-            status: { type: "idle" },
-            path: null,
-            cwd: "/tmp/new",
-            cliVersion: "test",
-            source: "cli",
-            threadSource: null,
-            agentNickname: null,
-            agentRole: null,
-            gitInfo: null,
-            name: "Started title",
-            turns: [],
+        notification: {
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thread-1",
+              extra: null,
+              sessionId: "thread-1",
+              forkedFromId: null,
+              parentThreadId: null,
+              preview: "Started preview",
+              ephemeral: false,
+              historyMode: "legacy",
+              modelProvider: "openai-responses",
+              createdAt: 10,
+              updatedAt: 20,
+              recencyAt: null,
+              status: { type: "idle" },
+              path: null,
+              cwd: "/tmp/new",
+              cliVersion: "test",
+              source: "cli",
+              threadSource: null,
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Started title",
+              turns: [],
+            },
           },
         },
       });
@@ -4514,52 +4613,60 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/plan/updated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          explanation: "Plan",
-          plan: [
-            { step: "Inspect bundle", status: "completed" },
-            { step: "Patch Nodex", status: "inProgress" },
-          ],
-        },
-      });
-      dispatchCodexAppServerMessage("thread-owner-notification", {
-        hostId: "default",
-        method: "error",
-        sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          error: {
-            message: "Tool failed",
-            codexErrorInfo: null,
-            additionalDetails: "exit 1",
+        notification: {
+          method: "turn/plan/updated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            explanation: "Plan",
+            plan: [
+              { step: "Inspect bundle", status: "completed" },
+              { step: "Patch Nodex", status: "inProgress" },
+            ],
           },
-          willRetry: false,
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "model/rerouted",
+        sequence: 2,
+        notification: {
+          method: "error",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: {
+              message: "Tool failed",
+              codexErrorInfo: null,
+              additionalDetails: "exit 1",
+            },
+            willRetry: false,
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          fromModel: "gpt-a",
-          toModel: "gpt-b",
-          reason: "highRiskCyberActivity",
+        notification: {
+          method: "model/rerouted",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            fromModel: "gpt-a",
+            toModel: "gpt-b",
+            reason: "highRiskCyberActivity",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "serverRequest/resolved",
         sequence: 4,
-        params: {
-          threadId: "thread-1",
-          requestId: "approval-1",
+        notification: {
+          method: "serverRequest/resolved",
+          params: {
+            threadId: "thread-1",
+            requestId: "approval-1",
+          },
         },
       });
       await flushAsyncWork();
@@ -4770,7 +4877,7 @@ describe("local-conversation-store", () => {
       ).toBe(3);
 
       await manager.respondUserInput("input-1", { q1: ["A"] });
-      await manager.respondApproval("approval-1", "command", "decline");
+      await manager.respondApproval("approval-1", { kind: "command", decision: "decline" });
       await manager.respondPermissionRequest("permission-1", { permissions: {}, scope: "turn" });
       await flushAsyncWork();
 
@@ -4905,9 +5012,11 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "serverRequest/resolved",
         sequence: 3,
-        params: { threadId: "thread-1", requestId: 73 },
+        notification: {
+          method: "serverRequest/resolved",
+          params: { threadId: "thread-1", requestId: 73 },
+        },
       });
       await flushAsyncWork();
       conversation = manager.readConversation("thread-1");
@@ -4921,9 +5030,11 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "serverRequest/resolved",
         sequence: 4,
-        params: { threadId: "thread-1", requestId: "73" },
+        notification: {
+          method: "serverRequest/resolved",
+          params: { threadId: "thread-1", requestId: "73" },
+        },
       });
       await flushAsyncWork();
       conversation = manager.readConversation("thread-1");
@@ -5028,12 +5139,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       assertTimestampsUnchanged();
 
-      expect(await manager.respondApproval(
-        "approval-local",
-        "command",
-        "decline",
-        "thread-1",
-      )).toBe(true);
+      expect(await manager.respondApproval("approval-local", { kind: "command", decision: "decline" }, "thread-1")).toBe(true);
       await flushAsyncWork();
       assertTimestampsUnchanged();
 
@@ -5041,11 +5147,13 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "serverRequest/resolved",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          requestId: "approval-resolved",
+        notification: {
+          method: "serverRequest/resolved",
+          params: {
+            threadId: "thread-1",
+            requestId: "approval-resolved",
+          },
         },
       });
       await flushAsyncWork();
@@ -5173,11 +5281,13 @@ describe("local-conversation-store", () => {
         await Promise.resolve();
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "serverRequest/resolved",
           sequence: resolvedSequence,
-          params: {
-            threadId: String(args[0]),
-            requestId: args[1] as CodexProtocolRequestId,
+          notification: {
+            method: "serverRequest/resolved",
+            params: {
+              threadId: String(args[0]),
+              requestId: args[1] as CodexProtocolRequestId,
+            },
           },
         });
         resolvedSequence += 1;
@@ -5282,12 +5392,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       invokeRecords = [];
 
-      expect(await manager.respondApproval(
-        requestId,
-        "command",
-        "decline",
-        "thread-owner-scope-second",
-      )).toBe(true);
+      expect(await manager.respondApproval(requestId, { kind: "command", decision: "decline" }, "thread-owner-scope-second")).toBe(true);
 
       const responseCall = invokeRecords.find((record) => record.channel === "codex:approval:respond");
       expect(responseCall?.args[0]).toBe("thread-owner-scope-second");
@@ -5367,12 +5472,7 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const responsePromise = manager.respondApproval(
-        "approval-follower",
-        "command",
-        "decline",
-        "thread-1",
-      ).then((result) => {
+      const responsePromise = manager.respondApproval("approval-follower", { kind: "command", decision: "decline" }, "thread-1").then((result) => {
         resolved = true;
         accepted = result;
       });
@@ -5407,7 +5507,7 @@ describe("local-conversation-store", () => {
           type?: string;
           conversationId?: string;
           requestId?: string | number;
-          kind?: "command" | "file";
+          response?: { kind?: "command" | "file"; decision?: string };
         };
       } | undefined;
       expect(resolved).toBe(true);
@@ -5415,7 +5515,7 @@ describe("local-conversation-store", () => {
       expect(action?.action?.type).toBe("respondApproval");
       expect(action?.action?.conversationId).toBe("thread-1");
       expect(action?.action?.requestId).toBe("approval-follower");
-      expect(action?.action?.kind).toBe("command");
+      expect(action?.action?.response?.kind).toBe("command");
       expect(manager.readConversation("thread-1")?.requests.length).toBe(0);
     } finally {
       followerActionResult = null;
@@ -5517,17 +5617,12 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
 
       const wrongKind = input.firstKind === "command" ? "file" : "command";
-      expect(await manager.respondApproval(
-        input.requestId,
-        wrongKind,
-        "decline",
-        input.threadId,
-      )).toBe(false);
+      expect(await manager.respondApproval(input.requestId, { kind: wrongKind, decision: "decline" }, input.threadId)).toBe(false);
 
       const responseCall = invokeRecords.find(
         (record) => record.channel === "codex:approval:respond",
       );
-      expect(responseCall?.args[2]).toBe(wrongKind);
+      expect(responseCall?.args[2]).toEqual({ kind: wrongKind, decision: "decline" });
       expect(JSON.stringify(
         manager.readConversation(input.threadId)?.canonicalRequests?.map(
           (request) => request.method,
@@ -5595,8 +5690,7 @@ describe("local-conversation-store", () => {
         type: "respondApproval",
         conversationId: threadId,
         requestId: "already-resolved",
-        kind: "command",
-        decision: "decline",
+        response: { kind: "command", decision: "decline" },
       });
 
       expect(JSON.stringify(result)).toBe(JSON.stringify({ accepted: true }));
@@ -5713,20 +5807,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
 
       const wrongKind = input.firstKind === "command" ? "file" : "command";
-      expect(await manager.respondApproval(
-        input.requestId,
-        wrongKind,
-        "decline",
-        input.threadId,
-      )).toBe(true);
+      expect(await manager.respondApproval(input.requestId, { kind: wrongKind, decision: "decline" }, input.threadId)).toBe(true);
 
       const routed = invokeRecords.find(
         (record) => record.channel === "codex:thread-follower:action",
       )?.args[0] as {
-        action?: { type?: string; kind?: "command" | "file" };
+        action?: { type?: string; response?: { kind?: "command" | "file" } };
       } | undefined;
       expect(routed?.action?.type).toBe("respondApproval");
-      expect(routed?.action?.kind).toBe(wrongKind);
+      expect(routed?.action?.response?.kind).toBe(wrongKind);
       expect(manager.readConversation(input.threadId)?.canonicalRequests?.length).toBe(2);
       expect(manager.readConversation(input.threadId)?.requests.length).toBe(2);
       expect(invokeRecords.some(
@@ -5822,11 +5911,13 @@ describe("local-conversation-store", () => {
       try {
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "serverRequest/resolved",
           sequence: 1,
-          params: {
-            threadId: "thread-1",
-            requestId: "missing",
+          notification: {
+            method: "serverRequest/resolved",
+            params: {
+              threadId: "thread-1",
+              requestId: "missing",
+            },
           },
         });
         await flushAsyncWork();
@@ -6476,16 +6567,18 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "model/safetyBuffering/updated",
         sequence: 2,
-        params: {
-          threadId,
-          turnId: "turn-1",
-          model: "gpt-5.4-codex",
-          useCases: ["latency"],
-          reasons: ["warming"],
-          showBufferingUi: true,
-          fasterModel: "gpt-5.4-mini",
+        notification: {
+          method: "model/safetyBuffering/updated",
+          params: {
+            threadId,
+            turnId: "turn-1",
+            model: "gpt-5.4-codex",
+            useCases: ["latency"],
+            reasons: ["warming"],
+            showBufferingUi: true,
+            fasterModel: "gpt-5.4-mini",
+          },
         },
       });
       await flushAsyncWork(4);
@@ -6552,16 +6645,18 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "model/safetyBuffering/updated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          model: "gpt-5.4-codex",
-          useCases: ["latency"],
-          reasons: ["warming"],
-          showBufferingUi: true,
-          fasterModel: "gpt-5.4-mini",
+        notification: {
+          method: "model/safetyBuffering/updated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            model: "gpt-5.4-codex",
+            useCases: ["latency"],
+            reasons: ["warming"],
+            showBufferingUi: true,
+            fasterModel: "gpt-5.4-mini",
+          },
         },
       });
       await flushAsyncWork();
@@ -6638,51 +6733,55 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "hook/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          run: {
-            id: "hook-run-1",
-            eventName: "preToolUse",
-            handlerType: "command",
-            executionMode: "sync",
-            scope: "turn",
-            sourcePath: "/workspace/.codex/hook.json",
-            source: "project",
-            displayOrder: 1n,
-            status: "running",
-            statusMessage: "Preparing context",
-            startedAt: 10n,
-            completedAt: null,
-            durationMs: null,
-            entries: [{ kind: "context", text: "Added AGENTS.md" }],
+        notification: {
+          method: "hook/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            run: {
+              id: "hook-run-1",
+              eventName: "preToolUse",
+              handlerType: "command",
+              executionMode: "sync",
+              scope: "turn",
+              sourcePath: "/workspace/.codex/hook.json",
+              source: "project",
+              displayOrder: 1n,
+              status: "running",
+              statusMessage: "Preparing context",
+              startedAt: 10n,
+              completedAt: null,
+              durationMs: null,
+              entries: [{ kind: "context", text: "Added AGENTS.md" }],
+            },
           },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "hook/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          run: {
-            id: "hook-run-1",
-            eventName: "preToolUse",
-            handlerType: "command",
-            executionMode: "sync",
-            scope: "turn",
-            sourcePath: "/workspace/.codex/hook.json",
-            source: "project",
-            displayOrder: 1n,
-            status: "completed",
-            statusMessage: "Preparing context",
-            startedAt: 10n,
-            completedAt: 20n,
-            durationMs: 10n,
-            entries: [{ kind: "context", text: "Added AGENTS.md" }],
+        notification: {
+          method: "hook/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            run: {
+              id: "hook-run-1",
+              eventName: "preToolUse",
+              handlerType: "command",
+              executionMode: "sync",
+              scope: "turn",
+              sourcePath: "/workspace/.codex/hook.json",
+              source: "project",
+              displayOrder: 1n,
+              status: "completed",
+              statusMessage: "Preparing context",
+              startedAt: 10n,
+              completedAt: 20n,
+              durationMs: 10n,
+              entries: [{ kind: "context", text: "Added AGENTS.md" }],
+            },
           },
         },
       });
@@ -6763,25 +6862,27 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/autoApprovalReview/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          reviewId: "review-1",
-          startedAtMs: 1,
-          targetItemId: "item-command-1",
-          review: {
-            status: "inProgress",
-            riskLevel: "medium",
-            userAuthorization: "unknown",
-            rationale: null,
-          },
-          action: {
-            type: "command",
-            source: "shell",
-            command: "bun test",
-            cwd: "/tmp/project",
+        notification: {
+          method: "item/autoApprovalReview/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            reviewId: "review-1",
+            startedAtMs: 1,
+            targetItemId: "item-command-1",
+            review: {
+              status: "inProgress",
+              riskLevel: "medium",
+              userAuthorization: "unknown",
+              rationale: null,
+            },
+            action: {
+              type: "command",
+              source: "shell",
+              command: "bun test",
+              cwd: "/tmp/project",
+            },
           },
         },
       });
@@ -6795,27 +6896,29 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/autoApprovalReview/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          reviewId: "review-1",
-          startedAtMs: 1,
-          completedAtMs: 2,
-          targetItemId: "item-command-1",
-          decisionSource: "agent",
-          review: {
-            status: "approved",
-            riskLevel: "low",
-            userAuthorization: "low",
-            rationale: "This only runs tests.",
-          },
-          action: {
-            type: "command",
-            source: "shell",
-            command: "bun test",
-            cwd: "/tmp/project",
+        notification: {
+          method: "item/autoApprovalReview/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            reviewId: "review-1",
+            startedAtMs: 1,
+            completedAtMs: 2,
+            targetItemId: "item-command-1",
+            decisionSource: "agent",
+            review: {
+              status: "approved",
+              riskLevel: "low",
+              userAuthorization: "low",
+              rationale: "This only runs tests.",
+            },
+            action: {
+              type: "command",
+              source: "shell",
+              command: "bun test",
+              cwd: "/tmp/project",
+            },
           },
         },
       });
@@ -6906,11 +7009,13 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "guardianWarning",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          message: "Unrelated guardian warning",
+        notification: {
+          method: "guardianWarning",
+          params: {
+            threadId: "thread-1",
+            message: "Unrelated guardian warning",
+          },
         },
       });
       await flushAsyncWork();
@@ -6927,12 +7032,14 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "guardianWarning",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          kind: "tooManyDenials",
-          message: "Automatic approval review rejected too many approval requests for this turn.",
+        notification: {
+          method: "guardianWarning",
+          params: {
+            threadId: "thread-1",
+            message:
+              "Automatic approval review rejected too many approval requests for this turn.",
+          },
         },
       });
       await flushAsyncWork();
@@ -7031,13 +7138,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta,
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta,
+          },
         },
       });
 
@@ -7136,13 +7245,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta,
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta,
+          },
         },
       });
 
@@ -7261,13 +7372,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "first ",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "first ",
+          },
         },
       });
       animationFrameCallbacks.shift()?.(16);
@@ -7276,13 +7389,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "second",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "second",
+          },
         },
       });
       animationFrameCallbacks.shift()?.(32);
@@ -7412,13 +7527,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "hello",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "hello",
+          },
         },
       });
       animationFrameCallbacks.shift()?.(16);
@@ -7538,13 +7655,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "hello",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "hello",
+          },
         },
       });
 
@@ -7637,13 +7756,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "hello",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "hello",
+          },
         },
       });
 
@@ -7723,11 +7844,13 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/name/updated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          name: "Should not apply",
+        notification: {
+          method: "thread/name/updated",
+          params: {
+            threadId: "thread-1",
+            threadName: "Should not apply",
+          },
         },
       });
       await flushAsyncWork(2);
@@ -7954,26 +8077,33 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta,
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta,
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: delta,
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "assistant-1",
+              type: "agentMessage",
+              text: delta,
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -8108,24 +8238,28 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta,
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta,
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryPartAdded",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
+        notification: {
+          method: "item/reasoning/summaryPartAdded",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 0,
+          },
         },
       });
 
@@ -8255,13 +8389,15 @@ describe("local-conversation-store", () => {
       for (const [threadId, delta] of [["thread-1", "discard"], ["thread-2", "preserve"]] as const) {
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/agentMessage/delta",
           sequence: 1,
-          params: {
-            threadId,
-            turnId: `turn-${threadId}`,
-            itemId: `assistant-${threadId}`,
-            delta,
+          notification: {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId,
+              turnId: `turn-${threadId}`,
+              itemId: `assistant-${threadId}`,
+              delta,
+            },
           },
         });
       }
@@ -8337,13 +8473,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryPartAdded",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
+        notification: {
+          method: "item/reasoning/summaryPartAdded",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 0,
+          },
         },
       });
       await flushAsyncWork(3);
@@ -8399,13 +8537,15 @@ describe("local-conversation-store", () => {
       const sendNoop = (): void => {
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/reasoning/summaryPartAdded",
           sequence: 1,
-          params: {
-            threadId: "thread-1",
-            turnId: "turn-1",
-            itemId: "reasoning-1",
-            summaryIndex: 0,
+          notification: {
+            method: "item/reasoning/summaryPartAdded",
+            params: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "reasoning-1",
+              summaryIndex: 0,
+            },
           },
         });
       };
@@ -8474,13 +8614,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          delta: "must be discarded",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            delta: "must be discarded",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-unavailable", {
@@ -8535,23 +8677,27 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryPartAdded",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-        } as never,
+        notification: {
+          method: "item/reasoning/summaryPartAdded",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+          } as never,
+        },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryPartAdded",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
+        notification: {
+          method: "item/reasoning/summaryPartAdded",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 0,
+          },
         },
       });
       await flushAsyncWork(3);
@@ -8665,28 +8811,33 @@ describe("local-conversation-store", () => {
       await act(async () => {
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/agentMessage/delta",
           sequence: 1,
-          params: {
-            threadId: "thread-1",
-            turnId: "turn-1",
-            itemId: "assistant-1",
-            delta,
+          notification: {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "assistant-1",
+              delta,
+            },
           },
         });
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/completed",
           sequence: 2,
-          params: {
-            threadId: "thread-1",
-            turnId: "turn-1",
-            item: {
-              id: "assistant-1",
-              type: "agentMessage",
-              text: delta,
-              phase: null,
-              memoryCitation: null,
+          notification: {
+            method: "item/completed",
+            params: {
+              completedAtMs: 1,
+              threadId: "thread-1",
+              turnId: "turn-1",
+              item: {
+                id: "assistant-1",
+                type: "agentMessage",
+                text: delta,
+                phase: null,
+                memoryCitation: null,
+              },
             },
           },
         });
@@ -8797,48 +8948,56 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "assistant-1",
-          delta: "hello",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "hello",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/plan/delta",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "plan-1",
-          delta: "plan",
+        notification: {
+          method: "item/plan/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "plan-1",
+            delta: "plan",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryTextDelta",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
-          delta: "summary",
+        notification: {
+          method: "item/reasoning/summaryTextDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 0,
+            delta: "summary",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/textDelta",
         sequence: 4,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          contentIndex: 0,
-          delta: "content",
+        notification: {
+          method: "item/reasoning/textDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            contentIndex: 0,
+            delta: "content",
+          },
         },
       });
 
@@ -8949,24 +9108,28 @@ describe("local-conversation-store", () => {
 
           dispatchCodexAppServerMessage("thread-owner-notification", {
             hostId: "default",
-            method: "item/agentMessage/delta",
             sequence: 1,
-            params: {
-              threadId,
-              turnId: "turn-1",
-              itemId: "assistant-1",
-              delta,
+            notification: {
+              method: "item/agentMessage/delta",
+              params: {
+                threadId,
+                turnId: "turn-1",
+                itemId: "assistant-1",
+                delta,
+              },
             },
           });
           dispatchCodexAppServerMessage("thread-owner-notification", {
             hostId: "default",
-            method: scenario.method,
             sequence: 2,
-            params: {
-              threadId,
-              turn: {
-                id: "turn-1",
-                status: scenario.status,
+            notification: {
+              method: scenario.method,
+              params: {
+                threadId,
+                turn: buildProtocolTurn({
+                  id: "turn-1",
+                  status: scenario.status,
+                }),
               },
             },
           });
@@ -9052,13 +9215,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          delta: "owner output\n",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            delta: "owner output\n",
+          },
         },
       });
       expect(invokeRecords.some((record) =>
@@ -9136,14 +9301,16 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/commandExecution/terminalInteraction",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          processId: "proc-1",
-          stdin: "bun tes",
+        notification: {
+          method: "item/commandExecution/terminalInteraction",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            processId: "proc-1",
+            stdin: "bun tes",
+          },
         },
       });
       await flushAsyncWork();
@@ -9154,14 +9321,16 @@ describe("local-conversation-store", () => {
         : -1).toBe(0);
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/commandExecution/terminalInteraction",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          processId: "proc-1",
-          stdin: "t\n",
+        notification: {
+          method: "item/commandExecution/terminalInteraction",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            processId: "proc-1",
+            stdin: "t\n",
+          },
         },
       });
       await flushAsyncWork();
@@ -9244,35 +9413,41 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/reasoning/summaryPartAdded",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 1,
+        notification: {
+          method: "item/reasoning/summaryPartAdded",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 1,
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/fileChange/outputDelta",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "patch-legacy-output",
-          delta: "legacy apply_patch output",
+        notification: {
+          method: "item/fileChange/outputDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "patch-legacy-output",
+            delta: "legacy apply_patch output",
+          },
         },
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/mcpToolCall/progress",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "mcp-1",
-          message: "Searching docs",
+        notification: {
+          method: "item/mcpToolCall/progress",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "mcp-1",
+            message: "Searching docs",
+          },
         },
       });
       await flushAsyncWork();
@@ -9352,13 +9527,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/mcpToolCall/progress",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "mcp-1",
-          message: "Connecting",
+        notification: {
+          method: "item/mcpToolCall/progress",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "mcp-1",
+            message: "Connecting",
+          },
         },
       });
       await flushAsyncWork(4);
@@ -9386,118 +9563,6 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner resolves nullable-turn prose but drops turnless lifecycle completion", async () => {
-    invokeCalls = [];
-    invokeRecords = [];
-    hostMessageListener = null;
-    threadListByProject = {};
-    resumeThreadResult = null;
-    const {
-      CodexAppServerManager,
-      __resetLocalConversationStoreForTests,
-    } = await import("./local-conversation-store");
-    const {
-      dispatchCodexAppServerMessage,
-    } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
-
-    const manager = new CodexAppServerManager("default");
-    try {
-      const baseConversation: CodexConversationSnapshot = withCanonicalState({
-        ...buildConversation("thread-1", "project-1"),
-        updatedAt: 50,
-        turns: [{
-          threadId: "thread-1",
-          turnId: null as unknown as string,
-          status: "inProgress",
-          itemIds: ["assistant-1"],
-          turnStartedAtMs: 10,
-          firstTurnWorkItemStartedAtMs: 20,
-          finalAssistantStartedAtMs: 30,
-          items: [{
-            ...buildAssistantMessage(
-              "thread-1",
-              null as unknown as string,
-              "assistant-1",
-              "",
-            ),
-            updatedAt: 40,
-          }],
-        }],
-      });
-      resumeThreadResult = baseConversation;
-
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
-        hostId: "default",
-        conversationId: "thread-1",
-        version: 1,
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-        sourceClientId: null,
-      });
-      await manager.requestThreadStreamResume("thread-1");
-      invokeRecords = [];
-      dispatchCodexAppServerMessage("thread-owner-notification", {
-        hostId: "default",
-        method: "item/agentMessage/delta",
-        sequence: 1,
-        params: {
-          threadId: "thread-1",
-          itemId: "assistant-1",
-          delta: "partial",
-        },
-      });
-      await new Promise((resolve) => setTimeout(resolve, 70));
-
-      const streamingItem = manager.readConversation("thread-1")?.turns[0]?.items[0];
-      const streamingTurn = manager.readConversation("thread-1")?.turns[0];
-      expect(streamingItem?.markdownText).toBe("partial");
-      expect(streamingItem?.status).toBe("inProgress");
-      expect(streamingItem?.updatedAt).toBe(40);
-      expect(streamingTurn?.turnStartedAtMs).toBe(10);
-      expect(streamingTurn?.firstTurnWorkItemStartedAtMs).toBe(20);
-      expect(streamingTurn?.finalAssistantStartedAtMs).toBe(30);
-      expect((streamingTurn as { turnId: string | null } | undefined)?.turnId ?? null).toBe(null);
-      const canonicalStreamingTurn = manager.readConversation("thread-1")
-        ?.canonicalState?.turns[0];
-      const canonicalStreamingItem = canonicalStreamingTurn?.items[0];
-      expect(canonicalStreamingTurn?.protocol.id ?? null).toBe(null);
-      expect(canonicalStreamingItem?.type === "agentMessage" ? canonicalStreamingItem.text : null).toBe("partial");
-      expect(manager.readConversation("thread-1")?.updatedAt).toBe(50);
-
-      dispatchCodexAppServerMessage("thread-owner-notification", {
-        hostId: "default",
-        method: "item/completed",
-        sequence: 2,
-        params: {
-          threadId: "thread-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: "final",
-            phase: null,
-            memoryCitation: null,
-          },
-        },
-      });
-      await flushAsyncWork();
-
-      const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
-      const publishRecords = invokeRecords.filter((record) =>
-        record.channel === "codex:thread-owner:stream-state:publish"
-      );
-
-      expect(item?.markdownText).toBe("partial");
-      expect(item?.status).toBe("inProgress");
-      expect(String(publishRecords.length)).toBe("1");
-    } finally {
-      resumeThreadResult = null;
-      manager.destroy();
-    }
-  });
 
   test("owner delta persists completed-empty placeholder rebind even when its item is missing", async () => {
     invokeCalls = [];
@@ -9541,13 +9606,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/plan/delta",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-rebound",
-          itemId: "missing-plan",
-          delta: "still drains",
+        notification: {
+          method: "item/plan/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-rebound",
+            itemId: "missing-plan",
+            delta: "still drains",
+          },
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -9614,17 +9681,20 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: "",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "assistant-1",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -9685,17 +9755,20 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "assistant-1",
-            type: "agentMessage",
-            text: "",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "assistant-1",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -9756,14 +9829,17 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "context-1",
-            type: "contextCompaction",
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "context-1",
+              type: "contextCompaction",
+            },
           },
         },
       });
@@ -9779,88 +9855,6 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner command output with nullable turn id resolves by item id", async () => {
-    invokeCalls = [];
-    invokeRecords = [];
-    hostMessageListener = null;
-    threadListByProject = {};
-    resumeThreadResult = null;
-    const {
-      CodexAppServerManager,
-      __resetLocalConversationStoreForTests,
-    } = await import("./local-conversation-store");
-    const {
-      dispatchCodexAppServerMessage,
-    } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
-
-    const manager = new CodexAppServerManager("default");
-    try {
-      const baseConversation: CodexConversationSnapshot = {
-        ...buildConversation("thread-1", "project-1"),
-        turns: [
-          {
-            threadId: "thread-1",
-            turnId: "turn-1",
-            status: "completed",
-            itemIds: ["cmd-1"],
-            items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
-          },
-          {
-            threadId: "thread-1",
-            turnId: "turn-2",
-            status: "inProgress",
-            itemIds: [],
-            items: [],
-          },
-        ],
-      };
-      resumeThreadResult = baseConversation;
-
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
-        hostId: "default",
-        conversationId: "thread-1",
-        version: 1,
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-        sourceClientId: null,
-      });
-      await manager.requestThreadStreamResume("thread-1");
-      invokeRecords = [];
-      dispatchCodexAppServerMessage("thread-owner-notification", {
-        hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        sequence: 1,
-        params: {
-          threadId: "thread-1",
-          itemId: "cmd-1",
-          delta: "nullable output\n",
-        },
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 70));
-
-      const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
-      const publishRecords = invokeRecords.filter((record) =>
-        record.channel === "codex:thread-owner:stream-state:publish"
-      );
-      const ackRecord = invokeRecords.find((record) =>
-        record.channel === "codex:thread-owner:notification:ack"
-      );
-      const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
-
-      expect(item?.aggregatedOutput).toBe("nullable output\n");
-      expect(item?.toolCall).toBeUndefined();
-      expect(String(publishRecords.length)).toBe("0");
-      expect(ackInput?.sequence).toBe(1);
-    } finally {
-      resumeThreadResult = null;
-      manager.destroy();
-    }
-  });
 
   test("owner fileChange patchUpdated preserves terminal raw state and view timestamps", async () => {
     invokeCalls = [];
@@ -9882,7 +9876,7 @@ describe("local-conversation-store", () => {
       const rawExtension = { source: "fixture-extension" };
       const existingChanges = [{
         path: "src/old.ts",
-        kind: { type: "update" as const },
+        kind: { type: "update" as const, move_path: null },
         diff: "old diff",
       }];
       const existingItem: CodexConversationItem = {
@@ -9943,18 +9937,20 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       const changes = [{
         path: "src/app.ts",
-        kind: { type: "update" as const },
+        kind: { type: "update" as const, move_path: null },
         diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
       }];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/fileChange/patchUpdated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "patch-live",
-          changes,
+        notification: {
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "patch-live",
+            changes,
+          },
         },
       });
       await flushAsyncWork();
@@ -10048,13 +10044,15 @@ describe("local-conversation-store", () => {
       const changes: never[] = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/fileChange/patchUpdated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "shared-item",
-          changes,
+        notification: {
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "shared-item",
+            changes,
+          },
         },
       });
       await flushAsyncWork();
@@ -10141,16 +10139,18 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          startedAtMs: 100,
-          item: {
-            id: "target",
-            type: "enteredReviewMode",
-            review: "Review target",
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            startedAtMs: 100,
+            item: {
+              id: "target",
+              type: "enteredReviewMode",
+              review: "Review target",
+            },
           },
         },
       });
@@ -10160,13 +10160,15 @@ describe("local-conversation-store", () => {
       const liveChanges: never[] = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/fileChange/patchUpdated",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "target",
-          changes: liveChanges,
+        notification: {
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "target",
+            changes: liveChanges,
+          },
         },
       });
       await flushAsyncWork();
@@ -10195,21 +10197,25 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          completedAtMs: 150,
-          item: {
-            id: "target",
-            type: "fileChange",
-            status: "completed",
-            changes: [{
-              path: "src/final.ts",
-              kind: { type: "add" },
-              diff: "",
-            }],
+        notification: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            completedAtMs: 150,
+            item: {
+              id: "target",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "src/final.ts",
+                  kind: { type: "add" },
+                  diff: "",
+                },
+              ],
+            },
           },
         },
       });
@@ -10275,17 +10281,21 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/fileChange/patchUpdated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-real",
-          itemId: "patch-live",
-          changes: [{
-            path: "poem.md",
-            kind: { type: "add" },
-            diff: "",
-          }],
+        notification: {
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-real",
+            itemId: "patch-live",
+            changes: [
+              {
+                path: "poem.md",
+                kind: { type: "add" },
+                diff: "",
+              },
+            ],
+          },
         },
       });
       await flushAsyncWork();
@@ -10356,13 +10366,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/fileChange/patchUpdated",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-missing",
-          itemId: "patch-missing",
-          changes: [],
+        notification: {
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-missing",
+            itemId: "patch-missing",
+            changes: [],
+          },
         },
       });
       await flushAsyncWork();
@@ -10432,13 +10444,15 @@ describe("local-conversation-store", () => {
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/mcpToolCall/progress",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-real",
-          itemId: "mcp-not-yet-started",
-          message: "Connecting",
+        notification: {
+          method: "item/mcpToolCall/progress",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-real",
+            itemId: "mcp-not-yet-started",
+            message: "Connecting",
+          },
         },
       });
       await flushAsyncWork(4);
@@ -11068,16 +11082,21 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-owner-start",
-          item: {
-            id: "server-user-echo",
-            type: "userMessage",
-            clientId,
-            content: [{ type: "text", text: "Edited prompt", text_elements: [] }],
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-owner-start",
+            item: {
+              id: "server-user-echo",
+              type: "userMessage",
+              clientId,
+              content: [
+                { type: "text", text: "Edited prompt", text_elements: [] },
+              ],
+            },
           },
         },
       });
@@ -11088,16 +11107,21 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-owner-start",
-          item: {
-            id: "server-user-echo",
-            type: "userMessage",
-            clientId,
-            content: [{ type: "text", text: "Edited prompt", text_elements: [] }],
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-owner-start",
+            item: {
+              id: "server-user-echo",
+              type: "userMessage",
+              clientId,
+              content: [
+                { type: "text", text: "Edited prompt", text_elements: [] },
+              ],
+            },
           },
         },
       });
@@ -11113,17 +11137,20 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/started",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-owner-start",
-          item: {
-            id: "assistant-streaming",
-            type: "agentMessage",
-            text: "",
-            phase: null,
-            memoryCitation: null,
+        notification: {
+          method: "item/started",
+          params: {
+            startedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-owner-start",
+            item: {
+              id: "assistant-streaming",
+              type: "agentMessage",
+              text: "",
+              phase: null,
+              memoryCitation: null,
+            },
           },
         },
       });
@@ -11174,56 +11201,74 @@ describe("local-conversation-store", () => {
 
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "turn/started",
           sequence: 1,
-          params: {
-            threadId: "thread-1",
-            turn: { id: "turn-owner-start", status: "inProgress" },
+          notification: {
+            method: "turn/started",
+            params: {
+              threadId: "thread-1",
+              turn: buildProtocolTurn({
+                id: "turn-owner-start",
+                status: "inProgress",
+              }),
+            },
           },
         });
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/started",
           sequence: 2,
-          params: {
-            threadId: "thread-1",
-            turnId: "turn-owner-start",
-            item: {
-              id: "server-user-echo",
-              type: "userMessage",
-              clientId,
-              content: [{ type: "text", text: "Racing prompt", text_elements: [] }],
+          notification: {
+            method: "item/started",
+            params: {
+              startedAtMs: 1,
+              threadId: "thread-1",
+              turnId: "turn-owner-start",
+              item: {
+                id: "server-user-echo",
+                type: "userMessage",
+                clientId,
+                content: [
+                  { type: "text", text: "Racing prompt", text_elements: [] },
+                ],
+              },
             },
           },
         });
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/started",
           sequence: 3,
-          params: {
-            threadId: "thread-1",
-            turnId: "turn-owner-start",
-            item: {
-              id: "assistant-streaming",
-              type: "agentMessage",
-              text: "",
-              phase: null,
-              memoryCitation: null,
+          notification: {
+            method: "item/started",
+            params: {
+              startedAtMs: 1,
+              threadId: "thread-1",
+              turnId: "turn-owner-start",
+              item: {
+                id: "assistant-streaming",
+                type: "agentMessage",
+                text: "",
+                phase: null,
+                memoryCitation: null,
+              },
             },
           },
         });
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          method: "item/completed",
           sequence: 4,
-          params: {
-            threadId: "thread-1",
-            turnId: "turn-owner-start",
-            item: {
-              id: "server-user-echo",
-              type: "userMessage",
-              clientId,
-              content: [{ type: "text", text: "Racing prompt", text_elements: [] }],
+          notification: {
+            method: "item/completed",
+            params: {
+              completedAtMs: 1,
+              threadId: "thread-1",
+              turnId: "turn-owner-start",
+              item: {
+                id: "server-user-echo",
+                type: "userMessage",
+                clientId,
+                content: [
+                  { type: "text", text: "Racing prompt", text_elements: [] },
+                ],
+              },
             },
           },
         });
@@ -11576,8 +11621,8 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const approvalAccepted = await manager.respondApproval("approval-1", "command", "decline");
-      const fileApprovalAccepted = await manager.respondApproval("file-approval-1", "file", "decline");
+      const approvalAccepted = await manager.respondApproval("approval-1", { kind: "command", decision: "decline" });
+      const fileApprovalAccepted = await manager.respondApproval("file-approval-1", { kind: "file", decision: "decline" });
       const inputAccepted = await manager.respondUserInput("input-1", { q1: ["A"] });
       const mcpAccepted = await manager.respondMcpElicitation("mcp-1", "decline");
       const permissionAccepted = await manager.respondPermissionRequest("permission-1", {
@@ -11592,10 +11637,9 @@ describe("local-conversation-store", () => {
             type?: string;
             conversationId?: string;
             requestId?: string;
-            kind?: "command" | "file";
-            decision?: string;
+            approvalResponse?: { kind?: "command" | "file"; decision?: string };
             answers?: Record<string, string[]>;
-            response?: { action?: string; scope?: string };
+            response?: { action?: string; scope?: string; kind?: "command" | "file"; decision?: string };
           };
       });
       expect(approvalAccepted).toBe(true);
@@ -11607,12 +11651,12 @@ describe("local-conversation-store", () => {
       expect(followerActions[0]?.action?.type).toBe("respondApproval");
       expect(followerActions[0]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[0]?.action?.requestId).toBe("approval-1");
-      expect(followerActions[0]?.action?.kind).toBe("command");
-      expect(followerActions[0]?.action?.decision).toBe("decline");
+      expect(followerActions[0]?.action?.response?.kind).toBe("command");
+      expect(followerActions[0]?.action?.response?.decision).toBe("decline");
       expect(followerActions[1]?.action?.type).toBe("respondApproval");
       expect(followerActions[1]?.action?.requestId).toBe("file-approval-1");
-      expect(followerActions[1]?.action?.kind).toBe("file");
-      expect(followerActions[1]?.action?.decision).toBe("decline");
+      expect(followerActions[1]?.action?.response?.kind).toBe("file");
+      expect(followerActions[1]?.action?.response?.decision).toBe("decline");
       expect(followerActions[2]?.action?.type).toBe("respondUserInput");
       expect(followerActions[2]?.action?.requestId).toBe("input-1");
       expect(followerActions[2]?.action?.answers?.q1?.[0]).toBe("A");
@@ -11666,12 +11710,7 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const approvalAccepted = await manager.respondApproval(
-        "approval-missed",
-        "command",
-        "decline",
-        "thread-1",
-      );
+      const approvalAccepted = await manager.respondApproval("approval-missed", { kind: "command", decision: "decline" }, "thread-1");
       const inputAccepted = await manager.respondUserInput("input-missed", { q1: ["A"] }, "thread-1");
       const mcpAccepted = await manager.respondMcpElicitation("mcp-missed", "decline", "thread-1");
       const permissionAccepted = await manager.respondPermissionRequest("permission-missed", {
@@ -11687,9 +11726,8 @@ describe("local-conversation-store", () => {
             type?: string;
             conversationId?: string;
             requestId?: string;
-            decision?: string;
             answers?: Record<string, string[]>;
-            response?: { action?: string; scope?: string };
+            response?: { action?: string; scope?: string; decision?: string };
           };
         });
 
@@ -11702,7 +11740,7 @@ describe("local-conversation-store", () => {
       expect(followerActions[0]?.action?.type).toBe("respondApproval");
       expect(followerActions[0]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[0]?.action?.requestId).toBe("approval-missed");
-      expect(followerActions[0]?.action?.decision).toBe("decline");
+      expect(followerActions[0]?.action?.response?.decision).toBe("decline");
       expect(followerActions[1]?.action?.type).toBe("respondUserInput");
       expect(followerActions[1]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[1]?.action?.requestId).toBe("input-missed");
@@ -11819,12 +11857,7 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const approvalAccepted = await manager.respondApproval(
-        "approval-1",
-        "command",
-        "decline",
-        "thread-1",
-      );
+      const approvalAccepted = await manager.respondApproval("approval-1", { kind: "command", decision: "decline" }, "thread-1");
       const inputAccepted = await manager.respondUserInput("input-1", { q1: ["A"] }, "thread-1");
       const mcpAccepted = await manager.respondMcpElicitation("mcp-1", "decline", "thread-1");
       const permissionAccepted = await manager.respondPermissionRequest("permission-1", {
@@ -12054,17 +12087,19 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/completed",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-plan",
-            status: "completed",
-            error: null,
-            startedAt: 1,
-            completedAt: 2,
-            durationMs: 1_000,
+        notification: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-plan",
+              status: "completed",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1_000,
+            }),
           },
         },
       });
@@ -12109,17 +12144,19 @@ describe("local-conversation-store", () => {
       const firstCanonicalPlanRequest = canonicalPlanRequest;
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/completed",
         sequence: 2,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-plan",
-            status: "completed",
-            error: null,
-            startedAt: 1,
-            completedAt: 2,
-            durationMs: 1_000,
+        notification: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-plan",
+              status: "completed",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1_000,
+            }),
           },
         },
       });
@@ -12142,15 +12179,18 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 3,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-plan",
-          item: {
-            id: "plan-whitespace",
-            type: "plan",
-            text: "  \n\t ",
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-plan",
+            item: {
+              id: "plan-whitespace",
+              type: "plan",
+              text: "  \n\t ",
+            },
           },
         },
       });
@@ -12164,17 +12204,19 @@ describe("local-conversation-store", () => {
       );
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/completed",
         sequence: 4,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-plan",
-            status: "completed",
-            error: null,
-            startedAt: 1,
-            completedAt: 2,
-            durationMs: 1_000,
+        notification: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-plan",
+              status: "completed",
+              error: null,
+              startedAt: 1,
+              completedAt: 2,
+              durationMs: 1_000,
+            }),
           },
         },
       });
@@ -12200,17 +12242,19 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/started",
         sequence: 5,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-next",
-            status: "inProgress",
-            error: null,
-            startedAt: 3,
-            completedAt: null,
-            durationMs: null,
+        notification: {
+          method: "turn/started",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-next",
+              status: "inProgress",
+              error: null,
+              startedAt: 3,
+              completedAt: null,
+              durationMs: null,
+            }),
           },
         },
       });
@@ -13042,11 +13086,13 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "thread/status/changed",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          status: { type: "idle" },
+        notification: {
+          method: "thread/status/changed",
+          params: {
+            threadId: "thread-1",
+            status: { type: "idle" },
+          },
         },
       });
 
@@ -14910,13 +14956,15 @@ describe("local-conversation-store", () => {
       );
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/started",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-new",
-            status: "inProgress",
+        notification: {
+          method: "turn/started",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-new",
+              status: "inProgress",
+            }),
           },
         },
       });
@@ -15032,13 +15080,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/agentMessage/delta",
         sequence: 7,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-active",
-          itemId: "assistant-active",
-          delta: "after removal",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-active",
+            itemId: "assistant-active",
+            delta: "after removal",
+          },
         },
       });
       animationFrameCallbacks.shift()?.(16);
@@ -15150,16 +15200,21 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "item/completed",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-new",
-          item: {
-            id: "user-real",
-            type: "userMessage",
-            clientId: null,
-            content: [{ type: "text", text: "Changed prompt", text_elements: [] }],
+        notification: {
+          method: "item/completed",
+          params: {
+            completedAtMs: 1,
+            threadId: "thread-1",
+            turnId: "turn-new",
+            item: {
+              id: "user-real",
+              type: "userMessage",
+              clientId: null,
+              content: [
+                { type: "text", text: "Changed prompt", text_elements: [] },
+              ],
+            },
           },
         },
       });
@@ -15224,13 +15279,15 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "turn/completed",
         sequence: 1,
-        params: {
-          threadId: "thread-1",
-          turn: {
-            id: "turn-1",
-            status: "completed",
+        notification: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: buildProtocolTurn({
+              id: "turn-1",
+              status: "completed",
+            }),
           },
         },
       });
@@ -15281,22 +15338,26 @@ describe("local-conversation-store", () => {
       });
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          delta: "1340 ",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        delta: "1340 ",
+      },
         },
       });
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          delta: "pass\n",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        delta: "pass\n",
+      },
         },
       });
 
@@ -15351,12 +15412,14 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thread-2",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          delta: "target output\n",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+        threadId: "thread-2",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        delta: "target output\n",
+      },
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -15411,12 +15474,14 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thread-1",
-          turnId: "stale-turn-id",
-          itemId: "shared",
-          delta: "exact command output\n",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+        threadId: "thread-1",
+        turnId: "stale-turn-id",
+        itemId: "shared",
+        delta: "exact command output\n",
+      },
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -15469,12 +15534,14 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-missing",
-          delta: "dropped\n",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-missing",
+        delta: "dropped\n",
+      },
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -15524,12 +15591,14 @@ describe("local-conversation-store", () => {
 
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          itemId: "cmd-1",
-          delta: "single append\n",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        delta: "single append\n",
+      },
         },
       });
       dispatchCodexAppServerMessage("thread-stream-state-changed", {

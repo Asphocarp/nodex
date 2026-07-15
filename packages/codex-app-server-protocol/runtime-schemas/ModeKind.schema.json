@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {},
+  "description": "Initial collaboration mode to use when the TUI starts.",
+  "enum": [
+    "plan",
+    "default"
+  ],
+  "title": "ModeKind",
+  "type": "string"
+}

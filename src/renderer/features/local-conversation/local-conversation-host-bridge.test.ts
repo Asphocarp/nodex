@@ -110,11 +110,9 @@ describe("local conversation host bridge", () => {
   test("dispatches owner-only thread notifications onto the app-server message bus", async () => {
     const received: Array<{ method: string; sequence: number; delta: string | null }> = [];
     const unsubscribe = subscribeCodexAppServerMessage("thread-owner-notification", (event) => {
-      const params = typeof event.params === "object" && event.params !== null
-        ? event.params as { delta?: unknown }
-        : null;
+      const params = event.notification.params as { delta?: unknown };
       received.push({
-        method: event.method,
+        method: event.notification.method,
         sequence: event.sequence,
         delta: typeof params?.delta === "string" ? params.delta : null,
       });
@@ -125,13 +123,15 @@ describe("local conversation host bridge", () => {
     hostMessageListener?.({
       type: "threadOwnerNotification",
       hostId: "default",
-      method: "item/agentMessage/delta",
       sequence: 7,
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "assistant-1",
-        delta: "hello",
+      notification: {
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "assistant-1",
+          delta: "hello",
+        },
       },
     });
 

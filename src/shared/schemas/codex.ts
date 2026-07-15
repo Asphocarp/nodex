@@ -1,4 +1,13 @@
+import modeKindJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ModeKind.schema.json";
+import reasoningEffortJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json";
+import threadActiveFlagJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadActiveFlag.schema.json";
+import threadGoalJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadGoal.schema.json";
+import threadGoalStatusJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadGoalStatus.schema.json";
+import threadStatusJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadStatus.schema.json";
+import threadTokenUsageJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadTokenUsage.schema.json";
+import tokenUsageBreakdownJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/TokenUsageBreakdown.schema.json";
 import { z } from "zod";
+import type { ThreadGoal, ThreadGoalStatus } from "@nodex/codex-app-server-protocol/v2";
 import type {
   CodexCollaborationModeKind,
   CodexPermissionMode,
@@ -7,29 +16,20 @@ import type {
   CodexThreadActiveFlag,
   CodexThreadDetailLevel,
   CodexThreadSettings,
+  CodexThreadRuntimeStatus,
   CodexThreadStatusType,
   CodexTokenUsageBreakdown,
 } from "../types";
+import {
+  createGeneratedCodexSchema,
+  createGeneratedCodexStringDiscriminatorSchema,
+} from "../generated-codex-schema";
 
 export const CodexUnknownRecordSchema = z.record(z.string(), z.unknown());
 
-const FiniteNumberSchema = z.number().finite();
-
-function parseFiniteNumber(value: unknown): number | null {
-  const parsed = FiniteNumberSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
-export const CodexReasoningEffortSchema = z.enum([
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-]) satisfies z.ZodType<CodexReasoningEffort>;
+export const CodexReasoningEffortSchema = createGeneratedCodexSchema<CodexReasoningEffort>(
+  reasoningEffortJsonSchema,
+);
 
 export const CodexThreadDetailLevelSchema = z.enum([
   "STEPS_PROSE",
@@ -37,10 +37,9 @@ export const CodexThreadDetailLevelSchema = z.enum([
   "STEPS_EXECUTION",
 ]) satisfies z.ZodType<CodexThreadDetailLevel>;
 
-export const CodexCollaborationModeKindSchema = z.enum([
-  "default",
-  "plan",
-]) satisfies z.ZodType<CodexCollaborationModeKind>;
+export const CodexCollaborationModeKindSchema = createGeneratedCodexSchema<CodexCollaborationModeKind>(
+  modeKindJsonSchema,
+);
 
 export const CodexPermissionModeSchema = z.enum([
   "auto",
@@ -49,79 +48,41 @@ export const CodexPermissionModeSchema = z.enum([
   "custom",
 ]) satisfies z.ZodType<CodexPermissionMode>;
 
-export const CodexThreadStatusTypeSchema = z.enum([
-  "notLoaded",
-  "idle",
-  "systemError",
-  "active",
-]) satisfies z.ZodType<CodexThreadStatusType>;
+export const CodexThreadStatusTypeSchema = createGeneratedCodexStringDiscriminatorSchema<CodexThreadStatusType>(
+  threadStatusJsonSchema,
+  "type",
+);
 
-export const CodexThreadActiveFlagSchema = z.enum([
-  "waitingOnApproval",
-  "waitingOnUserInput",
-]) satisfies z.ZodType<CodexThreadActiveFlag>;
+export const CodexThreadStatusSchema = createGeneratedCodexSchema<CodexThreadRuntimeStatus>(
+  threadStatusJsonSchema,
+);
 
-const NonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).pipe(z.string().min(1));
+export const CodexThreadActiveFlagSchema = createGeneratedCodexSchema<CodexThreadActiveFlag>(
+  threadActiveFlagJsonSchema,
+);
 
-export const CodexTokenUsageBreakdownSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
-  const totalTokens = parseFiniteNumber(value.totalTokens ?? value.total_tokens);
-  const inputTokens = parseFiniteNumber(value.inputTokens ?? value.input_tokens);
-  const cachedInputTokens = parseFiniteNumber(value.cachedInputTokens ?? value.cached_input_tokens);
-  const outputTokens = parseFiniteNumber(value.outputTokens ?? value.output_tokens);
-  const reasoningOutputTokens = parseFiniteNumber(
-    value.reasoningOutputTokens ?? value.reasoning_output_tokens,
-  );
+export const CodexThreadGoalSchema = createGeneratedCodexSchema<ThreadGoal>(
+  threadGoalJsonSchema,
+);
 
-  if (
-    totalTokens === null ||
-    inputTokens === null ||
-    cachedInputTokens === null ||
-    outputTokens === null ||
-    reasoningOutputTokens === null
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Invalid token usage breakdown",
-    });
-    return z.NEVER;
-  }
+export const CodexThreadGoalStatusSchema = createGeneratedCodexSchema<ThreadGoalStatus>(
+  threadGoalStatusJsonSchema,
+);
 
-  return {
-    totalTokens,
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    reasoningOutputTokens,
-  } satisfies CodexTokenUsageBreakdown;
-}) satisfies z.ZodType<CodexTokenUsageBreakdown>;
+export const CodexTokenUsageBreakdownSchema = createGeneratedCodexSchema<CodexTokenUsageBreakdown>(
+  tokenUsageBreakdownJsonSchema,
+);
 
-export const CodexThreadTokenUsageSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
-  const total = CodexTokenUsageBreakdownSchema.safeParse(value.total ?? value.total_token_usage);
-  const last = CodexTokenUsageBreakdownSchema.safeParse(value.last ?? value.last_token_usage);
-  if (!total.success || !last.success) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Invalid thread token usage",
-    });
-    return z.NEVER;
-  }
-
-  const modelContextWindow = value.modelContextWindow ?? value.model_context_window;
-  const normalizedModelContextWindow = modelContextWindow === null
-    ? null
-    : parseFiniteNumber(modelContextWindow);
-
-  return {
-    total: total.data,
-    last: last.data,
-    modelContextWindow: normalizedModelContextWindow,
-  } satisfies CodexThreadTokenUsage;
-}) satisfies z.ZodType<CodexThreadTokenUsage>;
+export const CodexThreadTokenUsageSchema = createGeneratedCodexSchema<CodexThreadTokenUsage>(
+  threadTokenUsageJsonSchema,
+);
 
 export function parseCodexThreadTokenUsage(value: unknown): CodexThreadTokenUsage | undefined {
   const parsed = CodexThreadTokenUsageSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
+
+const NonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).pipe(z.string().min(1));
 
 export const CodexThreadSettingsSchema = z.record(z.string(), z.unknown()).transform((value) => {
   const next: CodexThreadSettings = {};

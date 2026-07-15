@@ -6,6 +6,7 @@ import type {
   Card,
   Project,
   ProjectSession,
+  ProjectSessionThreadLink,
   ProjectSessionTab,
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
@@ -429,7 +430,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     };
   }
 
-  const thread = args.thread === "attached"
+  const thread: ProjectSessionThreadLink | null = args.thread === "attached"
     ? {
         sessionId: "session:database-view",
         projectId: "nodex",

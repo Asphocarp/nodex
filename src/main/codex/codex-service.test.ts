@@ -7,7 +7,7 @@ import type {
   CodexBackgroundProcessRow,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexAgentMode,
-  CodexApprovalDecision,
+  CodexApprovalResponse,
   CodexApprovalKind,
   CodexConversationSnapshot,
   CodexCanonicalConversationState,
@@ -59,6 +59,12 @@ import type {
   Turn,
   TurnStartParams,
 } from "@nodex/codex-app-server-protocol/v2";
+import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
+
+type CodexTestServerNotification = {
+  method: CodexServerNotification["method"];
+  params: unknown;
+};
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import type {
   CodexPendingWorktreeCreateInput,
@@ -858,7 +864,7 @@ function createService(options?: {
       threadGoalResumeConfirmation: ThreadGoal | null;
     } | null;
     setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-    handleNotification: (method: string, params: unknown, options?: unknown) => Promise<void>;
+    handleNotification: (notification: CodexTestServerNotification, options?: unknown) => Promise<void>;
     handleServerRequest: (request: { method?: unknown; params?: unknown }) => Promise<unknown>;
     isConversationArchived: (threadId: string) => boolean;
     upsertPlanImplementationRequest: (
@@ -1005,7 +1011,8 @@ function createService(options?: {
     };
   };
   const handleNotification = internals.handleNotification.bind(service);
-  internals.handleNotification = async (method, params, handleOptions) => {
+  internals.handleNotification = async (notification, handleOptions) => {
+    const { method, params } = notification;
     const requiresFullCanonicalSync =
       method === "item/started"
       || method === "item/completed"
@@ -1019,8 +1026,6 @@ function createService(options?: {
       || method === "item/mcpToolCall/progress";
     const isTurnMetadata = method === "turn/started"
       || method === "turn/completed"
-      || method === "turn/interrupted"
-      || method === "turn/failed"
       || method === "turn/diff/updated"
       || method === "turn/plan/updated"
       || method === "model/safetyBuffering/updated"
@@ -1043,10 +1048,17 @@ function createService(options?: {
         ? (params as { threadId?: unknown }).threadId
         : null;
       if (typeof threadId === "string") {
-        const turnId = typeof params === "object" && params !== null
-          && typeof (params as { turnId?: unknown }).turnId === "string"
-          ? (params as { turnId: string }).turnId
+        const paramsRecord = typeof params === "object" && params !== null
+          ? params as { turnId?: unknown; turn?: unknown }
           : null;
+        const turnRecord = typeof paramsRecord?.turn === "object" && paramsRecord.turn !== null
+          ? paramsRecord.turn as { id?: unknown }
+          : null;
+        const turnId = typeof paramsRecord?.turnId === "string"
+          ? paramsRecord.turnId
+          : typeof turnRecord?.id === "string"
+            ? turnRecord.id
+            : null;
         const canonical = internals.getMaybeConversationRecord(threadId)?.canonicalState;
         const hasTurn = turnId === null
           ? (canonical?.turns.length ?? 0) > 0
@@ -1056,7 +1068,7 @@ function createService(options?: {
         }
       }
     }
-    await handleNotification(method, params, handleOptions);
+    await handleNotification(notification, handleOptions);
   };
   const handleServerRequest = internals.handleServerRequest.bind(service);
   internals.handleServerRequest = async (request) => {
@@ -1804,8 +1816,7 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       handleNotification: (
-        method: string,
-        params: unknown,
+        notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
       resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
@@ -1819,149 +1830,195 @@ describe("codex-service renderer owner stream publishing", () => {
         statusType: "active",
       });
 
-      await serviceInternals.handleNotification("thread/tokenUsage/updated", {
-        threadId: "thread-owner-migrated",
-        tokenUsage: {
-          total: {
-            totalTokens: 100,
-            inputTokens: 60,
-            cachedInputTokens: 10,
-            outputTokens: 40,
-            reasoningOutputTokens: 15,
+      await serviceInternals.handleNotification({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-owner-migrated",
+          tokenUsage: {
+            total: {
+              totalTokens: 100,
+              inputTokens: 60,
+              cachedInputTokens: 10,
+              outputTokens: 40,
+              reasoningOutputTokens: 15,
+            },
+            last: {
+              totalTokens: 20,
+              inputTokens: 12,
+              cachedInputTokens: 2,
+              outputTokens: 8,
+              reasoningOutputTokens: 3,
+            },
+            modelContextWindow: 128000,
           },
-          last: {
-            totalTokens: 20,
-            inputTokens: 12,
-            cachedInputTokens: 2,
-            outputTokens: 8,
-            reasoningOutputTokens: 3,
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "turn/plan/updated",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          explanation: "Plan",
+          plan: [{ step: "Patch owner reducer", status: "completed" }],
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "model/safetyBuffering/updated",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          model: "gpt-5.4-codex",
+          useCases: ["latency"],
+          reasons: ["warming"],
+          showBufferingUi: true,
+          fasterModel: "gpt-5.4-mini",
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "model/rerouted",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          fromModel: "gpt-5.4-codex",
+          toModel: "gpt-5.4-mini",
+          reason: "highRiskCyberActivity",
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "hook/started",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          run: {
+            id: "hook-run-1",
+            eventName: "preToolUse",
+            status: "running",
+            statusMessage: "Preparing context",
+            entries: [{ kind: "context", text: "Added AGENTS.md" }],
           },
-          modelContextWindow: 128000,
         },
       });
-      await serviceInternals.handleNotification("turn/plan/updated", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        explanation: "Plan",
-        plan: [{ step: "Patch owner reducer", status: "completed" }],
-      });
-      await serviceInternals.handleNotification("model/safetyBuffering/updated", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        model: "gpt-5.4-codex",
-        useCases: ["latency"],
-        reasons: ["warming"],
-        showBufferingUi: true,
-        fasterModel: "gpt-5.4-mini",
-      });
-      await serviceInternals.handleNotification("model/rerouted", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        fromModel: "gpt-5.4-codex",
-        toModel: "gpt-5.4-mini",
-        reason: "highRiskCyberActivity",
-      });
-      await serviceInternals.handleNotification("hook/started", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        run: {
-          id: "hook-run-1",
-          eventName: "preToolUse",
-          status: "running",
-          statusMessage: "Preparing context",
-          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+      await serviceInternals.handleNotification({
+        method: "hook/completed",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          run: {
+            id: "hook-run-1",
+            eventName: "preToolUse",
+            status: "completed",
+            statusMessage: "Preparing context",
+            entries: [{ kind: "context", text: "Added AGENTS.md" }],
+          },
         },
       });
-      await serviceInternals.handleNotification("hook/completed", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        run: {
-          id: "hook-run-1",
-          eventName: "preToolUse",
-          status: "completed",
-          statusMessage: "Preparing context",
-          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+      await serviceInternals.handleNotification({
+        method: "item/autoApprovalReview/started",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          reviewId: "review-1",
+          targetItemId: "item-command-1",
+          review: {
+            status: "inProgress",
+            riskLevel: "medium",
+            userAuthorization: "unknown",
+            rationale: null,
+          },
+          action: {
+            type: "command",
+            source: "shell",
+            command: "bun test",
+            cwd: "/tmp/project",
+          },
         },
       });
-      await serviceInternals.handleNotification("item/autoApprovalReview/started", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        reviewId: "review-1",
-        targetItemId: "item-command-1",
-        review: {
-          status: "inProgress",
-          riskLevel: "medium",
-          userAuthorization: "unknown",
-          rationale: null,
-        },
-        action: {
-          type: "command",
-          source: "shell",
-          command: "bun test",
-          cwd: "/tmp/project",
-        },
-      });
-      await serviceInternals.handleNotification("item/autoApprovalReview/completed", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        reviewId: "review-1",
-        targetItemId: "item-command-1",
-        decisionSource: "agent",
-        review: {
-          status: "approved",
-          riskLevel: "low",
-          userAuthorization: "low",
-          rationale: "This only runs tests.",
-        },
-        action: {
-          type: "command",
-          source: "shell",
-          command: "bun test",
-          cwd: "/tmp/project",
+      await serviceInternals.handleNotification({
+        method: "item/autoApprovalReview/completed",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          reviewId: "review-1",
+          targetItemId: "item-command-1",
+          decisionSource: "agent",
+          review: {
+            status: "approved",
+            riskLevel: "low",
+            userAuthorization: "low",
+            rationale: "This only runs tests.",
+          },
+          action: {
+            type: "command",
+            source: "shell",
+            command: "bun test",
+            cwd: "/tmp/project",
+          },
         },
       });
-      await serviceInternals.handleNotification("guardianWarning", {
-        threadId: "thread-owner-migrated",
-        kind: "tooManyDenials",
-        message: "Automatic approval review rejected too many approval requests for this turn.",
-      });
-      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        itemId: "reasoning-1",
-        summaryIndex: 1,
-      });
-      await serviceInternals.handleNotification("item/fileChange/outputDelta", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        itemId: "patch-legacy-output",
-        delta: "legacy apply_patch output",
-      });
-      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        itemId: "exec-1",
-        processId: "proc-1",
-        stdin: "bun test\n",
-      });
-      await serviceInternals.handleNotification("item/mcpToolCall/progress", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        itemId: "mcp-call-1",
-        message: "Searching docs",
-      });
-      await serviceInternals.handleNotification("error", {
-        threadId: "thread-owner-migrated",
-        turnId: "thread-owner-migrated-turn",
-        error: {
-          message: "Tool failed",
-          additionalDetails: "exit 1",
+      await serviceInternals.handleNotification({
+        method: "guardianWarning",
+        params: {
+          threadId: "thread-owner-migrated",
+          kind: "tooManyDenials",
+          message:
+            "Automatic approval review rejected too many approval requests for this turn.",
         },
-        willRetry: false,
       });
-      await serviceInternals.handleNotification("serverRequest/resolved", {
-        threadId: "thread-owner-migrated",
-        requestId: "request-1",
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/summaryPartAdded",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          itemId: "reasoning-1",
+          summaryIndex: 1,
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "item/fileChange/outputDelta",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          itemId: "patch-legacy-output",
+          delta: "legacy apply_patch output",
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          itemId: "exec-1",
+          processId: "proc-1",
+          stdin: "bun test\n",
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "item/mcpToolCall/progress",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          itemId: "mcp-call-1",
+          message: "Searching docs",
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "error",
+        params: {
+          threadId: "thread-owner-migrated",
+          turnId: "thread-owner-migrated-turn",
+          error: {
+            message: "Tool failed",
+            additionalDetails: "exit 1",
+          },
+          willRetry: false,
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId: "thread-owner-migrated",
+          requestId: "request-1",
+        },
       });
 
       const methods = ownerMessages
@@ -1969,7 +2026,7 @@ describe("codex-service renderer owner stream publishing", () => {
         .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
           message.type === "threadOwnerNotification"
         )
-        .map((message) => message.method)
+        .map((message) => message.notification.method)
         .join(",");
 
       expect(methods).toBe(
@@ -2019,8 +2076,7 @@ describe("codex-service renderer owner stream publishing", () => {
     const serviceInternals = service as unknown as {
       forwardNotificationToRendererOwnerForConversation: (
         conversationId: string,
-        method: string,
-        params: unknown,
+        notification: CodexTestServerNotification,
       ) => boolean;
     };
 
@@ -2029,11 +2085,13 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const accepted = serviceInternals.forwardNotificationToRendererOwnerForConversation(
         "thread-started-owner",
-        "thread/started",
         {
-          thread: {
-            id: "thread-started-owner",
-            preview: "Started from owner route",
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thread-started-owner",
+              preview: "Started from owner route",
+            },
           },
         },
       );
@@ -2043,8 +2101,8 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
       expect(ownerNotification?.type).toBe("threadOwnerNotification");
       if (ownerNotification?.type === "threadOwnerNotification") {
-        expect(ownerNotification.method).toBe("thread/started");
-        const params = ownerNotification.params as { thread?: { id?: string } };
+        expect(ownerNotification.notification.method).toBe("thread/started");
+        const params = ownerNotification.notification.params as { thread?: { id?: string } };
         expect(params.thread?.id).toBe("thread-started-owner");
       }
     } finally {
@@ -2070,23 +2128,26 @@ describe("codex-service renderer owner stream publishing", () => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
       service.setRendererConversationOwner("thread-owner", "owner-a");
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thread-owner",
-        turnId: "turn-1",
-        itemId: "assistant-1",
-        delta: "hello",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-owner",
+          turnId: "turn-1",
+          itemId: "assistant-1",
+          delta: "hello",
+        },
       });
 
       expect(String(ownerMessages.length)).toBe("1");
       expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
       expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
       if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[0].message.method).toBe("item/agentMessage/delta");
+        expect(ownerMessages[0].message.notification.method).toBe("item/agentMessage/delta");
         expect(ownerMessages[0].message.sequence).toBe(1);
       }
       expect(String(hostMessages.length)).toBe("0");
@@ -2105,7 +2166,7 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
@@ -2115,24 +2176,27 @@ describe("codex-service renderer owner stream publishing", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("thread/tokenUsage/updated", {
-        threadId: "thread-token-usage",
-        tokenUsage: {
-          total: {
-            totalTokens: 120,
-            inputTokens: 80,
-            cachedInputTokens: 10,
-            outputTokens: 40,
-            reasoningOutputTokens: 15,
+      await serviceInternals.handleNotification({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-token-usage",
+          tokenUsage: {
+            total: {
+              totalTokens: 120,
+              inputTokens: 80,
+              cachedInputTokens: 10,
+              outputTokens: 40,
+              reasoningOutputTokens: 15,
+            },
+            last: {
+              totalTokens: 30,
+              inputTokens: 20,
+              cachedInputTokens: 5,
+              outputTokens: 10,
+              reasoningOutputTokens: 4,
+            },
+            modelContextWindow: 128000,
           },
-          last: {
-            totalTokens: 30,
-            inputTokens: 20,
-            cachedInputTokens: 5,
-            outputTokens: 10,
-            reasoningOutputTokens: 4,
-          },
-          modelContextWindow: 128000,
         },
       });
 
@@ -2164,7 +2228,7 @@ describe("codex-service renderer owner stream publishing", () => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
@@ -2175,22 +2239,27 @@ describe("codex-service renderer owner stream publishing", () => {
         statusType: "active",
       });
 
-      await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-        threadId: "thread-owner-file-change",
-        turnId: "thread-owner-file-change-turn",
-        itemId: "patch-live",
-        changes: [{
-          path: "src/app.ts",
-          kind: { type: "update", move_path: null },
-          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-        }],
+      await serviceInternals.handleNotification({
+        method: "item/fileChange/patchUpdated",
+        params: {
+          threadId: "thread-owner-file-change",
+          turnId: "thread-owner-file-change-turn",
+          itemId: "patch-live",
+          changes: [
+            {
+              path: "src/app.ts",
+              kind: { type: "update", move_path: null },
+              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+            },
+          ],
+        },
       });
 
       expect(String(ownerMessages.length)).toBe("1");
       expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
       expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
       if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[0].message.method).toBe("item/fileChange/patchUpdated");
+        expect(ownerMessages[0].message.notification.method).toBe("item/fileChange/patchUpdated");
       }
       expect(String(hostMessages.length)).toBe("0");
 
@@ -2209,7 +2278,7 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       applyFileChangePatchUpdate: (
         update: CodexFileChangePatchUpdate,
         suppressConversationSync: boolean,
@@ -2233,13 +2302,16 @@ describe("codex-service renderer owner stream publishing", () => {
         }],
         transcript: [],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId,
-        turnId,
-        item: makeProtocolAgentMessage({
-          id: "assistant-before-patch",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId,
+          turnId,
+          item: makeProtocolAgentMessage({
+            id: "assistant-before-patch",
+            text: "",
+          }),
+        },
       });
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
@@ -2280,7 +2352,7 @@ describe("codex-service renderer owner stream publishing", () => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
@@ -2291,23 +2363,29 @@ describe("codex-service renderer owner stream publishing", () => {
         statusType: "idle",
       });
 
-      await serviceInternals.handleNotification("thread/goal/updated", {
-        threadId: "thread-owner-goal",
-        turnId: null,
-        goal: {
+      await serviceInternals.handleNotification({
+        method: "thread/goal/updated",
+        params: {
           threadId: "thread-owner-goal",
-          objective: "Finish owner parity",
-          status: "active",
-          tokenBudget: 40000,
-          tokensUsed: 12,
-          timeUsedSeconds: 4,
-          createdAt: 100,
-          updatedAt: 101,
+          turnId: null,
+          goal: {
+            threadId: "thread-owner-goal",
+            objective: "Finish owner parity",
+            status: "active",
+            tokenBudget: 40000,
+            tokensUsed: 12,
+            timeUsedSeconds: 4,
+            createdAt: 100,
+            updatedAt: 101,
+          },
         },
       });
 
-      await serviceInternals.handleNotification("thread/goal/cleared", {
-        threadId: "thread-owner-goal",
+      await serviceInternals.handleNotification({
+        method: "thread/goal/cleared",
+        params: {
+          threadId: "thread-owner-goal",
+        },
       });
 
       const methods = ownerMessages
@@ -2315,7 +2393,7 @@ describe("codex-service renderer owner stream publishing", () => {
         .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
           message.type === "threadOwnerNotification"
         )
-        .map((message) => message.method)
+        .map((message) => message.notification.method)
         .join(",");
       expect(methods).toBe("thread/goal/updated,thread/goal/cleared");
       expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
@@ -2338,7 +2416,7 @@ describe("codex-service renderer owner stream publishing", () => {
       };
       getThreadLinkSafely: (threadId: string) => unknown;
       scheduleSidebarThreadListRepair: (notificationMethod: string, threadId: string) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -2380,10 +2458,13 @@ describe("codex-service renderer owner stream publishing", () => {
     };
 
     try {
-      await serviceInternals.handleNotification("thread/goal/updated", {
-        threadId,
-        turnId: null,
-        goal: completedGoal,
+      await serviceInternals.handleNotification({
+        method: "thread/goal/updated",
+        params: {
+          threadId,
+          turnId: null,
+          goal: completedGoal,
+        },
       });
       await waitForCondition(() =>
         requests.filter((request) => request.method === "thread/goal/clear").length === 1,
@@ -2393,20 +2474,26 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(record.completedThreadGoal?.updatedAt).toBe(102);
       expect((requests[0]?.params as { threadId?: string })?.threadId).toBe(threadId);
 
-      await serviceInternals.handleNotification("thread/goal/updated", {
-        threadId,
-        turnId: null,
-        goal: completedGoal,
+      await serviceInternals.handleNotification({
+        method: "thread/goal/updated",
+        params: {
+          threadId,
+          turnId: null,
+          goal: completedGoal,
+        },
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(requests.filter((request) => request.method === "thread/goal/clear").length).toBe(1);
 
-      await serviceInternals.handleNotification("thread/goal/updated", {
-        threadId,
-        turnId: null,
-        goal: {
-          ...completedGoal,
-          updatedAt: 103,
+      await serviceInternals.handleNotification({
+        method: "thread/goal/updated",
+        params: {
+          threadId,
+          turnId: null,
+          goal: {
+            ...completedGoal,
+            updatedAt: 103,
+          },
         },
       });
       await waitForCondition(() =>
@@ -2606,63 +2693,6 @@ describe("codex-service renderer owner stream publishing", () => {
       const snapshot = await service.requestConversationSnapshot("thread-goal-settings");
       expect(snapshot?.turns.length ?? 0).toBe(0);
       expect(snapshot?.canonicalState?.turns.length ?? 0).toBe(0);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("drops item lifecycle notifications without the protocol-required turn id", async () => {
-    const service = createService();
-    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
-    const hostMessages: CodexHostMessage[] = [];
-    service.on("hostMessage", (message) => {
-      if (message.type === "threadStreamStateChanged") {
-        hostMessages.push(message);
-      }
-    });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
-      ownerMessages.push(message);
-    });
-    const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
-    };
-
-    try {
-      service.setRendererConversationOwner("thread-owner-null-turn", "owner-a");
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thread-owner-null-turn",
-        itemId: "assistant-1",
-        delta: "hello",
-      });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thread-owner-null-turn",
-        item: makeProtocolAgentMessage({
-          id: "assistant-1",
-          text: "hello",
-        }),
-      });
-      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-        threadId: "thread-owner-null-turn",
-        itemId: "cmd-1",
-        delta: "output",
-      });
-
-      const methods = ownerMessages
-        .map((message) => message.message)
-        .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
-          message.type === "threadOwnerNotification"
-        )
-        .map((message) => message.method)
-        .join(",");
-
-      expect(methods).toBe("item/agentMessage/delta,item/commandExecution/outputDelta");
-      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
-      expect(String(hostMessages.length)).toBe("0");
     } finally {
       await service.shutdown();
     }
@@ -3157,7 +3187,7 @@ describe("codex-service renderer owner stream publishing", () => {
       inactiveRendererOwnerRetryMs: 5,
     });
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
     };
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
@@ -3182,9 +3212,15 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(String(requests.length)).toBe("0");
       expect(service.getRendererConversationOwner("thread-inactive-in-progress")).toBe("owner-a");
 
-      await serviceInternals.handleNotification("turn/completed", {
-        threadId: "thread-inactive-in-progress",
-        turnId: "thread-inactive-in-progress-turn",
+      await serviceInternals.handleNotification({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-inactive-in-progress",
+          turn: completeLegacyProtocolTurnFixture({
+            id: "thread-inactive-in-progress-turn",
+            status: "completed",
+          }),
+        },
       });
       await waitForCondition(
         () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-in-progress") === null,
@@ -3279,7 +3315,7 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
       getMaybeConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
@@ -3315,19 +3351,25 @@ describe("codex-service renderer owner stream publishing", () => {
 
     try {
       service.setRendererConversationOwner("thread-owner-drain", "owner-a");
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thread-owner-drain",
-        turnId: "turn-owner-drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant-owner-drain",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thread-owner-drain",
+          turnId: "turn-owner-drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant-owner-drain",
+            text: "",
+          }),
+        },
       });
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thread-owner-drain",
-        turnId: "turn-owner-drain",
-        itemId: "assistant-owner-drain",
-        delta: "hello",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-owner-drain",
+          turnId: "turn-owner-drain",
+          itemId: "assistant-owner-drain",
+          delta: "hello",
+        },
       });
       const canonicalAssistant = serviceInternals
         .getMaybeConversationRecord("thread-owner-drain")
@@ -3337,13 +3379,16 @@ describe("codex-service renderer owner stream publishing", () => {
         expect(canonicalAssistant.text).toBe("hello");
       }
       expect(String(hostMessages.length)).toBe("0");
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thread-owner-drain",
-        turnId: "turn-owner-drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant-owner-drain",
-          text: "hello",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thread-owner-drain",
+          turnId: "turn-owner-drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant-owner-drain",
+            text: "hello",
+          }),
+        },
       });
 
       expect(String(hostMessages.length)).toBe("0");
@@ -3355,15 +3400,15 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(ownerMessages[1]?.message.type).toBe("threadOwnerNotification");
       expect(ownerMessages[2]?.message.type).toBe("threadOwnerNotification");
       if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[0].message.method).toBe("item/started");
+        expect(ownerMessages[0].message.notification.method).toBe("item/started");
         expect(ownerMessages[0].message.sequence).toBe(1);
       }
       if (ownerMessages[1]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[1].message.method).toBe("item/agentMessage/delta");
+        expect(ownerMessages[1].message.notification.method).toBe("item/agentMessage/delta");
         expect(ownerMessages[1].message.sequence).toBe(2);
       }
       if (ownerMessages[2]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[2].message.method).toBe("item/completed");
+        expect(ownerMessages[2].message.notification.method).toBe("item/completed");
         expect(ownerMessages[2].message.sequence).toBe(3);
       }
 
@@ -3379,7 +3424,7 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       applyFrameTextDeltas: (updates: readonly CodexFrameTextDeltaUpdate[]) => void;
       getMaybeConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
@@ -3401,13 +3446,16 @@ describe("codex-service renderer owner stream publishing", () => {
         }],
         transcript: [],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId,
-        turnId,
-        item: makeProtocolAgentMessage({
-          id: itemId,
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId,
+          turnId,
+          item: makeProtocolAgentMessage({
+            id: itemId,
+            text: "",
+          }),
+        },
       });
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
@@ -3434,7 +3482,7 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
     };
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
@@ -3462,19 +3510,25 @@ describe("codex-service renderer owner stream publishing", () => {
 
     try {
       service.setRendererConversationOwner("thread-owner-turn", "owner-a");
-      await serviceInternals.handleNotification("turn/started", {
-        threadId: "thread-owner-turn",
-        turn: {
-          id: "turn-owner",
-          status: "inProgress",
+      await serviceInternals.handleNotification({
+        method: "turn/started",
+        params: {
+          threadId: "thread-owner-turn",
+          turn: {
+            id: "turn-owner",
+            status: "inProgress",
+          },
         },
       });
-      await serviceInternals.handleNotification("turn/completed", {
-        threadId: "thread-owner-turn",
-        turn: {
-          id: "turn-owner",
-          status: "completed",
-          durationMs: 42,
+      await serviceInternals.handleNotification({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-owner-turn",
+          turn: {
+            id: "turn-owner",
+            status: "completed",
+            durationMs: 42,
+          },
         },
       });
 
@@ -3483,11 +3537,11 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
       expect(ownerMessages[1]?.message.type).toBe("threadOwnerNotification");
       if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[0].message.method).toBe("turn/started");
+        expect(ownerMessages[0].message.notification.method).toBe("turn/started");
         expect(ownerMessages[0].message.sequence).toBe(1);
       }
       if (ownerMessages[1]?.message.type === "threadOwnerNotification") {
-        expect(ownerMessages[1].message.method).toBe("turn/completed");
+        expect(ownerMessages[1].message.notification.method).toBe("turn/completed");
         expect(ownerMessages[1].message.sequence).toBe(2);
       }
 
@@ -4087,7 +4141,7 @@ describe("codex-service scheduled automations", () => {
             automation: CodexScheduledAutomation,
             context: { now: number; reason: "run-now" },
           ) => Promise<void>;
-          handleNotification: (method: string, params: unknown) => Promise<void>;
+          handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         }).runScheduledAutomation(automation, { now, reason: "run-now" });
 
         const threadStartRequest = requests.find((request) => request.method === "thread/start");
@@ -4146,15 +4200,22 @@ describe("codex-service scheduled automations", () => {
         expect(run?.threadTitle).toBe("Daily report");
         expect(run?.sourceCwd).toBe("/tmp/codex");
 
-        await (service as unknown as {
-          handleNotification: (method: string, params: unknown) => Promise<void>;
-        }).handleNotification("turn/completed", {
-          threadId: "thread-automation",
-          turn: {
-            id: "turn-automation",
-            status: "completed",
-            items: [],
-            completedAt: now + 1_000,
+        await (
+          service as unknown as {
+            handleNotification: (
+              notification: CodexTestServerNotification,
+            ) => Promise<void>;
+          }
+        ).handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thread-automation",
+            turn: {
+              id: "turn-automation",
+              status: "completed",
+              items: [],
+              completedAt: now + 1_000,
+            },
           },
         });
         expect(getCodexAutomationRun("thread-automation")?.status).toBe("PENDING_REVIEW");
@@ -4219,7 +4280,7 @@ describe("codex-service scheduled automations", () => {
       });
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       try {
@@ -4251,11 +4312,14 @@ describe("codex-service scheduled automations", () => {
           }],
         });
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thread-inbox-directive",
-          turn: {
-            id: "turn-inbox-directive",
-            status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thread-inbox-directive",
+            turn: {
+              id: "turn-inbox-directive",
+              status: "completed",
+            },
           },
         });
 
@@ -5380,10 +5444,17 @@ describe("codex-service scheduled automations", () => {
         }).archiveThread("thread-archive-action");
         expect(getCodexScheduledAutomation("heartbeat-archive-action")).toBe(null);
 
-        await (service as unknown as {
-          handleNotification: (method: string, params: unknown) => Promise<void>;
-        }).handleNotification("thread/archived", {
-          threadId: "thread-archive-notification",
+        await (
+          service as unknown as {
+            handleNotification: (
+              notification: CodexTestServerNotification,
+            ) => Promise<void>;
+          }
+        ).handleNotification({
+          method: "thread/archived",
+          params: {
+            threadId: "thread-archive-notification",
+          },
         });
         expect(getCodexScheduledAutomation("heartbeat-archive-notification")).toBe(null);
       } finally {
@@ -6176,7 +6247,7 @@ describe("codex-service readThread fallback", () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
       service.on("hostMessage", (message) => {
@@ -6184,19 +6255,22 @@ describe("codex-service readThread fallback", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("thread/started", {
-          thread: {
-            id: "thr_started_project",
-            parentThreadId: null,
-            preview: "Started from CLI",
-            ephemeral: false,
-            modelProvider: "openai",
-            cwd: "/tmp/codex/packages/app",
-            createdAt: 10,
-            updatedAt: 20,
-            status: { type: "idle" },
-            name: null,
-            source: "cli",
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thr_started_project",
+              parentThreadId: null,
+              preview: "Started from CLI",
+              ephemeral: false,
+              modelProvider: "openai",
+              cwd: "/tmp/codex/packages/app",
+              createdAt: 10,
+              updatedAt: 20,
+              status: { type: "idle" },
+              name: null,
+              source: "cli",
+            },
           },
         });
 
@@ -6215,19 +6289,22 @@ describe("codex-service readThread fallback", () => {
           expect(sidebarMessage.result.materializedSessionIds.includes(linked?.id ?? "")).toBe(true);
         }
 
-        await serviceInternals.handleNotification("thread/started", {
-          thread: {
-            id: "thr_started_project",
-            parentThreadId: null,
-            preview: "Started from CLI",
-            ephemeral: false,
-            modelProvider: "openai",
-            cwd: "/tmp/codex/packages/app",
-            createdAt: 10,
-            updatedAt: 30,
-            status: { type: "idle" },
-            name: null,
-            source: "cli",
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thr_started_project",
+              parentThreadId: null,
+              preview: "Started from CLI",
+              ephemeral: false,
+              modelProvider: "openai",
+              cwd: "/tmp/codex/packages/app",
+              createdAt: 10,
+              updatedAt: 30,
+              status: { type: "idle" },
+              name: null,
+              source: "cli",
+            },
           },
         });
         const duplicateCount = listProjectSessions(defaultProjectId)
@@ -6245,7 +6322,7 @@ describe("codex-service readThread fallback", () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
         subagentThreadIds: Set<string>;
       };
@@ -6315,14 +6392,14 @@ describe("codex-service readThread fallback", () => {
       const service = createService();
       const handledMethods: string[] = [];
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
         subagentThreadIds: Set<string>;
       };
 
       try {
-        serviceInternals.handleNotification = async (method) => {
-          handledMethods.push(method);
+        serviceInternals.handleNotification = async (notification) => {
+          handledMethods.push(notification.method);
         };
         serviceInternals.routeAppServerNotification({
           method: "thread/started",
@@ -6362,7 +6439,7 @@ describe("codex-service readThread fallback", () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       };
 
@@ -6378,24 +6455,27 @@ describe("codex-service readThread fallback", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("thread/started", {
-          thread: {
-            id: "thr_child_source_metadata",
-            parentThreadId: null,
-            preview: "Child source metadata",
-            ephemeral: false,
-            modelProvider: "openai",
-            cwd: "/tmp/codex",
-            createdAt: 2,
-            updatedAt: 2,
-            status: { type: "idle" },
-            name: null,
-            source: {
-              subagent: {
-                thread_spawn: {
-                  parent_thread_id: "thr_parent_source_metadata",
-                  agent_nickname: "@Euclid",
-                  agent_role: "explorer",
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thr_child_source_metadata",
+              parentThreadId: null,
+              preview: "Child source metadata",
+              ephemeral: false,
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 2,
+              updatedAt: 2,
+              status: { type: "idle" },
+              name: null,
+              source: {
+                subagent: {
+                  thread_spawn: {
+                    parent_thread_id: "thr_parent_source_metadata",
+                    agent_nickname: "@Euclid",
+                    agent_role: "explorer",
+                  },
                 },
               },
             },
@@ -6407,19 +6487,22 @@ describe("codex-service readThread fallback", () => {
         expect(firstSummary?.agentNickname).toBe("@Euclid");
         expect(firstSummary?.agentRole).toBe("explorer");
 
-        await serviceInternals.handleNotification("thread/started", {
-          thread: {
-            id: "thr_child_source_metadata",
-            parentThreadId: "thr_parent_source_metadata",
-            preview: "Sparse child update",
-            ephemeral: false,
-            modelProvider: "openai",
-            cwd: "/tmp/codex",
-            createdAt: 2,
-            updatedAt: 3,
-            status: { type: "idle" },
-            name: null,
-            source: "unknown",
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thr_child_source_metadata",
+              parentThreadId: "thr_parent_source_metadata",
+              preview: "Sparse child update",
+              ephemeral: false,
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 2,
+              updatedAt: 3,
+              status: { type: "idle" },
+              name: null,
+              source: "unknown",
+            },
           },
         });
 
@@ -6572,7 +6655,7 @@ describe("codex-service readThread fallback", () => {
       const service = createService();
       const handledMethods: string[] = [];
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
       };
       const qzMethods = [
@@ -6584,8 +6667,8 @@ describe("codex-service readThread fallback", () => {
       ];
 
       try {
-        serviceInternals.handleNotification = async (method) => {
-          handledMethods.push(method);
+        serviceInternals.handleNotification = async (notification) => {
+          handledMethods.push(notification.method);
         };
         serviceInternals.routeAppServerNotification({
           method: "thread/started",
@@ -6656,7 +6739,7 @@ describe("codex-service readThread fallback", () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const streamMessages: CodexHostMessage[] = [];
       const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
@@ -6682,14 +6765,17 @@ describe("codex-service readThread fallback", () => {
           turnStatus: "inProgress",
         });
 
-        await serviceInternals.handleNotification("thread/started", {
-          thread: makeSidebarListThread({
-            id: "thr_started_owner",
-            cwd: "/tmp/codex",
-            preview: "Owner-started thread",
-            name: "Owner started",
-            updatedAt: 30,
-          }),
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: {
+            thread: makeSidebarListThread({
+              id: "thr_started_owner",
+              cwd: "/tmp/codex",
+              preview: "Owner-started thread",
+              name: "Owner started",
+              updatedAt: 30,
+            }),
+          },
         });
 
         const linked = listProjectSessions(defaultProjectId)
@@ -6700,8 +6786,8 @@ describe("codex-service readThread fallback", () => {
         expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
         expect(ownerNotification?.type).toBe("threadOwnerNotification");
         if (ownerNotification?.type === "threadOwnerNotification") {
-          expect(ownerNotification.method).toBe("thread/started");
-          const params = ownerNotification.params as { thread?: { id?: string } };
+          expect(ownerNotification.notification.method).toBe("thread/started");
+          const params = ownerNotification.notification.params as { thread?: { id?: string } };
           expect(params.thread?.id).toBe("thr_started_owner");
         }
         expect(String(streamMessages.length)).toBe("0");
@@ -6717,23 +6803,26 @@ describe("codex-service readThread fallback", () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       try {
-        await serviceInternals.handleNotification("thread/started", {
-          thread: {
-            id: "thr_started_projectless",
-            parentThreadId: null,
-            preview: "Outside workspace",
-            ephemeral: false,
-            modelProvider: "openai",
-            cwd: "/tmp/outside-project",
-            createdAt: 10,
-            updatedAt: 20,
-            status: { type: "idle" },
-            name: null,
-            source: "cli",
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              id: "thr_started_projectless",
+              parentThreadId: null,
+              preview: "Outside workspace",
+              ephemeral: false,
+              modelProvider: "openai",
+              cwd: "/tmp/outside-project",
+              createdAt: 10,
+              updatedAt: 20,
+              status: { type: "idle" },
+              name: null,
+              source: "cli",
+            },
           },
         });
 
@@ -7257,7 +7346,7 @@ describe("codex-service readThread fallback", () => {
         request: (method: string) => Promise<unknown>;
       };
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       let requestCount = 0;
       let exposeUnknownThread = false;
@@ -7285,9 +7374,12 @@ describe("codex-service readThread fallback", () => {
       try {
         await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
         exposeUnknownThread = true;
-        await serviceInternals.handleNotification("thread/name/updated", {
-          threadId: "thr_unknown_name_repair",
-          threadName: "Repaired title",
+        await serviceInternals.handleNotification({
+          method: "thread/name/updated",
+          params: {
+            threadId: "thr_unknown_name_repair",
+            threadName: "Repaired title",
+          },
         });
         await waitForCondition(() => getCodexThread("thr_unknown_name_repair") !== null, 1_000);
 
@@ -7314,7 +7406,7 @@ describe("codex-service readThread fallback", () => {
         request: (method: string) => Promise<unknown>;
       };
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       let exposeUnknownThread = false;
 
@@ -7340,18 +7432,21 @@ describe("codex-service readThread fallback", () => {
       try {
         await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
         exposeUnknownThread = true;
-        await serviceInternals.handleNotification("thread/goal/updated", {
-          threadId: "thr_unknown_goal_repair",
-          turnId: null,
-          goal: {
+        await serviceInternals.handleNotification({
+          method: "thread/goal/updated",
+          params: {
             threadId: "thr_unknown_goal_repair",
-            objective: "Repair unknown goal thread",
-            status: "active",
-            tokenBudget: null,
-            tokensUsed: 0,
-            timeUsedSeconds: 0,
-            createdAt: 100,
-            updatedAt: 101,
+            turnId: null,
+            goal: {
+              threadId: "thr_unknown_goal_repair",
+              objective: "Repair unknown goal thread",
+              status: "active",
+              tokenBudget: null,
+              tokensUsed: 0,
+              timeUsedSeconds: 0,
+              createdAt: 100,
+              updatedAt: 101,
+            },
           },
         });
         await waitForCondition(() => getCodexThread("thr_unknown_goal_repair") !== null, 1_000);
@@ -7540,12 +7635,15 @@ describe("codex-service readThread fallback", () => {
       setCodexThreadPinned("thr_deleted_cleanup", true);
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       try {
-        await serviceInternals.handleNotification("thread/deleted", {
-          threadId: "thr_deleted_cleanup",
+        await serviceInternals.handleNotification({
+          method: "thread/deleted",
+          params: {
+            threadId: "thr_deleted_cleanup",
+          },
         });
 
         const archived = getProjectSession(session.id);
@@ -9059,12 +9157,15 @@ describe("codex-service session-backed transcript recovery", () => {
         hostMessages.push(message);
       });
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       try {
-        await serviceInternals.handleNotification("thread/deleted", {
-          threadId: "thr_deleted_remote",
+        await serviceInternals.handleNotification({
+          method: "thread/deleted",
+          params: {
+            threadId: "thr_deleted_remote",
+          },
         });
 
         expect(getCodexThread("thr_deleted_remote")).toBe(null);
@@ -9618,7 +9719,7 @@ describe("codex-service session-backed transcript recovery", () => {
         const assistant = conversation?.turns[0]?.items.find((item) => item.itemId === "assistant_resume_buffer");
         const outputDeltaMessage = hostMessages.find((message) =>
           message.type === "mcpNotification" &&
-          message.params.threadId === "thr_resume_buffer"
+          message.notification.params.threadId === "thr_resume_buffer"
         );
         expect(assistant?.markdownText).toBe("hello world");
         expect(command?.aggregatedOutput).toBe("abcdef");
@@ -9723,8 +9824,12 @@ describe("codex-service session-backed transcript recovery", () => {
 
         expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.some((message) => {
-          const record = message as { type?: string; method?: string };
-          return record.type === "threadOwnerNotification" && record.method === "item/agentMessage/delta";
+          const record = message as {
+            type?: string;
+            notification?: { method?: string };
+          };
+          return record.type === "threadOwnerNotification"
+            && record.notification?.method === "item/agentMessage/delta";
         })).toBe(true);
         if (!conversation) throw new Error("Missing renderer resume conversation");
         expect(service.publishRendererThreadStreamStateChange(ownerClientId, {
@@ -10552,8 +10657,7 @@ describe("codex-service session-backed transcript recovery", () => {
       beginResumeNotificationBuffer: (threadId: string) => void;
       replayBufferedResumeNotifications: (threadId: string) => Promise<void>;
       handleNotification: (
-        method: string,
-        params: unknown,
+        notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
@@ -10563,11 +10667,11 @@ describe("codex-service session-backed transcript recovery", () => {
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
     const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
 
-    serviceInternals.handleNotification = async (method, params, options) => {
+    serviceInternals.handleNotification = async (notification, options) => {
       if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
-        order.push(`notification:${method}`);
+        order.push(`notification:${notification.method}`);
       }
-      return originalHandleNotification(method, params, options);
+      return originalHandleNotification(notification, options);
     };
     serviceInternals.handleServerRequestNow = async (request) => {
       order.push(`request:${request.method}`);
@@ -10576,22 +10680,28 @@ describe("codex-service session-backed transcript recovery", () => {
 
     try {
       serviceInternals.beginResumeNotificationBuffer(threadId);
-      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
-        threadId,
-        turnId: "turn-1",
-        itemId: "reasoning-1",
-        summaryIndex: 0,
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/summaryPartAdded",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          summaryIndex: 0,
+        },
       });
       const requestPromise = serviceInternals.handleServerRequest({
         id: "time_req",
         method: "currentTime/read",
         params: { threadId },
       });
-      await serviceInternals.handleNotification("item/mcpToolCall/progress", {
-        threadId,
-        turnId: "turn-1",
-        itemId: "mcp-1",
-        message: "Still working",
+      await serviceInternals.handleNotification({
+        method: "item/mcpToolCall/progress",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "mcp-1",
+          message: "Still working",
+        },
       });
 
       const result = await requestPromise;
@@ -10615,40 +10725,49 @@ describe("codex-service session-backed transcript recovery", () => {
     const serviceInternals = service as unknown as {
       beginResumeNotificationBuffer: (id: string) => void;
       replayBufferedResumeNotifications: (id: string) => Promise<void>;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
     };
 
     try {
       serviceInternals.beginResumeNotificationBuffer(threadId);
-      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
-        threadId,
-        turnId: "turn-1",
-        itemId: "reasoning-1",
-        summaryIndex: 0,
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/summaryPartAdded",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          summaryIndex: 0,
+        },
       });
-      await serviceInternals.handleNotification("item/mcpToolCall/progress", {
-        threadId,
-        turnId: "turn-1",
-        itemId: "mcp-old-tail",
-        message: "old tail",
+      await serviceInternals.handleNotification({
+        method: "item/mcpToolCall/progress",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "mcp-old-tail",
+          message: "old tail",
+        },
       });
 
       const originalHandleNotification = serviceInternals.handleNotification.bind(service);
       let didInjectNestedNotification = false;
-      serviceInternals.handleNotification = async (method, params) => {
+      serviceInternals.handleNotification = async (notification) => {
         if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
-          order.push(`${method}:${(params as { itemId?: string }).itemId ?? ""}`);
+          order.push(`${notification.method}:${(notification.params as { itemId?: string }).itemId ?? ""}`);
         }
-        await originalHandleNotification(method, params);
-        if (method !== "item/reasoning/summaryPartAdded" || didInjectNestedNotification) return;
+        await originalHandleNotification(notification);
+        if (notification.method !== "item/reasoning/summaryPartAdded" || didInjectNestedNotification) return;
 
         didInjectNestedNotification = true;
-        await serviceInternals.handleNotification("item/mcpToolCall/progress", {
-          threadId,
-          turnId: "turn-1",
-          itemId: "mcp-live-nested",
-          message: "live nested",
+        await serviceInternals.handleNotification({
+          method: "item/mcpToolCall/progress",
+          params: {
+            threadId,
+            turnId: "turn-1",
+            itemId: "mcp-live-nested",
+            message: "live nested",
+          },
         });
       };
 
@@ -10723,55 +10842,63 @@ describe("codex-service session-backed transcript recovery", () => {
       ) => CodexCanonicalConversationState;
       dedupeBufferedResumeEvents: (
         id: string,
-        events: Array<{ type: "notification"; method: string; params: unknown }>,
-      ) => Array<{ type: "notification"; method: string; params: unknown }>;
+        events: Array<{ type: "notification"; notification: CodexTestServerNotification }>,
+      ) => Array<{ type: "notification"; notification: CodexTestServerNotification }>;
     };
     serviceInternals.hydrateCanonicalConversationState(response);
 
     const replay = serviceInternals.dedupeBufferedResumeEvents(threadId, [
       {
         type: "notification",
-        method: "item/agentMessage/delta",
-        params: {
-          threadId,
-          turnId: turn.id,
-          itemId: "shared-agent",
-          delta: "a",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId,
+            turnId: turn.id,
+            itemId: "shared-agent",
+            delta: "a",
+          },
         },
       },
       {
         type: "notification",
-        method: "item/agentMessage/delta",
-        params: {
-          threadId,
-          turnId: turn.id,
-          itemId: "shared-agent",
-          delta: "bc",
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId,
+            turnId: turn.id,
+            itemId: "shared-agent",
+            delta: "bc",
+          },
         },
       },
       {
         type: "notification",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId,
-          turnId: turn.id,
-          itemId: "command-1",
-          delta: "he",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId,
+            turnId: turn.id,
+            itemId: "command-1",
+            delta: "he",
+          },
         },
       },
       {
         type: "notification",
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId,
-          turnId: turn.id,
-          itemId: "command-1",
-          delta: "llo",
+        notification: {
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId,
+            turnId: turn.id,
+            itemId: "command-1",
+            delta: "llo",
+          },
         },
       },
     ]);
     const replayedDeltas = replay.map((event) =>
-      (event.params as { delta?: string }).delta ?? "");
+      (event.notification.params as { delta?: string }).delta ?? "");
     expect(replayedDeltas.join("|")).toBe("a|bc");
 
     await service.shutdown();
@@ -10825,7 +10952,7 @@ describe("codex-service session-backed transcript recovery", () => {
       beginThreadStartNotificationDeferral: () => void;
       completeThreadStartNotificationDeferral: (threadId: string | null) => Promise<void>;
       endThreadStartNotificationDeferral: () => Promise<void>;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       handleServerRequest: (request: {
         id: string | number;
         method: string;
@@ -10841,13 +10968,16 @@ describe("codex-service session-backed transcript recovery", () => {
 
     try {
       serviceInternals.beginThreadStartNotificationDeferral();
-      await serviceInternals.handleNotification("thread/started", {
-        thread: {
-          id: "thr_deferred_creation_context",
-          parentThreadId: null,
-          preview: "Started before creation context is ready",
-          ephemeral: false,
-          cwd: "/tmp/codex",
+      await serviceInternals.handleNotification({
+        method: "thread/started",
+        params: {
+          thread: {
+            id: "thr_deferred_creation_context",
+            parentThreadId: null,
+            preview: "Started before creation context is ready",
+            ephemeral: false,
+            cwd: "/tmp/codex",
+          },
         },
       });
 
@@ -10881,8 +11011,7 @@ describe("codex-service session-backed transcript recovery", () => {
       beginResumeNotificationBuffer: (id: string) => void;
       replayBufferedResumeNotifications: (id: string) => Promise<void>;
       handleNotification: (
-        method: string,
-        params: unknown,
+        notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
       handleServerRequest: (request: {
@@ -10902,13 +11031,13 @@ describe("codex-service session-backed transcript recovery", () => {
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
     const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
     serviceInternals.upsertSidebarThreadFromAppServerThread = () => null;
-    serviceInternals.handleNotification = async (method, params, options) => {
+    serviceInternals.handleNotification = async (notification, options) => {
       const bufferedBefore = serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)
         || serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
-      await originalHandleNotification(method, params, options);
+      await originalHandleNotification(notification, options);
       const bufferedAfter = serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)
         || serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
-      if (!bufferedBefore && !bufferedAfter) order.push(`notification:${method}`);
+      if (!bufferedBefore && !bufferedAfter) order.push(`notification:${notification.method}`);
     };
     serviceInternals.handleServerRequestNow = async (request) => {
       if (request.method === "currentTime/read") {
@@ -10920,17 +11049,23 @@ describe("codex-service session-backed transcript recovery", () => {
 
     try {
       serviceInternals.beginThreadStartNotificationDeferral();
-      await serviceInternals.handleNotification("thread/started", {
-        thread: {
-          ...makeProtocolThread(threadId, "/workspace/project", []),
+      await serviceInternals.handleNotification({
+        method: "thread/started",
+        params: {
+          thread: {
+            ...makeProtocolThread(threadId, "/workspace/project", []),
+          },
         },
       });
       serviceInternals.beginResumeNotificationBuffer(threadId);
-      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
-        threadId,
-        turnId: "turn-1",
-        itemId: "reasoning-1",
-        summaryIndex: 0,
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/summaryPartAdded",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          summaryIndex: 0,
+        },
       });
       let ordinaryRequestSettled = false;
       const ordinaryRequest = serviceInternals.handleServerRequest({
@@ -10953,11 +11088,11 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(ordinaryRequestSettled).toBe(false);
       const outerEvents = serviceInternals.threadStartNotificationBuffersByThreadId.get(threadId) as Array<{
         type?: string;
-        method?: string;
+        notification?: { method?: string };
         request?: { method?: string };
       }> | undefined;
       expect(outerEvents?.length ?? 0).toBe(3);
-      expect(outerEvents?.map((event) => event.method ?? event.request?.method ?? "").join(",") ?? "").toBe(
+      expect(outerEvents?.map((event) => event.notification?.method ?? event.request?.method ?? "").join(",") ?? "").toBe(
         "thread/started,item/reasoning/summaryPartAdded,item/tool/requestUserInput",
       );
       expect(order.join(",")).toBe("");
@@ -11789,7 +11924,7 @@ describe("codex-service session-backed transcript recovery", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       serviceInternals.setConversationRecordDetail({
@@ -11807,13 +11942,17 @@ describe("codex-service session-backed transcript recovery", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("error", {
-        threadId: "thr_stream_error",
-        turnId: "turn_stream_error",
-        willRetry: true,
-        error: {
-          message: "Reconnecting... 2/5",
-          additionalDetails: "Network error: connection dropped while streaming.",
+      await serviceInternals.handleNotification({
+        method: "error",
+        params: {
+          threadId: "thr_stream_error",
+          turnId: "turn_stream_error",
+          willRetry: true,
+          error: {
+            message: "Reconnecting... 2/5",
+            additionalDetails:
+              "Network error: connection dropped while streaming.",
+          },
         },
       });
 
@@ -11989,7 +12128,7 @@ describe("codex-service session-backed transcript recovery", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -12044,16 +12183,19 @@ describe("codex-service session-backed transcript recovery", () => {
         },
       ],
     });
-    await serviceInternals.handleNotification("item/started", {
-      threadId: "thr_clean_background_terminals_silent",
-      turnId: "turn_background",
-      item: makeProtocolCommandExecution({
-        id: "exec_background",
-        command: "bun run dev",
-        cwd: "/workspace/project",
-        processId: "process-background",
-        aggregatedOutput: "",
-      }),
+    await serviceInternals.handleNotification({
+      method: "item/started",
+      params: {
+        threadId: "thr_clean_background_terminals_silent",
+        turnId: "turn_background",
+        item: makeProtocolCommandExecution({
+          id: "exec_background",
+          command: "bun run dev",
+          cwd: "/workspace/project",
+          processId: "process-background",
+          aggregatedOutput: "",
+        }),
+      },
     });
 
     try {
@@ -12147,9 +12289,16 @@ describe("codex-service session-backed transcript recovery", () => {
 
     try {
       await expect(service.listMcpApps()).resolves.toEqual([]);
-      await (service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
-      }).handleNotification("app/list/updated", { data: [] });
+      await (
+        service as unknown as {
+          handleNotification: (
+            notification: CodexTestServerNotification,
+          ) => Promise<void>;
+        }
+      ).handleNotification({
+        method: "app/list/updated",
+        params: { data: [] },
+      });
 
       expect(requests).toEqual([]);
       expect(events.some((event) => event.type === "appsUpdated")).toBe(false);
@@ -12268,28 +12417,33 @@ describe("codex-service session-backed transcript recovery", () => {
     const events: CodexEvent[] = [];
     service.on("event", (event) => events.push(event));
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
-      await serviceInternals.handleNotification("app/list/updated", {
-        data: [{
-          id: "connector_docs",
-          name: "Docs",
-          description: null,
-          logoUrl: null,
-          logoUrlDark: null,
-          iconAssets: { "256_square": " /assets/docs.png " },
-          iconDarkAssets: null,
-          distributionChannel: null,
-          branding: null,
-          appMetadata: null,
-          labels: null,
-          installUrl: "https://apps.example.test/install",
-          isAccessible: true,
-          isEnabled: true,
-          pluginDisplayNames: [],
-        }],
+      await serviceInternals.handleNotification({
+        method: "app/list/updated",
+        params: {
+          data: [
+            {
+              id: "connector_docs",
+              name: "Docs",
+              description: null,
+              logoUrl: null,
+              logoUrlDark: null,
+              iconAssets: { "256_square": " /assets/docs.png " },
+              iconDarkAssets: null,
+              distributionChannel: null,
+              branding: null,
+              appMetadata: null,
+              labels: null,
+              installUrl: "https://apps.example.test/install",
+              isAccessible: true,
+              isEnabled: true,
+              pluginDisplayNames: [],
+            },
+          ],
+        },
       });
 
       const update = events.find(
@@ -14557,8 +14711,7 @@ describe("codex-service startTurn", () => {
       buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
       persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
       handleNotification: (
-        method: string,
-        params: unknown,
+        notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
       resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
@@ -14581,15 +14734,15 @@ describe("codex-service startTurn", () => {
     });
     serviceInternals.persistThreadDetailSummary = () => {};
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
-    serviceInternals.handleNotification = async (method, params, options) => {
+    serviceInternals.handleNotification = async (notification, options) => {
       if (
-        method === "item/agentMessage/delta"
+        notification.method === "item/agentMessage/delta"
         && !serviceInternals.resumeNotificationBuffersByThreadId.has("thr_start")
       ) {
         const canonical = getCanonicalConversationState(service, "thr_start");
         resumeOrder.push(canonical ? "replay-after-hydration" : "replay-before-hydration");
       }
-      await originalHandleNotification(method, params, options);
+      await originalHandleNotification(notification, options);
     };
     client.start = async () => undefined;
     client.request = async (method: string, params: unknown) => {
@@ -14701,7 +14854,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       serviceInternals.mergeTurn("thr_steer_prompt", {
@@ -14759,7 +14912,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -14791,14 +14944,23 @@ describe("codex-service startTurn", () => {
         });
         const clientUserMessageId = (requests[0]?.params as { clientUserMessageId?: string } | undefined)?.clientUserMessageId;
 
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_steer_started_echo",
-          turnId: "turn_steer_started_echo",
-          item: {
-            id: "user_msg_started_echo",
-            type: "userMessage",
-            clientId: clientUserMessageId,
-            content: [{ type: "text", text: "Keep going, but simplify the copy.", text_elements: [] }],
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_steer_started_echo",
+            turnId: "turn_steer_started_echo",
+            item: {
+              id: "user_msg_started_echo",
+              type: "userMessage",
+              clientId: clientUserMessageId,
+              content: [
+                {
+                  type: "text",
+                  text: "Keep going, but simplify the copy.",
+                  text_elements: [],
+                },
+              ],
+            },
           },
         });
 
@@ -14826,7 +14988,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -14865,10 +15027,15 @@ describe("codex-service startTurn", () => {
         expect(snapshot?.queuedFollowUps[0]?.prompt).toBe("Queue this without interrupting");
         expect(snapshot?.pendingSteers.length).toBe(0);
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_queue_prompt",
-          turnId: "turn_queue_prompt",
-          status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_queue_prompt",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_queue_prompt",
+              status: "completed",
+            }),
+          },
         });
         await flushAsyncWork();
 
@@ -14895,7 +15062,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -14931,10 +15098,15 @@ describe("codex-service startTurn", () => {
 
         expect(snapshot?.queuedFollowUps[0]?.serviceTier).toBe("fast");
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_queue_fast",
-          turnId: "turn_queue_fast",
-          status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_queue_fast",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_queue_fast",
+              status: "completed",
+            }),
+          },
         });
         await flushAsyncWork();
 
@@ -14954,7 +15126,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15003,15 +15175,21 @@ describe("codex-service startTurn", () => {
           clientId: steerClientUserMessageId,
           content: [{ type: "text", text: "Queue this without interrupting", text_elements: [] }],
         });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_queue_prompt_send_now",
-          turnId: "turn_queue_prompt_send_now",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_queue_prompt_send_now",
+            turnId: "turn_queue_prompt_send_now",
+            item: serverUserMessage,
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_queue_prompt_send_now",
-          turnId: "turn_queue_prompt_send_now",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_queue_prompt_send_now",
+            turnId: "turn_queue_prompt_send_now",
+            item: serverUserMessage,
+          },
         });
 
         const afterAcceptedSnapshot = service.serializeConversationSnapshot("thr_queue_prompt_send_now");
@@ -15037,7 +15215,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15074,10 +15252,15 @@ describe("codex-service startTurn", () => {
         await service.enqueueQueuedFollowUpPrompt("thr_queue_fifo", "First queued message");
         await service.enqueueQueuedFollowUpPrompt("thr_queue_fifo", "Second queued message");
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_queue_fifo",
-          turnId: "turn_queue_fifo_active",
-          status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_queue_fifo",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_queue_fifo_active",
+              status: "completed",
+            }),
+          },
         });
         await flushAsyncWork();
 
@@ -15087,10 +15270,15 @@ describe("codex-service startTurn", () => {
         expect(snapshot?.queuedFollowUps.length).toBe(1);
         expect(snapshot?.queuedFollowUps[0]?.prompt).toBe("Second queued message");
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_queue_fifo",
-          turnId: "turn_queue_fifo_auto_1",
-          status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_queue_fifo",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_queue_fifo_auto_1",
+              status: "completed",
+            }),
+          },
         });
         await flushAsyncWork();
 
@@ -15112,7 +15300,7 @@ describe("codex-service startTurn", () => {
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15151,28 +15339,37 @@ describe("codex-service startTurn", () => {
       };
 
       try {
-        await serviceInternals.handleNotification("turn/started", {
-          threadId: "thr_compaction_live_order",
-          turn: {
-            id: "turn_compaction_live_order",
-            status: "inProgress",
+        await serviceInternals.handleNotification({
+          method: "turn/started",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turn: {
+              id: "turn_compaction_live_order",
+              status: "inProgress",
+            },
           },
         });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_steer_started_completed",
-          turnId: "turn_steer_started_completed",
-          item: makeProtocolAgentMessage({
-            id: "assistant_before_steer",
-            text: "",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_steer_started_completed",
+            turnId: "turn_steer_started_completed",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before_steer",
+              text: "",
+            }),
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_steer_started_completed",
-          turnId: "turn_steer_started_completed",
-          item: makeProtocolAgentMessage({
-            id: "assistant_before_steer",
-            text: "Message 3/7",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_steer_started_completed",
+            turnId: "turn_steer_started_completed",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before_steer",
+              text: "Message 3/7",
+            }),
+          },
         });
         await service.steerTurn({
           threadId: "thr_steer_started_completed",
@@ -15186,31 +15383,43 @@ describe("codex-service startTurn", () => {
           content: [{ type: "text", text: "Use the compact version.", text_elements: [] }],
         });
 
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_steer_started_completed",
-          turnId: "turn_steer_started_completed",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_steer_started_completed",
+            turnId: "turn_steer_started_completed",
+            item: serverUserMessage,
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_steer_started_completed",
-          turnId: "turn_steer_started_completed",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_steer_started_completed",
+            turnId: "turn_steer_started_completed",
+            item: serverUserMessage,
+          },
         });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_steer_started_completed",
-          turnId: "turn_steer_started_completed",
-          item: makeProtocolAgentMessage({
-            id: "assistant_after_steer",
-            text: "",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_steer_started_completed",
+            turnId: "turn_steer_started_completed",
+            item: makeProtocolAgentMessage({
+              id: "assistant_after_steer",
+              text: "",
+            }),
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_steer_started_completed",
-          turnId: "turn_steer_started_completed",
-          item: makeProtocolAgentMessage({
-            id: "assistant_after_steer",
-            text: "I am Codex.",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_steer_started_completed",
+            turnId: "turn_steer_started_completed",
+            item: makeProtocolAgentMessage({
+              id: "assistant_after_steer",
+              text: "I am Codex.",
+            }),
+          },
         });
 
         const detail = service.serializeThreadDetail("thr_steer_started_completed");
@@ -15244,7 +15453,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15278,15 +15487,21 @@ describe("codex-service startTurn", () => {
           content: [{ type: "text", text: "A different follow-up.", text_elements: [] }],
         });
 
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_steer_nonmatching",
-          turnId: "turn_steer_nonmatching",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_steer_nonmatching",
+            turnId: "turn_steer_nonmatching",
+            item: serverUserMessage,
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_steer_nonmatching",
-          turnId: "turn_steer_nonmatching",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_steer_nonmatching",
+            turnId: "turn_steer_nonmatching",
+            item: serverUserMessage,
+          },
         });
 
         const snapshot = service.serializeConversationSnapshot("thr_steer_nonmatching");
@@ -15367,7 +15582,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15400,10 +15615,15 @@ describe("codex-service startTurn", () => {
         expect(snapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
         expect(snapshot?.turns[0]?.itemIds.length).toBe(1);
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_steer_restore_order",
-          turnId: "turn_steer_restore_order",
-          status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_steer_restore_order",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_steer_restore_order",
+              status: "completed",
+            }),
+          },
         });
         await flushAsyncWork();
 
@@ -15428,7 +15648,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15454,10 +15674,15 @@ describe("codex-service startTurn", () => {
 
       try {
         await service.enqueueQueuedFollowUpPrompt("thr_queue_failure", "Will fail later");
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_queue_failure",
-          turnId: "turn_queue_failure_active",
-          status: "completed",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_queue_failure",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_queue_failure_active",
+              status: "completed",
+            }),
+          },
         });
         await flushAsyncWork(3);
 
@@ -15483,7 +15708,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -15515,14 +15740,23 @@ describe("codex-service startTurn", () => {
         expect(snapshot?.pendingSteers.length).toBe(0);
         expect(snapshot?.turns[0]?.items[0]?.steeringStatus).toBe("pending");
 
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_pending_clear",
-          turnId: "turn_pending_clear",
-          item: makeProtocolUserMessage({
-            id: "user_msg_1",
-            clientId: null,
-            content: [{ type: "text", text: "Tighten the spacing.", text_elements: [] }],
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_pending_clear",
+            turnId: "turn_pending_clear",
+            item: makeProtocolUserMessage({
+              id: "user_msg_1",
+              clientId: null,
+              content: [
+                {
+                  type: "text",
+                  text: "Tighten the spacing.",
+                  text_elements: [],
+                },
+              ],
+            }),
+          },
         });
 
         snapshot = service.serializeConversationSnapshot("thr_pending_clear");
@@ -16175,7 +16409,7 @@ describe("codex-service collaboration modes", () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
       };
       const client = Reflect.get(service as object, "client") as {
@@ -16191,28 +16425,31 @@ describe("codex-service collaboration modes", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("thread/settings/updated", {
-          threadId: "thr_settings_notification",
-          threadSettings: {
-            cwd: "/tmp",
-            approvalPolicy: "on-request",
-            approvalsReviewer: "user",
-            sandboxPolicy: { mode: "read-only" },
-            activePermissionProfile: null,
-            model: "gpt-5.8-codex",
-            modelProvider: "openai",
-            serviceTier: null,
-            effort: "medium",
-            summary: null,
-            collaborationMode: {
-              mode: "plan",
-              settings: {
-                model: "gpt-5.8-codex",
-                reasoning_effort: "medium",
-                developer_instructions: null,
+        await serviceInternals.handleNotification({
+          method: "thread/settings/updated",
+          params: {
+            threadId: "thr_settings_notification",
+            threadSettings: {
+              cwd: "/tmp",
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandboxPolicy: { mode: "read-only" },
+              activePermissionProfile: null,
+              model: "gpt-5.8-codex",
+              modelProvider: "openai",
+              serviceTier: null,
+              effort: "medium",
+              summary: null,
+              collaborationMode: {
+                mode: "plan",
+                settings: {
+                  model: "gpt-5.8-codex",
+                  reasoning_effort: "medium",
+                  developer_instructions: null,
+                },
               },
+              personality: "friendly",
             },
-            personality: "friendly",
           },
         });
         const snapshot = service.serializeConversationSnapshot("thr_settings_notification");
@@ -16634,7 +16871,7 @@ describe("codex-service startThreadForSession", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
 
@@ -16714,34 +16951,52 @@ describe("codex-service startThreadForSession", () => {
           .toBe(turnStartParams?.clientUserMessageId);
         expect(canonical?.turns[0]?.sidecar.params.input).toStrictEqual(turnStartParams?.input);
 
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_session_start",
-          turnId: "turn_session_start",
-          item: makeProtocolAgentMessage({ id: "assistant_before_echo", text: "" }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_session_start",
+            turnId: "turn_session_start",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before_echo",
+              text: "",
+            }),
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_session_start",
-          turnId: "turn_session_start",
-          item: makeProtocolAgentMessage({ id: "assistant_before_echo", text: "Working" }),
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_session_start",
+            turnId: "turn_session_start",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before_echo",
+              text: "Working",
+            }),
+          },
         });
         const serverUserMessage = makeProtocolUserMessage({
           id: "user_message_late_echo",
           clientId: turnStartParams?.clientUserMessageId ?? null,
           content: turnStartParams?.input ?? [],
         });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_session_start",
-          turnId: "turn_session_start",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_session_start",
+            turnId: "turn_session_start",
+            item: serverUserMessage,
+          },
         });
         let streamingSnapshot = service.serializeConversationSnapshot("thr_session_start");
         expect(
           streamingSnapshot?.turns[0]?.items.filter((item) => item.semanticKind === "userMessage"),
         ).toHaveLength(1);
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_session_start",
-          turnId: "turn_session_start",
-          item: serverUserMessage,
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_session_start",
+            turnId: "turn_session_start",
+            item: serverUserMessage,
+          },
         });
         streamingSnapshot = service.serializeConversationSnapshot("thr_session_start");
         expect(
@@ -16766,7 +17021,7 @@ describe("codex-service startThreadForSession", () => {
       });
       const service = createService();
       const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -16788,41 +17043,62 @@ describe("codex-service startThreadForSession", () => {
         if (method === "turn/start") {
           const turnStartParams = params as TurnStartParams;
           turnStartRequests.push(turnStartParams);
-          await serviceInternals.handleNotification("turn/started", {
-            threadId: "thr_session_notification_race",
-            turn: {
-              id: "turn_session_notification_race",
-              status: "inProgress",
-              error: null,
-              startedAt: null,
-              completedAt: null,
-              durationMs: null,
+          await serviceInternals.handleNotification({
+            method: "turn/started",
+            params: {
+              threadId: "thr_session_notification_race",
+              turn: {
+                id: "turn_session_notification_race",
+                status: "inProgress",
+                error: null,
+                startedAt: null,
+                completedAt: null,
+                durationMs: null,
+              },
             },
           });
-          await serviceInternals.handleNotification("item/started", {
-            threadId: "thr_session_notification_race",
-            turnId: "turn_session_notification_race",
-            item: makeProtocolAgentMessage({ id: "assistant_race", text: "" }),
+          await serviceInternals.handleNotification({
+            method: "item/started",
+            params: {
+              threadId: "thr_session_notification_race",
+              turnId: "turn_session_notification_race",
+              item: makeProtocolAgentMessage({
+                id: "assistant_race",
+                text: "",
+              }),
+            },
           });
-          await serviceInternals.handleNotification("item/completed", {
-            threadId: "thr_session_notification_race",
-            turnId: "turn_session_notification_race",
-            item: makeProtocolAgentMessage({ id: "assistant_race", text: "Working" }),
+          await serviceInternals.handleNotification({
+            method: "item/completed",
+            params: {
+              threadId: "thr_session_notification_race",
+              turnId: "turn_session_notification_race",
+              item: makeProtocolAgentMessage({
+                id: "assistant_race",
+                text: "Working",
+              }),
+            },
           });
           const serverUserMessage = makeProtocolUserMessage({
             id: "user_message_race_echo",
             clientId: turnStartParams.clientUserMessageId ?? null,
             content: turnStartParams.input,
           });
-          await serviceInternals.handleNotification("item/started", {
-            threadId: "thr_session_notification_race",
-            turnId: "turn_session_notification_race",
-            item: serverUserMessage,
+          await serviceInternals.handleNotification({
+            method: "item/started",
+            params: {
+              threadId: "thr_session_notification_race",
+              turnId: "turn_session_notification_race",
+              item: serverUserMessage,
+            },
           });
-          await serviceInternals.handleNotification("item/completed", {
-            threadId: "thr_session_notification_race",
-            turnId: "turn_session_notification_race",
-            item: serverUserMessage,
+          await serviceInternals.handleNotification({
+            method: "item/completed",
+            params: {
+              threadId: "thr_session_notification_race",
+              turnId: "turn_session_notification_race",
+              item: serverUserMessage,
+            },
           });
           return {
             turn: {
@@ -21014,10 +21290,9 @@ describe("codex-service approval fallback", () => {
         pendingApprovals: { size: number };
         respondToApproval: (
           requestId: string | number,
-          kind: CodexApprovalKind,
-          decision: CodexApprovalDecision,
+          response: CodexApprovalResponse,
           conversationId?: string,
-        ) => Promise<boolean>;
+      ) => Promise<boolean>;
       };
 
       serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
@@ -21041,12 +21316,7 @@ describe("codex-service approval fallback", () => {
         await waitForCondition(() => serviceInternals.pendingApprovals.size === 1, 250);
 
         expect(settled).toBe(false);
-        expect(await serviceInternals.respondToApproval(
-          "req_full_access",
-          "command",
-          "accept",
-          "thr_full",
-        )).toBe(true);
+        expect(await serviceInternals.respondToApproval("req_full_access", { kind: "command", decision: "accept" }, "thr_full")).toBe(true);
         const result = await resultPromise;
         expect(JSON.stringify(result)).toBe(JSON.stringify({ decision: "accept" }));
       } finally {
@@ -21072,10 +21342,9 @@ describe("codex-service approval fallback", () => {
         >;
         respondToApproval: (
           requestId: string | number,
-          kind: CodexApprovalKind,
-          decision: CodexApprovalDecision,
+          response: CodexApprovalResponse,
           conversationId?: string,
-        ) => Promise<boolean>;
+      ) => Promise<boolean>;
       };
 
       serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
@@ -21127,12 +21396,7 @@ describe("codex-service approval fallback", () => {
         expect(approvalItem?.kind).toBe("commandExecution");
         expect(approvalItem?.approvalRequestId).toBe("req_sandbox");
 
-        expect(await serviceInternals.respondToApproval(
-          "req_sandbox",
-          "command",
-          "decline",
-          "thr_default",
-        )).toBe(true);
+        expect(await serviceInternals.respondToApproval("req_sandbox", { kind: "command", decision: "decline" }, "thr_default")).toBe(true);
         await requestPromise;
       } finally {
         await service.shutdown();
@@ -23183,7 +23447,7 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       pendingDynamicToolCalls: { readonly size: number };
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number; method: string }>;
@@ -23209,9 +23473,12 @@ describe("codex-service approval fallback", () => {
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(2);
       expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(2);
 
-      await serviceInternals.handleNotification("serverRequest/resolved", {
-        threadId: "",
-        requestId: "withdraw-stored-empty-thread",
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId: "",
+          requestId: "withdraw-stored-empty-thread",
+        },
       });
 
       expect(await firstPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
@@ -23804,9 +24071,8 @@ describe("codex-service approval fallback", () => {
         };
         respondToApproval: (
           requestId: string | number,
-          kind: CodexApprovalKind,
-          decision: CodexApprovalDecision,
-        ) => Promise<boolean>;
+          response: CodexApprovalResponse,
+      ) => Promise<boolean>;
         on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
       };
       const events: CodexEvent[] = [];
@@ -23870,7 +24136,7 @@ describe("codex-service approval fallback", () => {
           ),
         )).toBe(JSON.stringify([42, 42, "42"]));
 
-        expect(await serviceInternals.respondToApproval(42, "command", "decline")).toBe(true);
+        expect(await serviceInternals.respondToApproval(42, { kind: "command", decision: "decline" })).toBe(true);
         expect(JSON.stringify(await numericPromise)).toBe(JSON.stringify({ decision: "decline" }));
         expect(await duplicateNumericPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
         expect(serviceInternals.pendingApprovals.size).toBe(1);
@@ -23911,8 +24177,7 @@ describe("codex-service approval fallback", () => {
       pendingApprovals: Map<string | number, unknown>;
       respondToApproval: (
         requestId: string | number,
-        kind: CodexApprovalKind,
-        decision: CodexApprovalDecision,
+        response: CodexApprovalResponse,
         conversationId?: string,
       ) => Promise<boolean>;
     };
@@ -23952,23 +24217,13 @@ describe("codex-service approval fallback", () => {
       });
       await Promise.resolve();
 
-      expect(await serviceInternals.respondToApproval(
-        requestId,
-        "command",
-        "decline",
-        secondThreadId,
-      )).toBe(true);
+      expect(await serviceInternals.respondToApproval(requestId, { kind: "command", decision: "decline" }, secondThreadId)).toBe(true);
       expect(JSON.stringify(await secondPromise)).toBe(JSON.stringify({ decision: "decline" }));
       expect(serviceInternals.pendingApprovals.size).toBe(1);
       expect(serviceInternals.getConversationRecord(firstThreadId).serverRequests.length).toBe(1);
       expect(serviceInternals.getConversationRecord(secondThreadId).serverRequests.length).toBe(0);
 
-      expect(await serviceInternals.respondToApproval(
-        requestId,
-        "command",
-        "decline",
-        firstThreadId,
-      )).toBe(true);
+      expect(await serviceInternals.respondToApproval(requestId, { kind: "command", decision: "decline" }, firstThreadId)).toBe(true);
       expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({ decision: "decline" }));
     } finally {
       await service.shutdown();
@@ -23992,8 +24247,7 @@ describe("codex-service approval fallback", () => {
       pendingApprovals: { size: number };
       respondToApproval: (
         requestId: string | number,
-        kind: CodexApprovalKind,
-        decision: CodexApprovalDecision,
+        response: CodexApprovalResponse,
         conversationId?: string,
       ) => Promise<boolean>;
     };
@@ -24038,12 +24292,7 @@ describe("codex-service approval fallback", () => {
       await Promise.resolve();
 
       const wrongKind = input.firstKind === "command" ? "file" : "command";
-      expect(await serviceInternals.respondToApproval(
-        input.requestId,
-        wrongKind,
-        "decline",
-        input.threadId,
-      )).toBe(false);
+      expect(await serviceInternals.respondToApproval(input.requestId, { kind: wrongKind, decision: "decline" }, input.threadId)).toBe(false);
       expect(serviceInternals.pendingApprovals.size).toBe(2);
       expect(JSON.stringify(
         serviceInternals.getConversationRecord(input.threadId).serverRequests.map(
@@ -24051,12 +24300,7 @@ describe("codex-service approval fallback", () => {
         ),
       )).toBe(JSON.stringify([firstRequest.method, secondRequest.method]));
 
-      expect(await serviceInternals.respondToApproval(
-        input.requestId,
-        input.firstKind,
-        "decline",
-        input.threadId,
-      )).toBe(true);
+      expect(await serviceInternals.respondToApproval(input.requestId, { kind: input.firstKind, decision: "decline" }, input.threadId)).toBe(true);
       expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({ decision: "decline" }));
       expect(await secondPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(serviceInternals.getConversationRecord(input.threadId).serverRequests.length).toBe(0);
@@ -24203,8 +24447,7 @@ describe("codex-service approval fallback", () => {
       };
       respondToApproval: (
         requestId: string | number,
-        kind: CodexApprovalKind,
-        decision: CodexApprovalDecision,
+        response: CodexApprovalResponse,
       ) => Promise<boolean>;
     };
     serviceInternals.parseThreadRef = () => ({ projectId, cwd: null });
@@ -24243,11 +24486,7 @@ describe("codex-service approval fallback", () => {
         emitSourceNullSnapshots: false,
       }));
 
-      expect(await serviceInternals.respondToApproval(
-        "file-approval-resume",
-        "file",
-        "decline",
-      )).toBe(true);
+      expect(await serviceInternals.respondToApproval("file-approval-resume", { kind: "file", decision: "decline" })).toBe(true);
       expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({ decision: "decline" }));
     } finally {
       await service.shutdown();
@@ -24514,8 +24753,7 @@ describe("codex-service approval fallback", () => {
       };
       respondToApproval: (
         requestId: string | number,
-        kind: CodexApprovalKind,
-        decision: CodexApprovalDecision,
+        response: CodexApprovalResponse,
       ) => Promise<boolean>;
     };
     const threadId = "thr_approval_timestamps";
@@ -24596,7 +24834,7 @@ describe("codex-service approval fallback", () => {
       expect(approvalRow?.createdAt).toBe(760);
       expect(JSON.stringify(readTimestamps())).toBe(JSON.stringify(baselineTimestamps));
 
-      expect(await serviceInternals.respondToApproval(614, "command", "decline")).toBe(true);
+      expect(await serviceInternals.respondToApproval(614, { kind: "command", decision: "decline" })).toBe(true);
       expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({ decision: "decline" }));
 
       const replied = getRecordedItem(serviceInternals, threadId, turnId, itemId);
@@ -25143,7 +25381,7 @@ describe("codex-service approval fallback", () => {
           method: string;
           params: unknown;
         }) => Promise<unknown>;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         pendingApprovals: { readonly size: number };
       };
       const client = Reflect.get(service as object, "client") as {
@@ -25174,8 +25412,11 @@ describe("codex-service approval fallback", () => {
         expect(await (service as unknown as {
           archiveThread: (threadId: string) => Promise<boolean>;
         }).archiveThread(actionThreadId)).toBe(true);
-        await serviceInternals.handleNotification("thread/archived", {
-          threadId: notificationThreadId,
+        await serviceInternals.handleNotification({
+          method: "thread/archived",
+          params: {
+            threadId: notificationThreadId,
+          },
         });
         expect(service.publishRendererThreadStreamStateChange("owner-before-archive", {
           conversationId: actionThreadId,
@@ -25239,7 +25480,7 @@ describe("codex-service streaming notification parity", () => {
       getConversationRecord: (threadId: string) => {
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
       };
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -25259,25 +25500,34 @@ describe("codex-service streaming notification parity", () => {
         status: "inProgress",
         itemIds: [],
       });
-      await serviceInternals.handleNotification("item/plan/delta", {
-        threadId: "thr_plan_delta",
-        turnId: "turn_plan_delta",
-        itemId: "plan_item",
-        delta: "1. Clarify requirements",
+      await serviceInternals.handleNotification({
+        method: "item/plan/delta",
+        params: {
+          threadId: "thr_plan_delta",
+          turnId: "turn_plan_delta",
+          itemId: "plan_item",
+          delta: "1. Clarify requirements",
+        },
       });
-      await serviceInternals.handleNotification("item/reasoning/summaryTextDelta", {
-        threadId: "thr_plan_delta",
-        turnId: "turn_plan_delta",
-        itemId: "reasoning_item",
-        summaryIndex: 0,
-        delta: "Thinking",
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/summaryTextDelta",
+        params: {
+          threadId: "thr_plan_delta",
+          turnId: "turn_plan_delta",
+          itemId: "reasoning_item",
+          summaryIndex: 0,
+          delta: "Thinking",
+        },
       });
-      await serviceInternals.handleNotification("item/reasoning/textDelta", {
-        threadId: "thr_plan_delta",
-        turnId: "turn_plan_delta",
-        itemId: "reasoning_item",
-        contentIndex: 0,
-        delta: "Private",
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/textDelta",
+        params: {
+          threadId: "thr_plan_delta",
+          turnId: "turn_plan_delta",
+          itemId: "reasoning_item",
+          contentIndex: 0,
+          delta: "Private",
+        },
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -25303,7 +25553,7 @@ describe("codex-service streaming notification parity", () => {
       getConversationRecord: (threadId: string) => {
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
       };
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -25324,30 +25574,39 @@ describe("codex-service streaming notification parity", () => {
         itemIds: ["plan_item"],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_plan_delta_existing",
-        turnId: "turn_plan_delta_existing",
-        item: {
-          id: "plan_item",
-          type: "plan",
-          text: "",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_plan_delta_existing",
+          turnId: "turn_plan_delta_existing",
+          item: {
+            id: "plan_item",
+            type: "plan",
+            text: "",
+          },
         },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/plan/delta", {
-        threadId: "thr_plan_delta_existing",
-        turnId: "turn_plan_delta_existing",
-        itemId: "plan_item",
-        delta: "Draft plan",
+      await serviceInternals.handleNotification({
+        method: "item/plan/delta",
+        params: {
+          threadId: "thr_plan_delta_existing",
+          turnId: "turn_plan_delta_existing",
+          itemId: "plan_item",
+          delta: "Draft plan",
+        },
       });
-      await serviceInternals.handleNotification("item/plan/delta", {
-        threadId: "thr_plan_delta_existing",
-        turnId: "turn_plan_delta_existing",
-        itemId: "plan_item",
-        delta: " from deltas",
+      await serviceInternals.handleNotification({
+        method: "item/plan/delta",
+        params: {
+          threadId: "thr_plan_delta_existing",
+          turnId: "turn_plan_delta_existing",
+          itemId: "plan_item",
+          delta: " from deltas",
+        },
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
@@ -25370,13 +25629,16 @@ describe("codex-service streaming notification parity", () => {
       expect(planItem?.semanticKind).toBe("proposedPlan");
       expect(planItem?.markdownText).toBe("Draft plan from deltas");
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_plan_delta_existing",
-        turnId: "turn_plan_delta_existing",
-        item: {
-          id: "plan_item",
-          type: "plan",
-          text: "Final authoritative plan",
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_plan_delta_existing",
+          turnId: "turn_plan_delta_existing",
+          item: {
+            id: "plan_item",
+            type: "plan",
+            text: "Final authoritative plan",
+          },
         },
       });
 
@@ -25397,7 +25659,7 @@ describe("codex-service streaming notification parity", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
 
@@ -25419,26 +25681,32 @@ describe("codex-service streaming notification parity", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_reasoning_delta",
-        turnId: "turn_reasoning_delta",
-        item: {
-          id: "reasoning_delta_item",
-          type: "reasoning",
-          summary: [],
-          content: [],
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_reasoning_delta",
+          turnId: "turn_reasoning_delta",
+          item: {
+            id: "reasoning_delta_item",
+            type: "reasoning",
+            summary: [],
+            content: [],
+          },
         },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/reasoning/summaryTextDelta", {
-        threadId: "thr_reasoning_delta",
-        turnId: "turn_reasoning_delta",
-        itemId: "reasoning_delta_item",
-        summaryIndex: 0,
-        delta: "Thinking",
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/summaryTextDelta",
+        params: {
+          threadId: "thr_reasoning_delta",
+          turnId: "turn_reasoning_delta",
+          itemId: "reasoning_delta_item",
+          summaryIndex: 0,
+          delta: "Thinking",
+        },
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
@@ -25459,12 +25727,15 @@ describe("codex-service streaming notification parity", () => {
       expect(String(summary?.[0] ?? "")).toBe("Thinking");
 
       hostMessages.length = 0;
-      await serviceInternals.handleNotification("item/reasoning/textDelta", {
-        threadId: "thr_reasoning_delta",
-        turnId: "turn_reasoning_delta",
-        itemId: "reasoning_delta_item",
-        contentIndex: 0,
-        delta: "Private chain",
+      await serviceInternals.handleNotification({
+        method: "item/reasoning/textDelta",
+        params: {
+          threadId: "thr_reasoning_delta",
+          turnId: "turn_reasoning_delta",
+          itemId: "reasoning_delta_item",
+          contentIndex: 0,
+          delta: "Private chain",
+        },
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
@@ -25485,7 +25756,7 @@ describe("codex-service streaming notification parity", () => {
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       pendingApprovals: Map<string, unknown>;
       pendingUserInputs: Map<string, unknown>;
       getConversationRecord: (threadId: string) => {
@@ -25538,13 +25809,19 @@ describe("codex-service streaming notification parity", () => {
         JSON.stringify(["approval_req", "input_req"]),
       );
 
-      await serviceInternals.handleNotification("serverRequest/resolved", {
-        threadId: "thr_resolved",
-        requestId: "approval_req",
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId: "thr_resolved",
+          requestId: "approval_req",
+        },
       });
-      await serviceInternals.handleNotification("serverRequest/resolved", {
-        threadId: "thr_resolved",
-        requestId: "input_req",
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId: "thr_resolved",
+          requestId: "input_req",
+        },
       });
 
       const approvalResult = await approvalPromise;
@@ -26076,7 +26353,7 @@ describe("codex-service item lifecycle status fallback", () => {
     const serviceInternals = service as unknown as {
       hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -26129,11 +26406,14 @@ describe("codex-service item lifecycle status fallback", () => {
           ?.turns[0]?.items[0]?.id,
       ).toBe("pending-manual-context-compaction");
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_manual_compaction",
-        turnId: "turn_manual_compaction",
-        startedAtMs: 1_000,
-        item: { id: "compaction-accepted", type: "contextCompaction" },
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_manual_compaction",
+          turnId: "turn_manual_compaction",
+          startedAtMs: 1_000,
+          item: { id: "compaction-accepted", type: "contextCompaction" },
+        },
       });
       const items = getCanonicalConversationState(service, "thr_manual_compaction")
         ?.turns[0]?.items ?? [];
@@ -26287,7 +26567,7 @@ describe("codex-service item lifecycle status fallback", () => {
   test("projects live reasoning rows from summary text only", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
       getConversationRecord: (threadId: string) => {
@@ -26305,14 +26585,17 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: ["item_reasoning"],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_reasoning_projection",
-        turnId: "turn_reasoning_projection",
-        item: {
-          id: "item_reasoning",
-          type: "reasoning",
-          summary: [],
-          content: ["Private reasoning body"],
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_reasoning_projection",
+          turnId: "turn_reasoning_projection",
+          item: {
+            id: "item_reasoning",
+            type: "reasoning",
+            summary: [],
+            content: ["Private reasoning body"],
+          },
         },
       });
 
@@ -26324,14 +26607,17 @@ describe("codex-service item lifecycle status fallback", () => {
       );
       expect(item?.markdownText ?? "").toBe("");
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_reasoning_projection",
-        turnId: "turn_reasoning_projection",
-        item: {
-          id: "item_reasoning",
-          type: "reasoning",
-          summary: ["Investigating", "Checking thread state"],
-          content: ["Private reasoning body"],
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_reasoning_projection",
+          turnId: "turn_reasoning_projection",
+          item: {
+            id: "item_reasoning",
+            type: "reasoning",
+            summary: ["Investigating", "Checking thread state"],
+            content: ["Private reasoning body"],
+          },
         },
       });
 
@@ -26353,7 +26639,7 @@ describe("codex-service item lifecycle status fallback", () => {
       getConversationRecord: (threadId: string) => {
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
       };
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
@@ -26373,25 +26659,31 @@ describe("codex-service item lifecycle status fallback", () => {
         status: "inProgress",
         itemIds: ["item_reasoning"],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_status",
-        turnId: "turn_status",
-        item: {
-          id: "item_reasoning",
-          type: "reasoning",
-          summary: ["Planning the next step"],
-          content: [],
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_status",
+          turnId: "turn_status",
+          item: {
+            id: "item_reasoning",
+            type: "reasoning",
+            summary: ["Planning the next step"],
+            content: [],
+          },
         },
       });
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_status",
-        turnId: "turn_status",
-        item: {
-          id: "item_reasoning",
-          type: "reasoning",
-          summary: ["Planning complete"],
-          content: [],
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_status",
+          turnId: "turn_status",
+          item: {
+            id: "item_reasoning",
+            type: "reasoning",
+            summary: ["Planning complete"],
+            content: [],
+          },
         },
       });
 
@@ -26409,7 +26701,7 @@ describe("codex-service item lifecycle status fallback", () => {
       getConversationRecord: (threadId: string) => {
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
       };
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -26424,12 +26716,15 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: ["item_context_compaction"],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_compaction_live",
-        turnId: "turn_compaction_live",
-        item: {
-          id: "item_context_compaction",
-          type: "contextCompaction",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_compaction_live",
+          turnId: "turn_compaction_live",
+          item: {
+            id: "item_context_compaction",
+            type: "contextCompaction",
+          },
         },
       });
 
@@ -26443,12 +26738,15 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(item?.status).toBe("inProgress");
       expect(item?.markdownText).toBe("Automatically compacting context");
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_compaction_live",
-        turnId: "turn_compaction_live",
-        item: {
-          id: "item_context_compaction",
-          type: "contextCompaction",
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_compaction_live",
+          turnId: "turn_compaction_live",
+          item: {
+            id: "item_context_compaction",
+            type: "contextCompaction",
+          },
         },
       });
 
@@ -26472,7 +26770,7 @@ describe("codex-service item lifecycle status fallback", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -26510,72 +26808,90 @@ describe("codex-service item lifecycle status fallback", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_compaction_order",
-          turnId: "turn_compaction_order",
-          item: makeProtocolAgentMessage({
-            id: "assistant_before",
-            text: "",
-          }),
-        });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_compaction_order",
-          turnId: "turn_compaction_order",
-          item: {
-            id: "item_context_compaction",
-            type: "contextCompaction",
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before",
+              text: "",
+            }),
           },
         });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_compaction_order",
-          turnId: "turn_compaction_order",
-          item: {
-            id: "tool_after",
-            type: "commandExecution",
-            command: "echo later",
-            cwd: "/workspace/project",
-            processId: null,
-            source: "agent",
-            status: "inProgress",
-            commandActions: [],
-            aggregatedOutput: null,
-            exitCode: null,
-            durationMs: null,
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            item: {
+              id: "item_context_compaction",
+              type: "contextCompaction",
+            },
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_compaction_order",
-          turnId: "turn_compaction_order",
-          item: {
-            id: "tool_after",
-            type: "commandExecution",
-            command: "echo later",
-            cwd: "/workspace/project",
-            processId: null,
-            source: "agent",
-            status: "completed",
-            commandActions: [],
-            aggregatedOutput: "",
-            exitCode: 0,
-            durationMs: 10,
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            item: {
+              id: "tool_after",
+              type: "commandExecution",
+              command: "echo later",
+              cwd: "/workspace/project",
+              processId: null,
+              source: "agent",
+              status: "inProgress",
+              commandActions: [],
+              aggregatedOutput: null,
+              exitCode: null,
+              durationMs: null,
+            },
+          },
+        });
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            item: {
+              id: "tool_after",
+              type: "commandExecution",
+              command: "echo later",
+              cwd: "/workspace/project",
+              processId: null,
+              source: "agent",
+              status: "completed",
+              commandActions: [],
+              aggregatedOutput: "",
+              exitCode: 0,
+              durationMs: 10,
+            },
           },
         });
 
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_compaction_order",
-          turnId: "turn_compaction_order",
-          item: makeProtocolAgentMessage({
-            id: "assistant_before",
-            text: "Assistant first.",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before",
+              text: "Assistant first.",
+            }),
+          },
         });
 
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_compaction_order",
-          turnId: "turn_compaction_order",
-          item: {
-            id: "item_context_compaction",
-            type: "contextCompaction",
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            item: {
+              id: "item_context_compaction",
+              type: "contextCompaction",
+            },
           },
         });
 
@@ -26604,7 +26920,7 @@ describe("codex-service item lifecycle status fallback", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -26640,73 +26956,91 @@ describe("codex-service item lifecycle status fallback", () => {
       }));
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_compaction_live_order",
-          turnId: "turn_compaction_live_order",
-          item: makeProtocolAgentMessage({
-            id: "assistant_before",
-            text: "",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turnId: "turn_compaction_live_order",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before",
+              text: "",
+            }),
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_compaction_live_order",
-          turnId: "turn_compaction_live_order",
-          item: makeProtocolAgentMessage({
-            id: "assistant_before",
-            text: "Assistant first.",
-          }),
-        });
-
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_compaction_live_order",
-          turnId: "turn_compaction_live_order",
-          item: {
-            id: "item_context_compaction",
-            type: "contextCompaction",
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turnId: "turn_compaction_live_order",
+            item: makeProtocolAgentMessage({
+              id: "assistant_before",
+              text: "Assistant first.",
+            }),
           },
         });
 
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_compaction_live_order",
-          turnId: "turn_compaction_live_order",
-          item: {
-            id: "item_context_compaction",
-            type: "contextCompaction",
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turnId: "turn_compaction_live_order",
+            item: {
+              id: "item_context_compaction",
+              type: "contextCompaction",
+            },
           },
         });
 
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_compaction_live_order",
-          turnId: "turn_compaction_live_order",
-          item: {
-            id: "tool_after",
-            type: "commandExecution",
-            command: "echo later",
-            cwd: "/workspace/project",
-            processId: null,
-            source: "agent",
-            status: "inProgress",
-            commandActions: [],
-            aggregatedOutput: null,
-            exitCode: null,
-            durationMs: null,
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turnId: "turn_compaction_live_order",
+            item: {
+              id: "item_context_compaction",
+              type: "contextCompaction",
+            },
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_compaction_live_order",
-          turnId: "turn_compaction_live_order",
-          item: {
-            id: "tool_after",
-            type: "commandExecution",
-            command: "echo later",
-            cwd: "/workspace/project",
-            processId: null,
-            source: "agent",
-            status: "completed",
-            commandActions: [],
-            aggregatedOutput: "",
-            exitCode: 0,
-            durationMs: 10,
+
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turnId: "turn_compaction_live_order",
+            item: {
+              id: "tool_after",
+              type: "commandExecution",
+              command: "echo later",
+              cwd: "/workspace/project",
+              processId: null,
+              source: "agent",
+              status: "inProgress",
+              commandActions: [],
+              aggregatedOutput: null,
+              exitCode: null,
+              durationMs: null,
+            },
+          },
+        });
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_compaction_live_order",
+            turnId: "turn_compaction_live_order",
+            item: {
+              id: "tool_after",
+              type: "commandExecution",
+              command: "echo later",
+              cwd: "/workspace/project",
+              processId: null,
+              source: "agent",
+              status: "completed",
+              commandActions: [],
+              aggregatedOutput: "",
+              exitCode: 0,
+              durationMs: 10,
+            },
           },
         });
 
@@ -26733,7 +27067,7 @@ describe("codex-service item lifecycle status fallback", () => {
   test("projects automatic approval review notifications into the canonical conversation", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -26748,22 +27082,25 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: ["item_command"],
       });
 
-      await serviceInternals.handleNotification("item/autoApprovalReview/started", {
-        threadId: "thr_auto_review",
-        turnId: "turn_auto_review",
-        reviewId: "review_auto",
-        targetItemId: "item_command",
-        review: {
-          status: "inProgress",
-          riskLevel: "medium",
-          userAuthorization: "unknown",
-          rationale: null,
-        },
-        action: {
-          type: "command",
-          source: "shell",
-          command: "bun test",
-          cwd: "/tmp/project",
+      await serviceInternals.handleNotification({
+        method: "item/autoApprovalReview/started",
+        params: {
+          threadId: "thr_auto_review",
+          turnId: "turn_auto_review",
+          reviewId: "review_auto",
+          targetItemId: "item_command",
+          review: {
+            status: "inProgress",
+            riskLevel: "medium",
+            userAuthorization: "unknown",
+            rationale: null,
+          },
+          action: {
+            type: "command",
+            source: "shell",
+            command: "bun test",
+            cwd: "/tmp/project",
+          },
         },
       });
 
@@ -26776,23 +27113,26 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(item?.semanticKind).toBe("automaticApprovalReview");
       expect(item?.status).toBe("inProgress");
 
-      await serviceInternals.handleNotification("item/autoApprovalReview/completed", {
-        threadId: "thr_auto_review",
-        turnId: "turn_auto_review",
-        reviewId: "review_auto",
-        targetItemId: "item_command",
-        decisionSource: "agent",
-        review: {
-          status: "approved",
-          riskLevel: "low",
-          userAuthorization: "low",
-          rationale: "This only runs the local test suite.",
-        },
-        action: {
-          type: "command",
-          source: "shell",
-          command: "bun test",
-          cwd: "/tmp/project",
+      await serviceInternals.handleNotification({
+        method: "item/autoApprovalReview/completed",
+        params: {
+          threadId: "thr_auto_review",
+          turnId: "turn_auto_review",
+          reviewId: "review_auto",
+          targetItemId: "item_command",
+          decisionSource: "agent",
+          review: {
+            status: "approved",
+            riskLevel: "low",
+            userAuthorization: "low",
+            rationale: "This only runs the local test suite.",
+          },
+          action: {
+            type: "command",
+            source: "shell",
+            command: "bun test",
+            cwd: "/tmp/project",
+          },
         },
       });
 
@@ -26813,7 +27153,7 @@ describe("codex-service item lifecycle status fallback", () => {
   test("projects guardian too-many-denials warning onto the latest canonical turn", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -26828,9 +27168,12 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: [],
       });
 
-      await serviceInternals.handleNotification("guardianWarning", {
-        threadId: "thr_guardian_warning",
-        message: "Unrelated guardian warning",
+      await serviceInternals.handleNotification({
+        method: "guardianWarning",
+        params: {
+          threadId: "thr_guardian_warning",
+          message: "Unrelated guardian warning",
+        },
       });
 
       let snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
@@ -26839,10 +27182,13 @@ describe("codex-service item lifecycle status fallback", () => {
       ) ?? [];
       expect(String(warningItems.length)).toBe("0");
 
-      await serviceInternals.handleNotification("guardianWarning", {
-        threadId: "thr_guardian_warning",
-        kind: "tooManyDenials",
-        message: "Unrelated guardian warning",
+      await serviceInternals.handleNotification({
+        method: "guardianWarning",
+        params: {
+          threadId: "thr_guardian_warning",
+          kind: "tooManyDenials",
+          message: "Unrelated guardian warning",
+        },
       });
 
       snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
@@ -26861,7 +27207,7 @@ describe("codex-service item lifecycle status fallback", () => {
   test("projects hook lifecycle notifications into canonical turn items", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -26876,15 +27222,18 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: [],
       });
 
-      await serviceInternals.handleNotification("hook/started", {
-        threadId: "thr_hook",
-        turnId: "turn_hook",
-        run: {
-          id: "hook_run_1",
-          eventName: "preToolUse",
-          status: "running",
-          statusMessage: "Preparing context",
-          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+      await serviceInternals.handleNotification({
+        method: "hook/started",
+        params: {
+          threadId: "thr_hook",
+          turnId: "turn_hook",
+          run: {
+            id: "hook_run_1",
+            eventName: "preToolUse",
+            status: "running",
+            statusMessage: "Preparing context",
+            entries: [{ kind: "context", text: "Added AGENTS.md" }],
+          },
         },
       });
 
@@ -26892,15 +27241,18 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(item?.semanticKind).toBe("hook");
       expect(item?.status).toBe("inProgress");
 
-      await serviceInternals.handleNotification("hook/completed", {
-        threadId: "thr_hook",
-        turnId: "turn_hook",
-        run: {
-          id: "hook_run_1",
-          eventName: "preToolUse",
-          status: "completed",
-          statusMessage: "Preparing context",
-          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+      await serviceInternals.handleNotification({
+        method: "hook/completed",
+        params: {
+          threadId: "thr_hook",
+          turnId: "turn_hook",
+          run: {
+            id: "hook_run_1",
+            eventName: "preToolUse",
+            status: "completed",
+            statusMessage: "Preparing context",
+            entries: [{ kind: "context", text: "Added AGENTS.md" }],
+          },
         },
       });
 
@@ -26920,7 +27272,7 @@ describe("codex-service item lifecycle status fallback", () => {
       }
     });
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -26936,12 +27288,15 @@ describe("codex-service item lifecycle status fallback", () => {
       });
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("model/rerouted", {
-        threadId: "thr_model_reroute",
-        turnId: "turn_model_reroute",
-        fromModel: "gpt-5.4-codex",
-        toModel: "gpt-5.4-mini",
-        reason: "highRiskCyberActivity",
+      await serviceInternals.handleNotification({
+        method: "model/rerouted",
+        params: {
+          threadId: "thr_model_reroute",
+          turnId: "turn_model_reroute",
+          fromModel: "gpt-5.4-codex",
+          toModel: "gpt-5.4-mini",
+          reason: "highRiskCyberActivity",
+        },
       });
 
       const snapshot = await service.requestConversationSnapshot("thr_model_reroute");
@@ -27280,7 +27635,7 @@ describe("codex-service item lifecycle status fallback", () => {
   test("synthesizes planImplementation items from completed turns with unfinished plans", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       listPendingConversationRequests: (threadId: string) => Array<{ type: string; turnId: string }>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -27305,38 +27660,53 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: [],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_plan_impl",
-        turnId: "turn_plan_impl",
-        item: {
-          id: "plan_text",
-          type: "plan",
-          text: "",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_plan_impl",
+          turnId: "turn_plan_impl",
+          item: {
+            id: "plan_text",
+            type: "plan",
+            text: "",
+          },
         },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_plan_impl",
-        turnId: "turn_plan_impl",
-        item: {
-          id: "plan_text",
-          type: "plan",
-          text: "1. Ship the fix\n2. Verify the behavior",
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_plan_impl",
+          turnId: "turn_plan_impl",
+          item: {
+            id: "plan_text",
+            type: "plan",
+            text: "1. Ship the fix\n2. Verify the behavior",
+          },
         },
       });
 
-      await serviceInternals.handleNotification("turn/plan/updated", {
-        threadId: "thr_plan_impl",
-        turnId: "turn_plan_impl",
-        explanation: null,
-        plan: [
-          { step: "Ship the fix", status: "completed" },
-          { step: "Verify the behavior", status: "in_progress" },
-        ],
+      await serviceInternals.handleNotification({
+        method: "turn/plan/updated",
+        params: {
+          threadId: "thr_plan_impl",
+          turnId: "turn_plan_impl",
+          explanation: null,
+          plan: [
+            { step: "Ship the fix", status: "completed" },
+            { step: "Verify the behavior", status: "in_progress" },
+          ],
+        },
       });
 
-      await serviceInternals.handleNotification("turn/completed", {
-        threadId: "thr_plan_impl",
-        turnId: "turn_plan_impl",
+      await serviceInternals.handleNotification({
+        method: "turn/completed",
+        params: {
+          threadId: "thr_plan_impl",
+          turn: completeLegacyProtocolTurnFixture({
+            id: "turn_plan_impl",
+            status: "completed",
+          }),
+        },
       });
 
       const item = getRecordedItem(
@@ -27361,7 +27731,7 @@ describe("codex-service item lifecycle status fallback", () => {
   test("creates a planImplementation request from a completed proposed plan even without todo-list updates", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       listPendingConversationRequests: (threadId: string) => Array<{ type: string; turnId: string }>;
@@ -27386,28 +27756,40 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: [],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_plan_impl_no_todo",
-        turnId: "turn_plan_impl_no_todo",
-        item: {
-          id: "plan_text",
-          type: "plan",
-          text: "",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_plan_impl_no_todo",
+          turnId: "turn_plan_impl_no_todo",
+          item: {
+            id: "plan_text",
+            type: "plan",
+            text: "",
+          },
         },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_plan_impl_no_todo",
-        turnId: "turn_plan_impl_no_todo",
-        item: {
-          id: "plan_text",
-          type: "plan",
-          text: "1. Ship the fix\n2. Verify the behavior",
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_plan_impl_no_todo",
+          turnId: "turn_plan_impl_no_todo",
+          item: {
+            id: "plan_text",
+            type: "plan",
+            text: "1. Ship the fix\n2. Verify the behavior",
+          },
         },
       });
 
-      await serviceInternals.handleNotification("turn/completed", {
-        threadId: "thr_plan_impl_no_todo",
-        turnId: "turn_plan_impl_no_todo",
+      await serviceInternals.handleNotification({
+        method: "turn/completed",
+        params: {
+          threadId: "thr_plan_impl_no_todo",
+          turn: completeLegacyProtocolTurnFixture({
+            id: "turn_plan_impl_no_todo",
+            status: "completed",
+          }),
+        },
       });
 
       const requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_no_todo");
@@ -27778,7 +28160,7 @@ describe("codex-service terminal turn reconciliation", () => {
       getConversationRecord: (threadId: string) => {
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
       };
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       mergeItem: (entry: CodexItemView) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
@@ -27857,9 +28239,15 @@ describe("codex-service terminal turn reconciliation", () => {
         updatedAt: 12,
       });
 
-      await serviceInternals.handleNotification("turn/completed", {
-        threadId: "thr_terminal",
-        turnId: "turn_terminal",
+      await serviceInternals.handleNotification({
+        method: "turn/completed",
+        params: {
+          threadId: "thr_terminal",
+          turn: completeLegacyProtocolTurnFixture({
+            id: "turn_terminal",
+            status: "completed",
+          }),
+        },
       });
 
       const turnEvents = events.filter(
@@ -27952,7 +28340,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
 
@@ -27976,23 +28364,29 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_delta",
-        turnId: "turn_streaming_delta",
-        item: makeProtocolAgentMessage({
-          id: "assistant_streaming_delta",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_delta",
+          turnId: "turn_streaming_delta",
+          item: makeProtocolAgentMessage({
+            id: "assistant_streaming_delta",
+            text: "",
+          }),
+        },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_delta",
-        turnId: "turn_streaming_delta",
-        itemId: "assistant_streaming_delta",
-        delta: "hello",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_delta",
+          turnId: "turn_streaming_delta",
+          itemId: "assistant_streaming_delta",
+          delta: "hello",
+        },
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
@@ -28025,7 +28419,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -28063,21 +28457,27 @@ describe("codex-service terminal turn reconciliation", () => {
       }));
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_agent_message_completed",
-          turnId: "turn_agent_message_completed",
-          item: makeProtocolAgentMessage({
-            id: "assistant_agent_message_completed",
-            text: "",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_agent_message_completed",
+            turnId: "turn_agent_message_completed",
+            item: makeProtocolAgentMessage({
+              id: "assistant_agent_message_completed",
+              text: "",
+            }),
+          },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_agent_message_completed",
-          turnId: "turn_agent_message_completed",
-          item: makeProtocolAgentMessage({
-            id: "assistant_agent_message_completed",
-            text: "Done",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_agent_message_completed",
+            turnId: "turn_agent_message_completed",
+            item: makeProtocolAgentMessage({
+              id: "assistant_agent_message_completed",
+              text: "Done",
+            }),
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -28099,7 +28499,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -28125,13 +28525,16 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_completion_timestamp_fallback",
-          turn: {
-            id: "turn_completion_timestamp_fallback",
-            status: "completed",
-            completedAt: 999,
-            items: [],
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_completion_timestamp_fallback",
+            turn: {
+              id: "turn_completion_timestamp_fallback",
+              status: "completed",
+              completedAt: 999,
+              items: [],
+            },
           },
         });
 
@@ -28153,7 +28556,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const serviceInternals = service as unknown as {
       serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
 
@@ -28177,13 +28580,16 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_delta_hot_path",
-        turnId: "turn_streaming_delta_hot_path",
-        item: makeProtocolAgentMessage({
-          id: "assistant_streaming_delta_hot_path",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_delta_hot_path",
+          turnId: "turn_streaming_delta_hot_path",
+          item: makeProtocolAgentMessage({
+            id: "assistant_streaming_delta_hot_path",
+            text: "",
+          }),
+        },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -28196,11 +28602,14 @@ describe("codex-service terminal turn reconciliation", () => {
         return originalSerializeConversationSnapshot(threadId);
       });
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_delta_hot_path",
-        turnId: "turn_streaming_delta_hot_path",
-        itemId: "assistant_streaming_delta_hot_path",
-        delta: "hello",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_delta_hot_path",
+          turnId: "turn_streaming_delta_hot_path",
+          itemId: "assistant_streaming_delta_hot_path",
+          delta: "hello",
+        },
       });
       await waitForCondition(() => hostMessages.length > 0, 120);
 
@@ -28224,7 +28633,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
     const largeDelta = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -28247,23 +28656,29 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_large_delta",
-        turnId: "turn_streaming_large_delta",
-        item: makeProtocolAgentMessage({
-          id: "assistant_large_delta",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_large_delta",
+          turnId: "turn_streaming_large_delta",
+          item: makeProtocolAgentMessage({
+            id: "assistant_large_delta",
+            text: "",
+          }),
+        },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_large_delta",
-        turnId: "turn_streaming_large_delta",
-        itemId: "assistant_large_delta",
-        delta: largeDelta,
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_large_delta",
+          turnId: "turn_streaming_large_delta",
+          itemId: "assistant_large_delta",
+          delta: largeDelta,
+        },
       });
       await waitForCondition(() => hostMessages.length > 0, 180);
 
@@ -28304,7 +28719,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
     const largeDelta = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -28327,31 +28742,40 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_completion_drain",
-        turnId: "turn_streaming_completion_drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant_completion_drain",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_completion_drain",
+          turnId: "turn_streaming_completion_drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant_completion_drain",
+            text: "",
+          }),
+        },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_completion_drain",
-        turnId: "turn_streaming_completion_drain",
-        itemId: "assistant_completion_drain",
-        delta: largeDelta,
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_completion_drain",
+          turnId: "turn_streaming_completion_drain",
+          itemId: "assistant_completion_drain",
+          delta: largeDelta,
+        },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_streaming_completion_drain",
-        turnId: "turn_streaming_completion_drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant_completion_drain",
-          text: largeDelta,
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_streaming_completion_drain",
+          turnId: "turn_streaming_completion_drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant_completion_drain",
+            text: largeDelta,
+          }),
+        },
       });
 
       expect(hostMessages.length > 1).toBe(true);
@@ -28389,7 +28813,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
     const delta = "short response";
@@ -28412,31 +28836,40 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_short_completion_drain",
-        turnId: "turn_streaming_short_completion_drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant_short_completion_drain",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_short_completion_drain",
+          turnId: "turn_streaming_short_completion_drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant_short_completion_drain",
+            text: "",
+          }),
+        },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_short_completion_drain",
-        turnId: "turn_streaming_short_completion_drain",
-        itemId: "assistant_short_completion_drain",
-        delta,
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_short_completion_drain",
+          turnId: "turn_streaming_short_completion_drain",
+          itemId: "assistant_short_completion_drain",
+          delta,
+        },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_streaming_short_completion_drain",
-        turnId: "turn_streaming_short_completion_drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant_short_completion_drain",
-          text: delta,
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_streaming_short_completion_drain",
+          turnId: "turn_streaming_short_completion_drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant_short_completion_drain",
+            text: delta,
+          }),
+        },
       });
       await waitForCondition(() => hostMessages.length > 1, 240);
 
@@ -28458,7 +28891,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
     };
     const hostMessages: CodexHostMessage[] = [];
@@ -28483,30 +28916,39 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_turn_completion_drain",
-        turnId: "turn_streaming_turn_completion_drain",
-        item: makeProtocolAgentMessage({
-          id: "assistant_turn_completion_drain",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_turn_completion_drain",
+          turnId: "turn_streaming_turn_completion_drain",
+          item: makeProtocolAgentMessage({
+            id: "assistant_turn_completion_drain",
+            text: "",
+          }),
+        },
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
       hostMessages.length = 0;
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_turn_completion_drain",
-        turnId: "turn_streaming_turn_completion_drain",
-        itemId: "assistant_turn_completion_drain",
-        delta,
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_turn_completion_drain",
+          turnId: "turn_streaming_turn_completion_drain",
+          itemId: "assistant_turn_completion_drain",
+          delta,
+        },
       });
-      await serviceInternals.handleNotification("turn/completed", {
-        threadId: "thr_streaming_turn_completion_drain",
-        turn: {
-          id: "turn_streaming_turn_completion_drain",
-          status: "completed",
-          items: [],
+      await serviceInternals.handleNotification({
+        method: "turn/completed",
+        params: {
+          threadId: "thr_streaming_turn_completion_drain",
+          turn: {
+            id: "turn_streaming_turn_completion_drain",
+            status: "completed",
+            items: [],
+          },
         },
       });
 
@@ -28539,7 +28981,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const threadMessages: CodexHostMessage[] = [];
     const mcpMessages: CodexHostMessage[] = [];
@@ -28567,20 +29009,26 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_streaming_output",
-        turnId: "turn_streaming_output",
-        item: makeProtocolCommandExecution({
-          id: "exec_streaming_output",
-          command: "bun test",
-          cwd: "/tmp",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_streaming_output",
+          turnId: "turn_streaming_output",
+          item: makeProtocolCommandExecution({
+            id: "exec_streaming_output",
+            command: "bun test",
+            cwd: "/tmp",
+          }),
+        },
       });
-      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-        threadId: "thr_streaming_output",
-        turnId: "turn_streaming_output",
-        itemId: "exec_streaming_output",
-        delta: "1340 pass\n",
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thr_streaming_output",
+          turnId: "turn_streaming_output",
+          itemId: "exec_streaming_output",
+          delta: "1340 pass\n",
+        },
       });
 
       expect(String(mcpMessages.length)).toBe("1");
@@ -28588,12 +29036,12 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(mcpMessage?.type).toBe("mcpNotification");
       expect(
         mcpMessage?.type === "mcpNotification"
-          ? mcpMessage.method
+          ? mcpMessage.notification.method
           : "",
       ).toBe("item/commandExecution/outputDelta");
       expect(
         mcpMessage?.type === "mcpNotification"
-          ? mcpMessage.params.delta
+          ? mcpMessage.notification.params.delta
           : "",
       ).toBe("1340 pass\n");
 
@@ -28617,7 +29065,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const mcpMessages: CodexHostMessage[] = [];
     const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
@@ -28651,32 +29099,38 @@ describe("codex-service terminal turn reconciliation", () => {
 
     try {
       service.setRendererConversationOwner("thr_owner_streaming_output", "owner-a");
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_owner_streaming_output",
-        turnId: "turn_owner_streaming_output",
-        item: makeProtocolCommandExecution({
-          id: "exec_owner_streaming_output",
-          command: "bun test",
-          cwd: "/tmp",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_owner_streaming_output",
+          turnId: "turn_owner_streaming_output",
+          item: makeProtocolCommandExecution({
+            id: "exec_owner_streaming_output",
+            command: "bun test",
+            cwd: "/tmp",
+          }),
+        },
       });
-      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-        threadId: "thr_owner_streaming_output",
-        turnId: "turn_owner_streaming_output",
-        itemId: "exec_owner_streaming_output",
-        delta: "owner output\n",
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thr_owner_streaming_output",
+          turnId: "turn_owner_streaming_output",
+          itemId: "exec_owner_streaming_output",
+          delta: "owner output\n",
+        },
       });
 
       const outputOwnerMessages = ownerMessages.filter((message) =>
         message.message.type === "threadOwnerNotification" &&
-        message.message.method === "item/commandExecution/outputDelta"
+        message.message.notification.method === "item/commandExecution/outputDelta"
       );
       expect(String(mcpMessages.length)).toBe("0");
       expect(String(outputOwnerMessages.length)).toBe("1");
       expect(outputOwnerMessages[0]?.targetClientId).toBe("owner-a");
       expect(outputOwnerMessages[0]?.message.type).toBe("threadOwnerNotification");
       if (outputOwnerMessages[0]?.message.type === "threadOwnerNotification") {
-        expect(outputOwnerMessages[0].message.method).toBe("item/commandExecution/outputDelta");
+        expect(outputOwnerMessages[0].message.notification.method).toBe("item/commandExecution/outputDelta");
         expect(outputOwnerMessages[0].message.sequence).toBe(2);
       }
 
@@ -28692,7 +29146,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       applyOutputDeltas: (updates: readonly CodexCommandOutputUpdate[]) => void;
       getMaybeConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
@@ -28714,14 +29168,17 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId,
-        turnId,
-        item: makeProtocolCommandExecution({
-          id: itemId,
-          command: "pnpm test",
-          cwd: "/tmp",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId,
+          turnId,
+          item: makeProtocolCommandExecution({
+            id: itemId,
+            command: "pnpm test",
+            cwd: "/tmp",
+          }),
+        },
       });
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
@@ -28747,7 +29204,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
     const hostMessages: CodexHostMessage[] = [];
@@ -28781,35 +29238,44 @@ describe("codex-service terminal turn reconciliation", () => {
 
     try {
       service.setRendererConversationOwner("thr_owner_terminal_interaction", "owner-a");
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_owner_terminal_interaction",
-        turnId: "turn_owner_terminal_interaction",
-        item: makeProtocolCommandExecution({
-          id: "exec_owner_terminal_interaction",
-          command: "python",
-          cwd: "/tmp",
-          processId: "proc-1",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_owner_terminal_interaction",
+          turnId: "turn_owner_terminal_interaction",
+          item: makeProtocolCommandExecution({
+            id: "exec_owner_terminal_interaction",
+            command: "python",
+            cwd: "/tmp",
+            processId: "proc-1",
+          }),
+        },
       });
       const streamMessagesBeforeTerminal = hostMessages.length;
-      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
-        threadId: "thr_owner_terminal_interaction",
-        turnId: "turn_owner_terminal_interaction",
-        itemId: "exec_owner_terminal_interaction",
-        processId: "proc-1",
-        stdin: "bun tes",
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          threadId: "thr_owner_terminal_interaction",
+          turnId: "turn_owner_terminal_interaction",
+          itemId: "exec_owner_terminal_interaction",
+          processId: "proc-1",
+          stdin: "bun tes",
+        },
       });
-      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
-        threadId: "thr_owner_terminal_interaction",
-        turnId: "turn_owner_terminal_interaction",
-        itemId: "exec_owner_terminal_interaction",
-        processId: "proc-1",
-        stdin: "t\n",
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          threadId: "thr_owner_terminal_interaction",
+          turnId: "turn_owner_terminal_interaction",
+          itemId: "exec_owner_terminal_interaction",
+          processId: "proc-1",
+          stdin: "t\n",
+        },
       });
 
       const terminalOwnerMessages = ownerMessages.filter((message) =>
         message.message.type === "threadOwnerNotification" &&
-        message.message.method === "item/commandExecution/terminalInteraction"
+        message.message.notification.method === "item/commandExecution/terminalInteraction"
       );
       expect(String(hostMessages.length)).toBe(String(streamMessagesBeforeTerminal));
 
@@ -28832,7 +29298,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       applyTerminalInteraction: (input: {
         threadId: string;
         turnId: string | null;
@@ -28859,14 +29325,17 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId,
-        turnId,
-        item: makeProtocolCommandExecution({
-          id: itemId,
-          command: "python",
-          cwd: "/tmp",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId,
+          turnId,
+          item: makeProtocolCommandExecution({
+            id: itemId,
+            command: "python",
+            cwd: "/tmp",
+          }),
+        },
       });
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
@@ -28892,18 +29361,21 @@ describe("codex-service terminal turn reconciliation", () => {
   test("retains incomplete terminal input across per-thread teardown", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       forgetThreadLocalState: (threadId: string) => void;
       terminalInputBuffers: Map<string, string>;
     };
 
     try {
-      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
-        threadId: "thr_terminal_buffer_lifetime",
-        turnId: "turn_terminal_buffer_lifetime",
-        itemId: "exec_terminal_buffer_lifetime",
-        processId: "proc-terminal-buffer",
-        stdin: "bun tes",
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          threadId: "thr_terminal_buffer_lifetime",
+          turnId: "turn_terminal_buffer_lifetime",
+          itemId: "exec_terminal_buffer_lifetime",
+          processId: "proc-terminal-buffer",
+          stdin: "bun tes",
+        },
       });
 
       const key = "thr_terminal_buffer_lifetime:exec_terminal_buffer_lifetime";
@@ -28919,7 +29391,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
@@ -28934,16 +29406,19 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_completed_work_stamp",
-        turnId: "turn_completed_work_stamp",
-        completedAtMs: 1_000,
-        item: makeProtocolCommandExecution({
-          id: "exec_completed",
-          command: "bun test",
-          status: "completed",
-          durationMs: 50,
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_completed_work_stamp",
+          turnId: "turn_completed_work_stamp",
+          completedAtMs: 1_000,
+          item: makeProtocolCommandExecution({
+            id: "exec_completed",
+            command: "bun test",
+            status: "completed",
+            durationMs: 50,
+          }),
+        },
       });
 
       let snapshot = service.serializeConversationSnapshot("thr_completed_work_stamp");
@@ -28965,14 +29440,17 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_existing_work_stamp",
-        turnId: "turn_existing_work_stamp",
-        item: makeProtocolCommandExecution({
-          id: "exec_existing",
-          command: "bun test",
-          status: "completed",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_existing_work_stamp",
+          turnId: "turn_existing_work_stamp",
+          item: makeProtocolCommandExecution({
+            id: "exec_existing",
+            command: "bun test",
+            status: "completed",
+          }),
+        },
       });
 
       snapshot = service.serializeConversationSnapshot("thr_existing_work_stamp");
@@ -28986,7 +29464,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       getConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
       };
@@ -29004,24 +29482,30 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_hidden_review_lifecycle",
-        turnId: "turn_hidden_review_lifecycle",
-        startedAtMs: 100,
-        item: {
-          id: "review-mode-marker",
-          type: "enteredReviewMode",
-          review: "Review the current changes",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_hidden_review_lifecycle",
+          turnId: "turn_hidden_review_lifecycle",
+          startedAtMs: 100,
+          item: {
+            id: "review-mode-marker",
+            type: "enteredReviewMode",
+            review: "Review the current changes",
+          },
         },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_hidden_review_lifecycle",
-        turnId: "turn_hidden_review_lifecycle",
-        completedAtMs: 120,
-        item: {
-          id: "review-mode-marker",
-          type: "enteredReviewMode",
-          review: "Review the current changes",
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_hidden_review_lifecycle",
+          turnId: "turn_hidden_review_lifecycle",
+          completedAtMs: 120,
+          item: {
+            id: "review-mode-marker",
+            type: "enteredReviewMode",
+            review: "Review the current changes",
+          },
         },
       });
 
@@ -29040,7 +29524,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       getConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
       };
@@ -29071,22 +29555,28 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
       for (const itemId of ["before", "target", "after"]) {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_hidden_visible_roundtrip",
-          turnId: "turn_hidden_visible_roundtrip",
-          startedAtMs: 100,
-          item: buildCommand(itemId),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_hidden_visible_roundtrip",
+            turnId: "turn_hidden_visible_roundtrip",
+            startedAtMs: 100,
+            item: buildCommand(itemId),
+          },
         });
       }
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_hidden_visible_roundtrip",
-        turnId: "turn_hidden_visible_roundtrip",
-        startedAtMs: 110,
-        item: {
-          id: "target",
-          type: "enteredReviewMode",
-          review: "Review target",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_hidden_visible_roundtrip",
+          turnId: "turn_hidden_visible_roundtrip",
+          startedAtMs: 110,
+          item: {
+            id: "target",
+            type: "enteredReviewMode",
+            review: "Review target",
+          },
         },
       });
       let snapshot = service.serializeConversationSnapshot("thr_hidden_visible_roundtrip");
@@ -29097,17 +29587,23 @@ describe("codex-service terminal turn reconciliation", () => {
         JSON.stringify(["before", "after"]),
       );
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_hidden_visible_roundtrip",
-        turnId: "turn_hidden_visible_roundtrip",
-        startedAtMs: 120,
-        item: buildCommand("target"),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_hidden_visible_roundtrip",
+          turnId: "turn_hidden_visible_roundtrip",
+          startedAtMs: 120,
+          item: buildCommand("target"),
+        },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_hidden_visible_roundtrip",
-        turnId: "turn_hidden_visible_roundtrip",
-        completedAtMs: 130,
-        item: buildCommand("target", "completed"),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_hidden_visible_roundtrip",
+          turnId: "turn_hidden_visible_roundtrip",
+          completedAtMs: 130,
+          item: buildCommand("target", "completed"),
+        },
       });
 
       snapshot = service.serializeConversationSnapshot("thr_hidden_visible_roundtrip");
@@ -29126,7 +29622,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       getConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
       };
@@ -29157,30 +29653,39 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
       for (const itemId of ["before", "target", "after"]) {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_hidden_patch_replacement",
-          turnId: "turn_hidden_patch_replacement",
-          startedAtMs: 100,
-          item: buildCommand(itemId),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_hidden_patch_replacement",
+            turnId: "turn_hidden_patch_replacement",
+            startedAtMs: 100,
+            item: buildCommand(itemId),
+          },
         });
       }
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_hidden_patch_replacement",
-        turnId: "turn_hidden_patch_replacement",
-        startedAtMs: 110,
-        item: {
-          id: "target",
-          type: "enteredReviewMode",
-          review: "Review target",
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_hidden_patch_replacement",
+          turnId: "turn_hidden_patch_replacement",
+          startedAtMs: 110,
+          item: {
+            id: "target",
+            type: "enteredReviewMode",
+            review: "Review target",
+          },
         },
       });
 
       const liveChanges: never[] = [];
-      await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-        threadId: "thr_hidden_patch_replacement",
-        turnId: "turn_hidden_patch_replacement",
-        itemId: "target",
-        changes: liveChanges,
+      await serviceInternals.handleNotification({
+        method: "item/fileChange/patchUpdated",
+        params: {
+          threadId: "thr_hidden_patch_replacement",
+          turnId: "turn_hidden_patch_replacement",
+          itemId: "target",
+          changes: liveChanges,
+        },
       });
 
       let snapshot = service.serializeConversationSnapshot("thr_hidden_patch_replacement");
@@ -29197,19 +29702,24 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(serviceInternals.getConversationRecord("thr_hidden_patch_replacement")
         .canonicalState?.turns[0]?.items[1]?.type).toBe("fileChange");
 
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_hidden_patch_replacement",
-        turnId: "turn_hidden_patch_replacement",
-        completedAtMs: 150,
-        item: {
-          id: "target",
-          type: "fileChange",
-          status: "completed",
-          changes: [{
-            path: "src/final.ts",
-            kind: { type: "add" },
-            diff: "",
-          }],
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_hidden_patch_replacement",
+          turnId: "turn_hidden_patch_replacement",
+          completedAtMs: 150,
+          item: {
+            id: "target",
+            type: "fileChange",
+            status: "completed",
+            changes: [
+              {
+                path: "src/final.ts",
+                kind: { type: "add" },
+                diff: "",
+              },
+            ],
+          },
         },
       });
 
@@ -29232,7 +29742,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
@@ -29246,32 +29756,38 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_hidden_completion_mismatch",
-        turnId: "turn_hidden_completion_mismatch",
-        startedAtMs: 100,
-        item: {
-          id: "shared-id",
-          type: "commandExecution",
-          command: "pwd",
-          cwd: "/tmp",
-          processId: null,
-          source: "agent",
-          status: "inProgress",
-          commandActions: [],
-          aggregatedOutput: null,
-          exitCode: null,
-          durationMs: null,
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_hidden_completion_mismatch",
+          turnId: "turn_hidden_completion_mismatch",
+          startedAtMs: 100,
+          item: {
+            id: "shared-id",
+            type: "commandExecution",
+            command: "pwd",
+            cwd: "/tmp",
+            processId: null,
+            source: "agent",
+            status: "inProgress",
+            commandActions: [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          },
         },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_hidden_completion_mismatch",
-        turnId: "turn_hidden_completion_mismatch",
-        completedAtMs: 110,
-        item: {
-          id: "shared-id",
-          type: "exitedReviewMode",
-          review: "Mismatched hidden completion",
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_hidden_completion_mismatch",
+          turnId: "turn_hidden_completion_mismatch",
+          completedAtMs: 110,
+          item: {
+            id: "shared-id",
+            type: "exitedReviewMode",
+            review: "Mismatched hidden completion",
+          },
         },
       });
 
@@ -29288,7 +29804,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const threadId = "thr_empty_null_placeholder_delta";
     const reboundTurnId = "turn_claiming_empty_placeholder";
@@ -29305,11 +29821,14 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId,
-        turnId: reboundTurnId,
-        itemId: "assistant-not-started",
-        delta: "missing target still claims the empty placeholder",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId,
+          turnId: reboundTurnId,
+          itemId: "assistant-not-started",
+          delta: "missing target still claims the empty placeholder",
+        },
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -29319,11 +29838,14 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(snapshot?.turns[0]?.status).toBe("inProgress");
       expect(snapshot?.turns[0]?.items.length ?? -1).toBe(0);
 
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId,
-        turnId: "turn_must_not_replace_persistent_rebind",
-        itemId: "another-assistant-not-started",
-        delta: "still missing",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId,
+          turnId: "turn_must_not_replace_persistent_rebind",
+          itemId: "another-assistant-not-started",
+          delta: "still missing",
+        },
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -29340,7 +29862,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       conversationRecords: Map<string, {
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
       }>;
@@ -29404,11 +29926,14 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       for (const threadId of [recordThreadId, transcriptThreadId]) {
-        await serviceInternals.handleNotification("item/agentMessage/delta", {
-          threadId,
-          turnId: `turn_after_${threadId}`,
-          itemId: "assistant-not-started",
-          delta: "must not claim the placeholder",
+        await serviceInternals.handleNotification({
+          method: "item/agentMessage/delta",
+          params: {
+            threadId,
+            turnId: `turn_after_${threadId}`,
+            itemId: "assistant-not-started",
+            delta: "must not claim the placeholder",
+          },
         });
       }
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -29440,27 +29965,30 @@ describe("codex-service terminal turn reconciliation", () => {
   test("ignores item starts for unknown conversations without creating records", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       conversationRecords: Map<string, unknown>;
     };
 
     try {
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_unknown_item_lifecycle",
-        turnId: "turn_unknown_item_lifecycle",
-        startedAtMs: 100,
-        item: {
-          id: "unknown-command",
-          type: "commandExecution",
-          command: "pwd",
-          cwd: "/tmp",
-          processId: null,
-          source: "agent",
-          status: "inProgress",
-          commandActions: [],
-          aggregatedOutput: null,
-          exitCode: null,
-          durationMs: null,
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_unknown_item_lifecycle",
+          turnId: "turn_unknown_item_lifecycle",
+          startedAtMs: 100,
+          item: {
+            id: "unknown-command",
+            type: "commandExecution",
+            command: "pwd",
+            cwd: "/tmp",
+            processId: null,
+            source: "agent",
+            status: "inProgress",
+            commandActions: [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          },
         },
       });
 
@@ -29474,7 +30002,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
 
     try {
@@ -29489,30 +30017,39 @@ describe("codex-service terminal turn reconciliation", () => {
         transcript: [],
       });
 
-      await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_completed_output_timer",
-        turnId: "turn_completed_output_timer",
-        item: makeProtocolCommandExecution({
-          id: "exec_completed_output_timer",
-          command: "bun test",
-          aggregatedOutput: null,
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId: "thr_completed_output_timer",
+          turnId: "turn_completed_output_timer",
+          item: makeProtocolCommandExecution({
+            id: "exec_completed_output_timer",
+            command: "bun test",
+            aggregatedOutput: null,
+          }),
+        },
       });
-      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-        threadId: "thr_completed_output_timer",
-        turnId: "turn_completed_output_timer",
-        itemId: "exec_completed_output_timer",
-        delta: "provisional output\n",
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thr_completed_output_timer",
+          turnId: "turn_completed_output_timer",
+          itemId: "exec_completed_output_timer",
+          delta: "provisional output\n",
+        },
       });
-      await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_completed_output_timer",
-        turnId: "turn_completed_output_timer",
-        item: makeProtocolCommandExecution({
-          id: "exec_completed_output_timer",
-          command: "bun test",
-          status: "completed",
-          aggregatedOutput: null,
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/completed",
+        params: {
+          threadId: "thr_completed_output_timer",
+          turnId: "turn_completed_output_timer",
+          item: makeProtocolCommandExecution({
+            id: "exec_completed_output_timer",
+            command: "bun test",
+            status: "completed",
+            aggregatedOutput: null,
+          }),
+        },
       });
 
       const beforeTimer = service.serializeConversationSnapshot("thr_completed_output_timer");
@@ -29535,7 +30072,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const threadMessages: CodexHostMessage[] = [];
       const mcpMessages: CodexHostMessage[] = [];
@@ -29563,14 +30100,17 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_streaming_output_hot_path",
-          turnId: "turn_streaming_output_hot_path",
-          item: makeProtocolCommandExecution({
-            id: "exec_streaming_output_hot_path",
-            command: "bun test",
-            cwd: "/tmp",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_streaming_output_hot_path",
+            turnId: "turn_streaming_output_hot_path",
+            item: makeProtocolCommandExecution({
+              id: "exec_streaming_output_hot_path",
+              command: "bun test",
+              cwd: "/tmp",
+            }),
+          },
         });
         await service.requestConversationSnapshot("thr_streaming_output_hot_path");
         threadMessages.length = 0;
@@ -29583,11 +30123,14 @@ describe("codex-service terminal turn reconciliation", () => {
           return originalSerializeConversationSnapshot(threadId);
         });
 
-        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-          threadId: "thr_streaming_output_hot_path",
-          turnId: "turn_streaming_output_hot_path",
-          itemId: "exec_streaming_output_hot_path",
-          delta: "1340 pass\n",
+        await serviceInternals.handleNotification({
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId: "thr_streaming_output_hot_path",
+            turnId: "turn_streaming_output_hot_path",
+            itemId: "exec_streaming_output_hot_path",
+            delta: "1340 pass\n",
+          },
         });
         await new Promise((resolve) => setTimeout(resolve, 70));
 
@@ -29606,7 +30149,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const threadMessages: CodexHostMessage[] = [];
     const mcpMessages: CodexHostMessage[] = [];
@@ -29634,11 +30177,14 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      await serviceInternals.handleNotification("item/agentMessage/delta", {
-        threadId: "thr_streaming_missing_item",
-        turnId: "turn_streaming_missing_item",
-        itemId: "assistant_missing_item",
-        delta: "hello",
+      await serviceInternals.handleNotification({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thr_streaming_missing_item",
+          turnId: "turn_streaming_missing_item",
+          itemId: "assistant_missing_item",
+          delta: "hello",
+        },
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -29657,7 +30203,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const threadMessages: CodexHostMessage[] = [];
       const mcpMessages: CodexHostMessage[] = [];
@@ -29685,11 +30231,14 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-          threadId: "thr_streaming_missing_output",
-          turnId: "turn_streaming_missing_output",
-          itemId: "exec_missing_output",
-          delta: "1340 pass\n",
+        await serviceInternals.handleNotification({
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId: "thr_streaming_missing_output",
+            turnId: "turn_streaming_missing_output",
+            itemId: "exec_missing_output",
+            delta: "1340 pass\n",
+          },
         });
         await new Promise((resolve) => setTimeout(resolve, 70));
 
@@ -29709,7 +30258,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       serviceInternals.setConversationRecordDetail({
@@ -29726,20 +30275,26 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_streaming_output_truncated",
-          turnId: "turn_streaming_output_truncated",
-          item: makeProtocolCommandExecution({
-            id: "exec_streaming_output_truncated",
-            command: "bun test",
-            cwd: "/tmp",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_streaming_output_truncated",
+            turnId: "turn_streaming_output_truncated",
+            item: makeProtocolCommandExecution({
+              id: "exec_streaming_output_truncated",
+              command: "bun test",
+              cwd: "/tmp",
+            }),
+          },
         });
-        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-          threadId: "thr_streaming_output_truncated",
-          turnId: "turn_streaming_output_truncated",
-          itemId: "exec_streaming_output_truncated",
-          delta: "a".repeat(25_000),
+        await serviceInternals.handleNotification({
+          method: "item/commandExecution/outputDelta",
+          params: {
+            threadId: "thr_streaming_output_truncated",
+            turnId: "turn_streaming_output_truncated",
+            itemId: "exec_streaming_output_truncated",
+            delta: "a".repeat(25_000),
+          },
         });
         await new Promise((resolve) => setTimeout(resolve, 70));
 
@@ -29761,7 +30316,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       serviceInternals.setConversationRecordDetail({
@@ -29784,20 +30339,29 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_background_long_running",
-          turnId: "turn_old_running",
-          item: makeProtocolCommandExecution({
-            id: "exec_long_running",
-            command: "bun run dev",
-            cwd: "/tmp/project",
-            processId: "7001",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_background_long_running",
+            turnId: "turn_old_running",
+            item: makeProtocolCommandExecution({
+              id: "exec_long_running",
+              command: "bun run dev",
+              cwd: "/tmp/project",
+              processId: "7001",
+            }),
+          },
         });
 
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_background_long_running",
-          turnId: "turn_old_running",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_background_long_running",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_old_running",
+              status: "completed",
+            }),
+          },
         });
 
         const snapshot = service.serializeConversationSnapshot("thr_background_long_running");
@@ -29882,7 +30446,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -29925,10 +30489,13 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("turn/diff/updated", {
-          threadId: "thr_turn_diff_stream",
-          turnId: "turn_turn_diff_stream",
-          diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        await serviceInternals.handleNotification({
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thr_turn_diff_stream",
+            turnId: "turn_turn_diff_stream",
+            diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -29950,7 +30517,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -29970,15 +30537,21 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("turn/diff/updated", {
-          threadId: "thr_pre_tool_turn_diff",
-          turnId: "turn_pre_tool_turn_diff",
-          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        await serviceInternals.handleNotification({
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thr_pre_tool_turn_diff",
+            turnId: "turn_pre_tool_turn_diff",
+            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+          },
         });
-        await serviceInternals.handleNotification("turn/diff/updated", {
-          threadId: "thr_pre_tool_turn_diff",
-          turnId: "turn_pre_tool_turn_diff",
-          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,3 @@\n-old\n+new\n+next\n",
+        await serviceInternals.handleNotification({
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thr_pre_tool_turn_diff",
+            turnId: "turn_pre_tool_turn_diff",
+            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,3 @@\n-old\n+new\n+next\n",
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -29999,7 +30572,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30019,11 +30592,15 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/fileChange/outputDelta", {
-          threadId: "thr_file_output_delta_ignored",
-          turnId: "turn_file_output_delta_ignored",
-          itemId: "patch_drafting",
-          delta: "diff --git a/poem.md b/poem.md\nnew file mode 100644\n--- /dev/null\n+++ b/poem.md\n@@ -0,0 +1 @@\n+line\n",
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/outputDelta",
+          params: {
+            threadId: "thr_file_output_delta_ignored",
+            turnId: "turn_file_output_delta_ignored",
+            itemId: "patch_drafting",
+            delta:
+              "diff --git a/poem.md b/poem.md\nnew file mode 100644\n--- /dev/null\n+++ b/poem.md\n@@ -0,0 +1 @@\n+line\n",
+          },
         });
 
         expect(hostMessages.length).toBe(0);
@@ -30041,7 +30618,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30063,15 +30640,20 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_create",
-          turnId: "turn_patch_updated_create",
-          itemId: "patch_live",
-          changes: [{
-            path: "src/app.ts",
-            kind: { type: "update", move_path: null },
-            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-          }],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_create",
+            turnId: "turn_patch_updated_create",
+            itemId: "patch_live",
+            changes: [
+              {
+                path: "src/app.ts",
+                kind: { type: "update", move_path: null },
+                diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+              },
+            ],
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30096,7 +30678,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30116,11 +30698,14 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_empty_add",
-          turnId: "turn_patch_updated_empty_add",
-          itemId: "patch_live",
-          changes: [],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_empty_add",
+            turnId: "turn_patch_updated_empty_add",
+            itemId: "patch_live",
+            changes: [],
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30141,7 +30726,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30161,25 +30746,35 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_replace",
-          turnId: "turn_patch_updated_replace",
-          itemId: "patch_live",
-          changes: [{
-            path: "src/old.ts",
-            kind: { type: "update", move_path: null },
-            diff: "--- a/src/old.ts\n+++ b/src/old.ts\n@@ -1 +1 @@\n-old\n+new",
-          }],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_replace",
+            turnId: "turn_patch_updated_replace",
+            itemId: "patch_live",
+            changes: [
+              {
+                path: "src/old.ts",
+                kind: { type: "update", move_path: null },
+                diff: "--- a/src/old.ts\n+++ b/src/old.ts\n@@ -1 +1 @@\n-old\n+new",
+              },
+            ],
+          },
         });
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_replace",
-          turnId: "turn_patch_updated_replace",
-          itemId: "patch_live",
-          changes: [{
-            path: "src/new.ts",
-            kind: { type: "update", move_path: null },
-            diff: "--- a/src/new.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-before\n+after",
-          }],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_replace",
+            turnId: "turn_patch_updated_replace",
+            itemId: "patch_live",
+            changes: [
+              {
+                path: "src/new.ts",
+                kind: { type: "update", move_path: null },
+                diff: "--- a/src/new.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-before\n+after",
+              },
+            ],
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30202,7 +30797,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         getConversationRecord: (threadId: string) => {
           canonicalState: CodexCanonicalConversationState | null;
         };
@@ -30236,34 +30831,44 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_patch_updated_terminal",
-          turnId: "turn_patch_updated_terminal",
-          item: {
-            id: "patch_terminal",
-            type: "fileChange",
-            status: "inProgress",
-            extensionSentinel: { retained: true },
-            changes: [{
-              path: "src/before.ts",
-              kind: { type: "update", move_path: null },
-              diff: "--- a/src/before.ts\n+++ b/src/before.ts\n@@ -1 +1 @@\n-old\n+before",
-            }],
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_patch_updated_terminal",
+            turnId: "turn_patch_updated_terminal",
+            item: {
+              id: "patch_terminal",
+              type: "fileChange",
+              status: "inProgress",
+              extensionSentinel: { retained: true },
+              changes: [
+                {
+                  path: "src/before.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/src/before.ts\n+++ b/src/before.ts\n@@ -1 +1 @@\n-old\n+before",
+                },
+              ],
+            },
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_patch_updated_terminal",
-          turnId: "turn_patch_updated_terminal",
-          item: {
-            id: "patch_terminal",
-            type: "fileChange",
-            status: "declined",
-            extensionSentinel: { retained: true },
-            changes: [{
-              path: "src/before.ts",
-              kind: { type: "update", move_path: null },
-              diff: "--- a/src/before.ts\n+++ b/src/before.ts\n@@ -1 +1 @@\n-old\n+before",
-            }],
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_patch_updated_terminal",
+            turnId: "turn_patch_updated_terminal",
+            item: {
+              id: "patch_terminal",
+              type: "fileChange",
+              status: "declined",
+              extensionSentinel: { retained: true },
+              changes: [
+                {
+                  path: "src/before.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/src/before.ts\n+++ b/src/before.ts\n@@ -1 +1 @@\n-old\n+before",
+                },
+              ],
+            },
           },
         });
         const before = getRecordedItem(
@@ -30278,11 +30883,14 @@ describe("codex-service terminal turn reconciliation", () => {
           changes?: unknown[];
         } | undefined;
 
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_terminal",
-          turnId: "turn_patch_updated_terminal",
-          itemId: "patch_terminal",
-          changes: [],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_terminal",
+            turnId: "turn_patch_updated_terminal",
+            itemId: "patch_terminal",
+            changes: [],
+          },
         });
 
         const after = getRecordedItem(
@@ -30315,7 +30923,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
       service.on("hostMessage", (message) => {
@@ -30334,11 +30942,14 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_missing_turn",
-          turnId: "turn_missing",
-          itemId: "patch_missing",
-          changes: [],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_missing_turn",
+            turnId: "turn_missing",
+            itemId: "patch_missing",
+            changes: [],
+          },
         });
 
         const snapshot = service.serializeConversationSnapshot("thr_patch_updated_missing_turn");
@@ -30360,7 +30971,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30402,15 +31013,20 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
-          threadId: "thr_patch_updated_rebind",
-          turnId: "turn_real",
-          itemId: "patch_live",
-          changes: [{
-            path: "poem.md",
-            kind: { type: "add" },
-            diff: "line\n",
-          }],
+        await serviceInternals.handleNotification({
+          method: "item/fileChange/patchUpdated",
+          params: {
+            threadId: "thr_patch_updated_rebind",
+            turnId: "turn_real",
+            itemId: "patch_live",
+            changes: [
+              {
+                path: "poem.md",
+                kind: { type: "add" },
+                diff: "line\n",
+              },
+            ],
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30434,7 +31050,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
       service.on("hostMessage", (message) => {
@@ -30455,11 +31071,14 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("item/mcpToolCall/progress", {
-          threadId: "thr_mcp_progress_placeholder",
-          turnId: "turn_mcp_progress_bound",
-          itemId: "mcp_missing",
-          message: "working",
+        await serviceInternals.handleNotification({
+          method: "item/mcpToolCall/progress",
+          params: {
+            threadId: "thr_mcp_progress_placeholder",
+            turnId: "turn_mcp_progress_bound",
+            itemId: "mcp_missing",
+            message: "working",
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30481,7 +31100,7 @@ describe("codex-service terminal turn reconciliation", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       applyMcpToolCallProgressUpdate: (
         update: CodexMcpToolCallProgressUpdate,
         suppressConversationSync: boolean,
@@ -30505,13 +31124,16 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
-      await serviceInternals.handleNotification("item/started", {
-        threadId,
-        turnId,
-        item: makeProtocolAgentMessage({
-          id: "assistant-before-mcp-progress",
-          text: "",
-        }),
+      await serviceInternals.handleNotification({
+        method: "item/started",
+        params: {
+          threadId,
+          turnId,
+          item: makeProtocolAgentMessage({
+            id: "assistant-before-mcp-progress",
+            text: "",
+          }),
+        },
       });
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
@@ -30553,7 +31175,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30588,57 +31210,79 @@ describe("codex-service terminal turn reconciliation", () => {
       }));
 
       try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_completed_patch_batches",
-          turnId: "turn_completed_patch_batches",
-          item: {
-            id: "patch_done_1",
-            type: "fileChange",
-            status: "inProgress",
-            changes: [],
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_completed_patch_batches",
+            turnId: "turn_completed_patch_batches",
+            item: {
+              id: "patch_done_1",
+              type: "fileChange",
+              status: "inProgress",
+              changes: [],
+            },
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_completed_patch_batches",
-          turnId: "turn_completed_patch_batches",
-          item: {
-            id: "patch_done_1",
-            type: "fileChange",
-            status: "completed",
-            changes: [{
-              path: "src/app.ts",
-              kind: { type: "update", move_path: null },
-              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-            }],
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_completed_patch_batches",
+            turnId: "turn_completed_patch_batches",
+            item: {
+              id: "patch_done_1",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "src/app.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+                },
+              ],
+            },
           },
         });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_completed_patch_batches",
-          turnId: "turn_completed_patch_batches",
-          item: {
-            id: "patch_done_2",
-            type: "fileChange",
-            status: "inProgress",
-            changes: [],
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_completed_patch_batches",
+            turnId: "turn_completed_patch_batches",
+            item: {
+              id: "patch_done_2",
+              type: "fileChange",
+              status: "inProgress",
+              changes: [],
+            },
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_completed_patch_batches",
-          turnId: "turn_completed_patch_batches",
-          item: {
-            id: "patch_done_2",
-            type: "fileChange",
-            status: "completed",
-            changes: [{
-              path: "src/app.ts",
-              kind: { type: "update", move_path: null },
-              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3 +3 @@\n-before\n+after",
-            }],
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_completed_patch_batches",
+            turnId: "turn_completed_patch_batches",
+            item: {
+              id: "patch_done_2",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "src/app.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3 +3 @@\n-before\n+after",
+                },
+              ],
+            },
           },
         });
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_completed_patch_batches",
-          turnId: "turn_completed_patch_batches",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_completed_patch_batches",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_completed_patch_batches",
+              status: "completed",
+            }),
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30670,7 +31314,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30712,45 +31356,65 @@ describe("codex-service terminal turn reconciliation", () => {
       serviceInternals.hydrateCanonicalConversationState(hydrationResponse);
 
       try {
-        await serviceInternals.handleNotification("turn/started", {
-          threadId: "thr_diff_fallback",
-          turn: {
-            id: "turn_diff_fallback",
-            status: "inProgress",
+        await serviceInternals.handleNotification({
+          method: "turn/started",
+          params: {
+            threadId: "thr_diff_fallback",
+            turn: {
+              id: "turn_diff_fallback",
+              status: "inProgress",
+            },
           },
         });
-        await serviceInternals.handleNotification("turn/diff/updated", {
-          threadId: "thr_diff_fallback",
-          turnId: "turn_diff_fallback",
-          diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-turn-diff\n",
-        });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_diff_fallback",
-          turnId: "turn_diff_fallback",
-          item: {
-            id: "patch_fallback",
-            type: "fileChange",
-            status: "inProgress",
-            changes: [],
+        await serviceInternals.handleNotification({
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thr_diff_fallback",
+            turnId: "turn_diff_fallback",
+            diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-turn-diff\n",
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_diff_fallback",
-          turnId: "turn_diff_fallback",
-          item: {
-            id: "patch_fallback",
-            type: "fileChange",
-            status: "completed",
-            changes: [{
-              path: "src/app.ts",
-              kind: { type: "update", move_path: null },
-              diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch\n",
-            }],
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_diff_fallback",
+            turnId: "turn_diff_fallback",
+            item: {
+              id: "patch_fallback",
+              type: "fileChange",
+              status: "inProgress",
+              changes: [],
+            },
           },
         });
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_diff_fallback",
-          turnId: "turn_diff_fallback",
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_diff_fallback",
+            turnId: "turn_diff_fallback",
+            item: {
+              id: "patch_fallback",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "src/app.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch\n",
+                },
+              ],
+            },
+          },
+        });
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_diff_fallback",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_diff_fallback",
+              status: "completed",
+            }),
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30787,7 +31451,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30822,45 +31486,65 @@ describe("codex-service terminal turn reconciliation", () => {
       }));
 
       try {
-        await serviceInternals.handleNotification("turn/started", {
-          threadId: "thr_empty_diff_patch_fallback",
-          turn: {
-            id: "turn_empty_diff_patch_fallback",
-            status: "inProgress",
+        await serviceInternals.handleNotification({
+          method: "turn/started",
+          params: {
+            threadId: "thr_empty_diff_patch_fallback",
+            turn: {
+              id: "turn_empty_diff_patch_fallback",
+              status: "inProgress",
+            },
           },
         });
-        await serviceInternals.handleNotification("turn/diff/updated", {
-          threadId: "thr_empty_diff_patch_fallback",
-          turnId: "turn_empty_diff_patch_fallback",
-          diff: "",
-        });
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_empty_diff_patch_fallback",
-          turnId: "turn_empty_diff_patch_fallback",
-          item: {
-            id: "patch_empty_diff_fallback",
-            type: "fileChange",
-            status: "inProgress",
-            changes: [],
+        await serviceInternals.handleNotification({
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thr_empty_diff_patch_fallback",
+            turnId: "turn_empty_diff_patch_fallback",
+            diff: "",
           },
         });
-        await serviceInternals.handleNotification("item/completed", {
-          threadId: "thr_empty_diff_patch_fallback",
-          turnId: "turn_empty_diff_patch_fallback",
-          item: {
-            id: "patch_empty_diff_fallback",
-            type: "fileChange",
-            status: "completed",
-            changes: [{
-              path: "src/app.ts",
-              kind: { type: "update", move_path: null },
-              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch",
-            }],
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_empty_diff_patch_fallback",
+            turnId: "turn_empty_diff_patch_fallback",
+            item: {
+              id: "patch_empty_diff_fallback",
+              type: "fileChange",
+              status: "inProgress",
+              changes: [],
+            },
           },
         });
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_empty_diff_patch_fallback",
-          turnId: "turn_empty_diff_patch_fallback",
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_empty_diff_patch_fallback",
+            turnId: "turn_empty_diff_patch_fallback",
+            item: {
+              id: "patch_empty_diff_fallback",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "src/app.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch",
+                },
+              ],
+            },
+          },
+        });
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_empty_diff_patch_fallback",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_empty_diff_patch_fallback",
+              status: "completed",
+            }),
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -30884,7 +31568,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -30904,21 +31588,33 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       try {
-        await serviceInternals.handleNotification("turn/started", {
-          threadId: "thr_empty_diff_no_patch",
-          turn: {
-            id: "turn_empty_diff_no_patch",
-            status: "inProgress",
+        await serviceInternals.handleNotification({
+          method: "turn/started",
+          params: {
+            threadId: "thr_empty_diff_no_patch",
+            turn: {
+              id: "turn_empty_diff_no_patch",
+              status: "inProgress",
+            },
           },
         });
-        await serviceInternals.handleNotification("turn/diff/updated", {
-          threadId: "thr_empty_diff_no_patch",
-          turnId: "turn_empty_diff_no_patch",
-          diff: "",
+        await serviceInternals.handleNotification({
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thr_empty_diff_no_patch",
+            turnId: "turn_empty_diff_no_patch",
+            diff: "",
+          },
         });
-        await serviceInternals.handleNotification("turn/completed", {
-          threadId: "thr_empty_diff_no_patch",
-          turnId: "turn_empty_diff_no_patch",
+        await serviceInternals.handleNotification({
+          method: "turn/completed",
+          params: {
+            threadId: "thr_empty_diff_no_patch",
+            turn: completeLegacyProtocolTurnFixture({
+              id: "turn_empty_diff_no_patch",
+              status: "completed",
+            }),
+          },
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
@@ -31137,7 +31833,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
 
@@ -31172,13 +31868,16 @@ describe("codex-service terminal turn reconciliation", () => {
           return originalSerializeConversationSnapshot(threadId);
         });
 
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_item_started_direct_patch",
-          turnId: "turn_item_started_direct_patch",
-          item: makeProtocolAgentMessage({
-            id: "assistant_item_started_direct_patch",
-            text: "hello",
-          }),
+        await serviceInternals.handleNotification({
+          method: "item/started",
+          params: {
+            threadId: "thr_item_started_direct_patch",
+            turnId: "turn_item_started_direct_patch",
+            item: makeProtocolAgentMessage({
+              id: "assistant_item_started_direct_patch",
+              text: "hello",
+            }),
+          },
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
@@ -31211,7 +31910,7 @@ describe("codex-service terminal turn reconciliation", () => {
       serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
     service.on("hostMessage", (message) => {
@@ -31284,13 +31983,19 @@ describe("codex-service terminal turn reconciliation", () => {
       )?.status).toBe("inProgress");
 
       hostMessages.length = 0;
-      await serviceInternals.handleNotification("serverRequest/resolved", {
-        threadId,
-        requestId: 701,
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId,
+          requestId: 701,
+        },
       });
-      await serviceInternals.handleNotification("serverRequest/resolved", {
-        threadId,
-        requestId: "702",
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId,
+          requestId: "702",
+        },
       });
 
       const resolvedConversation = projectConversationFromHostMessages(hostMessages, pendingConversation);

@@ -8,7 +8,6 @@ import {
 } from "./codex-conversation-state";
 import { reduceCodexConversationEvent } from "./codex-conversation-reducer";
 import {
-  parseCodexFrameTextDelta,
   reduceCodexConversationFrameTextDeltas,
   reduceCodexFrameTextDeltaItems,
   resolveCodexFrameTextDeltaTurn,
@@ -147,22 +146,6 @@ describe("canonical frame-text delta reduction", () => {
     expect(mapped.map((entry) => String(entry.turnId)).join(",")).toBe(
       "null,null,null,null",
     );
-
-    const invalidAtApply = parseCodexFrameTextDelta(
-      "item/reasoning/summaryTextDelta",
-      {
-        threadId: THREAD_ID,
-        itemId: "r",
-        delta: "queued",
-        summaryIndex: Number.NaN,
-      },
-    );
-    expect(invalidAtApply?.turnId ?? null).toBe(null);
-    expect(
-      invalidAtApply?.target.type === "reasoningSummary"
-        ? Number.isNaN(invalidAtApply.target.summaryIndex)
-        : false,
-    ).toBe(true);
   });
 
   test("updates the reverse-last same-ID exact raw protocol type", () => {

@@ -37,9 +37,8 @@ function applyHostMessage(message: CodexHostMessage): void {
   if (message.type === "threadOwnerNotification") {
     dispatchCodexAppServerMessage("thread-owner-notification", {
       hostId: message.hostId,
-      method: message.method,
       sequence: message.sequence,
-      params: message.params,
+      notification: message.notification,
     });
     return;
   }
@@ -99,8 +98,7 @@ function applyHostMessage(message: CodexHostMessage): void {
   if (message.type === "mcpNotification") {
     dispatchCodexAppServerMessage("mcp-notification", {
       hostId: message.hostId,
-      method: message.method,
-      params: message.params,
+      notification: message.notification,
     });
     return;
   }

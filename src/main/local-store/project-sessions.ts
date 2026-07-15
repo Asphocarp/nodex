@@ -74,8 +74,6 @@ import type {
   ProjectSessionThreadLinkInput,
   ProjectSessionUnreadInput,
   ProjectSessionUpdateInput,
-  CodexThreadActiveFlag,
-  CodexThreadStatusType,
 } from "../../shared/types";
 import {
   readGeneralDatabaseDescriptor,
@@ -86,6 +84,10 @@ import {
   upsertCodexThread,
 } from "../codex/codex-link-repository";
 import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "../../shared/types";
+import {
+  CodexThreadActiveFlagSchema,
+  CodexThreadStatusTypeSchema,
+} from "../../shared/schemas/codex";
 
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const DEFAULT_RIGHT_PANEL_WIDTH = 600;
@@ -394,10 +396,15 @@ function stringifyProjectSessionTabConfig(
   return JSON.stringify({ ...config, projectId: targetProjectId });
 }
 
-function parseStatusActiveFlags(value: string): string[] {
+function parseStatusActiveFlags(value: string) {
   const parsed = parseJson(value);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((item): item is string => typeof item === "string");
+  const result = CodexThreadActiveFlagSchema.array().safeParse(parsed);
+  return result.success ? result.data : [];
+}
+
+function parseStatusType(value: string) {
+  const result = CodexThreadStatusTypeSchema.safeParse(value);
+  return result.success ? result.data : "notLoaded" as const;
 }
 
 function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
@@ -414,7 +421,7 @@ function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
     managedWorktreePath: row.managed_worktree_path,
     projectlessOutputDirectory: row.projectless_output_directory,
     projectlessWorkspaceBrowserRoot: row.projectless_workspace_browser_root,
-    statusType: row.status_type,
+    statusType: parseStatusType(row.status_type),
     statusActiveFlags: parseStatusActiveFlags(row.status_active_flags_json),
     archived: row.archived === 1,
     createdAt: row.created_at,
@@ -1775,8 +1782,8 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
       : (existing?.managedWorktreePath ?? null),
     projectlessOutputDirectory: parsed.projectlessOutputDirectory ?? existing?.projectlessOutputDirectory ?? null,
     projectlessWorkspaceBrowserRoot: parsed.projectlessWorkspaceBrowserRoot ?? existing?.projectlessWorkspaceBrowserRoot ?? null,
-    statusType: parsed.statusType as CodexThreadStatusType | undefined,
-    statusActiveFlags: parsed.statusActiveFlags as CodexThreadActiveFlag[] | undefined,
+    statusType: parsed.statusType,
+    statusActiveFlags: parsed.statusActiveFlags,
     archived: parsed.archived ?? existing?.archived ?? false,
     createdAt: parsed.createdAt ?? existing?.createdAt ?? nowMs,
     updatedAt: parsed.updatedAt ?? nowMs,

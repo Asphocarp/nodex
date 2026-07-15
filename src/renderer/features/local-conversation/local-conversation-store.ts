@@ -11,13 +11,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
-import type {
-  ServerNotification,
-  ThreadMemoryMode,
-} from "@nodex/codex-app-server-protocol";
+import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
   FeedbackUploadParams,
-  HookRunSummary,
   ThreadBackgroundTerminal,
   ThreadBackgroundTerminalsListResponse,
   ThreadBackgroundTerminalsTerminateResponse,
@@ -26,6 +22,8 @@ import type {
   ThreadRollbackResponse,
   Thread,
   ThreadItem,
+  ThreadSettings,
+  ThreadStatus,
   ThreadSource,
   Turn,
   TurnStartResponse,
@@ -34,8 +32,8 @@ import type {
 import type {
   CodexAccountSnapshot,
   CodexApprovalRequest,
-  CodexApprovalDecision,
   CodexApprovalKind,
+  CodexApprovalResponse,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexBackgroundTerminalRow,
   CardRunInTarget,
@@ -87,7 +85,6 @@ import type {
   CodexThreadGoalSetActionInput,
   CodexThreadOwnerLoadCompleteHistoryResult,
   CodexThreadOwnerActionRequest,
-  CodexThreadTokenUsage,
   CodexPromptInput,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
@@ -127,6 +124,7 @@ import type {
   CodexThreadRuntimeStatus,
   CodexTurnStatus,
 } from "../../../shared/types";
+import { getCodexThreadOwnerNotificationThreadId } from "../../../shared/types";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
@@ -140,8 +138,9 @@ import { areCodexCanonicalTurnParamsEqual } from "../../../shared/codex-canonica
 import { buildCodexTurnOccurrenceKey } from "../../../shared/codex-turn-identity";
 import {
   groupCodexFrameTextDeltasByConversation,
-  parseCodexFrameTextDelta,
+  isCodexFrameTextDeltaNotification,
   reduceCodexConversationFrameTextDeltas,
+  toCodexFrameTextDelta,
 } from "../../../shared/codex-conversation-state/codex-frame-text-delta";
 import {
   buildCodexFrameTextDeltaKey,
@@ -159,10 +158,12 @@ import {
   type CodexCommandOutputUpdate,
 } from "../../../shared/codex-conversation-state/codex-command-output-queue";
 import {
-  parseCodexFileChangePatchUpdate,
-  parseCodexMcpToolCallProgressUpdate,
+  isCodexFileChangePatchUpdatedNotification,
+  isCodexMcpToolCallProgressNotification,
   reduceCodexConversationFileChangePatch,
   reduceCodexConversationMcpToolCallProgress,
+  toCodexFileChangePatchUpdate,
+  toCodexMcpToolCallProgressUpdate,
 } from "../../../shared/codex-conversation-state/codex-file-change-stream";
 import {
   completeCodexCanonicalPlanImplementationState,
@@ -218,10 +219,7 @@ import {
   parseCodexHeartbeatAssistantMessage,
   type CodexTurnCompleteNotificationEnvelope,
 } from "../../../shared/codex-turn-notification";
-import {
-  normalizeAutomaticApprovalReviewPayload,
-  shouldShowAutoReviewInterruptionWarning,
-} from "../../../shared/codex-transcript-special-items";
+import { shouldShowAutoReviewInterruptionWarning } from "../../../shared/codex-transcript-special-items";
 import { extractCodexThreadSubagentMetadata } from "../../../shared/codex-subagent-metadata";
 import {
   getTerminalInteractionBufferKey,
@@ -236,7 +234,6 @@ import {
   readCodexServiceTier,
   resolveCodexRequestServiceTier,
 } from "../../lib/codex-service-tier-settings";
-import { parseCodexThreadTokenUsage } from "../../../shared/schemas/codex";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { terminalSessionStore } from "../../lib/terminal-session-store";
 import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
@@ -333,10 +330,6 @@ const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
     developer_instructions: null,
   },
 };
-
-function hasOwnValue(record: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
-}
 
 function normalizeThreadGoalSetParams(input: ThreadGoalSetParams): ThreadGoalSetParams {
   const params: ThreadGoalSetParams = { threadId: input.threadId };
@@ -1056,7 +1049,7 @@ interface ConversationAnyProjection {
   title: string | null;
   resumeState: CodexConversationSnapshot["resumeState"];
   statusType: CodexConversationSnapshot["statusType"];
-  statusActiveFlags: readonly string[];
+  statusActiveFlags: readonly CodexThreadActiveFlag[];
   cwd: string | null;
   hasUnreadTurn: boolean;
 }
@@ -1071,7 +1064,7 @@ interface ConversationMetaProjection {
   threadPreview: string;
   resumeState: CodexConversationSnapshot["resumeState"];
   statusType: CodexConversationSnapshot["statusType"];
-  statusActiveFlags: readonly string[];
+  statusActiveFlags: readonly CodexThreadActiveFlag[];
   hasUnreadTurn: boolean;
 }
 
@@ -1427,14 +1420,6 @@ function getString(candidate: Record<string, unknown>, key: string): string | nu
   return typeof value === "string" ? value : null;
 }
 
-function getNumber(candidate: Record<string, unknown>, keys: readonly string[]): number | null {
-  for (const key of keys) {
-    const value = candidate[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return null;
-}
-
 function getOwnerTurnId(turn: CodexConversationTurn): string | null {
   const value = (turn as { turnId?: unknown }).turnId;
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -1534,63 +1519,21 @@ interface OwnerItemLifecyclePayload {
   notification: CodexItemLifecycleNotification;
 }
 
-function parseOwnerItemLifecyclePayload(
-  method: "item/started" | "item/completed",
-  params: unknown,
-): OwnerItemLifecyclePayload | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  if (
-    !threadId
-    || !turnId
-    || !isCodexCanonicalProtocolItem(payload.item)
-  ) {
-    return null;
-  }
-
-  const observedAtMs = getNumber(
-    payload,
-    method === "item/started"
-      ? ["startedAtMs", "started_at_ms"]
-      : ["completedAtMs", "completed_at_ms"],
-  ) ?? Date.now();
-
-  const protocolItem = payload.item;
-  const notification: CodexItemLifecycleNotification = method === "item/started"
-    ? {
-        method,
-        params: {
-          threadId,
-          turnId,
-          item: protocolItem,
-          startedAtMs: observedAtMs,
-        },
-      }
-    : {
-        method,
-        params: {
-          threadId,
-          turnId,
-          item: protocolItem,
-          completedAtMs: observedAtMs,
-        },
-      };
+function toOwnerItemLifecyclePayload(
+  notification: CodexItemLifecycleNotification,
+): OwnerItemLifecyclePayload {
+  const { threadId, turnId, item } = notification.params;
+  const observedAtMs = notification.method === "item/started"
+    ? notification.params.startedAtMs
+    : notification.params.completedAtMs;
 
   return {
     threadId,
     turnId,
-    item: protocolItem,
+    item,
     observedAtMs,
     notification,
   };
-}
-
-function getProtocolItemType(item: unknown): string | null {
-  const candidate = asRecord(item);
-  return candidate ? getString(candidate, "type") : null;
 }
 
 function projectConversationItemToIdentityView(item: CodexConversationItem): CodexItemView {
@@ -1796,7 +1739,11 @@ function projectOwnerCanonicalTurnMetadataResult(
   };
 }
 
-type OwnerTurnLifecycleMethod = "turn/started" | "turn/completed" | "turn/interrupted" | "turn/failed";
+type OwnerTurnLifecycleMethod = "turn/started" | "turn/completed";
+type OwnerTurnLifecycleNotification = Extract<
+  CodexThreadOwnerNotificationEvent["notification"],
+  { method: OwnerTurnLifecycleMethod }
+>;
 
 interface OwnerTurnLifecyclePayload {
   threadId: string;
@@ -1816,13 +1763,6 @@ function normalizeOwnerTurnStatus(value: unknown, fallback: CodexTurnStatus): Co
   }
   if (value === "in_progress") return "inProgress";
   return fallback;
-}
-
-function fallbackTurnStatusForMethod(method: OwnerTurnLifecycleMethod): CodexTurnStatus {
-  if (method === "turn/started") return "inProgress";
-  if (method === "turn/interrupted") return "interrupted";
-  if (method === "turn/failed") return "failed";
-  return "completed";
 }
 
 function normalizeOwnerTimestamp(value: unknown): number | null {
@@ -2258,10 +2198,7 @@ function materializeOwnerRollbackConversation(
   const now = Date.now();
   const createdAt = normalizeOwnerThreadTimestamp(thread.createdAt, currentConversation.createdAt);
   const updatedAt = normalizeOwnerThreadTimestamp(thread.updatedAt, now);
-  const statusPayload = parseOwnerThreadStatusPayload({
-    threadId: thread.id,
-    status: thread.status,
-  });
+  const statusPayload = toOwnerThreadStatusPayload(thread.id, thread.status);
   const subagentMetadata = extractCodexThreadSubagentMetadata(thread);
   const threadTurns = Array.isArray(thread.turns) ? thread.turns : [];
   const canonicalState = currentConversation.canonicalState
@@ -2303,14 +2240,14 @@ function materializeOwnerRollbackConversation(
       parentThreadId: subagentMetadata.parentThreadId ?? currentConversation.source?.parentThreadId ?? null,
     },
     ephemeral: thread.ephemeral,
-    threadSource: parseOwnerThreadSourceValue(thread.threadSource) ?? currentConversation.threadSource ?? null,
+    threadSource: thread.threadSource ?? currentConversation.threadSource ?? null,
     agentNickname: subagentMetadata.agentNickname ?? currentConversation.agentNickname ?? null,
     agentRole: subagentMetadata.agentRole ?? currentConversation.agentRole ?? null,
-    threadPreview: typeof thread.preview === "string" ? thread.preview : currentConversation.threadPreview,
-    modelProvider: typeof thread.modelProvider === "string" ? thread.modelProvider : currentConversation.modelProvider,
-    cwd: typeof thread.cwd === "string" ? thread.cwd : currentConversation.cwd,
-    statusType: statusPayload?.statusType ?? currentConversation.statusType,
-    statusActiveFlags: statusPayload?.statusActiveFlags ?? currentConversation.statusActiveFlags,
+    threadPreview: thread.preview,
+    modelProvider: thread.modelProvider,
+    cwd: thread.cwd,
+    statusType: statusPayload.statusType,
+    statusActiveFlags: statusPayload.statusActiveFlags,
     createdAt,
     updatedAt,
     resumeState: "resumed",
@@ -2432,49 +2369,25 @@ function applyOwnerStartFailureToConversation(
   });
 }
 
-function parseOwnerTurnLifecyclePayload(
-  method: OwnerTurnLifecycleMethod,
-  params: unknown,
-): OwnerTurnLifecyclePayload | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const fallbackStatus = fallbackTurnStatusForMethod(method);
-  const turnRecord = asRecord(payload.turn) ?? (
-    typeof payload.turnId === "string"
-      ? {
-          id: payload.turnId,
-          status: payload.status,
-        }
-      : null
-  );
-  if (!turnRecord) return null;
-
-  const threadId = getString(payload, "threadId") ?? getString(turnRecord, "threadId");
-  const turnId = getString(turnRecord, "id") ?? getString(payload, "turnId");
-  if (!threadId || !turnId) return null;
-
-  const status = normalizeOwnerTurnStatus(
-    Object.prototype.hasOwnProperty.call(turnRecord, "status") ? turnRecord.status : payload.status,
-    fallbackStatus,
-  );
-  const startedAt = normalizeOwnerTimestamp(turnRecord.startedAt ?? turnRecord.started_at);
-  const completedAt = normalizeOwnerTimestamp(turnRecord.completedAt ?? turnRecord.completed_at);
-  const turnStartedAtMs =
-    normalizeOwnerTimestamp(turnRecord.turnStartedAtMs ?? turnRecord.turn_started_at_ms) ?? startedAt;
-  const observedAtMs = method === "turn/started"
-    ? turnStartedAtMs ?? Date.now()
+function toOwnerTurnLifecyclePayload(
+  notification: OwnerTurnLifecycleNotification,
+): OwnerTurnLifecyclePayload {
+  const { threadId, turn } = notification.params;
+  const startedAt = normalizeOwnerTimestamp(turn.startedAt);
+  const completedAt = normalizeOwnerTimestamp(turn.completedAt);
+  const observedAtMs = notification.method === "turn/started"
+    ? startedAt ?? Date.now()
     : completedAt ?? Date.now();
 
   return {
     threadId,
-    turnId,
-    status,
-    errorMessage: parseOwnerTurnErrorMessage(turnRecord.error),
+    turnId: turn.id,
+    status: turn.status,
+    errorMessage: turn.error?.message,
     startedAt,
     completedAt,
-    turnStartedAtMs,
-    durationMs: getNumber(turnRecord, ["durationMs", "duration_ms"]),
+    turnStartedAtMs: startedAt,
+    durationMs: turn.durationMs,
     observedAtMs,
   };
 }
@@ -2594,24 +2507,13 @@ function normalizeOwnerThreadTimestamp(value: unknown, fallback: number): number
   return Math.floor(value * 1000);
 }
 
-function parseOwnerThreadSourceValue(value: unknown): ThreadSource | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function parseOwnerNotificationConversationId(
-  method: CodexThreadOwnerNotificationEvent["method"],
-  params: unknown,
+function getOwnerNotificationConversationId(
+  notification: CodexThreadOwnerNotificationEvent["notification"],
 ): string | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-  const directThreadId = getString(payload, "threadId");
-  if (directThreadId) return directThreadId;
-  if (method !== "thread/started") return null;
-  const thread = asRecord(payload.thread);
-  return thread ? getString(thread, "id") : null;
+  return getCodexThreadOwnerNotificationThreadId(notification);
 }
 
-function parseOwnerThreadStartedPayload(params: unknown): {
+type OwnerThreadStartedPayload = {
   threadId: string;
   parentThreadId: string | null;
   threadSource: ThreadSource | null;
@@ -2627,38 +2529,34 @@ function parseOwnerThreadStartedPayload(params: unknown): {
   ephemeral: boolean | null;
   createdAt: number | null;
   updatedAt: number | null;
-} | null {
-  const payload = asRecord(params);
-  const thread = asRecord(payload?.thread);
-  if (!thread) return null;
+};
 
-  const threadId = getString(thread, "id");
-  if (!threadId) return null;
-
-  const threadName = getString(thread, "name")?.trim() || null;
-  const statusPayload = {
-    threadId,
-    status: thread.status,
-  };
-  const parsedStatus = parseOwnerThreadStatusPayload(statusPayload);
+function toOwnerThreadStartedPayload(
+  notification: Extract<
+    CodexThreadOwnerNotificationEvent["notification"],
+    { method: "thread/started" }
+  >,
+): OwnerThreadStartedPayload {
+  const { thread } = notification.params;
+  const parsedStatus = toOwnerThreadStatusPayload(thread.id, thread.status);
   const subagentMetadata = extractCodexThreadSubagentMetadata(thread);
 
   return {
-    threadId,
+    threadId: thread.id,
     parentThreadId: subagentMetadata.parentThreadId,
-    threadSource: parseOwnerThreadSourceValue(thread.threadSource),
+    threadSource: thread.threadSource,
     agentNickname: subagentMetadata.agentNickname,
     agentRole: subagentMetadata.agentRole,
-    threadName,
-    threadPreview: getString(thread, "preview"),
-    modelProvider: getString(thread, "modelProvider"),
-    cwd: getString(thread, "cwd"),
-    statusType: parsedStatus?.statusType ?? null,
-    statusActiveFlags: parsedStatus?.statusActiveFlags ?? [],
-    threadRuntimeStatus: parsedStatus?.threadRuntimeStatus ?? null,
-    ephemeral: typeof thread.ephemeral === "boolean" ? thread.ephemeral : null,
-    createdAt: typeof thread.createdAt === "number" ? thread.createdAt : null,
-    updatedAt: typeof thread.updatedAt === "number" ? thread.updatedAt : null,
+    threadName: thread.name?.trim() || null,
+    threadPreview: thread.preview,
+    modelProvider: thread.modelProvider,
+    cwd: thread.cwd,
+    statusType: parsedStatus.statusType,
+    statusActiveFlags: parsedStatus.statusActiveFlags,
+    threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
+    ephemeral: thread.ephemeral,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
   };
 }
 
@@ -2667,10 +2565,7 @@ function applyOwnerThreadStartedToConversation(
   state: CodexCanonicalConversationState,
 ): CodexConversationSnapshot {
   const thread = state.protocol;
-  const parsedStatus = parseOwnerThreadStatusPayload({
-    threadId: thread.id,
-    status: thread.status,
-  });
+  const parsedStatus = toOwnerThreadStatusPayload(thread.id, thread.status);
   const source: CodexConversationSource | null = thread.parentThreadId
     ? { parentThreadId: thread.parentThreadId }
     : conversation.source;
@@ -2687,9 +2582,9 @@ function applyOwnerThreadStartedToConversation(
     threadPreview: thread.preview,
     modelProvider: thread.modelProvider,
     cwd: thread.cwd,
-    statusType: parsedStatus?.statusType ?? conversation.statusType,
-    statusActiveFlags: parsedStatus?.statusActiveFlags ?? conversation.statusActiveFlags,
-    threadRuntimeStatus: parsedStatus?.threadRuntimeStatus ?? conversation.threadRuntimeStatus ?? null,
+    statusType: parsedStatus.statusType,
+    statusActiveFlags: parsedStatus.statusActiveFlags,
+    threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
     createdAt: normalizeOwnerThreadTimestamp(thread.createdAt, conversation.createdAt),
     updatedAt: normalizeOwnerThreadTimestamp(thread.updatedAt, conversation.updatedAt),
     resumeState: "resumed",
@@ -2698,7 +2593,7 @@ function applyOwnerThreadStartedToConversation(
 
 function buildOwnerCanonicalStartedThread(
   before: CodexCanonicalConversationState,
-  payload: NonNullable<ReturnType<typeof parseOwnerThreadStartedPayload>>,
+  payload: OwnerThreadStartedPayload,
 ): Thread {
   return {
     ...before.protocol,
@@ -2719,23 +2614,6 @@ function buildOwnerCanonicalStartedThread(
   };
 }
 
-function normalizeOwnerThreadStatusType(value: unknown): CodexConversationSnapshot["statusType"] | null {
-  if (value === "notLoaded" || value === "idle" || value === "systemError" || value === "active") {
-    return value;
-  }
-  if (value === "not_loaded") return "notLoaded";
-  if (value === "system_error") return "systemError";
-  return null;
-}
-
-function parseOwnerThreadStatusFlags(value: unknown): CodexThreadActiveFlag[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is CodexThreadActiveFlag =>
-        entry === "waitingOnApproval" || entry === "waitingOnUserInput"
-      )
-    : [];
-}
-
 function buildOwnerThreadRuntimeStatus(
   statusType: CodexConversationSnapshot["statusType"],
   statusActiveFlags: CodexThreadActiveFlag[],
@@ -2750,27 +2628,17 @@ function buildOwnerThreadRuntimeStatus(
   return { type: statusType };
 }
 
-function parseOwnerThreadStatusPayload(params: unknown): {
+function toOwnerThreadStatusPayload(
+  threadId: string,
+  status: ThreadStatus,
+): {
   threadId: string;
   statusType: CodexConversationSnapshot["statusType"];
   statusActiveFlags: CodexThreadActiveFlag[];
   threadRuntimeStatus: CodexThreadRuntimeStatus;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  if (!threadId) return null;
-
-  const status = asRecord(payload.status);
-  const statusType = status
-    ? normalizeOwnerThreadStatusType(status.type ?? status.status)
-    : normalizeOwnerThreadStatusType(payload.status);
-  if (!statusType) return null;
-
-  const statusActiveFlags = statusType === "active"
-      ? parseOwnerThreadStatusFlags(status?.activeFlags ?? status?.active_flags)
-      : [];
+} {
+  const statusType = status.type;
+  const statusActiveFlags = status.type === "active" ? [...status.activeFlags] : [];
 
   return {
     threadId,
@@ -2784,11 +2652,7 @@ function projectOwnerThreadStatusToConversation(
   conversation: CodexConversationSnapshot,
   state: CodexCanonicalConversationState,
 ): CodexConversationSnapshot {
-  const payload = parseOwnerThreadStatusPayload({
-    threadId: state.protocol.id,
-    status: state.protocol.status,
-  });
-  if (!payload) return { ...conversation, canonicalState: state };
+  const payload = toOwnerThreadStatusPayload(state.protocol.id, state.protocol.status);
   if (
     conversation.statusType === payload.statusType &&
     areStringArraysEqual(conversation.statusActiveFlags, payload.statusActiveFlags) &&
@@ -2804,76 +2668,6 @@ function projectOwnerThreadStatusToConversation(
     statusActiveFlags: payload.statusActiveFlags,
     threadRuntimeStatus: payload.threadRuntimeStatus,
   };
-}
-
-function parseOwnerThreadGoal(value: unknown): ThreadGoal | null {
-  const candidate = asRecord(value);
-  if (!candidate) return null;
-
-  const threadId = getString(candidate, "threadId");
-  const objective = getString(candidate, "objective");
-  const status = candidate.status;
-  const tokenBudget = candidate.tokenBudget;
-  const tokensUsed = candidate.tokensUsed;
-  const timeUsedSeconds = candidate.timeUsedSeconds;
-  const createdAt = candidate.createdAt;
-  const updatedAt = candidate.updatedAt;
-  if (
-    !threadId ||
-    !objective ||
-    (
-      status !== "active" &&
-      status !== "paused" &&
-      status !== "blocked" &&
-      status !== "usageLimited" &&
-      status !== "budgetLimited" &&
-      status !== "complete"
-    ) ||
-    typeof tokensUsed !== "number" ||
-    typeof timeUsedSeconds !== "number" ||
-    typeof createdAt !== "number" ||
-    typeof updatedAt !== "number"
-  ) {
-    return null;
-  }
-
-  return {
-    threadId,
-    objective,
-    status,
-    tokenBudget: typeof tokenBudget === "number" ? tokenBudget : null,
-    tokensUsed,
-    timeUsedSeconds,
-    createdAt,
-    updatedAt,
-  };
-}
-
-function parseOwnerThreadGoalUpdatedPayload(params: unknown): {
-  threadId: string;
-  goal: ThreadGoal;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const goal = parseOwnerThreadGoal(payload.goal);
-  if (!threadId || !goal) return null;
-
-  return {
-    threadId,
-    goal,
-  };
-}
-
-function parseOwnerThreadGoalClearedPayload(params: unknown): {
-  threadId: string;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  return threadId ? { threadId } : null;
 }
 
 function projectOwnerThreadGoalToConversation(
@@ -2901,23 +2695,6 @@ function applyOwnerThreadGoalResumeConfirmationDismissedToConversation(
   };
 }
 
-function parseOwnerThreadNamePayload(params: unknown): {
-  threadId: string;
-  threadName: string;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const threadName = (getString(payload, "threadName") ?? getString(payload, "name"))?.trim() ?? "";
-  if (!threadId || threadName.length === 0) return null;
-
-  return {
-    threadId,
-    threadName,
-  };
-}
-
 function projectOwnerThreadNameToConversation(
   conversation: CodexConversationSnapshot,
   state: CodexCanonicalConversationState,
@@ -2932,49 +2709,9 @@ function projectOwnerThreadNameToConversation(
   };
 }
 
-function normalizeOwnerReasoningEffort(value: unknown): CodexReasoningEffort | null {
-  if (
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh"
-  ) {
-    return value;
-  }
-  return null;
-}
-
-function normalizeOwnerCollaborationMode(value: unknown): CodexCollaborationModeKind | null {
-  if (value === "default" || value === "plan") return value;
-  return null;
-}
-
-function normalizeOwnerPersonality(value: unknown): CodexPersonality | null {
-  if (value === "none" || value === "friendly" || value === "pragmatic") return value;
-  return null;
-}
-
-function parseOwnerThreadSettingsPayload(params: unknown): {
-  threadId: string;
-  threadSettings: Record<string, unknown>;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const threadSettings = asRecord(payload.threadSettings ?? payload.thread_settings);
-  if (!threadId || !threadSettings) return null;
-
-  return {
-    threadId,
-    threadSettings,
-  };
-}
-
 function buildOwnerConversationThreadSettings(
   conversation: CodexConversationSnapshot,
-  threadSettings: Record<string, unknown>,
+  threadSettings: ThreadSettings,
 ): CodexConversationThreadSettings {
   const fallbackMode =
     conversation.latestThreadSettings?.collaborationMode
@@ -2985,34 +2722,19 @@ function buildOwnerConversationThreadSettings(
     ?? normalizeThreadSettingsModel(conversation.latestThreadSettings?.model)
     ?? normalizeThreadSettingsModel(fallbackMode.settings.model)
     ?? "";
-  const reasoningEffort =
-    normalizeOwnerReasoningEffort(
-      hasOwnValue(threadSettings, "effort") ? threadSettings.effort : threadSettings.reasoningEffort,
-    )
+  const reasoningEffort = threadSettings.effort
     ?? conversation.latestThreadSettings?.reasoningEffort
     ?? fallbackMode.settings.reasoning_effort
     ?? null;
-  const collaborationModeValue = threadSettings.collaborationMode ?? threadSettings.collaboration_mode;
-  const collaborationModeRecord = asRecord(collaborationModeValue);
-  const collaborationSettings = asRecord(collaborationModeRecord?.settings);
-  const mode =
-    normalizeOwnerCollaborationMode(
-      typeof collaborationModeValue === "string" ? collaborationModeValue : collaborationModeRecord?.mode,
-    )
-    ?? fallbackMode.mode
-    ?? "default";
+  const collaborationMode = threadSettings.collaborationMode;
+  const collaborationSettings = collaborationMode.settings;
+  const mode = collaborationMode.mode;
   const collaborationModel =
-    normalizeThreadSettingsModel(collaborationSettings?.model)
+    normalizeThreadSettingsModel(collaborationSettings.model)
     ?? model;
-  const collaborationReasoningEffort =
-    normalizeOwnerReasoningEffort(
-      collaborationSettings?.reasoning_effort ?? collaborationSettings?.reasoningEffort,
-    )
+  const collaborationReasoningEffort = collaborationSettings.reasoning_effort
     ?? reasoningEffort
     ?? null;
-  const personality = hasOwnValue(threadSettings, "personality")
-    ? normalizeOwnerPersonality(threadSettings.personality)
-    : conversation.latestThreadSettings?.personality ?? null;
 
   return {
     model,
@@ -3022,10 +2744,10 @@ function buildOwnerConversationThreadSettings(
       settings: {
         model: collaborationModel,
         reasoning_effort: collaborationReasoningEffort,
-        developer_instructions: null,
+        developer_instructions: collaborationSettings.developer_instructions,
       },
     },
-    personality,
+    personality: threadSettings.personality,
   };
 }
 
@@ -3052,7 +2774,7 @@ function projectOwnerThreadSettingsToConversation(
   if (!settings) return { ...conversation, canonicalState: state };
   const latestThreadSettings = buildOwnerConversationThreadSettings(
     conversation,
-    settings as unknown as Record<string, unknown>,
+    settings,
   );
   if (areOwnerThreadSettingsEqual(conversation.latestThreadSettings, latestThreadSettings)) {
     return {
@@ -3073,267 +2795,8 @@ function projectOwnerThreadSettingsToConversation(
   };
 }
 
-function parseOwnerThreadTokenUsagePayload(params: unknown): {
-  threadId: string;
-  tokenUsage: CodexThreadTokenUsage;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const tokenUsage = parseCodexThreadTokenUsage(payload.tokenUsage ?? payload.token_usage);
-  if (!threadId || !tokenUsage) return null;
-
-  return {
-    threadId,
-    tokenUsage,
-  };
-}
-
-function parseOwnerTurnDiffPayload(params: unknown): {
-  threadId: string;
-  turnId: string;
-  diff: string;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  if (!threadId || !turnId || typeof payload.diff !== "string") return null;
-
-  return {
-    threadId,
-    turnId,
-    diff: payload.diff,
-    observedAtMs: Date.now(),
-  };
-}
-
-function parseOwnerTurnPlanPayload(params: unknown): {
-  threadId: string;
-  turnId: string;
-  explanation: string | null;
-  plan: Array<{ step: string; status: string }>;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  if (!threadId || !turnId) return null;
-
-  return {
-    threadId,
-    turnId,
-    explanation: typeof payload.explanation === "string" ? payload.explanation : null,
-    observedAtMs: Date.now(),
-    plan: Array.isArray(payload.plan)
-      ? payload.plan.flatMap((candidate) => {
-          const parsed = asRecord(candidate);
-          if (
-            !parsed
-            || typeof parsed.step !== "string"
-            || (
-              parsed.status !== "pending"
-              && parsed.status !== "inProgress"
-              && parsed.status !== "completed"
-            )
-          ) return [];
-          return [{ step: parsed.step, status: parsed.status }];
-        })
-      : [],
-  };
-}
-
-function parseOwnerSafetyBufferingPayload(params: unknown): {
-  threadId: string;
-  turnId: string;
-  safetyBuffering: CodexSafetyBufferingState;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  if (!threadId || !turnId) return null;
-  if (!Array.isArray(payload.useCases)) return null;
-  if (!Array.isArray(payload.reasons)) return null;
-  if (typeof payload.showBufferingUi !== "boolean") return null;
-
-  return {
-    threadId,
-    turnId,
-    observedAtMs: Date.now(),
-    safetyBuffering: {
-      useCases: payload.useCases.map((value) => String(value ?? "")),
-      reasons: payload.reasons.map((value) => String(value ?? "")),
-      showBufferingUi: payload.showBufferingUi,
-      fasterModel: getString(payload, "fasterModel"),
-    },
-  };
-}
-
-function parseOwnerHookPayload(params: unknown): {
-  threadId: string;
-  turnId: string | null;
-  run: HookRunSummary;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const run = asRecord(payload.run);
-  if (!threadId || !run || typeof run.id !== "string") return null;
-
-  return {
-    threadId,
-    turnId: getString(payload, "turnId"),
-    run: run as unknown as HookRunSummary,
-    observedAtMs: Date.now(),
-  };
-}
-
-function parseOwnerAutomaticApprovalReviewPayload(params: unknown): {
-  threadId: string;
-  turnId: string;
-  reviewId: string;
-  targetItemId: string | null;
-  review: NonNullable<ReturnType<typeof normalizeAutomaticApprovalReviewPayload>>;
-  action: unknown;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  const reviewId = getString(payload, "reviewId");
-  if (!threadId || !turnId || !reviewId) return null;
-
-  const targetItemId = getString(payload, "targetItemId");
-  const review = normalizeAutomaticApprovalReviewPayload(payload, targetItemId);
-  if (!review) return null;
-
-  return {
-    threadId,
-    turnId,
-    reviewId,
-    targetItemId: review.targetItemId,
-    review,
-    action: Object.prototype.hasOwnProperty.call(payload, "action") ? payload.action : null,
-    observedAtMs: Date.now(),
-  };
-}
-
-function parseOwnerGuardianWarningPayload(params: unknown): {
-  threadId: string;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  if (!threadId || !shouldShowAutoReviewInterruptionWarning(payload)) return null;
-
-  return {
-    threadId,
-    observedAtMs: Date.now(),
-  };
-}
-
 function createOwnerGeneratedItemId(prefix: string): string {
   return `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-}
-
-function parseOwnerModelReroutedPayload(params: unknown): {
-  threadId: string;
-  turnId: string;
-  fromModel: string | null;
-  toModel: string | null;
-  reason: string | null;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  const fromModel = getString(payload, "fromModel");
-  const toModel = getString(payload, "toModel");
-  const reason = getString(payload, "reason");
-  if (
-    !threadId
-    || !turnId
-    || !fromModel
-    || !toModel
-    || reason !== "highRiskCyberActivity"
-  ) return null;
-
-  return {
-    threadId,
-    turnId,
-    fromModel,
-    toModel,
-    reason,
-    observedAtMs: Date.now(),
-  };
-}
-
-function parseOwnerErrorPayload(params: unknown): {
-  threadId: string;
-  turnId: string;
-  message: string;
-  additionalDetails: string | null;
-  willRetry: boolean;
-  observedAtMs: number;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const turnId = getString(payload, "turnId");
-  const error = asRecord(payload.error);
-  if (
-    !threadId
-    || !turnId
-    || !error
-    || typeof error.message !== "string"
-    || typeof payload.willRetry !== "boolean"
-  ) return null;
-
-  return {
-    threadId,
-    turnId,
-    message: error.message,
-    additionalDetails: getString(error, "additionalDetails"),
-    willRetry: payload.willRetry,
-    observedAtMs: Date.now(),
-  };
-}
-
-export function parseOwnerServerRequestResolvedPayload(params: unknown): {
-  threadId: string;
-  requestId: CodexProtocolRequestId;
-} | null {
-  const payload = asRecord(params);
-  if (!payload) return null;
-
-  const threadId = getString(payload, "threadId");
-  const requestIdValue = payload.requestId ?? payload.request_id;
-  if (
-    threadId === null
-    || (typeof requestIdValue !== "string" && typeof requestIdValue !== "number")
-  ) return null;
-
-  return {
-    threadId,
-    requestId: requestIdValue,
-  };
 }
 
 function clearOwnerApprovalAttachments(
@@ -3368,7 +2831,10 @@ function clearOwnerApprovalAttachments(
 function applyOwnerServerRequestResolvedToConversation(
   conversation: CodexConversationSnapshot,
   before: CodexCanonicalConversationState,
-  payload: NonNullable<ReturnType<typeof parseOwnerServerRequestResolvedPayload>>,
+  payload: Extract<
+    CodexThreadOwnerNotificationEvent["notification"],
+    { method: "serverRequest/resolved" }
+  >["params"],
 ): OwnerCanonicalServerRequestMutationResult {
   const observedAtMs = Date.now();
   const lifecycle = reduceCodexConversationServerRequestResolved(
@@ -4968,8 +4434,7 @@ export class CodexAppServerManager {
         return this.markOwnerServerRequestActionHandled(
           await this.respondApprovalAsOwner(
             action.requestId,
-            action.kind,
-            action.decision,
+            action.response,
             action.conversationId,
           ),
         );
@@ -6113,8 +5578,10 @@ export class CodexAppServerManager {
         case "item/fileChange/requestApproval":
           await this.respondApprovalAsOwner(
             request.id,
-            getCodexApprovalKindForRequestMethod(request.method),
-            "decline",
+            {
+              kind: getCodexApprovalKindForRequestMethod(request.method),
+              decision: "decline",
+            },
             threadId,
           );
           break;
@@ -6224,8 +5691,7 @@ export class CodexAppServerManager {
 
   async respondApproval(
     requestId: CodexProtocolRequestId,
-    kind: CodexApprovalKind,
-    decision: CodexApprovalDecision,
+    response: CodexApprovalResponse,
     conversationId?: string | null,
   ): Promise<boolean> {
     const followerConversationId = this.findOwnerRoutedConversationIdForRequestResponse(requestId, conversationId);
@@ -6234,23 +5700,20 @@ export class CodexAppServerManager {
         type: "respondApproval",
         conversationId: followerConversationId,
         requestId,
-        kind,
-        decision,
+        response,
       });
     }
 
     return (await this.respondApprovalAsOwner(
       requestId,
-      kind,
-      decision,
+      response,
       conversationId,
     )).accepted;
   }
 
   private async respondApprovalAsOwner(
     requestId: CodexProtocolRequestId,
-    kind: CodexApprovalKind,
-    decision: CodexApprovalDecision,
+    response: CodexApprovalResponse,
     requestedConversationId?: string | null,
   ): Promise<OwnerServerRequestReplyResult> {
     const conversationId = this.findConversationIdForRequest(requestId, requestedConversationId);
@@ -6259,11 +5722,10 @@ export class CodexAppServerManager {
       "codex:approval:respond",
       conversationId,
       requestId,
-      kind,
-      decision,
+      response,
     ) as Promise<boolean>;
     const streamRevision = this.publishOwnerServerRequestReply(conversationId, (conversation, before) =>
-      applyOwnerApprovalResponseToConversation(conversation, before, requestId, kind)
+      applyOwnerApprovalResponseToConversation(conversation, before, requestId, response.kind)
     );
     return await this.finishOwnerServerRequestReply(
       conversationId,
@@ -7008,91 +6470,89 @@ export class CodexAppServerManager {
     }
     if (typeof event.sequence !== "number") return;
 
-    const eventConversationId = parseOwnerNotificationConversationId(event.method, event.params);
+    const eventConversationId = getOwnerNotificationConversationId(event.notification);
     if (eventConversationId) {
       this.beginOwnerNotificationHandling(eventConversationId, event.sequence);
     }
 
     try {
     if (
-      event.method === "thread/started" ||
-      event.method === "thread/name/updated" ||
-      event.method === "thread/settings/updated" ||
-      event.method === "thread/status/changed" ||
-      event.method === "thread/tokenUsage/updated" ||
-      event.method === "thread/goal/updated" ||
-      event.method === "thread/goal/cleared"
+      event.notification.method === "thread/started" ||
+      event.notification.method === "thread/name/updated" ||
+      event.notification.method === "thread/settings/updated" ||
+      event.notification.method === "thread/status/changed" ||
+      event.notification.method === "thread/tokenUsage/updated" ||
+      event.notification.method === "thread/goal/updated" ||
+      event.notification.method === "thread/goal/cleared"
     ) {
       this.handleOwnerThreadNotification(event);
       return;
     }
 
     if (
-      event.method === "turn/diff/updated" ||
-      event.method === "turn/plan/updated" ||
-      event.method === "model/safetyBuffering/updated" ||
-      event.method === "hook/started" ||
-      event.method === "hook/completed" ||
-      event.method === "item/autoApprovalReview/started" ||
-      event.method === "item/autoApprovalReview/completed" ||
-      event.method === "guardianWarning" ||
-      event.method === "model/rerouted"
+      event.notification.method === "turn/diff/updated" ||
+      event.notification.method === "turn/plan/updated" ||
+      event.notification.method === "model/safetyBuffering/updated" ||
+      event.notification.method === "hook/started" ||
+      event.notification.method === "hook/completed" ||
+      event.notification.method === "item/autoApprovalReview/started" ||
+      event.notification.method === "item/autoApprovalReview/completed" ||
+      event.notification.method === "guardianWarning" ||
+      event.notification.method === "model/rerouted"
     ) {
       this.handleOwnerTurnMutationNotification(event);
       return;
     }
 
     if (
-      event.method === "turn/started" ||
-      event.method === "turn/completed" ||
-      event.method === "turn/interrupted" ||
-      event.method === "turn/failed"
+      event.notification.method === "turn/started" ||
+      event.notification.method === "turn/completed"
     ) {
       this.handleOwnerTurnLifecycleNotification(event);
       return;
     }
 
-    if (event.method === "item/started" || event.method === "item/completed") {
+    if (event.notification.method === "item/started" || event.notification.method === "item/completed") {
       this.handleOwnerItemLifecycleNotification(event);
       return;
     }
 
-    if (event.method === "item/fileChange/patchUpdated") {
+    if (event.notification.method === "item/fileChange/patchUpdated") {
       this.handleOwnerFileChangePatchUpdatedNotification(event);
       return;
     }
 
-    if (event.method === "item/mcpToolCall/progress") {
+    if (event.notification.method === "item/mcpToolCall/progress") {
       this.handleOwnerMcpToolCallProgressNotification(event);
       return;
     }
 
     if (
-      event.method === "item/reasoning/summaryPartAdded" ||
-      event.method === "item/fileChange/outputDelta"
+      event.notification.method === "item/reasoning/summaryPartAdded" ||
+      event.notification.method === "item/fileChange/outputDelta"
     ) {
       this.handleOwnerNoopItemNotification(event);
       return;
     }
 
-    if (event.method === "serverRequest/resolved") {
+    if (event.notification.method === "serverRequest/resolved") {
       this.handleOwnerServerRequestResolvedNotification(event);
       return;
     }
 
-    if (event.method === "error") {
+    if (event.notification.method === "error") {
       this.handleOwnerErrorNotification(event);
       return;
     }
 
-    if (event.method === "item/commandExecution/terminalInteraction") {
+    if (event.notification.method === "item/commandExecution/terminalInteraction") {
       this.handleOwnerTerminalInteractionNotification(event);
       return;
     }
 
     const payload =
-      typeof event.params === "object" && event.params !== null
-        ? event.params as Record<string, unknown>
+      typeof event.notification.params === "object" && event.notification.params !== null
+        ? event.notification.params as Record<string, unknown>
         : null;
     if (!payload) return;
     if (
@@ -7107,7 +6567,7 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "item/commandExecution/outputDelta") {
+    if (event.notification.method === "item/commandExecution/outputDelta") {
       this.claimOwnerNotificationSequence(payload.threadId, event.sequence);
       this.outputDeltaQueue.enqueue({
         conversationId: payload.threadId,
@@ -7119,14 +6579,14 @@ export class CodexAppServerManager {
       return;
     }
 
-    const frameTextDelta = parseCodexFrameTextDelta(event.method, event.params);
-    if (!frameTextDelta) return;
+    if (!isCodexFrameTextDeltaNotification(event.notification)) return;
+    const frameTextDelta = toCodexFrameTextDelta(event.notification);
     if (frameTextDelta.target.type === "agentMessage" || frameTextDelta.target.type === "plan") {
       logAssistantStreamingDebugSampled(
         "renderer-owner-delta-received",
-        `${payload.threadId}:${turnId ?? "latest"}:${payload.itemId}:${event.method}`,
+        `${payload.threadId}:${turnId ?? "latest"}:${payload.itemId}:${event.notification.method}`,
         {
-          method: event.method,
+          method: event.notification.method,
           sequence: event.sequence,
           threadId: payload.threadId,
           turnId,
@@ -7253,9 +6713,8 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerThreadNotification(event: CodexThreadOwnerNotificationEvent): void {
-    if (event.method === "thread/started") {
-      const payload = parseOwnerThreadStartedPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "thread/started") {
+      const payload = toOwnerThreadStartedPayload(event.notification);
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationSnapshotMutation(
         payload.threadId,
@@ -7273,9 +6732,8 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "thread/goal/updated") {
-      const payload = parseOwnerThreadGoalUpdatedPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "thread/goal/updated") {
+      const payload = event.notification.params;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       let effects: readonly CodexThreadMetadataEffect[] = [];
       this.publishOwnerConversationMutation(
@@ -7297,9 +6755,8 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "thread/goal/cleared") {
-      const payload = parseOwnerThreadGoalClearedPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "thread/goal/cleared") {
+      const payload = event.notification.params;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
         payload.threadId,
@@ -7314,9 +6771,8 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "thread/name/updated") {
-      const payload = parseOwnerThreadNamePayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "thread/name/updated") {
+      const payload = event.notification.params;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
         payload.threadId,
@@ -7335,9 +6791,8 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "thread/settings/updated") {
-      const payload = parseOwnerThreadSettingsPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "thread/settings/updated") {
+      const payload = event.notification.params;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
         payload.threadId,
@@ -7348,9 +6803,7 @@ export class CodexAppServerManager {
           const state = reduceCodexConversationThreadSettings(
             before,
             payload.threadId,
-            payload.threadSettings as unknown as Parameters<
-              typeof reduceCodexConversationThreadSettings
-            >[2],
+            payload.threadSettings,
           );
           return projectOwnerThreadSettingsToConversation(conversation, state);
         },
@@ -7358,9 +6811,8 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "thread/tokenUsage/updated") {
-      const payload = parseOwnerThreadTokenUsagePayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "thread/tokenUsage/updated") {
+      const payload = event.notification.params;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
         payload.threadId,
@@ -7383,8 +6835,11 @@ export class CodexAppServerManager {
       return;
     }
 
-    const payload = parseOwnerThreadStatusPayload(event.params);
-    if (!payload) return;
+    if (event.notification.method !== "thread/status/changed") return;
+    const payload = toOwnerThreadStatusPayload(
+      event.notification.params.threadId,
+      event.notification.params.status,
+    );
     if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
     let effects: readonly CodexThreadMetadataEffect[] = [];
     this.publishOwnerConversationMutation(
@@ -7426,15 +6881,13 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerTurnMutationNotification(event: CodexThreadOwnerNotificationEvent): void {
-    if (event.method === "guardianWarning") {
-      const payload = parseOwnerGuardianWarningPayload(event.params);
-      if (!payload) {
-        const conversationId = getString(asRecord(event.params) ?? {}, "threadId");
-        if (conversationId) {
-          void this.ackOwnerNotification(conversationId, event.sequence);
-        }
+    if (event.notification.method === "guardianWarning") {
+      const payload = event.notification.params;
+      if (!shouldShowAutoReviewInterruptionWarning(payload)) {
+        void this.ackOwnerNotification(payload.threadId, event.sequence);
         return;
       }
+      const observedAtMs = Date.now();
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
         payload.threadId,
@@ -7451,16 +6904,17 @@ export class CodexAppServerManager {
             conversation,
             before,
             result,
-            payload.observedAtMs,
+            observedAtMs,
           );
         },
       );
       return;
     }
 
-    if (event.method === "item/autoApprovalReview/started" || event.method === "item/autoApprovalReview/completed") {
-      const payload = parseOwnerAutomaticApprovalReviewPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "item/autoApprovalReview/started" || event.notification.method === "item/autoApprovalReview/completed") {
+      const notification = event.notification;
+      const payload = notification.params;
+      const observedAtMs = Date.now();
       if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId, payload.targetItemId], event.sequence)) return;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
@@ -7469,32 +6923,26 @@ export class CodexAppServerManager {
         (conversation) => {
           const before = conversation.canonicalState;
           if (!before || before.protocol.id !== payload.threadId) return null;
-          const notification = {
-            method: event.method,
-            params: event.params,
-          } as Extract<ServerNotification, {
-            method: "item/autoApprovalReview/started" | "item/autoApprovalReview/completed";
-          }>;
           const result = reduceCodexConversationAutomaticApprovalReview(
             before,
             notification,
-            payload.observedAtMs,
+            observedAtMs,
           );
           return projectOwnerCanonicalTurnMetadataResult(
             conversation,
             before,
             result,
-            payload.observedAtMs,
+            observedAtMs,
           );
         },
       );
       return;
     }
 
-    if (event.method === "hook/started" || event.method === "hook/completed") {
-      const method = event.method;
-      const payload = parseOwnerHookPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "hook/started" || event.notification.method === "hook/completed") {
+      const method = event.notification.method;
+      const payload = event.notification.params;
+      const observedAtMs = Date.now();
       if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId], event.sequence)) return;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       let effects: readonly CodexTurnMetadataEffect[] = [];
@@ -7510,7 +6958,7 @@ export class CodexAppServerManager {
             payload.turnId,
             method,
             payload.run,
-            payload.observedAtMs,
+            observedAtMs,
           );
           effects = result.effects;
           if (result.state === before) return conversation;
@@ -7519,7 +6967,7 @@ export class CodexAppServerManager {
             before,
             result.state,
             {
-              observedAtMs: payload.observedAtMs,
+              observedAtMs,
               preserveExistingUpdatedAt: true,
             },
           );
@@ -7530,9 +6978,15 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "model/safetyBuffering/updated") {
-      const payload = parseOwnerSafetyBufferingPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "model/safetyBuffering/updated") {
+      const payload = event.notification.params;
+      const observedAtMs = Date.now();
+      const safetyBuffering: CodexSafetyBufferingState = {
+        useCases: payload.useCases,
+        reasons: payload.reasons,
+        showBufferingUi: payload.showBufferingUi,
+        fasterModel: payload.fasterModel,
+      };
       if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId], event.sequence)) return;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
@@ -7545,8 +6999,8 @@ export class CodexAppServerManager {
             before,
             payload.threadId,
             payload.turnId,
-            payload.safetyBuffering,
-            payload.observedAtMs,
+            safetyBuffering,
+            observedAtMs,
           );
           if (result.state === before) return conversation;
           const projection = applyOwnerCanonicalTurnProjection(
@@ -7554,7 +7008,7 @@ export class CodexAppServerManager {
             before,
             result.state,
             {
-              observedAtMs: payload.observedAtMs,
+              observedAtMs,
               preserveExistingUpdatedAt: true,
             },
           );
@@ -7564,9 +7018,10 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method === "turn/plan/updated") {
-      const payload = parseOwnerTurnPlanPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "turn/plan/updated") {
+      const notification = event.notification;
+      const payload = notification.params;
+      const observedAtMs = Date.now();
       if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId], event.sequence)) return;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
@@ -7575,30 +7030,27 @@ export class CodexAppServerManager {
         (conversation) => {
           const before = conversation.canonicalState;
           if (!before || before.protocol.id !== payload.threadId) return null;
-          const notification = {
-            method: "turn/plan/updated",
-            params: event.params,
-          } as Extract<ServerNotification, { method: "turn/plan/updated" }>;
           const result = reduceCodexConversationTurnPlan(
             before,
             notification,
             createOwnerGeneratedItemId("todo-list"),
-            payload.observedAtMs,
+            observedAtMs,
           );
           return projectOwnerCanonicalTurnMetadataResult(
             conversation,
             before,
             result,
-            payload.observedAtMs,
+            observedAtMs,
           );
         },
       );
       return;
     }
 
-    if (event.method === "model/rerouted") {
-      const payload = parseOwnerModelReroutedPayload(event.params);
-      if (!payload) return;
+    if (event.notification.method === "model/rerouted") {
+      const notification = event.notification;
+      const payload = notification.params;
+      const observedAtMs = Date.now();
       if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId], event.sequence)) return;
       if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
       this.publishOwnerConversationMutation(
@@ -7607,29 +7059,26 @@ export class CodexAppServerManager {
         (conversation) => {
           const before = conversation.canonicalState;
           if (!before || before.protocol.id !== payload.threadId) return null;
-          const notification = {
-            method: "model/rerouted",
-            params: event.params,
-          } as Extract<ServerNotification, { method: "model/rerouted" }>;
           const result = reduceCodexConversationModelRerouted(
             before,
             notification,
             createOwnerGeneratedItemId("model-rerouted"),
-            payload.observedAtMs,
+            observedAtMs,
           );
           return projectOwnerCanonicalTurnMetadataResult(
             conversation,
             before,
             result,
-            payload.observedAtMs,
+            observedAtMs,
           );
         },
       );
       return;
     }
 
-    const payload = parseOwnerTurnDiffPayload(event.params);
-    if (!payload) return;
+    if (event.notification.method !== "turn/diff/updated") return;
+    const payload = event.notification.params;
+    const observedAtMs = Date.now();
     if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId], event.sequence)) return;
     if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
 
@@ -7644,7 +7093,7 @@ export class CodexAppServerManager {
           payload.threadId,
           payload.turnId,
           payload.diff,
-          payload.observedAtMs,
+          observedAtMs,
         );
         if (result.state === before) return conversation;
         const projection = applyOwnerCanonicalTurnProjection(
@@ -7652,7 +7101,7 @@ export class CodexAppServerManager {
           before,
           result.state,
           {
-            observedAtMs: payload.observedAtMs,
+            observedAtMs,
             preserveExistingUpdatedAt: true,
           },
         );
@@ -7672,12 +7121,10 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerTurnLifecycleNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const method = event.method;
+    const method = event.notification.method;
     if (
       method !== "turn/started" &&
-      method !== "turn/completed" &&
-      method !== "turn/interrupted" &&
-      method !== "turn/failed"
+      method !== "turn/completed"
     ) {
       return;
     }
@@ -7685,17 +7132,13 @@ export class CodexAppServerManager {
     const deferredForTextDrain = method === "turn/completed"
       && this.ownerTextDeltaQueue.drainBefore(() => {
         this.handleThreadOwnerNotification(event);
-      }, getString(asRecord(event.params) ?? {}, "threadId") ?? undefined);
+      }, event.notification.params.threadId);
     if (deferredForTextDrain) {
-      const conversationId = getString(asRecord(event.params) ?? {}, "threadId");
-      if (conversationId) {
-        this.claimOwnerNotificationSequence(conversationId, event.sequence);
-      }
+      this.claimOwnerNotificationSequence(event.notification.params.threadId, event.sequence);
       return;
     }
 
-    const payload = parseOwnerTurnLifecyclePayload(method, event.params);
-    if (!payload) return;
+    const payload = toOwnerTurnLifecyclePayload(event.notification);
     if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId], event.sequence)) return;
 
     logAssistantStreamingDebug("renderer-owner-turn-lifecycle", {
@@ -7742,7 +7185,7 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerItemLifecycleNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const method = event.method;
+    const method = event.notification.method;
     if (method !== "item/started" && method !== "item/completed") {
       return;
     }
@@ -7750,22 +7193,14 @@ export class CodexAppServerManager {
     const deferredForTextDrain = method === "item/completed"
       && this.ownerTextDeltaQueue.drainBefore(() => {
         this.handleThreadOwnerNotification(event);
-      }, getString(asRecord(event.params) ?? {}, "threadId") ?? undefined);
+      }, event.notification.params.threadId);
     if (deferredForTextDrain) {
-      const conversationId = getString(asRecord(event.params) ?? {}, "threadId");
-      if (conversationId) {
-        this.claimOwnerNotificationSequence(conversationId, event.sequence);
-      }
+      this.claimOwnerNotificationSequence(event.notification.params.threadId, event.sequence);
       return;
     }
 
-    const payload = parseOwnerItemLifecyclePayload(method, event.params);
-    if (!payload) return;
-
-    const itemRecord = asRecord(payload.item);
-    const itemId = itemRecord
-      ? getString(itemRecord, "id") ?? getString(itemRecord, "itemId")
-      : null;
+    const payload = toOwnerItemLifecyclePayload(event.notification);
+    const itemId = payload.item.id;
     if (this.ackOwnerNotificationIfTombstoned(payload.threadId, [payload.turnId, itemId], event.sequence)) {
       return;
     }
@@ -7775,8 +7210,8 @@ export class CodexAppServerManager {
       threadId: payload.threadId,
       turnId: payload.turnId,
       itemId,
-      itemType: getProtocolItemType(payload.item),
-      itemStatus: itemRecord ? getString(itemRecord, "status") : null,
+      itemType: payload.item.type,
+      itemStatus: "status" in payload.item ? payload.item.status : null,
     });
 
     this.applyOwnerItemLifecycleNotification(method, payload, event.sequence);
@@ -7888,8 +7323,8 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerFileChangePatchUpdatedNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const update = parseCodexFileChangePatchUpdate(event.method, event.params);
-    if (!update) return;
+    if (!isCodexFileChangePatchUpdatedNotification(event.notification)) return;
+    const update = toCodexFileChangePatchUpdate(event.notification);
     if (this.ackOwnerNotificationIfTombstoned(
       update.conversationId,
       [update.turnId, update.itemId],
@@ -7940,8 +7375,8 @@ export class CodexAppServerManager {
   private handleOwnerMcpToolCallProgressNotification(
     event: CodexThreadOwnerNotificationEvent,
   ): void {
-    const update = parseCodexMcpToolCallProgressUpdate(event.method, event.params);
-    if (!update) return;
+    if (!isCodexMcpToolCallProgressNotification(event.notification)) return;
+    const update = toCodexMcpToolCallProgressUpdate(event.notification);
     if (this.ackOwnerNotificationIfTombstoned(
       update.conversationId,
       [update.turnId, update.itemId],
@@ -7994,46 +7429,22 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerNoopItemNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const payload = typeof event.params === "object" && event.params !== null
-      ? event.params as Record<string, unknown>
-      : null;
     if (
-      !payload ||
-      typeof payload.threadId !== "string" ||
-      typeof payload.turnId !== "string" ||
-      typeof payload.itemId !== "string"
-    ) {
-      return;
-    }
+      event.notification.method !== "item/reasoning/summaryPartAdded"
+      && event.notification.method !== "item/fileChange/outputDelta"
+    ) return;
 
-    if (event.method === "item/reasoning/summaryPartAdded" && typeof payload.summaryIndex !== "number") {
-      return;
-    }
-
-    if (event.method === "item/fileChange/outputDelta" && typeof payload.delta !== "string") {
-      return;
-    }
-
-    void this.ackOwnerNotification(payload.threadId, event.sequence);
+    void this.ackOwnerNotification(event.notification.params.threadId, event.sequence);
   }
 
   private handleOwnerTerminalInteractionNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const payload = typeof event.params === "object" && event.params !== null
-      ? event.params as Record<string, unknown>
-      : null;
-    if (
-      !payload ||
-      typeof payload.threadId !== "string" ||
-      typeof payload.itemId !== "string" ||
-      typeof payload.stdin !== "string"
-    ) {
-      return;
-    }
+    if (event.notification.method !== "item/commandExecution/terminalInteraction") return;
+    const payload = event.notification.params;
 
     const bufferKey = getTerminalInteractionBufferKey(payload.threadId, payload.itemId);
     if (this.ackOwnerNotificationIfTombstoned(
       payload.threadId,
-      [getString(payload, "turnId"), payload.itemId],
+      [payload.turnId, payload.itemId],
       event.sequence,
     )) {
       return;
@@ -8051,7 +7462,7 @@ export class CodexAppServerManager {
 
     const terminalUpdate: CodexTerminalCommandUpdate = {
       conversationId: payload.threadId,
-      turnId: getString(payload, "turnId"),
+      turnId: payload.turnId,
       itemId: payload.itemId,
       commands: parsed.commands,
     };
@@ -8095,8 +7506,8 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerServerRequestResolvedNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const payload = parseOwnerServerRequestResolvedPayload(event.params);
-    if (!payload) return;
+    if (event.notification.method !== "serverRequest/resolved") return;
+    const payload = event.notification.params;
 
     const currentCanonical = this.conversationsById.get(payload.threadId)?.canonicalState;
     if (!currentCanonical || currentCanonical.protocol.id !== payload.threadId) {
@@ -8123,8 +7534,10 @@ export class CodexAppServerManager {
   }
 
   private handleOwnerErrorNotification(event: CodexThreadOwnerNotificationEvent): void {
-    const payload = parseOwnerErrorPayload(event.params);
-    if (!payload) return;
+    if (event.notification.method !== "error") return;
+    const notification = event.notification;
+    const payload = notification.params;
+    const observedAtMs = Date.now();
     if (!this.requireOwnerCanonicalMetadata(payload.threadId, event.sequence)) return;
 
     this.publishOwnerConversationMutation(
@@ -8133,21 +7546,17 @@ export class CodexAppServerManager {
       (conversation) => {
         const before = conversation.canonicalState;
         if (!before || before.protocol.id !== payload.threadId) return null;
-        const notification = {
-          method: "error",
-          params: event.params,
-        } as Extract<ServerNotification, { method: "error" }>;
         const result = reduceCodexConversationError(
           before,
           notification,
           createOwnerGeneratedItemId("error"),
-          payload.observedAtMs,
+          observedAtMs,
         );
         return projectOwnerCanonicalTurnMetadataResult(
           conversation,
           before,
           result,
-          payload.observedAtMs,
+          observedAtMs,
         );
       },
     );
@@ -8183,15 +7592,15 @@ export class CodexAppServerManager {
       return;
     }
 
-    if (event.method !== "item/commandExecution/outputDelta") {
+    if (event.notification.method !== "item/commandExecution/outputDelta") {
       return;
     }
 
     this.outputDeltaQueue.enqueue({
-      conversationId: event.params.threadId,
-      turnId: event.params.turnId,
-      itemId: event.params.itemId,
-      delta: event.params.delta,
+      conversationId: event.notification.params.threadId,
+      turnId: event.notification.params.turnId,
+      itemId: event.notification.params.itemId,
+      delta: event.notification.params.delta,
     });
   }
 
@@ -10752,10 +10161,9 @@ export function useCodexAppServerControl(activeProjectId: string) {
   const respondApproval = useCallback(
     async (
       requestId: CodexProtocolRequestId,
-      kind: CodexApprovalKind,
-      decision: CodexApprovalDecision,
+      response: CodexApprovalResponse,
       conversationId?: string | null,
-    ) => manager.respondApproval(requestId, kind, decision, conversationId),
+    ) => manager.respondApproval(requestId, response, conversationId),
     [manager],
   );
   const respondUserInput = useCallback(

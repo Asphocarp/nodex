@@ -490,12 +490,10 @@ const REMINDER_MENTION_GROUP = "Reminders";
 const CHAT_MENTION_GROUP = "Chats";
 const CARD_MENTION_GROUP = "Cards";
 
-type ThreadMentionSubtextInput = {
-  threadId: string;
-  projectId: string | null;
-  projectName?: string | null;
-  statusType: string;
-  statusActiveFlags: readonly string[];
+type ThreadMentionSubtextInput = Pick<
+  CommandPaletteThread,
+  "threadId" | "projectId" | "statusType" | "statusActiveFlags"
+> & Partial<Pick<CommandPaletteThread, "projectName">> & {
   archived?: boolean;
 };
 

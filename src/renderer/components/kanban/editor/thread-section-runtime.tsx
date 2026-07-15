@@ -3,13 +3,14 @@ import {
   useContext,
   type ReactNode,
 } from "react";
+import type { CodexThreadActiveFlag, CodexThreadStatusType } from "@/lib/types";
 
 export interface ThreadSectionLinkedThreadState {
   threadId: string;
   threadName: string;
   threadPreview: string;
-  statusType: "notLoaded" | "idle" | "active" | "systemError";
-  statusActiveFlags: string[];
+  statusType: CodexThreadStatusType;
+  statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
   updatedAt: number;
 }

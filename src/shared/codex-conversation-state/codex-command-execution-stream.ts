@@ -263,28 +263,6 @@ export function toCodexCommandOutputUpdate(
   };
 }
 
-export function parseCodexCommandOutputUpdate(
-  method: string,
-  params: unknown,
-): CodexCommandOutputUpdate | null {
-  if (method !== "item/commandExecution/outputDelta") return null;
-  if (typeof params !== "object" || params === null) return null;
-  const payload = params as Record<string, unknown>;
-  if (
-    typeof payload.threadId !== "string"
-    || typeof payload.itemId !== "string"
-    || typeof payload.delta !== "string"
-  ) {
-    return null;
-  }
-  return {
-    conversationId: payload.threadId,
-    turnId: typeof payload.turnId === "string" ? payload.turnId : null,
-    itemId: payload.itemId,
-    delta: payload.delta,
-  };
-}
-
 export function groupCodexCommandOutputUpdatesByConversation<
   TUpdate extends CodexCommandOutputUpdate,
 >(updates: readonly TUpdate[]): ReadonlyMap<string, readonly TUpdate[]> {

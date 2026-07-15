@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./runtime-schemas/*.schema.json": "./runtime-schemas/*.schema.json",
     "./v2": "./src/v2/index.ts",
     "./v2/*": "./src/v2/*.ts"
   },

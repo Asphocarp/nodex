@@ -6,14 +6,21 @@ import type {
   InitializeParams,
   InitializeResponse,
   ServerNotification,
-  ServerRequest,
 } from "@nodex/codex-app-server-protocol";
 import type { CodexConnectionState } from "../../shared/types";
-import type {
-  CodexCanonicalOptionPickerRequest,
-  CodexCanonicalSetupContextPickerRequest,
-} from "../../shared/codex-conversation-state/codex-conversation-state";
 import { getLogger } from "../logging/logger";
+import {
+  parseCodexAppServerMessage,
+  type CodexServerRequest,
+  type JsonRpcNotificationEnvelope,
+  type JsonRpcRequestEnvelope,
+  type JsonRpcResponseEnvelope,
+} from "./codex-app-server-message-parser";
+
+export type {
+  CodexInboxItemsCreateServerRequest,
+  CodexServerRequest,
+} from "./codex-app-server-message-parser";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 20_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
@@ -40,29 +47,6 @@ const TRACING_LEVEL_PREFIX = /^(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(TRACE|DEBUG|INFO|WA
  * JSON-RPC response for a request the server no longer owns.
  */
 export const CODEX_SERVER_REQUEST_NO_RESPONSE = Symbol("codex-server-request-no-response");
-
-type JsonRpcId = number | string;
-
-interface JsonRpcRequest {
-  id: JsonRpcId;
-  method: string;
-  params?: unknown;
-}
-
-interface JsonRpcNotification {
-  method: string;
-  params?: unknown;
-}
-
-interface JsonRpcResponse {
-  id: JsonRpcId;
-  result?: unknown;
-  error?: {
-    code: number;
-    message: string;
-    data?: unknown;
-  };
-}
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -93,18 +77,6 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
 }
-
-export interface CodexInboxItemsCreateServerRequest {
-  id: JsonRpcId;
-  method: "inbox-items-create";
-  params: unknown;
-}
-
-export type CodexServerRequest =
-  | ServerRequest
-  | CodexCanonicalOptionPickerRequest
-  | CodexCanonicalSetupContextPickerRequest
-  | CodexInboxItemsCreateServerRequest;
 
 export type CodexServerNotification = ServerNotification;
 
@@ -424,7 +396,7 @@ export class CodexAppServerClient extends EventEmitter {
       await this.start();
     }
     await this.waitUntilReady();
-    this.writeMessage({ method, params } satisfies JsonRpcNotification);
+    this.writeMessage({ method, params } satisfies JsonRpcNotificationEnvelope);
   }
 
   private setMissingBinaryState(): void {
@@ -572,7 +544,7 @@ export class CodexAppServerClient extends EventEmitter {
     });
 
     await Promise.race([initializePromise, timeoutPromise]);
-    this.writeMessage({ method: "initialized" } satisfies JsonRpcNotification);
+    this.writeMessage({ method: "initialized" } satisfies JsonRpcNotificationEnvelope);
     this.initialized = true;
   }
 
@@ -598,7 +570,7 @@ export class CodexAppServerClient extends EventEmitter {
     const id = this.requestIdCounter;
     this.requestIdCounter += 1;
 
-    const message: JsonRpcRequest = { id, method, params };
+    const message: JsonRpcRequestEnvelope = { id, method, params };
     logger.debug("Sending Codex RPC request", {
       rpcId: id,
       method,
@@ -629,7 +601,9 @@ export class CodexAppServerClient extends EventEmitter {
     return promise;
   }
 
-  private writeMessage(message: JsonRpcRequest | JsonRpcNotification | JsonRpcResponse): void {
+  private writeMessage(
+    message: JsonRpcRequestEnvelope | JsonRpcNotificationEnvelope | JsonRpcResponseEnvelope,
+  ): void {
     if (!this.child || this.child.stdin.destroyed) {
       throw new Error("Cannot write to Codex app-server; process is not available");
     }
@@ -678,39 +652,41 @@ export class CodexAppServerClient extends EventEmitter {
       return;
     }
 
-    if (typeof parsed !== "object" || parsed === null) {
-      logger.error("Codex app-server emitted non-object JSON-RPC payload", {
+    const result = parseCodexAppServerMessage(parsed);
+    if (!result.success) {
+      logger.error("Codex app-server emitted an invalid protocol message", {
+        error: result.error,
         line: truncatePreview(line, 300),
       });
-      this.emit("protocolError", `Unexpected non-object message from codex app-server: ${line}`);
+      this.emit("protocolError", result.error);
       return;
     }
 
-    const candidate = parsed as Record<string, unknown>;
-
-    if ("method" in candidate && typeof candidate.method === "string") {
-      if ("id" in candidate) {
-        const request = candidate as unknown as CodexServerRequest;
-        void this.handleServerRequest(request);
-        return;
-      }
-
-      this.emit("notification", {
-        method: candidate.method,
-        params: candidate.params,
-      } as CodexServerNotification);
+    if (result.data.kind === "notification") {
+      this.emit("notification", result.data.notification);
       return;
     }
 
-    if ("id" in candidate) {
-      this.handleResponse(candidate as unknown as JsonRpcResponse);
+    if (result.data.kind === "request") {
+      void this.handleServerRequest(result.data.request);
       return;
     }
 
-    this.emit("protocolError", `Unrecognized app-server message: ${line}`);
+    if (result.data.kind === "unknownRequest") {
+      this.writeMessage({
+        id: result.data.request.id,
+        error: {
+          code: -32601,
+          message: `Unknown server request method '${result.data.request.method}'`,
+        },
+      });
+      return;
+    }
+
+    this.handleResponse(result.data.response);
   }
 
-  private handleResponse(response: JsonRpcResponse): void {
+  private handleResponse(response: JsonRpcResponseEnvelope): void {
     const pending = this.pendingRequests.get(String(response.id));
     if (!pending) return;
 
@@ -718,7 +694,7 @@ export class CodexAppServerClient extends EventEmitter {
     this.pendingRequests.delete(String(response.id));
     const durationMs = Date.now() - pending.startedAt;
 
-    if (response.error) {
+    if ("error" in response) {
       logger.error("Codex RPC request failed", {
         rpcId: response.id,
         method: pending.method,
@@ -755,7 +731,7 @@ export class CodexAppServerClient extends EventEmitter {
           code: -32601,
           message: `No server request handler registered for '${request.method}'`,
         },
-      } satisfies JsonRpcResponse);
+      } satisfies JsonRpcResponseEnvelope);
       return;
     }
 
@@ -775,7 +751,7 @@ export class CodexAppServerClient extends EventEmitter {
       this.writeMessage({
         id: request.id,
         result: result ?? {},
-      } satisfies JsonRpcResponse);
+      } satisfies JsonRpcResponseEnvelope);
     } catch (error) {
       logger.error("Failed Codex server request handler", {
         requestId: request.id,
@@ -788,7 +764,7 @@ export class CodexAppServerClient extends EventEmitter {
           code: -32000,
           message: error instanceof Error ? error.message : String(error),
         },
-      } satisfies JsonRpcResponse);
+      } satisfies JsonRpcResponseEnvelope);
     }
   }
 

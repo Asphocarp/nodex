@@ -79,8 +79,8 @@ function createActions(log: string[]): ThreadStageActions {
     },
     onSteerPrompt: async () => {},
     onInterruptTurn: async () => {},
-    onRespondApproval: async (requestId, kind, decision, context) => {
-      log.push(`approval:${requestId}:${kind}:${decision}:${context?.conversationId ?? "none"}`);
+    onRespondApproval: async (requestId, response, context) => {
+      log.push(`approval:${requestId}:${response.kind}:${response.decision}:${context?.conversationId ?? "none"}`);
     },
     onRespondUserInput: async (requestId, answers, context) => {
       log.push(`userInput:${requestId}:${answers.q1?.[0] ?? "none"}:${context?.conversationId ?? "none"}`);

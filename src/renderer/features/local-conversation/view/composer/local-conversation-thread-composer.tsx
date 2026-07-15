@@ -12,6 +12,7 @@ import type {
   CodexPromptInput,
   CodexReasoningEffort,
   CodexReviewDiffCommentAttachment,
+  CodexServiceTier,
   CodexThreadGoalDraftInput,
   CodexThreadGoalMaterializedDraft,
 } from "@/lib/types";
@@ -181,7 +182,7 @@ function isElectronLikeComposerEnvironment(): boolean {
 function renderModelSelectorLabel(input: {
   availableModels: ThreadFooterModel["availableModels"];
   selectedModel: string;
-  serviceTier: null | "fast";
+  serviceTier: CodexServiceTier;
   compact?: boolean;
 }) {
   const label = input.compact
@@ -859,7 +860,7 @@ function resolvePrimaryModelOptions(
 function renderModelMenuLabel(input: {
   modelId: string;
   availableModels: ThreadFooterModel["availableModels"];
-  serviceTier: null | "fast";
+  serviceTier: CodexServiceTier;
   showFastIndicator: boolean;
 }) {
   return (
@@ -883,7 +884,7 @@ function ModelSelectorMenuItem({
 }: {
   candidate: ThreadFooterModel["availableModels"][number];
   model: ThreadFooterModel;
-  serviceTier: null | "fast";
+  serviceTier: CodexServiceTier;
   showFastIndicator: boolean;
   actions: ThreadStageActions;
 }) {
@@ -926,8 +927,8 @@ function IntelligenceSelectorDropdown({
   actions,
 }: {
   model: ThreadFooterModel;
-  serviceTier: null | "fast";
-  onServiceTierChange: (nextTier: null | "fast") => void;
+  serviceTier: CodexServiceTier;
+  onServiceTierChange: (nextTier: CodexServiceTier) => void;
   actions: ThreadStageActions;
 }) {
   const visibleModels = model.availableModels.filter((candidate) => !candidate.hidden);

@@ -174,9 +174,13 @@ describe("CodexApprovalRequestCard", () => {
       <TooltipProvider>
         <CodexApprovalRequestCard
           request={numericRequest}
-          onRespond={async (requestId, decision) => {
+          onRespond={async (requestId, response) => {
             requestIds.push(requestId);
-            decisions.push(typeof decision === "string" ? decision : JSON.stringify(decision));
+            decisions.push(
+              typeof response.decision === "string"
+                ? response.decision
+                : JSON.stringify(response.decision),
+            );
           }}
           onSubmitLocalFollowup={async () => { }}
         />

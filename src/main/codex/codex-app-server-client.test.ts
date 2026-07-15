@@ -46,6 +46,8 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "        threadId: 'thr_test',",
       "        turnId: 'turn_test',",
       "        itemId: 'item_test',",
+      "        startedAtMs: Date.now(),",
+      "        environmentId: null,",
       "        command: 'echo hi',",
       "        cwd: '/tmp',",
       "      },",
@@ -193,11 +195,24 @@ describe("codex-app-server-client", () => {
         "applyPatchApproval",
         "execCommandApproval",
       ]) {
+        const params = method === "account/chatgptAuthTokens/refresh"
+          ? { reason: "unauthorized" }
+          : method === "applyPatchApproval"
+            ? { conversationId: "thread-1", callId: "call-1", fileChanges: {}, reason: null, grantRoot: null }
+            : method === "execCommandApproval"
+              ? {
+                  conversationId: "thread-1",
+                  callId: "call-1",
+                  approvalId: null,
+                  command: ["echo", "hi"],
+                  cwd: "/tmp",
+                  reason: null,
+                  parsedCmd: [],
+                }
+              : {};
         const result = await client.request<{ responded: boolean }>("triggerIgnoredRequest", {
           method,
-          params: method === "account/chatgptAuthTokens/refresh"
-            ? { reason: "unauthorized" }
-            : {},
+          params,
         });
         expect(result.responded).toBe(false);
       }

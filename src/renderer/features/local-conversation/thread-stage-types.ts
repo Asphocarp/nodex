@@ -5,8 +5,7 @@ import type {
   Card,
   CardRunInTarget,
   CodexAccountSnapshot,
-  CodexApprovalDecision,
-  CodexApprovalKind,
+  CodexApprovalResponse,
   CodexBackgroundTerminalRow,
   CodexCanonicalOptionPickerResponse,
   CodexCanonicalSetupCodexStepResponse,
@@ -279,8 +278,7 @@ export interface ThreadStageActions {
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (
     requestId: CodexProtocolRequestId,
-    kind: CodexApprovalKind,
-    decision: CodexApprovalDecision,
+    response: CodexApprovalResponse,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onRespondUserInput: (

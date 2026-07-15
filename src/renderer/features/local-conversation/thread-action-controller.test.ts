@@ -3,7 +3,7 @@ import {
   GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
   GIT_ACTION_CREATE_PR_PROMPT,
 } from "@/lib/git-action-prompts";
-import type { CodexProtocolRequestId } from "@/lib/types";
+import type { CodexApprovalResponse, CodexProtocolRequestId } from "@/lib/types";
 import { createThreadStageActions, type ThreadActionControllerInput } from "./thread-action-controller";
 
 function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadActionControllerInput {
@@ -410,25 +410,23 @@ describe("createThreadStageActions settings routing", () => {
       codexControl: {
         respondApproval: async (
           requestId: CodexProtocolRequestId,
-          kind: "command" | "file",
-          decision: string,
+          response: CodexApprovalResponse,
           conversationId: string | null,
         ) => {
-          calls.push({ requestId, kind, decision, conversationId });
+          calls.push({ requestId, response, conversationId });
           return true;
         },
       } as unknown as ThreadActionControllerInput["codexControl"],
     });
     const actions = createThreadStageActions(input);
 
-    await actions.onRespondApproval("approval-1", "file", "decline", {
+    await actions.onRespondApproval("approval-1", { kind: "file", decision: "decline" }, {
       conversationId: "thread-1",
     });
 
     expect(JSON.stringify(calls)).toBe(JSON.stringify([{
       requestId: "approval-1",
-      kind: "file",
-      decision: "decline",
+      response: { kind: "file", decision: "decline" },
       conversationId: "thread-1",
     }]));
   });

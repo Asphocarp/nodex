@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {},
+  "description": "A non-empty reasoning effort value advertised by the model.",
+  "minLength": 1,
+  "title": "ReasoningEffort",
+  "type": "string"
+}

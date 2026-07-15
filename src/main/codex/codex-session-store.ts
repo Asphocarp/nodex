@@ -12,7 +12,7 @@ import {
   parseCodexSessionJsonlLine,
   type CodexSessionIndexEntry,
 } from "../../shared/schemas/codex-session";
-import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
+import { parsePersistedCodexThreadTokenUsage } from "./codex-session-token-usage";
 import {
   buildTranscriptFromBootstrapEvents,
   resolveThreadPreviewFromTranscript,
@@ -414,7 +414,7 @@ function parseSessionJsonl(
 
       if (eventType === "token_count") {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
-        const tokenUsage = parseCodexThreadTokenUsage(payload?.info);
+        const tokenUsage = parsePersistedCodexThreadTokenUsage(payload?.info);
         if (tokenUsage) {
           turn.tokenUsage = tokenUsage;
         }

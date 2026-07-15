@@ -1,5 +1,5 @@
 import type {
-  CodexApprovalDecision,
+  CodexApprovalResponse,
   CodexApprovalRequest,
   CodexConversationItem,
   CodexProtocolRequestId,
@@ -24,7 +24,7 @@ interface CodexApprovalRequestCardProps {
   requestItem?: CodexConversationItem | null;
   actorName?: string | null;
   approvalQuestionActor?: ReactNode;
-  onRespond: (requestId: CodexProtocolRequestId, decision: CodexApprovalDecision) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, response: CodexApprovalResponse) => Promise<void>;
   onSubmitLocalFollowup?: (prompt: string) => Promise<void>;
 }
 
@@ -127,38 +127,49 @@ function buildRequestQuestion(
   };
 }
 
-function mapApprovalDecision(
+function mapApprovalResponse(
   request: CodexApprovalRequest,
   selectedOptionLabel: string,
-): CodexApprovalDecision {
-  if (selectedOptionLabel === "Yes") return "accept";
-  if (selectedOptionLabel === "Yes, just this once") return "accept";
-  if (selectedOptionLabel === "Yes, and allow this host for this conversation") return "acceptForSession";
-  if (selectedOptionLabel === "Yes, and don't ask again this session") return "acceptForSession";
+): CodexApprovalResponse {
+  const scalarDecision = selectedOptionLabel === "Yes" || selectedOptionLabel === "Yes, just this once"
+    ? "accept"
+    : selectedOptionLabel === "Yes, and allow this host for this conversation"
+      || selectedOptionLabel === "Yes, and don't ask again this session"
+      ? "acceptForSession"
+      : null;
+  if (scalarDecision) return { kind: request.kind, decision: scalarDecision };
 
-  if (selectedOptionLabel === "Yes, and allow this host in the future") {
+  if (request.kind === "command" && selectedOptionLabel === "Yes, and allow this host in the future") {
     const amendment = request.proposedNetworkPolicyAmendments?.find((candidate) => candidate.action === "allow")
       ?? request.proposedNetworkPolicyAmendments?.[0]
       ?? null;
-    if (!amendment) return "acceptForSession";
+    if (!amendment) return { kind: "command", decision: "acceptForSession" };
     return {
-      applyNetworkPolicyAmendment: {
-        network_policy_amendment: amendment,
+      kind: "command",
+      decision: {
+        applyNetworkPolicyAmendment: {
+          network_policy_amendment: amendment,
+        },
       },
     };
   }
 
-  if (selectedOptionLabel === "Yes, and don't ask again for commands that start with this") {
+  if (request.kind === "command" && selectedOptionLabel === "Yes, and don't ask again for commands that start with this") {
     const execPolicyAmendment = request.proposedExecpolicyAmendment ?? null;
-    if (!execPolicyAmendment || execPolicyAmendment.length === 0) return "acceptForSession";
+    if (!execPolicyAmendment || execPolicyAmendment.length === 0) {
+      return { kind: "command", decision: "acceptForSession" };
+    }
     return {
-      acceptWithExecpolicyAmendment: {
-        execpolicy_amendment: execPolicyAmendment,
+      kind: "command",
+      decision: {
+        acceptWithExecpolicyAmendment: {
+          execpolicy_amendment: execPolicyAmendment,
+        },
       },
     };
   }
 
-  return "decline";
+  return { kind: request.kind, decision: "decline" };
 }
 
 function CommandPreviewBody({ request }: { request: CodexApprovalRequest }) {
@@ -242,7 +253,7 @@ export function CodexApprovalRequestCard({
       onSubmit={async (nextRequest, state) => {
         const questionId = nextRequest.questions[0]?.id;
         if (!questionId) {
-          await onRespond(request.requestId, "decline");
+          await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
           return;
         }
         const selected = state.selectedOptions[questionId];
@@ -250,7 +261,7 @@ export function CodexApprovalRequestCard({
         const freeform = state.drafts[questionId]?.trim() ?? "";
 
         if (mode === "other") {
-          await onRespond(request.requestId, "decline");
+          await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
           if (freeform && onSubmitLocalFollowup) {
             await onSubmitLocalFollowup(freeform);
           }
@@ -258,14 +269,14 @@ export function CodexApprovalRequestCard({
         }
 
         if (!selected) {
-          await onRespond(request.requestId, "decline");
+          await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
           return;
         }
 
-        await onRespond(request.requestId, mapApprovalDecision(request, selected));
+        await onRespond(request.requestId, mapApprovalResponse(request, selected));
       }}
       onSkip={async () => {
-        await onRespond(request.requestId, "decline");
+        await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
       }}
       submitErrorMessage="Could not submit approval request"
       skipErrorMessage="Could not skip approval request"

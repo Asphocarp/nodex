@@ -32,6 +32,11 @@ import type {
   ProjectSessionForkInput,
 } from "../types";
 import { WorkbenchViewSchema } from "./workbench";
+import {
+  CodexCollaborationModeKindSchema,
+  CodexThreadActiveFlagSchema,
+  CodexThreadStatusTypeSchema,
+} from "./codex";
 
 export const MAX_PROJECT_SESSION_TITLE_LENGTH = 2_000;
 
@@ -187,7 +192,7 @@ export const ProjectSessionForkInputSchema = z.object({
   localEnvironmentConfigPath: z.string().trim().min(1).nullable().optional(),
   turnId: z.string().trim().min(1).optional(),
   message: z.string().optional(),
-  collaborationMode: z.enum(["default", "plan"]).optional(),
+  collaborationMode: CodexCollaborationModeKindSchema.optional(),
 }) satisfies z.ZodType<ProjectSessionForkInput>;
 
 export const ProjectSessionTabKindSchema = z.enum([
@@ -312,8 +317,8 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
   managedWorktreePath: z.string().nullable().optional(),
   projectlessOutputDirectory: z.string().nullable().optional(),
   projectlessWorkspaceBrowserRoot: z.string().nullable().optional(),
-  statusType: z.string().optional(),
-  statusActiveFlags: z.array(z.string()).optional(),
+  statusType: CodexThreadStatusTypeSchema.optional(),
+  statusActiveFlags: z.array(CodexThreadActiveFlagSchema).optional(),
   archived: z.boolean().optional(),
   createdAt: z.number().finite().optional(),
   updatedAt: z.number().finite().optional(),

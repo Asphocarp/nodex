@@ -43,7 +43,7 @@ const MODELS: CodexModelOption[] = [
 ];
 
 describe("codex-thread-settings", () => {
-  test("drops invalid persisted thread settings fields", () => {
+  test("preserves dynamic reasoning efforts and drops invalid closed settings fields", () => {
     const storageGlobal = globalThis as unknown as {
       localStorage?: {
         getItem: (key: string) => string | null;
@@ -66,15 +66,15 @@ describe("codex-thread-settings", () => {
     try {
       store.set(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({
         model: " gpt-5.3-codex ",
-        reasoningEffort: "invalid",
-        detailLevel: "STEPS_EXECUTION",
+        reasoningEffort: "future-effort",
+        detailLevel: "invalid-detail-level",
       }));
 
       const settings = readCodexThreadSettings();
 
       expect(settings?.model).toBe("gpt-5.3-codex");
-      expect(settings?.reasoningEffort).toBe(undefined);
-      expect(settings?.detailLevel).toBe("STEPS_EXECUTION");
+      expect(settings?.reasoningEffort).toBe("future-effort");
+      expect(settings?.detailLevel).toBe(undefined);
     } finally {
       if (previousLocalStorage) {
         storageGlobal.localStorage = previousLocalStorage;
@@ -196,6 +196,7 @@ describe("codex-thread-settings", () => {
     ).toBe("GPT-5.1-Codex-Max");
     expect(formatCodexReasoningEffortLabel("low")).toBe("Light");
     expect(formatCodexReasoningEffortLabel("xhigh")).toBe("Extra High");
+    expect(formatCodexReasoningEffortLabel("future_effort")).toBe("Future Effort");
     expect(formatCodexThreadDetailLevelLabel("STEPS_EXECUTION")).toBe("Steps with code output");
     expect(resolveCodexThreadDetailLevel(undefined)).toBe("STEPS_COMMANDS");
   });

@@ -1,5 +1,7 @@
+import reasoningEffortJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
+import type { CodexScheduledAutomationReasoningEffort } from "../../shared/types";
 
 export const CODEX_APP_TOOL_NAMESPACE = "codex_app";
 export const CODEX_APP_LOCAL_HOST_ID = "local";
@@ -14,9 +16,8 @@ const MODEL_DESCRIPTION =
   "Do not specify a model unless the user explicitly requests a specific model. Otherwise omit this field so the new thread uses the user's configured default model.";
 
 const THINKING_SCHEMA = {
-  type: "string",
+  ...reasoningEffortJsonSchema,
   description: "Optional reasoning effort override. Must be supported by the selected model.",
-  enum: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
 
 interface CodexAppMetaThreadToolModel {
@@ -49,11 +50,20 @@ function buildModelDescription(
 
 export const AUTOMATION_UPDATE_TOOL_NAME = "automation_update";
 const AUTOMATION_COMMON_REQUIRED_FIELDS = ["mode", "kind", "name", "prompt", "rrule", "status"];
+const AUTOMATION_REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly CodexScheduledAutomationReasoningEffort[];
 const AUTOMATION_UPDATE_REASONING_EFFORT_SCHEMA = {
   type: "string",
   description:
     "Reasoning effort to use for cron automations. One of none, minimal, low, medium, high, xhigh, or max.",
-  enum: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  enum: [...AUTOMATION_REASONING_EFFORTS],
 };
 const AUTOMATION_CWDS_SCHEMA = {
   description:

@@ -1,7 +1,7 @@
 import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { render, settleAsyncRender } from "../../test/dom";
-import type { CodexProtocolRequestId } from "../../lib/types";
+import type { CodexApprovalResponse, CodexProtocolRequestId } from "../../lib/types";
 
 const invokeCalls: Array<[string, ...unknown[]]> = [];
 let currentFocusState = true;
@@ -60,8 +60,7 @@ let userInputRequestListener:
 const startTurnCalls: Array<[string, string]> = [];
 const respondApprovalCalls: Array<[
   CodexProtocolRequestId,
-  "command" | "file",
-  string,
+  CodexApprovalResponse,
   string | null,
 ]> = [];
 
@@ -122,11 +121,10 @@ const mockManager = {
   },
   async respondApproval(
     requestId: CodexProtocolRequestId,
-    kind: "command" | "file",
-    decision: string,
+    response: CodexApprovalResponse,
     conversationId: string | null,
   ) {
-    respondApprovalCalls.push([requestId, kind, decision, conversationId]);
+    respondApprovalCalls.push([requestId, response, conversationId]);
     return true;
   },
 };
@@ -439,8 +437,10 @@ describe("DesktopNotificationController", () => {
     expect(startTurnCalls[0]?.[1]).toBe("Ship the change");
     expect(openThreadCalls[1]?.[1]).toBe("thread-1");
     expect(respondApprovalCalls[0]?.[0]).toBe(0);
-    expect(respondApprovalCalls[0]?.[1]).toBe("command");
-    expect(respondApprovalCalls[0]?.[2]).toBe("acceptForSession");
-    expect(respondApprovalCalls[0]?.[3]).toBe("thread-1");
+    expect(respondApprovalCalls[0]?.[1]).toEqual({
+      kind: "command",
+      decision: "acceptForSession",
+    });
+    expect(respondApprovalCalls[0]?.[2]).toBe("thread-1");
   });
 });

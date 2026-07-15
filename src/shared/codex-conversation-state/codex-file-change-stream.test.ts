@@ -20,8 +20,6 @@ import {
   isCodexFileChangeOutputDeltaNotification,
   isCodexFileChangePatchUpdatedNotification,
   isCodexMcpToolCallProgressNotification,
-  parseCodexFileChangePatchUpdate,
-  parseCodexMcpToolCallProgressUpdate,
   reduceCodexConversationFileChangePatch,
   reduceCodexConversationMcpToolCallProgress,
   reduceCodexFileChangePatchRawTurns,
@@ -741,45 +739,5 @@ describe("Codex canonical file-change stream", () => {
     expect(mappedPatch.changes === changes).toBe(true);
     expect(mappedProgress.turnId).toBe(null);
     expect(mappedProgress.message).toBe("working");
-
-    const parsedPatch = parseCodexFileChangePatchUpdate(
-      "item/fileChange/patchUpdated",
-      {
-        threadId: THREAD_ID,
-        turnId: 123,
-        itemId: "patch-item",
-        changes,
-      },
-    );
-    const parsedProgress = parseCodexMcpToolCallProgressUpdate(
-      "item/mcpToolCall/progress",
-      {
-        threadId: THREAD_ID,
-        itemId: "mcp-item",
-        message: "parsed",
-      },
-    );
-    expect(parsedPatch?.turnId).toBe(null);
-    expect(parsedPatch?.changes === changes).toBe(true);
-    expect(parsedProgress?.turnId).toBe(null);
-    expect(parsedProgress?.message).toBe("parsed");
-
-    expect(
-      parseCodexFileChangePatchUpdate("wrong/method", patch.params) === null,
-    ).toBe(true);
-    expect(
-      parseCodexFileChangePatchUpdate("item/fileChange/patchUpdated", {
-        threadId: THREAD_ID,
-        itemId: "patch-item",
-        changes: "not-an-array",
-      }) === null,
-    ).toBe(true);
-    expect(
-      parseCodexMcpToolCallProgressUpdate("item/mcpToolCall/progress", {
-        threadId: THREAD_ID,
-        itemId: "mcp-item",
-        message: 42,
-      }) === null,
-    ).toBe(true);
   });
 });

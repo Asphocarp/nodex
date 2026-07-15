@@ -57,6 +57,7 @@ import {
 } from "./local-store/config";
 import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
+import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import { codexService } from "./codex/codex-service";
 import type {
   CardOccurrenceActionInput,
@@ -65,9 +66,9 @@ import type {
   CodexBackgroundProcessRunActionInput,
   CodexHeartbeatAutomationThreadStateChangedInput,
   CodexHeartbeatAutomationsEnabledChangedInput,
-  CodexApprovalKind,
+  CodexApprovalResponse,
+  CodexCollaborationModeKind,
   CodexProtocolRequestId,
-  CodexReasoningEffort,
 } from "../shared/types";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
@@ -164,9 +165,10 @@ import type {
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexConversationThreadSettingsPatch,
   CodexPersonality,
-  CodexPromptInput,
+  CodexSideChatStartInput,
   CodexThreadGoalSetActionInput,
   CodexThreadStartForSessionInput,
+  CodexTurnStartOptions,
 } from "../shared/types";
 import type {
   BrowserBrowsingDataKind,
@@ -2538,19 +2540,7 @@ export function registerIpcHandlers(
     "codex:thread:side-chat:start",
     (
       _,
-      input: {
-        projectId: string;
-        parentThreadId: string;
-        parentNavigationPath?: string | null;
-        prompt?: string;
-        promptInput?: CodexPromptInput;
-        model?: string;
-        serviceTier?: null | "fast";
-        permissionMode?:
-          "auto" | "guardian-approvals" | "full-access" | "custom";
-        reasoningEffort?: CodexReasoningEffort;
-        collaborationMode?: "default" | "plan";
-      },
+      input: CodexSideChatStartInput,
     ) => codexService.startSideChat(input),
   );
 
@@ -2669,7 +2659,7 @@ export function registerIpcHandlers(
 
   registerHandle(
     "codex:thread:collaboration-mode:set",
-    (_, threadId: string, collaborationMode: "default" | "plan") =>
+    (_, threadId: string, collaborationMode: CodexCollaborationModeKind) =>
       codexService.setConversationCollaborationMode(
         threadId,
         collaborationMode,
@@ -2699,15 +2689,7 @@ export function registerIpcHandlers(
       _,
       threadId: string,
       prompt: string,
-      opts?: {
-        model?: string;
-        serviceTier?: null | "fast";
-        reasoningEffort?: CodexReasoningEffort;
-        permissionMode?:
-          "auto" | "guardian-approvals" | "full-access" | "custom";
-        collaborationMode?: "default" | "plan";
-        promptInput?: CodexPromptInput;
-      },
+      opts?: CodexTurnStartOptions,
     ) => {
       return codexService.startTurn(threadId, prompt, opts);
     },
@@ -2723,15 +2705,7 @@ export function registerIpcHandlers(
       _,
       threadId: string,
       prompt: string,
-      opts?: {
-        model?: string;
-        serviceTier?: null | "fast";
-        reasoningEffort?: CodexReasoningEffort;
-        permissionMode?:
-          "auto" | "guardian-approvals" | "full-access" | "custom";
-        collaborationMode?: "default" | "plan";
-        promptInput?: CodexPromptInput;
-      },
+      opts?: CodexTurnStartOptions,
     ) => codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
   );
 
@@ -2884,10 +2858,14 @@ export function registerIpcHandlers(
     _,
     conversationId: string,
     requestId: CodexProtocolRequestId,
-    kind: CodexApprovalKind,
-    decision,
-  ) =>
-    codexService.respondToApproval(requestId, kind, decision, conversationId),
+    response: CodexApprovalResponse,
+  ) => {
+    const parsedResponse = parseCodexApprovalResponse(response);
+    if (!parsedResponse) {
+      throw new Error("Invalid Codex approval response for approval kind.");
+    }
+    return codexService.respondToApproval(requestId, parsedResponse, conversationId);
+  },
   );
 
   registerHandle("codex:user-input:respond", (

@@ -398,13 +398,11 @@ describe("projectCodexCanonicalTurnItemViews", () => {
   test("protocol guard fails closed before malformed lifecycle items reach typed projection", () => {
     expect(isCodexCanonicalProtocolItem({
       type: "userMessage",
-      id: "missing-required-client-id",
-      content: [],
+      id: "missing-required-content",
     })).toBe(false);
     expect(isCodexCanonicalProtocolItem({
       type: "agentMessage",
-      id: "missing-required-message-metadata",
-      text: "Incomplete",
+      id: "missing-required-text",
     })).toBe(false);
     expect(isCodexCanonicalProtocolItem({
       type: "commandExecution",
@@ -430,7 +428,6 @@ describe("projectCodexCanonicalTurnItemViews", () => {
       server: "docs",
       tool: "search",
       status: "completed",
-      arguments: {},
       result: null,
       error: null,
       durationMs: null,

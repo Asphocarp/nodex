@@ -24,7 +24,7 @@ const FALLBACK_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
   { reasoningEffort: "xhigh", description: "Use the maximum reasoning budget this model supports." },
 ];
 
-const REASONING_EFFORT_LABELS: Record<CodexReasoningEffort, string> = {
+const REASONING_EFFORT_LABELS: Partial<Record<CodexReasoningEffort, string>> = {
   none: "None",
   minimal: "Minimal",
   low: "Light",
@@ -230,8 +230,14 @@ export function formatCodexModelLabel(modelId: string | undefined, models: Codex
 
 export function formatCodexReasoningEffortLabel(effort: CodexReasoningEffort | undefined): string {
   if (!effort) return "High";
-  const parsedEffort = CodexReasoningEffortSchema.safeParse(effort);
-  return parsedEffort.success ? REASONING_EFFORT_LABELS[parsedEffort.data] : "High";
+  const knownLabel = REASONING_EFFORT_LABELS[effort];
+  if (knownLabel) return knownLabel;
+
+  return effort
+    .split(/[-_\s]+/u)
+    .filter(Boolean)
+    .map((segment) => `${segment[0]?.toUpperCase() ?? ""}${segment.slice(1)}`)
+    .join(" ");
 }
 
 export function resolveCodexThreadDetailLevel(

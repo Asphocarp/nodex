@@ -315,7 +315,10 @@ export function DesktopNotificationController({
       return;
     }
 
-    await manager.respondApproval(requestId, approvalKind, decision, conversationId);
+    await manager.respondApproval(requestId, {
+      kind: approvalKind,
+      decision,
+    }, conversationId);
   });
 
   useEffect(() => {

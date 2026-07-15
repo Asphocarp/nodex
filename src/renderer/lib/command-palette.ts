@@ -15,7 +15,12 @@ import {
   TOGGLE_LIST_PRIORITY_ORDER,
   type ToggleListTagFilterMode,
 } from "./toggle-list/types";
-import type { CardSummary, Priority } from "./types";
+import type {
+  CardSummary,
+  CodexThreadActiveFlag,
+  CodexThreadStatusType,
+  Priority,
+} from "./types";
 
 export interface CommandPaletteCommand {
   kind: "command";
@@ -112,8 +117,8 @@ export interface CommandPaletteThread {
   projectless: boolean;
   pinned: boolean;
   pinnedOrder: number | null;
-  statusType: string;
-  statusActiveFlags: string[];
+  statusType: CodexThreadStatusType;
+  statusActiveFlags: CodexThreadActiveFlag[];
   createdAt: number;
   updatedAt: number;
   linkedAt: string;

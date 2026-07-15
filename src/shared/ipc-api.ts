@@ -103,7 +103,7 @@ import type {
   AppUpdateStatus,
   BoardSummary,
   CodexAccountSnapshot,
-  CodexApprovalDecision,
+  CodexApprovalResponse,
   CodexApprovalKind,
   CodexCanonicalOptionPickerResponse,
   CodexCanonicalSetupContextPickerResponse,
@@ -120,6 +120,7 @@ import type {
   CodexConversationImageAssetResolveResult,
   ProtocolDynamicToolCallResponse,
   CodexCollaborationModePreset,
+  CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexConversationThreadSettings,
   CodexConversationThreadSettingsPatch,
@@ -1487,7 +1488,7 @@ export interface IpcApi {
     result: CodexThreadSummary | null;
   };
   "codex:thread:collaboration-mode:set": {
-    args: [threadId: string, collaborationMode: "default" | "plan"];
+    args: [threadId: string, collaborationMode: CodexCollaborationModeKind];
     result: CodexCollaborationModeState;
   };
   "codex:personality:get": { args: []; result: CodexPersonality };
@@ -1617,8 +1618,7 @@ export interface IpcApi {
     args: [
       conversationId: string,
       requestId: CodexProtocolRequestId,
-      kind: CodexApprovalKind,
-      decision: CodexApprovalDecision,
+      response: CodexApprovalResponse,
     ];
     result: boolean;
   };

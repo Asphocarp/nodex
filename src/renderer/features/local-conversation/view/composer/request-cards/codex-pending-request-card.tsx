@@ -16,9 +16,9 @@ interface CodexPendingRequestCardProps {
 const PLAN_IMPLEMENTATION_PROMPT_PREFIX = "PLEASE IMPLEMENT THIS PLAN:";
 
 function isAcceptedApprovalDecision(
-  decision: Parameters<ThreadStageActions["onRespondApproval"]>[2],
+  response: Parameters<ThreadStageActions["onRespondApproval"]>[1],
 ): boolean {
-  return decision !== "decline" && decision !== "cancel";
+  return response.decision !== "decline" && response.decision !== "cancel";
 }
 
 export function CodexPendingRequestCard({
@@ -43,14 +43,13 @@ export function CodexPendingRequestCard({
           requestItem={entry.requestItem}
           actorName={entry.actorName ?? null}
           approvalQuestionActor={approvalQuestionActor}
-          onRespond={async (requestId, decision) => {
+          onRespond={async (requestId, response) => {
             await actions.onRespondApproval(
               requestId,
-              request.kind,
-              decision,
+              response,
               { conversationId: entry.conversationId },
             );
-            if (isAcceptedApprovalDecision(decision)) {
+            if (isAcceptedApprovalDecision(response)) {
               await onManualApproval?.(entry.conversationId);
             }
           }}

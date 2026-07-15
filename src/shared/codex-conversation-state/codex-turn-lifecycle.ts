@@ -13,11 +13,7 @@ import {
   reduceCodexConversationServerRequest,
 } from "./codex-server-request-lifecycle";
 
-export type CodexTurnLifecycleMethod =
-  | "turn/started"
-  | "turn/completed"
-  | "turn/interrupted"
-  | "turn/failed";
+export type CodexTurnLifecycleMethod = "turn/started" | "turn/completed";
 
 export interface CodexTurnLifecycleUpdate {
   readonly conversationId: string;

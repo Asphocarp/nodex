@@ -19,8 +19,7 @@ import {
 import type { ThreadStageActions } from "../thread-stage-types";
 import type {
   CodexAccountSnapshot,
-  CodexApprovalDecision,
-  CodexApprovalKind,
+  CodexApprovalResponse,
   CodexConversationSnapshot,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationResponse,
@@ -536,10 +535,9 @@ export function ThreadStageDevStoryPage({
     },
     onRespondApproval: async (
       requestId: CodexProtocolRequestId,
-      _kind: CodexApprovalKind,
-      decision: CodexApprovalDecision,
+      response: CodexApprovalResponse,
     ) => {
-      setRuntime((current) => setStoryLog(removeConversationRequest(current, requestId), `Approval response: ${decision}`));
+      setRuntime((current) => setStoryLog(removeConversationRequest(current, requestId), `Approval response: ${response.decision}`));
     },
     onRespondUserInput: async (requestId: CodexProtocolRequestId, answers: Record<string, string[]>) => {
       setRuntime((current) => {

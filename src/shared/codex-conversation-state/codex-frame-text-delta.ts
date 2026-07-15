@@ -89,11 +89,6 @@ function asProtocolItemRecord(value: unknown): ProtocolItemRecord | null {
   return record as ProtocolItemRecord;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null) return null;
-  return value as Record<string, unknown>;
-}
-
 function expectedProtocolItemType(target: CodexFrameTextDeltaTarget): string {
   if (target.type === "agentMessage") return "agentMessage";
   if (target.type === "plan") return "plan";
@@ -201,53 +196,6 @@ export function toCodexFrameTextDelta(
     itemId: notification.params.itemId,
     target,
     delta: notification.params.delta,
-  };
-}
-
-/** Generated notification boundary used by both temporary production transports. */
-export function parseCodexFrameTextDelta(
-  method: string,
-  params: unknown,
-): CodexFrameTextDeltaUpdate | null {
-  if (
-    method !== "item/agentMessage/delta"
-    && method !== "item/plan/delta"
-    && method !== "item/reasoning/summaryTextDelta"
-    && method !== "item/reasoning/textDelta"
-  ) {
-    return null;
-  }
-
-  const payload = asRecord(params);
-  if (
-    !payload
-    || typeof payload.threadId !== "string"
-    || typeof payload.itemId !== "string"
-    || typeof payload.delta !== "string"
-  ) {
-    return null;
-  }
-
-  const target: CodexFrameTextDeltaTarget | null = (() => {
-    if (method === "item/agentMessage/delta") return { type: "agentMessage" };
-    if (method === "item/plan/delta") return { type: "plan" };
-    if (method === "item/reasoning/summaryTextDelta") {
-      return typeof payload.summaryIndex === "number"
-        ? { type: "reasoningSummary", summaryIndex: payload.summaryIndex }
-        : null;
-    }
-    return typeof payload.contentIndex === "number"
-      ? { type: "reasoningContent", contentIndex: payload.contentIndex }
-      : null;
-  })();
-  if (!target) return null;
-
-  return {
-    conversationId: payload.threadId,
-    turnId: typeof payload.turnId === "string" ? payload.turnId : null,
-    itemId: payload.itemId,
-    target,
-    delta: payload.delta,
   };
 }
 

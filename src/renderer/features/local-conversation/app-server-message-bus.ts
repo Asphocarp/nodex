@@ -2,7 +2,7 @@ import type {
   CodexConnectionState,
   CodexMcpNotificationMessage,
   CodexSharedObject,
-  CodexThreadOwnerNotificationMethod,
+  CodexThreadOwnerNotification,
   CodexThreadOwnerServerRequest,
   CodexThreadStreamStateChange,
 } from "../../lib/types";
@@ -59,9 +59,8 @@ export type CodexMcpNotificationEvent = Omit<CodexMcpNotificationMessage, "type"
 
 export interface CodexThreadOwnerNotificationEvent {
   hostId: string;
-  method: CodexThreadOwnerNotificationMethod;
   sequence: number;
-  params: unknown;
+  notification: CodexThreadOwnerNotification;
 }
 
 export interface CodexThreadOwnerRequestEvent {

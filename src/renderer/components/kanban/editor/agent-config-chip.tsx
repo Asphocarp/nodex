@@ -26,6 +26,10 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { agentConfigInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
+import {
+  CodexCollaborationModeKindSchema,
+  CodexReasoningEffortSchema,
+} from "../../../../shared/schemas/codex";
 
 export interface AgentConfigProps {
   mode: string;
@@ -42,8 +46,6 @@ export interface AgentConfigInlineContentUpdate {
 
 type AgentConfigFieldPatch = Partial<Pick<AgentConfigProps, "mode" | "model" | "reasoning">>;
 
-const VALID_MODES = new Set(["", "default", "plan"]);
-const VALID_REASONING = new Set(["", "minimal", "low", "medium", "high", "xhigh"]);
 const ALL_REASONING_EFFORTS: CodexReasoningEffort[] = ["minimal", "low", "medium", "high", "xhigh"];
 const MODE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "Inherit" },
@@ -68,9 +70,16 @@ function formatReasoningLabel(value: string): string {
 }
 
 function parseReasoningEffort(value: string): CodexReasoningEffort | null {
-  return VALID_REASONING.has(value) && value
-    ? value as CodexReasoningEffort
-    : null;
+  const parsed = CodexReasoningEffortSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function isKnownAgentConfigMode(value: string): boolean {
+  return value === "" || CodexCollaborationModeKindSchema.safeParse(value).success;
+}
+
+function isKnownAgentConfigReasoning(value: string): boolean {
+  return value === "" || CodexReasoningEffortSchema.safeParse(value).success;
 }
 
 export function resolveAgentConfigChip(
@@ -83,8 +92,8 @@ export function resolveAgentConfigChip(
 } {
   const props = normalizeAgentConfigProps(input);
   const invalid = props.unknownAttributes.trim().length > 0
-    || !VALID_MODES.has(props.mode)
-    || !VALID_REASONING.has(props.reasoning);
+    || !isKnownAgentConfigMode(props.mode)
+    || !isKnownAgentConfigReasoning(props.reasoning);
   const label = props.mode === "plan"
     ? "Plan mode"
     : props.mode === "default"
@@ -260,8 +269,9 @@ function AgentConfigPopoverBody({
       },
     ];
     const supportedValues = new Set(supportedOptions.map((option) => option.reasoningEffort));
+    const selectedReasoning = parseReasoningEffort(props.reasoning);
 
-    if (props.reasoning && !supportedValues.has(props.reasoning as CodexReasoningEffort)) {
+    if (props.reasoning && (!selectedReasoning || !supportedValues.has(selectedReasoning))) {
       options.push({
         value: props.reasoning,
         label: "Unsupported reasoning",
@@ -331,7 +341,7 @@ function AgentConfigPopoverBody({
 
       <AgentConfigControlRow label="Mode">
         <ModeSegmentedControl
-          value={VALID_MODES.has(props.mode) ? props.mode : ""}
+          value={isKnownAgentConfigMode(props.mode) ? props.mode : ""}
           onValueChange={(mode) => onPatch({ mode })}
         />
       </AgentConfigControlRow>

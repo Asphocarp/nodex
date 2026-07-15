@@ -35,13 +35,13 @@ function resetStorage(): void {
 }
 
 describe("codex-service-tier-settings", () => {
-  test("normalizes invalid persisted values back to standard", () => {
+  test("preserves service tiers supplied by newer model catalogs", () => {
     resetStorage();
     localStorageRef.setItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY, "flex");
 
     expect(normalizeCodexServiceTier("fast")).toBe("fast");
-    expect(normalizeCodexServiceTier("flex")).toBe(null);
-    expect(readCodexServiceTier()).toBe(null);
+    expect(normalizeCodexServiceTier(" flex ")).toBe("flex");
+    expect(readCodexServiceTier()).toBe("flex");
   });
 
   test("writes fast and clears the stored key for standard", () => {

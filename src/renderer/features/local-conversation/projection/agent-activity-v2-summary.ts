@@ -3,14 +3,17 @@ import type {
   ThreadAgentActivityItem,
   ThreadAgentActivityUnit,
 } from "../thread-stage-types";
-import { normalizeAutomaticApprovalReviewPayload } from "../../../../shared/codex-transcript-special-items";
+import {
+  normalizeAutomaticApprovalReviewPayload,
+  type CodexAutomaticApprovalReviewStatus,
+} from "../../../../shared/codex-transcript-special-items";
 import { resolveCodexPatchSuccess } from "../../../../shared/codex-file-change";
 import type { ThreadClassifiableActivityItem } from "./agent-activity-v2";
 import { describeWebSearchAction } from "../web-search-display";
 
 export type ThreadAgentActivityApprovalFailure = {
   id: string;
-  status: "denied" | "timedOut";
+  status: Extract<CodexAutomaticApprovalReviewStatus, "denied" | "timedOut">;
 };
 
 interface ThreadAgentActivityFactWithApprovalFailures {

@@ -32,7 +32,7 @@ import {
 } from "@/lib/codex-thread-settings";
 import { toast } from "@/components/ui/toast";
 import { useMcpServerStatuses } from "@/lib/use-mcp-queries";
-import type { CodexPersonality, CodexReasoningEffort } from "@/lib/types";
+import type { CodexPersonality, CodexReasoningEffort, CodexServiceTier } from "@/lib/types";
 import type { ThreadFooterModel, ThreadStageActions } from "../../../thread-stage-types";
 import { getThreadGoalMessage } from "../../../thread-goal-copy";
 import type {
@@ -45,8 +45,8 @@ import { hasPlanMode, resolveNextComposerPlanMode } from "../composer-plan-mode"
 interface BuildSlashCommandsInput {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
-  serviceTier: null | "fast";
-  setServiceTier: (tier: null | "fast", source: string) => void;
+  serviceTier: CodexServiceTier;
+  setServiceTier: (tier: CodexServiceTier, source: string) => void;
   insertPluginMention: (plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => void;
   openExpandedDialog: () => void;
   onPetToggle: () => void;

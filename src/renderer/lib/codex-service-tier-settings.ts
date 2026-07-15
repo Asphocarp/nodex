@@ -3,7 +3,9 @@ import type { CodexServiceTier } from "./types";
 export const CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY = "nodex-codex-default-service-tier-v1";
 
 export function normalizeCodexServiceTier(value: unknown): CodexServiceTier {
-  return value === "fast" ? "fast" : null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized !== "standard" ? normalized : null;
 }
 
 export function readCodexServiceTier(): CodexServiceTier {
@@ -37,7 +39,7 @@ export function writeCodexServiceTier(value: unknown): CodexServiceTier {
   return normalized;
 }
 
-export function toServiceTierReportingValue(value: unknown): "standard" | "fast" {
+export function toServiceTierReportingValue(value: unknown): string {
   return normalizeCodexServiceTier(value) ?? "standard";
 }
 
@@ -54,6 +56,6 @@ export function resolveCodexRequestServiceTier<T extends { serviceTier?: CodexSe
 
 export function buildCodexServiceTierRequestOverride(
   serviceTier: CodexServiceTier,
-): { serviceTier?: Extract<CodexServiceTier, "fast"> } {
-  return serviceTier === "fast" ? { serviceTier } : {};
+): { serviceTier?: string } {
+  return serviceTier ? { serviceTier } : {};
 }

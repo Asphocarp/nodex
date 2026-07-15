@@ -1101,8 +1101,8 @@ describe("project session service", () => {
         managedWorktreePath: "/tmp/project/.worktrees/thread-1",
         projectlessOutputDirectory: "output",
         projectlessWorkspaceBrowserRoot: "workspace",
-        statusType: "running",
-        statusActiveFlags: ["streaming"],
+        statusType: "active",
+        statusActiveFlags: ["waitingOnApproval"],
         archived: false,
         createdAt: 10,
         updatedAt: 20,
@@ -1115,7 +1115,7 @@ describe("project session service", () => {
       expect(attached.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-1");
       expect(attached.projectlessOutputDirectory ?? null).toBe("output");
       expect(attached.projectlessWorkspaceBrowserRoot ?? null).toBe("workspace");
-      expect(JSON.stringify(attached.statusActiveFlags)).toBe(JSON.stringify(["streaming"]));
+      expect(JSON.stringify(attached.statusActiveFlags)).toBe(JSON.stringify(["waitingOnApproval"]));
       expect(getProjectSession(session.id)?.displayTitle).toBe("Thread One");
 
       const updated = upsertProjectSessionThreadLink({

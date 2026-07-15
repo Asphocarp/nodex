@@ -22,7 +22,7 @@ describe("codex-transcript-special-items", () => {
       "item_123",
     );
 
-    expect(JSON.stringify(payload)).toBe(JSON.stringify({
+    expect(payload).toEqual({
       targetItemId: "item_123",
       status: "approved",
       riskScore: 0.25,
@@ -30,7 +30,7 @@ describe("codex-transcript-special-items", () => {
       userAuthorization: null,
       rationale: "Looks safe",
       action: null,
-    }));
+    });
   });
 
   test("normalizes current guardian review protocol fields", () => {
@@ -47,7 +47,7 @@ describe("codex-transcript-special-items", () => {
       },
     });
 
-    expect(JSON.stringify(payload)).toBe(JSON.stringify({
+    expect(payload).toEqual({
       targetItemId: null,
       status: "timedOut",
       riskScore: null,
@@ -57,15 +57,10 @@ describe("codex-transcript-special-items", () => {
       action: {
         type: "requestPermissions",
       },
-    }));
+    });
   });
 
-  test("matches auto-review interruption guardian warnings by kind or message prefix", () => {
-    expect(shouldShowAutoReviewInterruptionWarning({
-      threadId: "thread-1",
-      kind: "tooManyDenials",
-      message: "Different text",
-    })).toBe(true);
+  test("matches auto-review interruption guardian warnings by message prefix", () => {
     expect(shouldShowAutoReviewInterruptionWarning({
       threadId: "thread-1",
       message: "Automatic approval review rejected too many approval requests for this turn.",
@@ -168,7 +163,7 @@ describe("codex-transcript-special-items", () => {
       },
     });
 
-    expect(JSON.stringify(payload)).toBe(JSON.stringify({
+    expect(payload).toEqual({
       id: null,
       action: "sendInput",
       status: "completed",
@@ -191,7 +186,7 @@ describe("codex-transcript-special-items", () => {
           message: "Working",
         },
       },
-    }));
+    });
   });
 
   test("normalizes subagent receiver display metadata aliases", () => {
