@@ -2493,7 +2493,12 @@ function createBlockSecondaryAuthorityFoundationSchema(
       WHERE view_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_card_read_model_document_freshness
       ON card_read_model(document_id, document_generation, document_projected_seq);
+  `);
+  createCardReadModelValidationTriggers(db);
+}
 
+function createCardReadModelValidationTriggers(db: Database.Database): void {
+  db.exec(`
     CREATE TRIGGER IF NOT EXISTS card_read_model_validate_insert
       BEFORE INSERT ON card_read_model
       WHEN NOT EXISTS (
@@ -2526,11 +2531,6 @@ function createBlockSecondaryAuthorityFoundationSchema(
           AND materialization.projected_seq = NEW.document_projected_seq
           AND materialization.title = NEW.title
           AND materialization.preview = NEW.description_preview
-          AND NEW.description_length = length(materialization.nfm)
-          AND NEW.has_description = CASE
-            WHEN length(trim(materialization.nfm)) > 0 THEN 1
-            ELSE 0
-          END
       ) OR (
         NEW.membership_id IS NOT NULL
         AND NOT EXISTS (
@@ -2588,11 +2588,6 @@ function createBlockSecondaryAuthorityFoundationSchema(
           AND materialization.projected_seq = NEW.document_projected_seq
           AND materialization.title = NEW.title
           AND materialization.preview = NEW.description_preview
-          AND NEW.description_length = length(materialization.nfm)
-          AND NEW.has_description = CASE
-            WHEN length(trim(materialization.nfm)) > 0 THEN 1
-            ELSE 0
-          END
       ) OR (
         NEW.membership_id IS NOT NULL
         AND NOT EXISTS (
@@ -6718,6 +6713,19 @@ export interface Schema62To63MigrationOptions {
   ) => void;
 }
 
+function recreateCardReadModelValidationTriggers(
+  db: Database.Database,
+): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS card_read_model_validate_insert;
+    DROP TRIGGER IF EXISTS card_read_model_validate_update;
+  `);
+  // v62 compared JavaScript UTF-16 summary fields with SQLite code-point and
+  // trim semantics, so v63 must replace the old triggers before rebuilding
+  // projections that contain non-BMP or whitespace-only text.
+  createCardReadModelValidationTriggers(db);
+}
+
 export function migrateSchema62To63(
   db: Database.Database,
   options: Schema62To63MigrationOptions = {},
@@ -6730,6 +6738,7 @@ export function migrateSchema62To63(
   }
 
   const migrate = db.transaction(() => {
+    recreateCardReadModelValidationTriggers(db);
     finalizeRetiredCardAgentProperties(db, options);
     const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
     if (foreignKeyViolations.length > 0) {

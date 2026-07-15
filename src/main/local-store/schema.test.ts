@@ -513,6 +513,81 @@ describe("schema v63 release boundary", () => {
     expect(database.pragma("foreign_key_check")).toEqual([]);
   });
 
+  test("replaces the v62 Card projection trigger before rebuilding UTF-16 summaries", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const project = createProject({ name: "UTF-16 Card projection" });
+    const card = await createCard(project.id, "draft", {
+      title: "Emoji Card",
+    });
+    const database = getDb();
+    const documentId = (
+      database
+        .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
+        .get(card.id) as { readonly document_id: string }
+    ).document_id;
+
+    database.prepare(`
+      UPDATE document_materializations
+      SET nfm = '😀', preview = '😀'
+      WHERE document_id = ?
+    `).run(documentId);
+    database.exec(`
+      DROP TRIGGER card_read_model_validate_update;
+      CREATE TRIGGER card_read_model_validate_update
+        BEFORE UPDATE ON card_read_model
+        WHEN NEW.description_length <> (
+          SELECT length(materialization.nfm)
+          FROM document_materializations materialization
+          WHERE materialization.document_id = NEW.document_id
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Card read model source coordinates are invalid or stale');
+        END;
+    `);
+    database.pragma("user_version = 62");
+
+    expect(() =>
+      migrateSchema62To63(database, {
+        faultInjector: (point) => {
+          if (point === "after_projection_rebuild") {
+            throw new Error("fault:utf16-projection-rebuild");
+          }
+        },
+      }),
+    ).toThrow("fault:utf16-projection-rebuild");
+    expect(database.pragma("user_version", { simple: true })).toBe(62);
+    expect(() =>
+      database.prepare(`
+        UPDATE card_read_model
+        SET description_length = description_length
+        WHERE card_block_id = ?
+      `).run(card.id),
+    ).toThrow("Card read model source coordinates are invalid or stale");
+
+    migrateSchema62To63(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(63);
+    expect(
+      database.prepare(`
+        SELECT description_preview, description_length, has_description
+        FROM card_read_model
+        WHERE card_block_id = ?
+      `).get(card.id),
+    ).toEqual({
+      description_preview: "😀",
+      description_length: "😀".length,
+      has_description: 1,
+    });
+    expect(() =>
+      database.prepare(`
+        UPDATE card_read_model
+        SET metadata_revision = metadata_revision + 1
+        WHERE card_block_id = ?
+      `).run(card.id),
+    ).toThrow("Card read model source coordinates are invalid or stale");
+  });
+
   test("rolls back every v59 schema change when source integrity fails", () => {
     const database = new Database(":memory:");
     database.pragma("foreign_keys = OFF");
