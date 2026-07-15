@@ -307,7 +307,7 @@ NESTED BLOCKS
   height: 18px;
 }
 
-.bn-toggle-wrapper[data-show-children="true"] .bn-toggle-button {
+.bn-toggle-wrapper[data-show-children="true"] > .bn-toggle-button {
   transform: rotate(90deg);
 }
 

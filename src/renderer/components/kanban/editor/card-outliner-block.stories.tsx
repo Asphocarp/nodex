@@ -31,13 +31,16 @@ function CardOutlinerStory({
   state = "available",
   initiallyExpanded = false,
   initiallyEditing = false,
+  showNestedCard = false,
 }: {
   readonly state?: OutlinerStoryState;
   readonly initiallyExpanded?: boolean;
   readonly initiallyEditing?: boolean;
+  readonly showNestedCard?: boolean;
 }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [editing, setEditing] = useState(initiallyEditing);
+  const [nestedExpanded, setNestedExpanded] = useState(false);
   const [titleDocument] = useState(() => {
     const document = new Y.Doc({ guid: "card-outliner-story" });
     replaceYTextWithPortableRichText(document.getText("title"), RICH_TITLE);
@@ -111,6 +114,21 @@ function CardOutlinerStory({
                   ) : expanded && state === "available" ? (
                     <div className="space-y-1 py-1 text-base leading-6 text-token-text-primary">
                       <p>The Card body keeps its own Y.Doc and provider.</p>
+                      {showNestedCard ? (
+                        <CardOutlinerRow
+                          targetBlockId="nested-card-outliner-story"
+                          projectId="nodex"
+                          plainTitle="Nested Card"
+                          title="Nested Card"
+                          expanded={nestedExpanded}
+                          expandable
+                          active={nestedExpanded}
+                          onExpandedChange={setNestedExpanded}
+                          onOpenCard={() => undefined}
+                        >
+                          <p>Nested body</p>
+                        </CardOutlinerRow>
+                      ) : null}
                       <p>
                         Its presentation still follows the host outliner rhythm.
                       </p>
@@ -147,6 +165,17 @@ export const CollapsedEditing: Story = {
     docs: {
       description: {
         story: "The authoritative title stays editable while collapsed; Cmd/Ctrl+Enter toggles this occurrence's body without leaving the title surface.",
+      },
+    },
+  },
+};
+
+export const NestedDisclosureStates: Story = {
+  args: { initiallyExpanded: true, showNestedCard: true },
+  parameters: {
+    docs: {
+      description: {
+        story: "The expanded parent and collapsed nested Card keep independent caret angles.",
       },
     },
   },
