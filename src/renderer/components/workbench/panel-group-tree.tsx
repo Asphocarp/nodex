@@ -43,6 +43,8 @@ import {
   type PanelTabRect,
 } from "./panel-tab-dnd";
 
+const PANEL_GROUP_RATIO_ACK_EPSILON = 0.000_001;
+
 interface PanelGroupTreeProps {
   sessionId: string;
   panelId: PanelId;
@@ -70,7 +72,7 @@ interface PanelGroupTreeProps {
   onSplitGroup: (leafId: string, side: ProjectSessionPanelSplitSide, tabId?: string) => void;
   onFocusGroup?: (leafId: string) => void;
   onActivateGroup: (leafId: string, tabId?: string | null) => void;
-  onResizeGroup: (branchId: string, ratio: number) => void;
+  onResizeGroup: (branchId: string, ratio: number) => Promise<void> | void;
 }
 
 export function PanelGroupTree({
@@ -334,7 +336,7 @@ function PanelGroupNode(props: {
   onSplitGroup: (leafId: string, side: ProjectSessionPanelSplitSide, tabId?: string) => void;
   onFocusGroup?: (leafId: string) => void;
   onActivateGroup: (leafId: string, tabId?: string | null) => void;
-  onResizeGroup: (branchId: string, ratio: number) => void;
+  onResizeGroup: (branchId: string, ratio: number) => Promise<void> | void;
 }) {
   if (props.node.type === "leaf") {
     return <PanelGroupLeaf {...props} leaf={props.node} />;
@@ -347,9 +349,36 @@ function PanelGroupSplit({
   onResizeGroup,
   ...props
 }: Omit<Parameters<typeof PanelGroupNode>[0], "node"> & { branch: ProjectSessionSplitBranch }) {
-  const [dragRatio, setDragRatio] = useState<number | null>(null);
-  const ratio = dragRatio ?? branch.ratio;
+  const [optimisticRatio, setOptimisticRatio] = useState<number | null>(null);
+  const resizeCommitIdRef = useRef(0);
+  const ratio = optimisticRatio ?? branch.ratio;
   const isHorizontal = branch.direction === "horizontal";
+
+  useEffect(() => {
+    setOptimisticRatio((currentRatio) => {
+      if (currentRatio === null) return null;
+      if (Math.abs(currentRatio - branch.ratio) > PANEL_GROUP_RATIO_ACK_EPSILON) return currentRatio;
+      return null;
+    });
+  }, [branch.ratio]);
+
+  const commitRatio = (nextRatio: number) => {
+    const commitId = resizeCommitIdRef.current + 1;
+    resizeCommitIdRef.current = commitId;
+    setOptimisticRatio(nextRatio);
+    void (async () => {
+      try {
+        await onResizeGroup(branch.id, nextRatio);
+      } catch {
+        if (resizeCommitIdRef.current !== commitId) return;
+        setOptimisticRatio(null);
+      }
+    })();
+  };
+  const updateDragRatio = (nextRatio: number | null) => {
+    if (nextRatio !== null) resizeCommitIdRef.current += 1;
+    setOptimisticRatio(nextRatio);
+  };
 
   return (
     <div
@@ -370,13 +399,15 @@ function PanelGroupSplit({
       <PanelGroupSash
         branch={branch}
         ratio={ratio}
-        onDragRatio={setDragRatio}
-        onCommitRatio={(nextRatio) => {
-          setDragRatio(null);
-          onResizeGroup(branch.id, nextRatio);
-        }}
+        onDragRatio={updateDragRatio}
+        onCommitRatio={commitRatio}
       />
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "min-h-0 min-w-0 flex-1 overflow-hidden border-token-border",
+          isHorizontal ? "border-l" : "border-t",
+        )}
+      >
         <PanelGroupNode {...props} node={branch.second} onResizeGroup={onResizeGroup} />
       </div>
     </div>
@@ -597,18 +628,21 @@ function PanelGroupSash({
     >
       <div
         className={cn(
-          "absolute bg-token-foreground/25 opacity-0 group-hover/sash:opacity-100 group-active/sash:opacity-100",
+          "absolute flex",
           isHorizontal
-            ? "top-0 bottom-0 left-1/2 w-px -translate-x-1/2"
-            : "left-0 right-0 top-1/2 h-px -translate-y-1/2",
+            ? "top-0 bottom-0 -left-2 w-4"
+            : "left-0 right-0 -top-2 h-4",
         )}
-      />
-      <div
-        className={cn(
-          "absolute",
-          isHorizontal ? "top-0 bottom-0 -left-2 w-4" : "left-0 right-0 -top-2 h-4",
-        )}
-      />
+      >
+        <div
+          className={cn(
+            "pointer-events-none m-auto opacity-0 group-hover/sash:opacity-100 group-active/sash:opacity-100",
+            isHorizontal
+              ? "h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent"
+              : "h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent",
+          )}
+        />
+      </div>
     </div>
   );
 }

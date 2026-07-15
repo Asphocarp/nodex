@@ -1445,7 +1445,7 @@ export const SplitRightPanelGroups: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Right panel with two persisted tab groups, showing the group sash, per-leaf tab strip, and active group chrome.",
+        story: "Right panel with two persisted tab groups, showing the persistent panel-edge hairline plus hover sash treatment, stable resize release, per-leaf tab strip, and active group chrome.",
       },
     },
   },

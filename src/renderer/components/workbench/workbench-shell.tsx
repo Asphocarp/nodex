@@ -5696,8 +5696,9 @@ export function WorkbenchShell({
       branchId,
       ratio,
     })) as ProjectSession | null;
-    if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, refreshProjectSessions]);
+    if (!session) throw new Error("Panel split no longer exists");
+    mergeSessionInState(session);
+  }, [activeSession, mergeSessionInState]);
 
   const ensureActivePanelOpenWithoutRefresh = useCallback(async (panelId: PanelId) => {
     if (!activeSession || !activeSession.panels[panelId].collapsed) return;
@@ -9413,7 +9414,8 @@ export function WorkbenchShell({
                         if (isActive) void activatePanelGroup("right", leafId, tabId);
                       }}
                       onResizeGroup={(branchId, ratio) => {
-                        if (isActive) void resizePanelGroup("right", branchId, ratio);
+                        if (!isActive) return;
+                        return resizePanelGroup("right", branchId, ratio);
                       }}
                     />
                   </div>
@@ -9518,7 +9520,8 @@ export function WorkbenchShell({
                       if (isActive) void activatePanelGroup("bottom", leafId, tabId);
                     }}
                     onResizeGroup={(branchId, ratio) => {
-                      if (isActive) void resizePanelGroup("bottom", branchId, ratio);
+                      if (!isActive) return;
+                      return resizePanelGroup("bottom", branchId, ratio);
                     }}
                   />
                   {isActive && bottomPanelGlobalHeaderControls ? (

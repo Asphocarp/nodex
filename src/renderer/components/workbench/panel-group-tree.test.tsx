@@ -1,6 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { fireEvent } from "@testing-library/react";
+import { act } from "react";
+import { describe, expect, test, vi } from "vitest";
 import { PanelGroupTree } from "./panel-group-tree";
-import { makeProjectSessionPanelLayout, splitProjectSessionPanelLeaf } from "../../../shared/project-session-panel-layout";
+import {
+  makeProjectSessionPanelLayout,
+  setProjectSessionPanelBranchRatio,
+  splitProjectSessionPanelLeaf,
+} from "../../../shared/project-session-panel-layout";
 import type { AppShellTabItem } from "./app-shell-tabs";
 import type { ProjectSessionPanelLayout } from "@/lib/types";
 import { render } from "@/test/dom";
@@ -17,6 +23,63 @@ function makeTab(id: string, title: string): AppShellTabItem {
 }
 
 describe("PanelGroupTree", () => {
+  test("keeps the committed split ratio visible until persisted layout catches up", async () => {
+    const layout = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+      leafId: "main",
+      side: "right",
+      tabId: "two",
+      newLeafId: "leaf:right",
+      newBranchId: "branch:root",
+    });
+    const onResizeGroup = vi.fn(() => Promise.resolve());
+    const renderTree = (currentLayout: ProjectSessionPanelLayout) => (
+      <PanelGroupTree
+        sessionId="session-1"
+        panelId="right"
+        layout={currentLayout}
+        tabItemsByLeafId={{
+          main: [makeTab("one", "One")],
+          "leaf:right": [makeTab("two", "Two")],
+        }}
+        activeTabIdsByLeafId={{
+          main: "one",
+          "leaf:right": "two",
+        }}
+        renderEmptyLeaf={(leafId) => <div>Empty {leafId}</div>}
+        onSelectTab={() => undefined}
+        onCloseTab={() => undefined}
+        onReorderTab={() => undefined}
+        onMoveTab={() => undefined}
+        onSplitGroup={() => undefined}
+        onActivateGroup={() => undefined}
+        onResizeGroup={onResizeGroup}
+      />
+    );
+    const view = render(renderTree(layout));
+    const branch = view.container.querySelector<HTMLElement>('[data-panel-group-branch-id="branch:root"]');
+    const sash = view.getByRole("separator");
+    if (!branch) throw new Error("Expected split branch");
+    branch.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
+
+    await act(async () => {
+      fireEvent.pointerDown(sash, { clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerMove(window, { clientX: 75, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(window, { clientX: 75, clientY: 50, pointerId: 1 });
+      await Promise.resolve();
+    });
+
+    expect(onResizeGroup).toHaveBeenCalledWith("branch:root", 0.75);
+    expect(sash.getAttribute("aria-valuenow")).toBe("75");
+
+    const persistedLayout = setProjectSessionPanelBranchRatio(layout, "branch:root", 0.75);
+    view.rerender(renderTree(persistedLayout));
+    expect(view.getByRole("separator").getAttribute("aria-valuenow")).toBe("75");
+
+    const externallyUpdatedLayout = setProjectSessionPanelBranchRatio(persistedLayout, "branch:root", 0.6);
+    view.rerender(renderTree(externallyUpdatedLayout));
+    expect(view.getByRole("separator").getAttribute("aria-valuenow")).toBe("60");
+  });
+
   test("applies header start and end slots to the top-left and top-right tab headers", () => {
     const layout = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
       leafId: "main",
