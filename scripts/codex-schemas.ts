@@ -121,6 +121,6 @@ function main(): void {
   console.log("Committed codex-app-server-protocol package matches the pinned Codex version.");
 }
 
-if (import.meta.main) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main();
 }
