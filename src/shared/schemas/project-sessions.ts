@@ -54,9 +54,7 @@ export const ProjectSessionCardStageTabConfigSchema = z.object({
   cardId: z.string().min(1),
   titleSnapshot: z.string().optional(),
   ancestors: z.array(z.object({
-    projectId: z.string().min(1),
     cardId: z.string().min(1),
-    titleSnapshot: z.string().max(MAX_PROJECT_SESSION_TITLE_LENGTH),
   })).max(MAX_CARD_STAGE_ANCESTOR_DEPTH).optional(),
 }) satisfies z.ZodType<ProjectSessionCardStageTabConfig>;
 

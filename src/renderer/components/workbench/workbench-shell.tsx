@@ -145,6 +145,8 @@ import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automati
 import { useKanban } from "@/lib/use-kanban";
 import { ensureFreshDatabaseViewBoard } from "@/lib/kanban-store";
 import { fetchCardDetail, useCardDetail } from "@/lib/card-detail-store";
+import { useCardTargetReadModels } from "@/lib/block-reference-queries";
+import { resolveCardStageBreadcrumbTarget } from "@/lib/card-stage-breadcrumb-target";
 import {
   projectCardDetailToStageModel,
   type CardStageDatabaseProperties,
@@ -2328,9 +2330,7 @@ function cardStageAncestorsEqual(
   if ((left?.length ?? 0) !== right.length) return false;
   return right.every((ancestor, index) => {
     const candidate = left?.[index];
-    return candidate?.projectId === ancestor.projectId
-      && candidate.cardId === ancestor.cardId
-      && candidate.titleSnapshot === ancestor.titleSnapshot;
+    return candidate?.cardId === ancestor.cardId;
   });
 }
 
@@ -13509,12 +13509,26 @@ function CardStageSessionTab({
     titleStore.release(titleStoreKey);
   }, [titleStore, titleStoreKey]);
   const cardAncestors = tab.config.ancestors ?? [];
+  const ancestorTargetReads = useCardTargetReadModels(
+    project?.id ?? "",
+    cardAncestors.map((ancestor) => ancestor.cardId),
+  );
   const breadcrumb = cardAncestors.length > 0 ? {
-    ancestors: cardAncestors.map((ancestor) => ({
-      projectId: ancestor.projectId,
-      cardId: ancestor.cardId,
-      title: ancestor.titleSnapshot,
-    })),
+    ancestors: cardAncestors.map((ancestor, index) => {
+      const target = resolveCardStageBreadcrumbTarget({
+        targetBlockId: ancestor.cardId,
+        model: ancestorTargetReads[index]?.data ?? null,
+        loading: ancestorTargetReads[index]?.loading ?? false,
+        error: ancestorTargetReads[index]?.error ?? null,
+      });
+      return {
+        projectId:
+          target.navigationTarget?.projectId ?? tab.config.projectId,
+        cardId: target.navigationTarget?.cardId ?? ancestor.cardId,
+        title: target.title,
+        disabled: target.navigationTarget === null,
+      };
+    }),
     onOpenAncestor: (
       ancestor: { projectId: string; cardId: string; title: string },
       ancestorIndex: number,
@@ -13718,9 +13732,7 @@ function CardStageSessionTab({
             onOpenCodexThread={onOpenThread}
             onOpenCard={({ projectId, cardId, titleSnapshot }) => {
               const ancestors = appendCardStageAncestor(cardAncestors, {
-                projectId: tab.config.projectId,
                 cardId: tab.config.cardId,
-                titleSnapshot: card.card.title.trim() || tab.config.cardId,
               });
               void onOpenCardTab(projectId, cardId, titleSnapshot, {
                 openMode: "durable",

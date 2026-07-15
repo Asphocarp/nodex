@@ -287,7 +287,7 @@ export function CardStage(props: CardStageProps) {
         onToggleHistoryPanel={controller.onToggleHistoryPanel}
         breadcrumb={props.breadcrumb ? {
           ...props.breadcrumb,
-          currentTitle: card.title,
+          currentTitle: controller.title,
         } : undefined}
       />
 

@@ -19,6 +19,7 @@ import {
 import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
+let publishCollaborativeTitle: ((title: string) => void) | null = null;
 let surfaceDocument = createCardDocument({
   documentId: "document:card-1",
   initialTitle: "Live title",
@@ -41,6 +42,7 @@ vi.mock("@/components/block-documents/collaborative-card-title", () => ({
   }: {
     onValueChange?: (title: string) => void;
   }) => {
+    publishCollaborativeTitle = onValueChange ?? null;
     useEffect(() => {
       onValueChange?.("Live title");
     }, [onValueChange]);
@@ -146,6 +148,7 @@ function documentAuthority() {
 function renderStage(
   card: CardStageCardModel = toStageModel(buildCard()),
   titleCallbacks: Pick<CardStageProps, "onTitleChange" | "onTitleSourceDispose"> = {},
+  breadcrumbProps: Pick<CardStageProps, "breadcrumb"> = {},
 ) {
   const { CardStage } = requireCardStage();
   return render(
@@ -159,6 +162,7 @@ function renderStage(
         availableTags={[]}
         onUpdate={async () => ({ status: "updated", didMutate: true })}
         {...titleCallbacks}
+        {...breadcrumbProps}
         {...(card.databaseContext.kind === "member"
           ? {
               onDelete: async () => undefined,
@@ -180,6 +184,7 @@ describe("card stage", () => {
   beforeEach(async () => {
     localStorage.clear();
     lastNfmEditorProps = null;
+    publishCollaborativeTitle = null;
     surfaceDocument.document.destroy();
     surfaceDocument = createCardDocument({
       documentId: "document:card-1",
@@ -223,6 +228,32 @@ describe("card stage", () => {
 
     view.unmount();
     expect(onTitleSourceDispose).toHaveBeenCalledOnce();
+  });
+
+  test("renders the current breadcrumb item from the live Y.Text title", async () => {
+    const view = renderStage(toStageModel(buildCard()), {}, {
+      breadcrumb: {
+        ancestors: [{
+          projectId: "default",
+          cardId: "parent-card",
+          title: "Parent Card",
+        }],
+        onOpenAncestor: () => undefined,
+      },
+    });
+
+    await settleAsyncRender();
+    await act(async () => {
+      publishCollaborativeTitle?.("Renamed live title");
+      await Promise.resolve();
+    });
+
+    const breadcrumb = view.getByRole("navigation", {
+      name: "Card hierarchy",
+    });
+    expect(
+      breadcrumb.querySelector('[aria-current="page"]')?.textContent,
+    ).toBe("Renamed live title");
   });
 
   test("opens a standalone Card without Database controls or delete", async () => {

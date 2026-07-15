@@ -531,9 +531,7 @@ export interface ProjectSessionCardStageTabConfig {
 }
 
 export interface ProjectSessionCardStageAncestor {
-  projectId: string;
   cardId: string;
-  titleSnapshot: string;
 }
 
 export interface ProjectSessionTerminalTabConfig {

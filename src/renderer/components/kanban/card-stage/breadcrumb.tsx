@@ -9,6 +9,7 @@ export interface CardStageBreadcrumbItem {
   readonly projectId: string;
   readonly cardId: string;
   readonly title: string;
+  readonly disabled?: boolean;
 }
 
 export interface CardStageBreadcrumbProps {
@@ -53,18 +54,19 @@ function CardStageBreadcrumbAncestor({
   readonly onOpenAncestor: CardStageBreadcrumbProps["onOpenAncestor"];
 }) {
   const label = breadcrumbLabel(entry.item.title);
+  const itemDisabled = disabled || entry.item.disabled === true;
   return (
     <li className="flex min-w-0 shrink items-center gap-1">
       {showSeparator ? <CardStageBreadcrumbSeparator /> : null}
       <button
         type="button"
         title={label}
-        disabled={disabled}
+        disabled={itemDisabled}
         onClick={() => onOpenAncestor(entry.item, entry.index)}
         className={cn(
           "min-w-0 max-w-36 truncate rounded-md px-1 py-0.5 text-token-text-secondary outline-hidden",
           "hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
-          disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-text-secondary",
+          itemDisabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-text-secondary",
         )}
       >
         {label}
@@ -134,6 +136,7 @@ export function CardStageBreadcrumb({
                   <NodexDropdownItem
                     key={`${entry.item.projectId}:${entry.item.cardId}:${entry.index}`}
                     tooltipText={label}
+                    disabled={disabled || entry.item.disabled === true}
                     onSelect={() => onOpenAncestor(entry.item, entry.index)}
                   >
                     {label}

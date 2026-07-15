@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CardTargetReadModel } from "../../shared/card-targets";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
 import {
@@ -11,7 +11,7 @@ import { resolveRendererTransport } from "./renderer-transport";
 import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
 import { createProjectCardTargetChangeSubscriptionHub } from "./project-card-target-change-subscription-hub";
 
-interface ReferenceQueryResult<T> {
+export interface ReferenceQueryResult<T> {
   readonly data: T | null;
   readonly loading: boolean;
   readonly error: Error | null;
@@ -32,6 +32,63 @@ const cardTargetChangeSubscriptions =
     subscribeToProject: (projectId, listener) =>
       resolveRendererTransport().subscribeCardTargetChanges(projectId, listener),
   });
+
+interface CardTargetChangeSubscription {
+  readonly requestingProjectId: string;
+  readonly targetBlockId: string;
+  readonly targetProjectId: string | null;
+}
+
+const cardTargetQueryOptions = (
+  requestingProjectId: string,
+  targetBlockId: string,
+) => ({
+  queryKey: queryKeys.cardTargets.byId(requestingProjectId, targetBlockId),
+  queryFn: () => resolveCardTarget({ requestingProjectId, targetBlockId }),
+  enabled: requestingProjectId.length > 0 && targetBlockId.length > 0,
+  staleTime: 5_000,
+  refetchOnWindowFocus: true,
+});
+
+const readTargetProjectId = (
+  model: CardTargetReadModel | null | undefined,
+): string | null => {
+  if (model?.status === "available") return model.card.projectId;
+  if (model?.status === "deleted") return model.projectId;
+  return null;
+};
+
+const useCardTargetChangeRefresh = (
+  targets: readonly CardTargetChangeSubscription[],
+): void => {
+  const queryClient = useQueryClient();
+  const activeTargets = targets.flatMap((target) =>
+    target.targetProjectId
+      ? [{ ...target, targetProjectId: target.targetProjectId }]
+      : []);
+  const subscriptionFingerprint = JSON.stringify(activeTargets);
+  const subscribeToTargets = useEffectEvent(() => {
+    const unsubscribers = activeTargets.map((target) => {
+      const queryKey = queryKeys.cardTargets.byId(
+        target.requestingProjectId,
+        target.targetBlockId,
+      );
+      return cardTargetChangeSubscriptions.subscribe(
+        target.targetProjectId,
+        target.targetBlockId,
+        JSON.stringify(queryKey),
+        () => {
+          void queryClient.invalidateQueries({ queryKey, exact: true });
+        },
+      );
+    });
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
+  });
+
+  useEffect(() => subscribeToTargets(), [subscriptionFingerprint]);
+};
 
 const useBoardChangeRefresh = (
   projectId: string | null,
@@ -54,42 +111,47 @@ export const useCardTargetReadModel = (
   requestingProjectId: string,
   targetBlockId: string,
 ): ReferenceQueryResult<CardTargetReadModel> => {
-  const queryClient = useQueryClient();
   const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
-  const queryKey = queryKeys.cardTargets.byId(
+  const query = useQuery(cardTargetQueryOptions(requestingProjectId, targetBlockId));
+  useCardTargetChangeRefresh([{
     requestingProjectId,
     targetBlockId,
-  );
-  const consumerKey = JSON.stringify(queryKey);
-  const query = useQuery({
-    queryKey,
-    queryFn: () => resolveCardTarget({ requestingProjectId, targetBlockId }),
-    enabled,
-    staleTime: 5_000,
-    refetchOnWindowFocus: true,
-  });
-  const targetProjectId = query.data?.status === "available"
-    ? query.data.card.projectId
-    : query.data?.status === "deleted"
-      ? query.data.projectId
-      : null;
-  const invalidateTarget = useEffectEvent(() => {
-    void queryClient.invalidateQueries({ queryKey, exact: true });
-  });
-  useEffect(() => {
-    if (!targetProjectId || !enabled) return;
-    return cardTargetChangeSubscriptions.subscribe(
-      targetProjectId,
-      targetBlockId,
-      consumerKey,
-      invalidateTarget,
-    );
-  }, [consumerKey, enabled, targetBlockId, targetProjectId]);
+    targetProjectId: readTargetProjectId(query.data),
+  }]);
   return {
     data: query.data ?? null,
     loading: enabled && query.status === "pending",
     error: toError(query.error),
   };
+};
+
+/**
+ * Resolve a dynamic identity path without violating the Rules of Hooks. Every
+ * available target stays subscribed to its identity-specific change stream,
+ * including ancestors currently collapsed into breadcrumb overflow.
+ */
+export const useCardTargetReadModels = (
+  requestingProjectId: string,
+  targetBlockIds: readonly string[],
+): readonly ReferenceQueryResult<CardTargetReadModel>[] => {
+  const queries = useQueries({
+    queries: targetBlockIds.map((targetBlockId) =>
+      cardTargetQueryOptions(requestingProjectId, targetBlockId)),
+  });
+  useCardTargetChangeRefresh(targetBlockIds.map((targetBlockId, index) => ({
+    requestingProjectId,
+    targetBlockId,
+    targetProjectId: readTargetProjectId(queries[index]?.data),
+  })));
+
+  return queries.map((query, index) => ({
+    data: query.data ?? null,
+    loading:
+      requestingProjectId.length > 0
+      && (targetBlockIds[index]?.length ?? 0) > 0
+      && query.status === "pending",
+    error: toError(query.error),
+  }));
 };
 
 export const useDatabaseViewReadModel = (

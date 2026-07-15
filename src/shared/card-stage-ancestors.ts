@@ -6,7 +6,7 @@ function isSameCard(
   left: ProjectSessionCardStageAncestor,
   right: ProjectSessionCardStageAncestor,
 ): boolean {
-  return left.projectId === right.projectId && left.cardId === right.cardId;
+  return left.cardId === right.cardId;
 }
 
 export function appendCardStageAncestor(

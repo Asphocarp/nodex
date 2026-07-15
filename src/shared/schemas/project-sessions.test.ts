@@ -3,10 +3,10 @@ import { MAX_CARD_STAGE_ANCESTOR_DEPTH } from "../card-stage-ancestors";
 import { parseProjectSessionTabConfig } from "./project-sessions";
 
 describe("project session card stage config", () => {
-  test("preserves a bounded nested-card ancestor trail", () => {
+  test("persists only stable Card identities in a bounded ancestor trail", () => {
     const ancestors = [
-      { projectId: "alpha", cardId: "root", titleSnapshot: "Root" },
-      { projectId: "alpha", cardId: "child", titleSnapshot: "Child" },
+      { cardId: "root" },
+      { cardId: "child" },
     ];
 
     expect(parseProjectSessionTabConfig("card_stage", {
@@ -22,13 +22,27 @@ describe("project session card stage config", () => {
     });
   });
 
+  test("discards legacy ancestor title and Project snapshots", () => {
+    expect(parseProjectSessionTabConfig("card_stage", {
+      projectId: "alpha",
+      cardId: "nested",
+      ancestors: [{
+        projectId: "stale-project",
+        cardId: "root",
+        titleSnapshot: "Stale title",
+      }],
+    })).toEqual({
+      projectId: "alpha",
+      cardId: "nested",
+      ancestors: [{ cardId: "root" }],
+    });
+  });
+
   test("rejects ancestor trails beyond the navigation depth limit", () => {
     const ancestors = Array.from({
       length: MAX_CARD_STAGE_ANCESTOR_DEPTH + 1,
     }, (_, index) => ({
-      projectId: "alpha",
       cardId: `card-${index}`,
-      titleSnapshot: `Card ${index}`,
     }));
 
     expect(() => parseProjectSessionTabConfig("card_stage", {

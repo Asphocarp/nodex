@@ -359,6 +359,16 @@ vi.mock("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  resolveCardTarget: async (input: {
+    requestingProjectId: string;
+    targetBlockId: string;
+  }) => {
+    invokeCalls.push(["card-target:resolve", input]);
+    return mockInvokeImpl?.("card-target:resolve", input) ?? {
+      status: "missing",
+      targetBlockId: input.targetBlockId,
+    };
+  },
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
   subscribeCommandKeymapChanges: () => () => undefined,
@@ -11153,9 +11163,7 @@ describe(`workbench session shell / ${scope}`, () => {
       cardId: "nested-card",
       titleSnapshot: "Nested Card",
       ancestors: [{
-        projectId: "alpha",
         cardId: "parent-card",
-        titleSnapshot: "Parent Card",
       }],
     });
   });
