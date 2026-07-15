@@ -60,6 +60,7 @@ change. Run the complete validation set once after the final edit set is stable;
 ## Related Technical Docs
 
 - [Architecture](../ARCHITECTURE.md)
+- [Engineering learnings](ENGINEERING_LEARNINGS.md)
 - [Product specification](product-specs/nodex-product-spec.md)
 - [Frontend conventions](FRONTEND.md)
 - [Reliability model](RELIABILITY.md)

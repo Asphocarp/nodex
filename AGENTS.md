@@ -82,7 +82,7 @@ Use these docs as the source of truth:
 - Security model and hardening checklist: `docs/SECURITY.md`
 - Keyboard shortcuts reference: `docs/KEYBOARD_SHORTCUTS.md`
 - Current quality grading and gaps: `docs/QUALITY_SCORE.md`
-- Implementation learnings and regression caveats: `docs/ENGINEERING_LEARNINGS.md`
+- Cross-cutting engineering principles and knowledge routing: `docs/ENGINEERING_LEARNINGS.md`
 - Product behavior specifications: `docs/product-specs/`
 - External/reference specs (NFM format, examples): `docs/references/`
 
@@ -93,7 +93,8 @@ When behavior changes, update the narrowest source-of-truth doc:
 - User-visible behavior/API contract changes: `docs/product-specs/nodex-product-spec.md`
 - Architecture boundary changes: `ARCHITECTURE.md`
 - New reusable UI design guidance for agents: `.agents/skills/general-design-guidelines/SKILL.md`
-- New implementation caveat/regression learning: `docs/ENGINEERING_LEARNINGS.md`
+- New cross-cutting, non-obvious, high-cost learning that cannot be enforced at a narrower seam: `docs/ENGINEERING_LEARNINGS.md`
+- New subsystem caveat or regression: update the owning product spec/runbook, behavioral test, Adapter comment, or other narrow source of truth instead of appending an incident entry to `docs/ENGINEERING_LEARNINGS.md`
 - New reliability/security expectation: `docs/RELIABILITY.md` or `docs/SECURITY.md`
 
 Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** user-visible changes:

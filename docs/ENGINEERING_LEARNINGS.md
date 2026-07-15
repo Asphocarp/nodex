@@ -1,1405 +1,319 @@
 # Engineering Learnings
 
-### Native addons must be loaded by the runtime they were rebuilt for
-
-`electron-builder install-app-deps` rebuilds `better-sqlite3` and `node-pty`
-for Electron's Node ABI. A host Node process must not load those artifacts even
-when its JavaScript version looks compatible: ABI identity belongs to the
-embedding runtime. Run main/store tests and native probes by launching Vitest or
-the probe bundle through Electron with `ELECTRON_RUN_AS_NODE=1`; reserve host
-Node for code that does not import Electron-targeted native addons.
-
-Status: Verified
-
-This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
-
-### Cancellable process operations must register before their first await
-
-An operation-id registry cannot begin after asynchronous directory or status preflight. Under load, a caller can request cancellation while the service is still awaiting preflight, receive `canceled: false`, and then watch the mutation start after cancellation. Register the operation synchronously at the public service boundary, carry one AbortSignal through preflight and every child process, and let final settlement own registry cleanup.
-
-Test the lifecycle in two layers. A fast service test should cancel immediately after the public call returns, before any external command can start. Keep one real-process integration test for the Node/Git boundary, but synchronize it through an observable readiness marker from the child workflow; fixed sleeps only encode assumptions about machine speed and turn production races into flaky tests.
-
-### Rich contenteditable needs one DOM owner during IME composition
-
-A browser mutates a focused contenteditable subtree directly during native input and IME composition. Rendering that same subtree as ordinary controlled React children creates two owners: React's virtual child tree still describes the pre-composition nodes while the browser has split, removed, or replaced them. The next collaborative update can then leave stale text visible or make React remove a node that is no longer attached. Keep the editable title root structurally owned by a dedicated DOM Adapter: React renders the root and surrounding toolbar only, the Adapter replaces canonical spans from Y.Text when not composing, and composition reads its draft back into one Yjs transaction before canonical rendering resumes. Preserve selection as Yjs relative positions across remote transactions, and keep atom labels out of DOM-to-Y.Text text extraction by mapping each non-editable atom to its single application character.
-
-React's `onBeforeInput` is a synthetic compatibility event, not a reliable native `InputEvent`: its `nativeEvent` can be `textInput`/`keypress` and therefore have no `inputType`. A rich contenteditable that needs operation intent must subscribe to native `beforeinput` on the editing host and prevent cancelable edits before the browser mutates projected nodes. Keep the `input` reconciliation path for IME, spellcheck, and other non-cancelable edits, but read its selection from the live draft DOM. Projection metadata such as segment start/length still describes the previous Y.Text value; clamping a post-mutation caret to those stale lengths moves it one code unit backward after every insertion.
-
-Formatting is also a schema boundary, not a blanket DOM command. Apply Y.Text formats only to validated text ranges: skip line breaks and atomic inline objects, strip untyped object-replacement characters from external text, and insert line breaks without inherited attributes. Otherwise an apparently harmless select-all Bold command can attach unsupported attributes to a mention atom and make the entire Card Document fail validation.
-
-### Inline mark input rules must match only text they own
-
-A regular expression can use a leading capture to express a lexical boundary while accidentally making that character part of the full input-rule range. Tiptap's `markInputRule` preserves the final capture and deletes the rest of the full match, so a pattern such as `(^|[^delimiter])...` can delete the character immediately before the opening delimiter. Use a function finder whose returned `text` starts at the opening delimiter and whose `replaceWith` is only the interior content.
-
-Automatic inline-code formatting is also an input contract, not delayed Markdown normalization. Accept the closing delimiter only when the opening side is line/whitespace/parenthesis bounded, the interior is non-empty with non-whitespace edges, and the closing side is end/whitespace/parenthesis bounded. Inspect the post-cursor character from editor state because Tiptap finders receive only text before the cursor. Do not add a second trailing-space rule: it retroactively rewrites literal text and makes the same document depend on which later character happened to be typed. Keep `Cmd/Ctrl+E` on the direct mark-command path.
-
-### Collaboration boundaries must not become nested visual containers
-
-An independent Y.Doc/provider is a loading, undo, awareness, and persistence boundary; it is not automatically a bordered component. Rendering a document-bearing Card as a generic File/Link shell with another editor header below it makes one logical outliner look like an editor nested inside an editor and often duplicates title ownership in the DOM.
-
-Keep Card relationship and runtime composition separate. A collapsed child/reference row can render an exact-head portable-rich summary without a provider. Once expanded and admitted by the visibility budget, mount exactly one target surface above both UI slots: its collaborative Y.Text title stays in the original outliner row and its XmlFragment body renders at normal child indentation. Loading and failure replace only the body slot with skeleton/recovery UI, so the row does not jump. The host custom Block remains childless and no visual flattening is allowed to project foreign body content back into the host Y.Doc.
-
-Do not approximate the native toggle with parallel spacing and motion utilities, and do not let an asynchronous target runtime own the disclosure button. Reuse BlockNote's toggle wrapper/button geometry and keep the caret as a permanent sibling of replaceable title/body slots; otherwise React can unmount the button on expand/collapse and make a correct CSS transform appear inert. The Card custom Block owns the full editor width. Its nested independent editor cancels only the global empty-editor minimum height, top-level nested-group indent, and trailing insertion gutter; deeper groups retain normal BlockNote indentation.
-
-Disclosure preference and provider activation need different identities. Persist open/closed intent by the stable shell Block ID so it survives remounts and follows Move while Copy starts with its new ID; use a separate mount identity for visibility, provider admission, and participant cleanup. A `cardRef` must key preference by its own occurrence ID, not the target Card. Never respond to temporary loading, error, or cycle ineligibility by writing `false`, because initial target resolution would erase a valid persisted preference before it can reopen.
-
-Nested editors also invalidate geometry-only ownership. BlockNote listens for side-menu hover and drop events at the document capture boundary, while its drag handle is rendered in a portal to the left of the content root. At that handle coordinate an ancestor editor can be geometrically nearer than the nested editor, and React bubble-phase `stopPropagation()` cannot repair a decision already made during document capture. Treat content, container, and floating UI roots as one ephemeral editor interaction scope. Resolve the deepest registered owner from `Event.composedPath()` before processing hover or drop; only unowned gutters should use distance and browser hit-test fallback. Register the actual floating element as well as the default portal container so custom `document.body` portal targets remain unambiguous.
-
-### Rollout JSONL cannot prove v2 tool identity
-
-Rollout JSONL `response_item.function_call` / `function_call_output` records are not generated v2 `ThreadItem` values. They lack the lifecycle and family-specific state required by the canonical projector, so recovery must omit their tool UI and wait for app-server hydration rather than infer a subtype from the function name.
-
-A canonical turn cannot be recovered by mapping its raw items one at a time. The user input in turn params precedes raw items, can carry blocked-delivery/comment sidecars, and determines whether a later raw user message is an echo; image folding and last-work completion are also raw-order and turn-context dependent. Explicit snapshot and rollback ingresses must therefore invoke the shared whole-turn projection once, while the generic snapshot merge stays projection-free so already materialized state is not projected twice.
-
-### Owner loss must invalidate semantic resume state, not only routing
-Deleting a renderer owner from the routing map is insufficient if the main conversation record still says `streamRole: owner` and `resumeState: resumed`: the next renderer will take the cached early return and adopt stale state. Invalidate role/resume plus transport revision/cache together, reject the disposed client ID, and broadcast owner-unavailable before any source-null fallback so followers stop filtering that fallback as an illegitimate main update.
-
-### Activity visibility and grouping are separate type boundaries
-The v2 activity classifier represents hidden as `null`, not as a third visible grouping value. Visible results retain the source item and add only `groupable` or `standalone`; source indexes exist solely in the transient classifier-to-grouper wrapper. Final units must discard those indexes and distinguish a non-empty item group from a single standalone item. Keeping these shapes separate prevents hidden rows from becoming barriers and prevents fixture-only indexes from leaking into stable renderer identity.
-
-Attached automatic-approval reviews need their semantic status from the normalized review payload, not the renderer item's generic lifecycle status: terminal review states are intentionally collapsed to `completed` at the transcript boundary. Approved-review cleanup must also preserve referential equality when nothing is removed and omit the optional property when every review is removed. These details affect stable activity identity and whether approved review UI leaks into exec, patch, or MCP rows.
-
-MCP app detection is three-state. A successful tool result while server statuses are unavailable is only `maybe-mcp-app`; treating it as confirmed creates a standalone barrier that can disappear after metadata loads. Keep one resource-metadata resolver shared by the leaf and activity classifier, then layer explicit URI, status availability, and superseded-widget policy over it. Computer-use source/server remains a separate unconditional barrier, while browser-use does not imply standalone.
-
-Dynamic renderer metadata is keyed by the pair `(namespace, tool)`. A global tool-name fallback lets an unsupported namespace inherit Codex-app behavior such as standalone grouping, summary suppression, or live continuation. Index namespace first, then tool, and make every policy helper read the same entry. Tools routed into a different canonical item family—such as successful automation updates—may retain a specialized renderer without inheriting dynamic activity flags.
-
-Completed OpenAI-form elicitation is not uniformly groupable. The v2 classifier treats it as groupable only when at least one normalized schema property is an `openai/imagePicker`; ordinary form fields produce a standalone item. Preserve elicitation kind and schema on the canonical synthetic raw item, and fail closed for incomplete, unsupported, or malformed payloads. Likewise, keep local adapter-only transcript types outside the v2 classifiable union instead of assigning them a convenient but invented disposition.
-
-Pre-classification adjacency must be evaluated against the original activity-source array. If hidden items are removed first, two formerly separated rows can become adjacent and incorrectly collapse a visualization command into a later patch. Filter immediate visualization pairs and special skill reads first, classify second, and retain original source indexes for identity fallback. Display-normalized skill names are not stable identifiers; carry the raw skill directory id alongside the label.
-
-Final v2 activity units retain complete `{item, grouping}` activity wrappers; only the transient `{activityItem, sourceIndex}` layer is discarded. A grouper that unwraps to bare source items loses information consumed by later state/body helpers. Build maximal runs in one pass, emit one-item groupable runs as groups, and do not deduplicate source activities during grouping—summary aggregation owns count/set semantics later.
-
-Renderer block IDs are not automatically v2 activity item IDs. Exact keying uses the first string-valued projected `id`, `callId`, `requestId`, or `handoffId`, then exact projected type plus original source index; numeric request IDs must fall through. Reconstruct those candidates by item family instead of reading the block wrapper's always-present render ID. DOM target collection is intentionally narrower—string id/callId only, source ordered, duplicate preserving—and must not be conflated with key identity.
-
-Activity latest/open state is slice-local. Collapsible main, pre-toggle, persistent, and post-assistant surfaces can each have a latest unit because they are rendered by separate slice invocations. Derive open from turn progress plus that slice's closed flag, force post-assistant closed, and restrict exploring context to the main slice. A turn-global “last activity” helper silently assigns active/thinking state to the wrong slice after assistant or persistent content is partitioned.
-
-Production v2 cutover must preserve raw activity-source ownership through the mounted turn. Build review attachments, preclassification filters, classification, maximal units, and stable keys before adapting a unit to any existing block component; a legacy group component may temporarily render the unit but must never recompute membership or identity. MCP status is a live projection input, so only MCP-containing turns need status-aware reprojection; making every ordinary turn acquire the query hook adds a needless provider/runtime dependency and can invalidate otherwise stable historical rows.
-
-Collapsed activity facts have three different aggregation semantics. Exact paths and automatic-review IDs use Sets, source-keyed MCP and visualization-path state use insertion-ordered Maps, and event/line totals use counters even when their paths repeat. Do not flatten those into one dedupe policy: repeated edits retain additive changed-line totals, same-source MCP calls retain call/running counts and first-seen order, and the same denied review attached to multiple surfaces counts once. Exploration regrouping happens before fact conversion but does not alter v2 unit membership.
-
-Completed activity parts are not a display-order sort over arbitrary labels; they are a fixed append sequence with specialized count subtraction. Visualization commands and curl web searches remain exec facts but are removed from generic command count, Node REPL remains an MCP source but is added to command count, stopped creations leave the normal file-change count, and native/curl web evidence collapses to one web-search part. Build structured parts first, omit non-positive counts, and format localized prose later.
-
-Completed MCP source order is a stable partition, not a logo sort: visually identified sources move before ordinary sources, but both partitions preserve canonical first-seen order. Node REPL is excluded from named sources and represented as a command. Map `browser-use` to `the browser` before display-name dedupe, and switch the noun from integrations to sources when `navigate_to_codex_page` is present. First-part icon selection follows the same source key and prefers the visually identified matching call.
-
-Dynamic completed-summary identity is not the call ID by default. Resolve the exact namespace/tool registry entry, derive its semantic suffix when valid, then key as `namespace:tool:suffix`; an absent resolver or invalid arguments intentionally leaves the suffix empty. Dedupe the complete keys with a first-seen Set so repeated semantic operations collapse while distinct handoff targets or operation IDs remain separate.
-
-Group active state is gated before item inspection: only the latest visible unit in an in-progress, non-closed slice can be active. Exploring then searches only the trailing contiguous exploration run, preferring a running item but retaining its latest completed item for continuity. Otherwise scan backward for the first family-specific in-progress item; map automatic review to thinking, and use thinking when none exists. Do not derive this from a merged block status or whole-turn last item.
-
-V2 group headers must consume structured completed parts, not rebuild prose from legacy summary counters in the renderer. Leading/following grammar depends on part index, dynamic/MCP text delegates to canonical registries, and an actually empty part list alone falls back to `Worked`. Active patch is the generic `Editing files`; everyday exec is `Running command`; automatic review and empty active scans are `Thinking`. Keep connector-specific label catalogs in their leaf registries instead of duplicating them in group composition.
-
-### Scheduled automation drafts must be owned by the route shell
-Scheduled automation definitions are sourced from `${NODEX_DIR}/automations/<id>/automation.toml`; `codex_scheduled_automations` is only the SQLite mirror/read model. Renderer detail editing should therefore build create/update payloads in the route or panel owner that also runs autosave and navigation guards, then trust the backend response item after TOML + mirror persistence. Do not make the child form push an editor snapshot upward through an effect and then let route-changing actions read that snapshot: React state is snapshot-based, so a model/reasoning dropdown change followed immediately by a tab switch or previous-run open can otherwise save the previous payload. Keep the form controlled, derive dirty/validation/payloads next to the guard, flush valid dirty edits before route changes, and roll back optimistic query cache on update failure.
-
-Scheduled automation RRULE parsing must accept full iCalendar-shaped text, not only a single semicolon-delimited rule body. The renderer can receive persisted definitions such as `DTSTART;TZID=Asia/Shanghai:20260710T090000` followed by `RRULE:FREQ=DAILY`; save validation, schedule editing, and list summaries must all use the same line-aware parser so valid persisted schedules do not make otherwise-valid model/reasoning edits unsaveable.
-
-### Command palette chat content search must index visible transcript units only
-The command-palette chat content index is a local read model for navigation, not a raw Codex rollout search. Index only the same visible user/assistant markdown units that `Find in thread` can search, and always intersect content hits with the current non-archived sidebar chat snapshot before rendering. Do not index internal bootstrap/developer context, raw rollout rows, reasoning, tool output, command output, side-chat ephemera, archived rows, or helper threads; doing so leaks implementation context into a global navigation surface and makes palette results drift from what users can actually open and inspect.
-
-### Command palette chat search must not rebuild content indexes on Electron main
-The command-palette chat content search hot path must stay bounded on the Electron main process. Main may build sidebar summaries and send worker requests, but transcript file discovery, rollout parsing, and FTS writes belong in the thread-search indexer worker. `codex:threads:palette:search-content` is an FTS5-only read path: it must not enqueue backfill, synchronously read all `thread_search_units`, rebuild MiniSearch, or do app-server `thread/search`. Sidebar/list refresh can enqueue worker backfill, but that work must trickle recent-first in small slices and emit `index-updated` only after real content changes. If content typo tolerance becomes important, add a bounded trigram/n-gram index instead of a full-content MiniSearch overlay.
-
-### Renderer test browser APIs should preserve async lifetimes
-Shared browser API doubles must model enough of the real browser lifecycle to avoid cross-test noise. In particular, ResizeObserver test doubles should track observed elements, deliver entries asynchronously on a frame, honor `unobserve` / `disconnect`, and skip disconnected targets. A synchronous `observe()` callback can fire before third-party measurement code has completed its own bookkeeping, which produces warnings even when the product code is correct.
-
-### Browser webviews need one navigation owner
-Electron `<webview>` elements navigate when `src` changes, and their imperative methods route asynchronously through the main process. Do not drive the same guest page from both React and main-process `webContents`. In Nodex, Browser tab UI dispatches browser-sidebar commands only; the renderer webview manager owns host creation, listener cleanup, and mount generations, while `BrowserSidebarService` owns page navigation, reload, stop, zoom, capture, and failure snapshots. This avoids duplicate `loadURL` races, `ERR_ABORTED` handler spam, and repeated `destroyed` listeners on the same guest contents.
-
-Browser tab lifetime must not be tied to visible React panel lifetime. The renderer manager must create one body-attached root per browser tab, append the `<webview>` there once, and keep that parent stable until explicit close/reset. React panels provide only measured bounds and visibility; their unmount cleanup backgrounds the manager root offscreen instead of reparenting, unregistering, or placing the guest under a `hidden` / `display:none` retained panel. Main-process `register-tab` is idempotent for remounts, and explicit Browser close/reset is the only path that should request guest destruction.
-
-Because Browser webview roots are body-attached instead of children of the right/bottom panel DOM subtree, normal panel/background hosts live under one fixed root with `pointer-events: none`, while each visible host owns only its bounded panel geometry. That fixed root needs the bounded app-shell z-index (`42`) because `position: fixed` creates a stacking context; raising only the child host cannot escape a root that still stacks below the right-panel surface (`41`). The collapsed-sidebar floating panel stays above that at `43`. Retained browser-use hosts mirror Codex's separate path: append the host directly under `document.body` and use the top-level retained z-index only for detached visible surfaces that must outlive the panel DOM.
-
-The same body-attached fixed-layer contract means Browser webviews cannot rely on `ResizeObserver` alone for panel open/close motion. The right and bottom panel springs can change the placeholder's viewport-relative rect without a reliable intrinsic resize event, especially while an outer panel clips a fixed-size inner surface. Browser tab bodies must subscribe to the owning panel's animated size MotionValue, coalesce those ticks through `requestAnimationFrame`, and resample `getBoundingClientRect()` before syncing the webview manager. Otherwise the Electron webview can keep painting at a stale midpoint after a show/hide transition.
-
-Browser webviews can also interrupt resize drags if a panel sash is implemented with mouse events only. Once the pointer crosses the Electron `<webview>` guest surface, the host document may stop receiving `mousemove` even though the resize started in the host shell. Right-panel, bottom-panel, and split-group resize handles should use pointer events with `setPointerCapture(pointerId)`, then finish through `pointerup` / `pointercancel` window listeners. A split-group sash must retain its optimistic committed ratio until the persisted layout returns that ratio; clearing the preview on `pointerup` exposes the stale prop between IPC commit and session reconciliation, producing a visible old-position flicker. Do not solve either problem by raising webview or sash z-indexes, and do not add a full-surface overlay above Browser content just to keep a drag alive.
-
-### Browser toolbar inputs must live in no-drag islands
-The Browser toolbar row is intentionally draggable so empty toolbar space behaves like desktop chrome, but Electron treats all descendants of `-webkit-app-region: drag` as non-interactive unless an explicit no-drag region covers them. Keep address input islands on the same structure as the shipped Browser toolbar: draggable row, no-drag flex wrapper, then the visual `group/address-bar` shell. Buttons are covered by the generated `.draggable button` rule, but inputs are not; omitting the no-drag wrapper makes the URL input impossible to click or select in Electron.
-
-### MCP app resources are transcript data plus sandbox policy
-MCP tool results can carry app/resource metadata through item-level `appContext.resourceUri`, deprecated item-level `mcpAppResourceUri`, result `_meta`, resource `_meta`, and server tool metadata. Keep the generated item intact as the raw authority; the renderer activity leaf deliberately does not duplicate `appContext`. Its stable projection owns only the preferred item URI, plugin id, exact tool-surface source, invocation, normalized result, duration, and completion state, while successful-result `raw`, protocol `rawError`, and unknown-block `raw` preserve their input identities. A terminal turn also completes a lingering nested MCP leaf even when no authoritative `item/completed` arrives; updating only the turn or outer transcript status leaves the disclosure in a false running state. Server tool metadata stays in the unflattened `ListMcpServerStatusResponse` query result and is applied only by the late MCP-app resource resolver. Hosted MCP app content must stay in a sandboxed frame with explicit fallback rendering; rendering resource HTML directly in the transcript DOM mixes tool output with app privileges and breaks Nodex's app-resource contract.
-When a renderable MCP app is opened into the right panel, keep the tab transient (`mcp-app:${mcpAppId}`) and renderer-owned like Side chat tabs. Persisting these frames as project-session tabs would leak resource HTML and per-call capability ids into durable session state.
-
-MCP body rendering has two resource-resolution phases. Tool metadata and successful-result raw `_meta` select the preferred MCP app resource scope; after a successful raw result is available, the item URI projected from `appContext.resourceUri ?? mcpAppResourceUri` becomes the fallback scope. URI metadata parsing uses the exact priority `ui.resourceUri`, `ui/resourceUri`, then `openai/outputTemplate`; it does not trim strings or accept a top-level `resourceUri` alias. Scope-backed app branches suppress duplicate `structuredContent`, including the successful item-URI fallback. Keep the expanded body unmounted while the row is collapsed, because MCP app frames, resource loading placeholders, and raw-output footers are expanded-state children, not hidden measured content.
-
-Protocol availability is not product support. Generic MCP server status is host metadata, not conversation state, so ordinary transcript, setup, summary, and slash-command surfaces share one host-level cache and omit `threadId`; otherwise opening a persisted thread can make metadata reads depend on app-server's in-memory loaded-thread set and fail before resume. Keep `mcpServer/resource/read` thread-scoped because it resolves output for a particular invocation. ChatGPT Apps/Connectors require a separate product capability gate in addition to app-server's generated feature flag and account state. While Nodex does not support that product surface, gate both renderer query creation and the main protocol boundary: return the empty fallback without sending `app/list`, and ignore unsolicited catalog updates. Do not use a server-advertised experimental feature as permission to silently activate an unsupported product.
-
-MCP content-block annotations are not a generic debug dump. The visible transcript formatter should only expose the supported user-facing fields `audience`, `priority`, and `lastModified`; arbitrary annotation keys can contain tool-private metadata and should stay out of the row UI.
-
-### Final item payloads replace provisional raw state
-
-App-server `item/completed` is not a generic merge or append. For ordinary work items, admit completion only when the owning turn already contains the same raw ID and protocol type; user messages, hook prompts, and subagent activity are the explicit completion-without-start exceptions. Once admitted, replace the first same-ID slot without moving it. Do not preserve provisional command output or streamed prose fields that are absent from the final payload: queued deltas must drain before completion, and the final raw item is authoritative. Keep command start timestamps in the turn sidecar, because completion may backfill timing—and first-work timing may be established—even when an orphan item is ultimately rejected.
-
-Keep bundle-defined materialization and effects at the lifecycle boundary, not in leaf renderers. Ordinary protocol items stay reference-identical; image generation adds normalized `src`, collaboration emits hydration before receiver lookup and adds ordered receiver rows, and live context compaction consumes its manual/automatic source only after the event has passed turn resolution. A protocol item may also be intentionally invisible (`enteredReviewMode` / `exitedReviewMode`) while still occupying raw lifecycle identity; dropping that identity makes a non-empty null-ID turn look like an empty placeholder. Steering equality has the same raw-boundary requirement: compare the stored key against input normalized with the restore message's comment attachments, rather than joining every injected attachment label into user text.
-
-### Desktop notifications depend on keeping producer, renderer suppression, and host delivery separate
-Thread notifications are not one feature switch or one `new Notification(...)` call. The producer emits normalized `turn-complete`, approval, and request-user-input events from live conversation diffs; the renderer then applies focus/settings suppression and shapes a product payload; only the main process owns Electron `Notification` objects, OS callbacks, open/focus behavior, and dismiss-by-conversation. In Nodex, regressions came from collapsing these layers together: a main-process `turn completed` listener could not apply same-conversation suppression for approvals/questions, the renderer could not control reply/action payloads, and route-driven dismissal drifted immediately. Keep the three-layer split intact, keep turn-complete settings separate from approvals/questions settings, and keep same-conversation suppression limited to approvals/questions only.
-
-The interrupted-turn rule is its own trap: user-interrupted turns do not notify. In Nodex, do not assume that a later `failed` or `completed` terminal update will naturally stay filtered; track interrupted turns explicitly in the producer path so a raced post-interrupt terminal update still cannot surface a turn-complete notification.
-
-Internal helper threads need an app-server routing boundary before the visible conversation reducer. A helper-specific waiter may consume the same `turn/*` and `item/*` notifications as the global app-server connection, but `ephemeral: true` + `threadSource: "system"` threads must be quarantined from sidebar materialization, source-null stream snapshots, and desktop-notification production. Do not fix helper notification regressions by adding renderer-only suppression after the helper has already become visible state; route internal notifications to their waiter first, then stop them before `handleNotification`.
-
-### Ordered-list round-trip fidelity depends on preserving BlockNote `numberedListItem.props.start`
-BlockNote's numbered-list model is more specific than generic Markdown serialization: each `numberedListItem` can carry a `props.start`, and if it is omitted BlockNote derives the value from the previous sibling item. In Nodex, the regression came from dropping that field in the NFM AST and then hardcoding `1.` during shared serialization, which made persisted descriptions, clipboard plain text, and raw NFM rendering disagree with the editor. Keep ordered-list numbering in the shared NFM block model, map it through the BlockNote adapter, and resolve implicit sequential numbers only inside the shared serializer/clipboard path for each contiguous sibling run.
-
-### BlockNote side-menu drag state must outlive equivalent React rerenders
-BlockNote side-menu block moves depend on ProseMirror `view.dragging` surviving from `dragstart` until the editor's `drop` handler runs. If a React effect cleanup finalizes the side-menu drag during an equivalent rerender, BlockNote's document-level drop guard collapses the source selection and ProseMirror handles the payload as an external paste, which copies the block instead of moving it. Keep native drag listeners stable across adapter/context object identity churn, and do not call side-menu finalization from effect teardowns that are only dependency refreshes.
-
-Unmount cleanup must also treat Tiptap/ProseMirror view-derived fields as unavailable. In particular, `prosemirrorView.root` can throw after Tiptap has invalidated the mounted view, so drag finalizers must safely probe the view/root/side-menu extension and skip mounted-only cleanup when those handles are gone.
-
-### Native HTML drag dies if the grip subtree remounts mid-gesture, so high-frequency shell re-renders are a correctness bug
-A native drag only starts if the pressed `draggable` element survives, connected and focus-stable, from `mousedown` through the browser's drag threshold. Chromium fires `blur` when a focused element is removed, which cancels the pending drag. The BlockNote side-menu grip is rendered by `SideMenuController` as `<Component/>` where `Component` is the value passed as `sideMenu`; if that value's identity changes, React remounts the whole side-menu (and grip) subtree. So any ancestor re-render that recreates the side-menu component identity remounts the grip and intermittently aborts block drag-and-drop — appearing as a flaky "drag does nothing", independent of editor focus or panel layout. Two rules follow. First, the side-menu component identity passed into BlockNote must be referentially stable across editor renders: route volatile values (e.g. `sourceCardContext`, send/convert callbacks) through refs so the `useCallback` has empty deps. Second, do not drive workbench state from `pointermove`: `setSidebarPointer`-style per-frame `setState` re-renders the entire shell ~100x/s, which cascaded into `CardStage` (measured ~250 renders/s) and remounted the grip every frame. Keep the live pointer in a ref and derive sidebar auto-reveal imperatively (the visibility setters no-op on unchanged values), so mouse movement does not re-render the workbench. These upstream fixes are what make block DnD reliable; the `view.dragging`-survival and unmounted-view guards above are the downstream safety net for the same disease.
-
-BlockNote's side-menu drag handle is both a Radix dropdown trigger and a native draggable. Radix opens dropdown triggers on `pointerdown`, while native HTML drag starts only after the pointer has moved far enough; the patched BlockNote shadcn trigger must therefore suppress the real Radix `pointerdown` and replay it only for a click-intent `pointerup`, after confirming no drag started and the pointer stayed within the click tolerance. Do not replace `Components.Generic.Menu.Root` / `Trigger` with raw Radix primitives to work around this, because the BlockNote component context and side-menu freeze lifecycle must stay intact.
-
-Nodex's external editor-drag session should start only from explicit block drag handles. A generic `dragstart` inside the editor container can come from text selection, embedded DOM, links, files, or browser-native selection drags, and treating all of those as block drags corrupts BlockNote's own drag/drop state. When a user selects multiple blocks before grabbing the side-menu handle, snapshot the selected block IDs and ProseMirror range on handle `pointerdown`; pass that snapshot through the side-menu drag-start event and let the patched BlockNote core create the `MultipleNodeSelection` from it. Restoring `editor.setSelection(start, end)` is only a fallback, because Radix/pointer/focus transitions can clear the live selection and BlockNote `setSelection` can be too coarse for some block boundaries.
-
-### Insertion-boundary DnD must not also use sortable live reflow
-
-When a list communicates the final drop as an explicit before/after insertion boundary, allowing the sortable strategy to move the source and siblings at the same time creates two competing previews. Keep the source mounted as a low-opacity inert ghost, suppress sortable transforms while the drag is active, and move a separate body-level `DragOverlay` instead. Derive both the visible indicator and the persisted order from the same target-row midpoint calculation; index-only `arrayMove(active, over)` cannot distinguish the two halves of a row and can emit redundant no-op writes. Pointer collision should use the pointer point, with a geometry fallback for keyboard sorting, so the indicator remains attached to the user's actual insertion intent.
-
-BlockNote theme variables belong on `.bn-root`, not `.bn-container`, for 0.48.0 and newer. Keep code that discovers editor structure on `.bn-container` when it needs BlockNote's container element, but place theme-variable and code-block override CSS under `.bn-root` so editor-local portals and syntax-highlighted blocks inherit the right light/dark values.
-
-### Final assistant ownership in a turn must be semantic, not positional
-The turn's final assistant lane is not "the last generic renderable item if it happens to be assistant". The latest assistant message has a dedicated `assistantItem` slot, and later tool/exploration rows stay in `agentItems` instead of stealing assistant ownership. In Nodex, the blink/re-slide regression came from treating the assistant as whichever generic item happened to be last, so appending `exec`, exploration, MCP, or web-search items after an already visible assistant moved that assistant into the collapsible agent-body subtree and remounted it. Keep final-assistant selection explicit, keep `agentItems` excluding the chosen final assistant by identity, and keep completion-only `worked-for` UI as adjacent adornment rather than transcript ownership input.
-
-### Implement-plan composer state must be derived from the live `planImplementation` item, not gated by the raw request record
-The `Yes, implement this plan` card is not owned by the raw `conversation.requests` entry and it is not owned by the `todo-list`. The canonical gate is the newest non-completed `planImplementation` item derived during `turn/completed`; the request record is auxiliary. In Nodex, regressions came from treating implement-plan like the other request kinds and refusing to surface it when the renderer could not find a matching raw request entry. Keep implement-plan derivation anchored to the turn-local item, keep request ordering stable (`userInput` ahead of approval), and avoid rebuilding request-card ownership rules inside individual composer components.
-
-### Transcript file-change previews must not send multi-file or non-unified tool patches into `@pierre/diffs` `PatchDiff`
-`PatchDiff` in `@pierre/diffs` only accepts a patch string that resolves to exactly one file diff. Codex session artifacts can include file-edit style tool payloads that are not Git unified diffs at all, such as multi-file `apply_patch` text with repeated `*** Begin Patch` sections. In Nodex, feeding that raw text into `PatchDiff` crashed the whole thread body with `FileDiff: Provided patch must contain exactly 1 file diff`. Keep transcript file-change rows on the safer contract: if the payload already parses into `FileDiffMetadata`, render `FileDiff`; otherwise show a raw text preview and copy action instead of calling `PatchDiff` on untrusted patch text.
-
-### File-change activity headers are aggregate summaries, not patch rows
-A file-change transcript item has two visible layers: the collapsed activity header summarizes the whole tool activity (`Edited a file`, `Creating a file`, `Deleted 2 files`), while the expanded body renders one path-keyed patch row per changed file (`Edited src/app.ts +1 -1`). Even a single completed file change should stay inside collapsed activity instead of bypassing to a standalone patch row. Keep file-change stats as unique display-path counts plus running/stopped subsets, so repeated edits to the same path still summarize as `Edited a file` rather than `Edited N files`; changed-line totals still aggregate across patch rows. Let the display mode decide whether to append the changed-line suffix; prose mode may show ` • N lines`, while command/detail modes should leave the outer header as the file-count summary. Running file creation is the only default header that gets a ` • writing ...` suffix outside the line-count display mode.
-
-### Thread activity headers split static display from disclosure controls
-Thread tool/activity headers have two different DOM roles. A header with no expandable body is static display and should render as a `div`; an expandable header is a native `button` with `aria-expanded` and the shared chevron affordance. Do not use disabled buttons or inert `button` elements for static rows, because that pollutes keyboard semantics and makes later grouping migrations inconsistent. Keep header/body layout in a controlled shared shell, and keep disclosure lifecycle state in a separate owner so individual tool rows do not reimplement chevron, truncation, and header semantics. Generic activity disclosure must separate `mounted` from `expanded`: first open mounts the body before the next animation frame flips `aria-expanded`, and collapse keeps the body mounted until the height/opacity animation completes. Some specialized groups may intentionally retain a hidden measured body while collapsed; do not force them through the generic unmount-on-collapse lifecycle.
-
-Thread activity summary updates are also stateful UI, not plain string replacement. Static summaries can update immediately, but running/active keyed summaries may need to keep the previous rendered node visible for a short defer window so rapid streaming churn does not flicker the header. Keep the summary key separate from the rendered React node, clear pending timers on effect cleanup, and let immediate transitions cancel any deferred pending update before committing the new summary.
-
-Transcript render keys must ignore streaming content. Thread tool-call rows and grouped activity surfaces should key themselves from stable identity fields only: item id/call id, first grouped item id, multi-agent action, web-search query, source key, and group start position where the reference behavior uses that position. Do not include streaming output text, patch stats, status labels, duration, summary strings, or result payloads in React render keys. Those values legitimately change during streaming and must update the existing row instead of remounting disclosures, body measurement, or local expansion state.
-
-### Collapsed command summaries are not command-row summaries
-The collapsed activity exec fact path only owns aggregate command categories. It can special-case running `mkdir` as folder creation and readonly remote `curl` as web search, but `date` wording, background terminal state, elapsed duration, and command output chrome belong to the command row renderer. Node REPL is an MCP source-key summary, not an exec fact. Keep these boundaries separate so collapsed activity counts can subtract web-search commands from generic command totals without accumulating command-row-only special cases.
-
-Command row summaries need the active turn state, not only the command item status. A still-running command in a completed turn becomes a background terminal row (`Started background terminal...`), while the same item inside the active turn is a foreground `Running command` row with a timer. Skill-script wording is narrower than "path contains scripts": the executable must be a shell/python interpreter and the first non-option script argument must live under a skill `scripts/` folder.
-
-Command approval previews share the command projection model. Do not let request cards independently format `request.command` or append cwd metadata. Build the preview from the exec approval projection order: `commandActions[].command` joined with ` && `, then the request command, then a shell-escaped execpolicy amendment fallback. Managed network approvals are a separate body branch that renders the allowlist reason even when no command text exists, and should not show a shell command preview.
-
-### Collapsed approval failures are deduped by review id
-Automatic approval review failures can reach a collapsed activity summary through multiple fact paths, such as a standalone review row and an attached review inside a file-change, command/exploration, or MCP body. Count only `denied` and `timedOut`, resolve the failure key from the canonical review item id before wrapper ids, and fold failures through an accumulator-level review-id Set before incrementing `deniedRequestCount` or `timedOutRequestCount`. Do not dedupe by status or row position, and do not count approved, aborted, or in-progress reviews. Attachment itself is tool-targeted, not file-change-only: automatic review `targetItemId` can point at exec, patch, or MCP tool rows, and activity projection must preserve those attached reviews for summary facts. Match only the exact target authority: exec uses `commandExecutionItemId ?? callId`, while patch and MCP use their canonical `callId`; item IDs, entry IDs, and raw-field guesses must not create attachment aliases.
-
-### Collapsed MCP summaries are source-key maps, not server-name counts
-Collapsed MCP activity must aggregate through a canonical source map keyed by source key, preserving `key`, `name`, `logoUrl`, `logoUrlDark`, `nativeAppReference`, `count`, and `runningCount`. Do not collapse MCP rows to `{serverName, count}`: it loses browser-use wording, Node REPL command phrasing, app logos, native-app grouping, running/completed split, and same-source dedupe. Pending MCP grouping and settled collapsed summaries must use the same late source resolver as standalone icons and summary sources. Its priority is exact: projected browser/computer/native source first, first matching generated `AppInfo` second, and trimmed invocation server fallback last. App matching tokenizes the app name, id, connector-prefix-stripped id, and plugin display names, then applies exact server or tool/function-prefix matching in app-list order. Do not inspect raw item/source/app/logo fields or infer semantics from server substrings. Computer-use target parsing accepts only the documented nested app/current-app, target/app-name, bundle-id, and display-name fields with platform-valid native identifiers; invented top-level `application`, `name`, or `title` aliases stay unknown. `server:node_repl` remains an MCP source entry but formats through command wording.
-
-### Standalone MCP headers are tool-only disclosures
-Generic standalone MCP tool-call headers should not invent `Calling` / `Called` prose or append `tool from <server>`. The header label is the formatted tool display name only, with the Node REPL `js` title override applied before fallback formatting. Shimmer belongs on that text span only, source icons stay static, and attached auto-review shields are header accessories. The disclosure boundary is `completed || result != null`, so a pure running row is a static header while an in-progress row with a result is already expandable.
-
-MCP leaf icon and fallback-label selection must consume the shared late visual identity, never rescan the raw item. A `browserUse` surface carried by `node_repl` still uses `Used Chrome` / `Used the browser`; Chrome uses the exact bundled image, non-Chrome browser use uses the browser glyph, a `computerUse` surface uses the computer fallback until host-native metadata resolves, and an ordinary `node_repl` call uses the terminal glyph. AppInfo logos arrive as query-only view input and trigger reprojection without mutating canonical transcript state.
-
-Normalize generated AppInfo logos once at the paged app-list boundary, not independently in each renderer. The light/dark selector prefers `iconAssets["256_square"]` and `iconDarkAssets["256_square"]`, then applies the exact logo cross-fallbacks; trim the selected URLs and resolve only leading-slash paths against a non-empty `installUrl`. Keep the query disabled until a signed-in ChatGPT identity is ready, disable query-library retries because the transport performs exactly one retry, and use the five-minute stale window. Returning the original array and row references when normalization makes no change prevents late view context from destabilizing settled transcript groups.
-
-### Active thread streaming must not flow through WorkbenchShell-owned React reducer state
-Active thread state must stay behind an app-server manager/provider boundary with route-scoped selectors, not a `WorkbenchShell`-owned `useReducer` that receives every host message. In Nodex, the expensive failure mode was: host messages updated a shell-owned `conversationsById` object, `WorkbenchShell` rebuilt stage inputs and stage content on every stream chunk, and the macOS transparent/vibrant window had to recomposite the whole blur-heavy shell. The stable pattern is now: `features/local-conversation` owns a provider-backed conversation manager registry, main emits host-scoped `sharedObjectUpdated` and `threadStreamStateChanged` messages, a renderer host bridge routes those into an app-server message bus, and connected stage/review containers subscribe only to the active thread plus its child memberships. Do not reintroduce `useLocalConversation`-style shell reducers, whole-map `knownConversationsById` props, or direct host-message subscriptions from shell components or feature-local stores.
-
-### Main workbench sidebar chrome must preserve macOS native vibrancy
-The Electron workbench window relies on macOS `vibrancy` plus a transparent BrowserWindow background. The expanded main workbench/sidebar shell and the rounded gutter beside the `main-surface` pane should therefore stay renderer-transparent so the native material shows through. Do not put `window-fx-sidebar-surface`, `bg-token-side-bar-background`, `bg-(--background-secondary)`, or similar full-height background classes on the expanded workbench/session sidebar shell. The collapsed auto-reveal panel is the exception: it is a fixed `app-shell-floating-left-panel` aside with `rounded-lg`, `bg-token-main-surface-primary`, and the standard shadow stack, mounted only while edge/focus geometry says it is visible.
-
-Electron workbench opacity is a native-window state, not a CSS breakpoint. The main process owns the `electron-window-opaque-surface-changed` event, enables `electron-opaque` when a supported window is unfocused or when a focused macOS window reaches the 3840x2160 physical-pixel threshold, and leaves focused smaller macOS windows on transparent background plus `vibrancy: "menu"`. The renderer body must stay transparent in normal Electron windows; the sidebar panel itself owns the 55% editor-background material, and compact overlay routes always clear `electron-opaque`.
-
-### Sidebar auto-reveal is pointer-geometry driven, not hover-strip driven
-The collapsed sidebar must not reveal through a renderer-owned invisible hover strip, delayed `mouseenter`, or a CSS `left` transition. The contract is a stored left-panel width (`sidebar-width`, default `300`, clamp `240..520`), window pointer coordinates normalized by `--codex-window-zoom`, an inclusive left edge enter strip of `0..12px`, and an open retention area of `0..sidebarWidth`. A user collapse sets hover suppression so the panel cannot immediately reopen under the toggle; suppression clears only after the pointer is outside the edge strip and the trigger is no longer hovered. Keep the floating panel on `motion/react` with the shell spring `{ type: "spring", duration: 0.5, bounce: 0.1 }`, opacity/x `0,-8 -> 1,0`, header counter-motion `8 -> 0`, and reduced-motion duration `0`.
-
-The floating sidebar has its own resize edge, not only the expanded real sidebar. Keep the handle as a sibling of the rounded floating `aside` inside the fixed floating shell; placing it inside the `overflow-hidden` rounded panel clips the translated hit target. While dragging, keep the floating shell mounted even if the pointer moves past the previous keep-open width, and route width updates through the clamp-only path: floating resize below `240px` clamps to `240px` and persists. The expanded real sidebar uses a separate half-minimum collapse threshold: raw resize widths `120..239px` clamp to `240px` and stay open; only raw widths below `120px` collapse the sidebar and avoid persisting an undersized value.
-
-### Sidebar toggle motion must share one progress value with titlebar geometry
-Do not collapse the real sidebar by waiting on a timeout and then swapping in collapsed chrome. The logical open state changes immediately, a Motion progress value springs to `0` or `1`, the real sidebar stays mounted while `open || progress > 0`, and both the sidebar width and left `HeaderShellSlot` consume the same `clamp(progress) * sidebarWidth` value. Keep reduced-motion and floating-to-real-sidebar opens on the snap path, block floating auto-reveal while the explicit real-sidebar spring is active, and guard animation completion with a generation token so a stale completion cannot clear a newer `animating` state. All entry points (`Hide sidebar` / `Show sidebar`, `Cmd/Ctrl+B`, command palette, and native `toggle-sidebar`) should call the same state mutation; otherwise header order, hover suppression, and mounted-while-closing behavior will diverge again.
-
-Settings owns a settings-specific sidebar adapter, not the project/session sidebar, but it must preserve the same native vibrancy behavior as the normal sidebar. The adapter may use `window-fx-sidebar-surface` as a semantic hook, but that class must stay renderer-transparent in Electron unless `electron-opaque` is active; settings sections should never own or replace the native sidebar material.
-
-### Project sessions are containers, not thread title authority
-Project sessions are Workbench containers, not Codex thread-title records. Keep `project_sessions.no_thread_fallback_title` scoped to blank sessions or final fallback display, and derive visible session titles from `codex_threads.thread_name`, `thread_preview`, then the fallback label. Regressions appear when rename or auto-title code mirrors thread names into project-session rows: sidebar/header/search can drift from app-server `thread/name/updated`, and generated titles can stay hidden behind an old `New thread` container label.
-
-Auto-title scheduling belongs with the main-process thread lifecycle, not the renderer session row. Start it after app-server `thread/start` returns the durable thread id and before the first durable `turn/start`; apply the generated thread name through the same local thread metadata projection and `thread/name/set` path as remote `thread/name/updated`. Renderer rows should only consume derived `displayTitle`.
-
-Project-session title migrations should be target-shape driven, not only `user_version` driven. Supported 30+ databases can carry partially applied local schema state, so migrations that rename `project_sessions.title` to `no_thread_fallback_title` must first inspect `PRAGMA table_info(project_sessions)`, repair the target column from the old title when available, and only then run later table rebuilds or startup seeding.
-
-A filtered Database View query is not membership authority. A Card absent from a View may still own a membership because of that View's filter, and a Project may contain valid Cards with zero membership. Membership CAS must come from a filter-independent snapshot of the Card's sole active membership; View queries and positions are presentation/query authority only.
-
-### Sidebar external-thread discovery must be continuous app-server reconciliation
-The sidebar snapshot query is not a discovery loop. `codex:sidebar:snapshot({ refresh:false })` exists so SQLite can render a cold-start read model, while external CLI/VSCode/app-server-created chats must enter through `codex:sidebar:sync` or app-server notifications. Regressions appear when host messages or focus events only invalidate the `refresh:false` query: the row may exist in `codex_threads`, but the matching inactive project session cache stays stale until the user clicks `Start new chat in <project>`.
-
-Keep `thread/list` refresh and `thread/started` notification on the same materialization helper. Both paths must apply the same skip rules, cwd-to-project longest-prefix matching, bounded fallback title creation, projectless fallback, idempotent session/link creation, and affected-session reporting. If a notification path calls a raw `upsertLinkFromThread(thread)` without project matching, external project-bound chats drift into projectless state or fail to appear until a later full-list refresh.
-
-Renderer-side sync should be trigger-led, not cache-invalidation-led: mount and project/source changes force sync, focus/visibility/host messages/heartbeat stale-sync through the main-side coalescer, and session-only updates use a SQLite read. `WorkbenchShell` must refresh the `project-sessions:list` caches returned in the sync result even for inactive projects, because the sidebar grouping model and the session cache are separate read models.
-
-Root sidebar discovery `thread/list` calls must use the app-server interactive source default and prefer the app-server state DB read model. The default JSONL rollout scan can miss newly written chats when Nodex's bundled app-server lags the writer's rollout schema, but requesting every source kind pulls background reviewers, helper/system threads, and subagent internals into the root chat catalog before parent-scoped projections can handle them. Use explicit source filters only for dedicated child/helper discovery paths, not for ordinary sidebar materialization.
-
-Unknown app-server metadata notifications must force a debounced thread-list repair. A stale-gated repair can be silently skipped right after a successful sync, which is exactly when rename/status/settings/goal notifications for previously unknown threads often arrive. `thread/deleted` is the exception: it is a local cleanup signal, not a discovery signal, so it should archive/detach/unlink known session state and avoid a pointless full-list repair.
-
-Do not let old linked session ownership permanently override the latest thread assignment. Reconciliation should move an empty linked session when cwd/source matching changes, but archive-and-recreate when the old session has project-scoped tabs. That preserves user panel state while still letting external threads move from `Chats` into the matching project subtree, or back to projectless, without duplicate visible rows.
-
-### Panel motion depends on animated progress, not conditional layout jumps
-Right/bottom panels separate logical open state from animated geometry. The panel can be logically closed while its shell remains mounted until Motion progress reaches zero, and related header controls move by consuming the same animated size rather than by waiting for persisted session state to refresh. In Nodex, keep the shell spring `{ type: "spring", duration: 0.5, bounce: 0.1 }`, reduced-motion snapping, optimistic collapsed overrides, and resize-close thresholds (`right < 320px`, `bottom < 160px`) together. Drag deltas must be normalized by `--codex-window-zoom`, full-width right panels must reserve `0` header width, and regular right-panel max width must be based on app-shell/viewport width rather than an already-constrained thread lane. The fixed global rail owns bottom and side panel controls; the fixed app-header center surface owns active thread title content and the thread summary toggle rail.
-
-Session content measurement must follow DOM node identity, not only session identity. Settings replaces the normal workbench body instead of hiding it, so any `ResizeObserver` attached to the session-content wrapper must be rebuilt when React attaches a new wrapper after returning from settings. Keep the measured Element in reactive state through a callback ref, observe it in layout timing, and keep full-width right-panel width bounded by the shell main-content width while the exact measurement is temporarily unavailable.
-
-### Integrated terminal rendering depends on a stable xterm lifecycle
-Integrated Terminal PTY data is a byte stream, not WorkbenchShell state. Keep terminal output updates scoped to the active terminal session listener; do not bump the global terminal tab-title subscription for every data chunk. Tab titles should update from metadata such as cwd/title/attach state, while output bytes should go directly to the mounted xterm instance.
-
-The xterm instance lifecycle must not depend on inline shell callbacks such as `onNewTerminalTab`. Route those callbacks through refs before installing custom key handlers so ordinary WorkbenchShell rerenders do not dispose and recreate xterm. If xterm is repeatedly disposed while PTY data is arriving, writes can target a closed instance and the panel opens blank even though the backend is producing output.
-
-Local POSIX terminals also need an interactive shell command. Start zsh/fish-style shells with `-l -i`, bash with `--login -i`, and keep the raw PTY buffer intact for snapshots/tools while the renderer lets xterm parse control sequences. Avoid per-chunk forced xterm refresh calls; xterm owns its write queue and render scheduling.
-
-xterm 6 measures terminal cell geometry through canvas font metrics, so do not pass unresolved CSS custom properties as `fontFamily`. Resolve `--vscode-editor-font-family` and `--vscode-editor-font-size` from the mounted terminal element into a concrete font-family string and numeric pixel size before constructing xterm, then reload the font and refit when those tokens change. If canvas sees `var(...)`, it can keep the default canvas font, making rows much shorter than the DOM-measured monospace text.
-
-### Electron titlebar controls belong to one fixed app-header surface
-Electron draggable regions are not normal DOM hit testing: a button inside or under a `draggable` titlebar rectangle can render visually above nearby content and still fail to receive clicks if an overlapping `app-region: drag` area covers the same coordinates. In Nodex, the stable rule is that session top chrome is owned by the fixed workbench header. Thread title content renders into the app-header center surface through `ThreadHeaderPortalProvider`; global controls declare through the workbench `HeaderAction` registry so the shell owns the single `gap-1.5` rail, measured `headerRightWidth`, and right-panel spacer. Do not reintroduce an in-flow thread titlebar, absolute no-drag hitboxes, or a visual reserve between the thread body and global titlebar controls. Adjacent active-thread controls such as `Toggle pinned summary` should get their visible 6px gap from the shared rail padding/gap contract in the fixed header.
-
-The same rule applies on the left side of the titlebar. Sidebar toggle and collapsed-sidebar `New chat` controls must live in the measured left `HeaderAction` slot with `--spacing-token-safe-header-left` reserved for native traffic lights. The visible `header-shell-slot` rectangle itself must be `no-drag`, not only its child buttons, because the slot can be the native drag-region exclusion that overlaps right-panel header spacers. Fixed-position titlebar overlays drift from the thread title reserve, duplicate no-drag islands, and make it too easy for the title row to overlap the native controls.
-
-Header slot width ownership must stay stable across route switches. A `motion.div` whose `style.width` has been driven by a MotionValue can keep writing through Motion's DOM renderer even when React later renders the same node with a plain numeric width. For route shells such as Scheduled that suppress the ordinary right-side panel controls, keep the right `HeaderShellSlot` width on a MotionValue path and make that value output `0` while the route is active. Do not toggle the same slot prop between `rightPanelAnimatedWidth` and a scalar `0`, or returning from a previous-run thread can leave the stale right-panel width in the DOM and squeeze the center titlebar surface.
-
-Collapsed-sidebar auto-reveal is pointer-led, with a narrow keyboard-focus hold only for controls inside the floating sidebar itself. Do not reuse broad app-shell focus markers such as `[data-app-shell-focus-area]` as the floating-sidebar focus override: right-panel and bottom-panel controls must remain focusable without revealing or pinning the sidebar. A focused floating sidebar can stay open after the pointer leaves; focused panel chrome cannot open it.
-
-Panel group headers add another version of the same Electron trap. Right-panel and bottom-panel tab headers must not be `draggable`; the fixed global header is the native drag region for the top row. An underlying panel header with `app-region: drag` can still block a visually higher fixed titlebar button in Electron, especially when the sidebar is collapsed and the right panel is full-width. Keep every real tab, inline new-tab/menu control, and reserved global-control inset `no-drag` anyway, because those nodes may sit inside or adjacent to other draggable chrome. `pointer-events: none` alone is not enough for spacer correctness if the interactive control is owned by a separate header slot. Keep right-panel expand/restore in the tab header's after-list flow, keep only the actual button wrapper `pointer-events-auto`, and keep the measured trailing spacer pointer-transparent and `no-drag`. In collapsed-sidebar full-width mode, reserve the measured left titlebar width as a pointer-transparent, `no-drag` start spacer before the right-panel tab row instead of letting the two header systems overlap.
-
-App-window Back/Forward belongs to the current shell state owner, not to `App`'s legacy stage-rail history and not to browser-sidebar webview history. Browser-sidebar navigation has its own webview `canGoBack` / `canGoForward` and `goBack` / `goForward` path; do not feed that state into the top-left app chrome. In Nodex, renderer buttons execute inside `WorkbenchShell`, while keyboard/mouse shortcuts, command-palette actions, and native menu IPC enter `WorkbenchShell` through one command-request prop. Keep the history stack shell-local so disabled state and navigation targets can read/apply active project, active session, panel tabs, panel collapsed state, and right-panel full-width state from the same owner.
-
-Focused panel tab cycling has the same Electron routing constraint. A DOM-only `keydown` listener can miss `Cmd/Ctrl+Shift+[` and `Cmd/Ctrl+Shift+]` when native accelerators, webviews, or document-level focus are involved, even though plain app-window Back/Forward works through the menu/IPC path. Keep right/bottom panel cycling owned by `WorkbenchShell`, but let the desktop menu accelerator send a command request into that same owner and resolve it against a transient last-focused panel leaf. Do not persist a separate active-panel store just to make this shortcut work.
-
-Do not reuse the broad "editable target" shortcut guard for focused panel tab cycling. NFM/BlockNote content is editable, but it still lives inside the focused panel tab group, and VS Code-style tab cycling should win over editor key handling for `Cmd/Ctrl+Shift+[` / `Cmd/Ctrl+Shift+]`. Keep inputs, textareas, dialogs, and non-NFM contenteditable surfaces blocked; let NFM editor content route through the panel-cycle resolver before editor-local handlers can absorb it.
-
-Focused panel close uses the same rule. On macOS, the default File > Close Window role claims `Cmd+W`, so a VS Code-style close-tab shortcut must replace that native accelerator with a WorkbenchShell command request and move Close Window to `Cmd+Shift+W`. Route the command through the same `closePanelTab` function used by tab chrome so durable, preview, side-chat, and MCP tabs keep one close lifecycle.
-
-### Local-thread patch transport must stay on Immer semantics, and patch-capable paths must mutate the broadcast cache directly
-The local-thread patch plane is not a custom diff format and it is not produced by serializing two whole conversation snapshots and diffing them externally. Use `produceWithPatches` on the owner side and `applyPatches` on the follower side, with raw Immer patch ops (`add` / `replace` / `remove`) and path arrays. In Nodex, the performance regression came from looking "incremental" at the renderer boundary while still rebuilding a full serialized conversation on every frame-text flush just to compute patches. Keep the shared patch transport Immer-compatible, keep the materialized broadcast conversation cache as the renderer/follower projection source, and keep assistant/plan/reasoning hot flushes on direct draft mutation of that cache instead of `serializeConversationSnapshot()` on every chunk.
-
-The same rule applies to the remaining patch-capable local-thread surfaces. Queue rows, optimistic steering transcript items, request ingress/resolution, turn-local item mutations, and non-lifecycle turn updates should patch the materialized broadcast cache directly from the canonical manager-owned records. `emitThreadStreamStateChange()` is now only the cold/fallback path for cache misses or deliberate snapshot-style reconciliation; do not route everyday patch-capable notifications back through full conversation serialization.
-
-### Prose streaming must emit patches, not silently mutate the broadcast cache
-Assistant, plan, reasoning text, and command-output deltas are user-visible stream content. Updating only the materialized broadcast cache makes the next snapshot look correct but starves the renderer of live deltas, which turns Streamdown or the output queue into completed-state animation rather than true app-server streaming. When a renderer owner exists, send those deltas to the owner and make the owner publish revisioned patches; raw `mcpNotification` command-output fanout is only the no-owner fallback. Main should still keep a silent canonical command-output cache in parallel so snapshots and recovery remain authoritative. Service tests for this path must not hide regressions behind `withTempDatabase` fallback; the protocol-order tests should run against the in-memory conversation manager.
-
-### Owner helper failures must not pull source-null snapshots over live partial state
-`requestThreadStreamSnapshot` is an explicit cold/recovery boundary, not a generic catch-block repair for active renderer-owner threads. If an owner reducer, owner action helper, or owner-routed output delta cannot prove the local renderer is the owner, do not fetch a host snapshot that can overwrite in-flight partial assistant text or request rows. A manager that is clearly a follower should ignore and ACK targeted owner-only events; a manager with missing owner state should preserve its current conversation, cancel owner queues, and mark `needs_resume`. Reconnect refresh loops must also skip active owner conversations for the same reason.
-
-Assistant markdown animation is item-scoped, not latest-turn-scoped. A turn can stay `inProgress` after its final assistant message has emitted `item/completed`, while later lifecycle rows or tool artifacts still settle. Do not keep Streamdown `isAnimating` enabled merely because the completed assistant message belongs to the latest active turn; otherwise the completed full markdown can remount with per-word spans and appear to stream a second time. The state reducer must preserve the other side of the contract: `item/started` owns the target prose lifecycle status; later assistant/plan/reasoning deltas append raw text without reopening a completed/failed/interrupted item or refreshing any timing field, and drained `item/completed` applies the authoritative final item. Keep incomplete-markdown parsing and animation tied to that item-level status unless a separate non-animated parsing mode is deliberately introduced.
-
-Completion draining must create a React commit boundary, not merely call `flushNow()` before lifecycle. React can batch a same-callback prose flush and `item/completed` / `turn/completed` update into one visible completed render, which makes short assistant messages appear only after they are done. Keep Nodex's queue contract stable: `drainBefore(...)` uses one manager-global buffer; empty, globally <=24-code-unit, hidden, and no-rAF cases synchronously flush and return `false`, while larger visible buffers share an eight-frame budget and invoke FIFO lifecycle callbacks after the final global drain frame. The renderer external-store boundary is the right place for the React-specific guard: terminal prose flushes and follower in-progress prose patches use a narrowly scoped synchronous subscriber notification so Streamdown receives one real `inProgress` render before completed state. Do not reintroduce a queue-only extra frame/macrotask delay to solve React batching; that still misses follower same-stack patch cases.
-
-Main no-owner fallback is not a renderer frame owner. Even if a test environment exposes `globalThis.requestAnimationFrame`, main should use the no-rAF/hidden/small-buffer `drainBefore` branch: flush pending prose synchronously, return `false`, and then apply the terminal item/turn lifecycle in the same ordered call. Ordinary no-owner prose waits 16ms and then flushes the complete queue; only a visible renderer uses 24-UTF-16-unit-per-target animation frames. Terminal lifecycle ordering must not depend on a deferred main callback.
-
-### Owner-routed notification slices must not leave a second visible reducer behind
-When a live app-server notification is migrated to the renderer-owner reducer, main still updates durable/read-model caches, but it must suppress the ordinary source-null stream sync for that same notification while an owner is registered. Otherwise followers can race between owner-sourced patches and main-sourced patches for one visible event. Validate the payload before forwarding to the owner so malformed rows do not strand the owner sequence, and give internal helpers such as request-resolution cleanup an explicit `suppressConversationSync` option when they are called from an owner-routed path.
-
-The owner/follower notification coverage matrix must be checked against `packages/codex-app-server-protocol/src/ServerNotification.ts` when generated protocol changes land. Do not count protocol notes or ordinary markdown mentions as coverage: each generated notification method should appear in the first column of either the owner notification reducer matrix or the generated notification classification table.
-
-### Renderer owners must ignore stream-state echoes
-Nodex keeps the active owner reducer as the visible transcript authority. Do not keep an active owner role while applying source-null patches, source-null snapshots, or self-broadcast publish echoes from main: that recreates a hidden second transcript reducer, advances the owner revision behind the renderer-local revision cursor, and can make the next owner-published patch skip the expected base revision. Source-null snapshots remain valid for cold load, explicit recovery, and ownership replacement, but active owner stream changes must come from the owner reducer itself.
-
-### Owner patch caches must fail closed
-The main broadcast cache for an owned thread is an accepted renderer-owner patch base, not a convenient mirror of main's canonical manager. A suppressed no-owner fallback snapshot must not overwrite it: renderer params-owned optimistic input and main's server-derived state intentionally differ while a turn starts, so the next valid owner patch may otherwise target paths that no longer exist. Validate both revision and patch application before advancing or broadcasting. On failure, return rejection without ACK so the existing owner cursor publishes one authoritative repair snapshot. This prevents follower mirrors from observing a divergent ordering of the optimistic user row and its server `clientId` acknowledgement while the owner continues reducing the canonical lifecycle locally.
-
-### Native CLI runtimes are artifact closures
-A pinned native CLI can launch required sibling executables by resolving next to `current_exe`, outside `PATH`. Stage the complete version-matched upstream `bin` closure plus declared search-path tools, not a hand-maintained list containing only the primary executable. The generated manifest must hash the upstream native closure and enumerate separately signed search-path tools; startup and release validation must reject incomplete or mixed-version closures before a model reaches a tool call. On macOS, preserve valid upstream signatures for sibling executables but allow the app packager to sign ad-hoc search tools such as `rg` under the app identity; a pre-sign hash cannot remain authoritative for a binary that packaging intentionally rewrites. CLI entry scripts run through `tsx`, so use a Node-compatible entrypoint check based on `process.argv[1]` and `import.meta.url` rather than Bun-only `import.meta.main`.
-
-### Main source-null snapshots need named reasons
-Do not add a bare `emitThreadStreamSnapshot*` call. Main source-null snapshots must be classified at the call site as explicit resync, no-owner fallback, inactive-owner cleanup, or durable recovery. The no-owner fallback reason is not allowed to broadcast while a renderer owner exists, and it must leave the accepted renderer-owner broadcast cache untouched. This keeps ordinary main fallback paths from becoming a second visible reducer while preserving explicit snapshot/resume/history resync and recovery boundaries.
-
-### Source-null stream state is not a follower
-Do not encode a source-null snapshot as `follower(ownerClientId: null)`. A follower is routable only when it has a non-empty renderer owner client id. Source-null snapshots and patches represent a main/no-owner baseline that can keep cold or fallback views current, but local state-changing actions from that baseline must first resume the thread and become the current renderer owner. A real follower must also ignore source-null explicit-resync snapshots and patches; otherwise a refresh can silently downgrade the follower into a non-routable state and make edit/fork/owner actions throw before they reach the owner-local transaction.
-
-### Thread-started is a sidebar event and an owner snapshot event
-`thread/started` has two jobs in Nodex: main materializes SQLite sidebar/session state, and the renderer owner publishes visible conversation metadata. When a renderer owner is already registered for that thread, the visible stream-state update should be an owner-routed `thread/started` snapshot, not a competing source-null main snapshot.
-
-### Resume buffering preserves request ordering
-The resume/start buffer stores both app-server notifications and server requests, then releases them through one ordered replay path after hydration. Do not handle same-thread server requests by merely waiting for notification replay to finish; that moves request cards after later notifications and can reorder approval/user-input surfaces. Buffer the request promise, start its normal handler at the buffered position, and let long-lived approval/user-input promises resolve independently of the replay loop.
-
-### Thread-start notifications can arrive before local creation context is ready
-`thread/started` may arrive on the app-server event stream before Nodex has attached the newly created thread to the intended project session. During session-owned starts, buffer early `thread/started` and subsequent same-thread events/requests until the session link is ready, then replay through the same ordered resume buffer. Otherwise sidebar discovery can materialize a duplicate project session before the explicit start flow attaches the thread.
-
-### Owner notification turn ids are nullable at the protocol edge
-Nodex reducers accept `turnId: null` for several live item/prose/output notifications. Do not reject those rows at the main forwarding boundary or the renderer owner boundary. For prose and item completion, `null` resolves to the latest owner turn; for command output and terminal interaction, the target is found by `itemId` across turns and `turnId` is only diagnostic/key context. When a concrete turn id arrives for `item/started`, keep the resolver order narrow: exact turn lookup, optional latest in-progress placeholder rebind for context-compaction, single completed empty placeholder rebind, then missing-turn synthesis only for rows that explicitly opt in. Keeping `turnId` required inside Nodex's normalized `CodexConversationTurn` is fine as an adapter layer, but protocol-edge parsers must not silently drop nullable rows or flatten these placeholder branches into one generic fallback.
-
-### Thread goal updates are owner-patched conversation state
-Nodex reduces `thread/goal/updated` and `thread/goal/cleared` in the renderer owner through ordinary conversation patches. A newly `complete` goal is copied to `completedThreadGoal` and then the owner requests `thread/goal/clear`; the later cleared notification only removes `threadGoal` and `threadGoalResumeConfirmation`, not the completed-goal record. Main should forward valid goal notifications to the owner and suppress source-null visible stream sync while still keeping its canonical snapshot cache updated.
-
-### Token usage is latest conversation state, not turn state
-Nodex handles `thread/tokenUsage/updated` by setting `conversation.latestTokenUsageInfo = tokenUsage` and ignoring the notification `turnId`. Context-window UI reads that conversation-level field only after the conversation is `resumed`. Do not synthesize a turn or write `turn.tokenUsage` for this notification; route it through the renderer owner when present and keep main's canonical `latestTokenUsageInfo` cache for no-owner snapshots/recovery.
-
-### Safety-buffering updates are turn state, not model-change rows
-Nodex reduces `model/safetyBuffering/updated` as turn state, strips the notification's `model` field, and stores the remaining `useCases`, `reasons`, `showBufferingUi`, and `fasterModel` fields on the turn as `safetyBuffering`. Route this row through the renderer-owner patch path and keep main's canonical cache updated for snapshots/recovery. Do not render it as a visible model-reroute item, and do not emit a competing source-null stream patch when a renderer owner exists.
-
-### Model reroutes are owner-patched visible items
-Nodex handles `model/rerouted` in the renderer owner by appending a `modelRerouted` item to the target turn with `fromModel`, `toModel`, and `reason`. Forward this notification to the renderer owner when one exists, keep main's canonical fallback cache in sync for no-owner snapshots/recovery, and suppress source-null visible stream patches while an owner is registered. Do not treat this row as safety-buffering turn metadata.
-
-### Hook lifecycle updates are owner-patched hook rows
-Nodex handles `hook/started` and `hook/completed` in the renderer owner as turn state; `hook/started` also marks the conversation streaming and enables latest in-progress placeholder rebind, while `hook/completed` uses the normal turn resolver. Forward the nullable-`turnId` payload to the renderer owner before resolving a concrete main turn id, upsert one hook item keyed by `run.id`, and suppress source-null visible patches while still updating the canonical cache for snapshots.
-
-### Automatic approval reviews are keyed by review id
-Nodex handles `item/autoApprovalReview/started` and `item/autoApprovalReview/completed` in the renderer owner via the automatic-approval helper, creating one `automaticApprovalReview` row keyed as `automatic-approval-review:${reviewId}`. Completed updates replace that row and preserve the original row's `startedAtMs`; they are not keyed by `targetItemId`. Route these notifications through the renderer-owner patch path, keep main's canonical fallback cache in sync, and suppress source-null visible stream patches while an owner exists.
-
-### Automatic approval review rows are title-first disclosures
-Thread Auto-review rows should render the status/risk as the title text itself, such as `Auto-review denied high risk`, not as separate status or risk pills. The compact non-expandable branch is title-only; the expandable branch owns a local disclosure with the rationale/fallback copy and keeps the chevron visible while expanded. Do not add production-only `data-*` markers to this primitive just for tests; query by text, role, and document order instead.
-
-### Standalone automatic approval reviews are action activities
-A standalone `automaticApprovalReview` transcript item is not just the compact review row mounted at top level. It is an activity disclosure whose header summarizes the reviewed guardian action and shows the shield accessory; expanding that activity reveals the compact review row. Keep the action-summary formatter centralized so command, execve, patch, network, MCP, and permission actions do not drift between request cards, standalone review rows, and attached tool bodies.
-
-### Attached automatic approval reviews stay inside their tool body
-Attached Auto-review rows are not standalone review activities. Command, parsed exploration, file-change, and MCP rows show only a shield accessory in the tool header, then prepend compact review rows inside the expanded tool body or compact exploration disclosure body. Do not reuse the standalone action-summary wrapper for attached rows; the surrounding tool row already owns the action summary.
-MCP has one extra branch-specific invariant: when an MCP result is rendered through the app/resource card body, attached review rows are title-only and non-expandable with the same horizontal padding as the card body. Generic MCP bodies keep the attached rows expandable. Do not normalize these two branches into one attached-review mode.
-
-### Guardian too-many-denials warnings append a dedicated row
-Nodex ignores ordinary guardian warning text, but when `kind === "tooManyDenials"` or the message starts with `Automatic approval review rejected too many approval requests for this turn`, it appends a new `autoReviewInterruptionWarning` item to the latest turn. Route the matching notification through the renderer-owner patch path, keep the no-owner canonical fallback append-only, and suppress source-null visible patches while an owner exists.
-
-### Renderer-owner terminal ordering belongs inside the renderer queue
-Do not make main wait for owner ACKs before it forwards `item/completed` or `turn/completed` notifications. The renderer owner's manager-global frame text queue performs `drainBefore(callback)` before it applies the final item or completed turn. Main should still sequence and ACK owner notifications for recovery, but the terminal ordering contract is owner-local: prose patches first, final lifecycle mutation second. This keeps hidden-window fallback, rAF frame slicing, and terminal drain behavior in one queue instead of splitting it across main timers and renderer state.
-
-### Owner prose publish is a follower broadcast side effect
-For renderer-owned Codex streams, do not treat `codex:thread-owner:stream-state:publish` acceptance as the owner-visible state boundary. The owner reducer mutates local conversation state synchronously, while publish uses a per-conversation renderer-local revision cursor for follower broadcast. Compute patches from the last owner-local cursor conversation/revision, coalesce mutations that arrive while a publish is in flight, and keep owner notification ACK state tied to the owner reducer's ordered mutation queue. Main validates the source owner and broadcasts the change; it must not reject an owner patch merely because its opportunistic cache revision lagged. Do not request a source-null snapshot merely because owner broadcast cache sync could not apply a patch.
-
-Owner notification ACKs are cumulative, so “latest metadata on this frame” is not a safe watermark. Register every sequence when it arrives, retain every sequence hidden by same-key coalescing, and consume prose sequence segments by the exact UTF-16 length emitted from each frame. A sequence becomes complete only after its whole original delta has flushed; only a contiguous completed prefix may be reserved for ACK, and that reservation is confirmed only after main accepts the associated patch/snapshot or standalone ACK. This prevents a first 24-code-unit slice, a later no-op notification, or another shorter target from acknowledging text that is still buffered. Ownership teardown must discard only the affected conversation's prose segments, drain callbacks, and completion gate; it must not call a manager-global `flushNow()` that publishes unrelated conversations early.
-
-### Command output is owner-local under the Nodex streaming contract
-Owner-routed `item/commandExecution/outputDelta` updates the owner renderer's local `commandExecution.aggregatedOutput` and ACKs the notification sequence without publishing an ordinary `threadStreamStateChanged` patch. Main still silently updates its canonical output cache so snapshots and recovery remain correct, and no-owner streams still use raw `mcpNotification`. Tests should assert both sides: no owner patch for command output, but snapshots still contain the aggregated output.
-
-### Terminal interaction is command action state, not output text
-Nodex handles `item/commandExecution/terminalInteraction` by buffering stdin per conversation/item, parsing completed input lines, and appending `{ type: "unknown", command }` entries to the target `commandExecution.commandActions` with ordinary stream patch emission disabled. Do not enqueue this row into command output or visible prose streaming. Route it to the renderer owner, ACK it without a normal stream patch, and keep main's silent cache in sync for snapshots and recovery.
-
-### Live file-change patch updates are owner-local under the Nodex streaming contract
-`item/fileChange/patchUpdated` creates or updates the in-progress `fileChange` row locally and ACKs without publishing an ordinary stream patch, while main forwards the owner notification and silently refreshes canonical/cache state for later snapshots and recovery. Do not reintroduce a source-null `threadStreamStateChanged` patch for this row when a renderer owner exists.
-
-### Live turn diffs and file-change rows must coexist
-`turn/diff/updated` owns the active turn's aggregate unified diff, including the above-composer `N files changed` fixed pill. `item/fileChange/patchUpdated` owns the in-thread patch activity row. Do not suppress a derived live `turnDiff` block merely because a renderable live `fileChange` item exists; that makes the above-composer portal unmount when patch streaming starts, which changes footer height and creates visible bottom-anchoring jitter.
-
-### File-change renderer state is a path-keyed patch unit
-Renderer-facing `fileChange` state mirrors Codex's patch unit shape: `changes` is keyed by display path, duplicate paths overwrite earlier entries, and single-file edits are just the one-entry map case. Use shared helpers in `src/shared/codex-file-change.ts` to materialize ordered entries, build unified diffs, and compute row state; do not reintroduce array-index renderer logic or a special single-file renderer. `movePath` is the new path for update/rename headers (`diff --git a/<path> b/<movePath>`). Patch rows derive display state as `applied`, `rejected`, `pending`, `stopped`, or `streaming` from item status, approval id, and turn cancellation. Empty `update` diffs are still valid streaming patch rows because the path itself is the render unit; truly empty or malformed `changes` maps must be filtered before renderer stream/grouping so the thread cannot show a clickable `Edited a file` shell whose expanded body is empty.
-
-### File approval previews share the patch model
-File approval requests attach to an existing `fileChange` item by `itemId`; the request payload supplies approval metadata such as `reason` and `grantRoot`, not an independent patch list. Keep request-card and future floating approval previews on the shared `src/shared/codex-file-change.ts` patch-row helpers instead of importing renderer row builders from `file-change-tool-call.tsx`. Otherwise request previews can drift from in-thread rows, re-count duplicate same-path edits as multiple files, or rebuild stats from a different diff helper.
-
-### Activity grouping is one v2 classification pass
-Thread activity projection must classify each source row as hidden, standalone, or groupable before constructing maximal generic groups. Do not add a later family-specific pass for pending MCP, repeated dynamic calls, web search, exploration, or same-action multi-agent rows: those wrappers alter membership, keys, and live ownership after the canonical v2 decision. Dedicated computer-use/MCP-app rows and registry-marked dynamic calls remain standalone barriers; ordinary subtype leaves render inside the shared `agentActivityGroup` body.
-
-### No-op item notifications still belong on the owner sequence
-Nodex treats several app-server notifications as non-visible transcript rows: `item/reasoning/summaryPartAdded` is a sequencing boundary, `item/fileChange/outputDelta` is legacy apply-patch output telemetry, and `item/mcpToolCall/progress` is ignored when the target MCP call exists. Route valid payloads for these rows to the renderer owner so notification sequencing stays aligned, then ACK without publishing `threadStreamStateChanged` patches or changing local conversation state. No-owner fallback should also remain non-visible.
-
-### Renderer-owner disconnects need an explicit stream event
-Do not infer owner loss from a failed follower action or a later patch mismatch. The main renderer-client router owns `webContents` lifetime, so it must notify CodexService when a renderer client is disposed. CodexService should clear only that client's conversation owner assignments, release any owner-notification drains so terminal lifecycle updates are not stranded behind a dead owner, and emit `threadOwnerUnavailable`. Renderer followers should handle that event by rejecting waiters, clearing matching owner roles, marking affected conversations `needs_resume`, and dropping stale old-owner patches without requesting a source-null snapshot merely because a patch mismatch occurred. A new owner is established through explicit resume/recovery, not by opportunistic patch-gap repair.
-
-### Resume replay must dedupe against hydrated tail state
-When `thread/resume` hydrates the latest turn, app-server notifications for the same thread can race the response. Buffering alone is not enough: replaying a buffered `item/agentMessage/delta` or `item/commandExecution/outputDelta` after the hydrated tail can append text/output the tail already contains. During active resume, buffer same-thread notifications and delay same-thread server requests, skip agent deltas when a completed agent item for the same item is buffered, and suffix-trim replayed agent/command deltas against hydrated `markdownText` / `aggregatedOutput` before applying or broadcasting them. The owner-owned resume path releases buffered events after hydrated owner state is installed and before the final owner snapshot is broadcast.
-
-### Mounted thread-body performance depends on `owner -> virtualized list -> memoized turn entry`, not whole-thread body projection
-Mounted local thread rendering should stay split into three layers: an owner that handles orchestration and search/defer state, a virtualized list that only handles windowing and scroll APIs, and a memoized per-turn delegate that does the heavy item bucketing/render-model derivation for exactly one turn. In Nodex, the laggy failure mode was a single `buildThreadBodyModel(...)` pass that mapped every turn into a full render model on every streaming delta, then fed those unstable objects into a virtualized list that only reduced DOM count, not React work. Keep the mounted path on the new contract instead: thread-level shell projection only, turn-local projection inside a memoized entry, and long-thread deferred first render at the owner layer. Do not put `content-visibility:auto` or paint containment on the per-turn root: assistant action rows are intentionally translated left, and per-row paint containment can clip that chrome. Do not reintroduce whole-thread `body.turns` projection for the live mounted path, and do not put find-in-thread flatMap scanning back inside the body render function.
-
-### Active thread routes must subscribe by surface slice, and visible turns must be derived before virtualization
-Local-thread performance depends on two separate contracts at once: the connected route must read narrow conversation selectors (`turns`, `requests`, `cwd`, `resumeState`, `status`, child memberships, queued follow-ups, background terminals, summary/header fields) instead of mounting off one whole `conversation` snapshot, and the mounted body must derive one stable `visibleTurnEntries` list before it reaches virtualization. Steering state now lives inside the turn item stream as optimistic transcript entries. In Nodex, regressions returned whenever `ConnectedThreadStage` subscribed to the full conversation object again, or whenever the body rebuilt rows from `conversation.turns.map(...)` and an index-based `renderTurn` callback. Keep the route on slice hooks, keep visible-turn derivation cached from `turns + request buckets + parent-turn de-dup`, and let the virtualized list consume those stable entry objects directly. That preserves footer/header memo boundaries during body-only streaming and keeps older rows inert when only the newest turn changes.
-
-Do not undo that win by rebuilding a synthetic route-level `conversation` or any broad stage model after reading those slices. The live route and its story/test harnesses should compose independently connected header/body/footer surfaces plus ephemeral UI state.
-
-### Parent thread ownership must come from canonical `conversation.source.parentThreadId`, not renderer scans
-Child-thread de-dup and parent-aware selectors need one authoritative parent pointer on the thread summary/snapshot itself. In Nodex, the fallback mistake was a renderer hook that subscribed to every manager and scanned all conversations/meta updates to rediscover a child's parent thread. That widened invalidation again and made unrelated conversation churn wake the active thread path. Keep `parentThreadId` serialized from canonical main-thread/session state into `threadSummary.source` / `conversation.source`, and let renderer read parent turns through normal `useConversationParentThreadId(threadId) -> useConversationTurns(parentThreadId)` selectors. Do not rebuild reverse indexes or cross-manager scans inside renderer features.
-
-### Side chats must remain ephemeral and outside durable thread lists
-Side chats are temporary forks for local exploration, not normal project/session threads with a different tab title. Their tab ids, placement, loading state, expiration state, and close behavior belong to `WorkbenchShell` renderer memory; the backing conversation belongs only to the main-process conversation cache while live. Regressions will appear if side chats are written into `project_session_tabs`, `project_session_threads`, `codex_threads`, project summary lists, archive flows, title persistence flows, or window-session restore snapshots: closed tabs come back after restart, temporary prompts pollute normal thread lists, and reconnect tries to resume conversations that should render as expired instead. Preserve the boundary by checking `conversation.ephemeral` and `conversation.source.sideConversation` at every list/persistence edge.
-
-### Thread control state must live in the same manager substrate as thread state
-Do not keep a second renderer reducer for thread-start progress, permission-mode state, or model bootstrap while conversations live elsewhere. In Nodex, leaving `use-codex-control` as a parallel reducer island kept thread startup, permission modes, and model bootstrap on a second invalidation path, which reintroduced shell-wide rerenders and split ownership from the manager/registry graph. Keep thread-start progress, permission modes, model-list bootstrap, and thread summaries inside the same app-server manager substrate as conversations, and let UI read them through manager-backed selector hooks instead of reintroducing a parallel reducer/store.
-
-### Concrete Codex model ids are not fallback defaults
-
-Codex model availability is runtime data. New-thread and Scheduled automation draft defaults should be resolved from app-server `model/list` only: reuse a persisted draft model only when it is still visible, otherwise prefer `isDefault`, then the first visible model. If no visible list is available, keep the local model state empty and omit `model` from `thread/start` / `turn/start` or keep Scheduled create disabled until a model is selected, so the app-server config/default model catalog remains authoritative. Do not replace an unavailable model fallback with a newer hardcoded model id; that only creates the next stale default.
-
-Thread actions have the same ownership rule. Visible transcript/composer actions such as edit-last-user-turn, fork-from-turn, queued follow-up controls, plan request resolution, compact/goals/memory/feedback, and background-terminal cleanup must be constructed from one manager-backed action controller plus narrow workbench callbacks for navigation surfaces. Do not satisfy the required `ThreadStageActions` interface in production by spreading a noop base and overriding the happy path; that shallow adapter lets new session shells silently drop user-visible commands while TypeScript still sees a complete interface. Optional unsupported capabilities should be hidden or disabled, and production-visible required actions should either execute through the controller or fail loudly.
-
-Edit-last-user-turn is an owner-local ordered transaction. Do not call a main-owned `rollback + start replacement + source-null snapshot` helper from the active path: source-null snapshots are suppressed or ignored for owner-visible state, and a later real `item/completed` userMessage can duplicate the edited bubble. If a local edit starts from a no-role conversation, resume the thread and become renderer owner first. The owner then calls `thread/rollback` through the owner-scoped app-server facade, publishes the rollback conversation snapshot as an owner revision, and only then starts the replacement turn through the same facade. Follower edits should wait for the replacement start revision when available before resolving. Treat `canEditLastUserTurn` as derived from current conversation state rather than durable UI state; otherwise owner lifecycle updates can leave the edit button hidden after the turn completes. App-server marks `thread/rollback` as deprecated without providing an in-place edit replacement, so keep this dependency isolated to the edit transaction and migrate it before upstream removes the method; fork flows must not add new rollback dependencies.
-
-Fork-from-turn has the same owner-scoped request-client boundary. A follower must ask the owner for complete history before the fork action, and a local no-role fork must resume into renderer ownership before calling app-server. Do not keep a renderer-facing `codex:thread:fork-from-turn` escape hatch for the active path; it reintroduces a main-owned action plane beside the renderer owner. The owner should call `thread/fork` through the owner-scoped facade, while main validates ownership and updates canonical recovery state without source-null stream-state for the owner request. Pass the selected completed turn as `lastTurnId` so app-server creates the branch at the intended history boundary in one operation; do not fork the latest history and trim the new thread with deprecated `thread/rollback`.
-
-Owner-routed `turn/start` must publish visible state through the owner stream, but the visible state source must be the renderer owner, not a main-generated post-start snapshot. A normal submit or edit replacement cannot rely on source-null fallback snapshots or later lifecycle notifications to show the user bubble in follower windows. The renderer owner should generate a `clientUserMessageId`, append and publish an optimistic user turn locally, call the owner-scoped app-server facade with that client id, then rebind the temporary turn to the app-server turn id and publish the rebind. Main may still own app-server transport and durable/recovery cache seeding, but owner facade results should be raw app-server responses or summaries, not active-owner `conversationState` payloads.
-
-Edit rollback has the same boundary. Main may validate ownership, wait for forwarded owner notifications to drain, call app-server `thread/rollback`, and silently update recovery state, but the renderer owner must project the raw rollback response into its local conversation, publish the rollback snapshot, and tombstone removed turn/item ids before starting the replacement. Otherwise a stale main canonical snapshot or late old-turn notification can reintroduce the pre-edit turn after rollback.
-
-### Auto-review depends on config resolution and reviewer collapse, not a renamed local mode
-The Auto-review preset is not a cosmetic label on top of Nodex's old per-project sandbox toggle. The stable contract is main-owned resolution from `config/read` plus `configRequirements/read`, then one reviewer-aware mapping layer: `auto` and `guardian-approvals` both resolve to `workspace-write + on-request`, and only `approvals_reviewer` differs (`user` vs `auto_review`). In Nodex, regressions came from treating the selector as renderer-local preference state, from persisting `sandbox` as a canonical mode id, and from treating a missing `guardian_approval` feature value as a hard disable. Keep permission state config-backed, keep `custom` available for explicit representable config states even when they fold to a fixed preset, accept `guardian_subagent` as a legacy/internal alias for `auto_review`, write `auto_review` back to config, and collapse automatic reviewers back to `user` only when the feature is explicitly false or requirements/profile constraints disallow the Auto-review preset.
-
-### Codex thread motion is a shared measured accordion contract, not generic transcript slide-ins
-Use one shared thread/transcript accordion transition across command shells, MCP tool calls, todo lists, generic agent-activity groups, collapsed turn bodies, and worked-for dividers: `duration: 0.5` with `ease: [0.19, 1, 0.22, 1]`. The main thread-body surfaces animate `height + opacity` with `overflow: hidden` while collapsed, and `AnimatePresence initial={false}` only where the whole block mounts/unmounts. Regressions came from treating the effect as "messages slide in" and scattering local `0.18` / `easeOut` transitions through transcript and composer surfaces. Keep motion policy in a dedicated shared thread-motion module, keep measurement separate from motion, and do not introduce generic y-translate transcript animations that the product does not use.
-
-### Codex `Exploring` is a derived active-turn state, not just an exec item status label
-Do not render `Exploring` by checking whether a grouped read/search/list-files exec item still carries an in-progress status. The projector derives `exploring` from the trailing v2 activity run plus the turn's active source state, and that live exploration surface suppresses the separate `Thinking` placeholder while the turn is still exploring. Regressions came from merging raw item statuses into a prebuilt exploration wrapper and treating that merged status as the whole truth, which made active exploration collapse back to `Explored` too early. Keep exploration presentation state derived in the turn-view projector, and keep trailing in-progress `reasoning` rows from suppressing the `Thinking` placeholder on their own.
-
-### Codex transcript scroll anchoring comes from a shared scroll controller, not per-list heuristics
-Do not let each transcript surface guess when to auto-follow the latest turn or how to compensate for measured height changes. One shared thread scroll controller should own `stickToBottom`, `user`, and `programmaticFind` modes, a 24px near-bottom check, wheel/pointer grace windows, one-frame footer/layout preserve, latest-turn submit placement, response spacer registration, and `adjustForMeasuredTurnHeightDelta(...)`. Because the thread viewport uses `flex-col-reverse`, bottom is native `scrollTop = 0` and older transcript content is reached through negative native `scrollTop`; model shared thread scrolling as positive distance from bottom, and never clamp old-message targets back to `0`. Regressions in Nodex came from keeping follow-latest state in `LocalConversationThreadBody`, letting the virtualized list own a second scroll-mode ref, compensating from top-origin `scrollTop`, and computing navigation targets with `targetRect.top - scrollRect.top + scrollTop`. Keep transcript auto-stick, catch-up affordances, programmatic find jumps, rail/search navigation, footer resize preserve, latest-turn response spacer, and measured-height compensation behind one shared bottom-distance controller, and let tool-calls/reasoning/request cards only remeasure their own turn height instead of mutating transcript scroll directly.
-
-The virtualized transcript should restore a rendered window, not just a scroll number. Keep `topOffsetsPx` and `bottomOffsetsPx` in the pure layout model, derive visible ranges from distance-from-bottom, and serialize renderer-session restore state as `{ distanceFromBottomPx, virtualizedTurnList: { renderedWindow, turnHeightsByKey }, latestTurn }` keyed by `threadId`. When a rail/search target is not mounted, the virtualized list should first expand the rendered range around the target turn, then use a target resolver to compute the final bottom-distance reveal. Do not revive top-origin range math, dual spacer nodes, or direct `scrollIntoView` as the only reveal path for virtualized content.
-
-The user-message rail is also geometry-gated, not just count-gated. Match Codex by measuring the normalized left gap from the thread scroll viewport to `[data-mcp-app-portal-target="true"]` and suppressing the rail below `48px` (`12px` inset plus `36px` row width). Recompute through `ResizeObserver`, window resize, and the scroll content wrapper's style mutations so panel motion and shifted content cannot leave the rail overlapping the transcript.
-
-Keep response spacer outside the core virtualized list. The core list should own only rendered-window math, measurement, pending reveal, and restore state; response spacer, latest-turn placement/follow, footer catch-up, and older-page trigger orchestration belong in the wrapper that can translate between base scroll distance and core distance. Putting spacer height inside the core list makes range math depend on a UI affordance and causes footer/catch-up behavior to compete with turn measurement.
-
-Measurement batches must commit layout state before running scroll side effects. A single `ResizeObserver` can collect turn-root and latest-follow-content measurements, but scroll restore/reveal/latest-height callbacks should run only after measured heights and the rendered range have been committed. Otherwise a pending target can compute distance from stale offsets, or a latest-turn spacer correction can fight the next render. Treat zero-height measurements as "not measured" so hidden or test-environment nodes do not collapse estimated rows to a 1px window.
-
-Estimated virtualized turn heights are placeholders for scroll range math, not visible row constraints. A regression in Nodex rendered unmeasured older turns inside a `280px` `overflow:hidden` wrapper, so long assistant output and code blocks were clipped whenever measurement was delayed or unavailable. Keep mounted turns in natural flow, commit the first visible measurements from layout effects before paint, and let `ResizeObserver` handle later growth instead of exposing fallback estimates as DOM height.
-
-Long transcript history must be protocol-paged before it reaches virtualization. Resume should start from the recent `thread/resume.initialTurnsPage`, and scroll-to-oldest should request older pages with `thread/turns/list` through the main/store substrate so snapshots carry `turnPagination` along with the loaded turn window. Keep app-server descending pages reversed into Nodex's oldest-to-newest timeline, prefer already-loaded live turns on duplicate ids, and emit whole snapshots after pagination merges. The renderer virtualizer should only decide when to request more history using positive distance-from-bottom plus viewport height; it should not infer missing history from array indexes or mutate transcript arrays locally.
-
-Do not turn typed history back into an augmented pseudo-`Turn` just to reuse a permissive record normalizer. Hydrate full generated turns once, retain params/timing/diff/request state in the canonical sidecars, and run the same whole-turn projection used by live lifecycle updates. This is what preserves params-first input, raw-user echo suppression, hooks, request overlays, and typed error/diff rows across resume and pagination. Reject partial item views at hydration; automation jobs that only need the latest protocol messages should scan the generated `Turn`/`ThreadItem` unions directly instead of inventing missing turn context.
-
-Search reveal needs cancellation in the same long-transcript path. If the user advances to another result while an older turn is being uncollapsed, paged, or virtualized into the DOM, the previous `ensureVisible` must observe an `AbortSignal` and stop before applying marks or final active scroll. Otherwise a slow older-result reveal can race the current active match and drag the viewport to stale content after the user has already moved on.
-
-The user-message navigation rail's visible-turn highlight is turn-container-based. Codex maps each rail item's `[data-content-search-unit-key]` to the nearest `[data-turn-key], [data-content-search-turn-key]` and observes that larger container, then marks every rail row from the first visible item through the last visible item with `aria-current="true"`. Observing only the small user bubble/search-unit leaf misses long turns and virtualized content. The marker CSS has a second trap: current rows should normally stay `bg-token-foreground opacity-60`; dim them back to description/`.4` only under a hovered, non-scrubbing rail list and only when that current row itself is not hovered or focus-visible.
-
-That scroll controller contract also depends on the footer staying in normal flow. The active thread stage should keep `body + footer` in the page shell, let the scroll viewport own `pb-8`, and let the scroll layout own the inner `max-w-(--thread-content-max-width) px-toolbar` wrapper. `px-toolbar` must stay in the generated utility layer and resolve through `--padding-toolbar`, otherwise the 48rem thread shell becomes 32px too wide. Regressions came back when Nodex moved width or full-height ownership into `LocalConversationThreadBodyOwner`, or when the footer was treated like an overlay with its own geometry variable. Keep the transcript root on natural height, keep the catch-up button owned by the footer, and do not reintroduce observer-driven auto-stick inside the scroll controller itself.
-
-The active thread title row is not part of that scroll layout. The connected title/auth/card header should render into the fixed app-header center surface through `ThreadHeaderPortalProvider`, and `LocalConversationStageScreen` should keep only an empty `sticky top-0 z-10` slot. Rendering `ThreadStageHeader` inside that sticky slot adds a 46px in-flow toolbar before `.thread-scroll-container`, which prevents wide `thread-edge-scroll` layouts from visually reaching the window top.
-
-That fixed title row uses the Codex local-conversation titlebar shape, not the generic page-header shape. Keep `ThreadStageHeader` as a single-column grid (`grid-cols-[minmax(0,1fr)]`) with title and title-adjacent actions in the same flex row; the two-column `_auto` grid belongs to page headers with their own trailing action cell. Reintroducing `_auto` inside the thread title portal creates a second header layout model inside the 46px global toolbar and can make the title appear as an extra row.
-
-The summary panel has the same mounted-vs-visible distinction. For attached threads, the floating inline panel should remain mounted when the shell crosses into overlay width; only `open` changes to false so Motion can animate `opacity`, `translateX(100%)`, and `scale(0.8)`. Use the instant `invisible`/`duration: 0` branch only while the overlay popover itself is open. Unmounting the inline panel on ordinary resize removes the close/open spring and makes width-threshold changes feel broken.
-
-### Zod usage belongs at boundaries, not inside internal renderer state machines
-Use zod at external boundaries such as imported settings blobs and other serialized inputs, not as a second validation layer inside already-normalized React state. In Nodex, the stable pattern is: parse persisted storage, selected HTTP payloads, session replay JSONL lines, transcript special-item payloads, and other raw JSON families through `src/shared/schemas/*` or a feature-local schema adapter, then hand plain normalized values to reducers, projectors, and view models. Regressions came from the opposite extremes: ad hoc `JSON.parse(... as unknown)` plus hand-written field checks at every boundary, or the temptation to re-parse already-normalized view state deep inside renderer components.
-
-The same boundary rule applies to renderer forms, but only when the form actually has a meaningful boundary. The stable pattern for structured forms is: feature-local `defaultValues`, a colocated zod schema, TanStack Form `validators`, and one `onSubmitInvalid` path for user-facing errors. Regressions came from splitting these concerns across JSX handlers: one `trim()` in the submit callback, a second integer/range check in a click handler, and a third disabled-button condition drifting from both. For simple one-field inputs like a prompt box or API-key field, a local string state plus one submit-time guard is usually the cleaner contract; reserve schema modules for forms with structural validation, coercion, or multi-field constraints.
-
-### Renderer work should push semantics upstream and visuals into shared tokenized shells
-Renderer work should split into two stages: upstream projection decides semantic lanes and action eligibility, then shared shells and tokenized utility classes render that result. Regressions in Nodex happened when view components recomputed semantics locally or introduced feature-local CSS instead of leaning on existing `text-token-*`, `bg-token-*`, `border-token-*`, width vars, radius vars, and shared row/accordion shells. First ask whether the rule belongs in normalization/bucketization and whether the appearance can be expressed by an existing token family or shared primitive before adding JSX branching or new CSS.
-
-Settings shell behavior follows the same rule. Settings is not one long scrollable overlay with scrollspy; it is a section shell with a visibility policy, a left rail, and one active page at a time. In Nodex, keep section identity path-driven (`/settings/:section`), keep invalid section ids on a redirect path back to the visible default, keep the rail as a settings-specific sidebar adapter using the shared row class family, and let each section own its own page surface instead of re-growing a monolithic settings document.
-
-Storybook coverage should follow those same semantic lane boundaries. When Codex gives an item family its own transcript lane, keep its focused stories with transcript-special surfaces instead of forcing it into a generic tool-call gallery. In Nodex, automatic approval review and multi-agent activity drifted when stories kept treating them as tool calls after the renderer had already promoted them into dedicated transcript semantics.
-
-UI work also has to update Storybook at the same time. Regressions kept reappearing when production UI changed but the focused stories still rendered the old lane, old wrapper, old fixture shape, or no coverage at all. Treat Storybook updates as part of the implementation, not follow-up cleanup.
-
-Multi-agent grouped activity has its own status aggregator and header grammar. It is not the generic transcript merge that preserves every terminal status; grouped multi-agent headers only distinguish `inProgress`, `failed`, and `completed`, with other terminal row states treated as completed. Header labels and count suffixes are a surface contract (`Creating/Created/Failed to create`, `an agent`/`# agents`), so avoid deriving them from raw tool names like `spawnAgent` or from generic `1 agent` formatting.
-
-Multi-agent row bodies are structured transcript rows, not prejoined strings. Inline prompt cases need truncation and overflow tooltip affordances, while non-inline prompted actions become a separate `Input:` metadata row that preserves whitespace. Keeping the row body as JSX also preserves agent-role suffixes and avoids textContent/accessibility regressions from relying on CSS gaps for word spacing.
-
-Multi-agent agent links should stay on the thread-stage action path. The renderer already receives `onOpenThread` for dynamic tools and thread mentions; each standalone multi-agent activity leaf should forward that same callback into its receiver rows instead of introducing a local hash route or a feature-specific navigation side channel.
-
-Multi-agent progress and subagent activity have different disclosure contracts. A running multi-agent action shimmers but does not auto-expand or disable its disclosure; its measured body remains mounted, hidden, and non-interactive until explicitly opened. Consecutive subagent updates use inline-flow chips rather than a wrapping flex row: each chip owns its spacing, only the first three render, and the trailing count/status stays in the same text flow. Compact activity chips carry only inline-activity navigation metadata; richer role, model, and diff metadata belongs to the dedicated background-agent surfaces.
-
-Local-environment configuration has the same shape rule. `.codex/environments/*.toml` is not a hidden filesystem side quest exposed only through a selector popover or an "open folder" button. It is a first-class settings feature with workspace selection, config summary, structured editing, and save/read error states. In Nodex, regressions came back whenever environment settings were reduced to a folder opener or a one-off card-stage control, because the parser model, the settings stories, and the UI affordances immediately drifted apart.
-
-Composer behavior follows the same rule. Do not render queue rows, background rows, pending-request cards, and the editor as separate footer widgets; derive one composer-shell model, then let that shell choose which stacks appear above the editor and whether request cards replace the editor branch entirely. In Nodex, the composer became unstable whenever queued follow-ups, live requests, and background activity were modeled as independent footer surfaces instead of one ordered shell.
-
-Prompt textarea autosizing is layout-sensitive, not ordinary passive synchronization. Empty composer prompts can report a large `scrollHeight` from placeholder wrapping while the workbench is restoring panel geometry, and that stale inline height survives until the next typed character if measurement only runs in a passive effect. Keep prompt autosize in layout timing, ignore placeholder-only height for empty prompts, and remeasure after mount/window resize so restart restores do not freeze a transient textarea size.
-
-Diff review has the same boundary. The review workspace is not just a prettier transcript diff card; it owns its own toolbar state, file tree, and Git snapshot queries. In Nodex, keep `turn.diff` / tool-call patch previews inside `features/local-conversation`, but keep `Last turn` / `Branch` / `Staged` / `Unstaged` review in the workbench-owned `review-diff-panel` with a dedicated main-process Git review service. Reusing transcript diff components as the files-stage implementation immediately collapses these two contracts together and breaks source selection, capped large-diff behavior, and future patch-action wiring.
-
-Turn-diff ownership is split between protocol diff state and process patch provenance. The app-server conversation/read model owns `turn.diff`; raw `fileChange` items and `patchBatches` preserve how edits happened for transcript rows, undo/reapply, and audit context. Do not rebuild or overwrite completed-turn diff state in the renderer, `thread/read`, or terminal-turn reconciliation by concatenating `fileChange` patches, because multiple process patches for one path will reappear as duplicate Review entries and can misrepresent reverted edits. If legacy or externally supplied diff payloads already contain repeated file sections, Review must fold repeated display paths before rendering. Nodex renderer should project the preserved `unifiedDiff`, `patchBatches`, `cwd`, and `showRevertButton` into thread diff card rows, Review targets, and `git:apply-patch` calls. Keep multi-cwd patch batches ordered and separate in renderer actions: Undo reverses batch order, Reapply preserves it, and fallback to a single unified diff only when `patchBatches` is absent rather than merely empty.
-
-Turn-diff file rows intentionally carry two path forms. The label and hover-preview title use a cwd-relative display path when the diff path is absolute, matching the Review panel's `displayPath` selection model; Cmd/Ctrl side-panel opens still use the raw diff path resolved against cwd. Merging those paths leaks workspace prefixes into the transcript or breaks file preview targets.
-
-Review diff presentation is not the same contract as transcript inline or hover diff presentation. The Review panel should use the line-info separator path from `@pierre/diffs` (`N unmodified lines`, collapsed-context threshold `1`, 20-line expansion increments, word-alt line diffs) and its own unsafe CSS, while turn-diff previews keep the simpler separator variant so compact transcript hover cards do not inherit Review-only spacing, expansion rows, or scroll affordances. Keep line-info geometry in `src/renderer/lib/diff-presentation.ts`: the separator wrapper aligns to `var(--diffs-column-number-width)` with `padding-inline: 2px`; feature-local `margin-left` offsets, fixed expand-button widths, and forced muted text colors will visibly desynchronize the gutter and label.
-Continuous addition indicators are part of that same shared diff CSS contract. Shared `bars` indicators need the adjacent `[data-column-number] + [data-column-number]::before` seam fix (`contain: none; top: -1px; height: calc(100% + 1px)`) so fractional-pixel line heights do not break a long green bar every few rows. Do not patch this with a made-up `data-previous-line-type` selector or row-level `box-shadow`; `@pierre/diffs` does not emit that attribute, and row shadows do not affect the solid gutter marker.
-
-### Review diff safety must gate bytes before renderer parsing
-Review's large-diff mode is a display strategy, not an input-safety layer. Binary, oversized, invalid-text, and unsupported file changes must be classified at shared/main boundaries before they become `content`, `unifiedDiff`, full-file text, or search haystacks. App-server `fileChange` and `turn/diff/updated` payloads do not include binary metadata, so Nodex derives `ReviewFileSafety` locally and carries metadata-only rows through patch batches. Git-backed review must build the file list from Git metadata (`name-status`, `numstat`, and raw status channels) before optional patch parsing; untracked files must go through `git diff --no-index -- /dev/null <path>` instead of `readFile(..., "utf8")`. Renderer rows may have no `FileDiffMetadata`; branch on load status and render placeholders instead of calling `@pierre/diffs`, full-file loaders, or content search on non-renderable files.
-
-Git Review has two patch paths with different ownership. `git:review:snapshot` should remain metadata-first and not carry an aggregate render patch as the normal Review body source; renderer-visible text bodies come from `git:review:diff` per-file loads. `git:review:patch` is read-only and exists for full-patch export/copy affordances. Only `git:apply-patch` may mutate the worktree or index, and that apply path must stay binary-capable and newline-terminated so hidden binary patch payloads can be applied or reverted without becoming render text.
-
-`N unmodified lines` is only genuinely expandable when `@pierre/diffs` receives full old/new file contents. Parsed patch-only `FileDiffMetadata` is marked partial, so the package can render the separator label but cannot page hidden context upward or downward. Keep Review full-file loading enabled by default for Git-backed sources, and keep it independent from rich preview. For transcript/turn-diff Review sources, only upgrade to full-file rendering when the current workspace file can be matched against the patch and reversed safely; otherwise cache a no-error fallback and render the partial patch rather than leaving the row stuck in a loading state or inventing old content.
-
-Background terminals are a separate trap inside that shell. The running-terminals panel is not a generic "background activity" bucket and not a child-thread status panel; it is derived from the current conversation's older still-running `commandExecution` items and rendered as truncated mono rows with tooltip previews. Reusing child queued-follow-up or pending-steer state to fake terminal rows produces the wrong feature entirely, so keep `backgroundTerminalRows` tied to old running exec items only.
-
-That same shell rule continues one level deeper for queued follow-ups. Do not hand raw queued-message transport objects to JSX and then let the component improvise drag handles, tooltips, or action labels. Shape those rows first, then render them through one dedicated lane family. In Nodex, regressions came back whenever queue rows were treated like generic cards or native `draggable` list items: the lane widened, row chrome drifted, `Worker 1`-style local headers appeared, and `Cmd/Ctrl+Enter` queue semantics stopped matching the visible row affordances. Keep queued rows projection-owned and lane-owned. Pending steers are a different contract: they are optimistic transcript `steeringUserMessage` items that accept against backend `userMessage` completions and then append a separate `steered` divider. Do not accept a pending steer from `item/started`; that notification is only the server echo for a user message and will be followed by `item/completed`. Accepting on started consumes the pending entry too early and lets the completed echo render as a second user bubble. Compare a steer through the shared exact `{ rawText, imageCount }` key, including comment-attachment exclusions; normalizing and serializing the whole input makes irrelevant mention, skill, or object metadata block a valid completion match. Also keep the pending steer and accepted `steered` marker in the turn's canonical item order, not only in transcript fallback order; otherwise later server-backed assistant items in `turn.itemIds` sort above the local steer.
-
-Dropdown menus follow the same pattern. Menu dropdowns should not be ad hoc `DropdownMenuPrimitive.Content` copies scattered through feature files; they belong to one shared dropdown family that owns surface chrome, width presets, item/title/message primitives, search rows, and flyout submenu affordances. In Nodex, DRY only holds if menu dropdowns reuse the shared `src/renderer/components/ui/dropdown.tsx` family and leave per-surface logic to triggers and item data. There is no parallel selector-only chrome layer, so selector-style pickers should compose that same dropdown family directly instead of exporting `CODEX_SELECTOR_*` classes or feature-local selector popover helpers.
-
-Tooltip and popover overlays follow the same rule. Codex keeps those on a shared facade layer too, instead of letting feature code import raw Radix tooltip/popover primitives and re-decide portal chrome, blur, ring, offsets, or dismiss semantics per surface. In Nodex, regressions came back whenever feature code mounted `@radix-ui/react-popover` or `@radix-ui/react-tooltip` directly: overlay surfaces drifted, portal widths diverged, and fixes like global tooltip dismissal had to be reapplied one feature at a time. Keep raw Radix overlay imports inside `src/renderer/components/ui/` and let feature code consume the shared facades.
-
-Shared tooltip dismissal must include app/window lifecycle, not only pointer or element-focus lifecycle. Electron app switches can skip Radix trigger `pointerleave`, so `NodexTooltipProvider` owns `window.blur`, `pagehide`, and hidden `visibilitychange` dismissal for all tooltip instances.
-
-That same cleanup has to extend one layer farther. Do not keep one overlay layer and then a second legacy button/dialog/settings component family with different tokens and abstraction boundaries. In Nodex, the shared layer only became truly DRY after button, dialog, and settings primitives moved into `src/renderer/components/ui/` too, and after feature code stopped reaching for `NodexDropdownPrimitive` / `NodexPopoverPrimitive`. If a feature still needs lower-level behavior, the missing wrapper belongs in the shared facade, not as a new primitive dependency in the feature file.
-
-Composer width ownership has the same constraint. The footer/screen boundary owns the shared `max-w-(--thread-content-max-width) px-toolbar` readable lane. Regressions came back when Nodex let `LocalConversationComposerShell` own that width and then let `ThreadComposer` wrap itself with a second width: the auxiliary queue lane diverged from the composer because padding was applied at the wrong layer. Keep shell width outside, shell layout inside.
-
-Composer corner shape depends on the curve model, not just the radius token. The intended composer surface uses `border-radius: 25px` with `corner-shape: superellipse(1.5)`. If `--codex-corner-shape` is missing, the same radius falls back to `round` and the composer looks more like a traditional pill. When auditing surface shape, compare computed `corner-shape`, `clip-path`, and mask properties in addition to `border-radius`.
-
-Shimmer has a similar trap. Codex ships a global `.dark .loading-shimmer-pure-text` rule, but Electron thread surfaces still present the white-highlight shimmer because the real Electron theme path is `electron-dark`/`electron-light`, not a generic global `.dark` contract. In Nodex, do not patch generated shimmer CSS by hand; add a narrow author-owned Electron thread/composer override instead.
-
-Composer keyboard behavior has the same separation. Codex models submit behavior as `composerEnterBehavior`, not as a static "prompt submit shortcut". `Cmd/Ctrl+Enter to send long prompts` means single-line drafts still submit on `Enter`, multiline drafts switch primary submit to `Cmd/Ctrl+Enter`, and the running-thread alternate queue/steer shortcut shifts to `Cmd/Ctrl+Shift+Enter`. Regressions came from collapsing that into a global `enter` vs `mod-enter` toggle, which makes `Cmd/Ctrl+Enter` look like the alternate action even when Codex treats it as the primary submit for multiline drafts.
-
-Running-thread composer submit actions must also be explicit at the submit boundary. Do not route alternate queue/steer shortcuts through a generic form submit plus an `invert` boolean; if the event path later falls back to the primary submit handler, queue-disabled threads become `steer` again. Resolve the key or button event to `queue` or `steer` first, stop the handled key event, and pass that concrete action through to the queue/steer branch.
-
-Inline composer slash menus have a related scroll trap. Command registry objects can legitimately recompute when the thread model or action facade changes, but the highlighted command should be preserved if its id is still visible; only menu open or removal of the highlighted row should fall back to the first command. Row `scrollIntoView({ block: "nearest" })` should run for keyboard/programmatic highlight movement, not for passive pointer hover while the user is wheel-scrolling the menu. Otherwise a harmless recompute or hover event can snap the scroll container back to the first row.
-
-Poor-network reconnect has a similar ownership trap. `Reconnecting... 2/5` is not the thread reopen/resume placeholder; it is a retryable transcript error row (`stream-error`) rendered in the mounted thread body alongside normal turn content. In Nodex, error notifications must append canonical raw error items with `willRetry` / `additionalDetails`, while protocol `Turn.error` remains metadata and `resumeState` stays reserved for explicit reopen/resume loading. Synthesizing a row from `Turn.error` duplicates durable raw errors; mixing reconnect rows with resume state makes the whole thread disappear behind an overlay when only one compact row should be inserted into the body.
-
-That same rule applies inside the request-card branch. Do not keep one generic Nodex card and then wrap approval or implement-plan prompts inside it. The shared request shell is itself the card chrome, while `approval`, `userInput`, `implementPlan`, and MCP elicitation each dispatch through their own subtype adapter. In Nodex, nested request cards drifted immediately: approval previews rendered outside the real card shell, footer actions used the wrong `Dismiss`/`Skip` split, and Storybook ended up validating wrapper components instead of the actual request family.
-
-Permission and MCP elicitation request cards are protocol adapters, not raw payload viewers. Normalize `RequestPermissionProfile` once into network/read/write/read-write display details, with filesystem `entries` superseding legacy `read/write` and `deny` entries omitted; response grants should use the granted-permission profile shape, omitting null branches. MCP server elicitation responses must travel through the renderer/main boundary as full `{ action, content, _meta }` protocol responses, because form and OpenAI-form requests return structured content on `accept`. Keeping only an action string forces every form request into a fake approve/cancel JSON card and silently drops user input.
-
-### Mounted thread ordering must preserve canonical turn item order and Codex assistant-anchor semantics
-Mounted turns are not raw chronology, but the renderer also must not freely re-sort turn items. The canonical conversation snapshot already arrives in the correct per-turn order, and the renderer should only apply semantic projection on top of that order: inject active `Working` / `Working for ...` from the turn's first-work timestamp before the first non-user work row, consume completed worked timing into the historical collapse label, keep pre-final assistant commentary in the agent-work body, and only treat the last eligible assistant item as the assistant anchor. Re-sorting `conversation.turn.items` in the renderer or collapsing all earlier assistant chunks into `postAssistantItems` breaks reopened long-running threads immediately.
-
-Codex treats agent-body collapse and command-tool collapse as different UI contracts. A collapsed agent-work section leaves only the summary row in the DOM; the expanded content is gone after collapse settles. A collapsed command tool call still keeps its measured body mounted with `height: 0`, `opacity: 0`, `pointer-events: none`, and `data-thread-find-skip="true"`. The divider/summary also depends on this split: active running turns render a non-button `Working` / `Working for ...` divider with a `border-current/20` line, while completed historical turns consume explicit worked timing or completed `durationMs` into the full-width `Worked for ...` collapse toggle before falling back to `X previous messages`. The completed toggle keeps the label/chevron left-aligned while the button spans the row, omits hover highlight, and places the `border-token-border-light` divider in a sibling row; do not collapse that into bare text or a nested card. Do not reintroduce the old `Final message` divider as the normal historical-turn fallback.
-
-Tool-call collapse is also subtype-owned, not thread-owned. Codex persists collapsed turns, but it does not keep a shared "collapsed tool items" store for the transcript. `exec` owns a local `collapsed | preview | expanded` state machine, `patch` owns one local toggle per file row, and completed MCP tool calls own their own local boolean. Reintroducing a thread-level `collapsedToolItemIds` map breaks these contracts immediately: command rows lose their timed transitions, multi-file patch rows collapse in lockstep, and mounted rerenders start overriding subtype-local interaction state.
-
-Codex also does not rely on one generic expandable transcript wrapper. The reusable piece is the measured-height hook (`VQ()`), while each transcript subtype still owns its own `motion.div` or `AnimatePresence` wrapper, open-state rules, and pointer/overflow contract. In Nodex, transcript surfaces with Codex counterparts should reuse the measured-height hook and explicit Motion wrapper instead of routing back through a shared accordion abstraction.
-
-### Thread transcript recovery must project replay-safe events, not raw rollout messages
-Codex rollout artifacts can contain raw `response_item.message` rows for internal bootstrap context, including developer instructions and `AGENTS.md` wrappers that are present for session setup but are not part of the user-visible conversation. If restart recovery rebuilds the visible transcript directly from those raw message rows, the app can show bootstrap pseudo-messages only after restart while live threads hide them, creating a split-brain transcript model. Keep one canonical transcript projection layer and rebuild restart state from replay-safe `event_msg` conversation events plus projected tool/reasoning records; treat raw bootstrap/context messages as non-transcript.
-
-### Active thread routes must resume before trusting reopened conversation snapshots
-Codex keeps `thread-stream-snapshot-request` and `thread-stream-resume-request` as separate operations. A cheap snapshot can be shallow, and the active local route should still enter `needs_resume` / `resuming`, call explicit resume, and only mount the full thread body after the main conversation manager emits a `resumeState = resumed` snapshot. Mirror that ownership model in Nodex: keep resume logic inside the manager, keep snapshot cheap, and never let renderer-side replay/bootstrap code repair active-thread transcript state.
-
-### Inactive Codex owners release subscriptions, not the last snapshot
-Hidden renderer owners should be cleaned up by calling app-server `thread/unsubscribe`, clearing renderer ownership/ack state, and emitting a `needs_resume` snapshot while preserving the last local conversation record. Do not use `forgetThreadLocalState` for inactive-owner cleanup: that erases the transcript projection and turns a subscription cleanup into data loss from the user's point of view. Also gate cleanup on no active mounted view plus no active runtime, in-progress turn, or pending request-plane entry; otherwise a hidden window can release the only live owner while there is still work to answer.
-
-### Turn-bottom live state must follow Codex placeholder precedence, not a generic waiting/running block
-Do not append a generic `Waiting for response...` or `Working` row to active turns. The mounted thread derives `exploring`, `planning`, `thinking`, or `none` after bucketization: an activity group whose trailing slice is exploration wins first, incomplete proposed plans suppress the placeholder, `worked-for` suppresses it, unresolved requests suppress it, and only then does the fallback `Thinking` shimmer appear. Modeling this as a reusable `status` block causes the wrong wording, wrong mount order, and incorrect overlap with exploration or plan cards. Keep the placeholder as a turn-body projection concern instead.
-
-`Writing plan` is its own plan-card state, not a generic `Plan` card plus a separate eyebrow. Codex switches the header copy from `Plan` to `Writing plan` while the proposed plan is still streaming, and keeps that in-progress card in the collapsed preview state by default. Expanding plan cards automatically during streaming or layering an extra `Proposed plan` label above the card drifts immediately from the real transcript hierarchy.
-
-Proposed-plan side panels are a renderer-local view over the final transcript plan item, not another execution-plan data source. Keep the boundaries explicit: `item/plan/delta` may append markdown to an already-started plan item, `item/completed` for `{ type: "plan" }` is the authoritative proposed-plan content, `turn/plan/updated` owns todo/checklist progress, and `planImplementation` owns the composer follow-up request. Mixing these paths makes the side-panel Plan tab show execution checklist text or causes todo updates to create confirmation cards.
-
-Thread transcript height compensation must anchor against the bottom of fully offscreen turns, not the top of partially visible ones. The virtualized turn list uses spacer-based flow layout and only adjusts `scrollTop` when a measured height delta happens above the viewport or while sticking to bottom. A naive `turnTop < scrollTop` check makes visible headers jump when a nested tool-call accordion opens.
-
-### Turn-diff previews are shell-context-aware, not row-local overlays
-The file-row hover diff preview belongs above the compact row and is suppressed whenever the right-side panel is open. Treat that as shell context flowing into transcript rendering, not as a row-local collision decision. Otherwise Review or Files panels can sit underneath a redundant hover preview and the panel-open state will not invalidate memoized turn rows.
-
-The preview positioner is also deliberately wider than a generic tooltip: it tracks `var(--radix-tooltip-trigger-width) - 64px`, clamped by Radix's available content width, while the preview surface itself fills that positioner. Letting the shared tooltip `20rem` max width apply makes the inline diff unreadably narrow. The `420px` vertical value is only an available-height cap for long diffs, not the fixed visual height of short previews.
-
-The completed turn-diff card's visible outline is the shared resource-card elevation, not a normal border in Electron. Runtime inspection shows the root carries `electron:elevation-stroke`, computed `border-width: 0`, and `box-shadow: var(--elevation-stroke)`; extension mode adds the real `border border-token-border shadow-sm` branch.
-
-### Reasoning rows are summary-first projector output, not raw chain-of-thought transcript
-The local-thread projector does not render raw reasoning `content` into the timeline. It projects at most one renderer-facing reasoning string from the raw item's `summary`, skips the row entirely when that projected summary is empty, and lets exploration regrouping absorb trailing reasoning where applicable. Regressions in Nodex came from materializing reasoning rows from `summary + content` and from replaying every reasoning event line as its own completed `Thought`. Keep reasoning normalization summary-first in main, and let the renderer omit reasoning rows whose projected summary is blank.
-
-### Completed reopened threads should resume in place from canonical manager state
-The host manager keeps one canonical conversation state and separates "snapshot current state" from "resume stream". Nodex regressions reappeared whenever explicit resume still ran legacy bootstrap, reread, or merge logic after `resumeState` routing was introduced. The stable rule is simpler: explicit resume should reconnect the existing manager-owned conversation in place and rebroadcast that same canonical state instead of rereading or re-merging transcript sources.
-
-### Renderer must not keep a shadow `resumeState`
-The active thread route consumes the host manager's conversation snapshot and `resumeState`; it does not maintain a second local resume reducer that can disagree with the manager. Nodex regressions appeared when the renderer eagerly set `resuming` / `needs_resume` before the host manager finished emitting canonical snapshots. Keep `resumeState` manager-owned, let snapshot host messages carry the only truth, and reserve renderer state for UI-only concerns such as collapse/search/composer focus.
-
-### Release CI must use the repository's pinned Node and pnpm versions
-Release validation must read Node from `.node-version` and pnpm from
-`package.json#packageManager`. Floating CI tool versions can change dependency
-resolution or test behavior without a lockfile change. Advance either runtime
-only through an explicit repository change that reruns the complete release gate.
-
-### Release workflows must not push version commits or tags before packaging succeeds
-On March 16, 2026, Nodex release CI created and pushed `release: v0.1.3` before the macOS packaging job proved the candidate could build. The subsequent `electron-vite build` then failed on the hosted macOS runners with a Node old-space heap OOM during renderer chunk generation, leaving partial git release state behind. The release entry workflow should stage an unpushed release candidate, build and verify from that candidate, and only then commit, tag, and push. Also keep a CI-only `NODE_OPTIONS=--max-old-space-size=...` safety margin on the macOS packaging steps, because hosted runner defaults can be lower than what the renderer bundle shape needs.
-
-### Renderer bundle boundaries must stay explicit for heavy package families
-On March 16, 2026, the renderer production build had drifted into a single `index-*.js` entry of roughly 10.8 MB, which pushed `electron-vite build` into Node old-space OOM on GitHub-hosted macOS runners during chunk rendering. The stable fix was to keep explicit renderer `manualChunks` for the heaviest package families while preserving true lazy boundaries instead of mixing static and dynamic imports for the same package. In particular, if `canvas-view.tsx` lazy-loads `@excalidraw/excalidraw`, do not statically import Excalidraw-owned subcomponents like `Sidebar` elsewhere in the same route tree, or Rollup will pull the package back into the main renderer entry and invalidate the split. BlockNote/Tiptap/ProseMirror and Streamdown/@streamdown must stay in one editor/markdown chunk because Rollup can otherwise create a circular production chunk graph where Streamdown reads the React wrapper from the BlockNote chunk before that wrapper has initialized. Keep React/ReactDOM in a separate core chunk, and keep the vendored BlockNote rule matching `third_party/blocknote/packages/`, not only `node_modules/@blocknote`.
-
-### Excalidraw imperative API callbacks must stay render-pure
-`@excalidraw/excalidraw@0.18.1` calls the `excalidrawAPI` prop from the editor constructor, before React has committed the parent tree. Do not call React state setters from that callback. Store the API in a ref, treat it as an imperative external handle, and update React state only from real scene/UI changes such as the derived set of placed Nodex card ids. Future Excalidraw releases plan to rename this prop to `onExcalidrawAPI` and call it after mount, but the current pinned stable integration must remain ref-backed.
-
-### Excalidraw runtime elements need an explicit JSON boundary
-`@excalidraw/excalidraw@0.18.1` creates ordinary live elements with enumerable optional fields whose value is `undefined`, including `customData`. These objects are JSON-serializable but are not themselves portable JSON values. Canvas observations must pass through the Canvas-specific runtime-to-durable normalizer before strict scene mutation validation; do not feed live elements directly into a generic strict JSON codec, weaken Block property validation, or use Excalidraw's export cleanup because export intentionally removes deleted elements needed for collaboration.
-
-### Owned Document identity must not dictate the content sync engine
-The first Block-first Canvas implementation reused Yjs because Canvas correctly owns an independent Document. That conflated ownership with encoding. Excalidraw already merges atomic elements by `version`/`versionNonce`; storing every complete revision in Yjs added a second merge history and retained deleted CRDT structures. In the implemented register model, 5,000 edits grew a roughly 134-byte effective element into a 263,841-byte full Yjs state, and full-state re-encoding did not remove that causal history. Keep Owned Document identity, Project scope, generation/head, history, leases, and projections engine-neutral. Use Yjs for `block_tree`, but store Canvas as normalized current scene authority with immutable mutation receipts.
-
-### Scene-native offline safety requires an exact outbox and canonical gap repair
-Debouncing a whole Excalidraw scene is not collaboration: another window can still be overwritten. A Canvas client must upload assets first, normalize runtime values, persist the exact immutable mutation before transport, and retry the same mutation identity after response loss. Element absence is never deletion; retain deleted elements as explicit tombstones. Store epoch or generation changes invalidate the outbox rather than replaying intent into replaced authority. Subscribe before the first scene read, apply only contiguous canonical deltas, and load one bounded full canonical scene after a gap, reconnect, or write-lease terminal. Present remote scenes with `CaptureUpdateAction.NEVER` so durability repair never pollutes local Excalidraw undo.
-
-### `mac.icon` packaging must run on macOS 26 runners because electron-builder now requires `actool >= 26`
-As of `electron-builder` 26.8.x, setting `mac.icon` to an Icon Composer asset (`.icon`) routes packaging through its `macosIconComposer` path, which rejects `actool` versions below 26.0.0. That means `macos-latest` while it still points to macOS 15, and `macos-15-intel`, will fail packaging even if the app itself builds fine. For Nodex, the clean fix is to keep the checked-in `resources/icon.icon` source of truth and pin release packaging jobs to GitHub-hosted `macos-26` / `macos-26-intel` runners instead of falling back to local-only builds or downgrading to legacy `.icns` in CI.
-
-### Release verification should validate the notarized app bundle, not require a separately signed DMG
-On March 16, 2026, release CI failed after a successful package because the workflow ran `spctl --assess --type open` against the DMG and Gatekeeper reported `source=no usable signature`. For Nodex's current electron-builder setup, this is expected: DMG signing is off by default, while `@electron/notarize` submits the app bundle and staples that `.app`. The durable fix is to keep verification on the app bundle (`codesign`, `spctl --type execute`, `stapler validate`) unless the project explicitly opts into DMG signing as a separate distribution requirement.
-
-### Electron packages stay lean only when renderer libraries remain in `devDependencies`
-On March 16, 2026, Nodex's packaged app had grown to roughly 800 MB installed because `app.asar` was shipping a full raw renderer `node_modules` tree on top of the already-bundled `out/renderer` assets. With `electron-vite`, renderer-only libraries still need to be installed to build, but they do not need to remain in `dependencies` unless main/preload loads them at runtime. Keep only true main-process runtime packages in `dependencies` (for Nodex: Hono server pieces, `better-sqlite3`, `node-pty`, `smol-toml`), move bundled renderer libraries to `devDependencies`, and explicitly exclude dead package artifacts like `@types`, tests, snapshots, source maps, and published `src/` trees from the packaged app.
-
-### Vitest mocks should stop at feature-local dependency boundaries
-Vitest isolates test files, but module mocks and mutable singletons can still leak within a worker or make results depend on import order. Prefer rendering the real shared component with representative data. When a true external boundary must be replaced, put it behind a feature-local `*-deps.ts` facade, use `vi.mock` for that facade, and reset spies/timers/global state in `afterEach`.
-
-Do not mock broad shared entrypoints such as `src/renderer/lib/api`, `@blocknote/react`, `@/lib/nfm-link-actions`, `@/lib/use-file-link-opener`, or reusable surface modules from a focused component test. Those mocks replace more of the module graph than the behavior under test and can hide integration failures. If a facade re-exports runtime values from Modules that are also tested directly, prefer local imported bindings over a bare re-export and keep the mock self-contained rather than spreading the real facade into it.
-
-### GitHub-only Vitest flakes need exact-SHA `act` reproduction plus order perturbation
-For renderer flakes that only fail on GitHub cloud, a green local focused test, a green `act` run on `HEAD`, or even a green run of another Vitest project does not clear the issue. Reproduce with all of the following matched to the cloud run:
-
-- use the exact failing commit SHA in a detached worktree, not the current branch tip
-- use the repo's `.actrc` runner mapping: `linux/amd64` plus `ghcr.io/catthehacker/ubuntu:act-24.04`
-- on Apple Silicon, explicitly pass `--container-architecture linux/amd64`
-- run the exact workflow/job first so the container has the same installed dependency tree and checkout shape
-- rerun the affected Vitest project inside that exact `act` job container with shuffle and a fixed seed
-
-The successful local reproduction ladder was:
-
-```bash
-git worktree add --detach .repro-<sha> <full-sha>
-
-act workflow_dispatch \
-  -C /abs/path/to/.repro-<sha> \
-  -W .github/workflows/prepare-release.yml \
-  -j prepare \
-  --input release_type=patch \
-  --container-architecture linux/amd64 \
-  -P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-24.04 \
-  -P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:act-24.04
-
-docker exec <act-container-id> bash -lc '
-  cd /abs/path/to/.repro-<sha>
-  pnpm exec vitest run --config vitest.renderer.config.ts \
-    --sequence.shuffle --sequence.seed=1
-'
-```
-
-The important lesson is that default `act` execution can stay green while the cloud flake is still real. The difference is usually test-project runtime, execution order, and shared renderer global state, not just package versions. Treat GitHub-only Vitest flake reproduction as a strict ladder:
-
-1. Read the exact GitHub run metadata first: `head_sha`, runner label, and runner image version.
-2. Re-run the exact workflow locally with `.actrc` and no `--bind`.
-3. If that still passes, rerun the exact Vitest project inside the resulting `act` job container with `--sequence.shuffle --sequence.seed=...`.
-4. If more fidelity is needed than `act-24.04`, move up to `catthehacker/ubuntu:full-24.04` or a real Ubuntu 24.04 x86_64 VM, because GitHub-hosted runners are fresh VMs and `act` is still a Docker approximation.
-
-### Global dismissal listeners must not lag behind visible UI state
-An overlay that renders as visible before a passive effect installs its `document` outside-pointer listener has a real interaction gap, not merely a flaky-test problem: the first click after entry can be missed. Keep one listener subscribed for the mounted overlay lifetime, read the latest phase and callback through `useEffectEvent`, and guard inactive phases inside the handler. Tests for native `document` or `window` events should keep one focused behavioral contract, wrap the low-level event in async `act`, and await the resulting accessible DOM state; do not duplicate that interaction inside unrelated layout tests or use retries to hide missing synchronization.
-
-### Renderer transport detection must be runtime-based, not cached at module import
-`src/renderer/lib/api.ts` is shared by tests that may import it before `window.api` exists, then install the Electron bridge later. Caching `const isElectron = typeof window !== "undefined" && !!window.api` at module load makes later callers fall back to the browser HTTP path forever, which surfaced in release CI as `Unknown IPC channel: app:flush-before-close:done`. Keep Electron-vs-browser detection inside each exported function call, and for component tests prefer mocking a local adapter module (for example `workbench-api.ts`) instead of mocking the shared renderer transport directly.
-
-### Card Stage title/body must stay inside the collaborative Document boundary
-Treating title or description as a debounced Card draft preserves a whole-value last-writer-wins seam even if the renderer delays serialization or carefully rejects stale responses. A mounted Card Stage must bind title directly to `Y.Text("title")` and BlockNote directly to `Y.XmlFragment("body")`; its change callback may invalidate local derived UI, but it must never emit NFM as a save payload or patch the shared Board store.
-
-`Card.description`, Board summaries, full-detail hydration, and raw NFM are read projections. They cannot seed or refresh an existing collaborative editor. In particular, do not call `replaceBlocks` in response to a Card/read-model revision, do not offer a conflict action that retries the user's whole title/body on a newer revision, and do not retain a migration-only snapshot editor as an error fallback. A non-primary descriptor fails closed before Card Stage mounts.
-
-Metadata drafts such as assignee or agent status may remain local until their field-level mutation is acknowledged. That mechanism must not include title/body, and an ordinary metadata acknowledgement should stay summary-sized. Cross-Document moves use the stable-ID relocation lease; explicit whole-body NFM replacement uses the current Document generation/head and creates a forward Yjs transaction.
-
-Durable Document updates still belong behind the single FIFO writer because `better-sqlite3` transactions are synchronous. The provider applies local Yjs transactions immediately, then receives durability only after the writer commits update/head/index/projection evidence. Worker failures leave the provider pending or failed for retry; they never fall back to a synchronous main-process snapshot write.
-
-### High-frequency board stores need summary read models, not full card bodies
-Renderer crashes can come from read-model width, not only from React render cost. If `kanban-store` refreshes a full `Board` after a card edit, every card `description` is serialized through the transport boundary even though most board consumers only need title/status/tags and a preview. In Electron this also means large structured-clone payloads during IPC. Keep high-frequency board state on `BoardSummary`; hydrate full cards only by id for selected/visible consumers, and keep description search in the main process returning ids plus bounded excerpts.
-
-`BoardSummary` must be a real persisted read model, not a `SELECT *` followed by `toCardSummary(rowToCard(row))`. Store `description_preview`, `description_length`, `has_description`, and card search FTS units when the worker processes card writes or backfills stale rows. `board:summary:get` and `cards:search` must not parse NFM or scan full `description` bodies on the Electron main process.
-
-After a card mutation ack, prefer summary-bearing `BoardChangeEvent` patches over broad `board:summary:get` invalidation. If an event already carries the affected `CardSummary`, `kanban-store` and low-frequency board query caches can update in place without fetching the whole board. Reserve coalesced summary refetches for delete/move/import/history events that cannot be represented from the event envelope alone.
-
-Do not optimize or revive a whole-description Card save transport after title/body authority has moved to Yjs. The former staged description path reduced structured-clone spikes but still preserved the fundamental last-writer-wins snapshot seam. Mounted editors emit incremental Yjs updates, explicit NFM import uses the generation/head-CAS Document mutation, and Card lifecycle/properties use separate typed commands. Schema v58 and later have no whole-Card update endpoint or content-bearing Card table.
-
-### Metadata draft overlays must never become content projections
-If a Card Stage metadata draft is projected into another surface, keep the producer and consumer graph one-way and subscribe at the smallest presentational leaf. Title/body are excluded: their only live cross-surface representation comes from Document synchronization and committed materializations, never a renderer overlay merged back into Card Stage props.
-
-### macOS 26 icons should treat the checked-in `.icon` as the authoring source, not regenerate it during build
-For Nodex, flat PNG/ICNS fallback assets are not enough on macOS 26: the system can wrap them in a gray enclosure instead of the intended white plate. The working path is to keep `resources/nodex-icon.svg` as the source for flat fallback rasters (`icon.png` / `icon.icns`), but keep the macOS 26 Icon Composer document in `resources/icon.icon/` as a checked-in authored asset. Do not regenerate that `.icon` package from the SVG during `sync:icons`; doing so silently discards manual Icon Composer adjustments and produces the wrong installed icon. Let packaging compile the checked-in `.icon` asset catalog instead of checking a generated `Assets.car` into the repo.
-
-### Tailwind-scanned package UI needs explicit `@source` entries or imported components silently lose utility styling
-Importing a package stylesheet like `@blocknote/shadcn/style.css` is not enough for Tailwind v4 to emit the utility classes referenced by that package's TSX files. If a local component stops using the same utility names (for example `bg-popover` / `text-popover-foreground`), the compiled bundle can silently drop those utilities and third-party rendered surfaces become transparent or unstyled. For Tailwind-based packages rendered from package source, add an explicit `@source` entry in `src/renderer/globals.css` (for vendored BlockNote shadcn: `@source "../../third_party/blocknote/packages/shadcn/src";`) so menus, toolbars, side menus, and nested popovers keep their upstream chrome regardless of local source usage.
-
-### Vendored BlockNote package exports, Tailwind sources, and manual chunks must move together
-Nodex consumes `@blocknote/core`, `@blocknote/react`, `@blocknote/shadcn`, and `@blocknote/code-block` as workspace packages with source-first exports from `third_party/blocknote/packages/*`. When rebasing or changing those packages, keep the package `exports` pointed at `src`, keep Tailwind scanning the vendored shadcn source, and keep `config/renderer-manual-chunks.ts` grouping vendored BlockNote source with the editor vendor chunk. Updating only one of those three surfaces can produce stale CSS, a bloated main renderer entry, or edits that appear to be ignored because runtime resolution falls back to built artifacts.
-
-### BlockNote's default React link editor prepends `https://` to non-protocol values, so exact-link preservation must override that UI
-BlockNote's default React `EditLinkMenuItems` normalizes submitted URLs by checking only for a recognized protocol prefix and otherwise returning `${DEFAULT_LINK_PROTOCOL}://${url}`. In Nodex, that means values such as `/Users/asc/repo/abc`, `folder/abc/file`, or `example.com` are rewritten before they ever reach NFM serialization, adapter code, or persistence. The fix belongs at the BlockNote UI boundary: keep the upstream link mark infrastructure, but replace the default create/edit link entry UI with a Nodex-local submit normalizer that trims surrounding whitespace only and otherwise preserves the user-entered `href` exactly.
-
-### BlockNote's `editLink` helper always focuses the editor, so live link-dialog sync must use a focusless transaction and its own tracked range
-Upstream `LinkToolbarExtension.editLink` ends by calling `editor.prosemirrorView.focus()`. That is fine for submit-once link editing, but it breaks detached Nodex dialog inputs if it is reused for per-keystroke syncing: every live update steals focus back into the editor. The stable pattern is to mirror the link-mark transaction locally without the forced focus call, and to track the live `{ from, to }` range inside the frozen toolbar while editing. While the toolbar is frozen, `LinkToolbarController` intentionally stops refreshing link props, so relying on the original range causes subsequent text edits to patch the wrong span once the link label length changes.
-
-### BlockNote editor code blocks need a dual-theme parser bootstrap even if read-only markdown moved to Streamdown
-Streamdown only owns read-only markdown rendering. Card Stage code blocks still flow through BlockNote's `lazyShikiPlugin`, which falls back to `createParser(highlighter)` and therefore the first loaded Shiki theme unless `Symbol.for("blocknote.shikiParser")` is pre-seeded with `createParser(highlighter, { themes: { light, dark } })`. If that bootstrap is removed during markdown-renderer refactors, light-mode editor code blocks regress immediately. Keep the light/dark theme tuple shared between Streamdown and the BlockNote bootstrap so the two paths cannot drift.
-
-### Streamdown code blocks need app-owned line and token CSS when line numbers are disabled
-Streamdown's highlighted code DOM models each source line as a direct `code > span`. Its built-in line-number class also supplies `display: block`; setting `lineNumbers={false}` removes that class, so the DOM no longer contains anything that forces line breaks unless app CSS restores the direct line span display. Streamdown's Shiki token spans also expose colors through CSS variables such as `--sdm-c`, `--shiki-dark`, and `--sdm-tbg`, while the runtime color declarations are Tailwind arbitrary classes emitted from Streamdown internals. Nodex should not rely on Tailwind scanning `node_modules` for those runtime classes. Keep the scoped Streamdown code-block CSS consuming those variables directly so line breaks and syntax highlighting survive renderer build changes.
-
-Streamdown's default code copy button also writes only through `navigator.clipboard.writeText`. In Electron/browser contexts where that API is absent or permission-denied, Thread code blocks need a renderer-owned fallback that delegates to Nodex's shared clipboard helper and reconstructs source text from the direct line spans instead of relying on `code.textContent`, which drops line boundaries.
-
-### Browser-scoped renderer theme tokens must follow the root `.dark` class, not raw `prefers-color-scheme`
-`design.local/tokens.css` is compiled for standalone browser demos and uses `@media (prefers-color-scheme: dark)` for browser-window theme tokens. The renderer theme source of truth is `ThemeProvider`, which toggles `.dark` on `document.documentElement`. Keep browser-scoped light/dark overrides keyed to `:root.dark[data-codex-window-type="browser"]` (and the light `[data-codex-window-type="browser"]` state) inside the authored renderer theme source so manual theme selection still wins over OS preference.
-
-### Runtime cursor interaction belongs on both root and body
-The static CSS artifact can declare `[data-codex-window-type="electron"] body { --cursor-interaction: default; }`, while the live renderer still needs clickable `cursor-interaction` elements to compute to `pointer` because the runtime theme injector writes `--cursor-interaction: pointer` inline on both `documentElement` and `body`. Mirroring only the CSS artifact misses that cascade layer. Keep the Nodex runtime theme bridge responsible for this document-scoped override instead of rewriting the generated utility or foundation CSS.
-
-### Toggle-drop drag source must be resolved lazily, not at dragstart time
-In `toggle-drop.ts`, the native `dragstart` listener on `.nfm-editor` fires BEFORE BlockNote's React-delegated `DragHandleButton.onDragStart` (React 18 delegates events to the root, which is above `.nfm-editor` in the bubble chain). At `onDragStart` time, `NodeSelection` hasn't been dispatched yet, so `.ProseMirror-selectednode` isn't applied and `editor.getSelection()` still reflects the old cursor. Defer drag source identification to the first `dragover`/`onDrop` call via a lazy `resolveDragSource()`, where `.ProseMirror-selectednode` and `editor.getSelection()` are authoritative. Never fall back to `editor.getTextCursorPosition()` — it returns the text cursor, not the drag source.
-
-### Start cross-surface Block drag after the side menu establishes authority
-BlockNote establishes its exact single/multi-Block selection inside `SideMenuExtension.blockDragStart`. A native listener on the surrounding `.nfm-editor` fires earlier than React's delegated side-menu handler, so it cannot reliably infer the gesture roots; nested editors make the race deterministic. Return the selected root IDs from BlockNote, then create one typed renderer-window drag session from the custom side menu. Container listeners may own cleanup only. Document and Database targets consume stable IDs plus logical parents and submit one `BlockTransfer`; they never serialize source Blocks or a target Card body.
-
-Managed cross-editor drops must take over before ProseMirror target handling and make BlockNote's document-wide SideMenu listener yield. Otherwise ProseMirror draws a vertical text caret, inserts an HTML slice into the target Y.Doc, and BlockNote asynchronously deletes the source selection—two writes outside the atomic authority. Preserve BlockNote native handling only when the source and event target are the same mounted editor. For nested outliners, capture listeners must arbitrate by the event target's closest `.nfm-editor`; the outer editor is earlier in the capture path but is not the intended target.
-
-### Collaborative undo follows surface lifetime, not EditorView lifetime
-React development `StrictMode` deliberately runs callback-ref setup, cleanup, and setup. BlockNote maps ref cleanup to Tiptap `unmount()`, which destroys and later recreates ProseMirror's EditorView while retaining EditorState. Upstream y-prosemirror stores UndoManager in that retained plugin state but destroys it from the old PluginView, leaving a dead manager after remount. Keep UndoManager in a registration-scoped collaboration controller: PluginView mount/unmount only attaches/detaches selection metadata listeners, extension unregister/editor destruction performs the idempotent manager cleanup, and a real React hook unmount destroys the editor after the StrictMode effect probe has had a chance to retain it again.
-
-### Relocation write fences must preserve nested editor participants
-Temporarily changing a BlockNote surface from editable to frozen is a capability update, not a new editor lifetime. If the React mount callback depends on `editable`, Tiptap unmounts the parent EditorView; that destroys React NodeViews and unsubscribes expanded Card providers while the same relocation quorum is waiting for them. Apply editability in place and keep the callback-ref identity stable. A provider that has accepted a bounded relocation lease also outlives visual teardown until terminal release/cancel and resync; after durable ACK its proof belongs to the coordinator, while departure before ACK still cancels safely.
-
-### Dense Pragmatic Drag and Drop boards stay responsive when elements own registration and the board owns outcomes
-Pragmatic Drag and Drop removes the list-wide `useSortable` churn, but dense boards still need discipline: keep card and column registrations local to their DOM elements, keep expensive card body rendering in memoized presentational children, and resolve the actual move only in one board-level monitor. Prefer a static source ghost plus one absolutely positioned insertion indicator over live sibling displacement or per-card hover chrome so drag feedback does not trigger unnecessary React work.
-
-### Panel tab DnD must keep header insertion and body splitting as separate targets
-Project-session panel tabs use Pragmatic Drag and Drop with a single panel-tree monitor, but tab rows and panel bodies are different semantic targets. Header rows should resolve only tab insertion/move intents and render a lightweight vertical marker; body surfaces should resolve center merge or 10% edge split intents. Do not let body split overlays cover the tab header, and do not use a generic closest-center collision pass across row tabs plus body zones because that can turn a tab-row drop into an accidental split.
-
-### Native card drag previews should preserve source offset and source geometry
-Native drag previews are browser-owned, so if the preview size or anchor drifts from the source card the drag appears to "jump" on pickup. For Kanban cards, use Pragmatic Drag and Drop's custom native preview hook with source-offset preservation and lock the preview width/height from the source element rect captured at drag start.
-
-### Pragmatic column hits still need pointer-derived insertion math, not sticky column-end fallback
-In a Kanban column with real visual spacing (`gap`, margins, or any future separator treatment), Pragmatic Drag and Drop can legitimately resolve the column drop target rather than a specific card while the pointer is in the space between siblings. Treating every bare column hit as `cards.length` causes drops in those gaps to append to the end even though the user targeted a middle slot. Keep the visual spacing mechanism independent from drop logic: once the target column is known, derive the insertion index from the live pointer Y against the rendered card rects.
-
-### Pragmatic Kanban cards must reject self/group drops at `canDrop()`, not after target resolution
-With nested card + column drop targets, allowing a dragged card (or any card in the dragged multi-selection) to remain a valid card drop target causes monitor output to oscillate between an invalid inner card target and the valid parent column target. That shows up as insertion-indicator flicker near the dragged cards. The stable fix is to reject self/group targets in the card drop target `canDrop()` so Pragmatic Drag and Drop continues lookup upward to the parent column, and to keep the board-side resolver defensive by skipping invalid card targets if they ever appear.
-
-### Kanban reorder persistence must always translate the visible insertion slot into post-removal order
-The board indicator expresses a visible slot in the rendered list, but `moveCard` / `moveCards` persist an insertion index after the dragged cards have been removed from the target column. Using the visible target index directly makes same-column drops land one position away from the indicator in forward moves. Use one shared visible-slot-to-persisted-order mapper for all drags, not only filtered/sorted boards, so the indicator and final result stay aligned. Keep that `newOrder` contract identical across the renderer optimistic transforms and `local-store/cards`; if one side interprets it as a pre-removal/full-list index while the other uses post-removal order, same-column reorder regressions come back immediately.
-
-### Kanban drag should classify sort modes by primary sort field, not by a binary "sorted" flag
-Treating every non-default sort as one `sorted` state is too coarse: it incorrectly disables same-column drag for inferable sorts like `priority` and `estimate`, and it also prevents a Jira-style "manual rank primary, secondary sorts allowed" path when `board-order` stays first. Use one explicit drag-mode classifier from the primary sort field: `manual-rank` for `board-order`, `property-sorted` for inferable bucket sorts (`priority`, `estimate`), and `derived-move-only` for sorts whose visible gaps are not truthful ranking instructions (`title`, `created`).
-
-In that model, card drop targets stay enabled for `manual-rank` and `property-sorted` modes, but remain disabled for `derived-move-only` so cross-column column drops still work without pretending to support same-column ranking.
-
-### Property-sorted card drags must patch the inferred bucket and move in one grouped transaction
-For `priority` / `estimate` sorted Kanban views, same-column drag should not degrade to a no-op or a follow-up `updateCard`. Resolve the target bucket from visible neighbor cards, apply one inferred field patch (`priority` or `estimate`) to all dragged cards, and persist that patch together with the move in the same grouped transaction/history action. Split update-then-move flows break undo/redo and can briefly render impossible intermediate sorted states.
-
-### Kanban indicators must render in the same remaining-card index space they measure
-For same-column and multi-card drags, the source cards stay rendered as static ghosts. If slot measurement excludes the dragged cards but indicator rendering still indexes into raw `column.cards`, the line can draw above a dragged ghost even though the actual insertion anchor is the next remaining card. The robust fix is to keep one post-removal slot model end to end: compute the insertion slot while excluding dragged card ids, and render the line from the same remaining-card slot space (for example `beforeCardId` / `atEnd`) rather than raw list indices.
-
-### Radix `asChild` triggers must forward ref and arbitrary DOM props all the way to the real element
-When a surface is used as a Radix trigger (`ContextMenuPrimitive.Trigger asChild`, `Popover.Trigger asChild`, etc.), converting that surface from a DOM node into a custom component can silently break the trigger if the component does not `forwardRef` and spread arbitrary DOM props onto the underlying element. For draggable card surfaces, keep the trigger surface as a proper DOM-forwarding wrapper so Radix can attach right-click/focus handlers while Pragmatic Drag and Drop still attaches its native listeners.
-
-### BlockNote side-menu drags append a `.bn-drag-preview` to the root, so cleanup cannot rely only on the drag handle
-BlockNote's side-menu drag lifecycle clones the selected block DOM and appends it to the document root as `.bn-drag-preview` at `(0,0)` for `dataTransfer.setDragImage(...)`. Its shipped styles make it nearly invisible but still hit-testable, and interrupted internal drags can strand the node when the handle unmounts. Keep CSS `pointer-events: none` on `.bn-drag-preview`, and keep editor-level native `drop`/`dragend` cleanup that calls the SideMenu `blockDragEnd()` path plus a fallback removal of orphaned previews.
-
-### Layout-retained BlockNote editors must not participate in global pointer arbitration
-BlockNote routes both side-menu hover and native dropcursor behavior through one document-wide `.bn-editor` proximity scan. A retained Card Stage parks inactive panels with `visibility: hidden` and `inert` so ProseMirror, selection, undo, plugin, and native scroll state survive tab switches; CSS deliberately keeps those hidden boxes in layout, so `getBoundingClientRect()` alone still makes them look like valid editor targets. Filter the shared SideMenu candidate set by browser interaction semantics before measuring distance: inert, non-rendered, CSS-invisible, and `pointer-events: none` editors are not candidates, missing block groups are skipped, and browser `elementsFromPoint()` order breaks ties between overlapping visible editors. Keep geometric distance only as the fallback for the side gutter and the existing near-editor drag allowance. Do not fix this by removing `.bn-editor`, disabling editability, or returning retained panels to `display: none`; those approaches leak editor internals into the shell or break the retained-state contract.
-
-### BlockNote mouse-selection guards belong at the floating-controller layer, not in side-menu subtree CSS
-`SideMenuController` renders the visible side menu through `BlockPopover -> GenericPopover`, so CSS aimed only at `.bn-side-menu` is the wrong abstraction level for selection-safety. It assumes the hit-testable surface lives entirely inside the side-menu subtree and that `mousedown` targets always implement `closest()`. Both assumptions drift: floating wrappers can stay mounted around the menu, and text-like event targets may require a `parentElement` fallback before selector checks work. The robust pattern is to arm a local primary-button guard from `.ProseMirror`, resolve element ancestry defensively, and disable hit-testing on the whole floating side-menu layer while keeping it visible for the duration of the mouse-selection gesture.
-
-### Card Stage persistence must not piggyback on BlockNote wrapper `focusout`
-BlockNote side-menu dropdowns and other floating editor chrome can legally bounce focus through `BODY` or `relatedTarget === null` during pointer interactions. If persistence is wired to the outer `.nfm-editor` wrapper's `focusout`, those transient transitions can be misread as an editor exit and unmount floating UI before its click completes. Yjs transactions and provider durability own content persistence; close/deactivation asks the surface runtime for a bounded flush/checkpoint and never derives save intent from wrapper blur.
-
-### Floating BlockNote side-menu buttons need Electron-safe activation semantics
-On the NFM side menu, the add-block `+` button looked like an ordinary click button, but in Electron the trusted mouse gesture could still end at `pointerup` without Chromium ever synthesizing a `click` for the floating button. BlockNote already works around the same class of issue in shadcn menu triggers by opening on `pointerup`; custom side-menu buttons should follow that pattern instead of relying only on `click`. Keep `click` as the keyboard/programmatic fallback, trigger the mouse path from primary `pointerup`, and still keep decorative SVG/icon chrome out of hit-testing so the button owns the full gesture.
-
-### NFM block action menu can own its popup, but not its drag trigger
-The NFM block action menu may render a local fixed-position popup to match the reference action surface and support `Cmd/Ctrl+/`, but the visible hover affordance must still be the BlockNote `SideMenu.Button` inside `SideMenuController`. Native block dragging depends on that button surviving from pointerdown through dragstart, while popup open/close must explicitly call the side-menu extension's freeze/unfreeze path. If changing this surface, keep click-intent detection on `pointerup`, never open the popup after a drag threshold or native `dragstart`, and keep the `sideMenu` component identity passed to BlockNote stable.
-
-The freeze cleanup must also be ownership-aware. Nodex renders under React `StrictMode`, and StrictMode runs effect setup/cleanup during development mounts. Calling BlockNote `sideMenu.unfreezeMenu()` from an ordinary side-menu mount cleanup immediately forces `state.show = false`, so the hover affordance can disappear as soon as BlockNote shows it. Route popup open/close through a freeze controller that only unfreezes after this component actually called `freezeMenu()`.
-
-Text-selection `More` handoff adds another side-menu close boundary. A same-editor outside pointer should dismiss the handed-off action menu without clicking through into ProseMirror, then return focus to the editor so the promoted block range remains the real, editable ProseMirror selection. Letting that pointer reach the editor can collapse the promoted block selection to a caret at the document end, and then a bare `HTMLElement.focus()` on the ProseMirror root can scroll the viewport to that caret. Keep close reasons explicit: same-editor outside pointer dismissals consume pointerdown before refocusing with `EditorView.focus()`, true external outside pointer dismissals should not steal focus, and keyboard/action closes may return focus. While the popup input is focused, `ShowSelectionExtension` can temporarily visualize the live selection, but after dismiss the dismissed range is only toolbar-suppression state, not a long-lived fake selection.
-
-Editor-owned searchable popovers have a separate focus contract from ordinary app popovers. Radix Popover content autofocuses focusable descendants unless `onOpenAutoFocus` is prevented, and ProseMirror's visible native DOM selection only tracks the editor state while the editable element is focused. For NFM-owned picker popovers such as text-selection `Send to chat` / `Move to` or side-menu move destinations, use the local editor popover facade to prevent open/close autofocus and use `ShowSelectionExtension` while focus is in the picker or text-action toolbar. Do not change the global `NodexPopoverContent` default, because normal app popovers should keep Radix's accessibility-focused autofocus behavior.
-
-NFM formatting toolbar visibility belongs to Nodex's controller state. BlockNote's formatting-toolbar store can be transiently stale relative to the current ProseMirror selection around pointer selection changes. If a rich-text selection is collapsed to a cursor, BlockNote may still report `show=true` for a render, so Nodex must not use that store as the sole rendering authority. Keep the controller's presentation state derived from the current selection: expanded text with selected characters opens the text-action menu, media/table/node selections may use the legacy toolbar, and ordinary collapsed rich-text cursors close the floating toolbar entirely.
-
-Side-menu flyout submenus must be independent floating layers. The main action surface uses `overflow-hidden` to preserve rounded clipping and internal scrolling, so an `absolute left-full` submenu rendered as its child is mounted but visually clipped, making submenu clicks look like no-ops. Anchor submenu rows with the shared popover/dropdown facade and portal the flyout content outside the main surface; also include that portaled subtree in outside-click guards.
-
-### NFM block action menu positioning needs a live anchor and mounted measurement
-The block action menu opened from the BlockNote side-menu drag handle must stay anchored through the floating-controller lifecycle, not through one static `getBoundingClientRect()` snapshot. Computing fixed coordinates before the action surface is mounted can only guess its height, so the first open can drift and then appear to repair itself after scroll or resize forces another measurement. Keep this popup on a live Floating UI reference with `autoUpdate`, prefer the current block DOM as the shortcut/Text Action anchor, and use a static fallback rect only when that DOM cannot be resolved.
-
-BlockNote table-handle color menus hit the same class of bug through Radix DropdownMenu. `DropdownMenuContent` carries `overflow-y-auto overflow-x-hidden`, so a nested `DropdownMenuSubContent` rendered in place is clipped by its parent menu. Keep BlockNote/shadcn submenu content portaled, and keep the minimal `.bn-menu-dropdown` / `.bn-color-picker-dropdown` sizing rules valid outside the `.bn-shadcn` subtree because portaled submenu content may mount under `document.body`.
-
-### Database View ↔ editor drag is a projection boundary, not a snapshot move
-A Kanban column is a Database View projection, while the Database itself may be the Card's exclusive parent. Cross-surface drag must therefore express a real logical parent change, not create a `cardRef`, serialize NFM into a new Card, or pair source deletion with a second target command. Carry stable root IDs and logical parents, default to Move, sample Option/Alt again at drop for Copy, and submit one `BlockTransfer`. The writer derives revisions and the Hub fences affected Y.Docs; the renderer only shows pending feedback and waits for durable fanout.
-
-### Nested editor drop ownership must be exclusive, not merely propagation-safe
-Capture-phase guards can stop an outer editor from handling the current event without clearing feedback it drew on a previous event. Browser drag transitions also enter the new element before leaving the old one, so `dragleave` alone cannot define ownership. Register every mounted Document surface with the window-local coordinator, resolve the first registered element in `event.composedPath()`, and synchronously deactivate the previous owner—including its native BlockNote cursor—when the deepest surface changes. Pragmatic Drag and Drop has a separate trap: nested target callbacks all execute even though `location.current.dropTargets` is inner-first. Render or commit only when `self.element` is that first target; otherwise one pointer drop can produce two indicators and two authority commands.
-
-Keep editor-native payloads typed, bounded, and window-local. HTML only permits writing the drag data store during `dragstart` and reliably reading it at `drop`, so the native bridge mirrors a versioned token into custom MIME while one in-memory coordinator remains same-window authority for session/source identity. A renderer window that did not originate the gesture rejects the payload even if the MIME crossed the window boundary. Transfer payloads contain only stable root IDs, logical source coordinates, and disposable display hints; they never contain NFM genesis or Card bodies.
-
-Kanban Cards are external drag sources from the editor's perspective even though a Move inserts a real same-ID Card shell. Mark their draggable surface with BlockNote's `bn-drag-exclude` contract so BlockNote does not draw its predictive inline cursor alongside Nodex's transfer insertion slot. The transfer slot should reuse BlockNote's `prosemirror-dropcursor-block` styling and full block geometry; maintaining an independent line treatment makes the same insertion position look like two different operations.
-
-Do not publish a second legacy reference or snapshot MIME from a Pragmatic Kanban draggable: the same native `DataTransfer` is visible to React/native column listeners and can turn one gesture into competing mutations. Kanban Card → editor transfer stays on the Pragmatic element adapter, Kanban reorder stays on the Board monitor, and editor → Kanban uses only the window-local native bridge. Cross-window DnD is intentionally unsupported—cross-window content consistency belongs to SQLite/Y.Doc synchronization, not DOM drag transport.
-
-The Board's Pragmatic monitor subscription must still outlive render-state changes during the gesture. Do not register it from an Effect that depends on selection, Board projections, filters, or mutation callbacks: `onDragStart` commonly changes selection, React runs cleanup before the dependency-driven re-subscription, and a monitor added during the active drag does not receive the already-finished start event. Keep one subscription for the Board instance and use Effect Events to read current render state.
-
-### Project-scoped Card Stage persistence must sync card snapshots on every patch/update
-Keeping Card Stage state per project is not enough by itself; if the stored `card` snapshot is only set on open, switching projects can remount stale data and appear to lose in-progress edits. Wrap Card Stage handlers so `onPatch`/`onUpdate`/`onMove` also update the persisted peek snapshot for that project.
-
-### Card writes need defense-in-depth limits at both HTTP boundary and local store
-To prevent runaway payload growth from parser/serializer bugs or hostile clients, enforce card write size limits in two places: route-level HTTP body caps (return `413`) and field-level validation in `local-store/card-input-validation` (covers both HTTP and Electron IPC). Keep limits centralized in shared constants so behavior stays consistent across transports.
-
-### Link-label escaping must round-trip through parser + serializer to avoid exponential growth
-
-### NFM link storage and NFM link opening are separate contracts
-BlockNote's default `EditLinkMenuItems` prepends `https://` to protocol-less values, so preserving local paths or other exact user-entered hrefs requires replacing the default BlockNote link-edit UI rather than trying to repair the value later during NFM serialization. After switching manual link create/edit to trim-only storage, a second regression appeared because preserved values like `example.com` and `folder/abc/file` were still opened through plain browser anchor behavior, which reinterpreted them as app-relative URLs. The stable contract is: keep submit-time storage exact, then classify the preserved href at click time through one shared resolver used by both editor and read-only NFM surfaces. Bare domains can normalize to `https://...` only at open time, absolute/file URLs route through the desktop file opener, relative file-like values resolve against the active project workspace, and unresolved file-like values must fail closed instead of navigating browser-relative.
-If link labels are parsed as raw text (for example, ``[...] (url)``) but always escaped during serialization, repeated saves can grow backslashes exponentially (`f(n)=2f(n-1)+1`) on escaped markers like `\*`. Parse link labels with the same backslash-unescape rules used for normal text so save cycles are idempotent, and keep a regression test that loops many round-trips on representative markdown.
-
-### General child-group Enter/Backspace behavior is safest with schema-gated inline parents plus ProseMirror split/merge helpers
-For BlockNote nested child groups, applying Enter/Backspace behaviors beyond toggles should gate on parent `blockSchema[type].content === "inline"` so paragraph/heading/list/card-toggle parents are supported while non-inline wrappers are skipped. Keep high-level guards in keyboard handlers, and do structural edits (merge child into sibling/parent; split parent trailing content into first child) in ProseMirror transaction helpers injected from `nfm-editor-extensions.ts` for reliable cursor placement and child-order control. For Backspace specifically, any leaf child at block start should merge upward into its previous sibling (or the parent if it is the first child), including tail children in quote/list/toggle contexts.
-
-### Never re-couple sidebar DB project switching to Thread/Card/Terminal routing
-The sidebar project switcher is DB-stage datasource selection only. Re-coupling it to Thread/Card/Terminal context causes cross-stage resets and stale cross-project writes. Keep `dbProjectId` scoped to DB view/search/cache, keep Threads on `threadsProjectId` (or active thread project), keep Card Stage entity-driven by its session project, and keep Terminal routing on each tab's `projectId`.
-
-Cross-Project stable-ID moves form a cyclic composite-foreign-key update across `blocks`, `documents`, ownership, and projections. Transaction-level FK deferral makes the final state atomic, but it does not defer application validation triggers. Delete rebuildable Document search/asset/Card projections before changing coordinates, move every ownership row, then rebuild projections from the unchanged Y.Doc head and run `foreign_key_check` before inserting the immutable receipt. Never solve this by enabling the legacy `cards.project_id` trigger: it sees only one Card row and cannot discover recursively owned Documents.
-
-### Shared `localStorage` is the wrong restart-resume boundary for independent Electron windows
-Electron windows in the same session share origin `localStorage`, so moving workbench restore state there would make restart persistence work at the cost of collapsing independent multi-window sessions into one shared shell state. Keep live window state in `sessionStorage`, and persist durable reopen layouts through the main-process window-session catalog under profile-scoped `userData`.
-
-### Window-session layouts must stay session-owned
-
-VS Code-grade reopening needs a main-process window-session catalog keyed by window session id. Reintroducing a shared profile-local layout template for multiple windows collapses duplicate windows into one last-writer-wins layout and makes focus restore ambiguous. Session saves should update only the current window session; future new-window seeds should come from explicit layout input, the last-focused window session, or the default workbench layout.
-
-Do not treat an individual non-last window close as the durable removal point. VS Code rewrites its restore state from the windows still open during shutdown, while keeping a last-closed fallback for the zero-window quit/reactivation case. Nodex should follow that pattern: keep closed sessions in the catalog until quit-time retention rewrites the open set.
-
-### Shared custom block specs should live in leaf modules to avoid schema import cycles
-If one schema module (`toggle-list-schema`) imports from another schema module (`nfm-schema`) while a custom block renderer in that chain imports back into the first schema, ESM evaluation can hit TDZ errors like `Cannot access '<export>' before initialization`. Keep reusable custom block specs (e.g. callout) in leaf modules (`callout-block.tsx`) and inject schema instances into shared editor components instead of importing schema singletons inside them.
-
-### BlockNote heading typography needs matching side-menu height overrides
-BlockNote heading scale is driven by `--level` / `--prev-level` variables on `[data-content-type="heading"]` and `[data-prev-level]`, while the drag-handle side menu uses separate hardcoded `.bn-side-menu[data-block-type="heading"][data-level="…"]` heights. If you change heading typography to match a product style guide, update both the level variables and the side-menu heights together or the drag handle will look vertically offset from the rendered heading.
-
-### `:has(...)` on `.bn-block` can overmatch ancestors unless the first combinator is constrained
-For React custom blocks such as inline Database views, BlockNote renders `.bn-block-content[...]` inside a direct `.react-renderer` child of the owning `.bn-block`, not as a direct `.bn-block-content` child. A broad descendant `:has(...)` selector matches every ancestor `.bn-block` that contains that subtree, causing ancestor highlight bleed. Use a constrained first combinator that anchors to the owner structure, for example `.bn-block:has(> .react-renderer .bn-block-content[data-content-type="toggleListInlineView"] [data-inline-view-shell][data-active="true"])`.
-
-### Custom slash-menu extensions need a single shared `SuggestionMenuController`
-To add custom slash items while keeping BlockNote defaults, disable `BlockNoteView` built-in `slashMenu` and mount one shared `SuggestionMenuController` that merges `getDefaultReactSlashMenuItems(...)` with app-specific items. If default slash remains enabled, menus can conflict/duplicate and custom items won’t stay consistent across editors.
-
-### NFM suggestion menus need per-controller portals, not editor-wide portal defaults
-Do not set `portalElements.default = null` on editable NFM `BlockNoteView`s. That moves `editor.portalElement` to `document.body`, which also moves SideMenu, drag handles, link toolbar, and other BlockNote floating UI out of the `.nfm-editor` styling and scroll boundary. Instead, keep the editor portal at BlockNote's default `.bn-container` and pass an explicit body portal only to the NFM slash/mention `SuggestionMenuController`s.
-
-Keep selected-row scrolling local to the menu list. Do not call native `scrollIntoView()` from NFM suggestion rows: it can walk ancestor scrollers and combine with browser scroll anchoring. If a menu item needs to be revealed, adjust the dropdown list's own `scrollTop`, use fixed positioning for body-level suggestion menus, and keep the owning editor/card-stage scroll container opted out of scroll anchoring.
-
-Keep NFM suggestion-menu item tooltips one local layer above the suggestion-menu popover. Both the BlockNote `SuggestionMenuController` popover and Radix tooltip content are portaled to `document.body`, so the generic app tooltip layer (`z-50`) can sit below BlockNote's suggestion popover layer (`z-index: 80`). Use the shared NFM floating constants instead of raising the global tooltip layer or changing editor-wide portal defaults.
-
-### BlockNote suggestion accepts must use the live query, not the last rendered items
-BlockNote suggestion menus can render one query behind the editor because `getItems(query)` is async and React may not have rerendered the controller for the newest ProseMirror plugin state yet. If Enter or a pointer click directly commits `items[selectedIndex]`, fast input such as `@now` + Enter can pick the stale result for `@no`. Treat visible items as presentation only unless their `usedQuery` equals the live suggestion extension query read at event time. Stale arrow/page keys should consume the event without moving the stale selection, stale clicks should not close or clear the menu, and stale Enter should record a pending accept for the live query so the first fresh item is picked after that query's items load.
-
-NFM `@` mentions add a second latency trap: date/reminder matches, local card-summary MiniSearch, cold chat metadata loading, card-description FTS, and chat-content FTS must not share one `Promise.all` barrier. Keep date-like queries on the synchronous fast path and let the slower IPC searches update a request-keyed cache that bumps a refresh token only when the completed result still belongs to the current project/query.
-
-Vendored BlockNote React and shadcn components share one UI contract. If the React controller layer adds root-level state such as `aria-busy` for stale/loading suggestion menus, the matching shadcn root component and `ComponentProps` type must accept and forward normal DOM/ARIA attributes. Do not leave `assertEmpty(rest)` on root wrappers that render real DOM nodes; otherwise default surfaces such as the colon-triggered emoji grid can crash even when Nodex's custom slash and mention menus are healthy.
-
-### Search-backed pickers must bind rows to the query that produced them
-React deferred rendering and async IPC searches make it legitimate for a picker to display rows from an older query while the live input already changed. The regression class appears when Enter, click, or activation reads the last rendered `rows[selectedIndex]` and treats it as the live intent. Keep a single query-fresh seam: visible rows carry `rowsQuery`, slow batches carry their producing query/scope, and semantic actions compare those values with the live input before committing. If rows are stale, navigation should only consume the event, clicks should be ignored, and Enter should synchronously rebuild rows from fast local data or queue a pending accept until the matching fresh batch arrives. Content search follows the same boundary even without rows: a changed live query must immediately make old `resultByDomain` entries ineligible for activation and abort any in-flight reveal.
-
-### Reuse toggle keyboard handlers across custom toggle-like block types
-When adding custom toggle row blocks (like `cardToggle`), shared Enter/Backspace handlers should treat them as toggle parents too; otherwise key behaviors diverge between editors. Keep toggle-type checks centralized (`toggleListItem`, toggleable `heading`, `cardToggle`) so child-creation and empty-child deletion behavior stays consistent.
-
-### Share BlockNote extension bundles across editors to keep UX aligned
-When multiple editors should behave the same (Card Stage and Toggle List), centralize extension setup (`disableExtensions`, input/shortcut overrides, paste handler) and shared drag/toggle-drop wiring into reusable editor modules instead of duplicating `useCreateBlockNote` config per view. This prevents UX drift and reduces bug-fix duplication.
-
-### Inline embeds should use single-editor projection when drag handles must work inside embed children
-Nested BlockNote editors inside `content: "none"` shells can conflict with SideMenu editor targeting and native drop cursors. Keep foreign bodies out of the host tree: a real document-bearing shell owns only identity/presentation in the host Y.Doc, and expanded visible content mounts through its independent provider. Cross-surface drop targets must stop the native event, suppress the ordinary ProseMirror cursor while their BlockNote-aligned indicator is active, and commit through `BlockTransfer` rather than projected child mutation.
-
-### Projection performance requires shared stores/controllers, not per-embed listeners
-Per-embed sync wiring scales linearly with embed count: each embed adding its own board subscription/fetch path and editor listeners (`onChange`, `onSelectionChange`, `MutationObserver`, `focusout`) causes duplicated reconcile/patch work and long `message` tasks when many projected embeds are open. The stable pattern is two shared layers: a per-project board store (single realtime subscription + deduped fetch/mutation fan-out + shared `cardIndex`) and a per-editor projection sync controller (single listener set + owner registry + targeted owner flush/reconcile). Keep embed hooks as thin registration facades.
-
-### Projection outbound saves should patch locally before remote mutation
-For projected `cardToggle` edits (`cardRef`/`toggleListInlineView`), run a local `patchCard` before awaiting `updateCard` so Kanban/List views update immediately while the remote write is in flight. Keep store-side no-op guards so repeated identical optimistic patches do not trigger extra rerenders.
-
-### Inbound projection reconcile must treat unsynced local projected edits as outbound-busy
-If inbound reconcile compares projected-row signatures before local projected edits are captured as pending outbound patches, stale `projectedRows` can overwrite freshly moved/edited projected-row content (notably after drop into projected rows). In `projection-sync-controller`, capture/merge current projected patches on local `onChange`, gate inbound reconcile on `pendingPatchByCardId`, and avoid replaying queued inbound snapshots after successful outbound sends.
-
-### Post-mutation board refreshes should wait for stale in-flight fetches, then refetch
-`kanban-store.fetchBoard()` dedupes concurrent requests by returning the same in-flight promise. If a write path (`moveCard`, import, etc.) starts while an older fetch is already running, awaiting `fetchBoard()` can settle with stale pre-mutation data. Combined with mutation cooldown suppressing immediate realtime refresh, same-project UI can stay stale until remount. Use a dedicated `refreshBoard()` that awaits current `inFlightFetch` first and then issues a new fetch, and avoid calling `markMutation()` for no-op local patches so cooldown does not suppress useful realtime updates.
-
-### Meta strings can drive rich non-editable chips in custom BlockNote rows
-For derived row blocks (like `cardToggle`), keep editable title content separate and render property chips from a serialized `meta` string (`[P0] [L] [Backlog]`) in the custom block renderer. This keeps sync payloads simple while still matching existing chip visuals via stable CSS class mapping.
-
-### Derived card editors need stable block IDs to preserve per-block UI state
-For card-derived BlockNote documents (like Toggle List), use deterministic top-level block IDs (`toggle-card-<project>-<cardId>`) and treat membership/order as source-of-truth from board + rules. Then do structural replace only when membership/order changes; otherwise patch block content/props/children in place and skip dirty/in-flight cards to avoid sync races and collapse-state loss.
-
-### Custom image actions should be added via a custom FormattingToolbarController
-BlockNote’s image floating panel actions come from formatting toolbar items. To add app-specific actions like `Copy image`, disable default `formattingToolbar`, render your own `FormattingToolbarController`, and compose `getFormattingToolbarItems()` with the custom button so built-in file actions remain intact.
-
-### Renderer HTTP base must come from runtime, not a hardcoded localhost port
-Hardcoding `http://localhost:51283` in renderer helpers breaks Electron image upload/asset fetch when `[server].port` is changed in `config.toml`. Resolve API base at runtime: Electron should use a preload-injected server URL from main process; browser mode should use `window.location.origin` (except local Vite dev on `:51284`, which should target API `:51283`); keep default `51283` only as fallback.
-
-### History diff UI should merge previous/new keys to preserve "cleared" fields
-`history.new_values` is JSON-serialized, so keys with `undefined` values are omitted. For accurate field-level history diffs (especially when a value is cleared), derive changed fields from the union of `previousValues` and `newValues` keys, not from `newValues` alone.
-
-### Card stage tag suggestions can use native datalist with zero custom dropdown state
-For lightweight tag autocomplete, `Input` already forwards native props, so wiring `list` + `<datalist>` is enough to show existing tags while typing. Build suggestions from board-wide unique tags, exclude tags already on the card, and keep Enter-to-add behavior unchanged.
-
-### BlockNote find/highlight should use ProseMirror decorations + transaction meta
-For in-editor search, avoid manual DOM wrapping of matched text. Use a ProseMirror plugin (`Decoration.inline`) and drive query/navigation through `tr.setMeta(pluginKey, action)` so highlights survive re-renders and doc changes. Keep toggle expansion separate from query updates; only expand collapsed toggle ancestors when navigating to an active match.
-
-### Keep find input focused during search navigation
-If find-next navigation forces editor focus, repeated `Enter` breaks because keystrokes stop going to the find input. For NFM find UX, avoid calling `editor.focus()` during reveal so users can keep pressing `Enter` to jump through matches, and use sticky find UI so controls remain visible while scrolling long notes.
-
-### Selection scroll may need a DOM-level fallback in blurred editors
-`tr.scrollIntoView()` after updating selection can be unreliable when focus stays in a find input instead of the editor. After setting the active match selection, run a post-render fallback (`requestAnimationFrame`) to scroll `.nfm-search-match-active` into view so navigation consistently reveals the hit.
-
-### Sticky overlay toolbars should use a zero-height layer to avoid content shift
-If a sticky toolbar is rendered in normal flow, mounting it pushes editor content down. For NFM find UI, use a sticky wrapper with `height: 0` and `pointer-events: none`, then place the interactive panel inside with `pointer-events: auto` so it stays visible while scrolling without shifting document layout.
-
-### Flex find bars need `min-width: 0` on inputs to prevent icon overlap
-In a single-row find toolbar with input + counters + icon buttons, a `width: 100%` input can overflow and push controls off-screen. Apply `flex: 1` and `min-width: 0` on the input in the top row so long queries truncate correctly and controls stay visible.
-
-### Do not rebuild a parallel shared `Select` layer
-The shared UI surface does not need a separate `Select` family. Common selector UX is composed from the shared dropdown facade plus trigger/content/item helpers. Rebuilding a parallel `ui/select.tsx` abstraction creates duplicate chrome constants, duplicated positioning rules, and diverges from the established component architecture. Prefer the shared dropdown family instead of a separate select primitive.
-
-### Use SQLite online backup API for WAL-safe snapshots
-With WAL mode enabled, raw file copies can miss committed state unless checkpoint sequencing is perfect. In Nodex, use `better-sqlite3` `db.backup(...)` for backup snapshots, then copy assets separately, and never treat `nodex.db` file-copy alone as a reliable live backup strategy.
-
-### JSONL default output is safer for agents than CSV defaults
-CLI tabular outputs (`ls`, `history`, `query`, `schema`, etc.) now default to JSON Lines instead of CSV so agents can stream/parse one record per line without header handling or CSV escaping edge cases. Keep `--csv`, `--json`, and `--table` as explicit format overrides.
-
-### CLI typos were accidentally starting server mode
-The old dispatch logic treated any unknown first argument as server-start args, so typos like `nodex lss` could start server mode instead of failing fast. Keep command resolution strict, and only auto-fallback to server mode when arguments clearly look like serve flags/path usage.
-
-### HTTP JSON dueDate values must be normalized before local-store card writes
-`local-store/cards` expects `dueDate` as `Date` (or unset), but HTTP JSON requests carry strings. Normalize `dueDate` in HTTP handlers (`YYYY-MM-DD` or ISO string → `Date`, `null`/`""` → clear) to avoid runtime `.toISOString()` type errors.
-
-### BlockNote background colors use plain color tokens, not `_bg` suffixes
-NFM inline/block background colors use `*_bg` (`purple_bg`), but BlockNote style props expect plain color names (`backgroundColor: "purple"`). Always normalize NFM→BlockNote (`*_bg` → plain) and BlockNote→NFM (plain → `*_bg`) in the adapter; otherwise background highlights silently fail to render in the editor.
-
-### CLI TOCTOU races require server-side column resolution, not client-side lookup
-When multiple agents use the CLI concurrently, a two-request pattern (lookup card column → operate on card) creates a time-of-check-time-of-use race: another agent can move the card between the lookup and the operation, causing silent "Not found" failures. Fix: make `columnId` optional in all server-side card operations (`getCard`, `updateCard`, `deleteCard`, `moveCard`) so the server resolves it internally within the same synchronous block. This collapses each CLI command to a single HTTP request. Also wrap all write operations (card mutation + history recording) in `db.transaction()` — since better-sqlite3 transactions are per-connection and `getDb()` returns a singleton, local-store/history calls within a transaction callback are genuinely atomic even though they independently call `getDb()`.
-
-### IPC handler registration should be idempotent in Electron main
-In Electron dev workflows with reloads, re-running `registerIpcHandlers()` can throw duplicate-handler errors on the first already-registered channel and prevent later channels from being registered, which leads to selective `No handler registered for '<channel>'` runtime failures. Register IPC handlers through a helper that first calls `ipcMain.removeHandler(channel)` and then `ipcMain.handle(channel, listener)` so channel maps are always fully refreshed.
-
-### Main-process IPC fanout must tolerate renderer frame disposal
-Electron can destroy or replace a renderer frame after main has selected a `BrowserWindow` but before `webContents.send()` runs. A `BrowserWindow.isDestroyed()` check alone is not a send contract; check `webContents.isDestroyed()` too and keep the send itself inside a try/catch. In Nodex, all one-way main-to-renderer notifications should go through `ipc-safe-send`: lifecycle race errors such as disposed `WebFrameMain` are debug-level skips, and unexpected send failures are warning-rate-limited with channel/window/webContents context.
-
-Sidebar sync can amplify that IPC failure mode if app-server `thread/list` rows are treated as session tree changes. Keep `upsertLinkFromThread()` as a pure Codex thread read-model write; callers decide whether the session container/link read model changed. Repeating an identical force sync should produce no `project-sessions-changed` events, and title/preview/status/archive/updatedAt changes should flow through `sidebarSyncUpdated` plus lightweight `project-sessions:list-summaries` refresh only. Reserve `project-sessions-changed` for create/delete/reorder/pin/unread/archive/unarchive/materialize/re-home/attach/detach/rename-style container changes; routing it back into `codex:sidebar:sync` or full `project-sessions:list` can create GB-scale IPC loops during thread open.
-
-### Notion inline styles/colors come from legacy title annotation tuples
-Notion clipboard rich text often arrives as `properties.title` tuples like `["text", [["b"], ["i"], ["h","teal_background"]]]`. Preserve inline formatting by mapping `b/i/s/c/_` to bold/italic/strikethrough/code/underline and map `h` color tokens (`teal`/`teal_background`) to NFM-compatible colors (`green`/`green_bg`).
-
-### Notion paste metadata survives as custom MIME and should be preferred over HTML
-When copying from Notion in Chromium, structural block data is available via `text/_notion-blocks-v3-production` (and on native pasteboard encoded inside `org.chromium.web-custom-data`). For preserving structures like toggles, handle this MIME first via BlockNote `pasteHandler` and only fallback to default HTML/plain-text paste when Notion payload parsing fails.
-
-### BlockNote file paste/upload requires `uploadFile` or file blocks never finish
-BlockNote's file insertion flow creates a placeholder block first and then calls `editor.uploadFile(file, blockId)` to populate `props.url`. Without `uploadFile`, paste/drop image behavior effectively fails. In a realtime Y.Doc, the placeholder update is independently observable and durable: treat an empty URL as valid pending Block content, exclude it from asset-reference projections, and index the asset only after the follow-up update supplies a source. Do not debounce, reject, or hide that first collaborative transaction.
-
-### Stable media references should use app-specific asset URIs
-Persisting absolute `http://localhost:...` image URLs inside NFM is brittle when host/port changes. Store canonical `nodex://assets/<file>` URIs in descriptions and resolve them to HTTP at render time (`resolveFileUrl` in editor and a renderer helper in read-only views).
-
-### ProseMirror DOM is read-only for custom attributes
-**Never** `setAttribute()` on ProseMirror-managed DOM nodes (`.bn-block-outer`, `.bn-block`, `.bn-block-content`, etc.). ProseMirror's MutationObserver detects mutations, marks nodes dirty, and re-renders — stripping any attributes not in the schema/decorations. The exact code path: `viewdesc.ts` → `patchAttributes()` removes attributes not in the computed decoration set.
-
-**Fix pattern**: Place overlays/markers as children of elements **outside** ProseMirror's managed tree (e.g., React container divs), and use bounding rect calculations to position them. Attributes on React-managed elements (like `.nfm-editor`) are safe.
-
-### The footer owns two above-composer hosts, both before the composer shell
-Codex keeps both above-composer hosts in the same footer-width stack as the composer shell: `above-composer-portal` for fixed transcript-owned surfaces, and `above-composer-queue-portal` for queued follow-ups, restored steer follow-ups, background terminals, and background agents. Both hosts are normal-flow siblings immediately before the shell. Moving either host into the scroll body or rendering the queue/background stack inside `LocalConversationComposerShell` drops those surfaces below the composer and breaks the Codex width/padding contract.
-
-Fixed active-turn content has ownership independent from visibility. Streaming todo and aggregate diff are always excluded from the transcript even while a request blocks their fixed owner; completed todo stays hidden, while completed diff alone returns to assistant-after or standalone ownership. Validate todo/diff contents before mounting the fixed layer so invalid or blocked state also removes its spacer. When multiple thread footers coexist, resolve both portal hosts by conversation identity and fail closed if only another conversation's attributed host exists.
-
-`Thinking` is also an ownership decision, not an extra tail row. The latest open activity group absorbs the fallback when it is the final visible activity unit; only a later standalone unit creates a standalone placeholder. Apply the turn-level Thinking predicate first—blocking requests, safety buffering, visible final answer, worked-for, exploration, and incomplete plan state must be able to suppress the group fallback too—or a hidden standalone row can reappear through the group header.
-
-### Debugging lesson: find WHO before fixing HOW
-When a DOM attribute flickers, don't assume it's your own code clearing it. First check if a framework (ProseMirror, React, etc.) is stripping it via its own reconciliation. Read the framework's DOM update source (`node_modules/`) to confirm the actual code path before writing a fix.
-
-### BlockNote toggle-drop implementation
-- `toggle-drop.ts` handles drag-and-drop onto collapsed toggle headers
-- Overlay lives in `.nfm-editor` container (React-managed), positioned via `getBoundingClientRect()` relative to container
-- `data-toggle-drop-active` on container is safe (not PM-managed)
-- Guard-first pattern in `onDragOver` prevents flicker from transient `e.target` changes
-- `revalidateActiveTarget()` handles PM DOM node replacement by re-resolving via blockId
-
-### `.closest()` is dangerous for nested BlockNote blocks
-**Never** use bare `.closest(".bn-block[data-id]")` to resolve a block ID from an arbitrary DOM element. For nested children, `.closest()` walks UP past the child's `.bn-block-outer` → `.bn-block-group` → parent's `.bn-block[data-id]`, returning the **parent** ID instead. Use the three-step `resolveBlockId()` helper in `toggle-drop.ts`: check self match, then `:scope >` direct child, then `.closest()`.
-
-### BlockNote multi-block drag selection
-When user shift+clicks multiple blocks and drags, BlockNote creates `MultipleNodeSelection` (not `NodeSelection`), so `.ProseMirror-selectednode` may NOT be applied. `editor.getSelection()` has an off-by-one for `MultipleNodeSelection`: it uses `getNearestBlockPos(doc, selection.to)` where `.nodeAfter` at the `to` position points to the NEXT block, not the last selected one. The `MultipleNodeSelection.nodes` array itself is correct (populated via `doc.nodesBetween` with exclusive `to`). **Fix**: duck-type the PM selection (`sel.nodes` for multi, `sel.node` for single) to read block IDs directly from the selection's node attrs instead of going through `editor.getSelection()`.
-
-### BlockNote extension priority: `runsBefore` required to override built-in handlers
-Custom `createExtension()` with a `keyboardShortcuts` handler for a key already handled by a built-in block spec extension (e.g., `Enter` on `toggleListItem`) will **NOT** run first by default. Both get the same priority (~101), and TipTap's reversal logic gives the built-in handler the tiebreak. **Fix**: Use `runsBefore: ["<built-in-extension-key>"]` to create a topological dependency that raises your extension's priority.
-
-### BlockNote Backspace handler lifts nested blocks before empty-block deletion
-In BlockNote's default `KeyboardShortcutsExtension`, Backspace checks `liftListItem("blockContainer")` at block start **before** its "delete empty inline block" path. We keep a custom child-group merge handler to override that path whenever the caret is at the start of a leaf child under an inline parent, including quote/list/toggle tail children. It merges content into the previous sibling (or parent if first child) via a ProseMirror-level operation (`mergeIntoBlock` in `nfm-editor-extensions.ts`) and places cursor at the join point. The merge uses `tr.delete` + `tr.insert` + `TextSelection.create` in a single transaction rather than BlockNote's `updateBlock`/`removeBlocks` (which loses cursor position). Similarly, Enter at position 0 of an empty child creates a new sibling (`child-group-enter.ts`) instead of unindenting.
-
-### BlockNote toggle headings use `isToggleable` prop on heading blocks
-BlockNote natively supports toggle headings via `isToggleable: true` on the heading block (when `allowToggleHeadings` is enabled, which is the default). No custom block type needed. The heading renders with the same `.bn-toggle-wrapper` / `.bn-toggle-button` DOM as `toggleListItem`. NFM syntax: `▶# Heading`, `▶## Heading`, etc. To make the `## ` input rule preserve toggle state when typed inside a toggle, disable built-in `"heading-shortcuts"` and provide a custom extension that checks `editor.getTextCursorPosition().block.type` in its `replace()` function.
-
-### 0-delay cross-view sync is safest with optimistic journal rebase, not mutable snapshot writes
-For card-domain writes, keep a per-project store model of `baseBoard + optimisticEntries` and derive UI board snapshots by replaying non-superseded entries. This avoids stale fetch/realtime payloads wiping in-flight local edits. Treat debounced/local draft patches as retained overlays (not pending network mutations), and treat remote mutations as pending entries. Use conflict-key superseding (LWW) so older in-flight writes no longer affect derived state when newer writes target the same card fields.
-
-### Metadata stale-write conflict should be typed control flow, not generic mutation error
-For concurrent scalar metadata edits, use field/path revision preconditions and return typed conflict evidence from transport boundaries. Refresh the canonical read model and let the user reapply a specific metadata intent when useful; never generalize this into `Reload Latest` / `Overwrite Mine` for title or body. Collaborative content merges through Yjs and structural moves use exact-head leases instead of whole-Card revision retries.
-
-### Electron single-instance lock must be scoped by server profile
-`requestSingleInstanceLock()` is process-profile based, not app-install aware. If `userData` is left at the default app path, a dev build and packaged build can collide and launch into the same running process. Before requesting the lock, set Electron `userData`/`sessionData` under the resolved server profile dir (`NODEX_DIR` / `config.toml`), so each profile enforces single-process semantics independently.
-
-### Card Stage controllers reconcile metadata props, never collaborative content props
-External status, priority, and other relational updates for the same Card should reconcile into local form state while guarding actively edited metadata fields. Title/body are deliberately excluded: the mounted Y.Doc surface receives their remote updates, while `Card.title` and `Card.description` props remain projections and cannot rehydrate the editor.
-
-### Calendar recurrence interactions need a second optimistic layer
-Even with board-level optimistic patches, calendar occurrence lists are fetched projections and won't update in the same frame. For complete/skip/scope-edit interactions, keep a local occurrence overlay map (`hide` / `upsert`) keyed by occurrence id (`cardId:occurrenceStart`) and merge it over fetched occurrences. Drop overlay entries automatically when fetched server state catches up or on mutation failure rollback.
-
-### VS Code theme token export should stay runtime-declared and semantically anchored
-`design.local/tokens.css`'s foreground model is not the `--foreground` / `--foreground-secondary` / `--foreground-tertiary` layer. Keep the runtime-declared `--vscode-*` foreground and icon aliases anchored to `--color-text-foreground*` and `--color-icon-*`, and keep the exported token surface explicit. Secondary/tertiary text tokens like `descriptionForeground`, placeholder text, badge text, and dim terminal colors should remain direct projections of the design-token source of truth.
-
-### Renderer-facing token aliases should own fallback chains for optional VS Code inputs
-When a renderer utility consumes a semantic token like `bg-token-input-background`, keep its resilience in the alias definition (`--color-token-input-background`) instead of scattering runtime overrides across components. Use nested `var()` fallback chains so the semantic token resolves through the matching VS Code token first and then the local surface token contract (for input surfaces, `--vscode-input-background` -> `--color-background-elevated-primary`). This keeps utilities stable and prevents individual thread/composer surfaces from drifting.
-
-### Renderer utilities should compile from authored source CSS and scanned renderer files
-Compiled utility CSS is an output, not a second hand-maintained renderer utility mirror. Keep `theme-source.css`, `theme-token-bridge.css`, and `theme-surface.css` as the authored renderer source, then let Tailwind compile the utility surface directly from those files plus the scanned renderer/story inputs. This keeps the utility layer aligned with the authored source of truth instead of drifting behind a parallel vendored dump.
-
-### Randomized renderer tests should not trust global DOM constructors or shared parser imports
-`pnpm exec vitest run --config vitest.renderer.config.ts --sequence.shuffle --sequence.seed=...` exposed two test-suite fragilities:
-
-- `instanceof HTMLElement` / `instanceof HTMLDivElement` is not reliable in a long-running happy-dom suite when some tests temporarily replace `window` or other browser globals. Prefer existence checks, `nodeType === Node.ELEMENT_NODE`, or realm-aware constructor checks via `node.ownerDocument.defaultView`.
-- If a component test needs to stub diff parsing or diff rendering, route those dependencies through the component's own adapter seam instead of importing shared parser/renderer modules directly in the test path. For `review-diff-panel`, moving `parsePatchFiles` behind `review-diff-panel-deps.ts` and injecting a local test parser removed randomized-order pollution from shared module state.
-
-Also restore browser constructors like `Node`, `Element`, `HTMLElement`, `HTMLDivElement`, and input events in `src/renderer/test/setup.ts` after each test, not just `window` and `document`.
-
-### Large renderer workflow suites should shard one isolated suite definition
-Vitest parallelizes test files, while tests inside one file remain sequential. When a renderer workflow suite grows large but depends on one extensive mock and render harness, keep a single non-test `*.test-suite.tsx` module that owns the mocks, lifecycle hooks, fixtures, and mutually exclusive scope registration. Thin `*.test.tsx` shard files should register exactly one scope so Vitest can schedule those workflows across isolated fork workers without copying the harness or running any assertion twice.
-
-Keep the production component import dynamic and later than mock registration. Vitest transforms `vi.mock` in the shared suite module, and each shard receives an isolated module instance under the renderer suite's `forks` plus default isolation boundary. Do not use `test.concurrent` for React DOM workflows that mutate shared mock state, storage, DOM prototypes, or external stores.
-
-Ordinary component specs should prefer a static component import unless the import boundary itself is under test or import-time state must change first. The first `await import(...)` inside a test pushes that module graph into the serial test phase instead of Vitest's collection/import phase; later imports of the same module are normally cached. Preserve expensive DOM coverage only for observable workflows and runtime contracts; exact SVG paths, Tailwind strings, retired-element absence, fixture catalogs, and duplicated presentation copy belong in Storybook/manual review or lower-cost pure helpers.
-
----
-## Codex session replay compaction boundaries
-
-- Codex session JSONL replay can emit compaction as a standalone `type: "compacted"` line followed by `event_msg.type === "context_compacted"` and a fresh `turn_context`.
-- Replay/bootstrap materialization must treat that as a transcript `contextCompaction` row and must also advance `currentTurnId` from `turn_context`, otherwise post-compaction items get attached to the wrong turn on reopen.
-
-### Live elapsed counters should not key timers by payload object identity
-Streaming thread surfaces can rerender more often than their elapsed-label tick cadence. For live labels such as `Working for 1m 5s`, keep interval effects keyed by stable activation state or delay, and use `useEffectEvent` for the tick callback so new-but-equal timing objects do not repeatedly clear and restart the timer.
-
-### Project session tab owner project is not always the content project
-For `project_session_tabs`, the row `project_id` attaches the tab to an owning project session. Kind-specific `config.projectId` tells the tab body which project-owned content to load. Cross-project Card Stage tabs depend on those values being different: an A-project session can host a B-project card. Do not normalize tab config by blindly overwriting `config.projectId` with the row project id; use the local-store/project-sessions config serializer so create and update preserve the content target.
-
-### Side-menu click selection must be snapshot-first, not preventDefault-first
-For ordinary formatting menus, `mousedown.preventDefault()` is a valid way to keep ProseMirror selection from blurring. The NFM block side-menu drag handle is different because the same button is the native draggable source. Preventing the initial pointer event can break drag startup. Snapshot a click-to-open action scope on primary-button `pointerdown`, discard that click snapshot once the gesture exceeds the click threshold or reaches `dragstart`, and only on click-intent `pointerup` promote the snapshot to a visible block-level selection before opening the menu. When the current selection is already block-level, read exact block ids from the ProseMirror selection first (`sel.nodes` for `MultipleNodeSelection`, `sel.node` for `NodeSelection`) and use BlockNote's public selection/getBlock only to map those ids back to block objects. Directly trusting `editor.getSelection()?.blocks` here reintroduces the `selection.to` off-by-one: every repeated side-menu click can include the next sibling because `getNearestBlockPos(doc, selection.to)` sees `.nodeAfter`. Keep `ShowSelectionExtension` active while the popup search field has focus so the selected block scope remains visible. For native drag start, keep a separate ProseMirror selection snapshot from the same `pointerdown`: text selections must pass raw `selection.from`/`selection.to` into the side-menu drag event instead of `editor.getSelection()?.blocks`, because BlockNote's public block list treats an end position at the next block's start as spanning that next block. The patched side-menu core resolves that raw range with start-inclusive/end-exclusive block-level semantics and then restricts the payload to the dragged handle's sibling run.
-
-BlockNote's original side-menu text-selection drag range uses the minimum shared ProseMirror depth and expands to the outermost common ancestor before checking text-selection boundaries. That wrongly includes a next block when `selection.to` is exactly at that block's content start. Keep the explicit side-menu drag resolver boundary-led instead: the lower `from` block is included even when `from` is at its content end, and the upper `to` block is excluded when `to` is exactly at its content start. After identifying those selected candidates, the drag payload should be the smallest same-parent `MultipleNodeSelection` range that fully covers them. For a nested range such as `block-0 > block-02<start>, block-03 / <end>block-1`, the end-at-start boundary keeps the payload at `block-02, block-03`; if the end enters `block-1`, the payload must promote to `block-0, block-1` for handles on `block-02`, `block-03`, or `block-1`, because that is the smallest valid same-parent slice that covers the full text selection without inventing a custom mixed-parent payload.
-
-Side-menu promotion must use BlockNote `MultipleNodeSelection`, even for one block, instead of BlockNote `editor.setSelection(first, last)` or ProseMirror `NodeSelection`. The public `setSelection` path creates a rich-text `TextSelection` spanning block content; Nodex's text-action toolbar correctly treats that as an expanded text selection and opens the text-selection menu. `NodeSelection` creates the right-looking single-block outline, but ProseMirror also applies `.ProseMirror-selectednode` and a temporary `draggable=true` attribute to the selected node, making the whole block surface draggable. Block-level side-menu scope should also keep an explicit action intent snapshot, recursively including selected descendants, so focused popup inputs or later selection normalization cannot change the operation target.
-
-After a side-menu block drag is dropped back into an editor, restore the selection to the dropped blocks only after ProseMirror's default drop transaction has run. The drop capture handler still needs to let PM insert/delete/move the slice; use the side-menu plugin's `appendTransaction` for `uiEvent: "drop"` and resolve the dragged block ids against the new document so the visible block range follows the moved nodes instead of staying at the old source location. A DOM `setTimeout(0)` is too brittle because outer drag cleanup may finalize/blur the editor first. The side-menu drag handle also sits outside the normal ProseMirror content-node drag path, so `blockDragStart` must explicitly set `editor.prosemirrorView.dragging` from the block selection slice it just put on `dataTransfer`; otherwise a direct single-block handle drag can insert correctly but skip the post-drop block-range selection. Because handle drags usually keep the pointer in the left gutter, BlockNote may dispatch a synthetic drop into the nearest editor before the outer drop handler continues; set the pending dropped ids before that synthetic dispatch, and return after it consumes `view.dragging`, so `appendTransaction` sees the same `uiEvent: "drop"` transaction instead of a late empty pending state.
-
-Single-block side-menu drops have a separate focus caveat: ProseMirror's default drop handler sets a `NodeSelection` for a closed one-node slice. Override that in the side-menu `appendTransaction` with a one-node `MultipleNodeSelection`; otherwise the selected block's content DOM becomes draggable and users can drag the whole block surface instead of only the handle. Mark the drop selection as handled as soon as the dropped block id resolves in the post-drop document, and make `blockDragEnd()` idempotent for the drag session so duplicate cleanup from the handle and the editor container does not blur away the just-restored block-range selection.
-
-### First-message pending state belongs to the session lifecycle
-When a blank session submits its first prompt, app-server `thread/started` can arrive before `turn/start` has produced the first user-visible turn. Treat that attached-but-empty snapshot as a startup lifecycle state, not as a real empty conversation. Main should broadcast session-keyed `threadStartProgress` from request receipt through `ready|failed`, and the renderer manager should seed the same progress before IPC so quick sidebar navigation or component unmounts do not lose the pending UI. Composer-local button loading is only an input affordance; it must not be the authority for cross-route first-message progress.
-
-### Protocol-backed conversation state must not duplicate generated envelopes
-Generated `ThreadItem` and `ServerRequest` values are the raw authority. Keep them intact in canonical state, use `Extract`/`Omit` for generated subsets, and put timing, diff, hook, cwd, and other non-protocol context in a turn sidecar. Request-caused permission/user-input/MCP rows are explicit local item variants; exact private picker/plan requests belong to one named extension union instead of casts into generated protocol. Renderer `CodexItemView` / `CodexConversationSnapshot` fields are downstream projections during migration and must not become a second raw contract.
-
-### Canonical thread-item display projection is turn-scoped and exhaustive
-One canonical item can produce zero, one, or many display rows, and some policies require sibling context. Command actions expand, non-display lifecycle items disappear, last-work identity controls streaming completion, and image views fold only while consecutive in the raw item array—even a hidden non-image item ends the run. Put these rules in one exhaustive discriminant switch over `CodexCanonicalItem`, with turn status/timing and feature flags supplied as explicit context. Do not route canonical values through an `unknown` parser, snake-case aliases, generic type-label fallbacks, or downstream raw-type sniffing; reserve that compatibility behavior for a named recovery boundary.
-
-Scoped lifecycle publication must include every projector dependency, not only raw reference replacement. A turn-status transition can change an earlier in-progress command, MCP call, compaction, or approval review even when the raw item reference is unchanged. Pure reference reordering must also move the raw owner's following noncanonical overlay segment; reference multisets alone preserve stale row order and silently re-anchor overlays.
-
-During a staged migration, one malformed recovery row can make an otherwise typed turn unsafe for the exhaustive projector. Gate that whole turn at the adapter boundary and send it to the named recovery projector; never catch failures inside individual strict branches or mix strict and guessed rows in one turn. Delete the readiness gate together with the last recovery producer instead of letting it become a permanent second schema.
-
-Preserve `RequestId` as `string | number` through app-server and owner transport. A legacy string-keyed view may stringify only at its adapter boundary; map keys that must distinguish numeric and textual IDs should be type-tagged, while protocol replies and `serverRequest/resolved` matching keep the original scalar.
-
-### Reduce raw server requests before projecting request cards
-Do not let pending-promise maps, request cards, notifications, or legacy transcript fields become the request-state authority. Keep one arrival-ordered array of complete app-server request envelopes, including duplicate deliveries, and run canonical replay, main/no-owner state, and renderer-owner state through the same raw lifecycle reducer. Transport adapters execute typed effects and project legacy views afterward; they should not reimplement family classification, synthetic items, response fanout, or removal rules.
-
-Strict scalar identity matters twice. A server withdrawal first uses `find(request.id === requestId)` so the first matching occurrence supplies the family and params for a completed permission/user-input/MCP synthetic item, then filters every occurrence with that same strict scalar id. Numeric `73` and textual `"73"` must therefore never share a protocol map slot even though the intentionally interpolated synthetic row ids can have the same text. Use type-tagged strings only for internal UI keys, and preserve the original scalar for protocol responses and lifecycle matching.
-
-Reply lookup domains are intentionally not uniform. Ordinary approval/permission/user-input/MCP actions ignore local plan requests before choosing the first strict-ID envelope, while specialized onboarding/setup/picker actions inspect the unfiltered queue and can be blocked by a leading same-ID plan request. Keep those two selectors explicit; a shared `find(id)` helper or a shared “find expected family” helper silently changes one side of the contract.
-
-Treat request unread state as a one-way ingress side effect within this lifecycle: storing any request sets `hasUnreadTurn`, while local replies and server withdrawals leave it unchanged. Explicit read-state handling is the only place that may clear it. Also keep one-shot methods out of conversation state: `currentTime/read` bypasses both resume and thread-start buffers and responds immediately; server `serverRequest/resolved` is a withdrawal and must not trigger a client response; auth refresh, attestation, and legacy approval methods intentionally produce neither request state nor a response. Direct request projection/bucketization remains a downstream concern and must consume, not reinterpret, the raw lifecycle.
-
-Protocol request ID and delivered request occurrence are different identities. A stored queue may intentionally contain equal scalar IDs until one family reply removes all strict matches, while ordinary dynamic-tool calls bypass that queue and every delivery must execute and answer independently. Use an occurrence-aware pending registry, and keep stored interactive dynamic waiters separate from dispatched generic waiters. Otherwise a duplicate overwrites an earlier promise, a generic completion consumes a visible picker/onboarding request, or owner loss rejects a stored waiter while its canonical request remains actionable.
-
-Explicit conversation read state also must not ride the revisioned owner stream. Persist one per-thread unread authority, derive linked-session state from it, update any loaded summary/conversation, and broadcast a standalone read-state change. Same-state writes should stop before IPC fanout. When accepting an older owner patch or snapshot, preserve the newer explicit read value so in-flight transcript publication cannot re-mark a conversation unread after the user opened it.
-
-Plan-implementation state is type-scanned, not content-deduplicated. Repeating the same final plan must still replace all same-turn plan-implementation rows and append one fresh tail request. Removing that request completes every matching item without timestamp churn, while turn start filters stale and orphan plan requests across the complete canonical array rather than only loaded turns. Composer placement and button behavior should consume this lifecycle; they must not redefine it.
-
-### Owner-routed server requests must not leak source-null patches
-For live Codex conversations with a renderer owner, server-initiated visible requests are part of the owner-owned request plane, not a main-owned transcript mutation. Main may keep the JSON-RPC pending response promise and update durable caches, but command/file approval, permissions approval, request-user-input, and MCP elicitation ingress must enter the owner via `threadOwnerRequest`; owner-side responses must publish request-removal/completed-item patches. If main also calls request sync helpers while an owner exists, followers can see a source-null request patch competing with the owner revision stream, which breaks owner/follower consistency and can duplicate or reorder request cards.
-
-Request responses must route by the visible request's `conversationId` before they look up local request state. A follower that missed a request patch is still a follower for the conversation, so using `requestId -> conversationId` reverse lookup as the primary route can fall through to direct legacy response IPC. Keep request cards, notification actions, and any future response surfaces passing the owning conversation id into the manager; treat request-id reverse lookup as compatibility fallback only.
-
-Ordinary `item/tool/call` dynamic tool requests are not always visible request cards, but they still need owner gating when a renderer owner exists. Keep the original app-server request params in main, forward only the request identity to the owner through `threadOwnerRequest`, let the owner invoke main to execute the original params, and ACK without publishing a stream patch. Do not let followers or main execute an owned dynamic tool call directly just because the tool result is eventually represented by a later `dynamicToolCall` item.
-
-Dynamic tool transcript behavior has a registry boundary. Grouping code should ask the registry whether a tool continues live activity, stays standalone, is summary-only, or needs a custom completed-summary key; row and group labels should resolve through the same registry path. Avoid adding direct `namespace/tool` conditionals in grouping loops or renderers, because handoff status labels, settings read/write tools, and browser tab-context tools need the same registry semantics to stay aligned.
-
-Dynamic tool group headers are stateful, not just a folded summary string. While the latest turn is streaming, an incomplete dynamic call should take over the header as the only visible summary; when the group settles, the header returns to folded completed parts with per-part repeat counts. Summary-only groups should be static non-buttons with no mounted body.
-
-Dynamic tool fallback rows are not generic debug panels. After the registry renderer path has had a chance to handle a tool, the fallback transcript row should stay compact: a single active/completed label, no automatic disclosure, no raw `contentItems`, and no `arguments` details. If a known registry renderer returns no row because its arguments or result are invalid, fall back to the same compact row instead of rendering nothing.
-
-Dynamic tool renderer fallback must be decided at the registry gateway, not inside an already-created JSX element. A React component that later returns `null` is still wrapped in a truthy React element at the caller, so `const rendered = <KnownTool />; if (rendered) return rendered` skips the fallback path. Gate known renderers with the same parse/label predicates before creating the element, then return `null` from the gateway when the renderer cannot display the tool. This keeps invalid Chrome tab-context and Codex app thread-control calls on the compact fallback row instead of silently disappearing.
-
-Dynamic tools do not own a family-specific group body. Ordinary registered calls render through the same compact dynamic row inside the generic agent-activity disclosure, registry-declared standalone calls render as standalone leaves, and summary-only calls may contribute a group fact without mounting a body row. Keep the compact row keyed by canonical call identity so streaming updates cannot remount it or drift into a raw arguments/result panel.
-
-Thread goal set/clear is also live conversation state. Even though the UI entry point is a Nodex slash command and the app-server request is ordinary main IPC, the resulting `thread/goal/updated` or `thread/goal/cleared` notifications are owner-reduced into stream-state patches. A follower must route goal set/clear through `codex:thread-follower:action`; otherwise it can bypass the renderer owner and recreate a source-null mutation path for followed conversations. Preserve the app-server's `ThreadGoalSetParams` object through every owner/follower boundary: status-only updates such as pause/resume are valid `thread/goal/set` requests and must not be narrowed into an objective update. Apply the same rule to thread memory-mode changes: the visible effect appears on later turns rather than as an immediate transcript patch, but it still mutates the active thread's runtime behavior and must be owner-routed for followed conversations.
-
-Thread goal hydration belongs to the active resume boundary. After `thread/resume` rebuilds the conversation detail, main should call `thread/goal/get`, write the returned `threadGoal`, and seed `threadGoalResumeConfirmation` for resumable paused/blocked/usage-limited goals before returning or syncing the resumed snapshot. A failed goal hydration should be logged and must not fail resume. Do not add a separate renderer-side post-resume goal fetch that would create a second visible state owner.
-
-Do not generalize follower routing to every thread action. `cleanBackgroundTerminals` is an owner-local method: ordinary followers get the "continue this conversation on the window where it was started" error, and the owner applies cleanup state silently after the app-server request. Routing it through the ordinary owner action path without preserving owner-local silent state would still leave source-null cleanup ordering wrong.
-
-### Renderer-owned resume must not publish source-null intermediate snapshots
-Successful active-thread resume has the same owner-boundary rule as live notification rows. Main may own app-server transport, tail hydration, ordered buffering, suffix dedupe, and recovery cache state, but it must not broadcast `resuming` or `resumed` source-null stream snapshots for a renderer-owned resume. Return only the hydrated snapshot to the requesting renderer, let that renderer seed its owner cursor from the current renderer-local stream revision, release the buffered notifications/requests, and then publish the hydrated owner snapshot as the next renderer revision. If renderer-owned resume fails, release buffered work and roll the initiating renderer's local conversation back to `needs_resume` without publishing a final owner snapshot or a source-null recovery snapshot. Main must not arbitrate renderer-local owner revision continuity; it validates the owner client, opportunistically syncs cache state, and broadcasts owner patches even when its local cache revision cannot prove the patch base. Followers enforce owner id and `baseRevision` continuity.
-
-Do not write main's renderer-owner map from request intent. Fallible IPC entry points such as `thread/resume`, session thread start, or legacy `turn/start` can fail or return before the renderer has a local owner reducer. A main-side owner entry is only confirmed once the renderer publishes an owner stream-state snapshot or patch. If main records a renderer as owner before that publish boundary, later fallback snapshots can be suppressed and notifications can route to a renderer that will ACK/drop them because its local stream state never became owner.
-
-Thread-open resume is a single-flight boundary on both sides of IPC. React mount churn, StrictMode, summary/detail surfaces, or right-panel tab bodies may ask for the same thread concurrently, but only one renderer `codex:thread:resume:request` and one main `thread/resume`/`thread/goal/get` pair should run for a thread at a time. The initiating renderer must release the resume buffer and publish the owner snapshot once for that in-flight resume; joiners should await the same result instead of replaying buffer release, owner cursor seeding, or app-server resume. Sidebar history reconciliation must stay out of this hot path: mount reads the local snapshot first and can schedule stale background reconciliation, but thread open must not force a paginated `thread/list`.
-
-Background child agents need an explicit full-fidelity boundary. Parent thread views may render child memberships, multi-agent rows, chips, composer rows, and summary rows, but they must not subscribe to every child conversation or mark a child thread opened merely because the child has `source.parentThreadId`. The background-agent right-panel opener hydrates only the selected child thread id and opens the `background-agent:<threadId>` tab without waiting on a child snapshot; the detail tab content then materializes/resumes the child and marks it opened from that body without requiring local parent metadata. Otherwise parent thread resume can promote unopened subagents into full streaming and amplify resume/revision races.
-
-Subagent friendly names belong to the lightweight parent-side projection. Receiver thread metadata may use `agentNickname` even when the renderer view-model calls the normalized field `nickname`; app-server/source payloads may also carry only `source.subAgent/subagent.thread_spawn.agent_nickname` and `agent_role`. Raw multi-agent rows may carry only child thread ids plus agent states. Dropping either the receiver alias, the source fallback, or the parent child-membership catalog makes inline rows, chips, composer rows, and background-agent tabs fall back to UUIDs. Normalize receiver display metadata before it reaches UI helpers, persist child catalog nickname/role as lightweight metadata, do not let sparse later thread payloads clear existing nickname/role, strip exactly one leading `@`, and keep the seed-based identicon keyed by thread id. Do not recover friendly names by auto-loading child full snapshots from the parent thread, and do not derive user-facing names from internal `agentPath` values.
-
-Parent child-membership metadata is a control-plane update, not a transcript stream mutation. Active renderer owners intentionally ignore source-null `threadStreamStateChanged` patches from main, so main must publish refreshed parent `childMemberships` through `sharedObjectUpdated` and let the renderer merge them into the current parent conversation without changing stream revision ownership. If a parent turn references a child id that is not yet in the local child catalog, main may single-flight a targeted `thread/read({ includeTurns:false })` for that child and then rebroadcast the lightweight membership. Do not use `thread/list`, child full snapshots, or child resume to fill a missing nickname.
-
-### Assistant text streaming lifecycle must drain inside the renderer owner
-For owner-routed Codex turns, `item/agentMessage/delta` is the phase where Streamdown should receive `isAnimating=true`; `item/completed` must render static so old messages do not replay animation. The lifecycle ordering belongs in the renderer owner queue: `frameTextDeltaQueue.drainBefore(callback)` handles `item/completed` and `turn/completed`, with synchronous `flushNow()` branches for tiny/no-rAF/hidden buffers and synchronous callback execution on the final drain frame. Nodex's React-specific guard is the external-store notification boundary, not a changed queue shape: terminal prose flushes and follower in-progress prose patches must synchronously notify subscribers so React cannot batch them away before completed state. Do not replace that with main waiting for owner ACKs, queue-only extra-frame deferral, or owner-visible dependence on main accepting a renderer-published patch; owner publish is a follower-broadcast side effect, and publish rejection must not resync away the owner-local partial text.
-
-Assistant, plan, and reasoning text deltas are append-only protocol rows, not item creation rows. Resolve nullable turns at flush time, persist the sole completed/error-free/empty null-turn placeholder rebind, reverse-resolve the last same-ID exact raw protocol type, and append only when that target exists; otherwise drop/ACK/log. Do not synthesize assistant, plan, or reasoning transcript rows from delta-only input in either the renderer owner or main no-owner fallback; that turns protocol reordering or replay races into visible fake output.
-
-### Turn-diff fallback belongs in main/shared projection
-Completed turn diffs should prefer the app-server/read-model `turn.diff` whenever it is non-empty. If that diff is missing or empty, main may synthesize a visible `turn-diff` card from completed `fileChange` patch batches, but the synthesis must live in a shared pure helper with path-aware hunk folding. Renderer Review should only fold duplicate display paths defensively; it must not rebuild canonical turn diffs from raw patch rows.
-
-### File-change renderer state must stay path-keyed
-App-server `fileChange.changes` arrives as a list at the protocol boundary, but Nodex renderer state should normalize it immediately into `changes[path] = change`. Do not store `paths` or `diffs` arrays on `CodexFileChangeView`; derive path lists, diff text, stats, copy text, and open-line metadata from the map at the call site. Otherwise repeated updates to one file can drift into duplicate rows, unstable row keys, or incorrect `N files` summaries.
-
-### Collapsed tool activity running summaries belong to projection
-The temporary header shown for the latest streaming collapsed tool activity is a projection fact, not a React leaf concern. Build it next to the collapsed activity summary stats with a running-only latest-to-oldest scan and a separate completed continuity fallback. Only the running summary may shimmer; continuity fallback is non-authoritative display context and must not make a completed tool look active. File-change running summaries must use the last path-keyed patch entry and be suppressed in `STEPS_PROSE`, where aggregate file-change line counts remain the visible summary path.
-
-Collapsed activity aggregate wording has two different list grammars. Top-level summary segments are unit-style comma joins, while exploration sub-segments are conjunctions (`Read a file, searched code, and listed files`). Keep direct web-search wording count-free (`Searched the web` / `Searching the web`); web-search counts are grouping facts, not visible suffixes.
-
-For direct web-search summary facts, `webSearchCount` is the total number of renderable web-search rows, not the number of completed rows. `runningWebSearchCount` is a factual subset used only to choose active wording. Do not subtract running rows from total count; doing so makes mixed completed+running groups undercount and can make a standalone running row disappear from aggregate summary facts. Also do not inflate `runningWebSearchCount` merely because the current activity slice is still open; activity-slice continuity is grouping context, not item completion truth.
-
-Web-search renderability is a renderer-stream boundary rule. A `webSearch` item without a non-empty trimmed top-level visible query should be filtered before activity units or collapsed activity facts are built. Do not use `action.queries` or other result-detail payloads to revive an otherwise invisible web-search row, or empty protocol events can become phantom `Searched the web` groups and unstable summary keys.
-
-V2 web searches are ordinary groupable leaves, not a family-specific accordion. Preserve every renderable protocol item as its own row inside the mixed activity body; the collapsed activity owns only the aggregate outer summary. Each leaf formats its own action/query detail, uses a favicon when a domain can be resolved, and leaves the icon slot empty otherwise. The active shimmer wraps the complete leaf summary while the leading verb and trailing detail retain separate conversation tokens. Keep the shared `search` detail formatter, including `site:` compaction into `query text | domain · domain`, so summary facts and leaf wording cannot diverge.
-
-### Block Document parity must exclude disclosure state
-NFM can carry `▼` as an import-time expanded-toggle hint, but Card Documents deliberately keep toggle disclosure state window-local. An import parity gate must therefore compare the legacy snapshot with the canonical semantics representable by the Block Document codec, not raw parser/serializer output. Otherwise a harmless expanded marker becomes a false content divergence. The shipped-schema importer runs this work only in a disposable staging store; deterministic current failures still fail closed and leave the source profile unchanged.
-
-SQLite's default `BINARY` collation and JavaScript `localeCompare()` do not produce the same ordering for mixed-case opaque IDs. Authority/projection validation must compare Canvas references and files as keyed relations, not as positionally equal arrays sorted on opposite sides of that boundary. This keeps validation deterministic without weakening any identity or value check.
-
-SQLite schema publication must be later than every content and asset readiness gate. `PRAGMA user_version` alone is not a commit marker for a multi-file store: a migration can successfully drop legacy tables and still fail while rebuilding an exact-head projection. For a shipped release edge, snapshot the source through SQLite's backup API, keep all materializers and readers bound to an explicit staging assets root, validate the complete candidate, and only then journal-swap DB/WAL/SHM/assets. Recovery validation must understand both the old rollback schema and the current installed schema.
-
-### Dev Stories are visual fixtures, not Vitest subjects
-Storybook dev stories exist for manual visual and interaction review. Do not add Vitest files that merely mount a story shell, validate story presets/mock data, or test story-only controls such as preview font-size storage. Storybook build, TypeScript, and manual review cover that layer; keep automated tests on production helpers and observable product workflows, even when a production test happens to reuse a story fixture.
-
-### Yjs must resolve through one module condition per JavaScript realm
-Yjs uses constructor identity internally, so loading its ESM and CommonJS builds in the same Electron main realm is correctness-threatening even when both resolve to the same package version. Import conditional-export packages such as `y-protocols/awareness` through their declared export key. Appending the physical `.js` subpath can select the ESM file while the bundled main process loads `yjs` through CommonJS, causing the duplicate-import warning and invalidating `instanceof` checks.
-
-### Stable Block IDs must ignore collaboration-origin ProseMirror transactions
-Yjs-to-ProseMirror synchronization renders authoritative CRDT changes as ProseMirror document-replacement transactions. BlockNote's `UniqueID` extension must filter transactions carrying the y-prosemirror `isChangeOrigin` metadata. If it treats those replacements as local inserts, its appended ID-repair transaction can feed a second structural mutation back into Yjs; large pasted or remotely rendered bodies can then accumulate full copies and churn Block identities. Keep ID generation enabled for genuine local paste/drop transactions, wait for the provider handshake before mounting, and prove a collaboration-origin rerender of a long Card emits no Yjs update and preserves every application Block ID.
-
-### BlockNote Block ID allocation must be editor-scoped across conversion paths
-Configuring the editor's `UniqueID` extension controls IDs repaired by ProseMirror transactions, but BlockNote also creates IDs while converting partial Blocks and imported ProseMirror nodes. If those conversion helpers call the module-level default allocator, programmatic paths such as `insertBlocks`, nested child insertion, parsing, and the clickable trailing block can bypass the application's identity contract even though keyboard-created Blocks are correct. Keep one allocator on each `BlockNoteEditor` instance, resolve it through the instance cached on that editor's ProseMirror schema, and pass it explicitly during constructor-time conversion before the schema cache exists. Recursive conversion must reuse the same allocator. Authority-side UUID-v7 validation remains the final fail-closed boundary; renderer allocation prevents valid editor actions from reaching that boundary with an invalid new identity.
-
-### State vectors cannot deduplicate a Yjs delete set
-A Yjs state vector records struct clocks, not which delete-set ranges the receiver already knows. Consequently, `encodeStateAsUpdate(checkpoint, durableStateVector)` may contain a non-empty delete set even when the checkpoint and the already-synced Document have identical full CRDT state. Do not turn `decoded.ds.clients.size > 0` alone into an outbox entry. Merge the checkpoint into a detached candidate, compare its complete Yjs snapshot (state vector plus delete set) with the current synced Document, and emit the canonical empty Yjs update when they are equal. The durable writer must independently treat a causally redundant replay as a successful duplicate ACK at the unchanged head; Yjs updates are idempotent, so a no-op is not malformed input.
-
-This can look length-dependent without having a byte threshold. Frequently edited long Documents accumulate tombstones/delete ranges, while pristine short Documents often have none. A successful open writes the full local checkpoint; replaying its already-durable delete set on the next open used to fail and clear that checkpoint, making the following open succeed and recreate it—hence the exact success/failure alternation.
-
-### Durable identity-set equality must not depend on locale ordering
-
-SQLite's default `TEXT` order is binary, while JavaScript `localeCompare` follows locale collation. Opaque IDs containing punctuation or mixed case can therefore produce different orderings even when two projections contain exactly the same relation. Compare identity-keyed projections as maps/sets (including cardinality and value equality), or use one explicit bytewise comparator on both sides; never use serialized ordered arrays as a cross-runtime equality proof.
-
-Immutable audit identity arrays are set-valued for reachability even when an older receipt serialized duplicates or wider same-Project transfer attribution. Normalize those arrays while reading retention evidence, keep their bytes untouched, and reserve fail-closed treatment for malformed identities, cross-Project attribution, or evidence that maintenance would actually prune.
-
-### Activity-retained state must not own a terminal collaborative runtime
-React Activity preserves component state and DOM while destroying Effects. Treat a hidden Activity as effect-unmounted: a Y.Doc/provider created by an Effect must be removed from render state and closed, then recreated through a fresh state-vector handshake when the Activity becomes visible. Never leave a terminal runtime in retained `useState`; descendant editor Effects can otherwise reconnect relocation/persistence hooks to a destroyed Y.Doc before a replacement render commits.
-
-Serialize the transition. Clear the rendered runtime before paint, finish the previous bounded close before creating its successor, and make closing/closed surfaces expose neither ready roots nor throwing late-registration APIs. This keeps each visible writable surface on an independent client session without a global provider pool, prevents old/new disposable checkpoints from racing, and lets Activity retain only the UI state it is designed to retain. Test this composition with the real Activity boundary and a Project A → Project B → Project A cycle; separate Workbench-retention and surface-lifecycle tests do not prove the boundary.
-
-Collapsed activity disclosure lifecycle should stay shared. The row header, keyed summary transition, first-open frame split, collapse unmount, and live-stream initial collapsed mount all belong to `ThreadActivityDisclosure`; tool-specific leaves should only provide the summary node and the nested activity body. For live streaming rows, the body may be mounted while collapsed so first expansion can animate from a measured tree; tests should assert the collapsed `data-thread-find-skip`/pointer state instead of assuming the body is absent.
-
-### Time-sensitive inline editor chrome needs a shared external clock
-Inline chips whose visible state depends on wall-clock boundaries should subscribe to a renderer-level external store instead of owning per-node intervals inside BlockNote/ProseMirror renderers. Date mention labels and reminder tones use stable string/number snapshots (`todayIso`, minute epoch) so mounted editor, preview, and static renderer surfaces rerender at date/minute boundaries without mutating NFM payloads, triggering autosave, or restarting timers for every chip.
-
-### Owner-visible thread actions need an owner-scoped app-server facade
-Active Codex threads have two separate responsibilities: the renderer owner owns visible conversation state, while main owns app-server transport and durable/recovery cache state. Do not fix owner/follower action gaps by adding another one-off main IPC that mutates broadcast cache or emits source-null patches. The active owner should apply the visible mutation locally, publish a stream-state snapshot/patch to followers, and call main only through an owner-scoped, allowlisted app-server request facade. Main must validate that the caller is still the current owner and that request params target the owned conversation.
-
-Queued follow-ups and plan-implementation request removal are especially easy to get wrong because they look like local UI controls. In active owned conversations, enqueue/remove/reorder/send-now and plan dismissal are visible conversation mutations and must be owner-published before any app-server request or durable side effect. Legacy follow-up and plan-removal IPC may remain as no-owner fallback or recovery-cache plumbing, but they must not be the source of visible state for a followed thread.
-
-When an owner-published action returns to a follower, the action result must carry the owner stream revision whenever the owner changed visible state. This applies even when the public API is logically `void` or `boolean`: wrap it internally as `{ streamRevision }` or `{ accepted, streamRevision }`, then let the follower wait before resolving and project the public value afterward. Also keep the owner-scoped app-server facade transport-only for active owners. If main reuses a legacy service method that emits a source-null snapshot during an owner request, a follower can accept that snapshot, change its active owner id to `null`, and incorrectly satisfy or reject later owner revision waits.
-
-Snapshot-style owner actions must share the same renderer-local revision cursor as hot prose/action patches. Do not publish resume, complete-history, or edit rollback snapshots through a separate queue that computes `revision = streamState + 1` while a patch is in flight; that can reuse a revision or overtake the patch and force followers to drop later updates. Wait for the cursor to become idle, then publish the snapshot as the next owner revision.
-
-### Codex theme contract variables must exist at runtime
-Generated Codex contract CSS can reference Nodex semantic runtime variables such as `--color-text-warning` through VS Code-compatible aliases like `--vscode-editorWarning-foreground`. If `codex-theme-variant.ts` does not set the referenced semantic variable, the downstream Tailwind token utility becomes an invalid color declaration and the element silently inherits a parent color. Keep any newly used contract-level semantic token backed by `getCodexThemeVariantStyle(...)`, and add a theme helper assertion when a user-visible color depends on that token.
-
-### Resolve persisted Yjs roots through typed getters
-Applying an encoded update to a fresh `Y.Doc` can leave named entries in `document.share` represented by generic `AbstractType` placeholders until their typed getter is called. Do not validate a loaded Card Document by comparing those placeholder constructors. Resolve `getText("title")` and `getXmlFragment("body")` first. The getters reject a root already registered locally with an incompatible constructor, but the constructor is not encoded as a trustworthy wire invariant: validate the resolved title delta/attributes, require the named-root set to be exactly `title/body`, and validate one canonical body root plus its XML shape. Otherwise an update can persist invisible shared state that the editor never renders.
-
-### Never durably acknowledge a Yjs update with unresolved dependencies
-`Y.applyUpdate` does not throw merely because an update references structs the receiver has not seen. Yjs can retain that data in `pendingStructs` or `pendingDs` while the visible tree still looks valid. Appending and acknowledging such an update can create a poison tail: a later dependency makes the pending change visible only after the earlier update is already authoritative. Tentatively apply incoming data, reject any remaining pending dependency with a typed retry response, and advance the durable head only after the complete visible state passes schema and registry validation.
-
-### A Yjs state vector is not a content checksum
-A state vector records per-client clocks for causal diffing. It does not independently authenticate update bytes or the delete set; a delete-only state can have the same vector as the pre-delete state. Persist and verify hashes for every exact update and snapshot blob. However, `Y.encodeStateAsUpdate(document)` is not a canonical serialization of logical state: replaying the same state into another Y.Doc can produce different full-update bytes, especially around delete-set and garbage-collection representation. Treat the Document head's full-state hash as a repairable fingerprint of the current physical snapshot-plus-tail reconstruction, never as CRDT equality or cache identity. Only repair it after blob hashes, contiguous replay, dependency closure, schema/global identity validation, and the persisted state vector all pass.
-
-### Snapshot compaction must not compact idempotency
-A Document update row cannot simultaneously be the replay tail and the permanent idempotency record: deleting a snapshot-covered row would make a late retry look new. Keep an immutable receipt keyed by `(documentId, updateId)` with the original request hash/length and committed sequence, while treating the binary update row as compactable operational tail. Derive touched Block IDs from validated before/after title, structure, order, and content; client declarations are diagnostics and must never decide registry or relocation safety. Verify a full snapshot's exact blob hash, dependency closure, content, registry, and state vector, reload it inside the same SQLite transaction, then make its reconstructed representation fingerprint current before deleting covered payloads. Recompacting an already snapshot-only head is an idempotent no-op. Durable history checkpoints remain outside this operational compaction lifecycle.
-
-### BlockNote-backed Documents need an authority-owned editable root
-BlockNote commands on a headless editor are not a substitute for a mounted ProseMirror/Yjs binding: changing the editor document does not necessarily write the collaboration fragment. More importantly, BlockNote's ProseMirror `blockGroup` schema requires `blockGroupChild+`. Persisting a zero-Block root makes the mounted editor manufacture its fixed `initialBlockId` placeholder, bypassing application identity allocation and causing the authoritative writer to reject the update. Represent semantic blank as one registered stable-ID empty paragraph, allocate it during genesis, and repair historical zero-Block Documents through the serialized writer before provider mount. Preserve this invariant at every operation that can remove the last Block, including delete and cross-Document relocation. NFM/plain-text projections may still normalize that one paragraph to blank. Use the supported Yjs conversion utilities with one shared DOM-neutral schema config, and prove every materialization read leaves the encoded Y.Doc unchanged.
-
-### Document sync must subscribe before handshake and drain before shutdown
-A state-vector response and a realtime subscription have a race if the server reads first and subscribes second: a commit between those steps is absent from both paths. Register the connection first, then compute the diff; duplicate delivery is safe because Yjs updates are idempotent. The same ordering principle applies at exit. `before-quit` happens before renderer window-close flushes, so it must not terminate the SQLite writer. Stop background producers there, let surfaces flush, then drain the one FIFO writer during `will-quit` with a bounded failure deadline.
-
-Browser Document metadata does not belong in HTTP headers. `touchedBlockIds` is bounded by domain rules but can still be far larger than real proxy/server header limits. Use Nodex's versioned length-prefixed binary envelope for command metadata plus raw Yjs bytes, validate Project scope and body limits at the route, and reserve base64 for bounded SSE event payloads only.
-
-### Content promotion must consume semantic slots, not clone visible shape
-A Block-to-Card compiler must read the exact authoritative Block tree and name which semantic slots it consumes. For a promotable root, the root application ID becomes the Card ID, its portable rich inline content becomes title, and only its children become body roots. Cloning the complete root into body after projecting its text into title duplicates meaning, loses formatting authority, and makes later repair ambiguous. Copy must allocate the recursive fresh-ID map first and then run the same transformation over the remapped root.
-
-Treat type support as value-level capability. A type that is usually text-like may still carry an unmapped property or unsupported inline object; preserve its complete subtree in a wrapper Card or reject before the first write. Record the semantic title hash, consumed property keys, wrapper reason, body-root IDs, and source-to-result identity map in the immutable transfer receipt. Future migrations may use that evidence plus exact current shape, but must never delete content merely because title and body text happen to match.
-
-### Opening a Card must not require Database-row shape
-A Card is a document-bearing Block before it is ever a Database row. Read models used by Card Stage, nested Card rows, references, or document operations must therefore resolve identity, lifecycle/location, exact-head content projection, and owned Document directly from Block/Document authority. `CardSummary` includes status, View order, and other relational fields and is valid only where an active Database membership is already part of the query. Reusing that Adapter for target resolution makes a perfectly valid Document-located Card look missing. Keep Database-row readers explicitly named, and never synthesize fake membership values just to satisfy a content consumer.
-
-Make that distinction cross every boundary, not just the initial fetch. `card:get` should return a versioned Card Detail result whose optional Database branch carries exact membership/property coordinates; wide row reads belong behind names such as `database-row:get`. Stage rendering and mutation handlers then capability-check that branch: intrinsic Block properties remain writable for standalone Cards, while Database mutations and lifecycle commands are unavailable without coordinates. Realtime invalidation must follow Project/Card identity and authority revisions, because disappearing from a board may mean a legitimate parent transfer rather than deletion. Resume validation should close a tab only for typed `card_not_found`, never for transient or corrupt-state diagnostics.
-
-### Visibility admission requires a stable observed element
-An `IntersectionObserver` observes one concrete DOM target, not a logical React component. If activating a lazy surface replaces the element carrying its callback ref, React clears the old ref, the visibility hook returns to its unobserved state, activation releases, and the projected branch can remount the old element. That creates a deterministic on/off mount loop even though the row never left the viewport. Keep one outer observed frame mounted for the lifetime of the surface and swap projected, loading, ready, and error content only inside its slots. A regression test should drive a real-shaped observer callback and assert both DOM identity and activation-budget stability.
-
-Retired Document schemas belong behind a migration-only, read-only Adapter. Keeping an old Adapter in the live registry makes renderer/HTTP callers capable of reopening obsolete authority and lets new code accidentally create new legacy Documents. The live registry should resolve only the current schema; migration and immutable-history readers may explicitly request a historical inspector, but that Interface must not expose genesis creation. A schema transition must update every operational coordinate together, including `documents`, owned bindings, update tails, and snapshots. Retained history checkpoints keep their original schema coordinate and restore by compiling a forward mutation into the current schema rather than downgrading or rebuilding the live Y.Doc.
-
-Repairing an older promotion compiler requires immutable provenance, not matching text. Verify the outer transfer request hash, its per-root derivation, the nested Document-operation request hash, exact created/touched subtree IDs, and the committed update coordinates before treating a generated root as compiler output. Then compare the current exact-head root and title with that immutable evidence. A stable root can be consumed with a forward checkpointed operation; a moved, edited, missing, or independently renamed root must stop with an actionable diagnostic. This lets startup repair provably safe cases without silently choosing between two user-authored values.
-
-Canonical structured projections need value equality at optimistic boundaries. Once Card title carries a portable-rich array, comparing patch values with reference identity makes an equal server refresh look different from the local overlay forever: no-op patches allocate Board state, and a converged overlay can keep masking later server values. Compare bounded projection values recursively (including Date values, arrays, and records) before creating a patch result. Keep malformed rich/plain divergence rejection at the transport/read boundary; do not make the optimistic layer preserve an impossible payload merely because its object references differ.
-
-Runtime probes must seed the current schema through the same genesis transition as production. A pending Card Document may use `legacy_shadow` only as its staging authority; current Card genesis is Card@2 and atomically selects `ydoc_primary` through `finalAuthority`. Manually creating Card@1 and flipping authority afterward both bypasses schema projection work and accidentally exercises the migration-only Adapter. Historical probes should opt into an explicitly named historical path; all normal projection, operation, relocation, and document-bearing probes should use the current lifecycle.
-
-### Activity summary input and disclosure body are different projections
-
-A collapsed activity group can contain items that contribute to its aggregate header but must not mount in its disclosure body. Keep canonical summary accumulation on the complete group, apply body visibility rules only after grouping, and compute expandability from that filtered body. Summary-only dynamic calls can remain header contributors while making an otherwise empty body static; unfinished searches/listings and empty patches can disappear from the body without changing header facts.
-
-### Top-level activity spacing belongs to the unit list
-
-Keep top-level v2 activity spacing as one container-owned `gap` over immediate unit wrappers. Do not synthesize spacer siblings between units: those nodes change sibling geometry, complicate targeting, and blur the boundary with the separate grouped-source spacing token. The 16px item gap and 4px grouped-item gap are distinct contracts with distinct owners.
-
-### Dynamic tool identity and dynamic tool presentation share one registry boundary
-
-Resolve specialized dynamic tools from the exact `(namespace, tool)` entry before choosing labels, icons, navigation, summary keys, or activity flags. A humanized tool-name fallback is presentation only and must never inherit registered grouping behavior. Keep task-control terminology and iconography in the registered renderer, keep row spacing owned by the shared inline activity shell, and render a successful task-creation result through the resource-card shell rather than stretching the generic row into a second card implementation.
-
-### Rich activity headers need overlay-button ownership
-
-When an activity summary contains independently interactive links or buttons, do not wrap the whole header in a button. Use a relative header, an absolute inset disclosure button, and a pointer-events-disabled content layer that selectively restores pointer events for nested controls. Give the overlay either an explicit label or `aria-labelledby` pointing at the summary, and reveal its chevron for both direct focus and focus within nested controls.
-
-### Animated disclosures need semantic transition phases
-
-A boolean `expanded` flag cannot express first-open measurement, a cancellable close, and completion-only unmount without races. Model `opening`, `expanded`, `closing`, and `collapsed` explicitly: mount at zero size before the opening frame, keep closing content mounted with pointer events disabled, and unmount only when the closing animation completes. Animation completion helpers should be idempotent so stale callbacks cannot collapse a reopened disclosure.
-
-### Activity summary dwell is commit-relative
-
-Deferred summary replacement should wait the remainder of a minimum dwell measured from the last committed summary, not start a fresh full delay for every incoming key. Keep one pending timer, suppress equal keys, let immediate updates cancel and replace it, and update the commit timestamp only when a new keyed node is actually committed.
-
-### Group summaries must not erase source-call layout boundaries
-
-Summary accumulation may dedupe paths, labels, or completed keys, but the expanded body should preserve every retained source call as its own keyed wrapper. Put grouped spacing before each source boundary and expose the grouped gap through a CSS variable for nested patch rows; do not flatten repeated calls or replace the bounded fade-scroll owner with leaf-specific overflow containers.
-
-### Timeline targets are source identity, not render identity
-
-Keep timeline navigation targets separate from React keys and block IDs. Aggregate only protocol string IDs/call IDs from the original unit, preserve source order and duplicates, encode each value independently, and attach focusability only when the resulting attribute exists. Never invent a timeline target from a synthetic render key for an ID-less activity.
-
-### Hidden activity search exclusion has two owners
-
-Generic collapsed groups should exclude detail text by unmounting it at the disclosure lifecycle boundary. A `data-thread-find-skip` marker belongs only to leaf bodies that intentionally remain mounted while hidden, such as command output. Do not put a skip marker around an expanded group body, or nested visible tool details will disappear from thread find.
-
-### Cadenced shimmer needs timer and DOM discipline
-
-A cadenced shimmer is a static base text plus an aria-hidden visual copy, not a continuously animated background. Keep initial delay, active-duration timeout, and interval in one effect-owned closure; restart sweeps by removing/re-adding the active class, clear every timer on cleanup, and schedule nothing under reduced motion. Do not expose timer IDs as DOM data attributes.
-
-### Scroll stability starts with stable activity identity
-
-Do not compensate for activity remounts with scroll offsets. Keep unit keys derived from stable source identity, keep summary transitions inside the keyed group shell, and let expanded disclosure state survive output/summary reprojection. Feed resulting height changes into the transcript's existing batched turn and latest-follow observers so each scroll mode owns its normal distance-from-bottom behavior.
-
-### Command leaf dispatch should consume canonical parsed commands
-
-Do not infer read/search/list behavior from visible shell text or rebuild a multi-action classification in the renderer when canonical `parsedCmd` is available. Dispatch compact exploration rows from its discriminant and finish state, keep command actions only as compatibility fallback, and reuse the same shared rich/static activity headers so icon, nested link, ARIA, and disclosure behavior cannot drift by command family.
-
-### Patch rows must keep lifecycle, diff synthesis, and semantic fallback as separate boundaries
-
-Do not derive patch display state from generic transcript status after projection; the file-change model's nullable `success` is authoritative, with approval and cancellation applied only while success is unknown. Likewise, a parsed-diff failure is not the same as a missing synthesized diff: add/update fallbacks must retain source or raw diff content, while `No changes` belongs only to unsynthesizable non-delete changes. Keep `showDiffDetails` above synthesis and summary parsing so prose-mode rows cannot accidentally retain hidden disclosure controls, stats, or open-line behavior.
-
-### Cross-project default thread ordering must treat the moved session as a new target slot
-
-The membership transaction intentionally does not own sidebar ordering. Its moved session therefore still carries a source-project `order` value until the best-effort sidebar phase runs. When projecting a destination's default order, remove that moved session from its stale slot and append it as a new target thread candidate before applying the default thread comparator. Sorting the raw destination rows directly can collide with fixed Database View or session-only slots and move those non-thread surfaces.
-
-### Main-process tests must never lazily open the user's default local store
-
-`getDb()` intentionally opens a connection without migrating; production startup owns `initializeDatabase()`. A main test that reaches a repository through a supposedly pure service method must set a suite-owned temporary `NODEX_DIR`, initialize it before tests, restore the prior environment afterward, and let nested database fixtures restore that suite path. Otherwise an Electron/Vitest run can read or mutate the developer's real database and produce schema-version-dependent failures.
-
-### Command timing has separate active and settled authorities
-
-Use canonical `startedAtMs` to compute a foreground command's live elapsed label, with a local mount-time fallback only when the start is absent. Once settled, use canonical `durationMs` instead of freezing the renderer's local stopwatch. Do not keep the one-second ticker running for background-terminal summaries that do not display elapsed time.
-
-### Resume notification buffers are transactional
-
-Notifications and server requests received while a thread is resuming are provisional until the resume RPC succeeds. Replay them only after successful hydration. On failure, delete the thread-scoped buffer and reject its buffered request waiters with the resume error; replaying those events can publish assistant text or approvals for a state acquisition that never committed.
-
-### Archived conversations must not re-enter live snapshot state
-
-Public live snapshot serialization should return no conversation for an archived thread and must not bootstrap a new in-memory record from its durable link. A resume request may still return one explicit archived result so callers can render the terminal state, but archive fanout should use the dedicated archive message rather than a source-null stream snapshot.
-
-### Inspected images are turn-wide activity, not assistant markdown
-
-Keep `imageView` as a dedicated semantic kind through normalization and renderer projection. Aggregate every image path in a turn into the first image-view activity even when prose or tools occur between image inspections; converting each path to Markdown loses the activity barrier, summary grammar, disclosure, gallery navigation, and first-item identity. Resolve absolute paths only at the thumbnail boundary so the canonical item continues to preserve the app-server path.
-
-### Completed elicitation renders from canonical request state
-
-The completed MCP elicitation leaf should read the canonical synthetic item's `elicitation`, `action`, and `requestId`, not rebuild a server-title/raw-action card from legacy convenience fields. Derive the exact permission-versus-request summary and terminal answer label in a pure projection helper, hide incomplete/unsupported payloads, and keep the measured Q&A body mounted but inert while collapsed. Pending request-card placement remains a separate request-plane responsibility.
-
-### Blocking request identity must survive renderer bucketization
-
-Classifying a live request as blocking before renderer projection is insufficient if the flat request block is later dropped by turn bucketization. Give each blocking family an explicit bucket and derive the turn's blocked state from those buckets plus incomplete synthetic request rows. For permission requests, retain only unresolved entries: they suppress Thinking and active exploration, while completed historical permission state must not keep the turn blocked. Keep this blocking contract separate from where Q-02 eventually mounts each request card.
-
-### Pending request priority is turn-first and family-second
-
-Index the ordered canonical request plane from newest to oldest, retaining the newest valid request in each per-turn family slot. Select the newest materialized turn first, then apply the product's family priority inside that turn; comparing timestamps across families globally can let an older turn steal the composer. Keep direct and dynamic variants in the same family slot, validate dynamic arguments before they can claim it, and treat removal from the raw request plane as completion for picker/setup requests that do not create transcript rows.
-
-Protocol `RequestId` is an identity scalar, not display text. Preserve its original `string | number` type through request projection, React surface models, and response dispatch; stringify only synthetic DOM/item keys. Strict waiter registries intentionally distinguish numeric `73` from textual `"73"`, so coercion can leave a perfectly rendered request impossible to answer.
-
-The compatibility request projection must retain canonical array order instead of re-sorting by local timestamps. Scan newest-to-oldest, keep every approval candidate until turn-item validation can reject missing or empty file changes, then fall back to permission. After direct/dynamic private inputs, retain the unfinished synthetic user-input item fallback; after materialized turns, retain the latest turnless MCP elicitation fallback.
-
-Background child request ownership is a separate selector, not `primaryRequest` followed by an approval filter. A child can have a higher-priority private input/picker/setup request and a simultaneous approval or permission request; the parent composer must still surface the latter. Derive the background approval/permission directly from the child's ordered request state, and subscribe to every unique non-active child conversation named by the membership plane so the selector has live child data.
-
-### Specialized request cards need specialized owner-routed replies
-
-Do not coerce option-picker or setup responses through ordinary user-input answers. Preserve each response union through the stage action, follower action, owner reducer, and dedicated IPC route so direct protocol requests and wrapped dynamic-tool requests settle through the same canonical lifecycle. The card may share visual primitives, but its submit, skip, and dismiss payloads remain a distinct domain contract.
-
-### Onboarding input is a mode of user input, not a second form implementation
-
-Project dynamic onboarding into the ordinary user-input view model with an explicit mode flag. At the card boundary, that flag forces every question's Other path, supplies the onboarding placeholder, and makes dismiss send an empty answer response. Ordinary input keeps its declared Other policy and dismisses by interrupting the waiting turn, except when auto-resolution owns an empty reply. This keeps one keyboard/form implementation without erasing the lifecycle distinction.
-
-### Setup steps share a protocol family, not transient component state
-
-Role, task, and context arrive as separate requests, so role selection cannot live only in the role card. Persist the canonical role IDs in the renderer preference plane before sending the role reply, then derive task suggestions from that state when the next request arrives. Keep the source catalog separate from the response contract: connected-app discovery can populate the context picker without pretending the product already has a marketplace/install workflow. Preserve protocol-observable request-family asymmetries until the upstream contract changes instead of routing by a normalized view type and silently changing reply behavior.
-
-### Composer replacement and its utility backplate have separate owners
-
-Project composer ownership as one explicit state: normal composer, Auto-review offer, or request stack. The offer is idle-only and exclusive; without it, background approval or permission precedes the active request and may coexist with it. Keep queue, goal, terminal, and background-agent lanes outside this owner decision. The new-thread utility/status strip is another orthogonal surface: its DOM precedes the raised composer or replacement and its positive-Y motion reveals a backplate from behind. Folding that strip into the normal composer makes request replacement silently remove it or reverses its stacking and motion.
-
-Manual-approval nudge accumulation belongs to the successful response callback, not the click intent. Count accepted command or file approvals and completed permission responses against the request's own conversation ID, including background children. Declines and failed transports do not count. Persist only the global permanent dismissal; per-thread counts and active offers are session state and must clear when the offer resolves or the mode leaves manual approval.
-
-### Canonical snapshot seams must not accept reconstructed lookalikes
-
-When a projection uses selectors defined over `CodexConversationSnapshot`, pass the real snapshot through that boundary. A structurally valid partial object with default timestamps, empty queues, copied turns, or separately copied request planes hides ownership mistakes and lets fields drift independently. Shell-only state such as the selected thread identity, archive state before hydration, inherited parent turns, and new-thread progress may remain explicit inputs. If the selected identity and snapshot identity differ, fail closed and render the loading shell instead of exposing another thread's content.
-
-### Cache turn rendering at stable entry and surface boundaries
-
-Conversation selectors already provide stable turn, request-array, recency, and key identity. Use that entry as the memoization seam and derive latest/streaming policy from it; accepting those booleans independently lets search, fixed content, and the transcript disagree. The mounted main row must own transcript plus fixed above-composer output from the same projected model. A genuinely different presentation, such as the right-panel latest-turn preview with fixed content disabled, gets a separate surface cache key rather than sharing mutable presentation state. Composer chrome should react to actual conversation-scoped portal content, not eagerly project a turn merely to predict whether the host will be non-empty.
-
-### Nullable local turns need occurrence identity, not a fake protocol id
-
-A canonical conversation can contain several legitimate app-local turns whose protocol id is still null. Use the turn's canonical array occurrence to derive a stable display/search/collapse key, and carry the nullable protocol id separately through view models. Never key maps by null, invent replay ids, or drop every null-id turn from history. Project params and typed items through the same whole-turn boundary as bound turns; only bound ids may drive app-server requests, edits, forks, diffs, or other turn-scoped actions. Optimistic start success binds the same canonical entity by client user-message id, while failure appends a typed error to that entity. Removing an empty local placeholder must rematerialize the timeline so no derived turn or transcript row survives it.
-
-### Derived transcript rows must never re-enter canonical protocol state
-
-Treat canonical turns as a one-way source for item views and transcript entries. A view's `rawItem` is display evidence, not a recovery envelope: hook, request, params, diff, and other app-owned rows may deliberately look item-like without belonging to the generated `ThreadItem` union. Validate lifecycle input with the generated-union runtime guard before reduction, carry the canonical owner's ID and discriminant as explicit projection fields, and fail closed when either is absent. Test fixtures must use the same guard; casting arbitrary transcript payloads back into canonical state can hide malformed protocol fixtures and create production-impossible states.
-
-### Hook settings links must preserve protocol identity without guessing
-
-Treat a hook-feedback link as a route projection over host, normalized source, and the source-specific protocol discriminator. Project routing may use the owning turn cwd; plugin routing may use only `HookMetadata.pluginId`. Source paths, run ids, and display labels are not substitutes. Keep the transcript canonical state unchanged, parse and replace the route fields in one pure helper, and make the settings data plane host-scoped so optimistic writes, rollback, and cross-window invalidation cannot leak between Codex hosts.
-
-### Generated-image descriptors are not resolved asset URLs
-
-Keep the canonical generated-image source as protocol data and resolve it only at the conversation surface. A gallery tile has two resolver consumers: thumbnail and full image. The full consumer derives display, download, and drag data rather than forcing those uses through the thumbnail URL. Local absolute paths should remain cheap file URLs until a data URL is actually required; authenticated file pointers must cross a typed main-process boundary so renderer code never owns ChatGPT tokens. Count manual image-element retries against the currently resolved preview URL, because a successful asset refetch may deliberately replace that URL.
-
-### Invisible activity can still own turn state
-
-Do not manufacture a transcript item merely because external activity affects a turn. Project visible entries and auxiliary turn state together from the same canonical inputs. For background subagents, raw anchored groups take precedence; only when none exist may same-turn inline background rows contribute `hasActivity` and `hasActiveActivity`. Use those flags for commentary ownership, final/collapse eligibility, and active auto-collapse prevention, while keeping null-anchor state out of the DOM map. This preserves semantic state without inventing chips, empty groups, unstable keys, or renderer-only canonical lookalikes.
-
-### Reachability outranks retained component names
-
-A component, selector, test id, or helper that still exists in a bundle or repository is not evidence that production reaches it. Trace the active feature gate, owner callsite, and returned model before documenting or reproducing behavior. Retained fallback components may describe an older path while the current path uses a different projection and DOM contract; treating names as authority preserves dead architecture and creates contradictory source-of-truth docs.
-
-### Sidebar membership and pinning require separate drag coordinates
-
-A single global `pinned` container cannot represent a pinned chat that still belongs to a project: the renderer loses the home folder, source validation cannot distinguish projectless from project-owned pins, and any cross-container move is tempted to unpin as a side effect. Model the lanes explicitly as `(projectId, pinned)`, keep their order writers separate, and let folder-level drops preserve the source lane. Only an explicit drop across pinned/regular lanes should toggle pin state; moving between equivalent project lanes should change membership without changing it.
-
-### Logging capture and sink policy are separate boundaries
-
-A global log-level gate cannot make the terminal quiet while retaining detailed local diagnostics: it discards the record before durable and observer sinks can make their own decision. Build and redact an event only when at least one independently filtered sink needs it, then isolate failures per sink. A file sink must also honor writable backpressure and bound both records and bytes; when saturated, discard low-severity diagnostics before warn/error and emit one structured loss summary. Treat child-process stderr as a channel rather than a severity, classify structured or tracing prefixes once at the transport owner, and never duplicate ordinary stderr as a second service-level user error.
-
-### Owner adoption belongs to the resume IPC transaction
-
-Fail-closed stream publication requires a real ownership setter on every production bootstrap path. Do not make tests pre-seed an owner that the corresponding IPC handler never establishes. Resolve the stable renderer client ID from the invoking Electron event, complete canonical resume hydration, and compare-and-set ownership before returning the snapshot that the renderer will publish. A failed or non-resumed request must leave no owner, and a competing request must never overwrite an existing owner. Keep first-publish auto-claiming disabled: accepting an unknown initial patch turns transport timing into authority.
-
-### Ordered protocol mutations may require an explicit React commit boundary
-
-Awaiting rollback publication before starting a replacement preserves transport order, but it does not by itself encode the user-visible intermediate state. For edit-and-resubmit, synchronously notify renderer subscribers with the rollback-only snapshot before appending the optimistic replacement, and prove the boundary with a real external-store subscriber rather than by inspecting callback order alone. Any async action that waits for an owner publish must also read and validate the conversation after that wait; carrying a pre-wait snapshot across the suspension can roll back a newer turn.
-
-### A non-submit Enter branch does not create a newline by itself
-
-In a schema-driven contenteditable composer, returning control from the submit shortcut resolver only says that the key was not consumed by submit logic. The editor schema and keymap must still represent and insert the line break. Keep an inline hard-break node, serialize it as `\n`, and cover Shift+Enter through the mounted editor boundary so prompt persistence, slash-range offsets, and controlled value synchronization share one text model.
-
-### Scoped lifecycle diffs must include visibility dependencies
-
-A raw item can be canonical without owning the same visible row type. The initial app-owned user message lives in turn params, while the app-server echo remains a canonical `userMessage`; visibility depends on matching `clientUserMessageId`/`clientId`, structural input equality, and the raw items preceding that echo. Reuse one order-sensitive policy in full and incremental projection: hide an exact prefix echo, but when work already precedes the remaining server user completion and the view does not explicitly preserve server user messages, project it as the accepted `steered` lifecycle marker. Mark an owner affected whenever that membership or projection changes. Projecting only the newly completed raw item bypasses this whole-turn dependency and produces a second user bubble under streaming work even though the backend accepted one turn.
-
-### New-thread route identity must not become a second turn authority
-
-A client-created new-thread id is only a route shell. The first real turn belongs to the actual app-server thread returned by `thread/start`, even before the renderer adopts that identity. Create the full canonical nullable turn before `turn/start`, carry one `clientUserMessageId` through the request, and let either `turn/started` or the response bind that same occurrence. Seeding a transcript-only user row after the response creates a second authority: a later canonical server echo cannot match empty generated params and appears beneath already-streaming work. Tests for this boundary must exercise both response-before-notification and notification-before-response orderings while preserving the optimistic params across test hydration.
+This document is Nodex's compact engineering memory. It records only
+cross-cutting lessons that are expensive to rediscover and cannot be made fully
+obvious or enforceable in code. It is an explanation and routing layer, not a
+second product specification, protocol reference, incident log, or configuration
+file.
+
+Detailed behavior belongs with the module that owns it. Use the
+[source-of-truth map](#source-of-truth-map) before adding material here.
+
+## Admission rule
+
+A learning belongs here only when most of these are true:
+
+1. It is non-obvious even to a maintainer familiar with the affected library.
+2. Forgetting it can cause data loss, security exposure, architectural drift,
+   or a costly cross-module regression.
+3. It applies across more than one call site or module.
+4. It is likely to remain true after dependency and UI revisions.
+5. Types, tests, lint, or a local code comment cannot enforce it completely.
+
+If a fact is local, version-specific, or already executable, protect it at the
+nearest seam instead:
+
+- product behavior and interaction contracts go in `docs/product-specs/`;
+- architecturally significant choices and rejected alternatives go in an ADR;
+- durability and recovery rules go in `docs/RELIABILITY.md`;
+- frontend construction and testing conventions go in `docs/FRONTEND.md`;
+- release and toolchain compatibility goes in the relevant runbook;
+- dependency quirks go beside the Adapter and its behavioral regression test;
+- one-off fixes that are fully covered by tests need no permanent prose entry.
+
+Do not append debugging chronology, exact CSS values, dependency Interface facts, or
+one heading per protocol notification. Git history already preserves the
+incident; the current document should preserve the enduring model.
+
+## Core principles
+
+### 1. One state has one visible authority
+
+Several modules may retain caches, recovery state, or read models, but only one
+may decide what the user sees at a time. Codex's active renderer owner reduces
+live conversation state; followers mirror owner publications, and main-process
+snapshots are limited to named cold-load, recovery, and no-owner transitions.
+Likewise, an active Card's title/body comes from its owned Document, not from a
+Card projection or metadata draft.
+
+A second reducer often looks harmless because a later snapshot repairs the
+result. In a streaming or collaborative system it instead races partial state,
+changes ordering, and makes the next valid patch target the wrong base. When
+ownership changes, invalidate routing, semantic role, revision, pending queues,
+and recovery state together.
+
+See [Codex owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md)
+and [Block identity](adr/0001-block-identity-card-alias.md).
+
+### 2. Authority, read models, and UI projections are different things
+
+Authority accepts intent and determines truth. A read model makes that truth
+cheap to query. A UI projection decides how it is presented. Information flows
+from left to right and never returns through the same path as a write:
+
+| Domain | Authority | Read model or projection |
+| --- | --- | --- |
+| Block content | Yjs `block_tree` or normalized `canvas_scene` Document | NFM, title, preview, search, assets, Card detail |
+| Database capability | relational Database membership, properties, and Views | Board rows, Calendar occurrences, Database View results |
+| Codex conversation | generated protocol items/requests plus explicit app-local state | transcript entries, activity groups, summaries |
+| Scheduled automation | `automation.toml` | SQLite mirror and renderer detail |
+| Review changes | Git/file metadata and validated content | file tree, patch rows, summary counts |
+
+This resolves an important retired ambiguity: `Card.description`, Card summaries,
+and metadata overlays are projections. They never seed, refresh, or save a
+mounted title/body editor. A Card's owned Document identity also does not choose
+its sync engine; the registered schema and engine do.
+
+See [Architecture](../ARCHITECTURE.md), [Reliability](RELIABILITY.md), and
+[Card Detail](adr/0010-card-detail-and-database-capability.md).
+
+### 3. Streaming is an ordered transaction, not a set of callbacks
+
+Deltas, server requests, lifecycle completion, ACKs, disconnects, replay, and
+React publication form one ordered event system. Buffer notifications and
+requests in their arrival order; make coalescing preserve every covered sequence;
+ACK only the contiguous prefix whose visible effects are durable or accepted;
+and drain prose before terminal lifecycle state.
+
+An event that produces no visible row can still be an ordering marker. React
+may also batch two correctly ordered external-store mutations into one visible
+commit, so workflows that require an intermediate render must establish and
+test that publication seam explicitly.
+
+### 4. Recovery is an explicit state transition
+
+Resume, replay, rollback, cold hydration, owner replacement, and no-owner
+fallback have different preconditions and outputs. A generic catch block must
+not pull a source-null snapshot over live partial state. Failed resume discards
+its provisional buffer; successful resume deduplicates buffered tails against
+hydrated state before publication.
+
+Name every recovery ingress and test both response-before-notification and
+notification-before-response orderings. If an ingress cannot prove its owner,
+revision, epoch, generation, or exact head, fail closed and reacquire authority.
+
+### 5. Project semantics once; render them many ways
+
+Canonical protocol or domain state should be projected through one exhaustive,
+typed module before leaf rendering. That module owns zero/one/many row policy,
+visibility dependencies, grouping, stable identity, completion, and request
+state. UI modules render the resulting model; they do not rescan raw values to
+guess “final assistant,” “active,” “blocking,” “exploring,” or tool identity.
+
+Visibility and grouping are separate decisions. Summary inputs and disclosure
+bodies are separate projections. A hidden item may still own turn state, and a
+single canonical item may own several display rows. Incremental projection must
+therefore include every dependency affected by lifecycle or ordering changes,
+not only the raw object whose reference changed.
+
+See [Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md).
+
+### 6. Preserve identity domains across seams
+
+Protocol identity, domain identity, persistence identity, and render identity
+are not interchangeable. Preserve the original type and value until the seam
+that truly needs another representation:
+
+- a Card ID is its stable Block ID, never a Yjs struct ID or Database row copy;
+- a protocol `RequestId` remains `string | number`; DOM keys may stringify a
+  type-tagged form, but replies and matching use the original scalar;
+- nullable app-local turns use canonical occurrence identity rather than a fake
+  protocol turn ID;
+- raw Codex item identity remains separate from projected row and timeline IDs;
+- route-shell, Project-session, content-Project, and app-server thread IDs stay
+  distinct even when one UI surface carries all of them.
+
+Identity conversion should happen once in a named Adapter. Reconstructing a
+lookalike object at a snapshot or protocol seam hides missing fields and creates
+a second contract.
+
+### 7. Semantic lifetimes outlive visual attachments
+
+An EditorView, React subtree, xterm container, webview toolbar, or floating menu
+is a DOM attachment, not necessarily the owner of undo, provider, navigation, or
+gesture state. Preserve the semantic owner across harmless remounts and make
+real teardown explicit and idempotent.
+
+For collaborative editors, one mounted surface owns its local Yjs origin and
+UndoManager; temporary editability changes must not remount the EditorView or
+destroy nested participants. A provider that accepted a flush/freeze lease may
+need to finish headlessly after visual teardown. Hidden retained surfaces must
+not remain candidates for global pointer arbitration or own a terminal runtime.
+
+See [surface-local editor interactions](adr/0008-surface-local-editor-interactions.md)
+and [Frontend](FRONTEND.md).
+
+### 8. Keep high-frequency work out of broad owners
+
+Virtualization reduces DOM work, not upstream projection work. Token deltas,
+PTY bytes, pointer movement, transcript search, and wide Card bodies must not
+flow through `WorkbenchShell`, an all-conversation renderer reducer, or an
+Electron-main hot path.
+
+Subscribe by stable surface slice, project one visible turn at a time, use
+summary read models for boards, keep content indexing and heavy parsing in
+workers or bounded modules, and let xterm or imperative geometry layers consume
+their own streams. The performance goal is locality: an update should wake only
+the surface that can display it.
+
+### 9. Drag and drop has one target model
+
+The visible indicator, target arbitration, and committed mutation must use the
+same semantic target and coordinate space. In nested surfaces exactly one
+eligible owner renders feedback and handles the drop. In list reordering, derive
+and render the insertion slot in the post-removal “remaining items” space, then
+translate it once to the persistence contract.
+
+Cross-parent Block movement is a stable-ID domain operation, not serialized DOM
+or NFM transfer. The side menu establishes the exact source selection; one
+window-local coordinator carries disposable gesture state; and one idempotent
+`BlockTransfer` commits the result. Do not combine insertion-slot feedback
+with sortable live reflow.
+
+See [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) and
+[ADR 0008](adr/0008-surface-local-editor-interactions.md).
+
+### 10. Collaborative durability requires exact retry seams
+
+Durable acknowledgement means the complete authority transaction committed.
+It is not evidence that bytes were received or that a causal summary resembles
+the expected state. Yjs state vectors describe causal content, not byte identity,
+delete-set idempotency, dependency closure, or a content checksum.
+
+Keep immutable receipts after update payload compaction, bind retry identity to
+canonical intent, reject unresolved dependencies, and validate the resulting
+schema/global identity set before advancing a head. Store epoch and Document
+generation prevent stale outboxes or caches from crossing restore/replacement
+lifetimes. Canvas uses its own exact scene request/outbox contract rather than a
+fabricated Yjs model.
+
+See [Reliability](RELIABILITY.md) and
+[Document-bearing Blocks](adr/0002-document-bearing-blocks-yjs.md).
+
+### 11. Validate at external seams; keep normalized state ordinary
+
+HTTP, IPC, persisted JSON, protocol recovery, file input, and untrusted tool
+results need bounded validation before they enter internal state. Once data has
+crossed that seam, reducers and projectors should consume the typed form rather
+than repeatedly parsing `unknown` records or accepting alias fields.
+
+Validate bytes before expensive diff, Markdown, image, or archive parsing.
+Resolve user-supplied logical names to current server-side identities in the
+same mutation that uses them; client lookup followed by mutation creates a
+TOCTOU race. Rejected input must not partially mutate authority or produce a
+misleading empty UI shell.
+
+### 12. Reproducibility includes the whole artifact closure
+
+Pin Node, pnpm, runner images, and relevant build conditions. Native addons are
+ABI artifacts of the runtime they were rebuilt for; Electron-targeted binaries
+must be tested through Electron's embedded Node, not a similar host Node.
+Bundled native CLIs include required sibling executables and search-path tools,
+not only the primary binary.
+
+Release publication is a transaction: package and validate every target before
+creating irreversible version/tag state. Verify the artifact that is actually
+signed and notarized. Keep version-specific runner, Icon Composer, signing, and
+packaging constraints in [the macOS release runbook](release-macos.md), where
+they can carry current versions and recovery steps.
+
+## High-risk implementation caveats
+
+These details remain here because they cross several modules and have produced
+expensive failures. Their exact implementation belongs beside the named seam.
+
+### Register cancellation before asynchronous preflight
+
+A cancellable operation must enter its operation-ID registry synchronously at
+the public Interface, before its first `await`. Carry one `AbortSignal` through
+preflight and every child process, and let final settlement own cleanup.
+Otherwise cancellation can report failure while the mutation starts moments
+later. Test immediate cancellation separately from the real process Adapter.
+
+### Browser-managed editable DOM needs one owner
+
+During native input and IME, the browser directly mutates contenteditable DOM.
+React must own the host and surrounding controls, while a dedicated editor
+Adapter owns editable children and reconciles canonical state outside
+composition. Read operation intent from native `beforeinput` when required;
+React's compatibility event is not guaranteed to expose `InputEvent.inputType`.
+
+ProseMirror-managed DOM is also read-only to application code. Express custom
+state through schema, decorations, plugin state, or overlays outside its managed
+tree; direct attributes will be removed by reconciliation.
+
+### Visible global UI must not wait for a passive listener
+
+An overlay that becomes visible before its outside-pointer, resize, or keyboard
+listener is installed has a real interaction gap. Subscribe for the mounted
+lifetime, read current phase/callback state through React's effect-event pattern,
+and guard inactive phases inside the handler. For async search and suggestion
+UI, bind every actionable row to the query that produced it; never execute a
+selection against stale rendered results.
+
+### Runtime capability detection happens at call time
+
+Renderer modules can be imported before Electron preload installs `window.api`.
+Do not cache transport capability at module evaluation; inspect it inside the
+public call. Main-process fanout must also treat disposed renderer frames as an
+ordinary lifecycle race, not as an exceptional retry loop.
+
+### Tests cross the same seam as production
+
+Prefer behavioral tests at the public Interface. Mock only a feature-local
+Adapter, not broad shared entrypoints, and restore timers, DOM constructors,
+globals, and mutable singletons after each test. Low-level native events require
+async `act` and an awaited observable outcome. Main-process tests must set and
+initialize a suite-owned temporary `NODEX_DIR`; a supposedly pure helper must
+never lazily open the developer's store.
+
+When a flake appears only in CI, reproduce the exact commit, test project,
+runtime image, and execution order before changing production code. Storybook
+and manual review own visual fixture coverage; tests should protect behavior,
+not Tailwind strings or SVG paths.
+
+### Trace reachability before trusting names
+
+A retained UI module, selector, fallback, test ID, or helper is not evidence
+that production reaches it. Trace the active feature gate, owner call site, and
+returned model before documenting or fixing behavior. When framework-owned DOM
+or lifecycle state changes unexpectedly, identify who owns the mutation before
+changing how the local code responds.
+
+## Source-of-truth map
+
+| Topic | Authoritative document |
+| --- | --- |
+| System modules, dependency flow, authority table | [Architecture](../ARCHITECTURE.md) |
+| Domain language and invariants | [Context](../CONTEXT.md) |
+| Significant design decisions and tradeoffs | [ADRs](adr/) |
+| User-visible behavior and public contracts | [Product specifications](product-specs/index.md) |
+| Codex owner/follower ordering and recovery | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |
+| Codex transcript, request, activity, and composer projection | [Transcript behavior](product-specs/codex-thread-transcript-behavior.md) |
+| Block/Owned Document durability, sync, backup, recovery | [Reliability](RELIABILITY.md) |
+| Editor, renderer, UI, and frontend tests | [Frontend](FRONTEND.md) |
+| Kanban and cross-surface drag behavior | [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) |
+| NFM side-menu interaction | [NFM block side menu](product-specs/nfm-block-side-menu-behavior.md) |
+| Workbench ownership and navigation | [Workbench shell](product-specs/workbench-shell.md) |
+| Review/file-change UI | [Review right panel](product-specs/review-right-panel-behavior.md) |
+| Command-palette indexing and navigation | [Command palette](product-specs/command-palette-behavior.md) |
+| Local validation and runtime selection | [Development](development.md) |
+| macOS build, signing, notarization, and recovery | [macOS release CI](release-macos.md) |
+| Security seams and hardening | [Security](SECURITY.md) |
+
+When two documents appear to disagree, authority follows this order: accepted
+ADR and current domain invariants for architecture, product specification for
+user-visible behavior, reliability/security documents for their operational
+contracts, then this distilled explanation. Fix the narrower authority and
+update or delete the stale summary here; never preserve both versions as
+“learnings.”
