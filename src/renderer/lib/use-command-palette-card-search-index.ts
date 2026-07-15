@@ -31,7 +31,6 @@ function buildCardsKey(cards: readonly CommandPaletteCard[]): string {
       item.card.title,
       item.card.descriptionPreview,
       item.card.assignee ?? "",
-      item.card.agentStatus ?? "",
       item.card.tags.join(","),
     ].join("\u0001"))
     .join("\u0002");

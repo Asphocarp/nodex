@@ -24,12 +24,11 @@ const estimateRank = new Map(
 
 type ToggleListFilterableCard = Pick<
   CardSummary,
-  "id" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee" | "agentStatus"
+  "id" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee"
 > & {
   descriptionPreview?: string;
   status?: CardSummary["status"];
   archived?: boolean;
-  agentBlocked?: boolean;
   order?: number;
   columnId: ToggleListCard["columnId"];
   columnName: string;
@@ -59,7 +58,6 @@ export function filterCards<T extends ToggleListFilterableCard>(
       descriptionPreview: card.descriptionPreview ?? "",
       tags: card.tags,
       assignee: card.assignee,
-      agentStatus: card.agentStatus,
     })} ${card.columnName.toLowerCase()}`;
     return matchesSearchTokens(searchable, searchTokens);
   });

@@ -322,12 +322,6 @@ const CardBody = memo(function CardBody({
         )}
       </div>
 
-      {card.agentStatus ? (
-        <p className="truncate px-2.5 pb-1 font-mono text-sm/normal text-(--blue-text)">
-          {card.agentStatus}
-        </p>
-      ) : null}
-
       {plainDescription ? (
         <p className="line-clamp-2 px-2 pb-1 text-xs/normal wrap-break-word text-(--foreground-secondary)">
           {plainDescription}
@@ -430,9 +424,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
 }: CardSurfaceProps, ref) {
   const { resolved } = useTheme();
   const isDark = resolved === "dark";
-  const ringShadow = card.agentBlocked
-    ? "0 0 0 1.5px var(--destructive)"
-    : isSelected
+  const ringShadow = isSelected
       ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 72%, transparent)"
       : isActiveInPanel
         ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 58%, transparent)"

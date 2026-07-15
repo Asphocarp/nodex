@@ -16,7 +16,6 @@ function createScheduledCard(overrides: Partial<Card>): Card {
     description: "",
     priority: "p2-medium",
     tags: [],
-    agentBlocked: false,
     revision: 1,
     created: new Date("2026-02-18T09:00:00.000Z"),
     order: 1,

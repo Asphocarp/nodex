@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { CardInput } from "./types";
 
-export type CardDraftOverlay = Pick<Partial<CardInput>, "title" | "assignee" | "agentStatus">;
+export type CardDraftOverlay = Pick<Partial<CardInput>, "title" | "assignee">;
 
 type StoreListener = () => void;
 
@@ -16,7 +16,6 @@ function normalizeDraftOverlay(overlay: CardDraftOverlay): CardDraftOverlay {
 
   if (typeof overlay.title === "string") next.title = overlay.title;
   if (typeof overlay.assignee === "string") next.assignee = overlay.assignee;
-  if (typeof overlay.agentStatus === "string") next.agentStatus = overlay.agentStatus;
 
   return next;
 }
@@ -27,8 +26,7 @@ function hasDraftOverlay(overlay: CardDraftOverlay): boolean {
 
 function areDraftOverlaysEqual(left: CardDraftOverlay, right: CardDraftOverlay): boolean {
   return left.title === right.title
-    && left.assignee === right.assignee
-    && left.agentStatus === right.agentStatus;
+    && left.assignee === right.assignee;
 }
 
 class CardDraftStore {

@@ -400,21 +400,9 @@ export function ListView({
 
                   {/* Title */}
                   <td className="border-r border-(--table-border) py-1 pr-2 pl-2.25">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-(--foreground)">
-                        {card.title}
-                      </span>
-                      {card.agentBlocked && (
-                        <span className="shrink-0 rounded-sm bg-red-100 px-1.5 py-0.5 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-400">
-                          Blocked
-                        </span>
-                      )}
-                    </div>
-                    {card.agentStatus && (
-                      <p className="mt-0.5 truncate font-mono text-sm text-(--blue-text)">
-                        {card.agentStatus}
-                      </p>
-                    )}
+                    <span className="block truncate text-sm font-medium text-(--foreground)">
+                      {card.title}
+                    </span>
                   </td>
 
                   {/* Status */}

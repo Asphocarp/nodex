@@ -16,7 +16,6 @@ function makeCard(overrides: Partial<ToggleListCard>): ToggleListCard {
     priority: "p2-medium",
     estimate: "m",
     tags: [],
-    agentBlocked: false,
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
     columnId: "backlog",

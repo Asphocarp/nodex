@@ -31,7 +31,6 @@ function makeCard(id: string, title: string, status: CardSummary["status"], orde
     title,
     richTitle: plainTextToPortableRichText(title),
     tags: [],
-    agentBlocked: false,
     created: STORY_DATE,
     order,
     revision: 1,

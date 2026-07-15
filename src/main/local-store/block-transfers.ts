@@ -472,8 +472,6 @@ const insertDefaultIntrinsicCardProperties = (
   },
 ): void => {
   const values = [
-    ["agent.blocked", "boolean", false],
-    ["agent.status", "string", null],
     ["run.target", "string", "localProject"],
     ["run.localPath", "string", null],
     ["run.baseBranch", "string", null],

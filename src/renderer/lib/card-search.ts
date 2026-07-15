@@ -8,7 +8,7 @@ export {
 
 export function buildCardSearchText(card: Pick<
   CardSummary,
-  "id" | "title" | "descriptionPreview" | "tags" | "assignee" | "agentStatus"
+  "id" | "title" | "descriptionPreview" | "tags" | "assignee"
 >): string {
   return normalizeSearchText([
     card.id,
@@ -16,6 +16,5 @@ export function buildCardSearchText(card: Pick<
     card.descriptionPreview,
     card.tags.join(" "),
     card.assignee ?? "",
-    card.agentStatus ?? "",
   ].join(" "));
 }

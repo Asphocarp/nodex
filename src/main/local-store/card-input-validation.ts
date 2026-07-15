@@ -9,7 +9,6 @@ import type {
 } from "../../shared/types";
 import {
   MAX_CARD_ASSIGNEE_LENGTH,
-  MAX_CARD_AGENT_STATUS_LENGTH,
   MAX_CARD_DESCRIPTION_LENGTH,
   MAX_CARD_TAG_COUNT,
   MAX_CARD_TAG_LENGTH,
@@ -79,8 +78,6 @@ export function assertValidCardInput(
   assertOptionalReminders(input.reminders);
   assertOptionalScheduleTimezone(input.scheduleTimezone);
   assertOptionalString("assignee", input.assignee, MAX_CARD_ASSIGNEE_LENGTH);
-  assertOptionalString("agentStatus", input.agentStatus, MAX_CARD_AGENT_STATUS_LENGTH);
-  assertOptionalBoolean("agentBlocked", input.agentBlocked);
   assertOptionalRunInTarget(input.runInTarget);
   assertOptionalRunInLocalPath(input.runInLocalPath);
   assertOptionalRunInBaseBranch(input.runInBaseBranch);

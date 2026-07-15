@@ -42,7 +42,6 @@ function makeCard(
     title: effectiveTitle,
     richTitle: plainTextToPortableRichText(effectiveTitle),
     tags: [],
-    agentBlocked: false,
     created: TEST_DATE,
     order,
     revision: 1,
@@ -72,7 +71,6 @@ const BOARD_MAP = new Map<string, BoardSummary>([
             makeCard("command-palette", "Command palette polish", "draft", 2, {
               tags: ["secret-tag"],
               assignee: "alex",
-              agentStatus: "Waiting on hidden telemetry",
               descriptionPreview: "Hidden body-only OCR pipeline note.",
               descriptionLength: "Hidden body-only OCR pipeline note.".length,
               hasDescription: true,

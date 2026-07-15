@@ -3,24 +3,17 @@ export const CARD_STAGE_COLLAPSIBLE_PROPERTIES = [
   "assignee",
   "threads",
   "schedule",
-  "agentBlocked",
-  "agentStatus",
 ] as const;
 
 export type CardStageCollapsibleProperty = (typeof CARD_STAGE_COLLAPSIBLE_PROPERTIES)[number];
 
-export const DEFAULT_CARD_STAGE_COLLAPSED_PROPERTIES: CardStageCollapsibleProperty[] = [
-  "agentBlocked",
-  "agentStatus",
-];
+export const DEFAULT_CARD_STAGE_COLLAPSED_PROPERTIES: CardStageCollapsibleProperty[] = [];
 
 export const CARD_STAGE_COLLAPSIBLE_PROPERTY_LABELS: Record<CardStageCollapsibleProperty, string> = {
   tags: "Tags",
   assignee: "Assignee",
   threads: "Threads",
   schedule: "Schedule",
-  agentBlocked: "Agent blocked",
-  agentStatus: "Agent status",
 };
 
 export const CARD_STAGE_COLLAPSED_PROPERTIES_STORAGE_KEY = "nodex-card-stage-collapsed-properties-v1";

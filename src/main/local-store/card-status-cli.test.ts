@@ -38,6 +38,91 @@ function runCli(
 }
 
 describe("card status CLI arguments", () => {
+  test("rejects retired Agent flags and omits retired fields from list output", async () => {
+    const homeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-retired-agent-cli-home-"),
+    );
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (
+        req.method === "GET" &&
+        url.pathname === "/api/projects/default/column"
+      ) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          id: "backlog",
+          name: "Backlog",
+          cards: [{
+            id: "card-legacy-agent-fields",
+            status: "backlog",
+            archived: false,
+            title: "Current Card output",
+            description: "Current description",
+            priority: "p2-medium",
+            estimate: "m",
+            tags: ["current"],
+            dueDate: "2026-07-20",
+            assignee: "owner",
+            agentBlocked: true,
+            agentStatus: "legacy status",
+            created: "2026-07-15T00:00:00.000Z",
+            order: 0,
+          }],
+        }));
+        return;
+      }
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found" }));
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Failed to start test server");
+      }
+      const baseArgs = [
+        "backlog",
+        "--project",
+        "default",
+        "--url",
+        `http://127.0.0.1:${address.port}`,
+      ];
+      const listed = await runCli(["ls", ...baseArgs], homeDir);
+      expect(listed.exitCode).toBe(0);
+      const listedCard = JSON.parse(listed.stdout) as Record<string, unknown>;
+      expect(listedCard.title).toBe("Current Card output");
+      expect("blocked" in listedCard).toBe(false);
+      expect("agentBlocked" in listedCard).toBe(false);
+      expect("agentStatus" in listedCard).toBe(false);
+
+      const full = await runCli(["ls", ...baseArgs, "--full"], homeDir);
+      expect(full.exitCode).toBe(0);
+      const fullCard = JSON.parse(full.stdout) as Record<string, unknown>;
+      expect(fullCard.description).toBe("Current description");
+      expect("blocked" in fullCard).toBe(false);
+      expect("agentBlocked" in fullCard).toBe(false);
+      expect("agentStatus" in fullCard).toBe(false);
+
+      const blocked = await runCli(["ls", "--blocked"], homeDir);
+      expect(blocked.exitCode).toBe(1);
+      expect(blocked.stderr).toContain("Unknown option: --blocked");
+
+      const agentStatus = await runCli(
+        ["update", "card-1", "--agent-status", "running"],
+        homeDir,
+      );
+      expect(agentStatus.exitCode).toBe(1);
+      expect(agentStatus.stderr).toContain("Unknown option: --agent-status");
+    } finally {
+      server.close();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test("accepts canonical statuses and ergonomic aliases, and rejects legacy shorthands", async () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-status-cli-home-"));
     const requests: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [];
@@ -124,7 +209,6 @@ describe("card status CLI arguments", () => {
             description: "",
             priority: "p2-medium",
             tags: [],
-            agentBlocked: false,
             created: "2026-03-12T00:00:00.000Z",
             order: 0,
           }));
@@ -141,7 +225,6 @@ describe("card status CLI arguments", () => {
             description: "",
             priority: "p2-medium",
             tags: [],
-            agentBlocked: false,
             created: "2026-03-12T00:00:00.000Z",
             order: 0,
           }));
@@ -426,7 +509,6 @@ describe("card status CLI arguments", () => {
               title: isCreated ? "Exact retry" : "Existing",
               description: "",
               tags: [],
-              agentBlocked: false,
               created: "2026-07-11T00:00:00.000Z",
               order: 0,
             }));

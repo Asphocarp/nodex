@@ -57,7 +57,7 @@ describe("Card metadata property snapshot contract", () => {
     );
 
     expect(parsed.projectId).toBe("project-1");
-    expect(parsed.fields.length).toBe(12);
+    expect(parsed.fields.length).toBe(10);
     expect(parsed.fields.at(-1)?.field).toBe("priority");
   });
 

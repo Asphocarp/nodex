@@ -123,8 +123,6 @@ export function CardStageDevStoryPage({
       ...(displayCard.scheduleTimezone
         ? { scheduleTimezone: displayCard.scheduleTimezone }
         : {}),
-      agentBlocked: displayCard.agentBlocked,
-      ...(displayCard.agentStatus ? { agentStatus: displayCard.agentStatus } : {}),
       ...(displayCard.runInTarget ? { runInTarget: displayCard.runInTarget } : {}),
       ...(displayCard.runInLocalPath ? { runInLocalPath: displayCard.runInLocalPath } : {}),
       ...(displayCard.runInBaseBranch ? { runInBaseBranch: displayCard.runInBaseBranch } : {}),

@@ -46,8 +46,6 @@ export function cardInputToSummaryPatch(updates: Partial<CardInput>): Partial<Ca
   if ("reminders" in updates && Array.isArray(updates.reminders)) patch.reminders = updates.reminders;
   if ("scheduleTimezone" in updates) patch.scheduleTimezone = updates.scheduleTimezone ?? undefined;
   if ("assignee" in updates) patch.assignee = updates.assignee ?? undefined;
-  if ("agentBlocked" in updates && updates.agentBlocked !== undefined) patch.agentBlocked = updates.agentBlocked;
-  if ("agentStatus" in updates) patch.agentStatus = updates.agentStatus ?? undefined;
   if ("runInTarget" in updates) patch.runInTarget = updates.runInTarget ?? undefined;
   if ("runInLocalPath" in updates) patch.runInLocalPath = updates.runInLocalPath ?? undefined;
   if ("runInBaseBranch" in updates) patch.runInBaseBranch = updates.runInBaseBranch ?? undefined;

@@ -34,8 +34,6 @@ function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
     reminders: overrides.reminders ?? [],
     scheduleTimezone: overrides.scheduleTimezone,
     assignee: overrides.assignee,
-    agentStatus: overrides.agentStatus,
-    agentBlocked: overrides.agentBlocked ?? false,
     runInTarget: overrides.runInTarget ?? "localProject",
     runInLocalPath: overrides.runInLocalPath,
     runInBaseBranch: overrides.runInBaseBranch,
@@ -210,8 +208,7 @@ describe("command palette card search index", () => {
           title: "General task",
           descriptionPreview: "No search terms in the body.",
           tags: ["telemetry", "search"],
-          assignee: "alex",
-          agentStatus: "Waiting for telemetry snapshot",
+          assignee: "telemetry-owner",
         }),
       }),
     ]);
@@ -220,7 +217,33 @@ describe("command palette card search index", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "tag")).toBe(true);
-    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "status")).toBe(true);
+    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "assignee")).toBe(true);
+  });
+
+  test("rebuilds version 1 cache snapshots without retired Card search fields", async () => {
+    resetCommandPaletteCardSearchCacheForTests();
+    const cards = [makePaletteCard({ card: makeCard({ title: "Telemetry dashboard" }) })];
+    const seed = createMemoryCacheStore();
+    await hydrateCommandPaletteCardSearchIndex(cards, seed.store);
+    const currentSnapshot = await seed.store.read();
+    if (!currentSnapshot) throw new Error("Expected a seeded search cache snapshot");
+
+    let snapshot: CommandPaletteCardSearchCacheSnapshot = {
+      ...cloneSnapshot(currentSnapshot),
+      version: 1,
+    };
+    const store: CommandPaletteCardSearchCacheStore = {
+      read: async () => cloneSnapshot(snapshot),
+      write: async (nextSnapshot) => {
+        snapshot = cloneSnapshot(nextSnapshot);
+      },
+    };
+    resetCommandPaletteCardSearchCacheForTests();
+
+    const index = await hydrateCommandPaletteCardSearchIndex(cards, store);
+
+    expect(index.search("telemetry")).toHaveLength(1);
+    expect(snapshot.version).toBe(2);
   });
 
   test("hydrates a persisted cache snapshot and incrementally updates changed cards", async () => {

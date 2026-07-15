@@ -303,8 +303,6 @@ const createOperation = (
     reminders: input.reminders ?? [],
     scheduleTimezone: input.scheduleTimezone ?? null,
     assignee: input.assignee ?? null,
-    agentBlocked: input.agentBlocked ?? false,
-    agentStatus: input.agentStatus ?? null,
     runInTarget: input.runInTarget ?? "localProject",
     runInLocalPath: input.runInLocalPath ?? null,
     runInBaseBranch: input.runInBaseBranch ?? null,

@@ -253,8 +253,6 @@ export const createCard = async (
       reminders: input.reminders ?? [],
       scheduleTimezone: input.scheduleTimezone?.trim() || null,
       assignee: input.assignee?.trim() || null,
-      agentBlocked: Boolean(input.agentBlocked),
-      agentStatus: input.agentStatus?.trim() || null,
       runInTarget: input.runInTarget ?? "localProject",
       runInLocalPath: input.runInLocalPath?.trim() || null,
       runInBaseBranch: input.runInBaseBranch?.trim() || null,

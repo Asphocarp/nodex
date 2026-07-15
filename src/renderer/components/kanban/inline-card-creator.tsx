@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import {
   EstimatePickerIcon,
   PriorityPickerIcon,
-  StatusLinesIcon,
 } from "@/components/shared/icons";
 import { handleFormSubmit } from "@/lib/forms";
 import { KANBAN_PRIORITY_OPTIONS, resolveKanbanPriorityOption } from "../../lib/kanban-options";
@@ -34,7 +33,6 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
       title: "",
       priority: null as Priority | null,
       estimate: null as Estimate | null,
-      agentStatus: null as string | null,
     },
     onSubmit: async ({ value, formApi }) => {
       if (!value.title.trim() || saving) return;
@@ -47,8 +45,6 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
           priority: value.priority ?? undefined,
           estimate: value.estimate || undefined,
           tags: [],
-          agentStatus: value.agentStatus || undefined,
-          agentBlocked: false,
         });
         formApi.reset();
         inputRef.current?.focus();
@@ -186,38 +182,6 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
               </NodexDropdownButtonTrigger>
             )}
           />
-        )}
-
-        {/* Agent Status */}
-        {formValues.agentStatus ? (
-          <button
-            type="button"
-            onClick={() => form.setFieldValue("agentStatus", null)}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1",
-              "bg-(--blue-bg) text-(--blue-text)",
-              "rounded-xs hover:opacity-80"
-            )}
-          >
-            <span className="font-mono text-xs">{formValues.agentStatus}</span>
-            <span>×</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              const status = prompt("Agent status:");
-              if (status) form.setFieldValue("agentStatus", status);
-            }}
-            className={cn(
-              "flex h-7 items-center gap-1 px-2",
-              "hover:bg-(--background-tertiary)",
-              "rounded-xs"
-            )}
-          >
-            <StatusLinesIcon />
-            <span>Status</span>
-          </button>
         )}
       </div>
     </form>

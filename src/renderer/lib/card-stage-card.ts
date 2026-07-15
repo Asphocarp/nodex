@@ -40,8 +40,6 @@ export interface CardStageCoreCard {
   readonly recurrence?: RecurrenceConfig;
   readonly reminders: readonly ReminderConfig[];
   readonly scheduleTimezone?: string;
-  readonly agentBlocked: boolean;
-  readonly agentStatus?: string;
   readonly runInTarget?: CardRunInTarget;
   readonly runInLocalPath?: string;
   readonly runInBaseBranch?: string;
@@ -269,14 +267,6 @@ export const projectCardDetailToStageModel = (
     scheduleTimezone: optionalString(
       requireIntrinsic(detail, "scheduleTimezone").value,
       "Card schedule timezone",
-    ),
-    agentBlocked: requireBoolean(
-      requireIntrinsic(detail, "agentBlocked").value,
-      "Card Agent blocked state",
-    ),
-    agentStatus: optionalString(
-      requireIntrinsic(detail, "agentStatus").value,
-      "Card Agent status",
     ),
     ...(runTargetValue === null
       ? {}

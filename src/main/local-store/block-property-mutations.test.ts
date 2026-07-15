@@ -234,10 +234,77 @@ const requirePropertyId = (fixture: PropertyFixture, key: string): string => {
 
 describe("Block property mutation store", () => {
   sqliteTest(
+    "rejects retired Card Agent properties without mutating Card authority or projections",
+    async () => {
+      await withFixture((fixture) => {
+        const metadataBefore = readMetadataRevision(fixture);
+        const projectionBefore = readProjectionSnapshot(fixture);
+        const changeLogBefore = (
+          fixture.database
+            .prepare("SELECT COUNT(*) AS count FROM change_log")
+            .get() as { readonly count: number }
+        ).count;
+
+        for (const [index, propertyKey] of [
+          "agent.blocked",
+          "agent.status",
+        ].entries()) {
+          const request = makeRequest(
+            fixture,
+            `retired-agent-property-${index}`,
+            [{
+              scope: "intrinsic",
+              blockId: fixture.cardId,
+              propertyKey,
+              operation: "set",
+              expectedRevision: 0,
+              value: propertyKey === "agent.blocked" ? true : "running",
+            }],
+          );
+
+          const result = applyBlockPropertyMutation(fixture.database, request);
+          expect(result.ok).toBe(false);
+          if (result.ok) throw new Error("Expected a retired property rejection");
+          expect(result.error.code).toBe("property_not_found");
+          expect(result.error.fieldPath).toBe(
+            `intrinsic/${fixture.cardId}/${propertyKey}`,
+          );
+          expect(
+            fixture.database
+              .prepare(
+                `SELECT outcome, change_log_seq
+                 FROM block_mutations WHERE mutation_id = ?`,
+              )
+              .get(request.mutationId),
+          ).toEqual({ outcome: "rejected", change_log_seq: null });
+        }
+
+        const retiredRows = fixture.database
+          .prepare(
+            `SELECT property_key
+             FROM block_properties
+             WHERE block_id = ? AND property_key IN ('agent.blocked', 'agent.status')`,
+          )
+          .all(fixture.cardId);
+        expect(retiredRows).toEqual([]);
+        expect(readMetadataRevision(fixture)).toBe(metadataBefore);
+        expect(readProjectionSnapshot(fixture)).toBe(projectionBefore);
+        expect(
+          (
+            fixture.database
+              .prepare("SELECT COUNT(*) AS count FROM change_log")
+              .get() as { readonly count: number }
+          ).count,
+        ).toBe(changeLogBefore);
+      });
+    },
+  );
+
+  sqliteTest(
     "commits a mixed field batch once and replays the immutable receipt",
     async () => {
       await withFixture((fixture) => {
-        const intrinsicBefore = readIntrinsic(fixture, "agent.status");
+        const intrinsicBefore = readIntrinsic(fixture, "run.baseBranch");
         const priorityBefore = readDatabaseValue(fixture, "priority");
         const metadataBefore = readMetadataRevision(fixture);
         const request = makeRequest(fixture, "property-batch-1", [
@@ -253,7 +320,7 @@ describe("Block property mutation store", () => {
           {
             scope: "intrinsic",
             blockId: fixture.cardId,
-            propertyKey: "agent.status",
+            propertyKey: "run.baseBranch",
             operation: "set",
             expectedRevision: intrinsicBefore.revision,
             value: "running",
@@ -267,7 +334,7 @@ describe("Block property mutation store", () => {
         if (!first.ok) throw new Error(first.error.message);
         expect(first.value.duplicate).toBe(false);
         expect(first.value.fields.length).toBe(2);
-        expect(readIntrinsic(fixture, "agent.status").value_json).toBe(
+        expect(readIntrinsic(fixture, "run.baseBranch").value_json).toBe(
           JSON.stringify("running"),
         );
         expect(readDatabaseValue(fixture, "priority").value_json).toBe(
@@ -280,7 +347,7 @@ describe("Block property mutation store", () => {
         if (!retry.ok) throw new Error(retry.error.message);
         expect(retry.value.duplicate).toBe(true);
         expect(retry.value.changeLogSeq).toBe(first.value.changeLogSeq);
-        expect(readIntrinsic(fixture, "agent.status").revision).toBe(
+        expect(readIntrinsic(fixture, "run.baseBranch").revision).toBe(
           intrinsicBefore.revision + 1,
         );
         expect(readDatabaseValue(fixture, "priority").revision).toBe(
@@ -348,7 +415,7 @@ describe("Block property mutation store", () => {
         expect(collision.ok).toBe(false);
         if (collision.ok) throw new Error("Expected a mutation ID collision");
         expect(collision.error.code).toBe("mutation_id_collision");
-        expect(readIntrinsic(fixture, "agent.status").value_json).toBe(
+        expect(readIntrinsic(fixture, "run.baseBranch").value_json).toBe(
           JSON.stringify("running"),
         );
       });
@@ -359,7 +426,7 @@ describe("Block property mutation store", () => {
     "merges different fields while rejecting a stale scalar batch atomically",
     async () => {
       await withFixture((fixture) => {
-        const statusBefore = readIntrinsic(fixture, "agent.status");
+        const statusBefore = readIntrinsic(fixture, "run.baseBranch");
         const targetBefore = readIntrinsic(fixture, "run.target");
         const localPathBefore = readIntrinsic(fixture, "run.localPath");
         const metadataBefore = readMetadataRevision(fixture);
@@ -369,7 +436,7 @@ describe("Block property mutation store", () => {
             {
               scope: "intrinsic",
               blockId: fixture.cardId,
-              propertyKey: "agent.status",
+              propertyKey: "run.baseBranch",
               operation: "set",
               expectedRevision: statusBefore.revision,
               value: "running",
@@ -406,7 +473,7 @@ describe("Block property mutation store", () => {
           {
             scope: "intrinsic",
             blockId: fixture.cardId,
-            propertyKey: "agent.status",
+            propertyKey: "run.baseBranch",
             operation: "set",
             expectedRevision: statusBefore.revision,
             value: "blocked",

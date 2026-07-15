@@ -17,7 +17,6 @@ describe("Card summary rich-title projection", () => {
       richTitle,
       description: "Body",
       tags: [],
-      agentBlocked: false,
       created: new Date("2026-01-01T00:00:00.000Z"),
       order: 0,
     })).toMatchObject({

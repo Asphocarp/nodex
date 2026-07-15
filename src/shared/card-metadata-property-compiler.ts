@@ -24,8 +24,6 @@ export const CARD_METADATA_INTRINSIC_FIELDS = {
   recurrence: "recurrence.config",
   reminders: "reminders.config",
   scheduleTimezone: "schedule.timezone",
-  agentBlocked: "agent.blocked",
-  agentStatus: "agent.status",
   runInTarget: "run.target",
   runInLocalPath: "run.localPath",
   runInBaseBranch: "run.baseBranch",
@@ -181,12 +179,6 @@ const normalizeIntrinsicValue = (
   field: CardIntrinsicMetadataField,
   value: unknown,
 ): BlockPropertyJsonValue => {
-  if (field === "agentBlocked") {
-    if (typeof value === "boolean") return value;
-    throw new CardMetadataPropertyCompilerError(
-      "Card agentBlocked must be a boolean",
-    );
-  }
   if (field === "isAllDay") {
     if (typeof value === "boolean") return value;
     if (value === null) return false;

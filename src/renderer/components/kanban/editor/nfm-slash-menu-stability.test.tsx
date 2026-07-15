@@ -42,7 +42,6 @@ function makePaletteCard(): CommandPaletteCard {
       tags: [],
       reminders: [],
       isAllDay: false,
-      agentBlocked: false,
       runInTarget: "localProject",
       revision: 1,
       created: new Date("2026-06-24T00:00:00.000Z"),

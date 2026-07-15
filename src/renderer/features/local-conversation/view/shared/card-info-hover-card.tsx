@@ -118,17 +118,6 @@ export function CardInfoHoverCard({
               </div>
             )}
 
-            {/* Agent status */}
-            {card.agentStatus && (
-              <div className="flex items-start gap-1.5">
-                <span className="mt-px flex size-3 shrink-0 items-center justify-center rounded-full bg-(--yellow-bg)">
-                  <span className="size-1 rounded-full bg-(--yellow-text)" />
-                </span>
-                <span className="line-clamp-2 font-mono text-[11px] leading-tight text-(--foreground-secondary)">
-                  {card.agentStatus}
-                </span>
-              </div>
-            )}
           </div>
         </HoverCardPrimitive.Content>
       </HoverCardPrimitive.Portal>

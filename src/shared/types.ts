@@ -228,8 +228,6 @@ export interface Card {
   reminders?: ReminderConfig[];
   scheduleTimezone?: string;
   assignee?: string;
-  agentBlocked: boolean;
-  agentStatus?: string;
   runInTarget?: CardRunInTarget;
   runInLocalPath?: string;
   runInBaseBranch?: string;
@@ -281,8 +279,6 @@ export interface CardInput {
   reminders?: ReminderConfig[];
   scheduleTimezone?: string | null;
   assignee?: string;
-  agentBlocked?: boolean;
-  agentStatus?: string;
   runInTarget?: CardRunInTarget;
   runInLocalPath?: string | null;
   runInBaseBranch?: string | null;

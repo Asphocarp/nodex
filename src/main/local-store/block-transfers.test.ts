@@ -117,8 +117,6 @@ const seedCard = (
   });
   genesis.document.destroy();
   const intrinsic = [
-    ["agent.blocked", "boolean", false],
-    ["agent.status", "string", null],
     ["run.target", "string", "localProject"],
     ["run.localPath", "string", null],
     ["run.baseBranch", "string", null],

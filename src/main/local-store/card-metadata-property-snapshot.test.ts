@@ -142,7 +142,7 @@ describe("Card metadata compatibility snapshot/compiler", () => {
           fixture.projectId,
           fixture.cardId,
         );
-        expect(snapshot.fields.length).toBe(19);
+        expect(snapshot.fields.length).toBe(17);
         expect(snapshot.metadataRevision).toBe(1);
         expect(
           database
@@ -159,13 +159,13 @@ describe("Card metadata compatibility snapshot/compiler", () => {
           snapshot,
           patch: {
             priority: "p0-critical",
-            agentStatus: "running",
+            runInBaseBranch: "main",
           },
         });
         const committed = applyBlockPropertyMutation(database, request);
         expect(committed.ok).toBe(true);
         expect(fieldValue(fixture, "priority").value).toBe("p0-critical");
-        expect(fieldValue(fixture, "agentStatus").value).toBe("running");
+        expect(fieldValue(fixture, "runInBaseBranch").value).toBe("main");
         const replay = applyBlockPropertyMutation(database, request);
         expect(replay.ok).toBe(true);
         expect(replay.ok ? replay.value.duplicate : false).toBe(true);
@@ -242,10 +242,10 @@ describe("Card metadata compatibility snapshot/compiler", () => {
     async () => {
       await withFixture((fixture) => {
         const priorityBefore = fieldValue(fixture, "priority");
-        const agentBefore = fieldValue(fixture, "agentStatus");
+        const baseBranchBefore = fieldValue(fixture, "runInBaseBranch");
         const request = compile(fixture, "metadata:fault", {
           priority: "p0-critical",
-          agentStatus: "running",
+          runInBaseBranch: "main",
         });
         let faulted = false;
         try {
@@ -262,8 +262,8 @@ describe("Card metadata compatibility snapshot/compiler", () => {
         expect(fieldValue(fixture, "priority").revision).toBe(
           priorityBefore.revision,
         );
-        expect(fieldValue(fixture, "agentStatus").revision).toBe(
-          agentBefore.revision,
+        expect(fieldValue(fixture, "runInBaseBranch").revision).toBe(
+          baseBranchBefore.revision,
         );
         const leakedReceipt = getDb()
           .prepare(
@@ -379,12 +379,12 @@ describe("Card metadata compatibility snapshot/compiler", () => {
           fixture.projectId,
           fixture.cardId,
         );
-        expect(snapshot.fields.length).toBe(11);
+        expect(snapshot.fields.length).toBe(9);
         const request = compileCardMetadataPropertyMutation({
           mutationId: "metadata:custom-database-intrinsic",
           actor: { kind: "test" },
           snapshot,
-          patch: { agentStatus: "running" },
+          patch: { runInBaseBranch: "main" },
         });
         expect(request.fields.length).toBe(1);
         expect(request.fields[0]?.scope).toBe("intrinsic");

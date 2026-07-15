@@ -77,14 +77,6 @@ const REQUIRED_DATABASE_PROPERTIES = {
 } as const satisfies Readonly<Record<string, DatabasePropertyValueType>>;
 
 const INTRINSIC_CARD_PROPERTIES = {
-  "agent.blocked": {
-    valueType: "boolean",
-    read: (input: CreateCardBlockOperation) => input.agentBlocked,
-  },
-  "agent.status": {
-    valueType: "string",
-    read: (input: CreateCardBlockOperation) => input.agentStatus,
-  },
   "run.target": {
     valueType: "string",
     read: (input: CreateCardBlockOperation) => input.runInTarget,
@@ -2565,6 +2557,68 @@ const logicalRequest = (
   operation: request.operation,
 });
 
+const isRecord = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Pre-v63 create receipts included Card-owned Agent fields in their canonical
+ * logical request. Current authority ignores those retired fields, but replay
+ * must still present the exact historical request to the immutable receipt
+ * seam after proving that removing only those fields yields today's intent.
+ */
+const logicalRequestForReceiptMatching = (
+  database: Database.Database,
+  request: CardLifecycleMutationRequest,
+): Readonly<Record<string, unknown>> => {
+  const current = logicalRequest(request);
+  if (request.operation.kind !== "create_card") return current;
+
+  const stored = database
+    .prepare(
+      `SELECT request_json
+       FROM block_mutations
+       WHERE mutation_id = ? AND mutation_kind = ?`,
+    )
+    .get(request.operationId, MUTATION_KIND) as
+    | { readonly request_json: string }
+    | undefined;
+  if (!stored) return current;
+
+  let historical: unknown;
+  try {
+    historical = JSON.parse(stored.request_json) as unknown;
+  } catch {
+    return current;
+  }
+  if (!isRecord(historical) || !isRecord(historical.operation)) {
+    return current;
+  }
+  if (historical.operation.kind !== "create_card") return current;
+  if (
+    !Object.hasOwn(historical.operation, "agentBlocked") &&
+    !Object.hasOwn(historical.operation, "agentStatus")
+  ) {
+    return current;
+  }
+
+  const normalizedOperation = { ...historical.operation };
+  delete normalizedOperation.agentBlocked;
+  delete normalizedOperation.agentStatus;
+  const normalizedHistorical = {
+    ...historical,
+    operation: normalizedOperation,
+  };
+  if (
+    stableStringifyBlockPropertyJson(normalizedHistorical) !==
+    stableStringifyBlockPropertyJson(current)
+  ) {
+    return current;
+  }
+  return historical;
+};
+
 const prepareOperation = (
   database: Database.Database,
   request: CardLifecycleMutationRequest,
@@ -2575,7 +2629,7 @@ const prepareOperation = (
       operationId: request.operationId,
       projectId: request.projectId,
       mutationKind: MUTATION_KIND,
-      logicalRequest: logicalRequest(request),
+      logicalRequest: logicalRequestForReceiptMatching(database, request),
       actor: request.actor,
       clientSessionId: request.clientSessionId,
     },

@@ -24,7 +24,6 @@ function makeCard(overrides: Partial<DbViewCardRecord>): DbViewCardRecord {
     estimate: "m",
     tags: [],
     assignee: "",
-    agentBlocked: false,
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
     columnId: "backlog",

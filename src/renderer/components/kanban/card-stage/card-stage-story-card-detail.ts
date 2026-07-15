@@ -53,8 +53,6 @@ export const buildCardDetailStoryCommandResult = (
     intrinsicField("recurrence", card.recurrence ?? null),
     intrinsicField("reminders", card.reminders ?? []),
     intrinsicField("scheduleTimezone", card.scheduleTimezone ?? null),
-    intrinsicField("agentBlocked", card.agentBlocked),
-    intrinsicField("agentStatus", card.agentStatus ?? null),
     intrinsicField("runInTarget", card.runInTarget ?? "localProject"),
     intrinsicField("runInLocalPath", card.runInLocalPath ?? null),
     intrinsicField("runInBaseBranch", card.runInBaseBranch ?? null),

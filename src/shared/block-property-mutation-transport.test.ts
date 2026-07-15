@@ -15,7 +15,7 @@ const request = {
     {
       scope: "intrinsic",
       blockId: "card-1",
-      propertyKey: "agent.status",
+      propertyKey: "run.baseBranch",
       operation: "set",
       expectedRevision: 1,
       value: "running",

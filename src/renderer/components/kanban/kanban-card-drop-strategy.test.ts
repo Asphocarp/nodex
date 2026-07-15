@@ -24,7 +24,6 @@ function makeCard(
     descriptionLength: 0,
     hasDescription: false,
     tags: [],
-    agentBlocked: false,
     created: new Date("2026-03-17T00:00:00.000Z"),
     order,
     ...overrides,

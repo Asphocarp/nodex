@@ -5,15 +5,12 @@ describe("card stage draft sync", () => {
   test("derives only changed metadata fields into the draft overlay", () => {
     const overlay = buildCardStageDraftOverlay({
       assignee: "alex",
-      agentStatus: "waiting",
     }, {
-      assignee: "alex",
-      agentStatus: "blocked",
+      assignee: "sam",
     });
 
-    expect(overlay.agentStatus).toBe("blocked");
+    expect(overlay.assignee).toBe("sam");
     expect("title" in overlay).toBe(false);
     expect("description" in overlay).toBe(false);
-    expect("assignee" in overlay).toBe(false);
   });
 });

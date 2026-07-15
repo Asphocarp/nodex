@@ -189,8 +189,6 @@ export function buildCardStageStoryCard(controls: Pick<CardStageStoryControls, "
     scheduledEnd: new Date("2026-03-05T15:00:00.000Z"),
     reminders: [{ offsetMinutes: 30 }],
     assignee: "asc",
-    agentBlocked: false,
-    agentStatus: "Refining mock layout",
     runInTarget: controls.runInTarget,
     runInLocalPath: isLocalProject ? "src/renderer/components/kanban" : undefined,
     runInBaseBranch: isNewWorktree ? "main" : undefined,
@@ -206,7 +204,7 @@ export function buildCardStageStoryCard(controls: Pick<CardStageStoryControls, "
 export function buildCardStageStoryCollapsedProperties(
   controls: Pick<CardStageStoryControls, "collapseThreadsByDefault" | "collapseSecondaryProperties">,
 ): CardStageCollapsibleProperty[] {
-  const properties: CardStageCollapsibleProperty[] = ["agentBlocked", "agentStatus"];
+  const properties: CardStageCollapsibleProperty[] = [];
 
   if (controls.collapseSecondaryProperties) {
     properties.unshift("tags", "assignee");

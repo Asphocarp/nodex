@@ -199,7 +199,6 @@ const canonicalCard = (archived = false): Card => ({
   richTitle: [{ type: "text", text: "Card", styles: {} }],
   description: "",
   tags: [],
-  agentBlocked: false,
   created: new Date("2026-07-11T00:00:00.000Z"),
   order: 0,
 });

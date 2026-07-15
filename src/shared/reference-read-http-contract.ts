@@ -90,8 +90,6 @@ const CardSummaryHttpSchema = z.object({
   reminders: z.array(z.object({ offsetMinutes: z.number().finite() })).optional(),
   scheduleTimezone: z.string().optional(),
   assignee: z.string().optional(),
-  agentBlocked: z.boolean(),
-  agentStatus: z.string().optional(),
   runInTarget: z.enum(RUN_IN_TARGETS).optional(),
   runInLocalPath: z.string().optional(),
   runInBaseBranch: z.string().optional(),
@@ -103,7 +101,7 @@ const CardSummaryHttpSchema = z.object({
   descriptionPreview: z.string(),
   descriptionLength: z.number().int().nonnegative(),
   hasDescription: z.boolean(),
-}).passthrough();
+});
 
 const CardContentSummaryHttpSchema = z.object({
   blockId: z.string(),

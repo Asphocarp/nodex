@@ -119,7 +119,6 @@ interface RecoverySnapshot {
   readonly scheduledEnd?: Date | null;
   readonly isAllDay?: boolean | null;
   readonly assignee?: string;
-  readonly agentBlocked?: boolean;
 }
 
 interface ResolvedDocumentMigration {
@@ -547,9 +546,6 @@ const decodeSnapshot = (
         ? { isAllDay: card.isAllDay }
         : {}),
       ...(typeof card.assignee === "string" ? { assignee: card.assignee } : {}),
-      ...(typeof card.agentBlocked === "boolean"
-        ? { agentBlocked: card.agentBlocked }
-        : {}),
     };
   } catch {
     return null;
@@ -673,9 +669,6 @@ const recoveryContent = (
       : {}),
     ...(snapshot?.assignee !== undefined
       ? { assignee: snapshot.assignee }
-      : {}),
-    ...(snapshot?.agentBlocked !== undefined
-      ? { agentBlocked: snapshot.agentBlocked }
       : {}),
     ...(snapshot?.projectId ? { projectId: snapshot.projectId } : {}),
   };
@@ -961,13 +954,13 @@ const createDefaultRecoveredCard = async (
         id, project_id, status, title, description,
         description_preview, description_length, has_description,
         priority, estimate, tags, due_date, assignee,
-        agent_blocked, agent_status, run_in_target, run_in_local_path,
+        run_in_target, run_in_local_path,
         run_in_base_branch, run_in_worktree_path, run_in_environment_path,
         scheduled_start, scheduled_end, is_all_day, recurrence_json,
         reminders_json, schedule_timezone, created, "order"
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `,
     )
@@ -985,8 +978,6 @@ const createDefaultRecoveredCard = async (
       JSON.stringify(input.card.tags ?? []),
       input.card.dueDate?.toISOString().slice(0, 10) ?? null,
       input.card.assignee?.trim() || null,
-      input.card.agentBlocked ? 1 : 0,
-      input.card.agentStatus?.trim() || null,
       legacyRunTarget(input.card.runInTarget),
       input.card.runInLocalPath?.trim() || null,
       input.card.runInBaseBranch?.trim() || null,

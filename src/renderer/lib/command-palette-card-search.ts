@@ -24,7 +24,6 @@ interface CommandPaletteCardSearchDocument {
   description: string;
   tags: string;
   assignee: string;
-  agentStatus: string;
   columnName: string;
   projectName: string;
   cardId: string;
@@ -60,7 +59,6 @@ const SEARCH_FIELDS: Array<keyof CommandPaletteCardSearchDocument> = [
   "description",
   "tags",
   "assignee",
-  "agentStatus",
   "columnName",
   "projectName",
   "cardId",
@@ -70,7 +68,6 @@ const FIELD_BOOSTS: Partial<Record<keyof CommandPaletteCardSearchDocument, numbe
   title: 8,
   tags: 5,
   assignee: 4,
-  agentStatus: 3,
   columnName: 2,
   projectName: 2,
   description: 1,
@@ -81,7 +78,6 @@ const FAST_FIELD_BOOSTS = {
   tags: 5,
   assignee: 4,
   status: 4,
-  agentStatus: 3,
   columnName: 2,
   projectName: 2,
   description: 1,
@@ -90,7 +86,7 @@ const FAST_FIELD_BOOSTS = {
 
 const EXCERPT_BEFORE = 96;
 const EXCERPT_AFTER = 220;
-const SEARCH_CACHE_VERSION = 1;
+const SEARCH_CACHE_VERSION = 2;
 const SEARCH_CACHE_DB_NAME = "nodex/command-palette-card-search";
 const SEARCH_CACHE_DB_VERSION = 1;
 const SEARCH_CACHE_STORE_NAME = "search-cache";
@@ -132,7 +128,6 @@ function buildSearchDocument(item: CommandPaletteCard): CommandPaletteCardSearch
     description: normalizeCommandPaletteSearchText(item.card.descriptionPreview),
     tags: normalizeCommandPaletteSearchText(item.card.tags.join(" ")),
     assignee: normalizeCommandPaletteSearchText(item.card.assignee ?? ""),
-    agentStatus: normalizeCommandPaletteSearchText(item.card.agentStatus ?? ""),
     columnName: normalizeCommandPaletteSearchText(item.columnName),
     projectName: normalizeCommandPaletteSearchText(item.projectName),
     cardId: normalizeCommandPaletteSearchText(item.card.id),
@@ -146,7 +141,6 @@ function buildSearchDocumentSignature(document: CommandPaletteCardSearchDocument
     document.description,
     document.tags,
     document.assignee,
-    document.agentStatus,
     document.columnName,
     document.projectName,
     document.cardId,
@@ -268,12 +262,6 @@ function buildSearchDecorations(
   const assigneeBadge = buildBadge("assignee", "assignee", item.card.assignee ?? "", assigneeTerms);
   if (assigneeBadge) {
     badges.push(assigneeBadge);
-  }
-
-  const statusTerms = collectMatchedTermsForField(result, "agentStatus");
-  const statusBadge = buildBadge("agent-status", "status", item.card.agentStatus ?? "", statusTerms);
-  if (statusBadge) {
-    badges.push(statusBadge);
   }
 
   const cardIdTerms = collectMatchedTermsForField(result, "cardId");
@@ -410,9 +398,6 @@ function buildFastSearchDecorations(
 
   const assigneeBadge = buildBadge("assignee", "assignee", item.card.assignee ?? "", collectFastMatchedTerms(record.document.assignee, terms));
   if (assigneeBadge) badges.push(assigneeBadge);
-
-  const agentStatusBadge = buildBadge("agent-status", "status", item.card.agentStatus ?? "", collectFastMatchedTerms(record.document.agentStatus, terms));
-  if (agentStatusBadge) badges.push(agentStatusBadge);
 
   const statusBadge = buildBadge("card-status", "status", CARD_STATUS_LABELS[item.card.status] ?? item.card.status, collectFastMatchedTerms(record.status, terms));
   if (statusBadge) badges.push(statusBadge);
@@ -740,7 +725,6 @@ export function createCommandPaletteCardFastSearchIndex(
             { value: record.document.description, boost: FAST_FIELD_BOOSTS.description },
             { value: record.document.tags, boost: FAST_FIELD_BOOSTS.tags },
             { value: record.document.assignee, boost: FAST_FIELD_BOOSTS.assignee },
-            { value: record.document.agentStatus, boost: FAST_FIELD_BOOSTS.agentStatus },
             { value: record.status, boost: FAST_FIELD_BOOSTS.status },
             { value: record.document.columnName, boost: FAST_FIELD_BOOSTS.columnName },
             { value: record.document.projectName, boost: FAST_FIELD_BOOSTS.projectName },

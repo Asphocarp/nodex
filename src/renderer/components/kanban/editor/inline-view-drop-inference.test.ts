@@ -20,7 +20,6 @@ function makeCard(id: string, overrides: Partial<CardSummary> = {}): CardSummary
     hasDescription: false,
     priority: "p2-medium",
     tags: [],
-    agentBlocked: false,
     created: new Date("2026-02-16T00:00:00.000Z"),
     order: 0,
     ...overrides,

@@ -45,7 +45,7 @@ function withMockedLocalStorage(run: () => void): void {
 }
 
 describe("card stage collapsed properties", () => {
-  test("defaults to collapsing both optional card-stage properties", () => {
+  test("defaults to showing all card-stage properties", () => {
     withMockedLocalStorage(() => {
       expect(stringify(readCardStageCollapsedProperties())).toBe(
         stringify(DEFAULT_CARD_STAGE_COLLAPSED_PROPERTIES),
@@ -56,9 +56,9 @@ describe("card stage collapsed properties", () => {
   test("normalizes persisted values and preserves canonical order", () => {
     expect(
       stringify(
-        normalizeCardStageCollapsedProperties(["agentStatus", "tags", "agentBlocked", "invalid", "agentStatus"]),
+        normalizeCardStageCollapsedProperties(["agentStatus", "tags", "agentBlocked", "invalid", "tags"]),
       ),
-    ).toBe(stringify(["tags", "agentBlocked", "agentStatus"]));
+    ).toBe(stringify(["tags"]));
   });
 
   test("writes an empty selection without falling back to defaults", () => {
@@ -72,11 +72,11 @@ describe("card stage collapsed properties", () => {
   });
 
   test("toggles individual collapsed properties", () => {
-    expect(stringify(toggleCardStageCollapsedProperty(["agentBlocked"], "tags"))).toBe(
-      stringify(["tags", "agentBlocked"]),
+    expect(stringify(toggleCardStageCollapsedProperty(["threads"], "tags"))).toBe(
+      stringify(["tags", "threads"]),
     );
-    expect(stringify(toggleCardStageCollapsedProperty(["agentBlocked", "agentStatus"], "agentBlocked"))).toBe(
-      stringify(["agentStatus"]),
+    expect(stringify(toggleCardStageCollapsedProperty(["tags", "threads"], "tags"))).toBe(
+      stringify(["threads"]),
     );
   });
 

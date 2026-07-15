@@ -28,8 +28,6 @@ const DATABASE_PROPERTY_KEYS = [
 ] as const;
 
 const INTRINSIC_PROPERTY_KEYS = [
-  "agent.blocked",
-  "agent.status",
   "run.target",
   "run.localPath",
   "run.baseBranch",
@@ -584,11 +582,6 @@ const assembleCard = (
     "assignee",
     database.values.assignee,
   );
-  const agentStatus = requireNullableString(
-    row.card_block_id,
-    "agent.status",
-    intrinsic.values["agent.status"],
-  );
   const runTarget = requireNullableString(
     row.card_block_id,
     "run.target",
@@ -663,12 +656,6 @@ const assembleCard = (
         intrinsic.values["schedule.timezone"],
       ) ?? undefined,
     assignee: assignee ?? undefined,
-    agentBlocked: requireBoolean(
-      row.card_block_id,
-      "agent.blocked",
-      intrinsic.values["agent.blocked"],
-    ),
-    agentStatus: agentStatus ?? undefined,
     runInTarget: runTarget,
     runInLocalPath:
       requireNullableString(
@@ -712,8 +699,6 @@ const assembleCard = (
         reminders: card.reminders,
         scheduleTimezone: card.scheduleTimezone,
         assignee: card.assignee,
-        agentBlocked: card.agentBlocked,
-        agentStatus: card.agentStatus,
         runInTarget: card.runInTarget,
         runInLocalPath: card.runInLocalPath,
         runInBaseBranch: card.runInBaseBranch,

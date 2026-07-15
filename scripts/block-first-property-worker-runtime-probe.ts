@@ -80,13 +80,13 @@ const run = async (): Promise<void> => {
         }[]
       ).map((row) => [row.key, { id: row.id, revision: row.revision }]),
     ) as Readonly<Record<string, PropertyCoordinate>>;
-    const agentStatusRevision = (
+    const baseBranchRevision = (
       database
         .prepare(
           `
           SELECT revision
           FROM block_properties
-          WHERE block_id = ? AND project_id = ? AND property_key = 'agent.status'
+          WHERE block_id = ? AND project_id = ? AND property_key = 'run.baseBranch'
         `,
         )
         .get(card.id, project.id) as { readonly revision: number }
@@ -130,9 +130,9 @@ const run = async (): Promise<void> => {
         {
           scope: "intrinsic",
           blockId: card.id,
-          propertyKey: "agent.status",
+          propertyKey: "run.baseBranch",
           operation: "set",
-          expectedRevision: agentStatusRevision,
+          expectedRevision: baseBranchRevision,
           value: "running",
         },
       ],
@@ -145,7 +145,7 @@ const run = async (): Promise<void> => {
     invariant(
       eventCount() === 1 &&
         events[0]?.summary?.priority === "p0-critical" &&
-        events[0]?.summary?.agentStatus === "running",
+        events[0]?.summary?.runInBaseBranch === "running",
       "New property commit did not publish its authoritative Card summary",
     );
 
@@ -192,9 +192,9 @@ const run = async (): Promise<void> => {
         {
           scope: "intrinsic",
           blockId: card.id,
-          propertyKey: "agent.status",
+          propertyKey: "run.baseBranch",
           operation: "set",
-          expectedRevision: agentStatusRevision,
+          expectedRevision: baseBranchRevision,
           value: "blocked",
         },
       ],
@@ -261,7 +261,7 @@ const run = async (): Promise<void> => {
           projection.group_key === "done" &&
           databaseValues.priority === "p0-critical" &&
           databaseValues.status === "done" &&
-          intrinsicValues["agent.status"] === "running",
+          intrinsicValues["run.baseBranch"] === "running",
         "Worker ACK preceded scheduler/read-model/View projection freshness",
       );
       const ledgerCount = (

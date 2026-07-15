@@ -22,7 +22,6 @@ function makeStoryCard(overrides: Partial<CardSummary> = {}): CardSummary {
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     tags: overrides.tags ?? ["palette", "shell"],
     archived: false,
-    agentBlocked: false,
     created: new Date("2026-06-20T00:00:00.000Z"),
     order: 0,
     revision: 1,

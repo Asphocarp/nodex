@@ -17,7 +17,6 @@ const SAMPLE_CARD: CardType = {
   estimate: "m",
   tags: ["UI", "Panels"],
   assignee: "alex",
-  agentBlocked: false,
   created: new Date("2026-06-17T12:00:00.000Z"),
   order: 0,
 };

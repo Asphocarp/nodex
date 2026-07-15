@@ -42,7 +42,7 @@ describe("Block property mutation contract", () => {
         {
           scope: "intrinsic" as const,
           blockId: "card-1",
-          propertyKey: "agent.status",
+          propertyKey: "run.baseBranch",
           operation: "set" as const,
           expectedRevision: 4,
           value: { b: true, a: [1, 2] },
@@ -86,7 +86,7 @@ describe("Block property mutation contract", () => {
     const intrinsic = {
       scope: "intrinsic" as const,
       blockId: "card-1",
-      propertyKey: "agent.status",
+      propertyKey: "run.baseBranch",
       operation: "set" as const,
       expectedRevision: 1,
       value: "running",
@@ -156,10 +156,10 @@ describe("Block property mutation contract", () => {
       duplicate: false,
       fields: [
         {
-          path: "intrinsic/card-1/agent.status",
+          path: "intrinsic/card-1/run.baseBranch",
           scope: "intrinsic",
           blockId: "card-1",
-          propertyKey: "agent.status",
+          propertyKey: "run.baseBranch",
           operation: "set",
           revision: 2,
           value: "running",
@@ -190,7 +190,7 @@ describe("Block property mutation contract", () => {
         {
           scope: "intrinsic",
           blockId: "card-1",
-          propertyKey: "agent.status",
+          propertyKey: "run.baseBranch",
           operation: "set",
           expectedRevision: 1,
           value: "running",

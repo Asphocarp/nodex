@@ -265,7 +265,6 @@ export function CalendarView({
             richTitle: plainTextToPortableRichText(title),
             description: "",
             tags: [],
-            agentBlocked: false,
             created: new Date(),
             order: 0,
             scheduledStart: start,

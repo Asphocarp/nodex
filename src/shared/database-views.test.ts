@@ -27,7 +27,6 @@ const makeCard = (
   richTitle: [{ type: "text", text: id, styles: {} }],
   priority,
   tags: [],
-  agentBlocked: false,
   created: new Date("2026-01-01T00:00:00.000Z"),
   order: 0,
   descriptionPreview: "",

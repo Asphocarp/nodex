@@ -21,8 +21,6 @@ function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
     priority: "p2-medium",
     tags: ["editor", "search"],
     assignee: "alice",
-    agentBlocked: false,
-    agentStatus: "Implementing",
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
     ...overrides,
@@ -51,6 +49,5 @@ describe("card search", () => {
     expect(searchable.includes("token based matching")).toBe(true);
     expect(searchable.includes("editor search")).toBe(true);
     expect(searchable.includes("alice")).toBe(true);
-    expect(searchable.includes("implementing")).toBe(true);
   });
 });

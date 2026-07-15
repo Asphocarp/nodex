@@ -449,7 +449,6 @@ function normalizeCliMetadataValue(field, value) {
     throw new Error("Card dueDate must be a date or null");
   }
   if (field === "assignee") return typeof value === "string" ? value.trim() || null : value;
-  if (field === "agentStatus") return typeof value === "string" ? value.trim() || null : value;
   return value;
 }
 
@@ -495,17 +494,7 @@ function compileCliCardMetadataFields(snapshot, patch) {
       });
       continue;
     }
-    fields.push({
-      scope: "intrinsic",
-      blockId: snapshot.cardBlockId,
-      propertyKey: {
-        agentBlocked: "agent.blocked",
-        agentStatus: "agent.status",
-      }[field],
-      operation: "set",
-      expectedRevision: coordinate.revision,
-      value,
-    });
+    throw new Error(`Card metadata field is not writable from the CLI: ${field}`);
   }
   return fields;
 }
@@ -889,14 +878,12 @@ function cardToKV(card, statusId) {
     tags: Array.isArray(card.tags) ? card.tags.join(";") : "",
     dueDate: card.dueDate || "",
     assignee: card.assignee || "",
-    blocked: card.agentBlocked ? "true" : "false",
-    agentStatus: card.agentStatus || "",
     created: card.created,
     order: card.order,
   };
 }
 
-const LS_HEADERS = ["id", "status", "title", "priority", "estimate", "assignee", "blocked", "agentStatus", "tags", "order"];
+const LS_HEADERS = ["id", "status", "title", "priority", "estimate", "assignee", "tags", "order"];
 const LS_FULL_HEADERS = [
   "id",
   "status",
@@ -909,8 +896,6 @@ const LS_FULL_HEADERS = [
   "tags",
   "dueDate",
   "assignee",
-  "agentBlocked",
-  "agentStatus",
   "created",
   "order",
 ];
@@ -923,8 +908,6 @@ function cardToRow(card, statusId) {
     priority: card.priority,
     estimate: card.estimate || "",
     assignee: card.assignee || "",
-    blocked: card.agentBlocked ? "true" : "false",
-    agentStatus: card.agentStatus || "",
     tags: Array.isArray(card.tags) ? card.tags.join(";") : "",
     order: card.order,
   };
@@ -958,8 +941,6 @@ function cardToFullRow(card, statusId, options) {
     tags: Array.isArray(card.tags) ? card.tags : [],
     dueDate: card.dueDate || "",
     assignee: card.assignee || "",
-    agentBlocked: card.agentBlocked,
-    agentStatus: card.agentStatus || "",
     created: card.created,
     order: card.order,
   };
@@ -977,7 +958,6 @@ const OPTION_ALIASES = {
   "--tags": "tags", "-t": "tags",
   "--assignee": "assignee", "-a": "assignee",
   "--due": "due",
-  "--agent-status": "agentStatus",
   "--title": "title",
   "--name": "name", "-n": "name",
   "--label": "label",
@@ -1010,14 +990,10 @@ const BOOLEAN_OPTION_ALIASES = {
   "-v": "verbose",
   "--full": "full",
   "--description-full": "descriptionFull",
-  "--blocked": "blocked",
-  "--agent-blocked": "agentBlocked",
-  "--no-agent-blocked": "agentBlockedFalse",
   "--clear-description": "clearDescription",
   "--clear-tags": "clearTags",
   "--clear-assignee": "clearAssignee",
   "--clear-due": "clearDue",
-  "--clear-agent-status": "clearAgentStatus",
 };
 
 const OPTION_TOKENS = new Set([
@@ -1035,7 +1011,6 @@ const FLAG_DISPLAY = {
   tags: "--tags",
   assignee: "--assignee",
   due: "--due",
-  agentStatus: "--agent-status",
   title: "--title",
   name: "--name",
   label: "--label",
@@ -1063,13 +1038,10 @@ const FLAG_DISPLAY = {
   verbose: "--verbose",
   full: "--full",
   descriptionFull: "--description-full",
-  blocked: "--blocked",
-  agentBlocked: "--agent-blocked",
   clearDescription: "--clear-description",
   clearTags: "--clear-tags",
   clearAssignee: "--clear-assignee",
   clearDue: "--clear-due",
-  clearAgentStatus: "--clear-agent-status",
   yes: "--yes",
   noSafetyBackup: "--no-safety-backup",
 };
@@ -1077,22 +1049,20 @@ const FLAG_DISPLAY = {
 const COMMAND_ALLOWED_FLAGS = {
   ls: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId",
-    "priority", "assignee", "blocked", "limit", "offset", "full", "descriptionChars", "descriptionFull",
+    "priority", "assignee", "limit", "offset", "full", "descriptionChars", "descriptionFull",
   ]),
   get: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
-  add: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "description", "priority", "estimate", "tags", "assignee", "due", "agentStatus", "agentBlocked", "mutationId", "cardId"]),
+  add: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "description", "priority", "estimate", "tags", "assignee", "due", "mutationId", "cardId"]),
   update: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
-    "assignee", "clearAssignee", "due", "clearDue", "agentStatus", "clearAgentStatus",
-    "agentBlocked", "mutationId", "expectedHead",
+    "assignee", "clearAssignee", "due", "clearDue", "mutationId", "expectedHead",
   ]),
   rm: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "mutationId"]),
   mv: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
-    "assignee", "clearAssignee", "due", "clearDue", "agentStatus", "clearAgentStatus",
-    "agentBlocked", "mutationId", "expectedHead",
+    "assignee", "clearAssignee", "due", "clearDue", "mutationId", "expectedHead",
   ]),
   transfer: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
@@ -1232,11 +1202,7 @@ function parseCliArgs(argv) {
 
     if (BOOLEAN_OPTION_ALIASES[arg]) {
       const key = BOOLEAN_OPTION_ALIASES[arg];
-      if (key === "agentBlockedFalse") {
-        args.flags.agentBlocked = false;
-      } else {
-        args.flags[key] = true;
-      }
+      args.flags[key] = true;
       continue;
     }
     if (arg === "--yes") {
@@ -1306,7 +1272,6 @@ function assertNoConflictingClearFlags(flags) {
     ["tags", "clearTags", "--tags", "--clear-tags"],
     ["assignee", "clearAssignee", "--assignee", "--clear-assignee"],
     ["due", "clearDue", "--due", "--clear-due"],
-    ["agentStatus", "clearAgentStatus", "--agent-status", "--clear-agent-status"],
   ];
 
   for (const [valueFlag, clearFlag, valueLabel, clearLabel] of conflicts) {
@@ -1422,12 +1387,6 @@ async function cmdLs(positional, flags, config) {
     cards = cards.filter(c => c.priority === flags.priority);
   }
   if (flags.assignee) cards = cards.filter(c => c.assignee === flags.assignee);
-  if (flags.blocked) {
-    cards = cards.filter((card) => {
-      if (lsOptions.full) return card.agentBlocked === true;
-      return card.blocked === "true";
-    });
-  }
   if (flags.offset) cards = cards.slice(parseNonNegativeInt(flags.offset, "--offset"));
   if (flags.limit) cards = cards.slice(0, parseNonNegativeInt(flags.limit, "--limit"));
 
@@ -1932,9 +1891,6 @@ async function cmdAdd(positional, flags, config) {
   if (flags.tags !== undefined) operation.tags = parseTags(flags.tags);
   if (flags.assignee !== undefined) operation.assignee = flags.assignee;
   if (flags.due !== undefined) operation.dueDate = parseDueDate(flags.due);
-  if (flags.agentStatus !== undefined) operation.agentStatus = await resolveValue(flags.agentStatus);
-  if (flags.agentBlocked === true) operation.agentBlocked = true;
-
   const preflight = await readCardLifecyclePreflight(config, cardId);
   const isExplicitExactRetry =
     flags.cardId !== undefined && flags.mutationId !== undefined;
@@ -2005,14 +1961,6 @@ async function cmdUpdate(positional, flags, config) {
   } else if (flags.due !== undefined) {
     body.dueDate = parseDueDate(flags.due);
   }
-
-  if (flags.clearAgentStatus) {
-    body.agentStatus = "";
-  } else if (flags.agentStatus !== undefined) {
-    body.agentStatus = await resolveValue(flags.agentStatus);
-  }
-
-  if (flags.agentBlocked !== undefined) body.agentBlocked = flags.agentBlocked;
 
   const metadataChanged = Object.keys(body).some(
     (key) => key !== "cardId" && key !== "sessionId",
@@ -2166,14 +2114,6 @@ async function cmdMv(positional, flags, config) {
   } else if (flags.due !== undefined) {
     cardUpdates.dueDate = parseDueDate(flags.due);
   }
-
-  if (flags.clearAgentStatus) {
-    cardUpdates.agentStatus = "";
-  } else if (flags.agentStatus !== undefined) {
-    cardUpdates.agentStatus = await resolveValue(flags.agentStatus);
-  }
-
-  if (flags.agentBlocked !== undefined) cardUpdates.agentBlocked = flags.agentBlocked;
 
   const hasCardUpdates = Object.keys(cardUpdates).length > 0;
   const hasContentUpdates = title !== undefined || nfm !== undefined;
@@ -2753,7 +2693,6 @@ function printCommandHelp(cmd) {
     -p, --project <id>  Project (default: "default")
     --priority <p>    Filter by priority
     --assignee <name> Filter by assignee
-    --blocked         Show only blocked cards
     --limit <n>       Limit results
     --offset <n>      Skip first n results
     --full            Include full card fields
@@ -2781,8 +2720,6 @@ function printCommandHelp(cmd) {
     -t, --tags <t1,t2>        Comma-separated tags
     -a, --assignee <name>     Assignee
     --due <YYYY-MM-DD>        Due date
-    --agent-status <text>     Agent status (supports @file/@-)
-    --agent-blocked           Mark as blocked
     --card-id <id>            Stable Card Block identity (required with --mutation-id)
     --mutation-id <id>        Stable operation identity; retry with the same --card-id
     --jsonl                   JSON Lines output (default)
@@ -2804,16 +2741,12 @@ function printCommandHelp(cmd) {
     -t, --tags <t1,t2>          Tags
     -a, --assignee <name>       Assignee
     --due <YYYY-MM-DD>          Due date
-    --agent-status <text>       Status (supports @file/@-)
     --clear-description         Clear description
     --clear-tags                Clear tags
     --clear-assignee            Clear assignee
     --clear-due                 Clear due date
-    --clear-agent-status        Clear status
     --mutation-id <id>          Stable exact-retry identity for title/body changes
     --expected-head <seq>       Explicit Document CAS head for exact retry
-    --agent-blocked             Set blocked
-    --no-agent-blocked          Clear blocked
     -v, --verbose               Show full card details
     --jsonl                     JSON Lines output (default)
     --json                      JSON object output
@@ -2896,16 +2829,12 @@ function printCommandHelp(cmd) {
     -t, --tags <t1,t2>          Tags
     -a, --assignee <name>       Assignee
     --due <YYYY-MM-DD>          Due date
-    --agent-status <text>       Status (supports @file/@-)
     --clear-description         Clear description
     --clear-tags                Clear tags
     --clear-assignee            Clear assignee
     --clear-due                 Clear due date
-    --clear-agent-status        Clear status
     --mutation-id <id>          Stable exact-retry identity for title/body changes
     --expected-head <seq>       Explicit Document CAS head for exact retry
-    --agent-blocked             Set blocked
-    --no-agent-blocked          Clear blocked
     -v, --verbose               Show full card details
     --jsonl                     JSON Lines output (default)
     --json                      JSON object output

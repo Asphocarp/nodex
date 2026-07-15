@@ -12,8 +12,6 @@ const intrinsicFields = [
   ["recurrence", null],
   ["reminders", []],
   ["scheduleTimezone", null],
-  ["agentBlocked", false],
-  ["agentStatus", null],
   ["runInTarget", "localProject"],
   ["runInLocalPath", null],
   ["runInBaseBranch", null],
@@ -66,6 +64,14 @@ const detail = () => ({
 });
 
 describe("Card Detail contract", () => {
+  test("rejects the retired v1 Card property vocabulary", () => {
+    const legacy = { ...detail(), version: 1 };
+
+    expect(() => parseCardDetail(legacy)).toThrow(
+      "cardDetail.version must be 2",
+    );
+  });
+
   test("accepts a Document-parented Card without Database coordinates", () => {
     const parsed = parseCardDetail(detail());
 

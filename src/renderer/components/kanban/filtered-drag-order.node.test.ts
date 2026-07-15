@@ -14,7 +14,6 @@ function createCard(id: string, status: CardStatus, order: number): CardSummary 
     descriptionLength: 0,
     hasDescription: false,
     tags: [],
-    agentBlocked: false,
     created: new Date("2026-03-14T00:00:00.000Z"),
     order,
   };

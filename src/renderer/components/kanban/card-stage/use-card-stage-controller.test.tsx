@@ -30,7 +30,6 @@ function buildCard(overrides: Partial<Card> = {}): Card {
     richTitle: plainTextToPortableRichText(title),
     description: "Projected body",
     tags: [],
-    agentBlocked: false,
     created: new Date("2026-01-01T00:00:00.000Z"),
     order: 1,
     ...overrides,
@@ -57,8 +56,6 @@ function toStageModel(card: Card): CardStageCardModel {
       recurrence: card.recurrence,
       reminders: card.reminders ?? [],
       scheduleTimezone: card.scheduleTimezone,
-      agentBlocked: card.agentBlocked,
-      agentStatus: card.agentStatus,
       runInTarget: card.runInTarget,
       runInLocalPath: card.runInLocalPath,
       runInBaseBranch: card.runInBaseBranch,
@@ -279,13 +276,13 @@ describe("useCardStageController", () => {
     );
     await settleAsyncRender();
 
-    act(() => result.controller.handleAgentStatusChange("waiting"));
+    act(() => result.controller.handleAssigneeChange("alex"));
     await settleAsyncRender();
     await act(async () => result.controller.handleClose());
 
     expect(persisted).toBe(1);
     expect(updates.length).toBe(1);
-    expect(updates[0]?.agentStatus).toBe("waiting");
+    expect(updates[0]?.assignee).toBe("alex");
     expect(Object.hasOwn(updates[0] ?? {}, "title")).toBe(false);
     expect(Object.hasOwn(updates[0] ?? {}, "description")).toBe(false);
   });

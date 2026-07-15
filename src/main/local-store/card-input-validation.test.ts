@@ -13,8 +13,6 @@ function createValidInput(): CardInput {
     tags: ["security", "nfm"],
     dueDate: new Date("2026-02-12T00:00:00.000Z"),
     assignee: "asc",
-    agentBlocked: false,
-    agentStatus: "working",
     runInTarget: "localProject",
     runInLocalPath: "/tmp/repo",
     runInBaseBranch: "main",

@@ -66,8 +66,6 @@ interface UseCardStageControllerResult {
   tagInput: string;
   tags: string[];
   assignee: string;
-  agentStatus: string;
-  agentBlocked: boolean;
   runInTarget: CardRunInTarget;
   runInLocalPathDisplay: string;
   runInBaseBranch: string;
@@ -98,8 +96,6 @@ interface UseCardStageControllerResult {
   collapseAssigneeByDefault: boolean;
   collapseThreadsByDefault: boolean;
   collapseScheduleByDefault: boolean;
-  collapseAgentBlockedByDefault: boolean;
-  collapseAgentStatusByDefault: boolean;
   collapsedPropertyCount: number;
   showCollapsedProperties: boolean;
   currentColumnName: string;
@@ -132,9 +128,6 @@ interface UseCardStageControllerResult {
   handleColumnChange: (nextColumnId: string) => Promise<void>;
   handleAssigneeChange: (value: string) => void;
   handleAssigneeBlur: () => void;
-  handleAgentStatusChange: (value: string) => void;
-  handleAgentStatusBlur: () => void;
-  handleToggleAgentBlocked: () => void;
   handleAddTag: (value?: string) => void;
   handleRemoveTag: (tag: string) => void;
   handleTagInputBlur: () => void;
@@ -156,17 +149,12 @@ export interface CardStageControllerDependencies {
   readonly persistDocument?: () => Promise<void>;
 }
 
-type DraftFieldKey = "assignee" | "agentStatus";
-type DraftDirtyState = Record<DraftFieldKey, boolean>;
-
 interface CardStageFormState {
   priority: Priority | undefined;
   estimate: string;
   dueDate: string;
   tags: string[];
   assignee: string;
-  agentStatus: string;
-  agentBlocked: boolean;
 }
 
 interface CardStageMetadataSourceVersion {
@@ -246,11 +234,6 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
   return true;
 }
 
-function readFormDraftField(state: CardStageFormState, field: DraftFieldKey): string {
-  if (field === "assignee") return state.assignee;
-  return state.agentStatus;
-}
-
 function buildCardStageSessionSnapshot(
   projectId: string,
   card: CardStageCoreCard | null,
@@ -317,8 +300,6 @@ export function useCardStageController(
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [assignee, setAssignee] = useState("");
-  const [agentStatus, setAgentStatus] = useState("");
-  const [agentBlocked, setAgentBlocked] = useState(false);
   const [runInTarget, setRunInTarget] = useState<CardRunInTarget>("localProject");
   const [runInLocalPath, setRunInLocalPath] = useState("");
   const [runInBaseBranch, setRunInBaseBranch] = useState("");
@@ -355,17 +336,13 @@ export function useCardStageController(
   const appliedMetadataSourceVersionRef =
     useRef<CardStageMetadataSourceVersion | null>(null);
   const assigneeSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const agentStatusSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lastScrollRestoreCardRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const previousActivePanelTabRef = useRef(isActivePanelTab);
   const lastKnownScrollTopRef = useRef<{ cardId: string; scrollTop: number } | null>(null);
   const scrollRestoreVersionRef = useRef(0);
-  const draftDirtyRef = useRef<DraftDirtyState>({
-    assignee: false,
-    agentStatus: false,
-  });
+  const assigneeDraftDirtyRef = useRef(false);
 
   const formStateRef = useRef<CardStageFormState>({
     priority: undefined as Priority | undefined,
@@ -373,8 +350,6 @@ export function useCardStageController(
     dueDate: "",
     tags: [] as string[],
     assignee: "",
-    agentStatus: "",
-    agentBlocked: false,
   });
 
   const tagOptions = useMemo(() => {
@@ -397,17 +372,12 @@ export function useCardStageController(
   const tagItemCount = tagOptions.length + (showTagCreate ? 1 : 0);
   const hasTagDropdownItems = tagItemCount > 0;
 
-  const markDraftDirty = useCallback((field: DraftFieldKey) => {
-    draftDirtyRef.current[field] = true;
+  const markAssigneeDraftDirty = useCallback(() => {
+    assigneeDraftDirtyRef.current = true;
   }, []);
 
-  const clearDraftDirty = useCallback((field: DraftFieldKey) => {
-    draftDirtyRef.current[field] = false;
-  }, []);
-
-  const clearAllDraftDirty = useCallback(() => {
-    draftDirtyRef.current.assignee = false;
-    draftDirtyRef.current.agentStatus = false;
+  const clearAssigneeDraftDirty = useCallback(() => {
+    assigneeDraftDirtyRef.current = false;
   }, []);
 
   const beginSaving = useCallback(() => {
@@ -442,35 +412,28 @@ export function useCardStageController(
       runUpdate(nextCardId, updates),
   );
 
-  const clearDraftDirtyFromAck = useCallback(
+  const clearAssigneeDraftDirtyFromAck = useCallback(
     (
       result: CardStageMetadataMutationResult,
-      expectedValues: Partial<Record<DraftFieldKey, string>>,
+      expectedAssignee: string,
     ) => {
       if (result.status !== "updated") return;
-
-      for (const field of Object.keys(expectedValues) as DraftFieldKey[]) {
-        const expectedValue = expectedValues[field];
-        if (expectedValue === undefined) continue;
-        if (readFormDraftField(formStateRef.current, field) !== expectedValue) continue;
-        draftDirtyRef.current[field] = false;
-      }
+      if (formStateRef.current.assignee !== expectedAssignee) return;
+      assigneeDraftDirtyRef.current = false;
     },
     [],
   );
 
-  const runDraftFieldUpdate = useCallback(
+  const runAssigneeUpdate = useCallback(
     async (
       nextCardId: string,
-      field: DraftFieldKey,
-      updates: Partial<CardInput>,
-      expectedValue: string,
+      expectedAssignee: string,
     ): Promise<CardStageMetadataMutationResult> => {
-      const result = await runUpdate(nextCardId, updates);
-      clearDraftDirtyFromAck(result, { [field]: expectedValue });
+      const result = await runUpdate(nextCardId, { assignee: expectedAssignee });
+      clearAssigneeDraftDirtyFromAck(result, expectedAssignee);
       return result;
     },
-    [clearDraftDirtyFromAck, runUpdate],
+    [clearAssigneeDraftDirtyFromAck, runUpdate],
   );
 
   const saveProperty = useCallback(
@@ -502,10 +465,8 @@ export function useCardStageController(
       dueDate,
       tags,
       assignee,
-      agentStatus,
-      agentBlocked,
     };
-  }, [priority, estimate, dueDate, tags, assignee, agentStatus, agentBlocked]);
+  }, [priority, estimate, dueDate, tags, assignee]);
 
   useEffect(() => {
     if (!draftOverlayCardId) return;
@@ -520,14 +481,12 @@ export function useCardStageController(
 
     const overlay = buildCardStageDraftOverlay({
       assignee: databaseProperties?.assignee,
-      agentStatus: card.agentStatus,
     }, {
       assignee,
-      agentStatus,
     });
 
     setCardDraftOverlay(projectId, card.id, overlay);
-  }, [agentStatus, assignee, card, databaseProperties?.assignee, projectId]);
+  }, [assignee, card, databaseProperties?.assignee, projectId]);
 
   const rememberScrollTopForCard = useCallback((cardId: string | null, scrollTop: number) => {
     if (!cardId) return;
@@ -638,8 +597,7 @@ export function useCardStageController(
       const nextRunInWorktreePath = card.runInWorktreePath || "";
       const nextRunInEnvironmentPath = card.runInEnvironmentPath || "";
 
-      const assigneeDirty = draftDirtyRef.current.assignee;
-      const agentStatusDirty = draftDirtyRef.current.agentStatus;
+      const assigneeDirty = assigneeDraftDirtyRef.current;
 
       setPriority((current) => (
         current === databaseProperties?.priority
@@ -657,18 +615,13 @@ export function useCardStageController(
         setTags(nextTags);
       }
       if (!assigneeDirty || state.assignee === (databaseProperties?.assignee || "")) {
-        draftDirtyRef.current.assignee = false;
+        assigneeDraftDirtyRef.current = false;
         setAssignee((current) => (
           current === (databaseProperties?.assignee || "")
             ? current
             : (databaseProperties?.assignee || "")
         ));
       }
-      if (!agentStatusDirty || state.agentStatus === (card.agentStatus || "")) {
-        draftDirtyRef.current.agentStatus = false;
-        setAgentStatus((current) => (current === (card.agentStatus || "") ? current : (card.agentStatus || "")));
-      }
-      setAgentBlocked((current) => (current === card.agentBlocked ? current : card.agentBlocked));
       setRunInTarget((current) => (current === nextRunInTarget ? current : nextRunInTarget));
       setRunInLocalPath((current) => (current === nextRunInLocalPath ? current : nextRunInLocalPath));
       setRunInBaseBranch((current) => (current === nextRunInBaseBranch ? current : nextRunInBaseBranch));
@@ -685,12 +638,11 @@ export function useCardStageController(
       return;
     }
 
-    for (const ref of [assigneeSaveTimerRef, agentStatusSaveTimerRef]) {
-      if (!ref.current) continue;
-      clearTimeout(ref.current);
-      ref.current = null;
+    if (assigneeSaveTimerRef.current) {
+      clearTimeout(assigneeSaveTimerRef.current);
+      assigneeSaveTimerRef.current = null;
     }
-    clearAllDraftDirty();
+    clearAssigneeDraftDirty();
 
     if (prevCardId) {
       const scrollTop = readCurrentScrollTopForCard(prevCardId, scrollContainerRef.current);
@@ -714,9 +666,7 @@ export function useCardStageController(
           || state.assignee !== (targetDatabase.assignee || "")
           || JSON.stringify(state.tags) !== JSON.stringify(targetDatabase.tags)
         )
-      ) || state.agentStatus !== (targetCard.agentStatus || "")
-        || state.agentBlocked !== targetCard.agentBlocked
-      ;
+      );
 
       if (hasAnyChanges) {
         void runPreviousCardUpdate(targetCard.id, {
@@ -732,8 +682,6 @@ export function useCardStageController(
                 assignee: state.assignee,
               }
             : {}),
-          agentStatus: state.agentStatus,
-          agentBlocked: state.agentBlocked,
         });
       }
     }
@@ -757,8 +705,6 @@ export function useCardStageController(
       }
       setTags([...(databaseProperties?.tags ?? [])]);
       setAssignee(databaseProperties?.assignee || "");
-      setAgentStatus(card.agentStatus || "");
-      setAgentBlocked(card.agentBlocked);
       setRunInTarget(normalizeRunInTarget(card.runInTarget));
       setRunInLocalPath(card.runInLocalPath || "");
       setRunInBaseBranch(card.runInBaseBranch || "");
@@ -780,7 +726,7 @@ export function useCardStageController(
   }, [
     card,
     cardModel,
-    clearAllDraftDirty,
+    clearAssigneeDraftDirty,
     columnId,
     databaseProperties,
     readCurrentScrollTopForCard,
@@ -834,13 +780,8 @@ export function useCardStageController(
       || assignee !== (databaseProperties.assignee || "")
       || JSON.stringify(tags) !== JSON.stringify(databaseProperties.tags)
     );
-    return databaseChanged
-      || agentStatus !== (card.agentStatus || "")
-      || agentBlocked !== card.agentBlocked
-    ;
+    return databaseChanged;
   }, [
-    agentBlocked,
-    agentStatus,
     assignee,
     card,
     databaseProperties,
@@ -857,7 +798,7 @@ export function useCardStageController(
 
   const handleAssigneeChange = useCallback(
     (value: string) => {
-      markDraftDirty("assignee");
+      markAssigneeDraftDirty();
       formStateRef.current.assignee = value;
       setAssignee(value);
 
@@ -869,10 +810,10 @@ export function useCardStageController(
         assigneeSaveTimerRef.current = null;
         if (!card || !databaseProperties || value === (databaseProperties.assignee || "")) return;
         const endSaving = beginSaving();
-        runDraftFieldUpdate(card.id, "assignee", { assignee: value }, value).finally(endSaving);
+        runAssigneeUpdate(card.id, value).finally(endSaving);
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [beginSaving, card, databaseProperties, markDraftDirty, runDraftFieldUpdate],
+    [beginSaving, card, databaseProperties, markAssigneeDraftDirty, runAssigneeUpdate],
   );
 
   const handleAssigneeBlur = useCallback(() => {
@@ -883,47 +824,12 @@ export function useCardStageController(
 
     if (!card || !databaseProperties) return;
     if (assignee === (databaseProperties.assignee || "")) {
-      clearDraftDirty("assignee");
+      clearAssigneeDraftDirty();
       return;
     }
     const endSaving = beginSaving();
-    runDraftFieldUpdate(card.id, "assignee", { assignee }, assignee).finally(endSaving);
-  }, [assignee, beginSaving, card, clearDraftDirty, databaseProperties, runDraftFieldUpdate]);
-
-  const handleAgentStatusChange = useCallback(
-    (value: string) => {
-      markDraftDirty("agentStatus");
-      formStateRef.current.agentStatus = value;
-      setAgentStatus(value);
-
-      if (agentStatusSaveTimerRef.current) {
-        clearTimeout(agentStatusSaveTimerRef.current);
-      }
-
-      agentStatusSaveTimerRef.current = setTimeout(() => {
-        agentStatusSaveTimerRef.current = null;
-        if (!card || value === (card.agentStatus || "")) return;
-        const endSaving = beginSaving();
-        runDraftFieldUpdate(card.id, "agentStatus", { agentStatus: value }, value).finally(endSaving);
-      }, FIELD_SAVE_DEBOUNCE_MS);
-    },
-    [beginSaving, card, markDraftDirty, runDraftFieldUpdate],
-  );
-
-  const handleAgentStatusBlur = useCallback(() => {
-    if (agentStatusSaveTimerRef.current) {
-      clearTimeout(agentStatusSaveTimerRef.current);
-      agentStatusSaveTimerRef.current = null;
-    }
-
-    if (!card) return;
-    if (agentStatus === (card.agentStatus || "")) {
-      clearDraftDirty("agentStatus");
-      return;
-    }
-    const endSaving = beginSaving();
-    runDraftFieldUpdate(card.id, "agentStatus", { agentStatus }, agentStatus).finally(endSaving);
-  }, [agentStatus, beginSaving, card, clearDraftDirty, runDraftFieldUpdate]);
+    runAssigneeUpdate(card.id, assignee).finally(endSaving);
+  }, [assignee, beginSaving, card, clearAssigneeDraftDirty, databaseProperties, runAssigneeUpdate]);
 
   const handleSave = useCallback(async () => {
     if (!card || !hasChanges()) return;
@@ -940,13 +846,8 @@ export function useCardStageController(
               assignee,
             }
           : {}),
-        agentStatus,
-        agentBlocked,
       });
-      clearDraftDirtyFromAck(result, {
-        assignee,
-        agentStatus,
-      });
+      clearAssigneeDraftDirtyFromAck(result, assignee);
     } finally {
       endSaving();
     }
@@ -955,23 +856,19 @@ export function useCardStageController(
     card,
     hasChanges,
     runUpdate,
-    clearDraftDirtyFromAck,
+    clearAssigneeDraftDirtyFromAck,
     databaseProperties,
     priority,
     estimate,
     dueDate,
     tags,
     assignee,
-    agentStatus,
-    agentBlocked,
   ]);
 
   const cancelPendingFieldSaves = useCallback(() => {
-    for (const ref of [assigneeSaveTimerRef, agentStatusSaveTimerRef]) {
-      if (!ref.current) continue;
-      clearTimeout(ref.current);
-      ref.current = null;
-    }
+    if (!assigneeSaveTimerRef.current) return;
+    clearTimeout(assigneeSaveTimerRef.current);
+    assigneeSaveTimerRef.current = null;
   }, []);
 
   const handlePersist = useCallback(async () => {
@@ -1231,12 +1128,6 @@ export function useCardStageController(
     onColumnIdChange?.(nextColumnId);
   }, [card, currentColumnId, databaseProperties, onMove, onColumnIdChange]);
 
-  const handleToggleAgentBlocked = useCallback(() => {
-    const next = !agentBlocked;
-    setAgentBlocked(next);
-    saveProperty({ agentBlocked: next });
-  }, [agentBlocked, saveProperty]);
-
   const handleTagInputBlur = useCallback(() => {
     setTimeout(() => {
       setTagDropdownOpen(false);
@@ -1260,16 +1151,12 @@ export function useCardStageController(
   const collapseThreadsByDefault = hasThreadsRow && collapsedProperties.includes("threads");
   const collapseScheduleByDefault = Boolean(databaseProperties)
     && collapsedProperties.includes("schedule");
-  const collapseAgentBlockedByDefault = collapsedProperties.includes("agentBlocked");
-  const collapseAgentStatusByDefault = collapsedProperties.includes("agentStatus");
 
   const collapsedPropertyCount = [
     collapseTagsByDefault,
     collapseAssigneeByDefault,
     collapseThreadsByDefault,
     collapseScheduleByDefault,
-    collapseAgentBlockedByDefault,
-    collapseAgentStatusByDefault,
   ].filter(Boolean).length;
 
   const showCollapsedProperties = propertiesExpanded || collapsedPropertyCount === 0;
@@ -1297,8 +1184,6 @@ export function useCardStageController(
     tagInput,
     tags,
     assignee,
-    agentStatus,
-    agentBlocked,
     runInTarget,
     runInLocalPathDisplay,
     runInBaseBranch,
@@ -1329,8 +1214,6 @@ export function useCardStageController(
     collapseAssigneeByDefault,
     collapseThreadsByDefault,
     collapseScheduleByDefault,
-    collapseAgentBlockedByDefault,
-    collapseAgentStatusByDefault,
     collapsedPropertyCount,
     showCollapsedProperties,
     currentColumnName,
@@ -1363,9 +1246,6 @@ export function useCardStageController(
     handleColumnChange,
     handleAssigneeChange,
     handleAssigneeBlur,
-    handleAgentStatusChange,
-    handleAgentStatusBlur,
-    handleToggleAgentBlocked,
     handleAddTag,
     handleRemoveTag,
     handleTagInputBlur,

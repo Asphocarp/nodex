@@ -32,7 +32,7 @@ A Card has exactly one parent: a Space, another Document, or a Database. It can 
 
 Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready descriptor whose registered sync engine is `yjs` may mount Card Stage; the current schema has no snapshot-editor fallback.
 
-Card Stage always exposes title/body, history, intrinsic Agent state, and run-target behavior. Database status, priority, estimate, tags, assignee, schedule, occurrence, move, and Database lifecycle actions exist only when Card Detail carries their active membership/property coordinates. Opening a standalone Card never creates or reactivates membership. Changing membership does not change its Block or owned Document identity.
+Card Stage always exposes title/body, history, and run-target behavior. Agent execution state belongs to the owning Thread, project session, and Codex runtime; it is not Card or Block state. Database status, priority, estimate, tags, assignee, schedule, occurrence, move, and Database lifecycle actions exist only when Card Detail carries their active membership/property coordinates. Opening a standalone Card never creates or reactivates membership. Changing membership does not change its Block or owned Document identity.
 
 ### Document
 
@@ -95,7 +95,7 @@ Membership management reads all active Cards, including Cards with no membership
 
 A Database property is a typed field defined by a Database capability. Values belong to the Card membership and are mutated by field/path-level operations. Scalar properties use revision-aware conflict responses. Set-like properties such as tags preserve add/remove intent.
 
-Agent execution, recurrence, reminders, and other behavior intrinsic to a Card are generic Block properties with typed read models; they are not Database membership fields merely because a Database View displays them.
+Recurrence, reminders, run-target configuration, and other behavior intrinsic to a Card are generic Block properties with typed read models; they are not Database membership fields merely because a Database View displays them. Live Agent execution state is Thread/runtime state and never enters this property vocabulary.
 
 ### Database View
 

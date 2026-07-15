@@ -125,8 +125,6 @@ function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: Car
     reminders: card.reminders ?? [],
     scheduleTimezone: card.scheduleTimezone ?? undefined,
     assignee: card.assignee ?? undefined,
-    agentBlocked: card.agentBlocked ?? false,
-    agentStatus: card.agentStatus ?? undefined,
     runInTarget: card.runInTarget ?? "localProject",
     runInLocalPath: card.runInLocalPath ?? undefined,
     runInBaseBranch: card.runInBaseBranch ?? undefined,

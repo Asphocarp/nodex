@@ -19,7 +19,6 @@ const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   dueDate: "2026-01-02T00:00:00.000Z",
   scheduledStart: "2026-01-03T09:00:00.000Z",
   scheduledEnd: "2026-01-03T10:00:00.000Z",
-  agentBlocked: false,
   created,
   order: 0,
   descriptionPreview: "",

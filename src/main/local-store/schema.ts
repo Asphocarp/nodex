@@ -25,11 +25,12 @@ import {
 } from "./canvas-scene-cutover";
 import { finalizeCardReferenceIdentityStorage } from "./card-reference-hint-finalization";
 import { finalizeCardNfmIdentityProjection } from "./card-nfm-projection-finalization";
+import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-properties-finalization";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 62;
+export const CURRENT_SCHEMA_VERSION = 63;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -46,6 +47,7 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 59, toVersion: 60, migrate: migrateSchema59To60 },
   { fromVersion: 60, toVersion: 61, migrate: migrateSchema60To61 },
   { fromVersion: 61, toVersion: 62, migrate: migrateSchema61To62 },
+  { fromVersion: 62, toVersion: 63, migrate: migrateSchema62To63 },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
@@ -228,7 +230,7 @@ const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDef
     },
   ] as const;
 
-const LEGACY_INTRINSIC_PROPERTY_COUNT = 11;
+const LEGACY_INTRINSIC_PROPERTY_COUNT = 9;
 
 function primaryDatabasePropertyId(projectId: string, key: string): string {
   return `${primaryDatabaseBlockId(projectId)}:property:${key}`;
@@ -264,11 +266,6 @@ function makeLegacyCardMetadataProjectionSql(
       block_id, project_id, property_key, value_type, value_json,
       revision, updated_at
     ) VALUES
-      (${row}.id, ${row}.project_id, 'agent.blocked', 'boolean',
-        CASE WHEN ${row}.agent_blocked = 1 THEN 'true' ELSE 'false' END,
-        ${revision}, ${timestampSql}),
-      (${row}.id, ${row}.project_id, 'agent.status', 'string',
-        json_quote(${row}.agent_status), ${revision}, ${timestampSql}),
       (${row}.id, ${row}.project_id, 'run.target', 'string',
         json_quote(CASE ${row}.run_in_target
           WHEN 'new_worktree' THEN 'newWorktree'
@@ -4457,15 +4454,6 @@ function seedLegacyCardMetadataProjection(db: Database.Database): void {
       block_id, project_id, property_key, value_type, value_json,
       revision, updated_at
     )
-    SELECT card.id, card.project_id, 'agent.blocked', 'boolean',
-      CASE WHEN card.agent_blocked = 1 THEN 'true' ELSE 'false' END,
-      ${revisionSql}, '${now}'
-    FROM cards card
-    UNION ALL
-    SELECT card.id, card.project_id, 'agent.status', 'string',
-      json_quote(card.agent_status), ${revisionSql}, '${now}'
-    FROM cards card
-    UNION ALL
     SELECT card.id, card.project_id, 'run.target', 'string',
       json_quote(CASE card.run_in_target
         WHEN 'new_worktree' THEN 'newWorktree'
@@ -6720,6 +6708,36 @@ export function migrateSchema61To62(db: Database.Database): void {
       );
     }
     setUserVersion(db, 62);
+  });
+  migrate.immediate();
+}
+
+export interface Schema62To63MigrationOptions {
+  readonly faultInjector?: (
+    point: "after_authority_cleanup" | "after_projection_rebuild",
+  ) => void;
+}
+
+export function migrateSchema62To63(
+  db: Database.Database,
+  options: Schema62To63MigrationOptions = {},
+): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 62) {
+    throw new Error(
+      `Schema v62 to v63 migration requires v62, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    finalizeRetiredCardAgentProperties(db, options);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v63 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 63);
   });
   migrate.immediate();
 }

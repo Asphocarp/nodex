@@ -28,7 +28,6 @@ interface CalendarEventBlockProps {
   estimate?: Estimate;
   tags: string[];
   assignee?: string;
-  agentStatus?: string;
   description?: string;
   isRecurring?: boolean;
   isSeriesFirstOccurrence?: boolean;
@@ -80,7 +79,6 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
   estimate,
   tags,
   assignee,
-  agentStatus,
   description,
   isRecurring = false,
   isSeriesFirstOccurrence = false,
@@ -315,12 +313,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
                 {timeRange}
               </span>
 
-              {/* Tier 4 only: agent status + description */}
-              {!isLarge && agentStatus && (
-                <p className="mt-0.5 shrink-0 truncate font-mono text-xs/tight text-(--blue-text)">
-                  {agentStatus}
-                </p>
-              )}
+              {/* Tier 4 only: description */}
               {!isLarge && descriptionText && (
                 <p className="mt-0.5 line-clamp-2 shrink-0 text-xs/tight wrap-break-word text-(--foreground-secondary)">
                   {descriptionText}

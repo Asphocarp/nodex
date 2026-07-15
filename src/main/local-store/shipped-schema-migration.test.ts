@@ -239,6 +239,14 @@ describe("shipped schema through v58 staging and current startup migrations", ()
       status: "backlog",
       tags: ["v26"],
     });
+    expect(
+      database
+        .prepare(
+          `SELECT property_key FROM block_properties
+           WHERE property_key IN ('agent.blocked', 'agent.status')`,
+        )
+        .all(),
+    ).toEqual([]);
     expect(database.pragma("foreign_key_check")).toEqual([]);
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
   }, 30_000);

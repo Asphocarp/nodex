@@ -1,6 +1,6 @@
 /** Centralized timing constants (milliseconds) */
 
-/** Debounce delay for text field saves (title, assignee, agent status) */
+/** Debounce delay for text field saves (title and assignee) */
 export const FIELD_SAVE_DEBOUNCE_MS = 500;
 
 /** Debounce delay for toggle-list card editor outbound sync */

@@ -19,7 +19,7 @@ const standaloneSnapshot = (): CardMetadataPropertySnapshot => ({
   fields: [
     {
       scope: "intrinsic",
-      field: "agentStatus",
+      field: "runInBaseBranch",
       revision: 3,
       value: null,
     },
@@ -65,8 +65,8 @@ describe("Card Detail metadata runtime", () => {
     const result = await commitCardDetailMetadataPatch({
       projectId: "project-1",
       cardBlockId: "card-1",
-      mutationId: "standalone-agent-status",
-      patch: { agentStatus: "running" },
+      mutationId: "standalone-base-branch",
+      patch: { runInBaseBranch: "main" },
       dependencies: dependencies({ requests, refreshes }),
     });
 
@@ -76,10 +76,10 @@ describe("Card Detail metadata runtime", () => {
       {
         scope: "intrinsic",
         blockId: "card-1",
-        propertyKey: "agent.status",
+        propertyKey: "run.baseBranch",
         operation: "set",
         expectedRevision: 3,
-        value: "running",
+        value: "main",
       },
     ]);
     expect(refreshes).toEqual(["card-1"]);

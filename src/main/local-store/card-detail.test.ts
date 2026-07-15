@@ -26,7 +26,6 @@ describe("Card Detail authority", () => {
       const target = await createCard(project.id, "in_progress", {
         title: "Nested Card",
         description: "Independent body",
-        agentStatus: "ready",
       });
       closeDatabase();
 
@@ -78,11 +77,6 @@ describe("Card Detail authority", () => {
           documentId: hostDocument.document_id,
         });
         expect(standalone?.card.content?.preview).toBe("Independent body");
-        expect(
-          standalone?.properties.fields.find(
-            (field) => field.field === "agentStatus",
-          )?.value,
-        ).toBe("ready");
         expect(
           standalone?.properties.fields.some(
             (field) => field.scope === "database",

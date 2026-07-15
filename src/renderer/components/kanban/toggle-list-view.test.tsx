@@ -24,7 +24,6 @@ const makeCard = (
     priority: "p1-high",
     estimate: "m",
     tags: ["sync"],
-    agentBlocked: false,
     created: new Date("2026-01-01T00:00:00.000Z"),
     order: 0,
     descriptionPreview: "Summary preview is not an editable body.",

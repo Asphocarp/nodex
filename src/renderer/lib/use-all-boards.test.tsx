@@ -66,8 +66,6 @@ function makeCardSummary(): CardSummary {
     reminders: [],
     scheduleTimezone: undefined,
     assignee: undefined,
-    agentBlocked: false,
-    agentStatus: undefined,
     runInTarget: undefined,
     runInLocalPath: undefined,
     runInBaseBranch: undefined,

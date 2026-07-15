@@ -217,8 +217,6 @@ export function createOptimisticCard(input: CardCreateInput): CardSummary {
     reminders: input.reminders ?? [],
     scheduleTimezone: input.scheduleTimezone ?? undefined,
     assignee: input.assignee ?? undefined,
-    agentBlocked: input.agentBlocked ?? false,
-    agentStatus: input.agentStatus ?? undefined,
     runInTarget: input.runInTarget ?? "localProject",
     runInLocalPath: input.runInLocalPath ?? undefined,
     runInBaseBranch: input.runInBaseBranch ?? undefined,

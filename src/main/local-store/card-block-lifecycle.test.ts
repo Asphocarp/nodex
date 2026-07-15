@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,6 +22,7 @@ import { createProject } from "./projects";
 import { rebuildCardReadModelProjection } from "./card-read-store";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
 import { readBlockStoreEpoch } from "./block-store-metadata";
+import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 
 interface Fixture {
   readonly database: Database.Database;
@@ -214,6 +216,122 @@ const detachMembership = (fixture: Fixture, cardId: string): void => {
 };
 
 describe("authoritative Card lifecycle kernel", () => {
+  sqliteTest(
+    "replays a pre-v63 create receipt without restoring retired Agent properties",
+    async () => {
+      await withFixture((fixture) => {
+        const operationId = "create-legacy-agent-replay";
+        const cardId = createUuidV7();
+        const operation = createOperation(cardId, "Legacy receipt");
+        committed(fixture, operationId, operation);
+
+        const parsed = request(fixture, operationId, operation);
+        const historicalLogicalRequest = {
+          version: 1,
+          projectId: fixture.projectId,
+          operation: {
+            ...parsed.operation,
+            agentBlocked: true,
+            agentStatus: "waiting-for-human",
+          },
+        };
+        const historicalRequestJson = stableStringifyBlockPropertyJson(
+          historicalLogicalRequest,
+        );
+        const historicalRequestHash = createHash("sha256")
+          .update(historicalRequestJson)
+          .digest("hex");
+        const receipt = fixture.database
+          .prepare(
+            `SELECT change_log_seq
+             FROM block_mutations
+             WHERE mutation_id = ?`,
+          )
+          .get(operationId) as { readonly change_log_seq: number };
+        const change = fixture.database
+          .prepare("SELECT payload_json FROM change_log WHERE seq = ?")
+          .get(receipt.change_log_seq) as { readonly payload_json: string };
+        const changePayload = JSON.parse(change.payload_json) as Record<
+          string,
+          unknown
+        >;
+        changePayload.requestHash = historicalRequestHash;
+        // Seed the exact immutable evidence shape produced by pre-v63 code.
+        fixture.database.exec(`
+          DROP TRIGGER block_mutations_are_immutable;
+          DROP TRIGGER change_log_is_immutable;
+        `);
+        fixture.database
+          .prepare(
+            `UPDATE block_mutations
+             SET request_hash = ?, request_json = ?
+             WHERE mutation_id = ?`,
+          )
+          .run(historicalRequestHash, historicalRequestJson, operationId);
+        fixture.database
+          .prepare("UPDATE change_log SET payload_json = ? WHERE seq = ?")
+          .run(
+            stableStringifyBlockPropertyJson(changePayload),
+            receipt.change_log_seq,
+          );
+        const evidenceBeforeReplay = {
+          mutation: fixture.database
+            .prepare(
+              `SELECT request_hash, request_json
+               FROM block_mutations
+               WHERE mutation_id = ?`,
+            )
+            .get(operationId),
+          change: fixture.database
+            .prepare("SELECT payload_json FROM change_log WHERE seq = ?")
+            .get(receipt.change_log_seq),
+        };
+
+        const replay = applyCardLifecycleMutation(
+          fixture.database,
+          {
+            version: 1,
+            operationId,
+            projectId: fixture.projectId,
+            storeEpoch: fixture.storeEpoch,
+            actor: { kind: "legacy-retry" },
+            operation: {
+              ...operation,
+              agentBlocked: true,
+              agentStatus: "waiting-for-human",
+            },
+          } as unknown as CardLifecycleMutationRequest,
+        );
+
+        expect(replay.ok).toBe(true);
+        if (!replay.ok) throw new Error(replay.error.message);
+        expect(replay.value.duplicate).toBe(true);
+        expect(
+          fixture.database
+            .prepare(
+              `SELECT property_key
+               FROM block_properties
+               WHERE block_id = ?
+                 AND property_key IN ('agent.blocked', 'agent.status')`,
+            )
+            .all(cardId),
+        ).toEqual([]);
+        expect({
+          mutation: fixture.database
+            .prepare(
+              `SELECT request_hash, request_json
+               FROM block_mutations
+               WHERE mutation_id = ?`,
+            )
+            .get(operationId),
+          change: fixture.database
+            .prepare("SELECT payload_json FROM change_log WHERE seq = ?")
+            .get(receipt.change_log_seq),
+        }).toEqual(evidenceBeforeReplay);
+      });
+    },
+  );
+
   sqliteTest(
     "creates a title-only Card with one registered editable paragraph",
     async () => {

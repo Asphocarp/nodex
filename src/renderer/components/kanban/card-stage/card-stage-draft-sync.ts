@@ -2,21 +2,16 @@ import type { Card, CardInput } from "@/lib/types";
 
 export interface CardStageTextDraftState {
   assignee: string;
-  agentStatus: string;
 }
 
 export function buildCardStageDraftOverlay(
-  card: Pick<Card, "assignee" | "agentStatus">,
+  card: Pick<Card, "assignee">,
   draft: CardStageTextDraftState,
-): Pick<Partial<CardInput>, "assignee" | "agentStatus"> {
-  const overlay: Pick<Partial<CardInput>, "assignee" | "agentStatus"> = {};
+): Pick<Partial<CardInput>, "assignee"> {
+  const overlay: Pick<Partial<CardInput>, "assignee"> = {};
 
   if (draft.assignee !== (card.assignee ?? "")) {
     overlay.assignee = draft.assignee;
   }
-  if (draft.agentStatus !== (card.agentStatus ?? "")) {
-    overlay.agentStatus = draft.agentStatus;
-  }
-
   return overlay;
 }

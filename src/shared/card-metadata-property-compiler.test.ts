@@ -79,13 +79,13 @@ describe("Card metadata property compatibility compiler", () => {
       snapshot([
         databaseCoordinate("priority", 3, "p2-medium"),
         databaseCoordinate("dueDate", 5, null),
-        intrinsicCoordinate("agentStatus", 8, null),
+        intrinsicCoordinate("runInBaseBranch", 8, null),
         intrinsicCoordinate("runInTarget", 2, "localProject"),
       ]),
       {
         priority: "p0-critical",
         dueDate: new Date("2026-07-20T12:30:00.000Z"),
-        agentStatus: " running ",
+        runInBaseBranch: " main ",
         runInTarget: "newWorktree",
       },
     );
@@ -107,13 +107,13 @@ describe("Card metadata property compatibility compiler", () => {
     expect(dueDate?.operation === "set" ? dueDate.value : null).toBe(
       "2026-07-20",
     );
-    const agentStatus = request.fields.find(
+    const baseBranch = request.fields.find(
       (field) =>
-        field.scope === "intrinsic" && field.propertyKey === "agent.status",
+        field.scope === "intrinsic" && field.propertyKey === "run.baseBranch",
     );
-    expect(agentStatus?.operation === "set" ? agentStatus.expectedRevision : -1).toBe(8);
-    expect(agentStatus?.operation === "set" ? agentStatus.value : null).toBe(
-      "running",
+    expect(baseBranch?.operation === "set" ? baseBranch.expectedRevision : -1).toBe(8);
+    expect(baseBranch?.operation === "set" ? baseBranch.value : null).toBe(
+      "main",
     );
   });
 

@@ -33,8 +33,6 @@ function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
     reminders: overrides.reminders ?? [],
     scheduleTimezone: overrides.scheduleTimezone,
     assignee: overrides.assignee,
-    agentStatus: overrides.agentStatus,
-    agentBlocked: overrides.agentBlocked ?? false,
     runInTarget: overrides.runInTarget ?? "localProject",
     runInLocalPath: overrides.runInLocalPath,
     runInBaseBranch: overrides.runInBaseBranch,

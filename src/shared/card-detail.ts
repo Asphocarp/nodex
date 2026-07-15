@@ -3,7 +3,7 @@ import { parseCardMetadataPropertySnapshot } from "./card-metadata-property-snap
 import type { CardTargetReadModel } from "./card-targets";
 import { decodeCardTargetReadModelHttp } from "./reference-read-http-contract";
 
-export const CARD_DETAIL_CONTRACT_VERSION = 1 as const;
+export const CARD_DETAIL_CONTRACT_VERSION = 2 as const;
 
 type AvailableCardTarget = Extract<
   CardTargetReadModel,

@@ -52,7 +52,7 @@ describe("Card lifecycle contract", () => {
     expect(parsed.operation.recurrence).toBe(null);
   });
 
-  test("canonical intent treats explicit defaults like omitted defaults", () => {
+  test("canonical intent discards retired Agent fields and treats explicit defaults like omitted defaults", () => {
     const implicit = createRequest();
     const explicit = {
       ...implicit,

@@ -51,8 +51,6 @@ const buildDetail = (headSeq = 1) => parseCardDetail({
       ["recurrence", null],
       ["reminders", []],
       ["scheduleTimezone", null],
-      ["agentBlocked", false],
-      ["agentStatus", null],
       ["runInTarget", "localProject"],
       ["runInLocalPath", null],
       ["runInBaseBranch", null],

@@ -45,7 +45,6 @@ const card = (priority: Card["priority"] = "p0-critical"): Card => ({
   description: "Canonical body",
   priority,
   tags: [],
-  agentBlocked: false,
   revision: 8,
   created: new Date("2026-07-12T00:00:00.000Z"),
   order: 0,

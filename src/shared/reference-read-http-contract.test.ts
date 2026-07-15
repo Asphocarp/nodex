@@ -26,7 +26,6 @@ const makeCardSummaryWire = () => ({
   scheduledStart: SCHEDULED_START,
   scheduledEnd: SCHEDULED_END,
   isAllDay: false,
-  agentBlocked: false,
   created: CREATED,
   order: 4,
   descriptionPreview: "Preview",
@@ -101,6 +100,19 @@ describe("reference read HTTP contract", () => {
     expect(summary.dueDate?.toISOString()).toBe(DUE_DATE);
     expect(summary.scheduledStart?.toISOString()).toBe(SCHEDULED_START);
     expect(summary.scheduledEnd?.toISOString()).toBe(SCHEDULED_END);
+  });
+
+  test("strips retired and unknown Card summary fields", () => {
+    const summary = decodeCardSummaryHttp({
+      ...makeCardSummaryWire(),
+      agentBlocked: true,
+      agentStatus: "legacy",
+      unknownExtension: "legacy",
+    });
+
+    expect("agentBlocked" in summary).toBe(false);
+    expect("agentStatus" in summary).toBe(false);
+    expect("unknownExtension" in summary).toBe(false);
   });
 
   test("keeps Card target content independent from Database row summaries", () => {

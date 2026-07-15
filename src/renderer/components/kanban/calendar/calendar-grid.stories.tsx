@@ -53,7 +53,6 @@ function buildEvent({
     status: "draft",
     archived: false,
     tags: [],
-    agentBlocked: false,
     created: new Date(2026, 3, 1),
     order: 0,
     columnId: "draft",

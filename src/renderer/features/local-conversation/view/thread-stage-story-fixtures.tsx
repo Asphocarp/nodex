@@ -375,7 +375,6 @@ function buildStoryCard(): Card {
     estimate: "m",
     tags: ["threads", "storybook", "ui"],
     assignee: "asc",
-    agentBlocked: false,
     runInTarget: "newWorktree",
     runInBaseBranch: "main",
     runInEnvironmentPath: ".codex/environments/ui-polish.toml",

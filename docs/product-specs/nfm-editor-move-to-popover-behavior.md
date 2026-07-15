@@ -34,7 +34,7 @@ The `Card in` row inside the side-menu `Turn into` submenu uses the same popover
 - Opening the popover resets its query and expands the current source DB when available.
 - Typing filters by DB name, column name, and card title.
 - Search uses the shared command-palette text normalization, all-term matching, prefix matching for terms of at least two characters, and the same fuzzy threshold policy.
-- The popover intentionally does not search card descriptions, tags, assignees, or agent status; those broader card fields remain command-palette behavior.
+- The popover intentionally does not search card descriptions, tags, or assignees; those broader card fields remain command-palette behavior.
 - A non-empty query resets keyboard focus to the first visible row and auto-expands matching DB rows.
 - Arrow Up and Arrow Down move through visible rows.
 - Enter toggles a DB row or accepts a DB column/card row.

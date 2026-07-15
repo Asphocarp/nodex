@@ -77,7 +77,6 @@ Card search indexes the following normalized fields:
 - plain-text description
 - tags
 - assignee
-- agent status
 - column name
 - project name
 - card id
@@ -91,7 +90,6 @@ Field boosts are:
 - title: `8`
 - tags: `5`
 - assignee: `4`
-- agent status: `3`
 - column name: `2`
 - project name: `2`
 - description: `1`

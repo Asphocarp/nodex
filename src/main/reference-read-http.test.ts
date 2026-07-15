@@ -11,7 +11,6 @@ const summary = (id: string, title: string): CardSummary => ({
   title,
   richTitle: [{ type: "text", text: title, styles: {} }],
   tags: [],
-  agentBlocked: false,
   created: new Date("2026-01-01T00:00:00.000Z"),
   order: 0,
   descriptionPreview: "",

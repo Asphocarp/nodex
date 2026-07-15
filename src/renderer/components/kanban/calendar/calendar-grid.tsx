@@ -1752,7 +1752,6 @@ export function CalendarGrid({
                           estimate={event.estimate}
                           tags={event.tags}
                           assignee={event.assignee}
-                          agentStatus={event.agentStatus}
                           description={event.description}
                           isRecurring={event.isRecurring}
                           isSeriesFirstOccurrence={Boolean(event.thisAndFutureEquivalentToAll)}
@@ -1827,7 +1826,6 @@ export function CalendarGrid({
                         estimate={moveOverlayForDay.estimate}
                         tags={moveOverlayForDay.tags}
                         assignee={moveOverlayForDay.assignee}
-                        agentStatus={moveOverlayForDay.agentStatus}
                         description={moveOverlayForDay.description}
                         isRecurring={moveOverlayForDay.isRecurring}
                         isSeriesFirstOccurrence={Boolean(moveOverlayForDay.thisAndFutureEquivalentToAll)}

@@ -20,7 +20,7 @@ const request: BlockPropertyMutationRequest = {
     {
       scope: "intrinsic",
       blockId: "card-1",
-      propertyKey: "agent.status",
+      propertyKey: "run.baseBranch",
       operation: "set",
       expectedRevision: 1,
       value: "running",
@@ -40,10 +40,10 @@ const committed = (
     duplicate: false,
     fields: [
       {
-        path: "intrinsic/card-1/agent.status",
+        path: "intrinsic/card-1/run.baseBranch",
         scope: "intrinsic",
         blockId: "card-1",
-        propertyKey: "agent.status",
+        propertyKey: "run.baseBranch",
         operation: "set",
         revision: 2,
         value: "running",

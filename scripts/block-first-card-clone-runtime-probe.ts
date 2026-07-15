@@ -143,8 +143,6 @@ const createCard = (
         reminders: input.reminders ?? [],
         scheduleTimezone: input.scheduleTimezone ?? null,
         assignee: input.assignee ?? null,
-        agentBlocked: input.agentBlocked ?? false,
-        agentStatus: input.agentStatus ?? null,
         runInTarget: input.runInTarget ?? "localProject",
         runInLocalPath: input.runInLocalPath ?? null,
         runInBaseBranch: input.runInBaseBranch ?? null,
@@ -186,7 +184,7 @@ const main = async (): Promise<void> => {
       },
       reminders: [{ offsetMinutes: 15 }],
       scheduleTimezone: "UTC",
-      agentStatus: "copied-agent-status",
+      runInBaseBranch: "copied-base-branch",
     });
     let database = getDb();
     const sourceOwnership = database
@@ -487,7 +485,7 @@ const main = async (): Promise<void> => {
       "Database properties were not copied",
     );
     assert(
-      clonedCard.agentStatus === "copied-agent-status",
+      clonedCard.runInBaseBranch === "copied-base-branch",
       "Intrinsic property was not copied",
     );
     assert(

@@ -785,7 +785,6 @@ const cardSearchText = (card: Card): string =>
     card.priority ?? "",
     card.estimate ?? "",
     card.assignee ?? "",
-    card.agentStatus ?? "",
     card.tags.join(" "),
   ]
     .join(" ")

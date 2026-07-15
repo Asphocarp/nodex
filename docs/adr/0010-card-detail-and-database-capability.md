@@ -1,6 +1,6 @@
 # ADR 0010: Card Detail is independent from Database membership
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0013
 - Date: 2026-07-14
 - Owners: Nodex maintainers
 - Extends: ADR 0001, ADR 0003, ADR 0006, and ADR 0007
@@ -29,6 +29,8 @@ Nodex will expose one validated `CardDetail` contract for opening a Card. It is 
 
 The contract does not introduce a `Page` type or table. Card remains the user vocabulary and a specialized read model over Block/Document authority.
 
+ADR 0013 supersedes only the Agent-state portion of the intrinsic property bullet above. Schedule, recurrence, reminders, and run-target configuration remain in Card Detail.
+
 ### Database rows remain an explicitly bounded projection
 
 The existing wide `Card` model remains a Database-row projection while board, calendar, scheduler, and current compatibility mutations still require its seeded property vocabulary. Its readers and renderer caches must be explicitly named as Database-row facilities. `readDatabaseCardById` and batched Database-row reads may reject Cards without active membership because membership is a precondition of those callers, but `card:get` and Card Stage must not call them.
@@ -38,6 +40,8 @@ The public `card:get` command returns `CardDetail`. Database-row consumers use a
 ### Card Stage composes core Card behavior with optional Database capability
 
 Card Stage always mounts the Card's prepared owned Document using `OwnedBlockDocumentBoundary` and `BlockDocumentSurface`. Its title, body, sync runtime, local undo scope, history, terminal actions, linked threads, and intrinsic Agent/run controls are available for every active Card.
+
+ADR 0013 supersedes the intrinsic Agent-state controls in the preceding sentence. Run-target controls remain Card configuration; live execution state is owned by Thread/session runtime.
 
 Database-only controls are rendered only for `databaseContext.kind === "member"`. These currently include status, priority, estimate, tags, assignee, due date, scheduled start/end, and occurrence actions. A standalone or nested Card shows no fabricated values or disabled imitation of Database properties. Adding it to a Database is a separate explicit Block transfer, not a property edit or an Open Card side effect.
 

@@ -139,6 +139,10 @@ type ResolvedPropertyField = ResolvedIntrinsicField | ResolvedDatabaseField;
 const MUTATION_KIND = "property_batch";
 const EMPTY_ARRAY_JSON = "[]";
 const EMPTY_OBJECT_JSON = "{}";
+const RETIRED_INTRINSIC_PROPERTY_KEYS = new Set([
+  "agent.blocked",
+  "agent.status",
+]);
 
 const compareStrings = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
@@ -255,23 +259,16 @@ const validateKnownIntrinsicValue = (
   request: BlockPropertyMutationRequest,
   path: string,
 ): void => {
+  if (RETIRED_INTRINSIC_PROPERTY_KEYS.has(field.propertyKey)) {
+    return reject(
+      "property_not_found",
+      `Intrinsic property ${path} is retired`,
+      request,
+      { fieldPath: path },
+    );
+  }
   const candidate: Partial<CardInput> = {};
   switch (field.propertyKey) {
-    case "agent.blocked":
-      if (typeof field.value === "boolean") {
-        candidate.agentBlocked = field.value;
-        break;
-      }
-      return reject(
-        "property_value_invalid",
-        `Intrinsic property ${path} requires a boolean`,
-        request,
-        { fieldPath: path },
-      );
-    case "agent.status":
-      if (field.value === null) return;
-      candidate.agentStatus = field.value as CardInput["agentStatus"];
-      break;
     case "run.target":
       candidate.runInTarget = field.value as CardInput["runInTarget"];
       break;

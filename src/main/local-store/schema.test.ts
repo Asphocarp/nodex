@@ -18,19 +18,22 @@ import {
   migrateSchema59To60,
   migrateSchema60To61,
   migrateSchema61To62,
+  migrateSchema62To63,
 } from "./schema";
 import {
   createProjectSession,
   createProjectSessionTab,
   upsertProjectSessionThreadLink,
 } from "./project-sessions";
+import { createProject } from "./projects";
+import { createCard } from "./cards";
 
 const tempDirectories: string[] = [];
 
 const useTempStore = (): string => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v62-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v63-"));
   tempDirectories.push(directory);
   process.env.NODEX_DIR = directory;
   return directory;
@@ -143,10 +146,10 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v62 release boundary", () => {
+describe("schema v63 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
-    expect(releaseVersions).toEqual([58, 59, 60, 61, 62]);
+    expect(releaseVersions).toEqual([58, 59, 60, 61, 62, 63]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
         releaseVersions.slice(index + 1),
@@ -204,7 +207,7 @@ describe("schema v62 release boundary", () => {
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
   });
 
-  test.each([58, 59, 60, 61])(
+  test.each([58, 59, 60, 61, 62])(
     "runs the ordered release chain from schema v%i",
     async (sourceVersion) => {
       useTempStore();
@@ -345,9 +348,7 @@ describe("schema v62 release boundary", () => {
 
     migrateSchema61To62(database);
 
-    expect(database.pragma("user_version", { simple: true })).toBe(
-      CURRENT_SCHEMA_VERSION,
-    );
+    expect(database.pragma("user_version", { simple: true })).toBe(62);
     expect(
       database.prepare(`
         SELECT session_id AS sessionId
@@ -373,6 +374,143 @@ describe("schema v62 release boundary", () => {
       INSERT INTO project_session_threads (session_id, thread_id, linked_at)
       VALUES (?, 'thread:duplicate-owner', '2026-01-02T00:00:00.000Z')
     `).run(redundantSession.id)).toThrow(/UNIQUE constraint failed/u);
+  });
+
+  test("retires Card Agent properties atomically while preserving Card revisions and immutable evidence", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const project = createProject({ name: "Retired Agent properties" });
+    const card = await createCard(project.id, "draft", { title: "Legacy Card" });
+    const database = getDb();
+    const metadataBefore = (
+      database
+        .prepare("SELECT metadata_revision FROM blocks WHERE id = ?")
+        .get(card.id) as { readonly metadata_revision: number }
+    ).metadata_revision;
+    const evidenceBefore = {
+      mutations: (
+        database.prepare("SELECT COUNT(*) AS count FROM block_mutations").get() as {
+          readonly count: number;
+        }
+      ).count,
+      changes: (
+        database.prepare("SELECT COUNT(*) AS count FROM change_log").get() as {
+          readonly count: number;
+        }
+      ).count,
+    };
+    database.prepare(`
+      INSERT INTO block_properties (
+        block_id, project_id, property_key, value_type, value_json,
+        revision, updated_at
+      ) VALUES
+        (?, ?, 'agent.blocked', 'boolean', 'true', 7, ?),
+        (?, ?, 'agent.status', 'string', '"waiting"', 8, ?)
+    `).run(
+      card.id,
+      project.id,
+      "2026-07-15T00:00:00.000Z",
+      card.id,
+      project.id,
+      "2026-07-15T00:00:00.000Z",
+    );
+    const projection = database.prepare(`
+      SELECT intrinsic_properties_json, property_revisions_json
+      FROM card_read_model
+      WHERE card_block_id = ?
+    `).get(card.id) as {
+      readonly intrinsic_properties_json: string;
+      readonly property_revisions_json: string;
+    };
+    const intrinsicValues = JSON.parse(
+      projection.intrinsic_properties_json,
+    ) as Record<string, unknown>;
+    intrinsicValues["agent.blocked"] = true;
+    intrinsicValues["agent.status"] = "waiting";
+    const propertyRevisions = JSON.parse(
+      projection.property_revisions_json,
+    ) as { intrinsic: Record<string, number> };
+    propertyRevisions.intrinsic["agent.blocked"] = 7;
+    propertyRevisions.intrinsic["agent.status"] = 8;
+    database.prepare(`
+      UPDATE card_read_model
+      SET intrinsic_properties_json = ?, property_revisions_json = ?
+      WHERE card_block_id = ?
+    `).run(
+      JSON.stringify(intrinsicValues),
+      JSON.stringify(propertyRevisions),
+      card.id,
+    );
+    database.pragma("user_version = 62");
+
+    expect(() =>
+      migrateSchema62To63(database, {
+        faultInjector: (point) => {
+          if (point === "after_projection_rebuild") {
+            throw new Error("fault:v63-finalizer");
+          }
+        },
+      }),
+    ).toThrow("fault:v63-finalizer");
+    expect(database.pragma("user_version", { simple: true })).toBe(62);
+    expect(
+      database
+        .prepare(
+          `SELECT property_key FROM block_properties
+           WHERE block_id = ? AND property_key LIKE 'agent.%'
+           ORDER BY property_key`,
+        )
+        .all(card.id),
+    ).toEqual([
+      { property_key: "agent.blocked" },
+      { property_key: "agent.status" },
+    ]);
+
+    migrateSchema62To63(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(63);
+    expect(
+      database
+        .prepare(
+          `SELECT property_key FROM block_properties
+           WHERE property_key IN ('agent.blocked', 'agent.status')`,
+        )
+        .all(),
+    ).toEqual([]);
+    const rebuiltProjection = database.prepare(`
+      SELECT intrinsic_properties_json, property_revisions_json
+      FROM card_read_model
+      WHERE card_block_id = ?
+    `).get(card.id) as {
+      readonly intrinsic_properties_json: string;
+      readonly property_revisions_json: string;
+    };
+    const rebuiltIntrinsicKeys = Object.keys(
+      JSON.parse(rebuiltProjection.intrinsic_properties_json),
+    );
+    const rebuiltIntrinsicRevisionKeys = Object.keys(
+      (JSON.parse(rebuiltProjection.property_revisions_json) as {
+        intrinsic: Record<string, number>;
+      }).intrinsic,
+    );
+    for (const retiredKey of ["agent.blocked", "agent.status"]) {
+      expect(rebuiltIntrinsicKeys).not.toContain(retiredKey);
+      expect(rebuiltIntrinsicRevisionKeys).not.toContain(retiredKey);
+    }
+    expect(
+      (
+        database
+          .prepare("SELECT metadata_revision FROM blocks WHERE id = ?")
+          .get(card.id) as { readonly metadata_revision: number }
+      ).metadata_revision,
+    ).toBe(metadataBefore);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM block_mutations").get(),
+    ).toEqual({ count: evidenceBefore.mutations });
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM change_log").get(),
+    ).toEqual({ count: evidenceBefore.changes });
+    expect(database.pragma("foreign_key_check")).toEqual([]);
   });
 
   test("rolls back every v59 schema change when source integrity fails", () => {

@@ -158,7 +158,7 @@ describe("authoritative Card reads", () => {
           estimate: "m",
           tags: ["legacy"],
           assignee: "Legacy owner",
-          agentStatus: "legacy-agent",
+          runInBaseBranch: "legacy-branch",
         });
         const database = getDb();
         const descriptor = getOwnedBlockDocumentDescriptor(
@@ -186,12 +186,11 @@ describe("authoritative Card reads", () => {
           "assignee",
           "Relational owner",
         );
-        updateIntrinsicValue(database, created.id, "agent.blocked", true);
         updateIntrinsicValue(
           database,
           created.id,
-          "agent.status",
-          "relational-agent",
+          "run.baseBranch",
+          "relational-branch",
         );
         updateIntrinsicValue(database, created.id, "run.target", "newWorktree");
         database
@@ -229,8 +228,7 @@ describe("authoritative Card reads", () => {
           expect(card?.estimate).toBe("xl");
           expect(card?.tags.join(",")).toBe("relational,fresh");
           expect(card?.assignee).toBe("Relational owner");
-          expect(card?.agentBlocked).toBe(true);
-          expect(card?.agentStatus).toBe("relational-agent");
+          expect(card?.runInBaseBranch).toBe("relational-branch");
           expect(card?.runInTarget).toBe("newWorktree");
         }
         expect(
@@ -261,8 +259,8 @@ describe("authoritative Card reads", () => {
           "p0-critical",
         );
         expect(
-          JSON.parse(projection.intrinsic_properties_json)["agent.status"],
-        ).toBe("relational-agent");
+          JSON.parse(projection.intrinsic_properties_json)["run.baseBranch"],
+        ).toBe("relational-branch");
 
         closeDatabase();
         await initializeDatabase();
@@ -270,7 +268,7 @@ describe("authoritative Card reads", () => {
         expect(restarted?.title).toBe("Primary title");
         expect(restarted?.description).toBe("Primary body");
         expect(restarted?.priority).toBe("p0-critical");
-        expect(restarted?.agentStatus).toBe("relational-agent");
+        expect(restarted?.runInBaseBranch).toBe("relational-branch");
       } finally {
         closeDatabase();
         fs.rmSync(tempDir, { recursive: true, force: true });

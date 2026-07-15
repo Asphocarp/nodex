@@ -39,7 +39,6 @@ function makeCard(
     title,
     richTitle: plainTextToPortableRichText(title),
     tags: [],
-    agentBlocked: false,
     created: TEST_DATE,
     order,
     revision: 1,

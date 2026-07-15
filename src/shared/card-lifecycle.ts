@@ -3,7 +3,6 @@ import {
   type BlockPropertyJsonValue,
 } from "./block-property-mutations";
 import {
-  MAX_CARD_AGENT_STATUS_LENGTH,
   MAX_CARD_ASSIGNEE_LENGTH,
   MAX_CARD_DESCRIPTION_LENGTH,
   MAX_CARD_TAG_COUNT,
@@ -66,8 +65,6 @@ export interface CreateCardBlockOperation {
   readonly reminders: readonly ReminderConfig[];
   readonly scheduleTimezone: string | null;
   readonly assignee: string | null;
-  readonly agentBlocked: boolean;
-  readonly agentStatus: string | null;
   readonly runInTarget: CardRunInTarget;
   readonly runInLocalPath: string | null;
   readonly runInBaseBranch: string | null;
@@ -616,12 +613,6 @@ const parseCreate = (
       );
     }
   }
-  const agentBlocked = operation.agentBlocked ?? false;
-  if (typeof agentBlocked !== "boolean") {
-    throw new CardLifecycleContractError(
-      `${label}.agentBlocked must be a boolean`,
-    );
-  }
   const runInTarget = operation.runInTarget ?? "localProject";
   if (!RUN_TARGETS.has(runInTarget as CardRunInTarget)) {
     throw new CardLifecycleContractError(`${label}.runInTarget is invalid`);
@@ -647,13 +638,6 @@ const parseCreate = (
       "assignee",
       label,
       MAX_CARD_ASSIGNEE_LENGTH,
-    ),
-    agentBlocked,
-    agentStatus: readNullableString(
-      operation,
-      "agentStatus",
-      label,
-      MAX_CARD_AGENT_STATUS_LENGTH,
     ),
     runInTarget: runInTarget as CardRunInTarget,
     runInLocalPath: readNullableString(

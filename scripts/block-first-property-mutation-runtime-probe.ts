@@ -252,7 +252,7 @@ const setup = async (): Promise<{
 const run = async (): Promise<void> => {
   const { fixture, tempDir } = await setup();
   try {
-    const statusBefore = readIntrinsic(fixture, "agent.status");
+    const statusBefore = readIntrinsic(fixture, "run.baseBranch");
     const priorityBefore = readDatabaseValue(fixture, "priority");
     const metadataBefore = readMetadataRevision(fixture);
     const batch = request(fixture, "batch", [
@@ -268,7 +268,7 @@ const run = async (): Promise<void> => {
       {
         scope: "intrinsic",
         blockId: fixture.cardId,
-        propertyKey: "agent.status",
+        propertyKey: "run.baseBranch",
         operation: "set",
         expectedRevision: statusBefore.revision,
         value: "running",
@@ -287,7 +287,7 @@ const run = async (): Promise<void> => {
       "exact retry did not return the durable receipt",
     );
     invariant(
-      readIntrinsic(fixture, "agent.status").revision ===
+      readIntrinsic(fixture, "run.baseBranch").revision ===
         statusBefore.revision + 1,
       "exact retry re-applied an intrinsic scalar",
     );
@@ -544,7 +544,7 @@ const run = async (): Promise<void> => {
       {
         scope: "intrinsic",
         blockId: fixture.cardId,
-        propertyKey: "agent.status",
+        propertyKey: "run.baseBranch",
         operation: "set",
         expectedRevision: statusBefore.revision,
         value: "blocked",
@@ -597,7 +597,7 @@ const run = async (): Promise<void> => {
         {
           scope: "intrinsic",
           blockId: fixture.otherProjectCardId,
-          propertyKey: "agent.status",
+          propertyKey: "run.baseBranch",
           operation: "set",
           expectedRevision: 1,
           value: "must-not-write",

@@ -22,8 +22,6 @@ function makeCard(id: string, status: CardSummary["status"], order: number): Car
     reminders: [],
     scheduleTimezone: undefined,
     assignee: undefined,
-    agentBlocked: false,
-    agentStatus: undefined,
     runInTarget: undefined,
     runInLocalPath: undefined,
     runInBaseBranch: undefined,

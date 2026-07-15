@@ -160,7 +160,6 @@ const STORY_BOARD: BoardSummary = {
           descriptionLength: 0,
           hasDescription: false,
           tags: ["shell"],
-          agentBlocked: false,
           created: new Date(CREATED_AT),
           order: 0,
           revision: 1,
@@ -186,7 +185,6 @@ function buildStoryCardDetail(projectId: string, cardId: string): Card | null {
       ? "Review the readable Codex pack from the current Nodex session."
       : "Tighten the workbench shell while preserving project-scoped panel tabs.",
     tags: crossProject ? ["review"] : ["shell"],
-    agentBlocked: false,
     created: new Date(CREATED_AT),
     order: 0,
     revision: 1,

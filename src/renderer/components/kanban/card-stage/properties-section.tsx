@@ -8,8 +8,6 @@ import {
 } from "@/components/ui/dropdown";
 import { SchedulePopover } from "@/components/kanban/schedule-popover";
 import {
-  CheckboxSquareIcon,
-  DescriptionIcon,
   PeopleIcon,
   TagIcon,
 } from "@/components/shared/icons";
@@ -48,8 +46,6 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
     hasTagDropdownItems,
     tagInputActive,
     assignee,
-    agentStatus,
-    agentBlocked,
     runInTarget,
     runInLocalPathDisplay,
     runInWorktreePathDisplay,
@@ -70,8 +66,6 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
     collapseAssigneeByDefault,
     collapseThreadsByDefault,
     collapseScheduleByDefault,
-    collapseAgentBlockedByDefault,
-    collapseAgentStatusByDefault,
     collapsedPropertyCount,
     collapsedPropertyLabel,
     propertiesExpanded,
@@ -95,9 +89,6 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
     handleSelectRunInEnvironmentPath,
     handleOpenEnvironmentSettings,
     handleOpenCodexThread,
-    handleToggleAgentBlocked,
-    handleAgentStatusChange,
-    handleAgentStatusBlur,
   } = controller;
 
   return (
@@ -509,68 +500,6 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
           <SchedulePopover schedule={schedule} card={card} />
         )}
 
-        {(showCollapsedProperties || !collapseAgentBlockedByDefault) && (
-          <div className="flex min-h-7.5 items-center">
-            <div className="flex w-40 shrink-0 items-center gap-1.5 pl-1.5">
-              <div className="flex w-5 items-center justify-center text-(--foreground-secondary)">
-                <CheckboxSquareIcon />
-              </div>
-              <span className="text-sm/5 font-normal text-(--foreground-secondary)">Agent blocked</span>
-            </div>
-            <div className="flex-1 px-2">
-              <button
-                type="button"
-                onClick={handleToggleAgentBlocked}
-                className={cn(
-                  cardStagePropertyValueHoverSurface,
-                  "flex items-center gap-2 px-1 py-0.5",
-                )}
-              >
-                {agentBlocked ? (
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <rect x="0.5" y="0.5" width="15" height="15" rx="2.5" fill="var(--accent-blue)" stroke="var(--accent-blue)" />
-                    <path d="M4.5 8L7 10.5L11.5 5.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <rect x="0.5" y="0.5" width="15" height="15" rx="2.5" stroke="var(--foreground-disabled)" />
-                  </svg>
-                )}
-                <span className={cn("text-sm/5", agentBlocked ? "text-(--destructive)" : `text-(--foreground-tertiary)`)}>
-                  {agentBlocked ? "Yes" : "No"}
-                </span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(showCollapsedProperties || !collapseAgentStatusByDefault) && (
-          <div className="flex min-h-7.5 items-center">
-            <div className="flex w-40 shrink-0 items-center gap-1.5 pl-1.5">
-              <div className="flex w-5 items-center justify-center text-(--foreground-secondary)">
-                <DescriptionIcon />
-              </div>
-              <span className="text-sm/5 font-normal text-(--foreground-secondary)">Agent status</span>
-            </div>
-            <div className="flex-1 px-2">
-              <Input
-                value={agentStatus}
-                onChange={(event) => handleAgentStatusChange(event.target.value)}
-                onBlur={handleAgentStatusBlur}
-                className={cn(
-                  cardStagePropertyInputChrome,
-                  cardStagePropertyInputPlaceholder,
-                  cardStagePropertyTextSize,
-                  cardStagePropertyValueHoverSurface,
-                  "h-auto w-full px-0 font-mono text-(--blue-text)",
-                  "placeholder:font-sans",
-                  !agentStatus && "font-sans text-(--foreground-tertiary)",
-                )}
-                placeholder="Empty"
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="flex flex-col">
