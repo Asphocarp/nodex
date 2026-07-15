@@ -23,6 +23,9 @@ import { CardStageRawContent } from "./card-stage/raw-content";
 import { CardStageToolbar } from "./card-stage/toolbar";
 import { useCardStageController } from "./card-stage/use-card-stage-controller";
 import type { CardStageProps } from "./card-stage/types";
+import { toast } from "@/components/ui/toast";
+import { buildCardDeepLink } from "@/lib/card-deeplink";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { materializeCardDocument } from "../../../shared/block-documents/block-document-codec";
@@ -36,6 +39,16 @@ const CARD_STAGE_SCROLL_CONTAINER_STYLE = {
   ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
   overflowAnchor: "none",
 } satisfies CSSProperties;
+
+async function copyCardDeeplink(cardId: string): Promise<void> {
+  const copied = await writeTextToClipboard(buildCardDeepLink({ cardId }));
+  if (copied) {
+    toast.success("Copied deeplink");
+    return;
+  }
+
+  toast.danger("Failed to copy deeplink");
+}
 
 interface CardStageDescriptionEditorProps {
   readonly projectId: string;
@@ -262,8 +275,8 @@ export function CardStage(props: CardStageProps) {
         historyPanelActive={controller.historyPanelActive}
         limitMainContentWidth={controller.limitMainContentWidth}
         showRawContent={controller.showRawContent}
-        onClose={() => {
-          void controller.handleClose();
+        onCopyDeeplink={() => {
+          void copyCardDeeplink(card.id);
         }}
         onDelete={() => {
           void controller.handleDelete();
@@ -272,6 +285,10 @@ export function CardStage(props: CardStageProps) {
         onToggleContentWidth={controller.handleToggleContentWidth}
         onToggleShowRawContent={controller.handleToggleShowRawContent}
         onToggleHistoryPanel={controller.onToggleHistoryPanel}
+        breadcrumb={props.breadcrumb ? {
+          ...props.breadcrumb,
+          currentTitle: card.title,
+        } : undefined}
       />
 
       <div

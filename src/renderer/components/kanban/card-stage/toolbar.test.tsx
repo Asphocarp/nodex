@@ -1,15 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { act, useEffect } from "react";
-import { render } from "../../../test/dom";
 import {
   NodexTooltipProvider,
   dismissNodexTooltips,
 } from "@/components/ui/tooltip";
+import { render, settleAsyncRender } from "@/test/dom";
 import { CardStageToolbar } from "./toolbar";
 
 describe("card stage toolbar", () => {
-  test("history and delete actions survive capture-phase tooltip dismissal", async () => {
+  test("history and overflow actions survive capture-phase tooltip dismissal", async () => {
     let historyCalls = 0;
     let deleteCalls = 0;
 
@@ -32,7 +32,7 @@ describe("card stage toolbar", () => {
             historyPanelActive={false}
             limitMainContentWidth={true}
             showRawContent={false}
-            onClose={() => undefined}
+            onCopyDeeplink={() => undefined}
             onDelete={() => {
               deleteCalls += 1;
             }}
@@ -48,20 +48,25 @@ describe("card stage toolbar", () => {
 
     const view = render(<ToolbarHarness />);
     const historyButton = view.getByRole("button", { name: "History" });
-    const deleteButton = view.getByRole("button", { name: "Delete" });
+    const cardActionsButton = view.getByRole("button", { name: "Card actions" });
 
     await act(async () => {
       fireEvent.pointerDown(historyButton);
       fireEvent.click(historyButton);
-      fireEvent.pointerDown(deleteButton);
-      fireEvent.click(deleteButton);
+      fireEvent.pointerDown(cardActionsButton, { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "Delete" }));
+      await Promise.resolve();
     });
 
     expect(historyCalls).toBe(1);
     expect(deleteCalls).toBe(1);
   });
 
-  test("keeps heading navigation out of the toolbar controls", () => {
+  test("keeps direct controls concise and groups card actions in the trailing menu", async () => {
+    let copyCalls = 0;
     const view = render(
       <NodexTooltipProvider>
         <CardStageToolbar
@@ -69,7 +74,9 @@ describe("card stage toolbar", () => {
           historyPanelActive={false}
           limitMainContentWidth={true}
           showRawContent={false}
-          onClose={() => undefined}
+          onCopyDeeplink={() => {
+            copyCalls += 1;
+          }}
           onDelete={() => undefined}
           onToggleContentWidth={() => undefined}
           onToggleShowRawContent={() => undefined}
@@ -81,6 +88,98 @@ describe("card stage toolbar", () => {
       .map((button) => button.getAttribute("aria-label"))
       .filter(Boolean)
       .join(",");
-    expect(labels).toBe("Close,Copy deeplink,Show raw,Full width,History,Delete");
+    expect(labels).toBe("Show raw,Full width,History,Card actions");
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "Card actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await settleAsyncRender();
+
+    expect(view.getByRole("menuitem", { name: "Copy deeplink" })).toBeTruthy();
+    expect(view.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+
+    fireEvent.click(view.getByRole("menuitem", { name: "Copy deeplink" }));
+    expect(copyCalls).toBe(1);
+  });
+
+  test("renders nested card ancestry as accessible navigation", async () => {
+    const openedCards: Array<{ cardId: string; index: number }> = [];
+    const view = render(
+      <NodexTooltipProvider>
+        <CardStageToolbar
+          saving={false}
+          historyPanelActive={false}
+          limitMainContentWidth={true}
+          showRawContent={false}
+          onCopyDeeplink={() => undefined}
+          onDelete={() => undefined}
+          onToggleContentWidth={() => undefined}
+          onToggleShowRawContent={() => undefined}
+          breadcrumb={{
+            ancestors: [
+              { projectId: "alpha", cardId: "root", title: "Root card" },
+              { projectId: "alpha", cardId: "child", title: "Child card" },
+            ],
+            currentTitle: "Nested card",
+            onOpenAncestor: (ancestor, index) => {
+              openedCards.push({ cardId: ancestor.cardId, index });
+            },
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    const breadcrumb = view.getByRole("navigation", { name: "Card hierarchy" });
+    expect(breadcrumb.querySelector('[aria-current="page"]')?.textContent).toBe("Nested card");
+
+    await act(async () => {
+      fireEvent.click(within(breadcrumb).getByRole("button", { name: "Child card" }));
+      await Promise.resolve();
+    });
+
+    expect(openedCards).toEqual([{ cardId: "child", index: 1 }]);
+  });
+
+  test("keeps overflowed middle ancestors navigable", async () => {
+    const openedCards: string[] = [];
+    const view = render(
+      <NodexTooltipProvider>
+        <CardStageToolbar
+          saving={false}
+          historyPanelActive={false}
+          limitMainContentWidth={true}
+          showRawContent={false}
+          onCopyDeeplink={() => undefined}
+          onDelete={() => undefined}
+          onToggleContentWidth={() => undefined}
+          onToggleShowRawContent={() => undefined}
+          breadcrumb={{
+            ancestors: [
+              { projectId: "alpha", cardId: "root", title: "Root" },
+              { projectId: "alpha", cardId: "middle", title: "Middle" },
+              { projectId: "alpha", cardId: "child", title: "Child" },
+              { projectId: "alpha", cardId: "parent", title: "Parent" },
+            ],
+            currentTitle: "Nested",
+            onOpenAncestor: (ancestor) => openedCards.push(ancestor.cardId),
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("button", { name: "More ancestor cards" }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "Middle" }));
+      await Promise.resolve();
+    });
+
+    expect(openedCards).toEqual(["middle"]);
   });
 });

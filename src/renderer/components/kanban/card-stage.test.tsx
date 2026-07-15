@@ -1,4 +1,4 @@
-import { act } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { useEffect, type ReactNode } from "react";
 
@@ -10,7 +10,7 @@ import {
 import type { Card } from "@/lib/types";
 import type { CardStageCardModel } from "@/lib/card-stage-card";
 import type { CardStageProps } from "./card-stage/types";
-import { render, textContent } from "@/test/dom";
+import { render, settleAsyncRender, textContent } from "@/test/dom";
 import {
   CARD_DOCUMENT_SCHEMA_VERSION,
   createCardDocument,
@@ -227,17 +227,54 @@ describe("card stage", () => {
     expect(onTitleSourceDispose).toHaveBeenCalledOnce();
   });
 
-  test("opens a standalone Card without Database controls or delete", () => {
+  test("opens a standalone Card without Database controls or delete", async () => {
     const member = toStageModel(buildCard());
     const standalone: CardStageCardModel = {
       card: member.card,
       databaseContext: { kind: "standalone" },
     };
-    const { queryByText, queryByRole, getByText } = renderStage(standalone);
+    const { getByRole, queryByText, queryByRole, getByText } = renderStage(standalone);
 
     expect(getByText("Mock collaborative editor")).toBeTruthy();
     expect(queryByText("Inline property strip")).toBeNull();
-    expect(queryByRole("button", { name: "Delete" })).toBeNull();
+
+    fireEvent.pointerDown(getByRole("button", { name: "Card actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await settleAsyncRender();
+
+    expect(queryByRole("menuitem", { name: "Copy deeplink" })).toBeTruthy();
+    expect(queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  });
+
+  test("copies the current Card deeplink from the actions menu", async () => {
+    const originalClipboard = navigator.clipboard;
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    try {
+      const { getByRole } = renderStage();
+
+      fireEvent.pointerDown(getByRole("button", { name: "Card actions" }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await settleAsyncRender();
+
+      fireEvent.click(getByRole("menuitem", { name: "Copy deeplink" }));
+      await settleAsyncRender();
+
+      expect(writeText).toHaveBeenCalledWith("nodex://cards/card-1");
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: originalClipboard,
+      });
+    }
   });
 
   test("raw mode reads the live Y.Doc projection, not Card.description", () => {

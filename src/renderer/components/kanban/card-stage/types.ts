@@ -11,6 +11,7 @@ import type {
   CardStageCardModel,
   CardStageMetadataMutationResult,
 } from "@/lib/card-stage-card";
+import type { CardStageBreadcrumbProps } from "./breadcrumb";
 
 export type { CardStageMetadataMutationResult } from "@/lib/card-stage-card";
 
@@ -80,6 +81,7 @@ export interface CardStageProps {
     cardId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
+  breadcrumb?: Omit<CardStageBreadcrumbProps, "currentTitle" | "disabled">;
   onOpenNewCodexThread?: () => void;
   onOpenLocalEnvironmentSettings?: (input: {
     projectId: string;

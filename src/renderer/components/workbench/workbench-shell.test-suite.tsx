@@ -11016,7 +11016,8 @@ describe(`workbench session shell / ${scope}`, () => {
 
     const loadingShell = screen.getByRole("status", { name: "Loading Card One" });
     expect(loadingShell !== null).toBe(true);
-    expect(within(loadingShell).getByRole("button", { name: "Close" }).hasAttribute("disabled")).toBe(true);
+    expect(within(loadingShell).queryByRole("button", { name: "Close" })).toBeNull();
+    expect(within(loadingShell).getByRole("button", { name: "Card actions" }).hasAttribute("disabled")).toBe(true);
     expect(within(loadingShell).getByRole("button", { name: "History" }).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByText("Card not found") === null).toBe(true);
     expect(screen.queryByText("Card:card-1") === null).toBe(true);
@@ -11091,6 +11092,84 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(model?.databaseContext?.kind).toBe("standalone");
     expect(props?.onDelete).toBeUndefined();
     expect(props?.onMove).toBeUndefined();
+  });
+
+  test("persists the ancestor trail when a card stage opens a nested card tab", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "parent-card-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Parent Card",
+          panelId: "right",
+          config: {
+            projectId: "alpha",
+            cardId: "parent-card",
+            titleSnapshot: "Parent Card",
+          },
+        },
+      ],
+    });
+    renderWorkbench({
+      projects: [makeProject("alpha", "Alpha")],
+      sessionsByProject: { alpha: [session] },
+      cardGetOverride: (_projectId, cardId) => cardId === "parent-card"
+        ? {
+            id: cardId,
+            title: "Parent Card",
+            description: "Parent body",
+            archived: false,
+            agentBlocked: false,
+            created: new Date("2026-07-14T00:00:00.000Z"),
+            revision: 2,
+            standalone: true,
+          }
+        : undefined,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as {
+      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
+    }).__mockCardStagePropsByCardId?.["parent-card"];
+    const onOpenCard = props?.onOpenCard as ((input: {
+      projectId: string;
+      cardId: string;
+      titleSnapshot?: string;
+    }) => void) | undefined;
+    expect(typeof onOpenCard).toBe("function");
+
+    invokeCalls = [];
+    await act(async () => {
+      onOpenCard?.({
+        projectId: "alpha",
+        cardId: "nested-card",
+        titleSnapshot: "Nested Card",
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+    const input = createCall?.[1] as {
+      config?: {
+        projectId?: string;
+        cardId?: string;
+        ancestors?: unknown;
+      };
+    } | undefined;
+    expect(input?.config).toEqual({
+      projectId: "alpha",
+      cardId: "nested-card",
+      titleSnapshot: "Nested Card",
+      ancestors: [{
+        projectId: "alpha",
+        cardId: "parent-card",
+        titleSnapshot: "Parent Card",
+      }],
+    });
   });
 
   test("renders card detail load failures as load errors instead of missing cards", async () => {

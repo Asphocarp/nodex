@@ -297,7 +297,12 @@ import type {
   WorktreeStartMode,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
-import type { TerminalSessionSnapshot } from "../../../shared/types";
+import type {
+  ProjectSessionCardStageAncestor,
+  ProjectSessionCardStageTabConfig,
+  TerminalSessionSnapshot,
+} from "../../../shared/types";
+import { appendCardStageAncestor } from "../../../shared/card-stage-ancestors";
 import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
 import type {
   ThreadOpenSideChatInput,
@@ -1020,6 +1025,7 @@ interface WorkbenchShellProps {
 interface OpenCardTabOptions {
   sourceTabId?: string;
   openMode?: "preview" | "durable";
+  ancestors?: readonly ProjectSessionCardStageAncestor[];
 }
 
 type OpenCardTabHandler = (
@@ -2203,7 +2209,12 @@ function makePreviewCardStageTab(
   session: ProjectSession,
   panelId: PanelId,
   leafId: string,
-  input: { projectId: string; cardId: string; titleSnapshot?: string },
+  input: {
+    projectId: string;
+    cardId: string;
+    titleSnapshot?: string;
+    ancestors?: readonly ProjectSessionCardStageAncestor[];
+  },
 ): ProjectSessionPreviewTab {
   const projectId = resolveProjectBoundSessionId(session);
   if (projectId === null) {
@@ -2224,6 +2235,7 @@ function makePreviewCardStageTab(
       projectId: input.projectId,
       cardId: input.cardId,
       ...(input.titleSnapshot ? { titleSnapshot: input.titleSnapshot } : {}),
+      ...(input.ancestors !== undefined ? { ancestors: [...input.ancestors] } : {}),
     },
     stateKey: 0,
     state: {},
@@ -2307,6 +2319,19 @@ function readCardStagePanelTabCardRef(tab: ProjectSessionTab | null | undefined)
     projectId: tab.config.projectId,
     cardId: tab.config.cardId,
   };
+}
+
+function cardStageAncestorsEqual(
+  left: readonly ProjectSessionCardStageAncestor[] | undefined,
+  right: readonly ProjectSessionCardStageAncestor[],
+): boolean {
+  if ((left?.length ?? 0) !== right.length) return false;
+  return right.every((ancestor, index) => {
+    const candidate = left?.[index];
+    return candidate?.projectId === ancestor.projectId
+      && candidate.cardId === ancestor.cardId
+      && candidate.titleSnapshot === ancestor.titleSnapshot;
+  });
 }
 
 function buildShellNavigationSnapshot(input: {
@@ -6301,10 +6326,24 @@ export function WorkbenchShell({
       && tab.config.projectId === projectId,
     );
     if (existing) {
+      const requestedAncestors = options?.ancestors;
+      const existingConfig = existing.config as ProjectSessionCardStageTabConfig;
+      const shouldRefreshBreadcrumb = requestedAncestors !== undefined
+        && !cardStageAncestorsEqual(existingConfig.ancestors, requestedAncestors);
+      if (shouldRefreshBreadcrumb) {
+        await invoke("project-session-tabs:update", existing.id, {
+          config: {
+            ...existingConfig,
+            ...(titleSnapshot !== undefined ? { titleSnapshot } : {}),
+            ancestors: [...requestedAncestors],
+          },
+        });
+      }
       const existingLeafId = resolveLeafIdForPanelTab(activeSession, "right", existing.id);
       clearPanelPreviewTab(activeSession.id, "right", existingLeafId);
       await updateActivePanel("right", { collapsed: false });
       await setActivePanelTab("right", existing.id, { leafId: existingLeafId, openPanel: true });
+      if (shouldRefreshBreadcrumb) await refreshProjectSessions(sessionProjectId);
       return;
     }
 
@@ -6338,7 +6377,7 @@ export function WorkbenchShell({
           activeSession,
           "right",
           previewLeafId,
-          { projectId, cardId, titleSnapshot },
+          { projectId, cardId, titleSnapshot, ancestors: options?.ancestors },
         ),
       }));
       await ensureActivePanelOpenWithoutRefresh("right");
@@ -6357,6 +6396,9 @@ export function WorkbenchShell({
         projectId,
         cardId,
         titleSnapshot,
+        ...(options?.ancestors !== undefined
+          ? { ancestors: [...options.ancestors] }
+          : {}),
       },
     });
     await ensureActivePanelOpenWithoutRefresh("right");
@@ -13395,7 +13437,7 @@ function CardStageSessionTab({
   onToggleHistoryPanel,
   isActivePanelTab,
 }: {
-  tab: ProjectSessionTab & { config: { projectId: string; cardId: string; titleSnapshot?: string } };
+  tab: ProjectSessionTab & { config: ProjectSessionCardStageTabConfig };
   project: Project | null;
   closeRef: React.RefObject<(() => Promise<void>) | null>;
   persistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
@@ -13462,6 +13504,28 @@ function CardStageSessionTab({
   useEffect(() => () => {
     titleStore.release(titleStoreKey);
   }, [titleStore, titleStoreKey]);
+  const cardAncestors = tab.config.ancestors ?? [];
+  const breadcrumb = cardAncestors.length > 0 ? {
+    ancestors: cardAncestors.map((ancestor) => ({
+      projectId: ancestor.projectId,
+      cardId: ancestor.cardId,
+      title: ancestor.titleSnapshot,
+    })),
+    onOpenAncestor: (
+      ancestor: { projectId: string; cardId: string; title: string },
+      ancestorIndex: number,
+    ) => {
+      void onOpenCardTab(
+        ancestor.projectId,
+        ancestor.cardId,
+        ancestor.title,
+        {
+          openMode: "durable",
+          ancestors: cardAncestors.slice(0, ancestorIndex),
+        },
+      );
+    },
+  } : undefined;
   const handleStartNewSessionThreadFromEditor = useCallback(async (input: {
     projectId: string;
     targetSessionId?: string;
@@ -13504,7 +13568,15 @@ function CardStageSessionTab({
   }
 
   if (cardHydrating) {
-    return <CardStageSessionSkeleton titleSnapshot={tab.config.titleSnapshot} />;
+    return (
+      <CardStageSessionSkeleton
+        titleSnapshot={tab.config.titleSnapshot}
+        breadcrumb={breadcrumb ? {
+          ...breadcrumb,
+          currentTitle: tab.config.titleSnapshot ?? tab.config.cardId,
+        } : undefined}
+      />
+    );
   }
 
   if (cardLoadError) {
@@ -13545,7 +13617,15 @@ function CardStageSessionTab({
     >
       {(documentModel, documentControls) => {
         if (documentModel.status === "loading") {
-          return <CardStageSessionSkeleton titleSnapshot={card.card.title} />;
+          return (
+            <CardStageSessionSkeleton
+              titleSnapshot={card.card.title}
+              breadcrumb={breadcrumb ? {
+                ...breadcrumb,
+                currentTitle: card.card.title,
+              } : undefined}
+            />
+          );
         }
         if (documentModel.status === "error") {
           return (
@@ -13626,14 +13706,21 @@ function CardStageSessionTab({
             })}
             historyPanelActive={historyPanelActive}
             isActivePanelTab={isActivePanelTab}
+            breadcrumb={breadcrumb}
             sessionId={sessionId}
             sessionThread={sessionThread}
             canStartThreadInSession={canStartThreadInSession}
             linkedCodexThreads={[]}
             onOpenCodexThread={onOpenThread}
             onOpenCard={({ projectId, cardId, titleSnapshot }) => {
+              const ancestors = appendCardStageAncestor(cardAncestors, {
+                projectId: tab.config.projectId,
+                cardId: tab.config.cardId,
+                titleSnapshot: card.card.title.trim() || tab.config.cardId,
+              });
               void onOpenCardTab(projectId, cardId, titleSnapshot, {
                 openMode: "durable",
+                ancestors,
               });
             }}
             onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
@@ -13665,7 +13752,13 @@ function CardStageSessionTab({
   );
 }
 
-function CardStageSessionSkeleton({ titleSnapshot }: { titleSnapshot?: string }) {
+function CardStageSessionSkeleton({
+  titleSnapshot,
+  breadcrumb,
+}: {
+  titleSnapshot?: string;
+  breadcrumb?: ComponentPropsWithoutRef<typeof CardStageToolbar>["breadcrumb"];
+}) {
   const title = titleSnapshot?.trim();
   const label = titleSnapshot?.trim()
     ? `Loading ${titleSnapshot}`
@@ -13692,11 +13785,12 @@ function CardStageSessionSkeleton({ titleSnapshot }: { titleSnapshot?: string })
         historyPanelActive={false}
         limitMainContentWidth={limitMainContentWidth}
         showRawContent={false}
-        onClose={() => undefined}
+        onCopyDeeplink={() => undefined}
         onDelete={() => undefined}
         onToggleContentWidth={() => undefined}
         onToggleShowRawContent={() => undefined}
         onToggleHistoryPanel={() => undefined}
+        breadcrumb={breadcrumb}
       />
 
       <div

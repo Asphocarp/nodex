@@ -1,6 +1,16 @@
+import { Link2, MoreHorizontal, Trash2 } from "lucide-react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
+import {
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  CardStageBreadcrumb,
+  type CardStageBreadcrumbProps,
+} from "./breadcrumb";
 
 interface CardStageToolbarProps {
   saving: boolean;
@@ -8,12 +18,13 @@ interface CardStageToolbarProps {
   historyPanelActive: boolean;
   limitMainContentWidth: boolean;
   showRawContent: boolean;
-  onClose: () => void;
+  onCopyDeeplink: () => void;
   onDelete: () => void;
   showDelete?: boolean;
   onToggleContentWidth: () => void;
   onToggleShowRawContent: () => void;
   onToggleHistoryPanel?: () => void;
+  breadcrumb?: Omit<CardStageBreadcrumbProps, "disabled">;
 }
 
 const cardStageToolbarButtonChrome =
@@ -28,63 +39,26 @@ export function CardStageToolbar({
   historyPanelActive,
   limitMainContentWidth,
   showRawContent,
-  onClose,
+  onCopyDeeplink,
   onDelete,
   showDelete = true,
   onToggleContentWidth,
   onToggleShowRawContent,
   onToggleHistoryPanel,
+  breadcrumb,
 }: CardStageToolbarProps) {
   return (
-    <div className="flex h-11 items-center justify-between px-3">
-      <div className="flex items-center gap-1">
-        <NodexTooltip tooltipContent="Close" side="bottom" delayDuration={0}>
-          <button
-            type="button"
-            aria-label="Close"
-            data-app-shell-preview-pin-suppressed="true"
-            disabled={disabled}
-            onClick={onClose}
-            className={cn(
-              cardStageToolbarButtonChrome,
-              "text-(--foreground-secondary)",
-              cardStageToolbarButtonHover,
-              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
-            )}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        </NodexTooltip>
+    <div className="flex h-11 items-center gap-2 px-3">
+      {breadcrumb ? (
+        <CardStageBreadcrumb
+          {...breadcrumb}
+          disabled={disabled}
+        />
+      ) : (
+        <div className="min-w-0 flex-1" />
+      )}
 
-        <NodexTooltip tooltipContent="Copy deeplink" side="bottom" delayDuration={0}>
-          <button
-            type="button"
-            aria-label="Copy deeplink"
-            disabled={disabled}
-            className={cn(
-              cardStageToolbarButtonChrome,
-              "text-(--foreground-tertiary)",
-              cardStageToolbarButtonHover,
-              "hover:text-(--foreground-secondary)",
-              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
-            )}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M9 2h5v5M7 9l7-7M6 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        </NodexTooltip>
-      </div>
-
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {saving && (
           <span className="mr-2 text-xs text-(--foreground-tertiary)">
             Saving...
@@ -169,34 +143,50 @@ export function CardStageToolbar({
           </button>
         </NodexTooltip>
 
-        {showDelete ? (
-          <NodexTooltip tooltipContent="Delete" side="bottom" delayDuration={0}>
+        <NodexDropdownMenu
+          align="end"
+          side="bottom"
+          sideOffset={6}
+          contentWidth="xs"
+          disabled={disabled}
+          triggerButton={(
             <button
               type="button"
-              onClick={onDelete}
-              aria-label="Delete"
+              aria-label="Card actions"
+              title="Card actions"
               data-app-shell-preview-pin-suppressed="true"
               disabled={disabled}
               className={cn(
                 cardStageToolbarButtonChrome,
                 "text-(--foreground-tertiary)",
                 cardStageToolbarButtonHover,
-                "hover:text-(--destructive)",
+                "hover:text-(--foreground-secondary)",
                 disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
               )}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <MoreHorizontal className="icon-sm shrink-0" />
             </button>
-          </NodexTooltip>
-        ) : null}
+          )}
+        >
+          <NodexDropdownItem
+            leftSlot={<Link2 className="icon-2xs shrink-0" />}
+            onSelect={onCopyDeeplink}
+          >
+            Copy deeplink
+          </NodexDropdownItem>
+          {showDelete ? (
+            <>
+              <NodexDropdownSeparator />
+              <NodexDropdownItem
+                leftSlot={<Trash2 className="icon-2xs shrink-0" />}
+                onSelect={onDelete}
+                className="text-(--destructive) hover:!bg-(--destructive)/10 focus:!bg-(--destructive)/10"
+              >
+                Delete
+              </NodexDropdownItem>
+            </>
+          ) : null}
+        </NodexDropdownMenu>
       </div>
     </div>
   );
