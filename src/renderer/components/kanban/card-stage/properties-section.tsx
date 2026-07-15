@@ -29,6 +29,7 @@ interface CardStagePropertiesSectionProps {
 
 export function CardStagePropertiesSection({ controller }: CardStagePropertiesSectionProps) {
   if (!controller.card) return null;
+  if (!controller.hasDatabaseProperties && !controller.hasThreadsRow) return null;
 
   const {
     card,

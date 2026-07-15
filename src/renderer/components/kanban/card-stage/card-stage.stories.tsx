@@ -54,6 +54,9 @@ const meta = {
     historyPanelActive: {
       control: "boolean",
     },
+    standalone: {
+      control: "boolean",
+    },
     descriptionVariant: {
       control: "inline-radio",
       options: ["default", "heading-rail", "few-headings"],
@@ -93,6 +96,26 @@ export const ExistingWorktree: Story = {
 export const CloudCollapsed: Story = {
   args: {
     ...resolveCardStageStoryPreset("cloud-collapsed").controls,
+  },
+};
+
+export const NestedCardWithoutProperties: Story = {
+  args: {
+    ...resolveCardStageStoryPreset("overview").controls,
+    standalone: true,
+    threadDensity: "none",
+    previewMode: "none",
+    showNewThreadAction: false,
+    enableOpenThread: false,
+    collapseThreadsByDefault: false,
+    collapseSecondaryProperties: false,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A nested standalone Card omits the Properties section when no property rows are available.",
+      },
+    },
   },
 };
 

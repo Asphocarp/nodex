@@ -18,6 +18,7 @@ import { createCardStageStoryDocument } from "./card-stage-story-document";
 export interface CardStageDevStoryPageProps extends CardStageStoryControls {
   renderPreview?: boolean;
   descriptionVariant?: "default" | "heading-rail" | "few-headings";
+  standalone?: boolean;
 }
 
 const headingRailDescription = [
@@ -68,6 +69,7 @@ export function CardStageDevStoryPage({
   historyPanelActive: initialHistoryPanelActive,
   renderPreview = true,
   descriptionVariant = "default",
+  standalone = false,
 }: CardStageDevStoryPageProps) {
   const [extraThreadCount, setExtraThreadCount] = useState(0);
   const [historyPanelActive, setHistoryPanelActive] = useState(initialHistoryPanelActive);
@@ -86,6 +88,7 @@ export function CardStageDevStoryPage({
     previewMode,
     runInTarget,
     showNewThreadAction,
+    standalone,
     threadDensity,
   ]);
 
@@ -133,29 +136,31 @@ export function CardStageDevStoryPage({
       revision: displayCard.revision ?? 1,
       created: displayCard.created,
     },
-    databaseContext: {
-      kind: "member",
-      membership: {
-        id: "story-membership",
-        databaseBlockId: "story-database",
-        revision: 1,
-      },
-      compatibilityProperties: {
-        status: displayCard.status,
-        ...(displayCard.priority ? { priority: displayCard.priority } : {}),
-        ...(displayCard.estimate ? { estimate: displayCard.estimate } : {}),
-        tags: displayCard.tags,
-        ...(displayCard.dueDate ? { dueDate: displayCard.dueDate } : {}),
-        ...(displayCard.scheduledStart
-          ? { scheduledStart: displayCard.scheduledStart }
-          : {}),
-        ...(displayCard.scheduledEnd
-          ? { scheduledEnd: displayCard.scheduledEnd }
-          : {}),
-        ...(displayCard.assignee ? { assignee: displayCard.assignee } : {}),
-      },
-    },
-  }), [displayCard]);
+    databaseContext: standalone
+      ? { kind: "standalone" }
+      : {
+          kind: "member",
+          membership: {
+            id: "story-membership",
+            databaseBlockId: "story-database",
+            revision: 1,
+          },
+          compatibilityProperties: {
+            status: displayCard.status,
+            ...(displayCard.priority ? { priority: displayCard.priority } : {}),
+            ...(displayCard.estimate ? { estimate: displayCard.estimate } : {}),
+            tags: displayCard.tags,
+            ...(displayCard.dueDate ? { dueDate: displayCard.dueDate } : {}),
+            ...(displayCard.scheduledStart
+              ? { scheduledStart: displayCard.scheduledStart }
+              : {}),
+            ...(displayCard.scheduledEnd
+              ? { scheduledEnd: displayCard.scheduledEnd }
+              : {}),
+            ...(displayCard.assignee ? { assignee: displayCard.assignee } : {}),
+          },
+        },
+  }), [displayCard, standalone]);
   const storyDocument = useMemo(
     () => createCardStageStoryDocument({
       projectId: CARD_STAGE_STORY_PROJECT_ID,
@@ -246,9 +251,13 @@ export function CardStageDevStoryPage({
               projectWorkspacePath={CARD_STAGE_STORY_WORKSPACE_PATH}
               availableTags={["ui", "threads", "card-stage", "spacing", "review"]}
               onUpdate={handleUpdate}
-              onDelete={async () => {
-              }}
-              onMove={handleMove}
+              {...(stageCard.databaseContext.kind === "member"
+                ? {
+                    onDelete: async () => {
+                    },
+                    onMove: handleMove,
+                  }
+                : {})}
               onToggleHistoryPanel={handleToggleHistoryPanel}
               linkedCodexThreads={linkedThreads}
               onOpenCodexThread={enableOpenThread ? async () => {
