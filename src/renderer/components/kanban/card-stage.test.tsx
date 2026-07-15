@@ -1,6 +1,6 @@
 import { act } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/lib/card-stage-layout";
 import type { Card } from "@/lib/types";
 import type { CardStageCardModel } from "@/lib/card-stage-card";
+import type { CardStageProps } from "./card-stage/types";
 import { render, textContent } from "@/test/dom";
 import {
   CARD_DOCUMENT_SCHEMA_VERSION,
@@ -35,7 +36,16 @@ vi.mock("@/components/block-documents/block-document-sync-status", () => ({
 }));
 
 vi.mock("@/components/block-documents/collaborative-card-title", () => ({
-  CollaborativeCardTitle: () => <div>Live title</div>,
+  CollaborativeCardTitle: ({
+    onValueChange,
+  }: {
+    onValueChange?: (title: string) => void;
+  }) => {
+    useEffect(() => {
+      onValueChange?.("Live title");
+    }, [onValueChange]);
+    return <div>Live title</div>;
+  },
 }));
 
 vi.mock("@/components/block-documents/block-document-surface", () => ({
@@ -137,6 +147,7 @@ function documentAuthority() {
 
 function renderStage(
   card: CardStageCardModel = toStageModel(buildCard()),
+  titleCallbacks: Pick<CardStageProps, "onTitleChange" | "onTitleSourceDispose"> = {},
 ) {
   const { CardStage } = requireCardStage();
   return render(
@@ -149,6 +160,7 @@ function renderStage(
         documentAuthority={documentAuthority()}
         availableTags={[]}
         onUpdate={async () => ({ status: "updated", didMutate: true })}
+        {...titleCallbacks}
         {...(card.databaseContext.kind === "member"
           ? {
               onDelete: async () => undefined,
@@ -196,6 +208,23 @@ describe("card stage", () => {
     expect(Object.hasOwn(source, "content")).toBe(false);
     expect(Object.hasOwn(source, "onChange")).toBe(false);
     expect(container.querySelector('[data-card-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
+  });
+
+  test("publishes the initial Y.Text title and disposes its live source", async () => {
+    const onTitleChange = vi.fn();
+    const onTitleSourceDispose = vi.fn();
+    const view = renderStage(toStageModel(buildCard()), {
+      onTitleChange,
+      onTitleSourceDispose,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onTitleChange).toHaveBeenCalledWith("Live title");
+
+    view.unmount();
+    expect(onTitleSourceDispose).toHaveBeenCalledOnce();
   });
 
   test("opens a standalone Card without Database controls or delete", () => {

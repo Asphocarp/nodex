@@ -151,6 +151,11 @@ import {
 } from "@/lib/card-stage-card";
 import { commitCardDetailMetadataPatch } from "@/lib/card-detail-metadata-runtime";
 import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
+import {
+  createCardStageTabTitleStore,
+  makeCardStageTabTitleKey,
+  type CardStageTabTitleStore,
+} from "@/lib/card-stage-tab-title-store";
 import { cn } from "@/lib/utils";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
@@ -1313,10 +1318,10 @@ function resolveProjectTargetTabChromeContext(
 
   return {
     contextLabel: projectLabel,
-    titleLabel: `${projectLabel} project, ${tab.title}`,
-    tooltip: (
+    titleLabel: (title) => `${projectLabel} project, ${title}`,
+    tooltip: (title) => (
       <div className="flex max-w-80 flex-col gap-0.5">
-        <div className="truncate font-medium">{tab.title}</div>
+        <div className="truncate font-medium">{title}</div>
         <div className="truncate text-xs text-token-description-foreground">
           Project: {projectLabel}
         </div>
@@ -2406,6 +2411,7 @@ export function WorkbenchShell({
   const [renamePendingWorktree, setRenamePendingWorktree] =
     useState<CodexSidebarThreadItem | null>(null);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
+  const [cardStageTabTitleStore] = useState(createCardStageTabTitleStore);
   const [sideChatTabsBySession, setSideChatTabsBySession] = useState<Record<string, SideChatPanelTab[]>>({});
   const [sideChatActiveTabByPanel, setSideChatActiveTabByPanel] = useState<Record<string, string>>({});
   const [mcpAppTabsBySession, setMcpAppTabsBySession] = useState<Record<string, McpAppPanelTab[]>>({});
@@ -7800,18 +7806,28 @@ export function WorkbenchShell({
     // Rebuild terminal tab descriptors when the external session store changes.
     void terminalSessionVersion;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
-      const chromeContext = resolveProjectTargetTabChromeContext(tab, session, projects);
       const transientPanelTab = isTransientPanelTab(tab);
       const retentionMode = !transientPanelTab && tab.kind === "card_stage" ? "layout" : undefined;
       const title = !transientPanelTab
-        && tab.kind === "terminal"
-        && "terminalSessionId" in tab.config
-        ? terminalSessionStore.resolveTitle(
-            tab.config.terminalSessionId,
-            tab.title,
-            resolveTerminalTabIndex(session, tab),
+          && tab.kind === "terminal"
+          && "terminalSessionId" in tab.config
+          ? terminalSessionStore.resolveTitle(
+              tab.config.terminalSessionId,
+              tab.title,
+              resolveTerminalTabIndex(session, tab),
+            )
+          : tab.title;
+      const cardStageTitleSource = !transientPanelTab && tab.kind === "card_stage"
+        ? cardStageTabTitleStore.createSource(
+            makeCardStageTabTitleKey(session.id, tab.id),
+            title,
           )
-        : tab.title;
+        : undefined;
+      const chromeContext = resolveProjectTargetTabChromeContext(
+        tab,
+        session,
+        projects,
+      );
 
       return {
         id: tab.id,
@@ -7821,6 +7837,7 @@ export function WorkbenchShell({
             ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
             : undefined,
         title,
+        titleSource: cardStageTitleSource,
         ...chromeContext,
         icon: isSideChatPanelTab(tab)
           ? CodexSidePanelSideChatIcon
@@ -7986,6 +8003,7 @@ export function WorkbenchShell({
               searchByProject={searchByProject}
               dbViewPrefsByProject={dbViewPrefsByProject}
               activePanelCardStageCardIdsByProject={visibleCardStageCardIdsByProject}
+              cardStageTabTitleStore={cardStageTabTitleStore}
               cardStageCloseRef={cardStageCloseRef}
               cardStagePersistRef={cardStagePersistRef}
               cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
@@ -8041,6 +8059,7 @@ export function WorkbenchShell({
     cardStageHistoryModal,
     cardStagePersistRef,
     cardStageSessionSnapshotRef,
+    cardStageTabTitleStore,
     closeAutomationPanelTab,
     closeTab,
     composerEnterBehavior,
@@ -12778,6 +12797,7 @@ function ProjectSessionTabPanel({
   searchByProject,
   dbViewPrefsByProject,
   activePanelCardStageCardIdsByProject,
+  cardStageTabTitleStore,
   cardStageCloseRef,
   cardStagePersistRef,
   cardStageSessionSnapshotRef,
@@ -12810,6 +12830,7 @@ function ProjectSessionTabPanel({
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   activePanelCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
+  cardStageTabTitleStore: CardStageTabTitleStore;
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
@@ -12892,6 +12913,7 @@ function ProjectSessionTabPanel({
           !activeSession.thread
           && activeSession.projectId === cardTab.config.projectId
         }
+        titleStore={cardStageTabTitleStore}
         onLeaveCard={onLeaveCardStageCard}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
@@ -13361,6 +13383,7 @@ function CardStageSessionTab({
   sessionId,
   sessionThread,
   canStartThreadInSession,
+  titleStore,
   onLeaveCard,
   onClose,
   onOpenTerminal,
@@ -13380,6 +13403,7 @@ function CardStageSessionTab({
   sessionId: string;
   sessionThread: CodexThreadSummary | null;
   canStartThreadInSession: boolean;
+  titleStore: CardStageTabTitleStore;
   onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: () => Promise<void>;
@@ -13395,6 +13419,7 @@ function CardStageSessionTab({
   isActivePanelTab: boolean;
 }) {
   const codexControl = useCodexAppServerControl(tab.config.projectId);
+  const titleStoreKey = makeCardStageTabTitleKey(sessionId, tab.id);
 
   const detailSnapshot = useCardDetail(
     tab.config.projectId,
@@ -13426,6 +13451,17 @@ function CardStageSessionTab({
     detailSnapshot.loading
     || (!detailSnapshot.error && !stageProjection.error)
   );
+  useLayoutEffect(() => {
+    if (!card) return;
+    titleStore.publishCommitted(titleStoreKey, card.card.title);
+  }, [
+    card,
+    titleStore,
+    titleStoreKey,
+  ]);
+  useEffect(() => () => {
+    titleStore.release(titleStoreKey);
+  }, [titleStore, titleStoreKey]);
   const handleStartNewSessionThreadFromEditor = useCallback(async (input: {
     projectId: string;
     targetSessionId?: string;
@@ -13553,6 +13589,12 @@ function CardStageSessionTab({
             closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
             persistRef={persistRef}
             sessionSnapshotRef={sessionSnapshotRef}
+            onTitleChange={(title) => {
+              titleStore.publishLive(titleStoreKey, title);
+            }}
+            onTitleSourceDispose={() => {
+              titleStore.clearLive(titleStoreKey);
+            }}
             onClose={onClose}
             onLeaveCard={onLeaveCard}
             onUpdate={async (cardId: string, updates: Partial<CardInput>) =>

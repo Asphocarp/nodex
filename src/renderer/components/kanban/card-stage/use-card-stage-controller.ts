@@ -277,6 +277,7 @@ export function useCardStageController(
   const {
     onClose,
     onLeaveCard,
+    onTitleChange,
     closeRef,
     persistRef,
     sessionSnapshotRef,
@@ -851,7 +852,8 @@ export function useCardStageController(
 
   const handleDocumentTitleChange = useCallback((value: string) => {
     setTitle(value);
-  }, []);
+    onTitleChange?.(value);
+  }, [onTitleChange]);
 
   const handleAssigneeChange = useCallback(
     (value: string) => {

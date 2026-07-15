@@ -46,6 +46,10 @@ export interface CardStageDocumentAuthority {
 export interface CardStageProps {
   onClose: () => void;
   onLeaveCard?: (snapshot: CardStageSessionSnapshot) => void;
+  /** Publishes the authoritative plain-text Y.Text title for surrounding chrome. */
+  onTitleChange?: (title: string) => void;
+  /** Signals that the mounted Y.Text title publisher is no longer authoritative. */
+  onTitleSourceDispose?: () => void;
   closeRef?: MutableRefObject<(() => Promise<void>) | null>;
   persistRef?: MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: MutableRefObject<CardStageSessionSnapshot | null>;

@@ -144,6 +144,48 @@ describe("AppShellTabs", () => {
     expect(tooltip?.textContent).toBe("Beta · Two");
   });
 
+  test("subscribes tab chrome without re-rendering panel content", async () => {
+    let title = "Persisted title";
+    const listeners = new Set<() => void>();
+    let panelRenderCount = 0;
+    const view = renderAppShellTabs({
+      tabs: [{
+        id: "live-title",
+        title: "Fallback title",
+        titleSource: {
+          getSnapshot: () => title,
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => {
+              listeners.delete(listener);
+            };
+          },
+        },
+        contextLabel: "Beta",
+        titleLabel: (resolvedTitle) => `Beta project, ${resolvedTitle}`,
+        closable: true,
+        renderPanel: () => {
+          panelRenderCount += 1;
+          return <div>Stable panel</div>;
+        },
+      }],
+      activeTabId: "live-title",
+      onCloseTab: () => undefined,
+    });
+
+    await act(async () => {
+      title = "Live title";
+      listeners.forEach((listener) => listener());
+      await Promise.resolve();
+    });
+
+    expect(view.container.querySelector('[data-app-shell-tab-title="live-title"]')?.textContent).toBe("Live title");
+    expect(view.getByRole("tab", { name: "Beta project, Live title" }) !== null).toBe(true);
+    expect(view.getByRole("tabpanel").getAttribute("aria-label")).toBe("Beta project, Live title");
+    expect(view.getByLabelText("Close Beta project, Live title tab") !== null).toBe(true);
+    expect(panelRenderCount).toBe(1);
+  });
+
   test("suppresses tab tooltips while dragging", async () => {
     const view = renderAppShellTabs({
       panelTabDnd: {

@@ -1,6 +1,8 @@
 import {
   memo,
   useCallback,
+  useEffect,
+  useEffectEvent,
   useRef,
   useState,
   useSyncExternalStore,
@@ -196,6 +198,39 @@ function CardStageContent({
   );
 }
 
+function CardStageDocumentTitle({
+  title,
+  surfaceWriteFence,
+  onValueChange,
+  onTitleSourceDispose,
+}: {
+  readonly title: Y.Text;
+  readonly surfaceWriteFence: BlockDocumentSurfaceRuntime;
+  readonly onValueChange: (title: string) => void;
+  readonly onTitleSourceDispose?: () => void;
+}) {
+  const disposeTitleSource = useEffectEvent(() => {
+    onTitleSourceDispose?.();
+  });
+
+  useEffect(() => () => {
+    disposeTitleSource();
+  }, [title]);
+
+  return (
+    <CollaborativeCardTitle
+      title={title}
+      surfaceWriteFence={surfaceWriteFence}
+      onValueChange={onValueChange}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+        }
+      }}
+    />
+  );
+}
+
 export function CardStage(props: CardStageProps) {
   const documentRuntimeRef = useRef<BlockDocumentSurfaceRuntime | null>(null);
   const persistDocument = useCallback(async () => {
@@ -276,18 +311,11 @@ export function CardStage(props: CardStageProps) {
                 <CardStageContent
                   controller={controller}
                   title={
-                    <CollaborativeCardTitle
+                    <CardStageDocumentTitle
                       title={surface.title}
                       surfaceWriteFence={surface.runtime}
                       onValueChange={controller.handleDocumentTitleChange}
-                      onKeyDown={(event) => {
-                        if (
-                          event.key === "Enter" &&
-                          !event.nativeEvent.isComposing
-                        ) {
-                          event.preventDefault();
-                        }
-                      }}
+                      onTitleSourceDispose={props.onTitleSourceDispose}
                     />
                   }
                   syncStatus={

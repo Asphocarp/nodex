@@ -7,6 +7,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
+  type ComponentPropsWithoutRef,
   type ComponentType,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -64,6 +66,7 @@ export interface AppShellTabItem {
   id: string;
   domTabId?: string;
   title: string;
+  titleSource?: AppShellTabTitleSource;
   contextLabel?: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
@@ -73,25 +76,47 @@ export interface AppShellTabItem {
   splittable?: boolean;
   isLabel?: boolean;
   disabled?: boolean;
-  titleLabel?: string;
-  tooltip?: ReactNode;
+  titleLabel?: string | ((title: string) => string);
+  tooltip?: ReactNode | ((title: string) => ReactNode);
   contextMenuItems?: AppShellTabContextMenuItem[];
   renderPanel: (closeTab: () => void, context: AppShellTabPanelRenderContext) => ReactNode;
+}
+
+export interface AppShellTabTitleSource {
+  readonly getSnapshot: () => string;
+  readonly subscribe: (listener: () => void) => () => void;
 }
 
 export interface AppShellTabPanelRenderContext {
   active: boolean;
 }
 
-function makeAppShellTabAccessibleLabel(tab: AppShellTabItem): string {
+function makeAppShellTabAccessibleLabel(
+  tab: AppShellTabItem,
+  title: string,
+): string {
+  if (typeof tab.titleLabel === "function") return tab.titleLabel(title);
   if (tab.titleLabel) return tab.titleLabel;
-  if (tab.contextLabel) return `${tab.contextLabel} · ${tab.title}`;
-  return tab.title;
+  if (tab.contextLabel) return `${tab.contextLabel} · ${title}`;
+  return title;
 }
 
-function makeAppShellTabDefaultTooltip(tab: AppShellTabItem): string {
-  if (tab.contextLabel) return `${tab.contextLabel} · ${tab.title}`;
-  return tab.title;
+function makeAppShellTabTooltip(tab: AppShellTabItem, title: string): ReactNode {
+  if (typeof tab.tooltip === "function") return tab.tooltip(title);
+  if (tab.tooltip !== undefined) return tab.tooltip;
+  if (tab.contextLabel) return `${tab.contextLabel} · ${title}`;
+  return title;
+}
+
+const subscribeToStaticAppShellTabTitle = (): (() => void) => () => undefined;
+
+function useAppShellTabTitle(tab: AppShellTabItem): string {
+  const getStaticSnapshot = useCallback(() => tab.title, [tab.title]);
+  return useSyncExternalStore(
+    tab.titleSource?.subscribe ?? subscribeToStaticAppShellTabTitle,
+    tab.titleSource?.getSnapshot ?? getStaticSnapshot,
+    tab.titleSource?.getSnapshot ?? getStaticSnapshot,
+  );
 }
 
 function isPreviewPinSuppressedTarget(target: EventTarget | null): boolean {
@@ -335,29 +360,20 @@ export function AppShellTabs({
     const dataTabId = tab.domTabId ?? tab.id;
 
     return (
-      <div
+      <AppShellTabPanel
         key={`panel:${tab.id}`}
-        role={isActive ? "tabpanel" : undefined}
-        id={isActive ? panelId : undefined}
-        aria-label={isActive ? makeAppShellTabAccessibleLabel(tab) : undefined}
-        aria-hidden={isActive ? undefined : "true"}
-        inert={isActive ? undefined : true}
-        data-app-shell-tab-panel-controller={isActive ? (panelTabDnd?.panelId ?? controllerId) : undefined}
-        data-tab-id={isActive ? dataTabId : undefined}
-        data-app-shell-tabpanel-preview={isActive && tab.preview ? "true" : undefined}
-        data-app-shell-tabpanel-retained={!isActive && retained ? tab.id : undefined}
-        className={cn(
-          "h-full min-h-0",
-          isActive
-            ? "relative"
-            : "invisible pointer-events-none absolute inset-0 overflow-hidden",
-        )}
+        tab={tab}
+        isActive={isActive}
+        retained={retained}
+        panelId={panelId}
+        controllerId={panelTabDnd?.panelId ?? controllerId}
+        dataTabId={dataTabId}
+        bodyOverlay={bodyOverlay}
         onPointerDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
         onKeyDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
       >
-        {isActive ? bodyOverlay : null}
         {tab.renderPanel(() => closeTab(tab.id), { active: isActive })}
-      </div>
+      </AppShellTabPanel>
     );
   };
 
@@ -469,6 +485,57 @@ export function AppShellTabs({
         ) : null}
       </div>
     </NodexTooltipProvider>
+  );
+}
+
+function AppShellTabPanel({
+  tab,
+  isActive,
+  retained,
+  panelId,
+  controllerId,
+  dataTabId,
+  bodyOverlay,
+  onPointerDownCapture,
+  onKeyDownCapture,
+  children,
+}: {
+  tab: AppShellTabItem;
+  isActive: boolean;
+  retained: boolean;
+  panelId: string;
+  controllerId: string;
+  dataTabId: string;
+  bodyOverlay?: ReactNode;
+  onPointerDownCapture?: ComponentPropsWithoutRef<"div">["onPointerDownCapture"];
+  onKeyDownCapture?: ComponentPropsWithoutRef<"div">["onKeyDownCapture"];
+  children: ReactNode;
+}) {
+  const title = useAppShellTabTitle(tab);
+
+  return (
+    <div
+      role={isActive ? "tabpanel" : undefined}
+      id={isActive ? panelId : undefined}
+      aria-label={isActive ? makeAppShellTabAccessibleLabel(tab, title) : undefined}
+      aria-hidden={isActive ? undefined : "true"}
+      inert={isActive ? undefined : true}
+      data-app-shell-tab-panel-controller={isActive ? controllerId : undefined}
+      data-tab-id={isActive ? dataTabId : undefined}
+      data-app-shell-tabpanel-preview={isActive && tab.preview ? "true" : undefined}
+      data-app-shell-tabpanel-retained={!isActive && retained ? tab.id : undefined}
+      className={cn(
+        "h-full min-h-0",
+        isActive
+          ? "relative"
+          : "invisible pointer-events-none absolute inset-0 overflow-hidden",
+      )}
+      onPointerDownCapture={onPointerDownCapture}
+      onKeyDownCapture={onKeyDownCapture}
+    >
+      {isActive ? bodyOverlay : null}
+      {children}
+    </div>
   );
 }
 
@@ -605,20 +672,21 @@ function AppShellTab({
   onSplit?: (tabId: string, side: AppShellTabSplitSide) => void;
 }) {
   const tabRef = useRef<HTMLDivElement | null>(null);
+  const resolvedTitle = useAppShellTabTitle(tab);
   const Icon = tab.icon;
   const dataTabId = tab.domTabId ?? tab.id;
   const tabId = makeTabId(controllerId, tab.id);
-  const accessibleLabel = makeAppShellTabAccessibleLabel(tab);
-  const tooltipContent = tab.tooltip ?? makeAppShellTabDefaultTooltip(tab);
+  const accessibleLabel = makeAppShellTabAccessibleLabel(tab, resolvedTitle);
+  const tooltipContent = makeAppShellTabTooltip(tab, resolvedTitle);
   const titleRef = useRef<HTMLSpanElement | null>(null);
-  const titleOverflows = useAppShellTabTitleOverflow(titleRef, tab.title);
+  const titleOverflows = useAppShellTabTitleOverflow(titleRef, resolvedTitle);
   const title = (
     <span
       ref={titleRef}
       data-app-shell-tab-title={tab.id}
       className={cn("inline-block min-w-0 whitespace-nowrap", tab.preview && "italic")}
     >
-      {tab.title}
+      {resolvedTitle}
     </span>
   );
   const label = (

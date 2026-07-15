@@ -2,7 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { History, SquareKanban, X } from "lucide-react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
+import {
+  AppShellTabs,
+  type AppShellTabItem,
+  type AppShellTabTitleSource,
+} from "./app-shell-tabs";
 
 const meta = {
   title: "Workbench/App shell tabs",
@@ -114,6 +118,73 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
 }
 
 export const CardStageTabs: Story = {};
+
+function LiveCardTitleStory() {
+  const [titleSource] = useState(() => {
+    let title = "Live collaborative title";
+    const listeners = new Set<() => void>();
+    return {
+      getSnapshot: () => title.trim() || "Untitled",
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      setTitle: (nextTitle: string) => {
+        title = nextTitle;
+        listeners.forEach((listener) => listener());
+      },
+    } satisfies AppShellTabTitleSource & { setTitle: (title: string) => void };
+  });
+  const tabs: AppShellTabItem[] = [{
+    id: "live-card-title",
+    title: "Persisted title snapshot",
+    titleSource,
+    contextLabel: "Roadmap",
+    titleLabel: (title) => `Roadmap project, ${title}`,
+    tooltip: (title) => (
+      <div className="flex max-w-80 flex-col gap-0.5">
+        <div className="truncate font-medium">{title}</div>
+        <div className="truncate text-xs text-token-description-foreground">
+          Project: Roadmap
+        </div>
+      </div>
+    ),
+    icon: SquareKanban,
+    closable: true,
+    renderPanel: () => (
+      <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+        The tab chrome subscribes independently from the panel content.
+      </div>
+    ),
+  }];
+
+  return (
+    <NodexTooltipProvider>
+      <div className="flex h-screen flex-col bg-token-main-surface-primary text-token-foreground">
+        <label className="flex h-12 shrink-0 items-center gap-3 border-b border-token-border px-4 text-sm">
+          <span className="text-token-description-foreground">Authoritative Y.Text title</span>
+          <input
+            className="h-7 min-w-80 rounded-md border border-token-border bg-transparent px-2 outline-none focus:border-token-foreground/40"
+            defaultValue={titleSource.getSnapshot()}
+            onChange={(event) => titleSource.setTitle(event.currentTarget.value)}
+          />
+        </label>
+        <div className="min-h-0 flex-1">
+          <AppShellTabs
+            tabs={tabs}
+            activeTabId="live-card-title"
+            onSelect={() => undefined}
+            onCloseTab={() => undefined}
+          />
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+export const LiveCardTitle: Story = {
+  render: () => <LiveCardTitleStory />,
+};
 
 export const InsertionPreview: Story = {
   render: () => <AppShellTabsStory showInsertionPreview />,

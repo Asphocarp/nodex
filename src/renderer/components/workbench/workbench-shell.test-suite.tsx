@@ -10830,9 +10830,9 @@ describe(`workbench session shell / ${scope}`, () => {
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
-          title: "Beta Card",
+          title: "Stale Beta Card",
           panelId: "right",
-          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Stale Beta Card" },
         },
       ],
       rightLayout: makePanelLayout(["db-tab", "card-tab"], "card-tab"),
@@ -10851,6 +10851,54 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("Beta");
     expect(screen.getByLabelText("Close Beta project, Beta Card tab") !== null).toBe(true);
+
+    const cardStageProps = (globalThis as {
+      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
+    }).__mockCardStagePropsByCardId?.["card-beta"];
+    const publishLiveTitle = cardStageProps?.onTitleChange as ((title: string) => void) | undefined;
+    const disposeLiveTitle = cardStageProps?.onTitleSourceDispose as (() => void) | undefined;
+    expect(typeof publishLiveTitle).toBe("function");
+    expect(typeof disposeLiveTitle).toBe("function");
+    if (!publishLiveTitle || !disposeLiveTitle) return;
+
+    invokeCalls = [];
+    await act(async () => {
+      publishLiveTitle("Renamed card");
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("tab", { name: "Beta project, Renamed card" }) !== null).toBe(true);
+    expect(screen.getByLabelText("Close Beta project, Renamed card tab") !== null).toBe(true);
+    const renamedTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
+    expect(renamedTitle?.textContent).toBe("Renamed card");
+    if (!(renamedTitle instanceof HTMLElement)) throw new Error("Expected renamed card tab title");
+    fireEvent.pointerMove(renamedTitle);
+    fireEvent.mouseEnter(renamedTitle);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    const renamedTooltip = screen.container.ownerDocument.body.querySelector('[role="tooltip"]');
+    expect(renamedTooltip?.textContent).toContain("Renamed card");
+    expect(renamedTooltip?.textContent).toContain("Project: Beta");
+
+    await act(async () => {
+      disposeLiveTitle();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBe(true);
+
+    await act(async () => {
+      publishLiveTitle("   ");
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("tab", { name: "Beta project, Untitled" }) !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-shell-tab-title="card-tab"]')?.textContent).toBe("Untitled");
+    await act(async () => {
+      disposeLiveTitle();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:update")).toBe(false);
   });
 
   test("keeps same-project card-stage tabs unprefixed while preserving default title tooltips", async () => {

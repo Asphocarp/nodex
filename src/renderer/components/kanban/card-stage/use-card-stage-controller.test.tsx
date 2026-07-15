@@ -186,10 +186,12 @@ describe("useCardStageController", () => {
   test("keeps collaborative title changes out of metadata writes", async () => {
     const updates: Partial<CardInput>[] = [];
     const leftTitles: string[] = [];
+    const liveTitles: string[] = [];
     let persisted = 0;
     const result = renderController(
       buildProps({
         onLeaveCard: (snapshot) => leftTitles.push(snapshot.titleSnapshot),
+        onTitleChange: (title) => liveTitles.push(title),
         onUpdate: async (_cardId, patch) => {
           updates.push(patch);
           return updatedResult(buildCard(), patch);
@@ -208,6 +210,7 @@ describe("useCardStageController", () => {
 
     expect(persisted).toBe(1);
     expect(updates.length).toBe(0);
+    expect(liveTitles).toEqual(["Live Y.Text title"]);
     expect(leftTitles.join(",")).toBe("Live Y.Text title");
   });
 
