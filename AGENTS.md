@@ -118,7 +118,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Prefer impact-oriented wording, not implementation wording.
 
 ## Testing Expectations
-- Use a two-tier validation strategy: run targeted checks while iterating, then run required handoff checks once after the final edit set is stable.
+- Use a two-tier validation strategy: run targeted checks while iterating, then run risk-appropriate handoff checks once after the final edit set is stable.
 - Match targeted test commands to their runtime:
   - Node/shared tests: `pnpm exec vitest run --config vitest.node.config.ts <path-to-test>`
   - Renderer/jsdom tests: `pnpm exec vitest run --config vitest.renderer.config.ts <path-to-test>`
@@ -130,7 +130,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Match checks to the changed surface while iterating:
   - Pure helpers/domain logic: run the related unit test file.
   - Renderer workflow changes: run the related renderer test(s) plus `pnpm run typecheck` when types or props changed.
-  - Main process/store/protocol/migration changes: run the nearest relevant unit or integration test before the full handoff checks.
+  - Main process/store/protocol/migration changes: run the nearest relevant unit or integration test before any broader handoff checks.
   - Styling or copy-only UI changes: run `pnpm run lint` and `pnpm run typecheck` when TypeScript/TSX files changed; rely on Storybook/docs/manual review for visual parity.
 - For docs-only changes, skip code checks unless the docs change generated artifacts or executable examples. Validate the markdown diff directly and state that no code checks were needed.
 - Prefer tests that prove behavior or domain contracts over tests that mirror implementation details. Avoid trivial UI assertions such as long `className`/Tailwind string matching, broad `textContent.includes(...)`, or "X contains Y string" checks unless the string is a real user-visible or accessibility contract.
@@ -139,11 +139,17 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - For renderer interactions that can schedule React updates, prefer Testing Library async patterns (`findBy*`, `waitFor`, awaited helpers) and make assertions only after the UI has settled.
 - When a renderer test uses low-level `fireEvent`, window/document events, timers, resize/drag gestures, or imperative callbacks instead of a higher-level awaited helper, wrap the interaction in `await act(async () => { ...; await Promise.resolve(); })`, then wait for the observable DOM/API outcome. Use `try/finally` to release drag/resize gestures so failed assertions do not leak body styles or global listeners into later tests.
 - For any new or changed user-visible UI, update or add Storybook coverage in the same change.
-- Run full checks before handoff for code changes, preferably in parallel because these commands are independent:
-  - `pnpm run typecheck`
-  - `pnpm run lint`
-  - `pnpm test`
-- If one full check fails, fix the issue and rerun the failed check plus any related targeted checks. Rerun all three full checks only when the fix could affect more than the failed surface.
+- Choose final checks from the actual risk and changed runtime rather than from a fixed command list:
+  - Run the relevant targeted tests for every behavior change.
+  - For TypeScript source or contract changes, normally run `pnpm run typecheck` once the edit set is stable.
+  - Lint all changed source files. Use `pnpm run lint` when the change is broad or no reliable scoped lint command exists.
+  - Run `pnpm run build` when build configuration, application entrypoints, packaging, bundling, or a reported build/startup failure is involved.
+  - Run `pnpm test` for broad cross-cutting refactors, release validation, or changes whose impact cannot be bounded by targeted suites. It is not required for every isolated code change.
+  - Run `pnpm test:all` only for an explicit full release gate or when the changed release tooling itself requires it.
+- Treat a stronger real-world check as evidence, not as an automatic reason to stack every broader check on top of it. For example, a migration fix may be best covered by focused migration tests plus a disposable copy of a representative database.
+- Parallelize checks only when they are independent and resource contention is unlikely. Do not prefer parallel execution when it could make Electron or renderer suites flaky.
+- If a check fails, first determine whether the current change caused it. Fix caused failures and rerun the failed and related targeted checks. For an unrelated or plausibly flaky failure, isolate or rerun it and report the evidence; do not expand scope to fix it without a demonstrated connection to the task.
+- In the handoff, list the checks that ran and briefly explain any intentionally skipped broader check when its omission might otherwise be surprising.
 
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
