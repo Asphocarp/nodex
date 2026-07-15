@@ -380,7 +380,7 @@ The serializer keeps the editor's structural markers:
 - text selections made inside a code block copy only the selected code text, without surrounding fences
 - code blocks omit the `text` info string when no explicit language was chosen, so default plain-text fences export without a language label
 - dividers keep `---`
-- custom tag-style blocks stay tag-style (`<callout>`, `<image>`, `<toggle-list-inline-view />`, `<card-ref />`, `<card-toggle>`, etc.)
+- custom tag-style blocks stay tag-style (`<callout>`, `<image>`, `<toggle-list-inline-view />`, `<card uuid="..." />`, `<mention-card url="nodex://cards/..." />`, `<card-toggle>`, etc.)
 
 ### Empty and multiline behavior
 

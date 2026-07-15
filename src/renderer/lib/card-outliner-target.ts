@@ -62,7 +62,7 @@ export const resolveCardOutlinerTarget = ({
     return {
       ...unavailable,
       status: "invalid_reference",
-      fallbackTitle: "Invalid Card reference",
+      fallbackTitle: "Invalid Card mention",
     };
   }
 
@@ -99,7 +99,7 @@ export const resolveCardOutlinerTarget = ({
     return {
       ...unavailable,
       status: "invalid_target",
-      fallbackTitle: "Invalid Card reference",
+      fallbackTitle: "Invalid Card mention",
       actualBlockType: model.actualBlockType,
     };
   }

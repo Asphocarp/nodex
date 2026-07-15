@@ -71,8 +71,8 @@ describe("foreign reference Document migration", () => {
     expect(migration.materialization.blockTree[1]?.children.length).toBe(0);
     expect(migration.materialization.blockTree[2]?.id).toBe(queryId);
     expect(migration.materialization.nfm).toBe([
-      '<card-ref target-block="card-a" />',
-      '<card-ref target-block="recovered-card" />',
+      '<mention-card url="nodex://cards/card-a" />',
+      '<mention-card url="nodex://cards/recovered-card" />',
       `<database-view-ref database-view="database-view:inline:${queryId}" display-hint="Project B" />`,
     ].join("\n"));
 

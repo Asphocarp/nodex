@@ -586,7 +586,7 @@ describe("Block retention GC kernel", () => {
       const detached = createCardDocumentGenesis({
         documentId: "document:gc-history-host",
         title: "Historical host",
-        nfm: '<card-ref target-block="gc:historical-target" />',
+        nfm: '<mention-card url="nodex://cards/gc%3Ahistorical-target" />',
         allocateBlockId: () => "gc:historical-source",
       });
       try {

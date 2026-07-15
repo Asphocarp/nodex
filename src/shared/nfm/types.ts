@@ -146,6 +146,7 @@ export type NfmBlockType =
   | "threadSection"
   | "cardToggle"
   | "card"
+  | "mentionCard"
   | "cardRef"
   | "divider"
   | "emptyBlock";
@@ -279,32 +280,22 @@ export interface NfmThreadSection extends NfmBlockBase {
   threadId?: string;
 }
 
+/** Decode-only legacy Card projection used by the foreign-reference migration. */
 export interface NfmCardRef extends NfmBlockBase {
   type: "cardRef";
-  /** Canonical Block-first target. Its presence takes precedence over legacy fields. */
-  targetBlockId?: string;
-  /** Legacy Card-first locator retained only until BF-05 migration completes. */
   sourceProjectId: string;
-  /** Legacy Card-first locator retained only until BF-05 migration completes. */
   cardId: string;
 }
 
 export interface NfmCard extends NfmBlockBase {
   type: "card";
+  /** Owning Card shell identity. Missing only for decode-only historical input. */
+  uuid?: string;
 }
 
-export type NfmCanonicalCardRef = NfmCardRef & {
+export interface NfmMentionCard extends NfmBlockBase {
+  type: "mentionCard";
   targetBlockId: string;
-};
-
-export function isCanonicalNfmCardRef(
-  block: NfmCardRef,
-): block is NfmCanonicalCardRef {
-  return block.targetBlockId !== undefined;
-}
-
-export function isLegacyNfmCardRef(block: NfmCardRef): boolean {
-  return !isCanonicalNfmCardRef(block);
 }
 
 export interface NfmCardToggle extends NfmBlockBase {
@@ -345,6 +336,7 @@ export type NfmBlock =
   | NfmThreadSection
   | NfmCardToggle
   | NfmCard
+  | NfmMentionCard
   | NfmCardRef
   | NfmDivider
   | NfmEmptyBlock;

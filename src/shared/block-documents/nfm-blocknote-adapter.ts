@@ -266,10 +266,23 @@ function nfmBlockToBN(
 
     case "card":
       return {
+        ...(block.uuid === undefined ? {} : { id: block.uuid }),
         type: "card",
         props: {},
         children: [],
       };
+
+    case "mentionCard": {
+      return {
+        type: "cardRef",
+        props: {
+          targetBlockId: block.targetBlockId,
+          sourceProjectId: "",
+          cardId: "",
+        },
+        children: [],
+      };
+    }
 
     case "threadSection":
       return {
@@ -285,7 +298,7 @@ function nfmBlockToBN(
       return {
         type: "cardRef",
         props: {
-          targetBlockId: block.targetBlockId ?? "",
+          targetBlockId: "",
           sourceProjectId: block.sourceProjectId,
           cardId: block.cardId,
         },
@@ -673,6 +686,7 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
     case "card":
       return {
         type: "card",
+        ...(block.id ? { uuid: block.id } : {}),
         children: [],
       };
 
@@ -681,9 +695,16 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
       const cardId = normalizeString(block.props?.cardId) ?? "";
 
+      if (targetBlockId !== undefined) {
+        return {
+          type: "mentionCard",
+          targetBlockId,
+          children: [],
+        };
+      }
+
       return {
         type: "cardRef",
-        ...(targetBlockId !== undefined ? { targetBlockId } : {}),
         sourceProjectId,
         cardId,
         children: [],

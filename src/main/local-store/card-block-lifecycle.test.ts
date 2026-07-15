@@ -704,6 +704,64 @@ describe("authoritative Card lifecycle kernel", () => {
   );
 
   sqliteTest(
+    "rematerializes skipped Card NFM projections when a deleted Card is restored",
+    async () => {
+      await withFixture((fixture) => {
+        const targetId = createUuidV7();
+        committed(
+          fixture,
+          "create-restore-mention-target",
+          createOperation(targetId, "Mention target"),
+        );
+        const cardId = createUuidV7();
+        const created = committed(fixture, "create-restore-mention-host", {
+          ...createOperation(cardId, "Mention host"),
+          nfm: `<mention-card url="nodex://cards/${targetId}" />`,
+        });
+        fixture.database.prepare(
+          "UPDATE document_materializations SET nfm = ? WHERE document_id = ?",
+        ).run(
+          `<card-ref target-block="${targetId}" />`,
+          created.documentId,
+        );
+
+        const deleted = committed(fixture, "delete-restore-mention-host", {
+          kind: "delete_card",
+          cardId,
+          expectedMetadataRevision: created.metadataRevision,
+          expectedLocationRevision: created.locationRevision,
+        });
+        committed(fixture, "restore-mention-host", {
+          kind: "restore_card",
+          cardId,
+          deleteOperationId: "delete-restore-mention-host",
+          expectedMetadataRevision: deleted.metadataRevision,
+          expectedLocationRevision: deleted.locationRevision,
+          membership: {
+            membershipId: deleted.membershipId,
+            databaseBlockId: deleted.databaseBlockId,
+            viewId: deleted.viewId,
+            status: "draft",
+          },
+        });
+
+        const canonicalNfm =
+          `<mention-card url="nodex://cards/${targetId}" />`;
+        expect(
+          fixture.database.prepare(
+            "SELECT nfm FROM document_materializations WHERE document_id = ?",
+          ).pluck().get(created.documentId),
+        ).toBe(canonicalNfm);
+        expect(
+          fixture.database.prepare(
+            "SELECT description_length FROM card_read_model WHERE card_block_id = ?",
+          ).pluck().get(cardId),
+        ).toBe(canonicalNfm.length);
+      });
+    },
+  );
+
+  sqliteTest(
     "validates create values against current Database options",
     async () => {
       await withFixture((fixture) => {

@@ -11,6 +11,7 @@ import {
   resolveOrderedListMargin,
   resolveOrderedListPadding,
 } from "@/lib/ordered-list-groups";
+import { buildCardDeepLink } from "../../../shared/card-deeplink";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import type {
   NfmBlock,
@@ -311,20 +312,34 @@ function BlockComponent({
 
     case "cardRef":
       return (
-        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Card reference (${block.sourceProjectId}/${block.cardId})`}>
+        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Legacy Card mention (${block.sourceProjectId}/${block.cardId})`}>
           <span aria-hidden="true">↗</span>
           <span className="whitespace-nowrap">
-            Card Reference · {block.sourceProjectId}/{block.cardId || "unlinked"}
+            Legacy Card Mention · {block.sourceProjectId}/{block.cardId || "unlinked"}
           </span>
         </div>
       );
+
+    case "mentionCard": {
+      const mentionUrl = buildCardDeepLink({
+        cardId: block.targetBlockId,
+      });
+      return (
+        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Card mention (${mentionUrl})`}>
+          <span aria-hidden="true">↗</span>
+          <span className="whitespace-nowrap">
+            Card Mention · {mentionUrl}
+          </span>
+        </div>
+      );
+    }
 
     case "card":
       return (
         <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
           <span aria-hidden="true">▣</span>
           <span className="whitespace-nowrap">
-            Card · Untitled
+            Card · {block.uuid || "Unidentified"}
           </span>
         </div>
       );

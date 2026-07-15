@@ -38,6 +38,24 @@ function installDateMentionClock(start: string) {
 }
 
 describe("NfmRenderer", () => {
+  test("renders owning Card UUIDs and Card mention URLs", async () => {
+    const { container } = render(
+      <NfmRenderer
+        content={[
+          '<card uuid="019f-card" />',
+          '<mention-card url="nodex://cards/019f-target" />',
+        ].join("\n")}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container)).toContain("Card · 019f-card");
+    expect(textContent(container)).toContain(
+      "Card Mention · nodex://cards/019f-target",
+    );
+  });
+
   test("renders inline code with the shared inline-markdown span contract", async () => {
     const { container } = render(
       <NfmRenderer content={"Paragraph with `inline code` and **bold** text."} />,

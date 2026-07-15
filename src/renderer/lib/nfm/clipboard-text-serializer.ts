@@ -3,6 +3,7 @@ import { isChildlessNfmBlockType } from "./childless";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import { serializeNfmTablePlainText } from "../../../shared/nfm/table";
 import { formatDateMentionPlainText } from "../../../shared/nfm/date-mention";
+import { serializeNfm } from "../../../shared/nfm/serializer";
 
 /**
  * Serialize NFM blocks into structure-preserving plain text for clipboard
@@ -167,6 +168,16 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
           `card="${escapeXmlAttr(block.cardId)}"`,
         ];
         lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
+        break;
+      }
+
+      case "mentionCard": {
+        lines.push(prefix + serializeNfm([block]));
+        break;
+      }
+
+      case "card": {
+        lines.push(prefix + serializeNfm([block]));
         break;
       }
 

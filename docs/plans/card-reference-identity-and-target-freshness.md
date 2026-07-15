@@ -1,12 +1,14 @@
 # Remove Card reference snapshots and add identity-keyed target freshness
 
+> Follow-up: `card-nfm-identity-and-mention-url.md` revises the external NFM spelling to identity-bearing `<card uuid="..." />` and `<mention-card url="nodex://cards/..." />`. This completed plan retains the original implementation chronology.
+
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept current while implementation proceeds. It follows `docs/PLANS.md` and is intentionally self-contained so another contributor can resume from this file and the working tree.
 
 ## Purpose / Big Picture
 
 After this change, a Card reference stores only the target Card Block identity. Renaming, formatting, or clearing the target title changes no host Document and leaves no stale title in canonical NFM. Collapsed references still render cheaply from the membership-independent exact-head Card content summary. When any Card target changes, only queries for that identity refresh, including Cards nested in Documents with no Database membership.
 
-The visible behavior is straightforward: insert `@Card A`, rename Card A elsewhere, and the collapsed mention updates in every open window. Clear the title and it displays `Untitled`, never the insertion-time name. Inspecting NFM shows `<card-ref target-block="..." />`. A different mounted Card reference in the same Project does not refetch because Card A changed.
+The visible behavior is straightforward: insert `@Card A`, rename Card A elsewhere, and the collapsed mention updates in every open window. Clear the title and it displays `Untitled`, never the insertion-time name. The follow-up NFM contract displays that target as `<mention-card url="nodex://cards/..." />`. A different mounted Card mention in the same Project does not refetch because Card A changed.
 
 ## Progress
 
@@ -133,8 +135,8 @@ No React `act(...)` warnings or relevant ignored errors are acceptable. Review `
 
 Automated acceptance requires these behaviors:
 
-1. New canonical `cardRef` NFM and BlockNote state contain `targetBlockId` but no title snapshot; a `card` shell contains no title snapshot.
-2. Historical `<card-ref ... display-hint="Old" />` and `<card display-hint="Old" />` parse successfully and serialize without the attribute. Database View and Template hint behavior is unchanged.
+1. New internal `cardRef` BlockNote state contains `targetBlockId` but no title snapshot; canonical NFM exposes it as a Card mention URL, and a `card` shell contains no title snapshot.
+2. Historical `<card-ref ... display-hint="Old" />` and `<card display-hint="Old" />` remain decode-only. Current materialization emits the follow-up identity-bearing tags. Database View and Template hint behavior is unchanged.
 3. The migration commits deletion attributes through the Document writer, advances affected heads/materializations, preserves Block/Document IDs and generations, and reaches a no-op fixed point on rerun.
 4. An available Card with an empty authoritative title renders `Untitled`; loading/missing/deleted/error states do not display an old title.
 5. A committed title/body update for a zero-membership Card emits one `card-target-changed` event and no required board event.
@@ -161,9 +163,9 @@ The old problematic representation is:
 
     <card-ref target-block="019f5658-cac0-73e0-bfe2-f1e5199a91f5" display-hint="to-be-test-card-ref" />
 
-The target representation is:
+The current target representation after the follow-up NFM contract is:
 
-    <card-ref target-block="019f5658-cac0-73e0-bfe2-f1e5199a91f5" />
+    <mention-card url="nodex://cards/019f5658-cac0-73e0-bfe2-f1e5199a91f5" />
 
 The old freshness chain is:
 

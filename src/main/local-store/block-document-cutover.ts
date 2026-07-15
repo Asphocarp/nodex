@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import {
-  canonicalizeNfmForBlockDocument,
+  createBlockDocumentNfmContentParitySignature,
   materializeCardDocument,
   type CardDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
@@ -358,9 +358,15 @@ const assertContentAndProjectionParity = (
     loaded.document.destroy();
   }
 
-  let expectedNfm: string;
+  let expectedNfmSignature: string;
+  let materializedNfmSignature: string;
   try {
-    expectedNfm = canonicalizeNfmForBlockDocument(card.description);
+    expectedNfmSignature = createBlockDocumentNfmContentParitySignature(
+      card.description,
+    );
+    materializedNfmSignature = createBlockDocumentNfmContentParitySignature(
+      materialization.nfm,
+    );
   } catch (error) {
     throw new BlockDocumentCutoverError(
       "content_parity_failed",
@@ -370,7 +376,7 @@ const assertContentAndProjectionParity = (
   }
   if (
     materialization.title !== card.title ||
-    materialization.nfm !== expectedNfm
+    materializedNfmSignature !== expectedNfmSignature
   ) {
     throw new BlockDocumentCutoverError(
       "content_parity_failed",

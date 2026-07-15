@@ -274,9 +274,9 @@ export const ThreeBlocks: Story = {
   },
 };
 
-export const CardReferenceBlock: Story = {
+export const CardMentionBlock: Story = {
   args: {
-    selectionTitle: "Card reference",
+    selectionTitle: "Card mention",
     currentBlockType: "cardRef",
   },
 };

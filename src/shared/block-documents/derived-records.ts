@@ -1,10 +1,6 @@
 import { parseAssetSource } from "../assets";
 import { parseNfm } from "../nfm/parser";
-import {
-  isCanonicalNfmCardRef,
-  type NfmBlock,
-  type NfmInlineContent,
-} from "../nfm/types";
+import type { NfmBlock, NfmInlineContent } from "../nfm/types";
 import type { BlockTreeNode } from "./block-document-codec";
 import {
   MAX_BLOCK_ID_LENGTH,
@@ -184,9 +180,14 @@ const collectDerivedRecords = (
         source: nfmBlock.source,
       });
     } else if (
-      nfmBlock.type === "cardRef"
-      && isCanonicalNfmCardRef(nfmBlock)
+      nfmBlock.type === "card" &&
+      nfmBlock.uuid !== undefined &&
+      nfmBlock.uuid !== block.id
     ) {
+      throw new BlockDocumentDerivedRecordsError(
+        `Owning Card NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
+      );
+    } else if (nfmBlock.type === "mentionCard") {
       assertCanonicalReferenceId(nfmBlock.targetBlockId, "targetBlockId");
       references.push({
         kind: "block",

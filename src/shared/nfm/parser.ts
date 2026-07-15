@@ -3,6 +3,7 @@ import type {
   NfmCardToggle,
   NfmCard,
   NfmCardRef,
+  NfmMentionCard,
   NfmDatabaseViewRef,
   NfmColor,
   NfmInlineContent,
@@ -19,6 +20,7 @@ import { normalizeOrderedListStart } from "./ordered-list";
 import { parseInlineContent } from "./parser-inline";
 import { tryParseGfmTable, tryParseNfmTableXml } from "./table";
 import { getXmlAttr } from "./xml-attributes";
+import { parseCardDeepLink } from "../card-deeplink";
 
 /**
  * Parse a Notion-flavored Markdown string into a block tree.
@@ -183,11 +185,20 @@ export function parseNfm(input: string): NfmBlock[] {
       }
     }
 
-    // Card reference: <card-ref project="..." card="..." />
+    if (content.trimStart().startsWith("<mention-card")) {
+      const mentionCard = parseMentionCard(content.trim());
+      if (mentionCard) {
+        addBlock(mentionCard, indent);
+        i++;
+        continue;
+      }
+    }
+
+    // Decode-only historical Card reference.
     if (content.trimStart().startsWith("<card-ref")) {
-      const cardRef = parseCardRef(content.trim());
-      if (cardRef) {
-        addBlock(cardRef, indent);
+      const historicalCardRef = parseCardRef(content.trim());
+      if (historicalCardRef) {
+        addBlock(historicalCardRef, indent);
         i++;
         continue;
       }
@@ -587,8 +598,25 @@ function parseReusableTemplateRef(
 function parseCard(line: string): NfmCard | null {
   const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
+  const uuid = getXmlAttr(match[1] ?? "", "uuid");
   return {
     type: "card",
+    ...(uuid === undefined ? {} : { uuid }),
+    children: [],
+  };
+}
+
+function parseMentionCard(line: string): NfmMentionCard | null {
+  const match = line.match(/^<mention-card(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const url = getXmlAttr(match[1] ?? "", "url") ?? "";
+  const target = parseCardDeepLink(url);
+  if (!target) {
+    throw new TypeError("Card mention URL must identify a Nodex Card");
+  }
+  return {
+    type: "mentionCard",
+    targetBlockId: target.cardId,
     children: [],
   };
 }
@@ -607,7 +635,7 @@ function isToggleListPropertyKey(
   return value === "priority" || value === "estimate" || value === "status" || value === "tags";
 }
 
-function parseCardRef(line: string): NfmCardRef | null {
+function parseCardRef(line: string): NfmMentionCard | NfmCardRef | null {
   const match = line.match(/^<card-ref(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
 
@@ -616,9 +644,19 @@ function parseCardRef(line: string): NfmCardRef | null {
   const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
   const cardId = getXmlAttr(attrString, "card") ?? "";
 
+  if (targetBlockId !== undefined) {
+    if (targetBlockId.length === 0 || targetBlockId !== targetBlockId.trim()) {
+      throw new TypeError("Historical Card reference has an invalid target-block");
+    }
+    return {
+      type: "mentionCard",
+      targetBlockId,
+      children: [],
+    };
+  }
+
   return {
     type: "cardRef",
-    ...(targetBlockId !== undefined ? { targetBlockId } : {}),
     sourceProjectId,
     cardId,
     children: [],

@@ -35,7 +35,7 @@ Single-block labels:
 | `image` | `Image` |
 | `callout` | `Callout` |
 | `table` | `Table` |
-| `cardRef` | `Card reference` |
+| `cardRef` | `Card mention` |
 | `cardToggle` | `Card` |
 | `toggleListInlineView` | `Toggle list view` |
 | `threadSection` | `Thread section` |
@@ -113,7 +113,7 @@ The side menu stories cover:
 - `CodeBlock`
 - `HeadingBlock`
 - `ThreeBlocks`
-- `CardReferenceBlock`
+- `CardMentionBlock`
 - `ReferenceMocks`
 - `NoFooterMetadata`
 - Search, submenu, table, loading, empty, error, and narrow viewport states

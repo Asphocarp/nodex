@@ -9,7 +9,10 @@ import {
   DocumentOperationEngineError,
   prepareDocumentOperationUpdate,
 } from "./document-operation-engine";
-import { replaceCardDocumentBodyFromNfm } from "./legacy-nfm-shadow-translator";
+import {
+  LegacyNfmShadowTranslationError,
+  replaceCardDocumentBodyFromNfm,
+} from "./legacy-nfm-shadow-translator";
 
 const createGenesis = (
   documentId: string,
@@ -430,6 +433,160 @@ describe("Document operation engine", () => {
     expect(nextId).toBe(0);
 
     source.document.destroy();
+  });
+
+  test("NFM Card UUIDs exactly preserve and reorder existing owning shells", () => {
+    const source = createGenesis(
+      "operation-nfm-card-pins",
+      "Cards",
+      "<card />\n<card />",
+      ["card-a", "card-b"],
+    );
+    let allocationCount = 0;
+    const replacement = replaceCardDocumentBodyFromNfm({
+      document: source.document,
+      nfm: '<card uuid="card-b" />\n<card uuid="card-a" />',
+      allocateBlockId: () => `unexpected-${++allocationCount}`,
+    });
+
+    expect(
+      replacement.materialization.blockTree.map((block) => block.id),
+    ).toEqual(["card-b", "card-a"]);
+    expect(replacement.materialization.nfm).toBe(
+      '<card uuid="card-b" />\n<card uuid="card-a" />',
+    );
+    expect(allocationCount).toBe(0);
+    source.document.destroy();
+  });
+
+  test("an exact canonical NFM round trip is a no-op with duplicate Card parents", () => {
+    const source = createGenesis(
+      "operation-nfm-card-pin-duplicate-parents",
+      "Cards",
+      "Parent\n\t<card />\nParent\n\t<card />",
+      ["parent-a", "card-a", "parent-b", "card-b"],
+    );
+    const canonicalNfm = source.materialization.nfm;
+    const replacement = replaceCardDocumentBodyFromNfm({
+      document: source.document,
+      nfm: canonicalNfm,
+    });
+
+    expect(replacement.changed).toBe(false);
+    expect(replacement.update).toHaveLength(0);
+    expect(replacement.materialization.nfm).toBe(canonicalNfm);
+    source.document.destroy();
+  });
+
+  test("Card pins disambiguate and reorder otherwise identical parent subtrees", () => {
+    const source = createGenesis(
+      "operation-nfm-card-pin-parent-reorder",
+      "Cards",
+      "Parent\n\t<card />\nParent\n\t<card />",
+      ["parent-a", "card-a", "parent-b", "card-b"],
+    );
+    let allocationCount = 0;
+    const replacement = replaceCardDocumentBodyFromNfm({
+      document: source.document,
+      nfm: [
+        "Parent",
+        '\t<card uuid="card-b" />',
+        "Parent",
+        '\t<card uuid="card-a" />',
+      ].join("\n"),
+      allocateBlockId: () => `unexpected-${++allocationCount}`,
+    });
+
+    expect(
+      replacement.materialization.blockTree.map((block) => block.id),
+    ).toEqual(["parent-b", "parent-a"]);
+    expect(
+      replacement.materialization.blockTree.map(
+        (block) => block.children[0]?.id,
+      ),
+    ).toEqual(["card-b", "card-a"]);
+    expect(allocationCount).toBe(0);
+    source.document.destroy();
+  });
+
+  test("NFM Card UUID pins reject duplicate, unknown, and wrong-type identities", () => {
+    const source = createGenesis(
+      "operation-nfm-invalid-card-pins",
+      "Cards",
+      "<card />\nParagraph",
+      ["card-a", "paragraph-a"],
+    );
+    const before = encodedState(source.document);
+    const invalidInputs = [
+      '<card uuid="card-a" />\n<card uuid="card-a" />',
+      '<card uuid="unknown-card" />',
+      '<card uuid="paragraph-a" />',
+    ];
+
+    for (const nfm of invalidInputs) {
+      expect(() =>
+        replaceCardDocumentBodyFromNfm({
+          document: source.document,
+          nfm,
+        }),
+      ).toThrow(LegacyNfmShadowTranslationError);
+      expect(encodedState(source.document)).toBe(before);
+    }
+    source.document.destroy();
+  });
+
+  test("NFM Card UUID pins reject cross-parent movement", () => {
+    const source = createGenesis(
+      "operation-nfm-card-pin-parent",
+      "Cards",
+      "Parent A\n\t<card />\nParent B",
+      ["parent-a", "card-a", "parent-b"],
+    );
+    const before = encodedState(source.document);
+    expect(() =>
+      replaceCardDocumentBodyFromNfm({
+        document: source.document,
+        nfm: 'Parent A\nParent B\n\t<card uuid="card-a" />',
+      }),
+    ).toThrow(LegacyNfmShadowTranslationError);
+    expect(encodedState(source.document)).toBe(before);
+    source.document.destroy();
+  });
+
+  test("NFM Card UUID pins reject malformed explicit identities", () => {
+    const source = createGenesis(
+      "operation-nfm-malformed-card-pin",
+      "Cards",
+      "<card />",
+      ["card-a"],
+    );
+    const before = encodedState(source.document);
+
+    for (const nfm of ['<card uuid=" card-a" />', '<card uuid="" />']) {
+      expect(() =>
+        replaceCardDocumentBodyFromNfm({
+          document: source.document,
+          nfm,
+        }),
+      ).toThrow(LegacyNfmShadowTranslationError);
+      expect(encodedState(source.document)).toBe(before);
+    }
+    source.document.destroy();
+  });
+
+  test("genesis import allocates a fresh owning Card identity", () => {
+    const genesis = createCardDocumentGenesis({
+      documentId: "operation-nfm-card-import",
+      title: "Import",
+      nfm: '<card uuid="exported-card" />',
+      allocateBlockId: () => "fresh-card",
+    });
+
+    expect(genesis.materialization.blockTree[0]?.id).toBe("fresh-card");
+    expect(genesis.materialization.nfm).toBe(
+      '<card uuid="fresh-card" />',
+    );
+    genesis.document.destroy();
   });
 
   test("NFM identity matching allocates fresh IDs when same-type replacement has no confident anchor", () => {

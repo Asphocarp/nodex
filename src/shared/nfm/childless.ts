@@ -3,6 +3,7 @@ import type { NfmBlockType } from "./types";
 const CHILDLESS_NFM_BLOCK_TYPES: ReadonlySet<NfmBlockType> = new Set([
   "cardRef",
   "card",
+  "mentionCard",
   "databaseViewRef",
   "syncedBlockRef",
   "templateRef",

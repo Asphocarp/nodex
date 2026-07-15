@@ -335,7 +335,7 @@ describe("Block subtree relocation", () => {
     const target = createDocument(
       "childless-target",
       [
-        '<card-ref target-block="target-card" />',
+        '<mention-card url="nodex://cards/target-card" />',
         '<database-view-ref database-view="target-view" />',
       ].join("\n"),
       ["card-ref", "view-ref"],

@@ -131,7 +131,7 @@ describe("resolveCardOutlinerTarget", () => {
       status: "invalid_reference",
       relationship: "reference",
       targetBlockId: "",
-      fallbackTitle: "Invalid Card reference",
+      fallbackTitle: "Invalid Card mention",
     });
   });
 

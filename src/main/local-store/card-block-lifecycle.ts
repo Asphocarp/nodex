@@ -49,6 +49,7 @@ import {
 } from "./block-document-store";
 import { rebuildCardReadModelProjection } from "./card-read-store";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
+import { finalizeCardNfmIdentityProjection } from "./card-nfm-projection-finalization";
 import {
   AuthoritativeOperationReceiptError,
   persistAuthoritativeOperationReceipt,
@@ -2642,6 +2643,18 @@ const refreshProjections = (
   commit: AuthorityCommit,
   now: string,
 ): void => {
+  if (request.operation.kind === "restore_card") {
+    const indexedDocumentIds = commit.changePayload.indexedDocumentIds;
+    if (
+      !Array.isArray(indexedDocumentIds) ||
+      indexedDocumentIds.some((documentId) => typeof documentId !== "string")
+    ) {
+      throw new Error("Card restore is missing its indexed Document closure");
+    }
+    finalizeCardNfmIdentityProjection(database, {
+      documentIds: indexedDocumentIds,
+    });
+  }
   refreshScheduledCardIndexProjection(
     database,
     request.projectId,

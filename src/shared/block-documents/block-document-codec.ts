@@ -28,7 +28,6 @@ import {
 import { headlessBlockDocumentSchema } from "./headless-blocknote-schema";
 import {
   blockNoteToNfm,
-  nfmToBlockNote,
   nfmToBlockNoteWithIds,
   type BlockNoteBlockValue,
 } from "./nfm-blocknote-adapter";
@@ -125,8 +124,16 @@ export class BlockDocumentCodecError extends Error {
  * BlockNote-backed Document. Disclosure state is intentionally omitted: an
  * expanded toggle is window-local UI state, not collaborative Card content.
  */
-export const canonicalizeNfmForBlockDocument = (nfm: string): string =>
-  serializeNfm(blockNoteToNfm(nfmToBlockNote(parseNfm(nfm))));
+export const createBlockDocumentNfmContentParitySignature = (
+  nfm: string,
+): string => {
+  let nextBlockId = 0;
+  const blocks = nfmToBlockNoteWithIds(parseNfm(nfm), () => {
+    nextBlockId += 1;
+    return `nfm-parity-${nextBlockId}`;
+  });
+  return serializeNfm(blockNoteToNfm(blocks));
+};
 
 const headlessEditor = BlockNoteEditor.create({
   schema: headlessBlockDocumentSchema,

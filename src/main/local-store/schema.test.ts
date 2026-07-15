@@ -10,12 +10,14 @@ import { resetAssetPathCacheForTests } from "./assets";
 import { LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER } from "./block-first-legacy-schema";
 import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
 import {
+  CARD_REFERENCE_HINT_SCHEMA_VERSION,
   CURRENT_SCHEMA_VERSION,
   PREVIOUS_SCHEMA_VERSION,
   SHIPPED_SCHEMA_VERSION,
   getSchemaMigrationTargets,
   migrateSchema58To59,
   migrateSchema59To60,
+  migrateSchema60To61,
 } from "./schema";
 
 const tempDirectories: string[] = [];
@@ -136,26 +138,32 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v60 release boundary", () => {
+describe("schema v61 release boundary", () => {
   test("routes shipped inputs through the explicit staged boundaries", () => {
     expect(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION)).toEqual([]);
     expect(getSchemaMigrationTargets(SHIPPED_SCHEMA_VERSION)).toEqual([
+      CARD_REFERENCE_HINT_SCHEMA_VERSION,
       PREVIOUS_SCHEMA_VERSION,
       CURRENT_SCHEMA_VERSION,
     ]);
     expect(getSchemaMigrationTargets(26)).toEqual([
       SHIPPED_SCHEMA_VERSION,
+      CARD_REFERENCE_HINT_SCHEMA_VERSION,
       PREVIOUS_SCHEMA_VERSION,
       CURRENT_SCHEMA_VERSION,
     ]);
     expect(getSchemaMigrationTargets(57)).toEqual([
       SHIPPED_SCHEMA_VERSION,
+      CARD_REFERENCE_HINT_SCHEMA_VERSION,
       PREVIOUS_SCHEMA_VERSION,
       CURRENT_SCHEMA_VERSION,
     ]);
     expect(getSchemaMigrationTargets(PREVIOUS_SCHEMA_VERSION)).toEqual([
       CURRENT_SCHEMA_VERSION,
     ]);
+    expect(
+      getSchemaMigrationTargets(CARD_REFERENCE_HINT_SCHEMA_VERSION),
+    ).toEqual([PREVIOUS_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]);
     expect(getSchemaMigrationTargets(0)).toBe(null);
     expect(getSchemaMigrationTargets(999)).toBe(null);
   });
@@ -228,7 +236,7 @@ describe("schema v60 release boundary", () => {
     migrateSchema58To59(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(
-      PREVIOUS_SCHEMA_VERSION,
+      CARD_REFERENCE_HINT_SCHEMA_VERSION,
     );
     expect(database.pragma("foreign_keys", { simple: true })).toBe(1);
     const names = tableNames(database);
@@ -272,9 +280,22 @@ describe("schema v60 release boundary", () => {
     useTempStore();
     await initializeDatabase();
     const database = getDb();
-    database.pragma(`user_version = ${PREVIOUS_SCHEMA_VERSION}`);
+    database.pragma(`user_version = ${CARD_REFERENCE_HINT_SCHEMA_VERSION}`);
 
     migrateSchema59To60(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(
+      PREVIOUS_SCHEMA_VERSION,
+    );
+  });
+
+  test("publishes a clean v60 store as v61", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    database.pragma(`user_version = ${PREVIOUS_SCHEMA_VERSION}`);
+
+    migrateSchema60To61(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(
       CURRENT_SCHEMA_VERSION,

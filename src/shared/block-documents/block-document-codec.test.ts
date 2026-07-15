@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  canonicalizeNfmForBlockDocument,
+  createBlockDocumentNfmContentParitySignature,
   createCardDocumentGenesis,
   createDetachedCardDocumentFromBlockTree,
   materializeCardDocument,
@@ -22,7 +22,7 @@ const FULL_NFM_FIXTURE = [
   '<image source="nodex://assets/image.png">Image caption</image>',
   '<thread-section label="Investigate" thread="thread-2" />',
   '<card-ref project="project-a" card="card-target" />',
-  '<card-ref target-block="card-canonical" />',
+  '<mention-card url="nodex://cards/card-canonical" />',
   '<toggle-list-inline-view project="project-a" rules-v2="eyJtb2RlIjoiYWxsIn0" />',
   '<database-view-ref database-view="view-canonical" display-hint="Planning" />',
   '<card-toggle card="legacy-card" meta="[P1]" project="project-a">',
@@ -65,7 +65,7 @@ describe("CardDocumentCodec", () => {
       nfm,
     });
 
-    expect(canonicalizeNfmForBlockDocument(nfm)).toBe(
+    expect(createBlockDocumentNfmContentParitySignature(nfm)).toBe(
       [
         "▶ Expanded toggle",
         "\tExpanded child",
@@ -74,8 +74,24 @@ describe("CardDocumentCodec", () => {
       ].join("\n"),
     );
     expect(genesis.materialization.nfm).toBe(
-      canonicalizeNfmForBlockDocument(nfm),
+      createBlockDocumentNfmContentParitySignature(nfm),
     );
+  });
+
+  test("normalizes owning Card identities only for legacy content parity", () => {
+    expect(createBlockDocumentNfmContentParitySignature("<card />")).toBe(
+      '<card uuid="nfm-parity-1" />',
+    );
+    expect(
+      createBlockDocumentNfmContentParitySignature(
+        '<card uuid="exported-card" />',
+      ),
+    ).toBe('<card uuid="nfm-parity-1" />');
+    expect(
+      createBlockDocumentNfmContentParitySignature(
+        '<mention-card url="nodex://cards/target-card" />',
+      ),
+    ).toBe('<mention-card url="nodex://cards/target-card" />');
   });
 
   test("headlessly imports and materializes every supported custom shape", () => {

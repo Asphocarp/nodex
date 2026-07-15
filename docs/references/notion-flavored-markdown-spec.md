@@ -65,6 +65,10 @@ So an alternative self-closing format is also supported: <mention-user url="{{UR
 Nodex extension for Codex thread references:
 <mention-thread uuid="{{CODEX_THREAD_ID}}" />
 The `uuid` attribute is the opaque Codex app-server thread/session id. It is required after trimming whitespace, is serialized as the only attribute, and is not regex-validated. Missing or empty `uuid` values remain plain text instead of creating structured mention content. In copy output and thread-section prompts, thread mentions serialize as `[Thread: {{CODEX_THREAD_ID}}]` and do not inject the referenced thread transcript.
+Nodex extensions for owning Cards and Card mentions:
+<card uuid="{{CARD_BLOCK_ID}}" />
+<mention-card url="nodex://cards/{{CARD_BLOCK_ID}}" />
+An owning `card` Block is a childless shell whose `uuid` is its own stable Card Block identity. During an exact-head whole-NFM replacement, that UUID may preserve or reorder only a Card already owned by the same Document; it never creates, copies, or moves a Card implicitly. Those operations require Nodex's typed ownership commands. A `mention-card` is a childless non-owning mention. Its required URL must resolve through the `nodex://cards/<card-id>` deeplink contract and is canonicalized on serialization. Historical `<card />` and `<card-ref ... />` tags are decode-only and are never emitted by current materialization.
 Nodex extension for inline date mentions:
 <mention-date start="YYYY-MM-DD" format="relative" />
 <mention-date start="YYYY-MM-DDTHH:mm:ss+08:00" tz="IANA_TIME_ZONE" format="relative" time-format="12h" reminder="minute:0" />

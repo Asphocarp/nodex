@@ -178,7 +178,7 @@ describe("nfm side menu model", () => {
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 2 } }])).toBe("Heading 2");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 3, isToggleable: true } }])).toBe("Toggle heading 3");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "callout" }])).toBe("Callout");
-    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "cardRef" }])).toBe("Card reference");
+    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "cardRef" }])).toBe("Card mention");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "unknownType" }])).toBe("Block");
     expect(resolveNfmSideMenuScopeTitle([
       { id: "a", type: "paragraph" },

@@ -45,7 +45,7 @@ The mention references a Codex app-server thread/session id as an opaque string.
 
 ## Insertion
 
-- The NFM `@` suggestion menu includes thread mention rows alongside card references.
+- The NFM `@` suggestion menu includes thread mention rows alongside Card mentions.
 - Thread rows use the same sidebar-wide chat search model as the command palette: non-archived sidebar chats from the current project, other projects, projectless chats, and sessionless chats are eligible.
 - The picker treats the editor's own `projectId` as the active project. Matching current-project chats and cards are rendered first in one `Current project` group, with chats before cards and each type preserving its selector order. Other chats, including projectless chats, follow in `Chats`; other cards follow in `Cards`.
 - Archived, ephemeral, and side-conversation chats do not appear in the picker.

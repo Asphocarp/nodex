@@ -103,7 +103,7 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
       return (
         <InertEmbedPlaceholder
           icon={Link2}
-          label="Card reference"
+          label="Card mention"
           detail={targetBlockId || sourceProjectId}
         />
       );

@@ -5,6 +5,15 @@ import { parseNfm } from "./parser";
 import { serializeNfm } from "./serializer";
 
 describe("NFM code fences", () => {
+  test("keeps Card identity and mention URL tags in clipboard text", () => {
+    const nfm = [
+      '<card uuid="019f-card" />',
+      '<mention-card url="nodex://cards/019f-target" />',
+    ].join("\n");
+
+    expect(serializeClipboardText(parseNfm(nfm))).toBe(nfm);
+  });
+
   test("GFM tables parse and serialize with alignment", () => {
     const input = "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |";
     const blocks = parseNfm(input);

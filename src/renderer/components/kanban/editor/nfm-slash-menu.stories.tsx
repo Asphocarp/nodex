@@ -34,7 +34,7 @@ const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
     onItemClick: () => undefined,
   },
   {
-    title: "Card Reference",
+    title: "Card Mention",
     subtext: "Embed a single card with inline editing",
     aliases: [],
     group: "Others",

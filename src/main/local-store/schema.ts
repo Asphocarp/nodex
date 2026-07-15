@@ -24,12 +24,14 @@ import {
   type CanvasSceneCutoverResult,
 } from "./canvas-scene-cutover";
 import { finalizeCardReferenceIdentityStorage } from "./card-reference-hint-finalization";
+import { finalizeCardNfmIdentityProjection } from "./card-nfm-projection-finalization";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const PREVIOUS_SCHEMA_VERSION = 59;
-export const CURRENT_SCHEMA_VERSION = 60;
+export const CARD_REFERENCE_HINT_SCHEMA_VERSION = 59;
+export const PREVIOUS_SCHEMA_VERSION = 60;
+export const CURRENT_SCHEMA_VERSION = 61;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
@@ -2882,12 +2884,20 @@ export function getSchemaMigrationTargets(
   if (currentVersion === PREVIOUS_SCHEMA_VERSION) {
     return [CURRENT_SCHEMA_VERSION];
   }
-  if (currentVersion === SHIPPED_SCHEMA_VERSION) {
+  if (currentVersion === CARD_REFERENCE_HINT_SCHEMA_VERSION) {
     return [PREVIOUS_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION];
+  }
+  if (currentVersion === SHIPPED_SCHEMA_VERSION) {
+    return [
+      CARD_REFERENCE_HINT_SCHEMA_VERSION,
+      PREVIOUS_SCHEMA_VERSION,
+      CURRENT_SCHEMA_VERSION,
+    ];
   }
   if (currentVersion === 26 || currentVersion === 57) {
     return [
       SHIPPED_SCHEMA_VERSION,
+      CARD_REFERENCE_HINT_SCHEMA_VERSION,
       PREVIOUS_SCHEMA_VERSION,
       CURRENT_SCHEMA_VERSION,
     ];
@@ -6533,7 +6543,7 @@ export function migrateSchema58To59(db: Database.Database): void {
           `Schema v59 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
         );
       }
-      setUserVersion(db, PREVIOUS_SCHEMA_VERSION);
+      setUserVersion(db, CARD_REFERENCE_HINT_SCHEMA_VERSION);
     });
     migrate.immediate();
   } finally {
@@ -6545,7 +6555,7 @@ export function migrateSchema58To59(db: Database.Database): void {
 
 export function migrateSchema59To60(db: Database.Database): void {
   const sourceVersion = getUserVersion(db);
-  if (sourceVersion !== PREVIOUS_SCHEMA_VERSION) {
+  if (sourceVersion !== CARD_REFERENCE_HINT_SCHEMA_VERSION) {
     throw new Error(
       `Schema v59 to v60 migration requires v59, received v${sourceVersion}`,
     );
@@ -6557,6 +6567,27 @@ export function migrateSchema59To60(db: Database.Database): void {
     if (foreignKeyViolations.length > 0) {
       throw new Error(
         `Schema v60 migration found ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, PREVIOUS_SCHEMA_VERSION);
+  });
+  publish.immediate();
+}
+
+export function migrateSchema60To61(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== PREVIOUS_SCHEMA_VERSION) {
+    throw new Error(
+      `Schema v60 to v61 migration requires v60, received v${sourceVersion}`,
+    );
+  }
+
+  finalizeCardNfmIdentityProjection(db);
+  const publish = db.transaction(() => {
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v61 migration found ${foreignKeyViolations.length} foreign-key violation(s)`,
       );
     }
     setUserVersion(db, CURRENT_SCHEMA_VERSION);
@@ -6604,6 +6635,7 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
   }
   migrateSchema58To59(db);
   migrateSchema59To60(db);
+  migrateSchema60To61(db);
 }
 
 function seedDefaultProjectIfMissing(db: Database.Database): void {
@@ -6651,8 +6683,12 @@ export function ensureDatabase(): void {
     } else if (currentVersion === SHIPPED_SCHEMA_VERSION) {
       migrateSchema58To59(db);
       migrateSchema59To60(db);
-    } else if (currentVersion === PREVIOUS_SCHEMA_VERSION) {
+      migrateSchema60To61(db);
+    } else if (currentVersion === CARD_REFERENCE_HINT_SCHEMA_VERSION) {
       migrateSchema59To60(db);
+      migrateSchema60To61(db);
+    } else if (currentVersion === PREVIOUS_SCHEMA_VERSION) {
+      migrateSchema60To61(db);
     } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
       throw new Error(
         currentVersion === 26 || currentVersion === 57

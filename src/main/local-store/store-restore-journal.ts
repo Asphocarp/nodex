@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { getDatabasePath, getLocalStoreDir } from "./config";
 import { validateBackupStore } from "./backup-store-validation";
 import {
+  CARD_REFERENCE_HINT_SCHEMA_VERSION,
   CURRENT_SCHEMA_VERSION,
   PREVIOUS_SCHEMA_VERSION,
   SHIPPED_SCHEMA_VERSION,
@@ -164,6 +165,7 @@ const validateJournalStorePath = (databasePath: string): number => {
   for (const expectedSchemaVersion of [
     CURRENT_SCHEMA_VERSION,
     PREVIOUS_SCHEMA_VERSION,
+    CARD_REFERENCE_HINT_SCHEMA_VERSION,
     SHIPPED_SCHEMA_VERSION,
   ]) {
     try {

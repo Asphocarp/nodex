@@ -1,6 +1,7 @@
 import type { NfmBlock, NfmInlineContent } from "./types";
 import { formatDateMentionPlainText } from "./date-mention";
 import { parseNfm } from "./parser";
+import { buildCardDeepLink } from "../card-deeplink";
 
 export function extractPlainText(nfm: string, maxLength?: number): string {
   if (!nfm) return "";
@@ -40,7 +41,11 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
     }
 
     if (block.type === "cardRef") {
-      parts.push(block.targetBlockId || block.cardId);
+      parts.push(block.cardId);
+    }
+
+    if (block.type === "mentionCard") {
+      parts.push(buildCardDeepLink({ cardId: block.targetBlockId }));
     }
 
     if (block.type === "databaseViewRef") {

@@ -58,6 +58,7 @@ export class LegacyNfmShadowTranslationError extends Error {
 
 interface IdentityNode {
   readonly key: number;
+  readonly parentKey?: number;
   readonly type: string;
   readonly props: unknown;
   readonly content: unknown;
@@ -174,6 +175,7 @@ const createIdentityForest = (
 
   const visit = (
     sourceNodes: readonly (BlockTreeNode | BlockNoteBlockValue)[],
+    parentKey?: number,
   ): readonly IdentityNode[] =>
     sourceNodes.map((source, siblingIndex) => {
       const key = nextKey++;
@@ -181,11 +183,12 @@ const createIdentityForest = (
       const content = source.content;
       const propsSignature = stableSignature(props);
       const contentSignature = stableSignature(content);
-      const children = visit(source.children ?? []);
+      const children = visit(source.children ?? [], key);
       const blockId =
         side === "source" ? (source as BlockTreeNode).id : undefined;
       const node: IdentityNode = {
         key,
+        ...(parentKey === undefined ? {} : { parentKey }),
         type: source.type,
         props,
         content,
@@ -415,10 +418,17 @@ const alignIdentitySequence = (
 const inferTargetIdentities = (
   sourceForest: IdentityForest,
   targetForest: IdentityForest,
+  pinnedMatches: ReadonlyMap<number, IdentityNode> = new Map(),
 ): ReadonlyMap<number, IdentityNode> => {
-  const matches = new Map<number, IdentityNode>();
-  const claimedSource = new Set<number>();
+  const matches = new Map<number, IdentityNode>(pinnedMatches);
+  const claimedSource = new Set(
+    [...pinnedMatches.values()].map((source) => source.key),
+  );
   const pendingPairs: [readonly IdentityNode[], readonly IdentityNode[]][] = [];
+  for (const [targetKey, source] of pinnedMatches) {
+    const target = targetForest.nodes.find((node) => node.key === targetKey);
+    if (target) pendingPairs.push([source.children, target.children]);
+  }
   const processedParents = new Set<number>();
   let nextPendingPair = 0;
 
@@ -515,12 +525,19 @@ const inferTargetIdentities = (
 const inferConservativeTargetIdentities = (
   sourceForest: IdentityForest,
   targetForest: IdentityForest,
+  pinnedMatches: ReadonlyMap<number, IdentityNode> = new Map(),
 ): ReadonlyMap<number, IdentityNode> => {
-  const matches = new Map<number, IdentityNode>();
-  const claimedSource = new Set<number>();
+  const matches = new Map<number, IdentityNode>(pinnedMatches);
+  const claimedSource = new Set(
+    [...pinnedMatches.values()].map((source) => source.key),
+  );
   const pendingPairs: [readonly IdentityNode[], readonly IdentityNode[]][] = [
     [sourceForest.roots, targetForest.roots],
   ];
+  for (const [targetKey, source] of pinnedMatches) {
+    const target = targetForest.nodes.find((node) => node.key === targetKey);
+    if (target) pendingPairs.push([source.children, target.children]);
+  }
   let nextPair = 0;
 
   const claim = (source: IdentityNode, target: IdentityNode): boolean => {
@@ -620,6 +637,149 @@ const inferConservativeTargetIdentities = (
   });
 
   return matches;
+};
+
+/**
+ * An explicit NFM Card UUID may pin only an existing owning Card shell in the
+ * current Document. It is never a textual create, copy, or cross-parent move.
+ */
+const collectExplicitCardIdentityPins = (
+  sourceForest: IdentityForest,
+  targetForest: IdentityForest,
+): ReadonlyMap<number, IdentityNode> => {
+  const sourceById = new Map(
+    sourceForest.nodes.flatMap((source) =>
+      source.blockId ? [[source.blockId, source] as const] : [],
+    ),
+  );
+  const seen = new Set<BlockId>();
+  const pins = new Map<number, IdentityNode>();
+
+  for (const target of targetForest.nodes) {
+    const explicitId = target.target?.id;
+    if (explicitId === undefined) continue;
+    if (
+      target.type !== "card" ||
+      explicitId !== explicitId.trim() ||
+      explicitId.length === 0 ||
+      explicitId.length > MAX_BLOCK_ID_LENGTH
+    ) {
+      throw new LegacyNfmShadowTranslationError(
+        "Explicit Card uuid must be a non-empty exact current-Document Card identity",
+      );
+    }
+    if (seen.has(explicitId)) {
+      throw new LegacyNfmShadowTranslationError(
+        `NFM repeats owning Card uuid ${explicitId}`,
+      );
+    }
+    seen.add(explicitId);
+
+    const source = sourceById.get(explicitId);
+    if (!source) {
+      throw new LegacyNfmShadowTranslationError(
+        `NFM Card uuid ${explicitId} is not an existing Block in this Document`,
+      );
+    }
+    if (source.type !== "card") {
+      throw new LegacyNfmShadowTranslationError(
+        `NFM Card uuid ${explicitId} identifies ${source.type}, not an owning Card`,
+      );
+    }
+    pins.set(target.key, source);
+  }
+
+  return pins;
+};
+
+const expandCardPinsThroughCompatibleParents = (
+  sourceForest: IdentityForest,
+  targetForest: IdentityForest,
+  pins: ReadonlyMap<number, IdentityNode>,
+): ReadonlyMap<number, IdentityNode> => {
+  const anchors = new Map(pins);
+  const sourceByKey = new Map(
+    sourceForest.nodes.map((source) => [source.key, source] as const),
+  );
+  const targetByKey = new Map(
+    targetForest.nodes.map((target) => [target.key, target] as const),
+  );
+  const targetClaimBySourceKey = new Map(
+    [...anchors].map(([targetKey, source]) => [source.key, targetKey] as const),
+  );
+
+  for (const [pinnedTargetKey, pinnedSource] of pins) {
+    let sourceParentKey = pinnedSource.parentKey;
+    let targetParentKey = targetByKey.get(pinnedTargetKey)?.parentKey;
+    while (sourceParentKey !== undefined && targetParentKey !== undefined) {
+      const sourceParent = sourceByKey.get(sourceParentKey);
+      const targetParent = targetByKey.get(targetParentKey);
+      if (
+        !sourceParent ||
+        !targetParent ||
+        sourceParent.type !== targetParent.type ||
+        sourceParent.semanticSignature !== targetParent.semanticSignature
+      ) {
+        break;
+      }
+
+      const existingSource = anchors.get(targetParentKey);
+      const existingTargetKey = targetClaimBySourceKey.get(sourceParentKey);
+      if (
+        (existingSource && existingSource.key !== sourceParentKey) ||
+        (existingTargetKey !== undefined && existingTargetKey !== targetParentKey)
+      ) {
+        throw new LegacyNfmShadowTranslationError(
+          "Pinned Card parents do not form a one-to-one identity mapping",
+        );
+      }
+      anchors.set(targetParentKey, sourceParent);
+      targetClaimBySourceKey.set(sourceParentKey, targetParentKey);
+      sourceParentKey = sourceParent.parentKey;
+      targetParentKey = targetParent.parentKey;
+    }
+  }
+
+  return anchors;
+};
+
+const assertPinnedCardsKeepTheirParent = (
+  sourceForest: IdentityForest,
+  targetForest: IdentityForest,
+  pins: ReadonlyMap<number, IdentityNode>,
+  matches: ReadonlyMap<number, IdentityNode>,
+): void => {
+  const targetByKey = new Map(
+    targetForest.nodes.map((target) => [target.key, target] as const),
+  );
+  const sourceByKey = new Map(
+    sourceForest.nodes.map((source) => [source.key, source] as const),
+  );
+
+  for (const [targetKey, source] of pins) {
+    const target = targetByKey.get(targetKey);
+    if (!target) {
+      throw new LegacyNfmShadowTranslationError(
+        "Explicit Card identity pin has no target Block",
+      );
+    }
+    if (source.parentKey === undefined && target.parentKey === undefined) {
+      continue;
+    }
+    if (source.parentKey === undefined || target.parentKey === undefined) {
+      throw new LegacyNfmShadowTranslationError(
+        `NFM Card uuid ${source.blockId ?? "unknown"} cannot move across parents`,
+      );
+    }
+
+    const sourceParent = sourceByKey.get(source.parentKey);
+    const matchedTargetParent = matches.get(target.parentKey);
+    if (!sourceParent || matchedTargetParent?.key !== sourceParent.key) {
+      throw new LegacyNfmShadowTranslationError(
+        `NFM Card uuid ${source.blockId ?? "unknown"} cannot move across parents`,
+      );
+    }
+  }
 };
 
 function assertAllocatedBlockId(
@@ -738,8 +898,9 @@ const assertEquivalentMaterialization = (
  * document. The input Y.Doc is always read-only: candidate construction and
  * mutation happen on disposable documents, so validation failures are pure.
  *
- * NFM carries no Block IDs. Identity inference is therefore deterministic but
- * necessarily resolves indistinguishable duplicate Blocks by traversal order.
+ * NFM carries exact IDs only for owning Card shells. Those identities pin
+ * existing same-Document Cards; all other Blocks retain deterministic
+ * semantic inference, including traversal-order resolution for duplicates.
  */
 const translateNfmIntoCardDocument = ({
   document,
@@ -754,6 +915,16 @@ const translateNfmIntoCardDocument = ({
   let targetBlocks: readonly BlockNoteBlockValue[];
   try {
     currentMaterialization = materializeCardDocument(document);
+    if (
+      title === currentMaterialization.title &&
+      nfm === currentMaterialization.nfm
+    ) {
+      return {
+        changed: false,
+        update: EMPTY_UPDATE,
+        materialization: currentMaterialization,
+      };
+    }
     targetBlocks = nfmToBlockNote(parseNfm(nfm));
   } catch (error) {
     throw new LegacyNfmShadowTranslationError(
@@ -767,10 +938,29 @@ const translateNfmIntoCardDocument = ({
     "source",
   );
   const targetForest = createIdentityForest(targetBlocks, "target");
+  const pinnedMatches = collectExplicitCardIdentityPins(
+    sourceForest,
+    targetForest,
+  );
+  const identityAnchors = expandCardPinsThroughCompatibleParents(
+    sourceForest,
+    targetForest,
+    pinnedMatches,
+  );
   const matches =
     identityPolicy === "conservative"
-      ? inferConservativeTargetIdentities(sourceForest, targetForest)
-      : inferTargetIdentities(sourceForest, targetForest);
+      ? inferConservativeTargetIdentities(
+          sourceForest,
+          targetForest,
+          identityAnchors,
+        )
+      : inferTargetIdentities(sourceForest, targetForest, identityAnchors);
+  assertPinnedCardsKeepTheirParent(
+    sourceForest,
+    targetForest,
+    pinnedMatches,
+    matches,
+  );
   const identifiedTarget = assignTargetIdentities(
     sourceForest,
     targetForest,

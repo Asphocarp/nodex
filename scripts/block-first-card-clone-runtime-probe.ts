@@ -174,7 +174,7 @@ const main = async (): Promise<void> => {
       title: "Initial source title",
       description: [
         "Current collaborative paragraph",
-        '<card-ref target-block="stable-reference-target" />',
+        '<mention-card url="nodex://cards/stable-reference-target" />',
       ].join("\n"),
       priority: "p1-high",
       scheduledStart: new Date("2026-07-12T10:00:00.000Z"),

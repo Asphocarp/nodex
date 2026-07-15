@@ -710,7 +710,7 @@ describe("Block retention count maintenance", () => {
           kind: "create_card",
           cardId: createUuidV7(),
           title: "Reference host",
-          nfm: `<card-ref target-block="${targetBlockId}" />`,
+          nfm: `<mention-card url="nodex://cards/${targetBlockId}" />`,
           status: "draft",
         }),
       );

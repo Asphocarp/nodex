@@ -4,6 +4,7 @@ import { resolveOrderedListStarts } from "./ordered-list";
 import { serializeInlineContent } from "./serializer-inline";
 import { serializeNfmTable } from "./table";
 import { escapeXmlAttr } from "./xml-attributes";
+import { buildCardDeepLink, parseCardDeepLink } from "../card-deeplink";
 
 export function serializeNfm(blocks: NfmBlock[]): string {
   return serializeBlocks(blocks, 0)
@@ -139,7 +140,12 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
       case "card": {
-        lines.push(prefix + "<card />");
+        if (!block.uuid || block.uuid !== block.uuid.trim()) {
+          throw new TypeError("Canonical Card NFM requires an exact non-empty uuid");
+        }
+        lines.push(
+          prefix + `<card uuid="${escapeXmlAttr(block.uuid)}" />`,
+        );
         break;
       }
       case "threadSection": {
@@ -154,14 +160,16 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + `<thread-section${attrSuffix} />`);
         break;
       }
-      case "cardRef": {
-        if (block.targetBlockId !== undefined) {
-          const attrs = [
-            `target-block="${escapeXmlAttr(block.targetBlockId)}"`,
-          ];
-          lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
-          break;
+      case "mentionCard": {
+        const url = buildCardDeepLink({ cardId: block.targetBlockId });
+        const target = parseCardDeepLink(url);
+        if (!target || target.cardId !== block.targetBlockId) {
+          throw new TypeError("Card mention URL must identify a Nodex Card");
         }
+        lines.push(prefix + `<mention-card url="${escapeXmlAttr(url)}" />`);
+        break;
+      }
+      case "cardRef": {
         const attrs = [
           `project="${escapeXmlAttr(block.sourceProjectId)}"`,
           `card="${escapeXmlAttr(block.cardId)}"`,

@@ -77,8 +77,8 @@ describe("readonly NFM BlockNote preview", () => {
     );
 
     await waitFor(() => {
-      if (!textContent(view.container).includes("Card reference")) {
-        throw new Error("Card reference placeholder not rendered");
+      if (!textContent(view.container).includes("Card mention")) {
+        throw new Error("Card mention placeholder not rendered");
       }
     });
 

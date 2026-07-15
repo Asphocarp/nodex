@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
-  canonicalizeNfmForBlockDocument,
+  createBlockDocumentNfmContentParitySignature,
   createCardDocumentGenesis,
   materializeCardDocument,
   type CardDocumentMaterialization,
@@ -302,10 +302,14 @@ const assertContentParity = (
   source: LegacyCardSourceRow,
   materialization: CardDocumentMaterialization,
 ): void => {
-  const normalizedNfm = canonicalizeNfmForBlockDocument(source.description);
+  const sourceNfmSignature = createBlockDocumentNfmContentParitySignature(
+    source.description,
+  );
+  const materializedNfmSignature =
+    createBlockDocumentNfmContentParitySignature(materialization.nfm);
   if (
     materialization.title === source.title &&
-    materialization.nfm === normalizedNfm
+    materializedNfmSignature === sourceNfmSignature
   ) {
     return;
   }
