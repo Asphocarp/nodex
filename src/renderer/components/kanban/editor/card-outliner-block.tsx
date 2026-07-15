@@ -44,14 +44,12 @@ interface CardOutlinerBlockProps extends CardOutlinerStateDependencies {
   readonly relationship: CardOutlinerRelationship;
   readonly shellBlockId: string;
   readonly targetBlockId: string;
-  readonly displayHint: string;
 }
 
 export function CardOutlinerBlock({
   relationship,
   shellBlockId,
   targetBlockId,
-  displayHint,
   disclosureStore,
   activationBudget,
   visibilityOverride,
@@ -65,7 +63,6 @@ export function CardOutlinerBlock({
   const target = resolveCardOutlinerTarget({
     relationship,
     targetBlockId,
-    displayHint,
     model: reference.data,
     loading: reference.loading,
     error: reference.error,
@@ -149,7 +146,6 @@ export const createCardBlockSpec = createReactBlockSpec(cardBlockConfig, {
       relationship="child"
       shellBlockId={block.id}
       targetBlockId={block.id}
-      displayHint={block.props.displayHint}
     />
   ),
 });
@@ -160,7 +156,6 @@ export const createCardRefBlockSpec = createReactBlockSpec(cardRefBlockConfig, {
       relationship="reference"
       shellBlockId={block.id}
       targetBlockId={block.props.targetBlockId}
-      displayHint={block.props.displayHint}
     />
   ),
 });

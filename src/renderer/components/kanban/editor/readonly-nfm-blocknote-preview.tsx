@@ -100,12 +100,11 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
     render: ({ block }) => {
       const sourceProjectId = String(block.props.sourceProjectId || "default");
       const targetBlockId = String(block.props.targetBlockId || block.props.cardId || "").trim();
-      const displayHint = String(block.props.displayHint || "").trim();
       return (
         <InertEmbedPlaceholder
           icon={Link2}
           label="Card reference"
-          detail={displayHint || targetBlockId || sourceProjectId}
+          detail={targetBlockId || sourceProjectId}
         />
       );
     },
@@ -113,11 +112,11 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
 );
 
 const createReadonlyCardBlockSpec = createReactBlockSpec(cardBlockConfig, {
-  render: ({ block }) => (
+  render: () => (
     <InertEmbedPlaceholder
       icon={FileText}
       label="Card"
-      detail={String(block.props.displayHint || "Untitled").trim()}
+      detail="Untitled"
     />
   ),
 });

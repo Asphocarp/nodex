@@ -6,6 +6,10 @@ import {
   type BoardChangeEvent as LocalBoardChangeEvent,
 } from "./local-store/notifier";
 import * as cardsStore from "./local-store/cards";
+import {
+  readCardTargetChangedEvent,
+  readCardTargetContentChangedEvent,
+} from "./local-store/card-targets";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import { getOwnedDocumentDescriptor } from "./local-store/block-document-cutover";
 import { prepareEditableOwnedBlockDocument } from "./local-store/owned-block-document-preparation";
@@ -73,6 +77,7 @@ import {
   createSqliteBlockDocumentRuntimeAuthority,
 } from "./block-document-runtime";
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { CardTargetChangedEvent } from "../shared/card-target-events";
 import type {
   DocumentSyncCommandResult,
   RelocationCommandError,
@@ -390,6 +395,11 @@ const publishCardProjectTransferBoardEvents = (
     request.cardId,
     { mutationId: request.operationId },
   );
+  dbNotifier.notifyCardTargetChanged({
+    projectId: request.sourceProjectId,
+    targetBlockId: request.cardId,
+    changeKind: "location",
+  });
   const summary = readDatabaseCardSummaryById(getDb(), request.cardId);
   if (!summary) {
     postLog("error", "Committed Card Project transfer has no target summary", {
@@ -406,6 +416,24 @@ const publishCardProjectTransferBoardEvents = (
     request.cardId,
     { summary, mutationId: request.operationId },
   );
+  dbNotifier.notifyCardTargetChanged({
+    projectId: request.targetProjectId,
+    targetBlockId: request.cardId,
+    changeKind: "location",
+  });
+};
+
+const publishCardTargetContentChange = (documentId: string): void => {
+  const event = readCardTargetContentChangedEvent(getDb(), documentId);
+  if (event) dbNotifier.notifyCardTargetChanged(event);
+};
+
+const publishCardTargetChange = (
+  targetBlockId: string,
+  changeKind: "lifecycle" | "location" | "metadata",
+): void => {
+  const event = readCardTargetChangedEvent(getDb(), targetBlockId, changeKind);
+  if (event) dbNotifier.notifyCardTargetChanged(event);
 };
 
 const invalidateRelocatedDocumentCaches = (
@@ -433,15 +461,12 @@ const publishRelocationCardSummaries = (result: RelocationResult): void => {
   ];
   for (const documentId of new Set(documentIds)) {
     try {
+      publishCardTargetContentChange(documentId);
       const projection = cardsStore.readCardDocumentBoardProjection(
         getDb(),
         documentId,
       );
       if (!projection) {
-        postLog("warn", "Committed relocation has no Card board projection", {
-          relocationId: result.relocationId,
-          documentId,
-        });
         continue;
       }
       dbNotifier.notifyChange(
@@ -556,6 +581,7 @@ async function runRequest(
       // create a second semantic board event.
       for (const cardId of Object.keys(result.value.blockMetadataRevisions)) {
         try {
+          publishCardTargetChange(cardId, "metadata");
           const summary = readDatabaseCardSummaryById(getDb(), cardId);
           if (!summary) {
             postLog("error", "Committed Card properties have no read model", {
@@ -602,8 +628,18 @@ async function runRequest(
           }),
         ),
       ].sort();
+      const locationChangedCardIds = new Set(
+        request.payload.operations.flatMap((operation) =>
+          operation.kind === "transfer_membership"
+            ? [operation.cardBlockId]
+            : [],
+        ),
+      );
       for (const cardId of cardIds) {
         try {
+          if (locationChangedCardIds.has(cardId)) {
+            publishCardTargetChange(cardId, "location");
+          }
           const summary = readDatabaseCardSummaryById(getDb(), cardId);
           if (!summary) {
             postLog("error", "Committed Database mutation has no Card read model", {
@@ -636,6 +672,10 @@ async function runRequest(
       if (!result.ok || result.value.duplicate) return result;
       for (const commit of result.value.documentCommits) {
         blockDocumentRuntime.invalidate(commit.documentId);
+        publishCardTargetContentChange(commit.documentId);
+      }
+      for (const blockId of result.value.resultRootBlockIds) {
+        publishCardTargetChange(blockId, "location");
       }
       return result;
     }
@@ -665,6 +705,11 @@ async function runRequest(
       if (!result.ok || result.value.duplicate) return result;
 
       try {
+        dbNotifier.notifyCardTargetChanged({
+          projectId: request.payload.projectId,
+          targetBlockId: result.value.cardId,
+          changeKind: "lifecycle",
+        });
         if (result.value.operationKind === "delete_card") {
           if (previousSummary) {
             dbNotifier.notifyChange(
@@ -805,16 +850,12 @@ async function runRequest(
       // a retryable failure: a retry is a duplicate and intentionally emits no
       // second semantic event.
       try {
+        publishCardTargetContentChange(request.payload.documentId);
         const projection = cardsStore.readCardDocumentBoardProjection(
           getDb(),
           request.payload.documentId,
         );
         if (!projection) {
-          postLog("error", "Committed Card Document has no board projection", {
-            documentId: request.payload.documentId,
-            updateId: request.payload.updateId,
-            committedSeq: result.value.committedSeq,
-          });
           return result;
         }
 
@@ -855,16 +896,12 @@ async function runRequest(
       blockDocumentRuntime.invalidate(mutation.documentId);
 
       try {
+        publishCardTargetContentChange(mutation.documentId);
         const projection = cardsStore.readCardDocumentBoardProjection(
           getDb(),
           mutation.documentId,
         );
         if (!projection) {
-          postLog("error", "Committed Document mutation has no board projection", {
-            documentId: mutation.documentId,
-            mutationId: mutation.mutationId,
-            headSeq: result.value.headSeq,
-          });
           return result;
         }
         dbNotifier.notifyChange(
@@ -891,6 +928,7 @@ async function runRequest(
       for (const head of result.value.effect.documentHeads) {
         blockDocumentRuntime.invalidate(head.documentId);
         try {
+          publishCardTargetContentChange(head.documentId);
           const projection = cardsStore.readCardDocumentBoardProjection(
             getDb(),
             head.documentId,
@@ -947,6 +985,11 @@ async function runRequest(
       ];
       invalidateRelocatedDocumentCaches(documentIds, result.value.relocationId);
       publishRelocationCardSummaries(result.value);
+      if (!result.value.duplicate) {
+        for (const blockId of result.value.rootBlockIds) {
+          publishCardTargetChange(blockId, "location");
+        }
+      }
       return result;
     }
     case "prepareRelocationCommand":
@@ -996,14 +1039,20 @@ async function handleRequest(
   const workerStartedAt = performance.now();
   const transactionStartedAt = performance.now();
   const capturedEvents: LocalBoardChangeEvent[] = [];
+  const capturedTargetEvents: CardTargetChangedEvent[] = [];
   const onBoardChanged = (event: LocalBoardChangeEvent) => {
     capturedEvents.push(event);
   };
+  const onCardTargetChanged = (event: CardTargetChangedEvent) => {
+    capturedTargetEvents.push(event);
+  };
 
   dbNotifier.on("board-changed", onBoardChanged);
+  dbNotifier.on("card-target-changed", onCardTargetChanged);
   try {
     const result = await runRequest(request);
     dbNotifier.removeListener("board-changed", onBoardChanged);
+    dbNotifier.removeListener("card-target-changed", onCardTargetChanged);
 
     const metrics: BlockMutationMetrics = {
       mutationId: request.mutationId,
@@ -1020,13 +1069,14 @@ async function handleRequest(
       eventCount: 0,
     };
     const events = await enrichEvents(capturedEvents, metrics);
-    metrics.eventCount = events.length;
+    metrics.eventCount = events.length + capturedTargetEvents.length;
 
     postResponse({
       id: request.id,
       ok: true,
       result,
       events,
+      targetEvents: capturedTargetEvents,
       metrics,
     });
 
@@ -1035,6 +1085,7 @@ async function handleRequest(
     }
   } catch (error) {
     dbNotifier.removeListener("board-changed", onBoardChanged);
+    dbNotifier.removeListener("card-target-changed", onCardTargetChanged);
     postResponse({
       id: request.id,
       ok: false,
@@ -1047,7 +1098,7 @@ async function handleRequest(
         ),
         workerDurationMs: Math.round(performance.now() - workerStartedAt),
         transactionMs: Math.round(performance.now() - transactionStartedAt),
-        eventCount: capturedEvents.length,
+        eventCount: capturedEvents.length + capturedTargetEvents.length,
       },
     });
   } finally {

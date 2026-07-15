@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { BlockMutationWriter, type BlockMutationWorkerLike } from "./block-mutation-writer";
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { CardTargetChangedEvent } from "../shared/card-target-events";
 import type { BlockMutationMetrics, BlockMutationWorkerMessage, BlockMutationWorkerRequest } from "./block-mutation-worker-protocol";
 import type { CardSummary } from "../shared/types";
 import type {
@@ -1109,13 +1110,17 @@ describe("BlockMutationWriter", () => {
     if (result.ok) expect(result.value.headSeq).toBe(5);
   });
 
-  test("publishes a committed Document summary once and never before the worker ACK", async () => {
+  test("publishes committed board and Card target events once after the worker ACK", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
+    const publishedTargets: CardTargetChangedEvent[] = [];
     const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: (event) => {
         published.push(event);
+      },
+      publishCardTargetEvent: (event) => {
+        publishedTargets.push(event);
       },
     });
     const input: DocumentSyncApplyRequest = {
@@ -1138,6 +1143,7 @@ describe("BlockMutationWriter", () => {
     const firstRequest = worker.messages[0];
     expect(firstRequest?.type).toBe("applyBlockDocumentUpdate");
     expect(published.length).toBe(0);
+    expect(publishedTargets.length).toBe(0);
     if (!firstRequest) return;
     worker.emitMessage({
       id: firstRequest.id,
@@ -1164,12 +1170,19 @@ describe("BlockMutationWriter", () => {
         summary,
         mutationId: firstRequest.mutationId,
       }],
+      targetEvents: [{
+        projectId: "project-1",
+        targetBlockId: "card-1",
+        changeKind: "content",
+        document: { id: input.documentId, generation: 1, headSeq: 4 },
+      }],
       metrics: makeMetrics(firstRequest.mutationId),
     });
 
     const firstAck = await firstPending;
     expect(firstAck.ok).toBe(true);
     expect(published.length).toBe(1);
+    expect(publishedTargets).toHaveLength(1);
     expect(published[0]?.summary?.title).toBe("Collaborative title");
 
     const duplicatePending = writer.applyBlockDocumentUpdate(input);
@@ -1193,6 +1206,7 @@ describe("BlockMutationWriter", () => {
         },
       },
       events: [],
+      targetEvents: [],
       metrics: makeMetrics(duplicateRequest.mutationId),
     });
 
@@ -1201,6 +1215,7 @@ describe("BlockMutationWriter", () => {
     if (!duplicateAck.ok) return;
     expect(duplicateAck.value.duplicate).toBe(true);
     expect(published.length).toBe(1);
+    expect(publishedTargets).toHaveLength(1);
   });
 
   test("returns the durable Document ACK when a board listener throws", async () => {

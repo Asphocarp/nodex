@@ -1018,6 +1018,9 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   dbNotifier.on("board-changed", (event) => {
     broadcastToWindows("board-changed", event);
   });
+  dbNotifier.on("card-target-changed", (event) => {
+    broadcastToWindows("card-target-changed", event);
+  });
   dbNotifier.on("database-changed", (event) => {
     broadcastToWindows("database-changed", event);
   });

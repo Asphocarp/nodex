@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import type { CardSummary } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type { CardTargetChangedEvent } from "../../shared/card-target-events";
 import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
@@ -64,6 +65,10 @@ class DatabaseNotifier extends EventEmitter {
 
   notifyDatabaseChanged(event: DatabaseChangeEvent): void {
     this.emit("database-changed", event);
+  }
+
+  notifyCardTargetChanged(event: CardTargetChangedEvent): void {
+    this.emit("card-target-changed", event);
   }
 
   notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {

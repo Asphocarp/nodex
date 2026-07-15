@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CardTargetReadModel } from "../../shared/card-targets";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
 import {
@@ -9,6 +9,7 @@ import {
 import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
 import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
+import { createProjectCardTargetChangeSubscriptionHub } from "./project-card-target-change-subscription-hub";
 
 interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -25,6 +26,12 @@ const boardChangeSubscriptions = createProjectBoardChangeSubscriptionHub({
   subscribeToProject: (projectId, listener) =>
     resolveRendererTransport().subscribeBoardChanges(projectId, listener),
 });
+
+const cardTargetChangeSubscriptions =
+  createProjectCardTargetChangeSubscriptionHub({
+    subscribeToProject: (projectId, listener) =>
+      resolveRendererTransport().subscribeCardTargetChanges(projectId, listener),
+  });
 
 const useBoardChangeRefresh = (
   projectId: string | null,
@@ -47,11 +54,13 @@ export const useCardTargetReadModel = (
   requestingProjectId: string,
   targetBlockId: string,
 ): ReferenceQueryResult<CardTargetReadModel> => {
+  const queryClient = useQueryClient();
   const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
   const queryKey = queryKeys.cardTargets.byId(
     requestingProjectId,
     targetBlockId,
   );
+  const consumerKey = JSON.stringify(queryKey);
   const query = useQuery({
     queryKey,
     queryFn: () => resolveCardTarget({ requestingProjectId, targetBlockId }),
@@ -61,8 +70,21 @@ export const useCardTargetReadModel = (
   });
   const targetProjectId = query.data?.status === "available"
     ? query.data.card.projectId
-    : null;
-  useBoardChangeRefresh(targetProjectId, JSON.stringify(queryKey), query.refetch);
+    : query.data?.status === "deleted"
+      ? query.data.projectId
+      : null;
+  const invalidateTarget = useEffectEvent(() => {
+    void queryClient.invalidateQueries({ queryKey, exact: true });
+  });
+  useEffect(() => {
+    if (!targetProjectId || !enabled) return;
+    return cardTargetChangeSubscriptions.subscribe(
+      targetProjectId,
+      targetBlockId,
+      consumerKey,
+      invalidateTarget,
+    );
+  }, [consumerKey, enabled, targetBlockId, targetProjectId]);
   return {
     data: query.data ?? null,
     loading: enabled && query.status === "pending",

@@ -44,13 +44,11 @@ describe("foreign reference Document migration", () => {
         kind: "card",
         sourceBlockId: cardReferenceId,
         targetBlockId: "card-a",
-        displayHint: "Existing card",
       },
       {
         kind: "card",
         sourceBlockId: cardToggleId,
         targetBlockId: "recovered-card",
-        displayHint: "Recovered title",
       },
       {
         kind: "database_view",
@@ -73,8 +71,8 @@ describe("foreign reference Document migration", () => {
     expect(migration.materialization.blockTree[1]?.children.length).toBe(0);
     expect(migration.materialization.blockTree[2]?.id).toBe(queryId);
     expect(migration.materialization.nfm).toBe([
-      '<card-ref target-block="card-a" display-hint="Existing card" />',
-      '<card-ref target-block="recovered-card" display-hint="Recovered title" />',
+      '<card-ref target-block="card-a" />',
+      '<card-ref target-block="recovered-card" />',
       `<database-view-ref database-view="database-view:inline:${queryId}" display-hint="Project B" />`,
     ].join("\n"));
 

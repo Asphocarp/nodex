@@ -2,6 +2,7 @@ import { describe, expect, vi, test } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { CURRENT_SCHEMA_VERSION } from "./schema";
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-backup-unit-"));
 const liveDbPath = path.join(fixtureRoot, "nodex.db");
@@ -58,7 +59,7 @@ vi.mock("./backup-store-validation", () => ({
     const content = fs.readFileSync(databasePath, "utf8");
     if (content.startsWith("invalid")) throw new Error("invalid database");
     return {
-      schemaVersion: 59,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       storeEpoch: "epoch-before",
       projectCount: 1,
       documentCount: 1,
@@ -69,7 +70,7 @@ vi.mock("./backup-store-validation", () => ({
     const content = fs.readFileSync(databasePath, "utf8");
     if (content.startsWith("invalid")) throw new Error("invalid database");
     return {
-      schemaVersion: 59,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       storeEpoch: "epoch-restored",
       projectCount: 1,
       documentCount: 1,

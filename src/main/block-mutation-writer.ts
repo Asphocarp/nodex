@@ -5,6 +5,7 @@ import { getLocalStoreDir } from "./local-store/config";
 import { dbNotifier, type ChangeType } from "./local-store/notifier";
 import { getLogger } from "./logging/logger";
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { CardTargetChangedEvent } from "../shared/card-target-events";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -123,6 +124,7 @@ type BlockMutationWorkerRequestInput =
 export interface BlockMutationEnvelope<T> {
   result: T;
   events: BoardChangeEvent[];
+  targetEvents?: CardTargetChangedEvent[];
   metrics: BlockMutationMetrics;
 }
 
@@ -147,6 +149,10 @@ export interface BlockMutationWriterOptions {
   createWorker?: () => BlockMutationWorkerLike;
   publishBoardEvent?: (
     event: BoardChangeEvent,
+    metrics: BlockMutationMetrics,
+  ) => void;
+  publishCardTargetEvent?: (
+    event: CardTargetChangedEvent,
     metrics: BlockMutationMetrics,
   ) => void;
   publishDatabaseEvent?: (
@@ -923,10 +929,12 @@ export class BlockMutationWriter {
       eventLoopDelay.max / 1_000_000,
     );
     this.publishBoardEvents(response.events, response.metrics);
+    this.publishCardTargetEvents(response.targetEvents ?? [], response.metrics);
 
     return {
       result: response.result,
       events: response.events,
+      targetEvents: response.targetEvents ?? [],
       metrics: response.metrics,
     };
   }
@@ -1076,6 +1084,28 @@ export class BlockMutationWriter {
         operationId: event.operationId,
         projectId: event.projectId,
       });
+    }
+  }
+
+  private publishCardTargetEvents(
+    events: readonly CardTargetChangedEvent[],
+    metrics: BlockMutationMetrics,
+  ): void {
+    for (const event of events) {
+      try {
+        if (this.options.publishCardTargetEvent) {
+          this.options.publishCardTargetEvent(event, metrics);
+          continue;
+        }
+        dbNotifier.notifyCardTargetChanged(event);
+      } catch (error) {
+        logger.warn("Failed to publish committed Card target event", {
+          error: error instanceof Error ? error.message : String(error),
+          mutationId: metrics.mutationId,
+          projectId: event.projectId,
+          targetBlockId: event.targetBlockId,
+        });
+      }
     }
   }
 }

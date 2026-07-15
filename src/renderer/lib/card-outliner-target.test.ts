@@ -7,6 +7,7 @@ import type { CardTargetReadModel } from "../../shared/card-targets";
 import type { CardContentSummary } from "../../shared/database-query";
 import {
   cardOutlinerInlineStateLabel,
+  cardOutlinerPlainTitle,
   resolveCardOutlinerTarget,
   type CardOutlinerTargetInput,
 } from "./card-outliner-target";
@@ -49,7 +50,6 @@ const input = (
 ): CardOutlinerTargetInput => ({
   relationship: "reference",
   targetBlockId: card.blockId,
-  displayHint: "Stale title",
   model: available,
   loading: false,
   error: null,
@@ -59,7 +59,7 @@ const input = (
 });
 
 describe("resolveCardOutlinerTarget", () => {
-  test("uses canonical target identity and summary instead of the display hint", () => {
+  test("uses canonical target identity and summary", () => {
     expect(resolveCardOutlinerTarget(input())).toMatchObject({
       status: "available",
       relationship: "reference",
@@ -68,6 +68,21 @@ describe("resolveCardOutlinerTarget", () => {
       card: { content: { title: "Canonical title" } },
       inlineMode: "editable",
     });
+  });
+
+  test("renders an intentionally empty authoritative title as Untitled", () => {
+    const target = resolveCardOutlinerTarget(input({
+      model: {
+        ...available,
+        card: {
+          ...card,
+          content: card.content
+            ? { ...card.content, title: "", richTitle: [] }
+            : null,
+        },
+      },
+    }));
+    expect(cardOutlinerPlainTitle(target)).toBe("Untitled");
   });
 
   test("distinguishes self and ancestor cycles while preserving one target", () => {
@@ -94,7 +109,7 @@ describe("resolveCardOutlinerTarget", () => {
     ).toMatchObject({ status: "available", inlineMode: "archived" });
   });
 
-  test("uses displayHint only as an unavailable fallback", () => {
+  test("uses stable state copy when a target is unavailable", () => {
     const target = resolveCardOutlinerTarget(
       input({ model: null, targetBlockId: " missing-target " }),
     );
@@ -102,7 +117,7 @@ describe("resolveCardOutlinerTarget", () => {
       status: "missing",
       relationship: "reference",
       targetBlockId: "missing-target",
-      fallbackTitle: "Stale title",
+      fallbackTitle: "Card unavailable",
     });
     expect(cardOutlinerInlineStateLabel(target)).toBe("Missing");
   });
@@ -110,7 +125,7 @@ describe("resolveCardOutlinerTarget", () => {
   test("does not present a stale hint as a valid empty reference", () => {
     expect(
       resolveCardOutlinerTarget(
-        input({ targetBlockId: " ", model: null, displayHint: "Old Card" }),
+        input({ targetBlockId: " ", model: null }),
       ),
     ).toEqual({
       status: "invalid_reference",
@@ -125,7 +140,6 @@ describe("resolveCardOutlinerTarget", () => {
       resolveCardOutlinerTarget(
         input({
           model: null,
-          displayHint: "",
           error: new Error("Transport closed"),
         }),
       ),

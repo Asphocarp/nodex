@@ -6,6 +6,7 @@ import {
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type { CardTargetChangedEvent } from "../../shared/card-target-events";
 
 export interface RendererTransport {
   kind: "browser" | "electron";
@@ -105,6 +106,10 @@ export interface RendererTransport {
   subscribeBoardChanges: (
     projectId: string,
     callback: (event: BoardChangeEvent) => void,
+  ) => () => void;
+  subscribeCardTargetChanges: (
+    projectId: string,
+    callback: (event: CardTargetChangedEvent) => void,
   ) => () => void;
   subscribeDatabaseChanges: (
     projectId: string,

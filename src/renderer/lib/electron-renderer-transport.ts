@@ -18,6 +18,7 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type { CardTargetChangedEvent } from "../../shared/card-target-events";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
@@ -192,6 +193,16 @@ export function createElectronRendererTransport(
     ) {
       return bridge.on("board-changed", (...args: unknown[]) => {
         const payload = args[0] as BoardChangeEvent | undefined;
+        if (!payload || payload.projectId !== projectId) return;
+        callback(payload);
+      });
+    },
+    subscribeCardTargetChanges(
+      projectId: string,
+      callback: (event: CardTargetChangedEvent) => void,
+    ) {
+      return bridge.on("card-target-changed", (...args: unknown[]) => {
+        const payload = args[0] as CardTargetChangedEvent | undefined;
         if (!payload || payload.projectId !== projectId) return;
         callback(payload);
       });

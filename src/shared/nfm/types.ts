@@ -283,8 +283,6 @@ export interface NfmCardRef extends NfmBlockBase {
   type: "cardRef";
   /** Canonical Block-first target. Its presence takes precedence over legacy fields. */
   targetBlockId?: string;
-  /** Bounded, non-authoritative text used while the target summary is unavailable. */
-  displayHint?: string;
   /** Legacy Card-first locator retained only until BF-05 migration completes. */
   sourceProjectId: string;
   /** Legacy Card-first locator retained only until BF-05 migration completes. */
@@ -293,7 +291,6 @@ export interface NfmCardRef extends NfmBlockBase {
 
 export interface NfmCard extends NfmBlockBase {
   type: "card";
-  displayHint?: string;
 }
 
 export type NfmCanonicalCardRef = NfmCardRef & {

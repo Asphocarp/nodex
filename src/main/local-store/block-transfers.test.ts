@@ -480,7 +480,6 @@ describe("BlockTransfer store", () => {
               type: "cardRef",
               props: {
                 targetBlockId: "card-host",
-                displayHint: "Host",
               },
               children: [],
             },

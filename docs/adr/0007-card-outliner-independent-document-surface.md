@@ -21,7 +21,7 @@ ADR 0006 makes Card title rich content stored in `Y.Text("title")`. A collapsed 
 
 The `card` and `cardRef` schema types remain distinct because they express different ownership relationships, but they share one renderer family named the Card outliner surface. The renderer resolves both through `CardTargetReadModel`, a membership-independent boundary containing the target Card identity, target Project, lifecycle/location, exact-head content projection, and owned Document descriptor. Database property values and View positions are deliberately absent.
 
-For `card`, the target identity is the host Block's own stable `block.id`. For `cardRef`, the target identity is `props.targetBlockId`. `props.displayHint` is only a loading, missing-target, or offline fallback; it is never current title authority.
+For `card`, the target identity is the host Block's own stable `block.id`. For `cardRef`, the target identity is `props.targetBlockId`. As refined by ADR 0011, neither shell persists a title snapshot. Loading, missing-target, deleted, and error rows use stable state copy; current title content comes only from the target summary or mounted target Y.Doc.
 
 The visual row follows the editor's native toggle geometry:
 
@@ -64,7 +64,7 @@ Card blocks regain the density and scanning behavior of an outliner while retain
 
 The renderer becomes more explicit: Card is not interchangeable with every document-bearing shell, and the target Document must be hoisted above both header and body. This adds a specialized Adapter but removes duplicated title chrome, permanent type icons, nested panels, and Card-specific use of the generic body-only shell.
 
-There is no SQLite, Y.Doc schema, NFM, or persisted-data migration. The migration is a one-way renderer/read-protocol cutover. Existing `card` and `cardRef` Blocks keep their IDs and props. The former Card-reference read model and its Database-membership-dependent `CardSummary` Adapter are deleted; `card-target:resolve` is the only opening boundary. Database row readers retain explicit Database naming. Old presentation components and Card-only branches are deleted once all call sites use the new surface; no compatibility renderer remains.
+This ADR's original renderer cutover did not require persisted-data migration. ADR 0011 subsequently removes the deprecated Card title snapshot props through durable Yjs updates while preserving all Block and Document identities. `card-target:resolve` remains the only opening boundary and Database row readers retain explicit Database naming.
 
 ## Alternatives Rejected
 

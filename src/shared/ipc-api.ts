@@ -1676,6 +1676,7 @@ export interface IpcEvents {
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
+  "card-target-changed": import("./card-target-events").CardTargetChangedEvent;
   "database-changed": DatabaseChangeEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;

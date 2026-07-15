@@ -4,7 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createCard } from "./cards";
-import { resolveCardTarget } from "./card-targets";
+import {
+  readCardTargetContentChangedEvent,
+  resolveCardTarget,
+} from "./card-targets";
 import { closeDatabase, initializeDatabase } from "./database";
 import { getDatabasePath } from "./config";
 import { createProject } from "./projects";
@@ -90,6 +93,18 @@ describe("Card target read model", () => {
         expect(resolved.card.content?.preview).toBe("Independent body");
         expect(resolved.card.documentId).toBe(`document:${target.id}`);
         expect(resolved.document.readiness).toBe("ready");
+        expect(
+          readCardTargetContentChangedEvent(database, resolved.card.documentId),
+        ).toEqual({
+          projectId: project.id,
+          targetBlockId: target.id,
+          changeKind: "content",
+          document: {
+            id: resolved.card.documentId,
+            generation: resolved.card.documentGeneration,
+            headSeq: resolved.card.documentHeadSeq,
+          },
+        });
 
         const missing = resolveCardTarget("missing-card-id", database);
         expect(missing.status).toBe("missing");

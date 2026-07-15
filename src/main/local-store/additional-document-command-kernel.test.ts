@@ -653,7 +653,6 @@ describe("additional Document authoritative command kernel", () => {
               type: "cardRef",
               props: {
                 targetBlockId: referencedOwnerId,
-                displayHint: "Referenced",
               },
               children: [],
             },

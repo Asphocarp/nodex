@@ -135,14 +135,10 @@ const createParagraphBlock = (blockId: string, value: string): Y.XmlElement => {
   return container;
 };
 
-const createCardShellBlock = (
-  blockId: string,
-  displayHint: string,
-): Y.XmlElement => {
+const createCardShellBlock = (blockId: string): Y.XmlElement => {
   const container = new Y.XmlElement("blockContainer");
   container.setAttribute("id", blockId);
   const card = new Y.XmlElement("card");
-  card.setAttribute("displayHint", displayHint);
   container.insert(0, [card]);
   return container;
 };
@@ -622,7 +618,7 @@ describe("BlockDocumentStore", () => {
         const before = Y.encodeStateVector(replica.document);
         rootBlockGroup(replica.document).insert(
           rootBlockGroup(replica.document).length,
-          [createCardShellBlock("unowned-card-shell", "Unowned")],
+          [createCardShellBlock("unowned-card-shell")],
         );
         expectThrowsCode(
           () =>

@@ -188,12 +188,10 @@ const collectDerivedRecords = (
       && isCanonicalNfmCardRef(nfmBlock)
     ) {
       assertCanonicalReferenceId(nfmBlock.targetBlockId, "targetBlockId");
-      const displayHint = readDisplayHint(nfmBlock.displayHint);
       references.push({
         kind: "block",
         sourceBlockId: block.id,
         targetBlockId: nfmBlock.targetBlockId,
-        ...(displayHint !== undefined ? { displayHint } : {}),
       });
     } else if (nfmBlock.type === "cardRef") {
       references.push({

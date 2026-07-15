@@ -257,7 +257,6 @@ describe("NfmSlashMenu", () => {
       type?: string;
       props?: Record<string, unknown> & {
         targetBlockId?: string;
-        displayHint?: string;
       };
     };
     const threadContent = buildNfmThreadMentionInlineContent(makePaletteThread({
@@ -266,7 +265,7 @@ describe("NfmSlashMenu", () => {
 
     expect(cardBlock.type).toBe("cardRef");
     expect(cardBlock.props?.targetBlockId).toBe("card-2");
-    expect(cardBlock.props?.displayHint).toBe("Mention search card");
+    expect(Object.hasOwn(cardBlock.props ?? {}, "displayHint")).toBe(false);
     expect(Object.hasOwn(cardBlock.props ?? {}, "sourceProjectId")).toBe(false);
     expect(Object.hasOwn(cardBlock.props ?? {}, "cardId")).toBe(false);
     const firstThreadContent = threadContent[0];

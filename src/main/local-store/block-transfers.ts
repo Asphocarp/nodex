@@ -351,24 +351,6 @@ const deterministicSubOperationId = (
   role: string,
 ): string => `block-transfer:${requestHash}:${role}`;
 
-const cardDisplayHint = (
-  database: Database.Database,
-  cardId: string,
-): string =>
-  (
-    database
-      .prepare(
-        `
-        SELECT materialization.title
-        FROM block_documents ownership
-        JOIN document_materializations materialization
-          ON materialization.document_id = ownership.document_id
-        WHERE ownership.block_id = ?
-      `,
-      )
-      .get(cardId) as { readonly title: string } | undefined
-  )?.title ?? "Untitled";
-
 const flattenBlockTreeIds = (root: BlockTreeNode): readonly string[] => [
   root.id,
   ...root.children.flatMap(flattenBlockTreeIds),
@@ -2155,7 +2137,7 @@ const copyNonDatabaseCard = (
             block: {
               id: newCardId,
               type: "card",
-              props: { displayHint: sourceMaterialization.title },
+              props: {},
               children: [],
             },
             ...(request.target.parentBlockId
@@ -2511,9 +2493,7 @@ const copyDatabaseCard = (
             block: {
               id: newCardId,
               type: "card",
-              props: {
-                displayHint: cardDisplayHint(database, newCardId),
-              },
+              props: {},
               children: [],
             },
             ...(request.target.parentBlockId
@@ -3778,7 +3758,7 @@ export const applyBlockTransfer = (
                 block: {
                   id: blockId,
                   type: "card",
-                  props: { displayHint: cardDisplayHint(database, blockId) },
+                  props: {},
                   children: [],
                 },
                 ...(target.parentBlockId

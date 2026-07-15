@@ -587,10 +587,8 @@ function parseReusableTemplateRef(
 function parseCard(line: string): NfmCard | null {
   const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
-  const displayHint = getXmlAttr(match[1] ?? "", "display-hint");
   return {
     type: "card",
-    ...(displayHint === undefined ? {} : { displayHint }),
     children: [],
   };
 }
@@ -615,14 +613,12 @@ function parseCardRef(line: string): NfmCardRef | null {
 
   const attrString = match[1] ?? "";
   const targetBlockId = getXmlAttr(attrString, "target-block");
-  const displayHint = getXmlAttr(attrString, "display-hint");
   const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
   const cardId = getXmlAttr(attrString, "card") ?? "";
 
   return {
     type: "cardRef",
     ...(targetBlockId !== undefined ? { targetBlockId } : {}),
-    ...(displayHint !== undefined ? { displayHint } : {}),
     sourceProjectId,
     cardId,
     children: [],

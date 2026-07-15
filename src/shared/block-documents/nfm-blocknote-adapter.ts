@@ -267,7 +267,7 @@ function nfmBlockToBN(
     case "card":
       return {
         type: "card",
-        props: { displayHint: block.displayHint ?? "Untitled" },
+        props: {},
         children: [],
       };
 
@@ -286,7 +286,6 @@ function nfmBlockToBN(
         type: "cardRef",
         props: {
           targetBlockId: block.targetBlockId ?? "",
-          displayHint: block.displayHint ?? "",
           sourceProjectId: block.sourceProjectId,
           cardId: block.cardId,
         },
@@ -674,22 +673,17 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
     case "card":
       return {
         type: "card",
-        ...(normalizeString(block.props?.displayHint) === undefined
-          ? {}
-          : { displayHint: normalizeString(block.props?.displayHint) }),
         children: [],
       };
 
     case "cardRef": {
       const targetBlockId = normalizeString(block.props?.targetBlockId);
-      const displayHint = normalizeString(block.props?.displayHint);
       const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
       const cardId = normalizeString(block.props?.cardId) ?? "";
 
       return {
         type: "cardRef",
         ...(targetBlockId !== undefined ? { targetBlockId } : {}),
-        ...(displayHint !== undefined ? { displayHint } : {}),
         sourceProjectId,
         cardId,
         children: [],

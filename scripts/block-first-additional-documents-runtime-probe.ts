@@ -307,7 +307,7 @@ const main = async (): Promise<void> => {
             {
               id: blockIds.nestedOwner,
               type: "card",
-              props: { displayHint: "Nested" },
+              props: {},
               children: [],
             },
           ],

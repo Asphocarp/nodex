@@ -12,9 +12,7 @@ import {
   createCardDocumentGenesis,
   materializeCardDocument,
 } from "./block-document-codec";
-import { MAX_REFERENCE_DISPLAY_HINT_LENGTH } from "./contracts";
 import {
-  BlockDocumentDerivedRecordsError,
   isLegacyForeignBodyReference,
   type BlockDocumentReference,
 } from "./derived-records";
@@ -69,9 +67,8 @@ describe("Block-first reference codec", () => {
 
     expect(isCanonicalNfmCardRef(block)).toBe(true);
     expect(block.targetBlockId).toBe("target-card");
-    expect(block.displayHint).toBe("A & B");
     expect(serializeNfm([block])).toBe(
-      '<card-ref target-block="target-card" display-hint="A &amp; B" />',
+      '<card-ref target-block="target-card" />',
     );
   });
 
@@ -90,7 +87,10 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[1]?.type).toBe("databaseViewRef");
     expect(blockNoteBlocks[1]?.props?.databaseViewId).toBe("view-1");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
-    expect(serializeNfm(roundTrip)).toBe(source);
+    expect(serializeNfm(roundTrip)).toBe([
+      '<card-ref target-block="card-1" />',
+      '<database-view-ref database-view="view-1" display-hint="Roadmap" />',
+    ].join("\n"));
   });
 
   test("round-trips Template and Card shell projection syntax without foreign bodies", () => {
@@ -107,7 +107,10 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[0]?.children?.length).toBe(0);
     expect(blockNoteBlocks[1]?.type).toBe("card");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
-    expect(serializeNfm(roundTrip)).toBe(source);
+    expect(serializeNfm(roundTrip)).toBe([
+      '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
+      '<card />',
+    ].join("\n"));
   });
 
   test("hoists attempted children out of canonical reference Blocks", () => {
@@ -198,25 +201,15 @@ describe("Block-first reference codec", () => {
     expect(canonicalReferences.some(isLegacyForeignBodyReference)).toBe(false);
   });
 
-  test("rejects display hints large enough to become a hidden content snapshot", () => {
-    let causeMessage = "";
-    try {
-      createCardDocumentGenesis({
-        documentId: "oversized-reference-hint",
-        title: "References",
-        nfm: `<card-ref target-block="card-1" display-hint="${"x".repeat(MAX_REFERENCE_DISPLAY_HINT_LENGTH + 1)}" />`,
-      });
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.cause instanceof BlockDocumentDerivedRecordsError
-      ) {
-        causeMessage = error.cause.message;
-      }
-    }
-
-    expect(causeMessage).toBe(
-      `Reference display hints must not exceed ${MAX_REFERENCE_DISPLAY_HINT_LENGTH} characters`,
+  test("discards historical Card display snapshots before materialization", () => {
+    const genesis = createCardDocumentGenesis({
+      documentId: "historical-reference-hint",
+      title: "References",
+      nfm: '<card-ref target-block="card-1" display-hint="Old title" />',
+    });
+    expect(genesis.materialization.nfm).toBe(
+      '<card-ref target-block="card-1" />',
     );
+    genesis.document.destroy();
   });
 });

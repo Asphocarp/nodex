@@ -40,11 +40,7 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
     }
 
     if (block.type === "cardRef") {
-      parts.push(block.displayHint || block.targetBlockId || block.cardId);
-    }
-
-    if (block.type === "card" && block.displayHint) {
-      parts.push(block.displayHint);
+      parts.push(block.targetBlockId || block.cardId);
     }
 
     if (block.type === "databaseViewRef") {

@@ -1,4 +1,5 @@
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { CardTargetChangedEvent } from "../shared/card-target-events";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -336,6 +337,7 @@ export type BlockMutationWorkerResponse =
       ok: true;
       result: BlockMutationWorkerResult;
       events: BoardChangeEvent[];
+      targetEvents?: CardTargetChangedEvent[];
       metrics: BlockMutationMetrics;
     }
   | {

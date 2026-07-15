@@ -141,7 +141,6 @@ describe("CardOutlinerBlock", () => {
           relationship="child"
           shellBlockId="nested-card"
           targetBlockId="nested-card"
-          displayHint="Nested Card"
           disclosureStore={disclosureStore}
           activationBudget={activationBudget}
         />
@@ -186,7 +185,6 @@ describe("CardOutlinerBlock", () => {
           relationship="reference"
           shellBlockId="card-ref-1"
           targetBlockId="nested-card"
-          displayHint="Nested Card"
           disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           visibilityOverride
@@ -195,7 +193,6 @@ describe("CardOutlinerBlock", () => {
           relationship="reference"
           shellBlockId="card-ref-2"
           targetBlockId="nested-card"
-          displayHint="Nested Card"
           disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           visibilityOverride

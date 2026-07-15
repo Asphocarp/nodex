@@ -6,6 +6,7 @@ import { getDatabasePath, getLocalStoreDir } from "./config";
 import { finalizeBlockFirstAuthority } from "./block-first-finalization";
 import {
   CURRENT_SCHEMA_VERSION,
+  PREVIOUS_SCHEMA_VERSION,
   SHIPPED_SCHEMA_VERSION,
   type EnsureDatabaseOptions,
   finishShippedSchemaImport,
@@ -176,6 +177,7 @@ export async function migrateShippedSchemaStoreToCurrent(
   }
   if (
     sourceSchemaVersion === SHIPPED_SCHEMA_VERSION ||
+    sourceSchemaVersion === PREVIOUS_SCHEMA_VERSION ||
     sourceSchemaVersion === CURRENT_SCHEMA_VERSION
   ) {
     return {
@@ -186,7 +188,7 @@ export async function migrateShippedSchemaStoreToCurrent(
   }
   if (sourceSchemaVersion !== 26 && sourceSchemaVersion !== 57) {
     throw new Error(
-      `Unsupported Nodex database schema version ${sourceSchemaVersion}. Expected v26, v57, v${SHIPPED_SCHEMA_VERSION}, or v${CURRENT_SCHEMA_VERSION}.`,
+      `Unsupported Nodex database schema version ${sourceSchemaVersion}. Expected v26, v57, v${SHIPPED_SCHEMA_VERSION}, v${PREVIOUS_SCHEMA_VERSION}, or v${CURRENT_SCHEMA_VERSION}.`,
     );
   }
 

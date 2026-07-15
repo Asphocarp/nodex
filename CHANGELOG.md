@@ -48,6 +48,7 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- Card references now persist only stable Card identity and refresh from membership-independent, identity-keyed events, so renamed or cleared titles cannot fall back to stale insertion-time text and nested Cards update without a Database row.
 - New user/content Blocks now receive time-ordered UUID-v7 identities, while Views, properties, memberships, and retry-operation identities use UUID-v4. Existing stored identities remain readable without migration, and occurrence commands now carry the identity of any Card they may create.
 - Cards now have one exclusive Space, Document, or Database parent. Dragging between a Database View and an editor moves the real Card/Block by default, Option/Alt copies it, and the entire change commits atomically without reference substitution, NFM snapshots, flicker, or transient revision errors. Promoting a text-like Block preserves its rich content as the Card title and lifts only its children into the body instead of duplicating the source text.
 - Thread tool activity now uses one mixed activity timeline: adjacent commands, edits, web searches, ordinary MCP calls, dynamic tools, and live Auto-review share stable collapsible groups, while standalone tools and requests keep their own surfaces and live, resumed, and recovered threads use the same canonical projection.

@@ -35,7 +35,6 @@ export const cardRefBlockConfig = {
   type: "cardRef",
   propSchema: {
     targetBlockId: { default: "" },
-    displayHint: { default: "" },
     sourceProjectId: { default: "" },
     cardId: { default: "" },
   },
@@ -44,9 +43,7 @@ export const cardRefBlockConfig = {
 
 export const cardBlockConfig = {
   type: "card",
-  propSchema: {
-    displayHint: { default: "Untitled" },
-  },
+  propSchema: {},
   content: "none",
 } as const satisfies CustomBlockConfig;
 

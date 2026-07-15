@@ -27,6 +27,7 @@ import {
   readDatabaseCardsByIds,
   readProjectDatabaseCardSummaries,
   readProjectDatabaseCards,
+  CardReadStoreError,
 } from "./card-read-store";
 import { searchAuthoritativeCards } from "./card-search-store";
 import { getDb } from "./database";
@@ -67,8 +68,19 @@ export interface CardDocumentBoardProjection {
 export const readCardDocumentBoardProjection = (
   database: Database.Database,
   documentId: string,
-): CardDocumentBoardProjection | null =>
-  readDatabaseCardSummaryByDocumentId(database, documentId);
+): CardDocumentBoardProjection | null => {
+  try {
+    return readDatabaseCardSummaryByDocumentId(database, documentId);
+  } catch (error) {
+    if (
+      error instanceof CardReadStoreError
+      && error.code === "card_database_membership_missing"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+};
 
 export const readColumn = async (
   projectId: string,

@@ -1634,6 +1634,11 @@ app.get("/api/projects/:projectId/events", (c) => {
           send(JSON.stringify({ event: "board-changed", ...event }));
         }
       };
+      const cardTargetHandler = (event: { projectId: string }) => {
+        if (event.projectId === projectId) {
+          send(JSON.stringify({ event: "card-target-changed", ...event }));
+        }
+      };
       const sessionHandler = (event: { projectId: string }) => {
         if (event.projectId === projectId) {
           send(JSON.stringify({ event: "project-sessions-changed" }));
@@ -1646,6 +1651,7 @@ app.get("/api/projects/:projectId/events", (c) => {
       };
 
       dbNotifier.on("board-changed", handler);
+      dbNotifier.on("card-target-changed", cardTargetHandler);
       dbNotifier.on("database-changed", databaseHandler);
       dbNotifier.on("project-sessions-changed", sessionHandler);
 
@@ -1661,6 +1667,7 @@ app.get("/api/projects/:projectId/events", (c) => {
       // Cleanup when stream is cancelled
       c.req.raw.signal.addEventListener("abort", () => {
         dbNotifier.removeListener("board-changed", handler);
+        dbNotifier.removeListener("card-target-changed", cardTargetHandler);
         dbNotifier.removeListener("database-changed", databaseHandler);
         dbNotifier.removeListener("project-sessions-changed", sessionHandler);
         clearInterval(pingInterval);

@@ -639,7 +639,6 @@ export function buildNfmCardMentionBlock(
     type: "cardRef",
     props: {
       targetBlockId: item.card.id,
-      displayHint: item.card.title.slice(0, 512),
     },
   };
 }

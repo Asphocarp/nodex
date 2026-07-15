@@ -6,7 +6,6 @@ export type CardOutlinerRelationship = "child" | "reference";
 export interface CardOutlinerTargetInput {
   readonly relationship: CardOutlinerRelationship;
   readonly targetBlockId: string;
-  readonly displayHint: string;
   readonly model: CardTargetReadModel | null;
   readonly loading: boolean;
   readonly error: Error | null;
@@ -44,15 +43,9 @@ export type CardOutlinerTarget =
       readonly inlineMode: "editable" | "self" | "cycle" | "archived";
     };
 
-const fallbackTitle = (displayHint: string, fallback: string): string => {
-  const hint = displayHint.trim();
-  return hint.length > 0 ? hint : fallback;
-};
-
 export const resolveCardOutlinerTarget = ({
   relationship,
   targetBlockId: rawTargetBlockId,
-  displayHint,
   model,
   loading,
   error,
@@ -77,14 +70,14 @@ export const resolveCardOutlinerTarget = ({
     return {
       ...unavailable,
       status: "loading",
-      fallbackTitle: fallbackTitle(displayHint, "Loading Card…"),
+      fallbackTitle: "Loading Card…",
     };
   }
   if (error) {
     return {
       ...unavailable,
       status: "error",
-      fallbackTitle: fallbackTitle(displayHint, "Card unavailable"),
+      fallbackTitle: "Card unavailable",
       message: error.message || "Couldn’t load this Card",
     };
   }
@@ -92,21 +85,21 @@ export const resolveCardOutlinerTarget = ({
     return {
       ...unavailable,
       status: "missing",
-      fallbackTitle: fallbackTitle(displayHint, "Card unavailable"),
+      fallbackTitle: "Card unavailable",
     };
   }
   if (model.status === "deleted") {
     return {
       ...unavailable,
       status: "deleted",
-      fallbackTitle: fallbackTitle(displayHint, "Deleted Card"),
+      fallbackTitle: "Deleted Card",
     };
   }
   if (model.status === "invalid_target") {
     return {
       ...unavailable,
       status: "invalid_target",
-      fallbackTitle: fallbackTitle(displayHint, "Invalid Card reference"),
+      fallbackTitle: "Invalid Card reference",
       actualBlockType: model.actualBlockType,
     };
   }
@@ -128,7 +121,7 @@ export const resolveCardOutlinerTarget = ({
     targetBlockId: model.card.blockId,
     projectId: model.card.projectId,
     card: model.card,
-    fallbackTitle: fallbackTitle(displayHint, "Untitled"),
+    fallbackTitle: "Untitled",
     lifecycle: model.card.lifecycle,
     inlineMode,
   };

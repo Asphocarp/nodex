@@ -21,7 +21,7 @@ const request: DatabaseMutationRequest = {
 };
 
 describe("Database renderer transport", () => {
-  test("multiplexes one Project SSE across Board, Database, sessions, and two windows", () => {
+  test("multiplexes one Project SSE across target, Board, Database, sessions, and two windows", () => {
     const originalEventSource = globalThis.EventSource;
     class FakeEventSource {
       static readonly instances: FakeEventSource[] = [];
@@ -41,10 +41,12 @@ describe("Database renderer transport", () => {
     let secondWindowEvents = 0;
     let boardEvents = 0;
     let sessionEvents = 0;
+    let cardTargetEvents = 0;
     let unsubscribeFirst = () => {};
     let unsubscribeSecond = () => {};
     let unsubscribeBoard = () => {};
     let unsubscribeSessions = () => {};
+    let unsubscribeCardTarget = () => {};
     try {
       unsubscribeFirst =
         browserRendererTransport.subscribeDatabaseChanges(
@@ -66,6 +68,13 @@ describe("Database renderer transport", () => {
           boardEvents += 1;
         },
       );
+      unsubscribeCardTarget =
+        browserRendererTransport.subscribeCardTargetChanges(
+          "project-1",
+          () => {
+            cardTargetEvents += 1;
+          },
+        );
       unsubscribeSessions =
         browserRendererTransport.subscribeProjectSessionChanges(
           "project-1",
@@ -91,6 +100,7 @@ describe("Database renderer transport", () => {
       expect(secondWindowEvents).toBe(1);
       expect(boardEvents).toBe(0);
       expect(sessionEvents).toBe(0);
+      expect(cardTargetEvents).toBe(0);
 
       FakeEventSource.instances[0]?.onmessage?.({
         data: JSON.stringify({
@@ -103,10 +113,19 @@ describe("Database renderer transport", () => {
         }),
       } as MessageEvent<string>);
       FakeEventSource.instances[0]?.onmessage?.({
+        data: JSON.stringify({
+          event: "card-target-changed",
+          projectId: "project-1",
+          targetBlockId: "card-1",
+          changeKind: "content",
+        }),
+      } as MessageEvent<string>);
+      FakeEventSource.instances[0]?.onmessage?.({
         data: JSON.stringify({ event: "project-sessions-changed" }),
       } as MessageEvent<string>);
       expect(boardEvents).toBe(1);
       expect(sessionEvents).toBe(1);
+      expect(cardTargetEvents).toBe(1);
 
       const wrongProject = JSON.stringify({
         ...JSON.parse(payload),
@@ -121,12 +140,14 @@ describe("Database renderer transport", () => {
       unsubscribeSecond();
       expect(FakeEventSource.instances[0]?.closed).toBe(false);
       unsubscribeBoard();
+      unsubscribeCardTarget();
       unsubscribeSessions();
       expect(FakeEventSource.instances.every((source) => source.closed)).toBe(true);
     } finally {
       unsubscribeFirst();
       unsubscribeSecond();
       unsubscribeBoard();
+      unsubscribeCardTarget();
       unsubscribeSessions();
       globalThis.EventSource = originalEventSource;
     }

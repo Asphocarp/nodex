@@ -139,10 +139,7 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
       case "card": {
-        const displayHint = block.displayHint
-          ? ` display-hint="${escapeXmlAttr(block.displayHint)}"`
-          : "";
-        lines.push(prefix + `<card${displayHint} />`);
+        lines.push(prefix + "<card />");
         break;
       }
       case "threadSection": {
@@ -162,9 +159,6 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
           const attrs = [
             `target-block="${escapeXmlAttr(block.targetBlockId)}"`,
           ];
-          if (block.displayHint !== undefined) {
-            attrs.push(`display-hint="${escapeXmlAttr(block.displayHint)}"`);
-          }
           lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
           break;
         }

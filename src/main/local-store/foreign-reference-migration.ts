@@ -23,7 +23,6 @@ import {
 } from "../../shared/block-documents/block-document-codec";
 import {
   MAX_BLOCK_ID_LENGTH,
-  MAX_REFERENCE_DISPLAY_HINT_LENGTH,
 } from "../../shared/block-documents/contracts";
 import {
   isLegacyForeignBodyReference,
@@ -414,13 +413,6 @@ const isCanonicalReferenceIdentity = (value: string): boolean =>
   value.length > 0 &&
   value === value.trim() &&
   value.length <= MAX_BLOCK_ID_LENGTH;
-
-const toDisplayHint = (
-  value: string | null | undefined,
-): string | undefined => {
-  if (!value) return undefined;
-  return value.slice(0, MAX_REFERENCE_DISPLAY_HINT_LENGTH);
-};
 
 const reserveUnresolvedCardTarget = (
   database: Database.Database,
@@ -1068,7 +1060,6 @@ const resolveCardProjection = async (
         kind: "card",
         sourceBlockId: reference.sourceBlockId,
         targetBlockId: resolvedTarget.id,
-        displayHint: toDisplayHint(resolvedTarget.title ?? resolvedTarget.id),
       },
       ledger,
       recovered: false,
@@ -1085,7 +1076,6 @@ const resolveCardProjection = async (
         kind: "card",
         sourceBlockId: reference.sourceBlockId,
         targetBlockId: legacyTarget.id,
-        displayHint: toDisplayHint(legacyTarget.title ?? legacyTarget.id),
       },
       ledger,
       recovered: false,
@@ -1120,7 +1110,6 @@ const resolveCardProjection = async (
         kind: "card",
         sourceBlockId: reference.sourceBlockId,
         targetBlockId: unresolvedTargetId,
-        displayHint: toDisplayHint(initialTargetId || "Unresolved Card"),
       },
       ledger,
       recovered: false,
@@ -1186,7 +1175,6 @@ const resolveCardProjection = async (
       kind: "card",
       sourceBlockId: reference.sourceBlockId,
       targetBlockId: recoveredCardId,
-      displayHint: toDisplayHint(recoveredTarget.title ?? recovery.title),
     },
     ledger,
     recovered: created,

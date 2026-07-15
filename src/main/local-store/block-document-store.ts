@@ -2600,7 +2600,11 @@ const applyBlockDocumentUpdateForAuthority = (
       );
     }
     if (allowInactiveOwner) {
-      assertCardOwnerForInternalMigration(row);
+      if (authority === "legacy_shadow") {
+        assertCardOwnerForInternalMigration(row);
+      } else {
+        assertReadableDocumentOwner(row);
+      }
     } else {
       assertReadableDocumentOwner(row);
     }
@@ -2952,6 +2956,19 @@ export const applyBlockDocumentUpdate = (
     input,
     "ydoc_primary",
     false,
+    false,
+  );
+
+/** Internal current-head cleanup seam; accepts archived readable owners. */
+export const applyPrimaryBlockDocumentMigrationUpdate = (
+  database: Database.Database,
+  input: ApplyDocumentUpdate,
+): DocumentUpdateAck =>
+  applyBlockDocumentUpdateForAuthority(
+    database,
+    input,
+    "ydoc_primary",
+    true,
     false,
   );
 

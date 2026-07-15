@@ -3,7 +3,11 @@ import * as path from "node:path";
 import Database from "better-sqlite3";
 import { getDatabasePath, getLocalStoreDir } from "./config";
 import { validateBackupStore } from "./backup-store-validation";
-import { CURRENT_SCHEMA_VERSION, SHIPPED_SCHEMA_VERSION } from "./schema";
+import {
+  CURRENT_SCHEMA_VERSION,
+  PREVIOUS_SCHEMA_VERSION,
+  SHIPPED_SCHEMA_VERSION,
+} from "./schema";
 
 const JOURNAL_FILE_NAME = ".store-restore-journal.json";
 const JOURNAL_VERSION = 1;
@@ -159,6 +163,7 @@ const validateJournalStorePath = (databasePath: string): number => {
   const validationErrors: unknown[] = [];
   for (const expectedSchemaVersion of [
     CURRENT_SCHEMA_VERSION,
+    PREVIOUS_SCHEMA_VERSION,
     SHIPPED_SCHEMA_VERSION,
   ]) {
     try {

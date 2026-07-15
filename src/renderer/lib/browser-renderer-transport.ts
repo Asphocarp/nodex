@@ -2215,6 +2215,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 
 type ProjectEventName =
   | "board-changed"
+  | "card-target-changed"
   | "database-changed"
   | "project-sessions-changed";
 
@@ -2267,6 +2268,7 @@ const ensureBrowserProjectEventStream = (
       const eventName = event.event;
       if (
         eventName !== "board-changed" &&
+        eventName !== "card-target-changed" &&
         eventName !== "database-changed" &&
         eventName !== "project-sessions-changed"
       ) {
@@ -2321,6 +2323,17 @@ function subscribeBoardChanges(
   return subscribeBrowserProjectEvent(projectId, "board-changed", (event) => {
     callback(event as unknown as BoardChangeEvent);
   });
+}
+
+function subscribeCardTargetChanges(
+  projectId: string,
+  callback: (event: import("../../shared/card-target-events").CardTargetChangedEvent) => void,
+): () => void {
+  return subscribeBrowserProjectEvent(
+    projectId,
+    "card-target-changed",
+    (event) => callback(event as unknown as import("../../shared/card-target-events").CardTargetChangedEvent),
+  );
 }
 
 function subscribeDatabaseChanges(
@@ -2771,6 +2784,7 @@ export const browserRendererTransport = {
   },
   invoke,
   subscribeBoardChanges,
+  subscribeCardTargetChanges,
   subscribeDatabaseChanges,
   subscribeProjectSessionChanges,
   subscribeProjectChanges,

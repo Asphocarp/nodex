@@ -112,7 +112,6 @@ describe("headless Block Document schema", () => {
       {
         id: "card-block",
         type: "card",
-        props: { displayHint: "Nested Card" },
       },
       {
         id: "card-ref-block",
@@ -124,7 +123,6 @@ describe("headless Block Document schema", () => {
         type: "cardRef",
         props: {
           targetBlockId: "card-3",
-          displayHint: "Canonical Card",
         },
       },
       {

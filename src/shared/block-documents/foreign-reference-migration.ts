@@ -17,7 +17,6 @@ export type ForeignReferenceResolution =
       readonly kind: "card";
       readonly sourceBlockId: BlockId;
       readonly targetBlockId: BlockId;
-      readonly displayHint?: string;
     }
   | {
       readonly kind: "database_view";
@@ -130,8 +129,6 @@ const makeCardReferenceNode = (
     "targetBlockId",
     requireIdentity(resolution.targetBlockId, "targetBlockId"),
   );
-  const displayHint = requireDisplayHint(resolution.displayHint);
-  if (displayHint !== undefined) node.setAttribute("displayHint", displayHint);
   return node;
 };
 

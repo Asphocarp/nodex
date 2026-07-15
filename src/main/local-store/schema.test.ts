@@ -11,9 +11,11 @@ import { LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER } from "./block-first-legacy-sc
 import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
 import {
   CURRENT_SCHEMA_VERSION,
+  PREVIOUS_SCHEMA_VERSION,
   SHIPPED_SCHEMA_VERSION,
   getSchemaMigrationTargets,
   migrateSchema58To59,
+  migrateSchema59To60,
 } from "./schema";
 
 const tempDirectories: string[] = [];
@@ -134,18 +136,24 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v59 release boundary", () => {
-  test("routes shipped inputs through the explicit v58 to v59 boundary", () => {
+describe("schema v60 release boundary", () => {
+  test("routes shipped inputs through the explicit staged boundaries", () => {
     expect(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION)).toEqual([]);
     expect(getSchemaMigrationTargets(SHIPPED_SCHEMA_VERSION)).toEqual([
+      PREVIOUS_SCHEMA_VERSION,
       CURRENT_SCHEMA_VERSION,
     ]);
     expect(getSchemaMigrationTargets(26)).toEqual([
       SHIPPED_SCHEMA_VERSION,
+      PREVIOUS_SCHEMA_VERSION,
       CURRENT_SCHEMA_VERSION,
     ]);
     expect(getSchemaMigrationTargets(57)).toEqual([
       SHIPPED_SCHEMA_VERSION,
+      PREVIOUS_SCHEMA_VERSION,
+      CURRENT_SCHEMA_VERSION,
+    ]);
+    expect(getSchemaMigrationTargets(PREVIOUS_SCHEMA_VERSION)).toEqual([
       CURRENT_SCHEMA_VERSION,
     ]);
     expect(getSchemaMigrationTargets(0)).toBe(null);
@@ -220,7 +228,7 @@ describe("schema v59 release boundary", () => {
     migrateSchema58To59(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(
-      CURRENT_SCHEMA_VERSION,
+      PREVIOUS_SCHEMA_VERSION,
     );
     expect(database.pragma("foreign_keys", { simple: true })).toBe(1);
     const names = tableNames(database);
@@ -258,6 +266,19 @@ describe("schema v59 release boundary", () => {
     ]);
     expect(database.pragma("foreign_key_check")).toEqual([]);
     database.close();
+  });
+
+  test("publishes a clean v59 store as v60", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    database.pragma(`user_version = ${PREVIOUS_SCHEMA_VERSION}`);
+
+    migrateSchema59To60(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
   });
 
   test("rolls back every v59 schema change when source integrity fails", () => {

@@ -22,7 +22,7 @@ const FULL_NFM_FIXTURE = [
   '<image source="nodex://assets/image.png">Image caption</image>',
   '<thread-section label="Investigate" thread="thread-2" />',
   '<card-ref project="project-a" card="card-target" />',
-  '<card-ref target-block="card-canonical" display-hint="Canonical Card" />',
+  '<card-ref target-block="card-canonical" />',
   '<toggle-list-inline-view project="project-a" rules-v2="eyJtb2RlIjoiYWxsIn0" />',
   '<database-view-ref database-view="view-canonical" display-hint="Planning" />',
   '<card-toggle card="legacy-card" meta="[P1]" project="project-a">',
