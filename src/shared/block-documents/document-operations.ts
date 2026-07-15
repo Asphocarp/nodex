@@ -100,6 +100,8 @@ export interface ReplaceDocumentFromNfm {
   readonly generation: number;
   readonly expectedHeadSeq: number;
   readonly nfm: string;
+  /** Optional canonical title replacement committed in the same Yjs update. */
+  readonly richTitle?: PortableRichText;
 }
 
 export type DocumentMutationRequest =
@@ -608,6 +610,7 @@ const parseMutationEnvelope = (
   label: string,
   extraRequiredKeys: readonly string[],
   budget: ParseBudget,
+  extraOptionalKeys: readonly string[] = [],
 ): {
   readonly record: Readonly<Record<string, unknown>>;
   readonly mutationId: string;
@@ -634,7 +637,7 @@ const parseMutationEnvelope = (
       "expectedHeadSeq",
       ...extraRequiredKeys,
     ],
-    ["clientSessionId"],
+    ["clientSessionId", ...extraOptionalKeys],
   );
   if (record.version !== DOCUMENT_OPERATION_CONTRACT_VERSION) {
     throw new DocumentOperationContractError(
@@ -707,12 +710,31 @@ export const parseReplaceDocumentFromNfm = (
     "replaceDocumentFromNfm",
     ["nfm"],
     budget,
+    ["richTitle"],
   );
   const nfm = envelope.record.nfm;
   if (typeof nfm !== "string" || nfm.length > MAX_CARD_DESCRIPTION_LENGTH) {
     throw new DocumentOperationContractError(
       `replaceDocumentFromNfm.nfm must be at most ${MAX_CARD_DESCRIPTION_LENGTH} characters`,
     );
+  }
+  let richTitle: PortableRichText | undefined;
+  if (envelope.record.richTitle !== undefined) {
+    try {
+      richTitle = canonicalizePortableRichText(envelope.record.richTitle);
+      consumeBudget(
+        budget,
+        portableRichTextSemanticSource(richTitle).length,
+        "replaceDocumentFromNfm.richTitle",
+      );
+    } catch (error) {
+      if (error instanceof PortableRichTextError) {
+        throw new DocumentOperationContractError(
+          `replaceDocumentFromNfm.richTitle is invalid: ${error.message}`,
+        );
+      }
+      throw error;
+    }
   }
   return {
     version: DOCUMENT_OPERATION_CONTRACT_VERSION,
@@ -727,6 +749,7 @@ export const parseReplaceDocumentFromNfm = (
     generation: envelope.generation,
     expectedHeadSeq: envelope.expectedHeadSeq,
     nfm,
+    ...(richTitle ? { richTitle } : {}),
   };
 };
 

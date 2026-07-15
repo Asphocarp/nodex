@@ -934,6 +934,40 @@ describe("general Database kernel", () => {
             fixture.database,
           )?.rows.some((row) => row.card.blockId === card.id),
         ).toBe(false);
+
+        const unpositioned = transitionMembership("return-without-position", {
+          kind: "transfer_membership",
+          cardBlockId: card.id,
+          expectedMembership: {
+            membershipId: restored.id,
+            revision: restored.revision,
+          },
+          target: {
+            databaseBlockId: "database-dormant-target",
+            membershipId: "membership-must-still-not-be-created",
+          },
+        });
+        const reactivated = readActiveMembership(fixture, card.id);
+        expect(unpositioned.payload.positionRevision).toBe(null);
+        expect(unpositioned.committedRevisions).toMatchObject({
+          membership: reactivated.revision,
+          position: 0,
+        });
+        expect(
+          fixture.database
+            .prepare(
+              "SELECT COUNT(*) FROM database_view_positions WHERE block_id = ?",
+            )
+            .pluck()
+            .get(card.id),
+        ).toBe(0);
+        expect(
+          queryGeneralDatabaseView(
+            fixture.projectId,
+            "view-dormant-target",
+            fixture.database,
+          )?.rows.find((row) => row.card.blockId === card.id)?.position,
+        ).toBe(null);
       });
     },
   );

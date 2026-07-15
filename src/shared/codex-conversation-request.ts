@@ -11,6 +11,7 @@ import type {
   CodexPlanImplementationServerRequest,
   CodexPlanImplementationRequest,
   CodexUserInputRequest,
+  NodexAgentAuthorizationRequest,
 } from "./types";
 import {
   buildCodexCanonicalPendingRequestBuckets,
@@ -36,7 +37,11 @@ interface DerivedConversationRequestSelection {
   planSelection: LatestPlanImplementationSelection | null;
   liveRequests: CodexConversationLiveRequest[];
   primaryRequest: CodexConversationLiveRequest | null;
-  primaryBackgroundRequest: CodexApprovalRequest | CodexPermissionRequest | null;
+  primaryBackgroundRequest:
+    | CodexApprovalRequest
+    | CodexPermissionRequest
+    | NodexAgentAuthorizationRequest
+    | null;
   requestsByTurnId: Map<string, CodexTurnScopedConversationRequest[]>;
 }
 
@@ -105,6 +110,7 @@ interface ProjectedPendingRequestBucket {
   latestUserInputRequest: CodexUserInputRequest | null;
   latestMcpElicitationRequest: CodexMcpServerElicitationRequest | null;
   latestPermissionRequest: CodexPermissionRequest | null;
+  latestNodexAgentAuthorization: NodexAgentAuthorizationRequest | null;
 }
 
 interface ProjectedPendingRequestBuckets {
@@ -123,6 +129,7 @@ function getOrCreateProjectedPendingRequestBucket(
     latestUserInputRequest: null,
     latestMcpElicitationRequest: null,
     latestPermissionRequest: null,
+    latestNodexAgentAuthorization: null,
   };
   buckets.set(turnId, bucket);
   return bucket;
@@ -156,6 +163,9 @@ function buildProjectedPendingRequestBuckets(
       case "permissionRequest":
         bucket.latestPermissionRequest ??= request;
         break;
+      case "nodexAgentAuthorization":
+        bucket.latestNodexAgentAuthorization ??= request;
+        break;
     }
   }
 
@@ -176,9 +186,10 @@ function isValidApprovalForTurn(
 function selectApprovalOrPermissionForTurn(
   turn: CodexConversationTurn,
   bucket: ProjectedPendingRequestBucket | undefined,
-): CodexApprovalRequest | CodexPermissionRequest | null {
+): CodexApprovalRequest | CodexPermissionRequest | NodexAgentAuthorizationRequest | null {
   if (!bucket) return null;
   return bucket.approvalRequests.find((request) => isValidApprovalForTurn(request, turn))
+    ?? bucket.latestNodexAgentAuthorization
     ?? bucket.latestPermissionRequest;
 }
 
@@ -256,7 +267,11 @@ function deriveConversationRequestSelection(
   const canonicalPendingBuckets = buildCodexCanonicalPendingRequestBuckets(conversation);
 
   const liveRequests: CodexConversationLiveRequest[] = [];
-  let primaryBackgroundRequest: CodexApprovalRequest | CodexPermissionRequest | null = null;
+  let primaryBackgroundRequest:
+    | CodexApprovalRequest
+    | CodexPermissionRequest
+    | NodexAgentAuthorizationRequest
+    | null = null;
   for (let turnIndex = conversation.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = conversation.turns[turnIndex];
     if (!turn || turn.turnId === null) continue;
@@ -394,6 +409,11 @@ export function areConversationLiveRequestsEqual(
         && left.permissions === right.permissions
         && left.response === right.response
       );
+    case "nodexAgentAuthorization":
+      return right.type === "nodexAgentAuthorization"
+        && left.tool === right.tool
+        && left.effect === right.effect
+        && left.preview === right.preview;
     case "implementPlan":
       if (right.type !== "implementPlan") return false;
       return left.planContent === right.planContent;
@@ -450,7 +470,7 @@ export function selectPrimaryConversationRequest(
 
 export function selectPrimaryBackgroundConversationRequest(
   conversation: CodexConversationSnapshot | null,
-): CodexApprovalRequest | CodexPermissionRequest | null {
+): CodexApprovalRequest | CodexPermissionRequest | NodexAgentAuthorizationRequest | null {
   if (!conversation) return null;
   return resolveDerivedConversationRequestSelection(conversation).primaryBackgroundRequest;
 }
@@ -477,5 +497,6 @@ export function isBlockingConversationRequest(
     || request.type === "optionPicker"
     || request.type === "setupCodexStep"
     || request.type === "mcpServerElicitation"
-    || request.type === "permissionRequest";
+    || request.type === "permissionRequest"
+    || request.type === "nodexAgentAuthorization";
 }

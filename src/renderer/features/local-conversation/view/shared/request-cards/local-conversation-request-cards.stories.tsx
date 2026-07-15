@@ -15,6 +15,7 @@ import {
   CodexSetupContextRequestCardView,
 } from "../../composer/request-cards/codex-setup-codex-step-request-card";
 import { CodexUserInputRequestCard } from "../../composer/request-cards/codex-user-input-request-card";
+import { NodexAgentAuthorizationRequestCard } from "../../composer/request-cards/nodex-agent-authorization-request-card";
 import { AutoReviewApprovalNudge as AutoReviewApprovalNudgeView } from "../../composer/auto-review-approval-nudge";
 import { THREAD_REQUEST_CARD_STORY_DATA } from "../../thread-stage-story-fixtures";
 
@@ -334,6 +335,72 @@ export const PermissionRequest: Story = {
     >
       <CodexPermissionRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.permissionRequest}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const NodexAgentAuthorization: Story = {
+  render: () => (
+    <RequestSurface
+      title="Nodex Agent Authorization"
+      description="Semantic preview for one prepared Nodex document mutation, with one-shot and task-scoped choices for ordinary writes."
+    >
+      <NodexAgentAuthorizationRequestCard
+        request={{
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-auth-story",
+          projectId: "project-story",
+          threadId: "thread-story",
+          turnId: "turn-story",
+          itemId: "call-story",
+          tool: "edit_document",
+          effect: "write",
+          preview: {
+            title: "Append rollout plan",
+            summary: "Append four Blocks to “Launch brief”.",
+            details: [
+              { label: "Document", value: "Launch brief" },
+              { label: "Method", value: "nfm.insert" },
+            ],
+            nfmPreview: "## Rollout\n\n- Alpha cohort\n- Measure activation\n- Expand gradually",
+          },
+          createdAt: 1,
+        }}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const NodexAgentDestructiveAuthorization: Story = {
+  render: () => (
+    <RequestSurface
+      title="Destructive Nodex Authorization"
+      description="Destructive document replacement is always one-shot; the persistent task grant is intentionally absent."
+    >
+      <NodexAgentAuthorizationRequestCard
+        request={{
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-destructive-auth-story",
+          projectId: "project-story",
+          threadId: "thread-story",
+          turnId: "turn-story",
+          itemId: "call-destructive-story",
+          tool: "edit_document",
+          effect: "destructive",
+          preview: {
+            title: "Replace launch brief body",
+            summary: "Delete three existing Blocks and create the replacement outline.",
+            details: [
+              { label: "Document", value: "Launch brief" },
+              { label: "Method", value: "nfm.replace" },
+            ],
+            nfmPreview: "# Launch brief\n\n## Revised scope\n\nThe former rollout sections will be removed.",
+          },
+          createdAt: 1,
+        }}
         onRespond={async () => { }}
       />
     </RequestSurface>

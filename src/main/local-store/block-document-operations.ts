@@ -1058,17 +1058,27 @@ const prepareNfmReplacement = (
     nfm: request.nfm,
     allocateBlockId: createUuidV7,
   });
-  if (!replacement.changed) {
+  const titleChanged = request.richTitle !== undefined
+    && portableRichTextSemanticSource(request.richTitle)
+      !== portableRichTextSemanticSource(before.richTitle);
+  if (!replacement.changed && !titleChanged) {
     reject(
       "no_change",
       "NFM replacement is already equal to the current Document body",
       request,
     );
   }
-  const operations = compileBlockTreeReplacementOperations(
-    before.blockTree,
-    replacement.materialization.blockTree,
-  );
+  const operations = [
+    ...(replacement.changed
+      ? compileBlockTreeReplacementOperations(
+        before.blockTree,
+        replacement.materialization.blockTree,
+      )
+      : []),
+    ...(titleChanged
+      ? [{ kind: "set_rich_title" as const, richTitle: request.richTitle as NonNullable<typeof request.richTitle> }]
+      : []),
+  ];
   const prepared = prepareDocumentOperationUpdate({
     document,
     operations,
@@ -1076,7 +1086,7 @@ const prepareNfmReplacement = (
   });
   if (
     portableRichTextSemanticSource(prepared.materialization.richTitle) !==
-      portableRichTextSemanticSource(before.richTitle) ||
+      portableRichTextSemanticSource(request.richTitle ?? before.richTitle) ||
     prepared.materialization.nfm !== replacement.materialization.nfm ||
     stableStringify(prepared.materialization.blockTree) !==
       stableStringify(replacement.materialization.blockTree)
@@ -1852,6 +1862,35 @@ export const replaceDocumentFromNfm = (
     canonicalRequest,
   );
   return applyMutation(database, request, evidence, options);
+};
+
+/**
+ * Trusted recovery seam for a host receipt that already binds this mutation ID
+ * to the same dynamic call. It returns no request body and never executes work.
+ */
+export const readCommittedDocumentOperationResult = (
+  database: Database.Database,
+  mutationId: string,
+): DocumentOperationResult | null => {
+  const stored = readStoredMutation(database, mutationId);
+  if (!stored || stored.outcome !== "committed") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored.result_json);
+  } catch {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      `Mutation ${mutationId} has invalid result JSON`,
+    );
+  }
+  const result = parseDocumentOperationResult(parsed);
+  if (result.mutationId !== mutationId || result.projectId !== stored.project_id) {
+    throw new BlockDocumentStoreError(
+      "document_state_corrupt",
+      `Mutation ${mutationId} result identity is inconsistent`,
+    );
+  }
+  return { ...result, duplicate: true };
 };
 
 /** Restore an immutable checkpoint as one forward update through the writer. */

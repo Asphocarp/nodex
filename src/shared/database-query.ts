@@ -1,6 +1,8 @@
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
+  DatabaseViewFilterNode,
+  DatabaseViewSort,
   GeneralDatabaseViewConfig,
   GeneralDatabaseViewKind,
 } from "./database-kernel";
@@ -149,6 +151,18 @@ export interface GeneralDatabaseRow {
 export interface GeneralDatabaseViewQuery {
   readonly database: GeneralDatabaseCapability;
   readonly view: GeneralDatabaseViewDefinition;
+  readonly properties: readonly GeneralDatabasePropertyDefinition[];
+  readonly rows: readonly GeneralDatabaseRow[];
+}
+
+export interface GeneralDatabaseAdHocQueryInput {
+  readonly databaseBlockId: string;
+  readonly filter?: DatabaseViewFilterNode;
+  readonly sort?: readonly DatabaseViewSort[];
+}
+
+export interface GeneralDatabaseAdHocQuery {
+  readonly database: GeneralDatabaseCapability;
   readonly properties: readonly GeneralDatabasePropertyDefinition[];
   readonly rows: readonly GeneralDatabaseRow[];
 }

@@ -45,6 +45,14 @@ import type {
   BlockTransferReceipt,
 } from "../shared/block-transfer";
 import {
+  CreateInputSchema,
+  CreateOutputSchema,
+  TransferBlocksInputSchema,
+  TransferBlocksOutputSchema,
+  type NodexAgentCreateCardCommand,
+  type NodexAgentTransferCommand,
+} from "../shared/nodex-agent-tools";
+import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
   type DocumentSyncDurableBackend,
@@ -247,6 +255,65 @@ const createBackend = (
     throw new Error("Relocation commit is not configured");
   },
 });
+
+const nodexAgentCreateCommand = (): NodexAgentCreateCardCommand => ({
+  threadId: "thread-1",
+  callId: "call-create",
+  projectId: "project-1",
+  requestHash: "a".repeat(64),
+  mutationId: "nodex-create:test",
+  storeEpoch: "epoch-1",
+  input: CreateInputSchema.parse({
+    resource: { kind: "card", title: { kind: "plain", text: "Created" } },
+    destination: {
+      kind: "document",
+      documentId: "doc-source",
+      ifRevision: "opaque-revision",
+      at: { kind: "end" },
+    },
+  }),
+  cardId: "card-created",
+  bodyBlockIds: ["body-created"],
+  primaryMembershipId: "membership-primary",
+  targetMembershipId: "membership-target",
+  destination: {
+    kind: "document",
+    documentId: "doc-source",
+    generation: 1,
+    expectedHeadSeq: 0,
+  },
+});
+
+const nodexAgentTransferCommand = (): NodexAgentTransferCommand => {
+  const intent = blockTransferIntent();
+  const preparation = blockTransferPreparation(intent, 0, 0);
+  return {
+    threadId: "thread-1",
+    callId: "call-transfer",
+    projectId: intent.projectId,
+    requestHash: "b".repeat(64),
+    mutationId: intent.operationId,
+    storeEpoch: intent.storeEpoch,
+    input: TransferBlocksInputSchema.parse({
+      mode: "copy",
+      items: [{ blockId: "card-source", ifLocationRevision: "location-revision" }],
+      destination: {
+        kind: "document",
+        documentId: "doc-target",
+        ifRevision: "document-revision",
+        at: { kind: "end" },
+      },
+    }),
+    transfer: preparation.request,
+    destination: {
+      kind: "document",
+      documentId: "doc-target",
+      generation: 1,
+      expectedHeadSeq: 0,
+    },
+    leaseDocuments: preparation.leaseDocuments,
+  };
+};
 
 const subscribe = (
   hub: DocumentSyncHub,
@@ -1889,6 +1956,201 @@ describe("DocumentSyncHub", () => {
             "resync-required",
         ),
       ).toBe(true);
+    }
+  });
+
+  test("leases and fans out an Agent Card create into a live Document", async () => {
+    const command = nodexAgentCreateCommand();
+    let executeCalls = 0;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      executeNodexAgentCreate: async () => {
+        executeCalls += 1;
+        return {
+          ok: true,
+          value: {
+            output: CreateOutputSchema.parse({
+              schemaVersion: 1,
+              data: {
+                resource: {
+                  kind: "card",
+                  blockId: "card-created",
+                  documentId: "document:card-created",
+                  documentRevision: "document-revision",
+                  locationRevision: "location-revision",
+                  createdBodyBlockIds: ["body-created"],
+                },
+                receipt: { duplicate: false },
+              },
+            }),
+            documentCommits: [{
+              documentId: "doc-source",
+              generation: 1,
+              baseHeadSeq: 0,
+              headSeq: 1,
+              updateId: "agent-create-target",
+              update: new Uint8Array([7]),
+              stateVector: new Uint8Array([8]),
+            }],
+            affectedDatabaseBlockIds: ["database-primary"],
+            changeLogSeq: 10,
+          },
+        };
+      },
+    });
+    const surface = new FakeTarget(90);
+    subscribe(hub, surface, "doc-source", "surface-agent-create");
+    await syncSubscription(hub, surface, "doc-source", "surface-agent-create");
+    clearSent(surface);
+
+    const leaseDocuments = [{
+      documentId: "doc-source",
+      generation: 1,
+      expectedHeadSeq: 0,
+    }];
+    const pending = hub.executeNodexAgentCreate(command, leaseDocuments);
+    await waitUntil(() => surface.sent.some(
+      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind
+        === "relocation-lease-prepare",
+    ));
+    expect(executeCalls).toBe(0);
+    const prepare = surface.sent
+      .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+      .find((event): event is Extract<
+        DocumentSyncRealtimeEvent,
+        { kind: "relocation-lease-prepare" }
+      > => event.kind === "relocation-lease-prepare");
+    if (!prepare) throw new Error("Missing Agent create lease prepare");
+    expect(hub.respondToRelocationLease(surface, {
+      response: "ack",
+      leaseId: prepare.leaseId,
+      documentId: prepare.documentId,
+      clientSessionId: prepare.clientSessionId,
+      storeEpoch: prepare.storeEpoch,
+      generation: prepare.generation,
+      headSeq: prepare.expectedHeadSeq,
+    }).ok).toBe(true);
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(executeCalls).toBe(1);
+    expect(surface.sent.some(
+      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind
+        === "document-update",
+    )).toBe(true);
+    expect(surface.sent.some(
+      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind
+        === "relocation-lease-release",
+    )).toBe(true);
+
+    const mismatched = await hub.executeNodexAgentCreate(command, []);
+    expect(mismatched).toMatchObject({
+      ok: false,
+      error: { code: "internal_error" },
+    });
+    expect(executeCalls).toBe(1);
+  });
+
+  test("leases the prepared Document closure for an Agent Block transfer", async () => {
+    const command = nodexAgentTransferCommand();
+    let executeCalls = 0;
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      executeNodexAgentTransfer: async () => {
+        executeCalls += 1;
+        return {
+          ok: true,
+          value: {
+            output: TransferBlocksOutputSchema.parse({
+              schemaVersion: 1,
+              data: {
+                mode: "copy",
+                results: [{
+                  sourceBlockId: "card-source",
+                  resultBlockId: "card-copy",
+                  location: { kind: "document", documentId: "doc-target" },
+                  locationRevision: "location-revision-after",
+                  transformation: "preserved",
+                }],
+                copiedBlockIds: { "card-source": "card-copy" },
+                receipt: { duplicate: false },
+              },
+            }),
+            documentCommits: [
+              {
+                documentId: "doc-owned-source",
+                generation: 1,
+                baseHeadSeq: 0,
+                headSeq: 1,
+                updateId: "agent-transfer-source",
+                update: new Uint8Array([9]),
+                stateVector: new Uint8Array([1]),
+              },
+              {
+                documentId: "doc-target",
+                generation: 1,
+                baseHeadSeq: 0,
+                headSeq: 1,
+                updateId: "agent-transfer-target",
+                update: new Uint8Array([10]),
+                stateVector: new Uint8Array([1]),
+              },
+            ],
+            affectedDatabaseBlockIds: ["database-source"],
+            changeLogSeq: 12,
+          },
+        };
+      },
+    });
+    const sourceSurface = new FakeTarget(92);
+    const targetSurface = new FakeTarget(93);
+    subscribe(hub, sourceSurface, "doc-owned-source", "surface-agent-source");
+    subscribe(hub, targetSurface, "doc-target", "surface-agent-target");
+    await syncSubscription(
+      hub,
+      sourceSurface,
+      "doc-owned-source",
+      "surface-agent-source",
+    );
+    await syncSubscription(hub, targetSurface, "doc-target", "surface-agent-target");
+    clearSent(sourceSurface, targetSurface);
+
+    const pending = hub.executeNodexAgentTransfer(command);
+    await waitUntil(() => [sourceSurface, targetSurface].every((surface) =>
+      surface.sent.some((delivery) =>
+        (delivery.value as DocumentSyncRealtimeEvent).kind
+          === "relocation-lease-prepare"
+      )
+    ));
+    expect(executeCalls).toBe(0);
+    for (const surface of [sourceSurface, targetSurface]) {
+      const prepare = surface.sent
+        .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+        .find((event): event is Extract<
+          DocumentSyncRealtimeEvent,
+          { kind: "relocation-lease-prepare" }
+        > => event.kind === "relocation-lease-prepare");
+      if (!prepare) throw new Error("Missing Agent transfer lease prepare");
+      expect(hub.respondToRelocationLease(surface, {
+        response: "ack",
+        leaseId: prepare.leaseId,
+        documentId: prepare.documentId,
+        clientSessionId: prepare.clientSessionId,
+        storeEpoch: prepare.storeEpoch,
+        generation: prepare.generation,
+        headSeq: prepare.expectedHeadSeq,
+      }).ok).toBe(true);
+    }
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(executeCalls).toBe(1);
+    for (const surface of [sourceSurface, targetSurface]) {
+      const kinds = surface.sent.map(
+        (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
+      );
+      expect(kinds).toContain("document-update");
+      expect(kinds).toContain("relocation-lease-release");
     }
   });
 

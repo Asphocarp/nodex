@@ -86,6 +86,26 @@ import type {
   BlockTransferReceipt,
   BlockTransferRequest,
 } from "../shared/block-transfer";
+import type {
+  CompleteNodexAgentDocumentEditRequest,
+  CompleteNodexAgentDocumentEditResult,
+  ExecuteNodexAgentCreateResult,
+  ExecuteNodexAgentDatabaseEditResult,
+  ExecuteNodexAgentTransferResult,
+  NodexAgentCreateCardCommand,
+  NodexAgentDatabaseEditCommand,
+  NodexAgentTransferCommand,
+  NodexAgentReadCommandResult,
+  NodexAgentReadRequest,
+  PrepareNodexAgentDocumentEditRequest,
+  PrepareNodexAgentDocumentEditResult,
+  PrepareNodexAgentCreateRequest,
+  PrepareNodexAgentCreateResult,
+  PrepareNodexAgentDatabaseEditRequest,
+  PrepareNodexAgentDatabaseEditResult,
+  PrepareNodexAgentTransferRequest,
+  PrepareNodexAgentTransferResult,
+} from "../shared/nodex-agent-tools";
 
 export interface BlockMutationMetrics {
   mutationId: string;
@@ -105,6 +125,42 @@ interface BlockMutationWorkerRequestBase {
 }
 
 export type BlockMutationWorkerRequest =
+  | (BlockMutationWorkerRequestBase & {
+      type: "readNodexAgentTool";
+      payload: NodexAgentReadRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentDocumentEdit";
+      payload: PrepareNodexAgentDocumentEditRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "completeNodexAgentDocumentEdit";
+      payload: CompleteNodexAgentDocumentEditRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentCreate";
+      payload: PrepareNodexAgentCreateRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "executeNodexAgentCreate";
+      payload: NodexAgentCreateCardCommand;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentTransfer";
+      payload: PrepareNodexAgentTransferRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "executeNodexAgentTransfer";
+      payload: NodexAgentTransferCommand;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareNodexAgentDatabaseEdit";
+      payload: PrepareNodexAgentDatabaseEditRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "executeNodexAgentDatabaseEdit";
+      payload: NodexAgentDatabaseEditCommand;
+    })
   | (BlockMutationWorkerRequestBase & {
       type: "completeCardOccurrence";
       payload: {
@@ -310,6 +366,15 @@ export type BlockDocumentWorkerResult =
 
 export type BlockMutationWorkerResult =
   | CardOccurrenceMutationResult
+  | NodexAgentReadCommandResult
+  | PrepareNodexAgentDocumentEditResult
+  | CompleteNodexAgentDocumentEditResult
+  | PrepareNodexAgentCreateResult
+  | ExecuteNodexAgentCreateResult
+  | PrepareNodexAgentTransferResult
+  | ExecuteNodexAgentTransferResult
+  | PrepareNodexAgentDatabaseEditResult
+  | ExecuteNodexAgentDatabaseEditResult
   | BlockDocumentWorkerResult
   | OwnedDocumentDescriptor
   | RepairDocumentSecondaryProjectionsResult

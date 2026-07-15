@@ -153,6 +153,35 @@ describe("Card lifecycle contract", () => {
       },
     });
     expect(restore.operation.kind).toBe("restore_card");
+
+    const restoreMembership = parseCardLifecycleMutationRequest({
+      version: 1,
+      operationId: "restore-database-one",
+      projectId: "project-one",
+      storeEpoch: "epoch-one",
+      actor: {},
+      operation: {
+        kind: "restore_card",
+        cardId: "card-one",
+        deleteOperationId: "delete-database-one",
+        expectedMetadataRevision: 3,
+        expectedLocationRevision: 4,
+        membership: {
+          membershipId: "membership-one",
+          databaseBlockId: "database-one",
+          status: "draft",
+          position: {
+            viewId: "view-one",
+            beforeViewCardId: "card-anchor",
+          },
+        },
+      },
+    });
+    expect(
+      restoreMembership.operation.kind === "restore_card"
+        ? restoreMembership.operation.membership?.position?.beforeViewCardId
+        : null,
+    ).toBe("card-anchor");
   });
 
   test("parses a complete durable receipt and rejects zero heads", () => {

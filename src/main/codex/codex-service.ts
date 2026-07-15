@@ -531,6 +531,26 @@ import {
 } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import {
+  CODEX_APP_TOOL_NAMESPACE,
+  hasCodexDynamicToolIdentity,
+  isCodexAppDynamicTool,
+} from "../../shared/codex-dynamic-tool-identity";
+import {
+  NODEX_APP_TOOL_NAMESPACE,
+  type NodexAgentAccess,
+} from "../../shared/nodex-agent-tools";
+import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
+import {
+  copyCodexThreadDynamicToolCatalogs,
+  getCodexThreadDynamicToolRevision,
+  replaceCodexThreadDynamicToolCatalogs,
+} from "./codex-dynamic-tool-catalog-repository";
+import type { NodexAgentAuthorizationBroker } from "../agent-tools/authorization-broker";
+import {
+  buildNodexAgentDynamicToolSpecs,
+  executeNodexAgentDynamicToolCall,
+} from "./nodex-agent-dynamic-tool-runtime";
 import type {
   CodexHooksListInput,
   CodexHooksListResponse,
@@ -704,7 +724,11 @@ const CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set(["task_complete", "respo
 const CODEX_HEARTBEAT_ACTIVE_ROLLOUT_EVENTS = new Set(["response_item", "event_msg", "item", "unknown"]);
 const require = createRequire(import.meta.url);
 
-const CODEX_DYNAMIC_TOOL_SPECS = buildCodexAppMetaThreadToolSpecs();
+const NODEX_AGENT_DYNAMIC_TOOL_SPECS = buildNodexAgentDynamicToolSpecs();
+const CODEX_DYNAMIC_TOOL_SPECS = [
+  ...buildCodexAppMetaThreadToolSpecs(),
+  ...NODEX_AGENT_DYNAMIC_TOOL_SPECS,
+];
 
 interface ThreadRef {
   projectId: string | null;
@@ -2675,6 +2699,7 @@ export class CodexService extends EventEmitter {
   private browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
   private forkSidePanelTransferLifecycle:
     CodexServiceOptions["forkSidePanelTransferLifecycle"];
+  private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
@@ -3575,6 +3600,11 @@ export class CodexService extends EventEmitter {
     this.rendererOwnerClientIdByConversationId.set(threadId, clientId);
     this.syncInactiveRendererOwnerCleanup(threadId);
     if (previousClientId === clientId) return;
+    if (previousClientId) {
+      this.nodexAgentAuthorizationBroker?.revokeRoot(
+        this.resolveNodexAgentRootThreadId(threadId),
+      );
+    }
 
     this.clearOwnerNotificationDrain(threadId);
     this.ownerNotificationAckSequenceByConversationId.set(
@@ -3764,6 +3794,10 @@ export class CodexService extends EventEmitter {
     }
 
     const ownerClientId = this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
+    const rootThreadId = this.resolveNodexAgentRootThreadId(threadId);
+    if (rootThreadId === threadId) {
+      this.nodexAgentAuthorizationBroker?.revokeRoot(rootThreadId);
+    }
     this.rendererOwnerClientIdByConversationId.delete(threadId);
     this.ownerNotificationSequenceByConversationId.delete(threadId);
     this.ownerNotificationAckSequenceByConversationId.delete(threadId);
@@ -3783,6 +3817,7 @@ export class CodexService extends EventEmitter {
   }
 
   handleRendererClientDisposed(clientId: string): void {
+    this.nodexAgentAuthorizationBroker?.revokeOwner(clientId);
     this.disposedRendererClientIds.add(clientId);
     const viewConversationIds = this.removeRendererClientActiveViews(clientId);
     const conversationIds = [...this.rendererOwnerClientIdByConversationId.entries()]
@@ -3822,6 +3857,13 @@ export class CodexService extends EventEmitter {
       ownerClientId: clientId,
       conversationIds,
     });
+  }
+
+  setNodexAgentAuthorizationBroker(
+    broker: NodexAgentAuthorizationBroker | null,
+  ): void {
+    this.nodexAgentAuthorizationBroker?.revokeAll();
+    this.nodexAgentAuthorizationBroker = broker;
   }
 
   private rejectPendingDynamicToolCallsForThread(threadId: string, reason: unknown): void {
@@ -6217,6 +6259,7 @@ export class CodexService extends EventEmitter {
       pendingDynamicToolCalls: this.pendingDynamicToolCalls.size,
     });
     this.frameTextDeltaQueue.dispose();
+    this.nodexAgentAuthorizationBroker?.revokeAll();
     this.outputDeltaQueue.dispose();
     this.pendingWorktreeRuntime.shutdown();
     this.forkSidePanelTransferLifecycle?.clear();
@@ -9002,6 +9045,10 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
+        this.persistDynamicToolCatalogsForLaunch(
+          link.threadId,
+          threadStartParams.dynamicTools,
+        );
         this.setThreadPermissionFields(link.threadId, {
           approvalPolicy: threadStart.approvalPolicy,
           approvalsReviewer: threadStart.approvalsReviewer,
@@ -9353,9 +9400,12 @@ export class CodexService extends EventEmitter {
       },
       loadDynamicTools: async () => {
         try {
-          return buildCodexAppMetaThreadToolSpecs({
-            availableModels: await this.listModels(),
-          });
+          return [
+            ...buildCodexAppMetaThreadToolSpecs({
+              availableModels: await this.listModels(),
+            }),
+            ...NODEX_AGENT_DYNAMIC_TOOL_SPECS,
+          ];
         } catch (error) {
           this.logger.warn("Failed to load model-aware dynamic tools", { error });
           return CODEX_DYNAMIC_TOOL_SPECS;
@@ -9379,6 +9429,16 @@ export class CodexService extends EventEmitter {
         });
       },
     });
+  }
+
+  private persistDynamicToolCatalogsForLaunch(
+    threadId: string,
+    specs: ThreadStartParams["dynamicTools"],
+  ): void {
+    replaceCodexThreadDynamicToolCatalogs(
+      threadId,
+      resolveDynamicToolCatalogBindings(specs),
+    );
   }
 
   private async resolveCronScheduledAutomationWorkspaceRoots(input: {
@@ -13429,6 +13489,10 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
+        this.persistDynamicToolCatalogsForLaunch(
+          link.threadId,
+          threadStartParams.dynamicTools,
+        );
         worktreeOwnershipTransferred = true;
         this.setThreadPermissionFields(link.threadId, {
           approvalPolicy: threadStart.approvalPolicy,
@@ -14871,6 +14935,7 @@ export class CodexService extends EventEmitter {
       ? forkResponse.thread
       : { ...forkResponse.thread, cwd: resolvedCwd };
     const materialized = input.materialize(projectedThread, resolvedCwd, forkResponse);
+    copyCodexThreadDynamicToolCatalogs(input.sourceThreadId, threadId);
     this.setConversationRecordDetail(materialized.detail);
     const forkPermissions = {
       activePermissionProfile: forkResponse.activePermissionProfile,
@@ -15574,6 +15639,9 @@ export class CodexService extends EventEmitter {
   async archiveThread(threadId: string): Promise<boolean> {
     await this.ensureClientReady();
     await this.client.request("thread/archive", { threadId });
+    this.nodexAgentAuthorizationBroker?.revokeRoot(
+      this.resolveNodexAgentRootThreadId(threadId),
+    );
     void this.captureAutomationArchiveMessages(threadId);
     this.deleteHeartbeatAutomationForArchivedThread(threadId);
     this.setConversationUnreadState(threadId, false);
@@ -16828,7 +16896,10 @@ export class CodexService extends EventEmitter {
 
     if (
       firstCanonicalRequest?.method === "item/tool/call"
-      && firstCanonicalRequest.params.tool === "request_onboarding_input"
+      && hasCodexDynamicToolIdentity(firstCanonicalRequest.params, {
+        namespace: CODEX_APP_TOOL_NAMESPACE,
+        tool: "request_onboarding_input",
+      })
       && requestedConversationId
       && requestedRecord
     ) {
@@ -16850,7 +16921,10 @@ export class CodexService extends EventEmitter {
       for (const selectedPending of selectedPendings) {
         if (
           !didResolveResponse
-          && selectedPending.request.params.tool === "request_onboarding_input"
+          && hasCodexDynamicToolIdentity(selectedPending.request.params, {
+            namespace: CODEX_APP_TOOL_NAMESPACE,
+            tool: "request_onboarding_input",
+          })
         ) {
           selectedPending.resolve(this.buildDynamicToolSuccess({ answers: normalizedAnswers }));
           didResolveResponse = true;
@@ -19122,6 +19196,10 @@ export class CodexService extends EventEmitter {
         fallbackRef,
         effectiveCwd,
       ));
+      this.persistDynamicToolCatalogsForLaunch(
+        detail.threadId,
+        threadStartParams.dynamicTools,
+      );
       this.setConversationRecordDetail(detail);
       this.hydrateCanonicalConversationState(threadStart, {
         fallbackCwd: input.target.cwd,
@@ -19363,6 +19441,82 @@ export class CodexService extends EventEmitter {
     this.invalidateSidebarSnapshotCache();
   }
 
+  private resolveNodexAgentRootThreadId(threadId: string): string {
+    let currentThreadId = threadId;
+    const visited = new Set<string>();
+    while (!visited.has(currentThreadId)) {
+      visited.add(currentThreadId);
+      const summary = this.getMaybeConversationRecord(currentThreadId)?.detail
+        ?? this.getThreadLinkSafely(currentThreadId);
+      const parentThreadId = summary?.source?.parentThreadId?.trim();
+      if (!parentThreadId) return currentThreadId;
+      currentThreadId = parentThreadId;
+    }
+    return threadId;
+  }
+
+  private async handleNodexAgentDynamicToolCall(
+    params: DynamicToolCallParams,
+  ): Promise<DynamicToolCallResponse> {
+    const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
+    const projectId = this.parseThreadRef(params.threadId)?.projectId
+      ?? this.parseThreadRef(rootThreadId)?.projectId
+      ?? null;
+    const broker = this.nodexAgentAuthorizationBroker;
+    const directOwnerClientId = this.rendererOwnerClientIdByConversationId.get(params.threadId)
+      ?? null;
+    const rootOwnerClientId = this.rendererOwnerClientIdByConversationId.get(rootThreadId)
+      ?? null;
+    const ownerClientId = directOwnerClientId ?? rootOwnerClientId;
+    const presentationThreadId = directOwnerClientId ? params.threadId : rootThreadId;
+    const presentationTurnId = presentationThreadId === params.threadId
+      ? params.turnId
+      : [...(this.getMaybeConversationRecord(presentationThreadId)?.detail?.turns ?? [])]
+          .reverse()
+          .find((turn) => turn.turnId !== null)?.turnId ?? null;
+    const writeAccess: NodexAgentAccess["write"] = projectId === null
+      || !broker
+      || !ownerClientId
+      || !presentationTurnId
+      ? "unavailable"
+      : broker.hasGrant({ rootThreadId, projectId })
+        ? "granted"
+        : "consent_required";
+    const access: NodexAgentAccess = {
+      read: "allowed",
+      write: writeAccess,
+      domains: ["document", "placement", "database"],
+    };
+    const toolsetRevision = getCodexThreadDynamicToolRevision(
+      params.threadId,
+      NODEX_APP_TOOL_NAMESPACE,
+    );
+
+    return await executeNodexAgentDynamicToolCall(params, {
+      toolsetRevision,
+      projectId,
+      access,
+      authorize: async (authorization) => {
+        if (!broker || !presentationTurnId) return "unavailable";
+        const decision = await broker.authorize({
+          ...authorization,
+          rootThreadId,
+          ownerClientId,
+          presentationThreadId,
+          presentationTurnId,
+        });
+        const currentRootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
+        const currentProjectId = this.parseThreadRef(params.threadId)?.projectId
+          ?? this.parseThreadRef(currentRootThreadId)?.projectId
+          ?? null;
+        if (currentRootThreadId !== rootThreadId || currentProjectId !== projectId) {
+          return "unavailable";
+        }
+        return decision;
+      },
+    });
+  }
+
   private async handleDynamicToolCall(
     params: DynamicToolCallParams,
     context: CodexDynamicToolExecutionContext = {},
@@ -19370,6 +19524,16 @@ export class CodexService extends EventEmitter {
     const args = asRecord(params.arguments) ?? {};
 
     try {
+      if (params.namespace === NODEX_APP_TOOL_NAMESPACE) {
+        return await this.handleNodexAgentDynamicToolCall(params);
+      }
+      if (!isCodexAppDynamicTool(params)) {
+        const namespace = params.namespace ?? "<none>";
+        return this.buildDynamicToolFailure(
+          `Unsupported dynamic tool namespace: ${namespace}`,
+        );
+      }
+
       if (params.tool === "setup_codex_step") {
         const isValidStep = Object.keys(args).length === 1
           && (
@@ -19869,7 +20033,10 @@ export class CodexService extends EventEmitter {
     for (const selectedPending of selectedPendings) {
       if (
         !didResolveResponse
-        && selectedPending.request.params.tool === "setup_codex_step"
+        && hasCodexDynamicToolIdentity(selectedPending.request.params, {
+          namespace: CODEX_APP_TOOL_NAMESPACE,
+          tool: "setup_codex_step",
+        })
       ) {
         selectedPending.resolve(this.buildDynamicToolSuccess(result));
         didResolveResponse = true;
@@ -19933,7 +20100,10 @@ export class CodexService extends EventEmitter {
     if (!request) return false;
     const isDirect = request?.method === directMethod;
     const isDynamic = request?.method === "item/tool/call"
-      && request.params.tool === dynamicTool;
+      && hasCodexDynamicToolIdentity(request.params, {
+        namespace: CODEX_APP_TOOL_NAMESPACE,
+        tool: dynamicTool,
+      });
 
     const privatePendings = this.pendingPrivateServerRequests.takeAll(
       requestId,
@@ -19956,7 +20126,14 @@ export class CodexService extends EventEmitter {
       ),
     );
     for (const pending of dynamicPendings) {
-      if (isDynamic && !didResolveResponse && pending.request.params.tool === dynamicTool) {
+      if (
+        isDynamic
+        && !didResolveResponse
+        && hasCodexDynamicToolIdentity(pending.request.params, {
+          namespace: CODEX_APP_TOOL_NAMESPACE,
+          tool: dynamicTool,
+        })
+      ) {
         pending.resolve(this.buildDynamicToolSuccess(response));
         didResolveResponse = true;
       } else {

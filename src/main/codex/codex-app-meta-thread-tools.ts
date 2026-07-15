@@ -2,8 +2,9 @@ import reasoningEffortJsonSchema from "@nodex/codex-app-server-protocol/runtime-
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { CodexScheduledAutomationReasoningEffort } from "../../shared/types";
+import { CODEX_APP_TOOL_NAMESPACE } from "../../shared/codex-dynamic-tool-identity";
 
-export const CODEX_APP_TOOL_NAMESPACE = "codex_app";
+export { CODEX_APP_TOOL_NAMESPACE } from "../../shared/codex-dynamic-tool-identity";
 export const CODEX_APP_LOCAL_HOST_ID = "local";
 export const CODEX_APP_LOCAL_HOST_DISPLAY_NAME = null;
 export const CODEX_APP_READ_THREAD_DEFAULT_TURN_LIMIT = 1;

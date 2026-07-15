@@ -40,7 +40,7 @@ export interface CardLifecycleMembershipCoordinate {
     groupKey: string | null;
     rankKey: string;
     revision: number;
-  }>;
+  }> | null;
 }
 
 export interface CardLifecycleRestoreEvidence {
@@ -49,8 +49,8 @@ export interface CardLifecycleRestoreEvidence {
   readonly membership: null | Readonly<{
     membershipId: string;
     databaseBlockId: string;
-    viewId: string;
     status: CardStatus;
+    position: null | Readonly<{ viewId: string }>;
   }>;
 }
 
@@ -395,11 +395,14 @@ export const compileCardLifecycleRequest = (input: {
       expectedLocationRevision: card.locationRevision,
       membership: evidence.membership,
       ...(intent.beforeBlockId ? { beforeBlockId: intent.beforeBlockId } : {}),
-      ...(intent.beforeViewCardId && evidence.membership
+      ...(intent.beforeViewCardId && evidence.membership?.position
         ? {
             membership: {
               ...evidence.membership,
-              beforeViewCardId: intent.beforeViewCardId,
+              position: {
+                ...evidence.membership.position,
+                beforeViewCardId: intent.beforeViewCardId,
+              },
             },
           }
         : {}),

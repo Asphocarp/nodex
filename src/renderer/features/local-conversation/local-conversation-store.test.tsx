@@ -13177,6 +13177,177 @@ describe("local-conversation-store", () => {
     resumeThreadResult = null;
   });
 
+  test("renderer client request bridge keeps Nodex authorization pending until the owner responds", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        status: "inProgress",
+        itemIds: [],
+        items: [],
+      }],
+    };
+    const {
+      LocalConversationProvider,
+      useDefaultCodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    let manager: {
+      requestThreadStreamResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+      readConversation: (threadId: string) => CodexConversationSnapshot | null;
+      respondNodexAgentAuthorization: (
+        requestId: string,
+        response: { decision: "allow_once" },
+        conversationId: string,
+      ) => Promise<boolean>;
+    } | null = null;
+    function Probe() {
+      manager = useDefaultCodexAppServerManager();
+      return createElement("div");
+    }
+
+    render(createElement(LocalConversationProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+    if (!manager) throw new Error("Expected manager");
+    const activeManager = manager as {
+      requestThreadStreamResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+      readConversation: (threadId: string) => CodexConversationSnapshot | null;
+      respondNodexAgentAuthorization: (
+        requestId: string,
+        response: { decision: "allow_once" },
+        conversationId: string,
+      ) => Promise<boolean>;
+    };
+    await act(async () => {
+      await activeManager.requestThreadStreamResume("thread-1");
+    });
+    invokeRecords = [];
+
+    await act(async () => {
+      rendererClientRequestListener?.({
+        requestId: "renderer-auth-1",
+        method: "nodex-agent-authorization",
+        params: {
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-auth-1",
+          projectId: "project-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "call-1",
+          tool: "edit_document",
+          effect: "write",
+          preview: {
+            title: "Append rollout plan",
+            summary: "Append four Blocks.",
+            details: [],
+          },
+          createdAt: 1,
+        },
+      });
+      await flushAsyncWork();
+    });
+
+    await waitForCondition(() =>
+      activeManager.readConversation("thread-1")?.requests.some(
+        (request) => request.requestId === "nodex-auth-1",
+      ) === true
+    , 1_000);
+    expect(invokeRecords.some((record) =>
+      record.channel === "codex:renderer-client:response"
+    )).toBe(false);
+
+    await act(async () => {
+      await activeManager.respondNodexAgentAuthorization(
+        "nodex-auth-1",
+        { decision: "allow_once" },
+        "thread-1",
+      );
+      await flushAsyncWork();
+    });
+
+    const responseRecord = invokeRecords.find((record) =>
+      record.channel === "codex:renderer-client:response"
+    );
+    expect(responseRecord?.args[0]).toEqual({
+      type: "success",
+      requestId: "renderer-auth-1",
+      result: { decision: "allow_once" },
+    });
+    expect(activeManager.readConversation("thread-1")?.requests.some(
+      (request) => request.requestId === "nodex-auth-1",
+    )).toBe(false);
+
+    invokeRecords = [];
+    await act(async () => {
+      rendererClientRequestListener?.({
+        requestId: "renderer-auth-2",
+        method: "nodex-agent-authorization",
+        params: {
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-auth-2",
+          projectId: "project-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "call-2",
+          tool: "create",
+          effect: "write",
+          preview: {
+            title: "Create Card",
+            summary: "Create one Card.",
+            details: [],
+          },
+          createdAt: 2,
+        },
+      });
+      await flushAsyncWork();
+    });
+    await waitForCondition(() =>
+      activeManager.readConversation("thread-1")?.requests.some(
+        (request) => request.requestId === "nodex-auth-2",
+      ) === true
+    , 1_000);
+
+    dispatchCodexAppServerMessage("thread-owner-notification", {
+      hostId: "default",
+      sequence: 1,
+      notification: {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: buildProtocolTurn({
+            id: "turn-1",
+            status: "interrupted",
+            error: null,
+            startedAt: 1,
+            completedAt: 2,
+            durationMs: 1,
+          }),
+        },
+      },
+    });
+    await waitForCondition(() => invokeRecords.some((record) =>
+      record.channel === "codex:renderer-client:response"
+    ), 1_000);
+    const canceledResponse = invokeRecords.find((record) =>
+      record.channel === "codex:renderer-client:response"
+    );
+    expect(canceledResponse?.args[0]).toEqual({
+      type: "success",
+      requestId: "renderer-auth-2",
+      result: { decision: "deny" },
+    });
+    resumeThreadResult = null;
+  });
+
   test("owner complete-history action publishes snapshot revision from bundle 49659-49675", async () => {
     invokeCalls = [];
     invokeRecords = [];

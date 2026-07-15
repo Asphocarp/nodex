@@ -911,6 +911,34 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("approval");
   });
 
+  test("indexes the semantic and NFM preview of a Nodex authorization request", () => {
+    const items = buildRendererItemStream({
+      entries: [],
+      requests: [{
+        type: "nodexAgentAuthorization",
+        requestId: "nodex-auth-1",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "call-1",
+        tool: "edit_document",
+        effect: "write",
+        preview: {
+          title: "Append rollout plan",
+          summary: "Append four Blocks.",
+          details: [{ label: "Document", value: "Launch brief" }],
+          nfmPreview: "## Rollout\n\n- Alpha cohort",
+        },
+        createdAt: 5,
+      }],
+      turnStatus: "inProgress",
+    });
+
+    expect(items[0]?.type).toBe("nodexAgentAuthorization");
+    expect(items[0]?.searchableText).toContain("Launch brief");
+    expect(items[0]?.searchableText).toContain("Alpha cohort");
+  });
+
   test("does not synthesize worked-for rows in the flat renderer item stream", () => {
     const items = buildRendererItemStream({
       entries: [

@@ -119,8 +119,7 @@ interface CardContent {
 
 interface AssembledCard {
   readonly card: Card | null;
-  readonly databaseRowError:
-    "card_database_membership_missing" | "card_view_position_invalid" | null;
+  readonly databaseRowError: "card_database_membership_missing" | null;
   readonly row: CardAuthorityRow;
   readonly content: CardContent;
   readonly databaseValues: Readonly<
@@ -152,6 +151,7 @@ const CARD_AUTHORITY_SELECT = `
       ON position.view_id = view.id
       AND position.project_id = view.project_id
     WHERE view.is_primary = 1 AND view.kind = 'kanban'
+      AND view.lifecycle = 'active'
   )
   SELECT
     card.id AS card_block_id,
@@ -207,6 +207,8 @@ const CARD_AUTHORITY_SELECT = `
     AND position.block_id = card.id
   WHERE card.type = 'card'
 `;
+
+const UNPOSITIONED_CARD_ORDER = Number.MAX_SAFE_INTEGER;
 
 const DATABASE_PROPERTY_PLACEHOLDERS = DATABASE_PROPERTY_KEYS.map(
   () => "?",
@@ -539,32 +541,25 @@ const assembleCard = (
       "property status is not a Card status",
     );
   }
+  const hasViewPosition = row.view_id !== null;
   const hasCompleteViewPosition =
-    row.view_id !== null &&
+    hasViewPosition &&
     row.view_group_key !== null &&
     row.view_rank_key !== null &&
     row.view_order !== null;
+  if (hasViewPosition && !hasCompleteViewPosition) {
+    return throwReadError(
+      "card_view_position_invalid",
+      row.card_block_id,
+      "has an incomplete primary View position",
+    );
+  }
   if (hasCompleteViewPosition && row.view_group_key !== statusValue) {
     return throwReadError(
       "card_view_position_invalid",
       row.card_block_id,
       "has a view group that disagrees with its status property",
     );
-  }
-
-  if (!hasCompleteViewPosition) {
-    return {
-      row,
-      content,
-      card: null,
-      databaseRowError: "card_view_position_invalid",
-      databaseValues: database.values,
-      intrinsicValues: intrinsic.values,
-      propertyRevisions: {
-        database: database.revisions,
-        intrinsic: intrinsic.revisions,
-      },
-    };
   }
 
   const priority = requireNullableString(
@@ -683,7 +678,7 @@ const assembleCard = (
       ) ?? undefined,
     revision: row.metadata_revision,
     created: new Date(row.block_created_at),
-    order: row.view_order as number,
+    order: row.view_order ?? UNPOSITIONED_CARD_ORDER,
   };
   try {
     assertValidCardInput(
@@ -731,13 +726,6 @@ const assembleCard = (
 
 const requireDatabaseRowCard = (assembled: AssembledCard): Card => {
   if (assembled.card) return assembled.card;
-  if (assembled.databaseRowError === "card_view_position_invalid") {
-    return throwReadError(
-      "card_view_position_invalid",
-      assembled.row.card_block_id,
-      "has no position in its Database primary Kanban view",
-    );
-  }
   return throwReadError(
     "card_database_membership_missing",
     assembled.row.card_block_id,
@@ -972,9 +960,15 @@ export function readProjectDatabaseCards(
       ${CARD_AUTHORITY_SELECT}
         AND card.project_id = ?
         AND card.lifecycle = 'active'
+        AND membership.database_block_id = (
+          SELECT capability.block_id
+          FROM database_capabilities capability
+          WHERE capability.project_id = ? AND capability.is_primary = 1
+          LIMIT 1
+        )
     `,
       )
-      .all(projectId) as CardAuthorityRow[];
+      .all(projectId, projectId) as CardAuthorityRow[];
     return assembleRows(
       database,
       rows.filter((row) => row.membership_id !== null),
@@ -1053,9 +1047,15 @@ export function readProjectDatabaseCardSummaries(
       ${CARD_AUTHORITY_SELECT}
         AND card.project_id = ?
         AND card.lifecycle = 'active'
+        AND membership.database_block_id = (
+          SELECT capability.block_id
+          FROM database_capabilities capability
+          WHERE capability.project_id = ? AND capability.is_primary = 1
+          LIMIT 1
+        )
     `,
       )
-      .all(projectId) as CardAuthorityRow[];
+      .all(projectId, projectId) as CardAuthorityRow[];
     return assembleRows(
       database,
       rows.filter((row) => row.membership_id !== null),

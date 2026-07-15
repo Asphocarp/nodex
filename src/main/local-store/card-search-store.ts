@@ -10,7 +10,9 @@ interface SearchableCardStatusRow {
   readonly project_id: string;
   readonly card_block_id: string;
   readonly value_json: string;
-  readonly group_key: string;
+  readonly view_id: string;
+  readonly position_view_id: string | null;
+  readonly group_key: string | null;
 }
 
 interface CandidateHit {
@@ -44,6 +46,8 @@ const readSearchableStatuses = (
         membership.project_id,
         membership.card_block_id,
         value.value_json,
+        view.id AS view_id,
+        position.view_id AS position_view_id,
         position.group_key
       FROM database_memberships membership
       INNER JOIN blocks card
@@ -66,7 +70,8 @@ const readSearchableStatuses = (
         AND view.project_id = membership.project_id
         AND view.kind = 'kanban'
         AND view.is_primary = 1
-      INNER JOIN database_view_positions position
+        AND view.lifecycle = 'active'
+      LEFT JOIN database_view_positions position
         ON position.view_id = view.id
         AND position.project_id = view.project_id
         AND position.block_id = membership.card_block_id
@@ -84,7 +89,13 @@ const readSearchableStatuses = (
     } catch {
       continue;
     }
-    if (!isCardStatus(value) || row.group_key !== value) continue;
+    if (!isCardStatus(value)) continue;
+    if (
+      row.position_view_id !== null &&
+      (row.position_view_id !== row.view_id || row.group_key !== value)
+    ) {
+      continue;
+    }
     statuses.set(JSON.stringify([row.project_id, row.card_block_id]), value);
   }
   return statuses;

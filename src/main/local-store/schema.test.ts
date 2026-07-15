@@ -19,6 +19,9 @@ import {
   migrateSchema60To61,
   migrateSchema61To62,
   migrateSchema62To63,
+  migrateSchema63To64,
+  migrateSchema64To65,
+  migrateSchema65To66,
 } from "./schema";
 import {
   createProjectSession,
@@ -33,7 +36,7 @@ const tempDirectories: string[] = [];
 const useTempStore = (): string => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v63-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v66-"));
   tempDirectories.push(directory);
   process.env.NODEX_DIR = directory;
   return directory;
@@ -146,10 +149,10 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v63 release boundary", () => {
+describe("schema v66 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
-    expect(releaseVersions).toEqual([58, 59, 60, 61, 62, 63]);
+    expect(releaseVersions).toEqual([58, 59, 60, 61, 62, 63, 64, 65, 66]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
         releaseVersions.slice(index + 1),
@@ -188,6 +191,9 @@ describe("schema v63 release boundary", () => {
       "codex_unread_threads",
       "codex_project_thread_orders",
       "codex_sidebar_chat_order",
+      "codex_thread_dynamic_tool_catalogs",
+      "nodex_agent_token_keys",
+      "nodex_agent_call_receipts",
     ]) {
       expect(names.has(tableName)).toBe(true);
     }
@@ -207,7 +213,7 @@ describe("schema v63 release boundary", () => {
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
   });
 
-  test.each([58, 59, 60, 61, 62])(
+  test.each([58, 59, 60, 61, 62, 63, 64, 65])(
     "runs the ordered release chain from schema v%i",
     async (sourceVersion) => {
       useTempStore();
@@ -222,6 +228,50 @@ describe("schema v63 release boundary", () => {
       );
     },
   );
+
+  test("migrates v63 stores with a durable per-thread dynamic-tool catalog", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    database.exec("DROP TABLE codex_thread_dynamic_tool_catalogs");
+    database.pragma("user_version = 63");
+
+    migrateSchema63To64(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(64);
+    expect(tableNames(database).has("codex_thread_dynamic_tool_catalogs")).toBe(true);
+    expect(database.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  test("migrates v64 stores with one durable Agent token signing key", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    database.exec("DROP TABLE nodex_agent_token_keys");
+    database.pragma("user_version = 64");
+
+    migrateSchema64To65(database);
+
+    const row = database.prepare(
+      "SELECT length(key_material) AS key_length FROM nodex_agent_token_keys WHERE id = 1",
+    ).get() as { readonly key_length: number };
+    expect(database.pragma("user_version", { simple: true })).toBe(65);
+    expect(row.key_length).toBe(32);
+  });
+
+  test("migrates v65 stores with bounded Agent call preparation receipts", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    database.exec("DROP TABLE nodex_agent_call_receipts");
+    database.pragma("user_version = 65");
+
+    migrateSchema65To66(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(66);
+    expect(tableNames(database).has("nodex_agent_call_receipts")).toBe(true);
+    expect(database.pragma("foreign_key_check")).toEqual([]);
+  });
 
   test("rejects an unreleased development schema without mutating it", async () => {
     useTempStore();

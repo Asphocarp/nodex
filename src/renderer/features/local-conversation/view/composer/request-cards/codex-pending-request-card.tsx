@@ -6,6 +6,7 @@ import { CodexOptionPickerRequestCard } from "./codex-option-picker-request-card
 import { CodexPermissionRequestCard } from "./codex-permission-request-card";
 import { CodexSetupCodexStepRequestCard } from "./codex-setup-codex-step-request-card";
 import { CodexUserInputRequestCard } from "./codex-user-input-request-card";
+import { NodexAgentAuthorizationRequestCard } from "./nodex-agent-authorization-request-card";
 
 interface CodexPendingRequestCardProps {
   entry: ThreadComposerShellPendingRequestModel;
@@ -94,6 +95,19 @@ export function CodexPendingRequestCard({
           }}
           onSubmitLocalFollowup={async (prompt) => {
             await actions.onSendPrompt(prompt);
+          }}
+        />
+      );
+    case "nodexAgentAuthorization":
+      return (
+        <NodexAgentAuthorizationRequestCard
+          request={entry.request}
+          onRespond={async (requestId, response) => {
+            await (actions.onRespondNodexAgentAuthorization ?? (async () => {}))(
+              requestId,
+              response,
+              { conversationId: entry.conversationId },
+            );
           }}
         />
       );

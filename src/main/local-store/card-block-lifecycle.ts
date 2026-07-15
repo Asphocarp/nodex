@@ -129,6 +129,7 @@ export type CardLifecycleMutationFaultPoint =
 export interface ApplyCardLifecycleMutationOptions {
   readonly now?: () => string;
   readonly allocateBodyBlockId?: () => string;
+  readonly allocateMembershipId?: () => string;
   readonly faultInjector?: (point: CardLifecycleMutationFaultPoint) => void;
 }
 
@@ -926,7 +927,7 @@ const createCard = (
       request,
     );
   }
-  const membershipId = randomUUID();
+  const membershipId = options.allocateMembershipId?.() ?? randomUUID();
   assertIdentityAvailable(database, request, membershipId);
   const primary = readPrimaryDatabase(database, request);
   const properties = new Map(
@@ -961,7 +962,9 @@ const createCard = (
   const documentId = `document:${cardId}`;
   const genesis = createCardDocumentGenesis({
     documentId,
-    title: request.operation.title,
+    ...(request.operation.richTitle
+      ? { richTitle: request.operation.richTitle }
+      : { title: request.operation.title }),
     nfm: request.operation.nfm,
     ...(options.allocateBodyBlockId === undefined
       ? {}
@@ -1273,12 +1276,19 @@ const readPrimaryViewForMembership = (
   database: Database.Database,
   request: CardLifecycleMutationRequest,
   membership: MembershipRow | null,
-): { readonly viewId: string | null; readonly rankKey: string | null } => {
-  if (!membership) return { viewId: null, rankKey: null };
+): Readonly<{
+  viewId: string | null;
+  position: null | Readonly<{
+    groupKey: string | null;
+    rankKey: string;
+  }>;
+}> => {
+  if (!membership) return { viewId: null, position: null };
   const row = database
     .prepare(
       `
-      SELECT view.id AS view_id, position.rank_key
+      SELECT view.id AS view_id, position.view_id AS position_view_id,
+        position.group_key, position.rank_key
       FROM database_views view
       LEFT JOIN database_view_positions position
         ON position.view_id = view.id
@@ -1286,6 +1296,7 @@ const readPrimaryViewForMembership = (
        AND position.project_id = view.project_id
       WHERE view.database_block_id = ? AND view.project_id = ?
         AND view.is_primary = 1 AND view.lifecycle = 'active'
+        AND view.kind = 'kanban'
       LIMIT 1
     `,
     )
@@ -1294,10 +1305,27 @@ const readPrimaryViewForMembership = (
       membership.database_block_id,
       request.projectId,
     ) as
-    { readonly view_id: string; readonly rank_key: string | null } | undefined;
+    {
+      readonly view_id: string;
+      readonly position_view_id: string | null;
+      readonly group_key: string | null;
+      readonly rank_key: string | null;
+    } | undefined;
+  if (!row) return { viewId: null, position: null };
+  if (row.position_view_id === null) {
+    return { viewId: row.view_id, position: null };
+  }
+  if (row.position_view_id !== row.view_id || row.rank_key === null) {
+    throw new Error(
+      `Card ${request.operation.cardId} has an incomplete primary View position`,
+    );
+  }
   return {
-    viewId: row?.view_id ?? null,
-    rankKey: row?.rank_key ?? null,
+    viewId: row.view_id,
+    position: {
+      groupKey: row.group_key,
+      rankKey: row.rank_key,
+    },
   };
 };
 
@@ -1381,9 +1409,16 @@ const makeExistingCommit = (
     input.topLevelRankKey === undefined
       ? readPlacementRank(database, request)
       : input.topLevelRankKey;
-  const viewId = input.viewId === undefined ? primaryView.viewId : input.viewId;
+  const viewId =
+    input.viewId === undefined
+      ? primaryView.position === null
+        ? null
+        : primaryView.viewId
+      : input.viewId;
   const viewRankKey =
-    input.viewRankKey === undefined ? primaryView.rankKey : input.viewRankKey;
+    input.viewRankKey === undefined
+      ? primaryView.position?.rankKey ?? null
+      : input.viewRankKey;
   return {
     cardId: input.block.id,
     lifecycle: input.block.lifecycle,
@@ -1567,10 +1602,20 @@ const deleteCard = (
       request,
     );
   }
-  if (membership && (!primaryView.viewId || !primaryView.rankKey)) {
+  if (membership && !primaryView.viewId) {
     return reject(
       "database_schema_invalid",
-      `Card ${block.id} has membership without a complete primary View position`,
+      `Card ${block.id} membership has no active primary Kanban View`,
+      request,
+    );
+  }
+  if (
+    primaryView.position &&
+    primaryView.position.groupKey !== previousStatus
+  ) {
+    return reject(
+      "database_schema_invalid",
+      `Card ${block.id} status and primary View group disagree`,
       request,
     );
   }
@@ -1680,16 +1725,16 @@ const deleteCard = (
       ...(membership === null ? {} : { membership: membership.revision + 1 }),
     },
     topLevelRankKey: null,
-    viewId: primaryView.viewId,
+    viewId: primaryView.position ? primaryView.viewId : null,
     viewRankKey: null,
     changePayload: {
       previousLifecycle: block.lifecycle,
       removedMembershipId: membership?.id ?? null,
       removedDatabaseBlockId: membership?.database_block_id ?? null,
-      removedViewId: primaryView.viewId,
+      removedViewId: primaryView.position ? primaryView.viewId : null,
       previousStatus,
       previousTopLevelRankKey: topLevelRankKey,
-      previousViewRankKey: primaryView.rankKey,
+      previousViewRankKey: primaryView.position?.rankKey ?? null,
     },
   });
   return withIndexedLifecycleEvidence(commit, {
@@ -1985,7 +2030,7 @@ const readDeleteEvidence = (
       databaseBlockIds.length === 0) ||
       (typeof removedMembershipId === "string" &&
         typeof removedDatabaseBlockId === "string" &&
-        typeof removedViewId === "string" &&
+        (removedViewId === null || typeof removedViewId === "string") &&
         isCardStatus(previousStatus) &&
         databaseBlockIds.length === 1 &&
         databaseBlockIds[0] === removedDatabaseBlockId));
@@ -2038,7 +2083,7 @@ const readRemovedMembership = (
   );
 };
 
-const assertRestoreView = (
+const assertRestoreDatabase = (
   database: Database.Database,
   request: CardLifecycleMutationRequest & {
     readonly operation: RestoreWithMembershipOperation;
@@ -2060,20 +2105,24 @@ const assertRestoreView = (
        AND database_block.project_id = capability.project_id
        AND database_block.type = 'database'
        AND database_block.lifecycle = 'active'
-      WHERE view.id = ? AND view.database_block_id = ? AND view.project_id = ?
+      WHERE view.database_block_id = ? AND view.project_id = ?
         AND view.lifecycle = 'active' AND view.is_primary = 1
         AND view.kind = 'kanban'
+        AND (? IS NULL OR view.id = ?)
     `,
     )
     .get(
-      request.operation.membership.viewId,
       request.operation.membership.databaseBlockId,
       request.projectId,
+      request.operation.membership.position?.viewId ?? null,
+      request.operation.membership.position?.viewId ?? null,
     ) as { readonly config_json: string } | undefined;
   if (!row) {
     return reject(
       "view_not_found",
-      `Restore View ${request.operation.membership.viewId} is not an active primary Kanban View`,
+      request.operation.membership.position
+        ? `Restore View ${request.operation.membership.position.viewId} is not an active primary Kanban View`
+        : `Restore Database ${request.operation.membership.databaseBlockId} has no active primary Kanban View`,
       request,
     );
   }
@@ -2193,7 +2242,8 @@ const restoreCard = (
     (requestedMembership !== null &&
       requestedMembership.membershipId === deleteEvidence.membershipId &&
       requestedMembership.databaseBlockId === deleteEvidence.databaseBlockId &&
-      requestedMembership.viewId === deleteEvidence.viewId &&
+      (requestedMembership.position?.viewId ?? null) ===
+        deleteEvidence.viewId &&
       requestedMembership.status === deleteEvidence.status);
   if (!evidenceMembershipMatches) {
     return reject(
@@ -2206,7 +2256,7 @@ const restoreCard = (
     ? readRemovedMembership(database, restoreMembership)
     : null;
   const properties = restoreMembership
-    ? assertRestoreView(database, restoreMembership)
+    ? assertRestoreDatabase(database, restoreMembership)
     : null;
   if (restoreMembership && properties) {
     assertCompleteMembershipValues(database, restoreMembership, properties);
@@ -2250,12 +2300,12 @@ const restoreCard = (
       );
     }
   }
-  const viewRank = restoreMembership
+  const restorePosition = restoreMembership?.operation.membership.position;
+  const viewRank = restoreMembership && restorePosition
     ? allocateViewRank(database, request, {
-        viewId: restoreMembership.operation.membership.viewId,
+        viewId: restorePosition.viewId,
         status: restoreMembership.operation.membership.status,
-        beforeViewCardId:
-          restoreMembership.operation.membership.beforeViewCardId,
+        beforeViewCardId: restorePosition.beforeViewCardId,
       })
     : null;
   const metadataRevision = block.metadata_revision + 1;
@@ -2324,7 +2374,7 @@ const restoreCard = (
       .run(block.id, request.projectId, topLevelRank.rankKey, now, now);
   }
   const membershipRevision = membership ? membership.revision + 1 : null;
-  if (restoreMembership && membership && properties && viewRank) {
+  if (restoreMembership && membership && properties) {
     const restoredMembership = database
       .prepare(
         `
@@ -2345,24 +2395,26 @@ const restoreCard = (
         `Membership ${membership.id} changed during Card restore`,
       );
     }
-    database
-      .prepare(
-        `
+    if (viewRank && restorePosition) {
+      database
+        .prepare(
+          `
         INSERT INTO database_view_positions (
           view_id, block_id, project_id, group_key, rank_key,
           revision, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
       `,
-      )
-      .run(
-        restoreMembership.operation.membership.viewId,
-        block.id,
-        request.projectId,
-        restoreMembership.operation.membership.status,
-        viewRank.rankKey,
-        now,
-        now,
-      );
+        )
+        .run(
+          restorePosition.viewId,
+          block.id,
+          request.projectId,
+          restoreMembership.operation.membership.status,
+          viewRank.rankKey,
+          now,
+          now,
+        );
+    }
   }
   const commit = makeExistingCommit(database, request, {
     block: {
@@ -2387,10 +2439,13 @@ const restoreCard = (
       blockLocation: locationRevision,
       ...(membershipRevision === null
         ? {}
-        : { membership: membershipRevision, viewPosition: 1 }),
+        : {
+            membership: membershipRevision,
+            ...(viewRank ? { viewPosition: 1 } : {}),
+          }),
     },
     topLevelRankKey: topLevelRank?.rankKey ?? null,
-    viewId: restoreMembership?.operation.membership.viewId ?? null,
+    viewId: restorePosition?.viewId ?? null,
     viewRankKey: viewRank?.rankKey ?? null,
     changePayload: {
       restoredMembershipId: membership?.id ?? null,
@@ -2924,6 +2979,7 @@ const readMembershipCoordinate = (
         view.id AS view_id, view.revision AS view_revision,
         property.id AS status_property_id,
         value.revision AS status_value_revision, value.value_json,
+        position.view_id AS position_view_id,
         position.group_key, position.rank_key,
         position.revision AS position_revision
       FROM database_views view
@@ -2937,7 +2993,7 @@ const readMembershipCoordinate = (
        AND value.database_block_id = view.database_block_id
        AND value.project_id = view.project_id
        AND value.property_id = property.id
-      INNER JOIN database_view_positions position
+      LEFT JOIN database_view_positions position
         ON position.view_id = view.id
        AND position.project_id = view.project_id
        AND position.block_id = ?
@@ -2958,20 +3014,33 @@ const readMembershipCoordinate = (
         readonly status_property_id: string;
         readonly status_value_revision: number;
         readonly value_json: string;
+        readonly position_view_id: string | null;
         readonly group_key: string | null;
-        readonly rank_key: string;
-        readonly position_revision: number;
+        readonly rank_key: string | null;
+        readonly position_revision: number | null;
       }
     | undefined;
   if (!row) {
     throw new Error(
-      `Card ${request.operation.cardId} membership has no exact primary View/status coordinate`,
+      `Card ${request.operation.cardId} membership has no primary View/status coordinate`,
     );
   }
   const status = JSON.parse(row.value_json) as unknown;
-  if (!isCardStatus(status) || row.group_key !== status) {
+  if (!isCardStatus(status)) {
     throw new Error(
-      `Card ${request.operation.cardId} membership status and primary View group diverge`,
+      `Card ${request.operation.cardId} membership has an invalid status value`,
+    );
+  }
+  const hasPosition = row.position_view_id !== null;
+  if (
+    hasPosition &&
+    (row.position_view_id !== row.view_id ||
+      row.group_key !== status ||
+      row.rank_key === null ||
+      row.position_revision === null)
+  ) {
+    throw new Error(
+      `Card ${request.operation.cardId} membership status and primary View position diverge`,
     );
   }
   return {
@@ -2983,11 +3052,13 @@ const readMembershipCoordinate = (
     statusPropertyId: row.status_property_id,
     statusValueRevision: row.status_value_revision,
     status,
-    position: {
-      groupKey: row.group_key,
-      rankKey: row.rank_key,
-      revision: row.position_revision,
-    },
+    position: hasPosition
+      ? {
+          groupKey: row.group_key,
+          rankKey: row.rank_key as string,
+          revision: row.position_revision as number,
+        }
+      : null,
   };
 };
 
@@ -3055,13 +3126,12 @@ const readRestoreEvidence = (
   const membership =
     evidence.membershipId &&
     evidence.databaseBlockId &&
-    evidence.viewId &&
     evidence.status
       ? {
           membershipId: evidence.membershipId,
           databaseBlockId: evidence.databaseBlockId,
-          viewId: evidence.viewId,
           status: evidence.status,
+          position: evidence.viewId ? { viewId: evidence.viewId } : null,
         }
       : null;
   return {

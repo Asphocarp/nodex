@@ -9,6 +9,7 @@ import type {
   CodexPermissionRequest,
   CodexPlanImplementationRequest,
   CodexSetupCodexStepRequest,
+  NodexAgentAuthorizationRequest,
 } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
 import type {
@@ -79,6 +80,9 @@ function createActions(log: string[]): ThreadStageActions {
     },
     onRespondPermissionRequest: async (requestId, response, context) => {
       log.push(`permission:${requestId}:${response.scope}:${context?.conversationId ?? "none"}`);
+    },
+    onRespondNodexAgentAuthorization: async (requestId, response, context) => {
+      log.push(`nodex:${requestId}:${response.decision}:${context?.conversationId ?? "none"}`);
     },
     onRespondOptionPicker: async (requestId, response, context) => {
       log.push(`option:${requestId}:${response.action}:${response.selectedOptions.join(",")}:${context?.conversationId ?? "none"}`);
@@ -177,6 +181,29 @@ describe("CodexPendingRequestCard", () => {
           } satisfies CodexPermissionRequest,
         },
       },
+      {
+        buttonText: "Skip",
+        entry: {
+          conversationId: "thread_1",
+          surface: "activeThread",
+          request: {
+            type: "nodexAgentAuthorization",
+            requestId: "nodex_auth_1",
+            projectId: "project_1",
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "call_1",
+            tool: "create",
+            effect: "write",
+            preview: {
+              title: "Create Card",
+              summary: "Create one Card.",
+              details: [],
+            },
+            createdAt: 5,
+          } satisfies NodexAgentAuthorizationRequest,
+        },
+      },
     ];
 
     for (const { buttonText, entry } of entries) {
@@ -201,6 +228,7 @@ describe("CodexPendingRequestCard", () => {
       "approval:approval_1:file:decline:thread_1",
       "mcp:mcp_1:decline:thread_1",
       "permission:permission_1:turn:thread_1",
+      "nodex:nodex_auth_1:deny:thread_1",
     ]));
   });
 

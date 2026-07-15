@@ -631,6 +631,36 @@ describe("local-conversation selectors", () => {
     expect(JSON.stringify(selectBlockedTurnIds(conversation))).toBe(JSON.stringify(["turn_1"]));
   });
 
+  test("projects Nodex authorization as the blocking background request for its turn", () => {
+    const conversation = buildConversation({
+      turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
+      requests: [{
+        type: "nodexAgentAuthorization",
+        requestId: "nodex-auth-1",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "call-1",
+        tool: "edit_document",
+        effect: "write",
+        preview: {
+          title: "Append rollout plan",
+          summary: "Append four Blocks.",
+          details: [],
+        },
+        createdAt: 1,
+      }],
+    });
+
+    expect(selectPrimaryBackgroundConversationRequest(conversation)?.type).toBe(
+      "nodexAgentAuthorization",
+    );
+    expect(selectConversationLiveRequests(conversation)[0]?.type).toBe(
+      "nodexAgentAuthorization",
+    );
+    expect(selectBlockedTurnIds(conversation)).toEqual(["turn_1"]);
+  });
+
   test("uses the unfinished synthetic user-input item before approval when raw input is gone", () => {
     const conversation = buildConversation({
       turns: [buildTurn({

@@ -25,6 +25,10 @@ import type {
   CodexCanonicalTurnState,
 } from "./codex-conversation-state";
 import type { CodexApprovalRequestMethod } from "../codex-approval";
+import {
+  CODEX_APP_TOOL_NAMESPACE,
+  hasCodexDynamicToolIdentity,
+} from "../codex-dynamic-tool-identity";
 
 type JsonValue = McpServerElicitationRequestResponse["content"];
 
@@ -1067,7 +1071,12 @@ function reduceRawDynamicToolCallRequest(
   request: DynamicToolCallRequest,
 ): CodexServerRequestRawLifecycleResult {
   const { tool, arguments: args } = request.params;
-  if (tool === "setup_codex_step") {
+  const isCodexAppTool = (candidate: string): boolean =>
+    hasCodexDynamicToolIdentity(request.params, {
+      namespace: CODEX_APP_TOOL_NAMESPACE,
+      tool: candidate,
+    });
+  if (isCodexAppTool("setup_codex_step")) {
     const step = parseSetupStep(args);
     if (step === null) {
       return emptyRawResult(state, "responded", [{
@@ -1083,13 +1092,13 @@ function reduceRawDynamicToolCallRequest(
   }
 
   if (
-    tool === "request_option_picker"
-    || tool === "request_onboarding_input"
-    || tool === "setup_codex_context_picker"
+    isCodexAppTool("request_option_picker")
+    || isCodexAppTool("request_onboarding_input")
+    || isCodexAppTool("setup_codex_context_picker")
   ) {
-    const valid = tool === "request_option_picker"
+    const valid = isCodexAppTool("request_option_picker")
       ? isValidOptionPickerArguments(args)
-      : tool === "request_onboarding_input"
+      : isCodexAppTool("request_onboarding_input")
         ? isValidOnboardingArguments(args)
         : true;
     if (!valid) {
@@ -1395,7 +1404,11 @@ function isStoredDynamicToolRequest(
   request: CodexCanonicalServerRequest | undefined,
   tool: "request_onboarding_input" | "setup_codex_step",
 ): request is DynamicToolCallRequest {
-  return request?.method === "item/tool/call" && request.params.tool === tool;
+  return request?.method === "item/tool/call"
+    && hasCodexDynamicToolIdentity(request.params, {
+      namespace: CODEX_APP_TOOL_NAMESPACE,
+      tool,
+    });
 }
 
 export function reduceCodexServerRequestOnboardingInputResponseRawState(
@@ -1439,7 +1452,10 @@ function reduceCodexServerRequestStoredPickerResponseRawState(
   const supported = request?.method === expected.directMethod
     || (
       request?.method === "item/tool/call"
-      && request.params.tool === expected.dynamicTool
+      && hasCodexDynamicToolIdentity(request.params, {
+        namespace: CODEX_APP_TOOL_NAMESPACE,
+        tool: expected.dynamicTool,
+      })
     );
   if (!request || !supported) return emptyRawResult(state, "ignored");
   return selectedRawReplyResult(state, [request]);

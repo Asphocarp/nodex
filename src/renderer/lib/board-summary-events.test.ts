@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { BoardSummary, CardSummary } from "./types";
-import { applyBoardChangeEventToBoard } from "./board-summary-events";
+import {
+  applyBoardChangeEventToBoard,
+  upsertCardSummaryInBoard,
+} from "./board-summary-events";
 
 function makeCard(id: string, status: CardSummary["status"], order: number): CardSummary {
   return {
@@ -81,5 +84,24 @@ describe("board summary events", () => {
     const next = applyBoardChangeEventToBoard(board, makeEvent(archived));
 
     expect(next?.columns[0]?.cards.length).toBe(0);
+  });
+
+  test("orders equal-tail summaries deterministically by Card identity", () => {
+    const board = makeBoard();
+    const tailOrder = Number.MAX_SAFE_INTEGER;
+    const withLater = upsertCardSummaryInBoard(
+      board,
+      makeCard("card-z", "draft", tailOrder),
+    );
+    const withBoth = upsertCardSummaryInBoard(
+      withLater,
+      makeCard("card-a", "draft", tailOrder),
+    );
+
+    expect(withBoth.columns[0]?.cards.map((card) => card.id)).toEqual([
+      "card-1",
+      "card-a",
+      "card-z",
+    ]);
   });
 });

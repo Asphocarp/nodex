@@ -22,11 +22,13 @@ ADR 0013 supersedes only the inclusion of Agent state in the preceding Card-intr
 
 A durable Database View stores filter, sort, group, display, and manual position configuration. Board, list, toggle-list, calendar, and canvas views use one Database query Module. Each view owns its fractional manual ordering; content placement and another view's order are unaffected.
 
+Membership, not manual position, determines whether a Card is a Database row. A membership may have no position in a given View; the View still evaluates that row through its filter, property sort, and grouping rules, and a manual sort treats the absent rank as null according to the View's explicit null policy. Reads must never require or synthesize a position merely to make a row visible. When a position does exist, it must be complete and its group must agree with the grouped property authority.
+
 Host Documents store only reference Blocks containing stable target IDs or durable `databaseViewId` values. Collapsed rows use Card summary projections. Only expanded and visible rows mount the target Card's independent Document editor. Query results and foreign bodies never become ProseMirror/Yjs children of the host Document.
 
 ## Consequences
 
-The same Card can be shown in multiple views without copying content. A second Database and custom properties can be added without changing Card identity. View changes synchronize as relational mutations, while active view/search/selection/expansion remain window-local.
+The same Card can be shown in multiple views without copying content. A second Database and custom properties can be added without changing Card identity. View changes synchronize as relational mutations, while active view/search/selection/expansion remain window-local. Deleting, restoring, transferring, or cloning a Card preserves the distinction between Database membership and optional manual View participation.
 
 Migration must seed one primary Database Block and one primary Kanban View per Project, map legacy status/properties/order into capability records, and prove normalized parity before cutover. Existing inline snapshots must become references; recoverable orphan snapshots create standalone Cards before being referenced.
 

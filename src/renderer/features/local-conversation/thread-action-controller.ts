@@ -226,6 +226,13 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onRespondPermissionRequest: async (requestId, response, context) => {
       await input.codexControl.respondPermissionRequest(requestId, response, context?.conversationId ?? null);
     },
+    onRespondNodexAgentAuthorization: async (requestId, response, context) => {
+      await input.codexControl.respondNodexAgentAuthorization(
+        requestId,
+        response,
+        context?.conversationId ?? null,
+      );
+    },
     onRespondOptionPicker: async (requestId, response, context) => {
       const conversationId = context?.conversationId ?? input.activeThreadId;
       if (!conversationId) {

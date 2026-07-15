@@ -166,6 +166,8 @@ export type {
   CodexConversationServerRequest,
   CodexCanonicalServerRequest,
   CodexConversationLiveRequest,
+  NodexAgentAuthorizationRequest,
+  NodexAgentAuthorizationResponse,
   CodexOptionPickerRequest,
   CodexSetupCodexStepRequest,
   CodexConversationSource,

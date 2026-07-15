@@ -81,6 +81,13 @@ import {
   type BlockTransferReceipt,
   type BlockTransferRequest,
 } from "../shared/block-transfer";
+import type {
+  ExecuteNodexAgentCreateResult,
+  ExecuteNodexAgentTransferResult,
+  NodexAgentCreateCardCommand,
+  NodexAgentLeaseDocument,
+  NodexAgentTransferCommand,
+} from "../shared/nodex-agent-tools";
 import { safeSendToWebContents } from "./ipc-safe-send";
 import {
   DocumentRelocationLeaseCoordinator,
@@ -145,6 +152,12 @@ export interface DocumentSyncDurableBackend {
   applyBlockTransfer?(
     request: BlockTransferRequest,
   ): Promise<BlockTransferCommandResult>;
+  executeNodexAgentCreate?(
+    command: NodexAgentCreateCardCommand,
+  ): Promise<ExecuteNodexAgentCreateResult>;
+  executeNodexAgentTransfer?(
+    command: NodexAgentTransferCommand,
+  ): Promise<ExecuteNodexAgentTransferResult>;
 }
 
 export interface DocumentSyncHubOptions {
@@ -620,6 +633,41 @@ const sameBlockTransferDocumentClosure = (
   left.every(
     (head, index) => head.documentId === right[index]?.documentId,
   );
+
+const nodexAgentCreateFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentCreateResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
+const nodexAgentTransferFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentTransferResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
+type NodexAgentLeasedMutationResult =
+  | ExecuteNodexAgentCreateResult
+  | ExecuteNodexAgentTransferResult;
+
+type SuccessfulNodexAgentLeasedMutation = Extract<
+  NodexAgentLeasedMutationResult,
+  { readonly ok: true }
+>;
 
 export class DocumentSyncHub {
   private readonly backend: DocumentSyncDurableBackend;
@@ -1731,6 +1779,168 @@ export class DocumentSyncHub {
     }
     this.relocationLeaseBoundaries.delete(leaseId);
     return result;
+  };
+
+  private executeNodexAgentLeasedMutation = async <
+    Result extends NodexAgentLeasedMutationResult,
+  >(options: {
+    readonly storeEpoch: string;
+    readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+    readonly execute: () => Promise<Result>;
+    readonly failure: (
+      message: string,
+      recovery?: "get_block_again" | "none",
+    ) => Result;
+    readonly operationLabel: string;
+    readonly conflictMessage: string;
+  }): Promise<Result> => {
+    const { leaseDocuments } = options;
+    if (leaseDocuments.length === 0) {
+      try {
+        return await options.execute();
+      } catch {
+        return options.failure(`${options.operationLabel} commit failed`);
+      }
+    }
+
+    const leaseId = this.createBlockTransferLeaseId();
+    this.setBlockTransferLeaseBoundary(
+      leaseId,
+      options.storeEpoch,
+      leaseDocuments,
+    );
+    let prepared;
+    try {
+      prepared = await this.relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: leaseDocuments,
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return options.failure(`${options.operationLabel} write lease preparation failed`);
+    }
+    if (!prepared.ok) {
+      this.relocationLeaseBoundaries.delete(leaseId);
+      return options.failure(prepared.error.message);
+    }
+    const resolved = new Map(
+      prepared.value.resolvedHeads.map((head) => [head.documentId, head]),
+    );
+    const exact = leaseDocuments.every((head) => {
+      const current = resolved.get(head.documentId);
+      return current?.generation === head.generation
+        && current.headSeq === head.expectedHeadSeq;
+    });
+    if (!exact || resolved.size !== leaseDocuments.length) {
+      this.cancelRelocationLease(leaseId);
+      return options.failure(
+        options.conflictMessage,
+        "get_block_again",
+      );
+    }
+
+    let result: Result;
+    try {
+      result = await options.execute();
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return options.failure(`${options.operationLabel} commit failed`);
+    }
+    if (!result.ok) {
+      this.cancelRelocationLease(leaseId);
+      return result;
+    }
+    const success = result as Result & SuccessfulNodexAgentLeasedMutation;
+    for (const commit of success.value.documentCommits) {
+      this.fanoutRelocationCommit(options.storeEpoch, commit);
+    }
+    this.setBlockTransferLeaseBoundary(
+      leaseId,
+      options.storeEpoch,
+      leaseDocuments.map((head) => {
+        const commit = success.value.documentCommits.find(
+          (candidate) => candidate.documentId === head.documentId,
+        );
+        return commit
+          ? {
+              documentId: commit.documentId,
+              generation: commit.generation,
+              expectedHeadSeq: commit.headSeq,
+            }
+          : head;
+      }),
+    );
+    const released = this.relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      for (const commit of success.value.documentCommits) {
+        this.fanout(commit.documentId, {
+          kind: "resync-required",
+          documentId: commit.documentId,
+          storeEpoch: options.storeEpoch,
+          generation: commit.generation,
+          headSeq: commit.headSeq,
+          reason: "event-gap",
+        });
+      }
+    }
+    this.relocationLeaseBoundaries.delete(leaseId);
+    return result;
+  };
+
+  executeNodexAgentCreate = async (
+    command: NodexAgentCreateCardCommand,
+    leaseDocuments: readonly NodexAgentLeaseDocument[],
+  ): Promise<ExecuteNodexAgentCreateResult> => {
+    const execute = this.backend.executeNodexAgentCreate;
+    if (!execute) {
+      return nodexAgentCreateFailure("The durable Agent create writer is unavailable");
+    }
+    const expectedLeaseDocuments = command.destination.kind === "document"
+      ? [{
+          documentId: command.destination.documentId,
+          generation: command.destination.generation,
+          expectedHeadSeq: command.destination.expectedHeadSeq,
+        }]
+      : [];
+    const exactLeaseInput = expectedLeaseDocuments.length === leaseDocuments.length
+      && expectedLeaseDocuments.every((expected, index) => {
+        const received = leaseDocuments[index];
+        return received?.documentId === expected.documentId
+          && received.generation === expected.generation
+          && received.expectedHeadSeq === expected.expectedHeadSeq;
+      });
+    if (!exactLeaseInput) {
+      return nodexAgentCreateFailure(
+        "Agent create lease closure does not match its prepared destination",
+      );
+    }
+    return await this.executeNodexAgentLeasedMutation({
+      storeEpoch: command.storeEpoch,
+      leaseDocuments,
+      execute: async () => await execute(command),
+      failure: nodexAgentCreateFailure,
+      operationLabel: "Agent create",
+      conflictMessage: "Destination Document changed while preparing Card creation",
+    });
+  };
+
+  executeNodexAgentTransfer = async (
+    command: NodexAgentTransferCommand,
+  ): Promise<ExecuteNodexAgentTransferResult> => {
+    const execute = this.backend.executeNodexAgentTransfer;
+    if (!execute) {
+      return nodexAgentTransferFailure(
+        "The durable Agent transfer writer is unavailable",
+      );
+    }
+    return await this.executeNodexAgentLeasedMutation({
+      storeEpoch: command.storeEpoch,
+      leaseDocuments: command.leaseDocuments,
+      execute: async () => await execute(command),
+      failure: nodexAgentTransferFailure,
+      operationLabel: "Agent transfer",
+      conflictMessage: "A transferred Document changed while preparing Block transfer",
+    });
   };
 
   publishAwareness = (

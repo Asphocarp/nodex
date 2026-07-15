@@ -726,6 +726,7 @@ describe("Codex 30751 server-request lifecycle", () => {
       id: "invalid-onboarding",
       params: {
         ...agentActivityV2DynamicToolRequest.params,
+        namespace: "codex_app",
         tool: "request_onboarding_input",
         arguments: {
           questions: [{
@@ -746,6 +747,7 @@ describe("Codex 30751 server-request lifecycle", () => {
       id: "setup-role",
       params: {
         ...agentActivityV2DynamicToolRequest.params,
+        namespace: "codex_app",
         tool: "setup_codex_step",
         arguments: { step: "role" },
       },
@@ -807,12 +809,51 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(ordinary.effects[0]?.type).toBe("dispatchDynamicToolCall");
   });
 
+  test("does not give foreign namespaces codex_app lifecycle behavior", () => {
+    const foreignSetup = {
+      ...agentActivityV2DynamicToolRequest,
+      id: "foreign-setup",
+      params: {
+        ...agentActivityV2DynamicToolRequest.params,
+        namespace: "nodex_app",
+        tool: "setup_codex_step",
+        arguments: { step: "role" },
+      },
+    } satisfies ServerRequest;
+    const foreignPicker = {
+      ...agentActivityV2DynamicOptionPickerRequest,
+      id: "foreign-picker",
+      params: {
+        ...agentActivityV2DynamicOptionPickerRequest.params,
+        namespace: "nodex_app",
+        arguments: { question: "This would be invalid for codex_app" },
+      },
+    } satisfies ServerRequest;
+
+    const setup = reduceCodexConversationServerRequest(
+      buildState(),
+      foreignSetup,
+      context(),
+    );
+    const picker = reduceCodexConversationServerRequest(
+      buildState(),
+      foreignPicker,
+      context(),
+    );
+
+    expect(setup.disposition).toBe("dispatched");
+    expect(setup.effects[0]?.type).toBe("dispatchDynamicToolCall");
+    expect(picker.disposition).toBe("dispatched");
+    expect(picker.effects[0]?.type).toBe("dispatchDynamicToolCall");
+  });
+
   test("routes onboarding replies through the first strict-ID dynamic request and removes every match", () => {
     const onboarding = {
       ...agentActivityV2DynamicToolRequest,
       id: 73,
       params: {
         ...agentActivityV2DynamicToolRequest.params,
+        namespace: "codex_app",
         tool: "request_onboarding_input",
         arguments: {
           questions: [{
@@ -877,6 +918,7 @@ describe("Codex 30751 server-request lifecycle", () => {
       id: `setup-${step}`,
       params: {
         ...agentActivityV2DynamicToolRequest.params,
+        namespace: "codex_app",
         tool: "setup_codex_step",
         arguments: { step },
       },

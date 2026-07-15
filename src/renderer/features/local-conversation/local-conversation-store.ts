@@ -12,6 +12,10 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
+import {
+  NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD,
+  NODEX_AGENT_AUTHORIZATION_TIMEOUT_MS,
+} from "../../../shared/nodex-agent-tools";
 import type {
   FeedbackUploadParams,
   ThreadBackgroundTerminal,
@@ -77,6 +81,8 @@ import type {
   CodexRendererClientResponseMessage,
   CodexRendererThreadRole,
   CodexRendererThreadRoleRequest,
+  NodexAgentAuthorizationRequest,
+  NodexAgentAuthorizationResponse,
   CodexSafetyBufferingState,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
@@ -3486,6 +3492,15 @@ export class CodexAppServerManager {
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly ownerQueuedFollowUpDispatchInFlight = new Set<string>();
   private readonly ownerAppServerRequestClient = new IpcRendererOwnerAppServerRequestClient();
+  private readonly pendingNodexAgentAuthorizations = new Map<
+    string,
+    {
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly timeout: ReturnType<typeof setTimeout>;
+      readonly resolve: (response: NodexAgentAuthorizationResponse) => void;
+    }
+  >();
 
   private readonly connectionCallbacks = new Set<StoreListener>();
   private readonly accountCallbacks = new Set<StoreListener>();
@@ -3578,6 +3593,7 @@ export class CodexAppServerManager {
   }
 
   destroy(): void {
+    this.cancelPendingNodexAgentAuthorizations();
     this.ownerTextDeltaQueue.dispose();
     this.ownerTextDeltaSequenceBuffersByKey.clear();
     this.ownerNotificationCompletionByConversationId.clear();
@@ -5853,6 +5869,95 @@ export class CodexAppServerManager {
     )).accepted;
   }
 
+  requestNodexAgentAuthorization(
+    request: NodexAgentAuthorizationRequest,
+  ): Promise<NodexAgentAuthorizationResponse> {
+    const role = this.streamState.getRole(request.threadId);
+    const conversation = this.conversationsById.get(request.threadId);
+    if (
+      role?.role !== "owner"
+      || !conversation
+      || conversation.projectId !== request.projectId
+      || conversation.threadId !== request.threadId
+    ) {
+      return Promise.reject(new Error("Nodex authorization requires the bound task owner"));
+    }
+    if (this.pendingNodexAgentAuthorizations.has(request.requestId)) {
+      return Promise.reject(new Error("Nodex authorization occurrence is already pending"));
+    }
+    return new Promise<NodexAgentAuthorizationResponse>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        void this.respondNodexAgentAuthorization(
+          request.requestId,
+          { decision: "deny" },
+          request.threadId,
+        );
+      }, NODEX_AGENT_AUTHORIZATION_TIMEOUT_MS);
+      this.pendingNodexAgentAuthorizations.set(request.requestId, {
+        threadId: request.threadId,
+        turnId: request.turnId,
+        timeout,
+        resolve,
+      });
+      try {
+        this.applyOwnerSilentConversationMutation(request.threadId, (current) =>
+          upsertOwnerConversationRequest(current, request)
+        );
+      } catch (error) {
+        this.pendingNodexAgentAuthorizations.delete(request.requestId);
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+  }
+
+  async respondNodexAgentAuthorization(
+    requestId: string,
+    response: NodexAgentAuthorizationResponse,
+    conversationId?: string | null,
+  ): Promise<boolean> {
+    const pending = this.pendingNodexAgentAuthorizations.get(requestId);
+    if (!pending) return false;
+    if (conversationId && conversationId !== pending.threadId) return false;
+    if (
+      response.decision !== "allow_once"
+      && response.decision !== "allow_task"
+      && response.decision !== "deny"
+    ) {
+      return false;
+    }
+    this.pendingNodexAgentAuthorizations.delete(requestId);
+    clearTimeout(pending.timeout);
+    this.applyOwnerSilentConversationMutation(pending.threadId, (conversation) => ({
+      ...conversation,
+      requests: conversation.requests.filter(
+        (request) => request.requestId !== requestId,
+      ),
+    }));
+    pending.resolve(response);
+    return true;
+  }
+
+  cancelPendingNodexAgentAuthorizations(): void {
+    const requestIdsByThread = new Map<string, Set<string>>();
+    for (const [requestId, pending] of this.pendingNodexAgentAuthorizations) {
+      clearTimeout(pending.timeout);
+      const requestIds = requestIdsByThread.get(pending.threadId) ?? new Set<string>();
+      requestIds.add(requestId);
+      requestIdsByThread.set(pending.threadId, requestIds);
+      pending.resolve({ decision: "deny" });
+    }
+    this.pendingNodexAgentAuthorizations.clear();
+    for (const [threadId, requestIds] of requestIdsByThread) {
+      this.applyOwnerSilentConversationMutation(threadId, (conversation) => ({
+        ...conversation,
+        requests: conversation.requests.filter(
+          (request) => !requestIds.has(String(request.requestId)),
+        ),
+      }));
+    }
+  }
+
   private async respondPermissionRequestAsOwner(
     requestId: CodexProtocolRequestId,
     response: CodexPermissionRequestResponse,
@@ -6224,6 +6329,7 @@ export class CodexAppServerManager {
   }
 
   resetForTests(): void {
+    this.cancelPendingNodexAgentAuthorizations();
     this.connection = INITIAL_CONNECTION;
     this.account = null;
     this.dictationState = DEFAULT_CODEX_DICTATION_STATE;
@@ -8664,6 +8770,12 @@ export class CodexAppServerManager {
     if (!normalizedThreadId) {
       return;
     }
+    for (const [requestId, pending] of this.pendingNodexAgentAuthorizations) {
+      if (pending.threadId !== normalizedThreadId) continue;
+      this.pendingNodexAgentAuthorizations.delete(requestId);
+      clearTimeout(pending.timeout);
+      pending.resolve({ decision: "deny" });
+    }
 
     const changedProjectIds = new Set<string>();
     const existingSummary = this.threadSummariesById.get(normalizedThreadId);
@@ -8950,8 +9062,27 @@ export class CodexAppServerManager {
       return;
     }
 
+    const normalizedConversation = normalizeConversationSnapshot(conversation);
+    const terminalTurnIds = new Set(normalizedConversation.turns
+      .filter((turn) => turn.turnId !== null && turn.status !== "inProgress")
+      .map((turn) => turn.turnId));
+    const canceledAuthorizationIds = new Set<string>();
+    for (const [requestId, pending] of this.pendingNodexAgentAuthorizations) {
+      if (pending.threadId !== threadId || !terminalTurnIds.has(pending.turnId)) continue;
+      this.pendingNodexAgentAuthorizations.delete(requestId);
+      clearTimeout(pending.timeout);
+      canceledAuthorizationIds.add(requestId);
+      pending.resolve({ decision: "deny" });
+    }
     const nextConversation = this.withCachedConversationTitle(
-      normalizeConversationSnapshot(conversation),
+      canceledAuthorizationIds.size === 0
+        ? normalizedConversation
+        : {
+            ...normalizedConversation,
+            requests: normalizedConversation.requests.filter(
+              (request) => !canceledAuthorizationIds.has(String(request.requestId)),
+            ),
+          },
     );
     const currentConversation = this.conversationsById.get(threadId);
     if (currentConversation === nextConversation) {
@@ -9199,6 +9330,44 @@ function isCodexRendererThreadRoleRequest(value: unknown): value is CodexRendere
   return typeof value === "object" && value !== null && typeof (value as { conversationId?: unknown }).conversationId === "string";
 }
 
+function isNodexAgentAuthorizationRequest(
+  value: unknown,
+): value is NodexAgentAuthorizationRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const request = value as Partial<NodexAgentAuthorizationRequest>;
+  const preview = request.preview;
+  if (typeof preview !== "object" || preview === null) return false;
+  if (
+    typeof preview.title !== "string"
+    || typeof preview.summary !== "string"
+    || !Array.isArray(preview.details)
+    || !preview.details.every((detail) =>
+      typeof detail === "object"
+      && detail !== null
+      && typeof detail.label === "string"
+      && typeof detail.value === "string"
+    )
+    || (preview.nfmPreview !== undefined && typeof preview.nfmPreview !== "string")
+  ) {
+    return false;
+  }
+  return request.type === "nodexAgentAuthorization"
+    && typeof request.requestId === "string"
+    && typeof request.threadId === "string"
+    && typeof request.turnId === "string"
+    && typeof request.itemId === "string"
+    && typeof request.projectId === "string"
+    && (
+      request.tool === "create"
+      || request.tool === "edit_document"
+      || request.tool === "transfer_blocks"
+      || request.tool === "edit_database"
+    )
+    && (request.effect === "write" || request.effect === "destructive")
+    && typeof request.createdAt === "number"
+    && Number.isFinite(request.createdAt);
+}
+
 async function buildRendererClientResponse(
   manager: CodexAppServerManager,
   message: CodexRendererClientRequestMessage,
@@ -9213,6 +9382,17 @@ async function buildRendererClientResponse(
         type: "success",
         requestId: message.requestId,
         result: manager.getThreadRoleForRendererClientRequest(message.params.conversationId),
+      };
+    }
+
+    if (message.method === NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD) {
+      if (!isNodexAgentAuthorizationRequest(message.params)) {
+        throw new Error("Invalid Nodex authorization request");
+      }
+      return {
+        type: "success",
+        requestId: message.requestId,
+        result: await manager.requestNodexAgentAuthorization(message.params),
       };
     }
 
@@ -9257,6 +9437,7 @@ function startLocalConversationRendererClientRequestBridge(manager: CodexAppServ
     rendererClientRequestBridgeRefCount = Math.max(0, rendererClientRequestBridgeRefCount - 1);
     if (rendererClientRequestBridgeRefCount > 0) return;
 
+    rendererClientRequestManager?.cancelPendingNodexAgentAuthorizations();
     rendererClientRequestManager = null;
     unsubscribeRendererClientRequests?.();
     unsubscribeRendererClientRequests = null;
@@ -10184,6 +10365,14 @@ export function useCodexAppServerControl(activeProjectId: string) {
       manager.respondPermissionRequest(requestId, response, conversationId),
     [manager],
   );
+  const respondNodexAgentAuthorization = useCallback(
+    async (
+      requestId: string,
+      response: NodexAgentAuthorizationResponse,
+      conversationId?: string | null,
+    ) => manager.respondNodexAgentAuthorization(requestId, response, conversationId),
+    [manager],
+  );
   const respondOptionPicker = useCallback(
     async (
       conversationId: string,
@@ -10273,6 +10462,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     respondUserInput,
     respondMcpElicitation,
     respondPermissionRequest,
+    respondNodexAgentAuthorization,
     respondOptionPicker,
     respondSetupCodexStep,
     setPermissionMode,

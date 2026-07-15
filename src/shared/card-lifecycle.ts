@@ -18,6 +18,12 @@ import type {
   RecurrenceConfig,
   ReminderConfig,
 } from "./types";
+import {
+  canonicalizePortableRichText,
+  PortableRichTextError,
+  portableRichTextPlainText,
+  type PortableRichText,
+} from "./block-documents/portable-rich-text";
 
 export const CARD_LIFECYCLE_CONTRACT_VERSION = 1 as const;
 
@@ -52,6 +58,8 @@ export interface CreateCardBlockOperation {
   /** Application identity is allocated before enqueue so retry stays exact. */
   readonly cardId: string;
   readonly title: string;
+  /** Canonical rich title; title remains its plain-text projection. */
+  readonly richTitle?: PortableRichText;
   readonly nfm: string;
   readonly status: CardStatus;
   readonly priority: Priority | null;
@@ -106,9 +114,12 @@ export interface RestoreCardBlockOperation {
     /** Restore reactivates this exact removed membership; it never copies a row. */
     membershipId: string;
     databaseBlockId: string;
-    viewId: string;
     status: CardStatus;
-    beforeViewCardId?: string;
+    /** Null preserves membership without opting the Card into manual View order. */
+    position: null | Readonly<{
+      viewId: string;
+      beforeViewCardId?: string;
+    }>;
   }>;
   readonly beforeBlockId?: string;
 }
@@ -527,6 +538,7 @@ const parseCreate = (
       "runInEnvironmentPath",
       "beforeBlockId",
       "beforeViewCardId",
+      "richTitle",
     ],
   );
   const title = readString(operation, "title", label, MAX_CARD_TITLE_LENGTH);
@@ -536,6 +548,22 @@ const parseCreate = (
   const nfm = readString(operation, "nfm", label, MAX_CARD_DESCRIPTION_LENGTH, {
     allowEmpty: true,
   });
+  let richTitle: PortableRichText | undefined;
+  if (operation.richTitle !== undefined) {
+    try {
+      richTitle = canonicalizePortableRichText(operation.richTitle);
+    } catch (error) {
+      if (!(error instanceof PortableRichTextError)) throw error;
+      throw new CardLifecycleContractError(
+        `${label}.richTitle is invalid: ${error.message}`,
+      );
+    }
+    if (portableRichTextPlainText(richTitle) !== title) {
+      throw new CardLifecycleContractError(
+        `${label}.title must equal the richTitle plain-text projection`,
+      );
+    }
+  }
   if (!isCardStatus(operation.status)) {
     throw new CardLifecycleContractError(`${label}.status is invalid`);
   }
@@ -621,6 +649,7 @@ const parseCreate = (
     kind: "create_card",
     cardId: readId(operation, "cardId", label),
     title,
+    ...(richTitle ? { richTitle } : {}),
     nfm,
     status: operation.status,
     priority: (operation.priority as Priority | null | undefined) ?? null,
@@ -748,19 +777,49 @@ const parseOperation = (value: unknown): CardLifecycleOperation => {
       assertExactKeys(
         candidate,
         "cardLifecycle.operation.membership",
-        ["membershipId", "databaseBlockId", "viewId", "status"],
-        ["beforeViewCardId"],
+        ["membershipId", "databaseBlockId", "status", "position"],
       );
       if (!isCardStatus(candidate.status)) {
         throw new CardLifecycleContractError(
           "cardLifecycle.operation.membership.status is invalid",
         );
       }
-      const beforeViewCardId = readOptionalId(
-        candidate,
-        "beforeViewCardId",
-        "cardLifecycle.operation.membership",
-      );
+      let position: Exclude<
+        RestoreCardBlockOperation["membership"],
+        null
+      >["position"];
+      if (candidate.position === undefined) {
+        throw new CardLifecycleContractError(
+          "cardLifecycle.operation.membership.position must be null or an object",
+        );
+      }
+      if (candidate.position === null) {
+        position = null;
+      } else {
+        const positionCandidate = readRecord(
+          candidate.position,
+          "cardLifecycle.operation.membership.position",
+        );
+        assertExactKeys(
+          positionCandidate,
+          "cardLifecycle.operation.membership.position",
+          ["viewId"],
+          ["beforeViewCardId"],
+        );
+        const beforeViewCardId = readOptionalId(
+          positionCandidate,
+          "beforeViewCardId",
+          "cardLifecycle.operation.membership.position",
+        );
+        position = {
+          viewId: readId(
+            positionCandidate,
+            "viewId",
+            "cardLifecycle.operation.membership.position",
+          ),
+          ...(beforeViewCardId === undefined ? {} : { beforeViewCardId }),
+        };
+      }
       membership = {
         membershipId: readId(
           candidate,
@@ -772,13 +831,8 @@ const parseOperation = (value: unknown): CardLifecycleOperation => {
           "databaseBlockId",
           "cardLifecycle.operation.membership",
         ),
-        viewId: readId(
-          candidate,
-          "viewId",
-          "cardLifecycle.operation.membership",
-        ),
         status: candidate.status,
-        ...(beforeViewCardId === undefined ? {} : { beforeViewCardId }),
+        position,
       };
     }
     if (operation.membership === undefined) {

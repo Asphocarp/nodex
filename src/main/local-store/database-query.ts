@@ -11,6 +11,8 @@ import {
 import type {
   CardContentSummary,
   GeneralDatabaseCatalog,
+  GeneralDatabaseAdHocQuery,
+  GeneralDatabaseAdHocQueryInput,
   GeneralDatabaseCapability,
   GeneralDatabaseDescriptor,
   GeneralDatabaseManagement,
@@ -30,6 +32,8 @@ import {
 export type {
   CardContentSummary,
   GeneralDatabaseCatalog,
+  GeneralDatabaseAdHocQuery,
+  GeneralDatabaseAdHocQueryInput,
   GeneralDatabaseCapability,
   GeneralDatabaseDescriptor,
   GeneralDatabaseManagement,
@@ -800,34 +804,11 @@ const groupKeyForValue = (
   return stableStringifyDatabaseJson(value);
 };
 
-export const queryGeneralDatabaseView = (
+const queryGeneralDatabaseWithView = (
   projectId: string,
-  viewId: string,
-  database: Database.Database = getDb(),
+  view: GeneralDatabaseViewDefinition,
+  database: Database.Database,
 ): GeneralDatabaseViewQuery | null => {
-  const viewRow = database
-    .prepare(
-      `
-      SELECT
-        view.id, view.database_block_id, view.project_id, view.name,
-        view.kind, view.config_json, view.is_primary, view.revision,
-        view.rank_key, view.lifecycle, view.created_at, view.updated_at
-      FROM database_views view
-      INNER JOIN database_capabilities capability
-        ON capability.block_id = view.database_block_id
-       AND capability.project_id = view.project_id
-      INNER JOIN blocks database_block
-        ON database_block.id = capability.block_id
-       AND database_block.project_id = capability.project_id
-       AND database_block.type = 'database'
-       AND database_block.lifecycle = 'active'
-      WHERE view.id = ? AND view.project_id = ? AND view.lifecycle = 'active'
-      LIMIT 1
-    `,
-    )
-    .get(viewId, projectId) as DatabaseViewRow | undefined;
-  if (!viewRow) return null;
-  const view = rowToView(viewRow);
   const capabilityRow = readCapabilityRow(
     database,
     projectId,
@@ -901,5 +882,70 @@ export const queryGeneralDatabaseView = (
     rows: rows
       .filter((row) => matchesViewFilter(row, view.config.filter))
       .sort((left, right) => compareRows(left, right, view.config)),
+  };
+};
+
+export const queryGeneralDatabaseView = (
+  projectId: string,
+  viewId: string,
+  database: Database.Database = getDb(),
+): GeneralDatabaseViewQuery | null => {
+  const viewRow = database
+    .prepare(
+      `
+      SELECT
+        view.id, view.database_block_id, view.project_id, view.name,
+        view.kind, view.config_json, view.is_primary, view.revision,
+        view.rank_key, view.lifecycle, view.created_at, view.updated_at
+      FROM database_views view
+      INNER JOIN database_capabilities capability
+        ON capability.block_id = view.database_block_id
+       AND capability.project_id = view.project_id
+      INNER JOIN blocks database_block
+        ON database_block.id = capability.block_id
+       AND database_block.project_id = capability.project_id
+       AND database_block.type = 'database'
+       AND database_block.lifecycle = 'active'
+      WHERE view.id = ? AND view.project_id = ? AND view.lifecycle = 'active'
+      LIMIT 1
+    `,
+    )
+    .get(viewId, projectId) as DatabaseViewRow | undefined;
+  if (!viewRow) return null;
+  return queryGeneralDatabaseWithView(projectId, rowToView(viewRow), database);
+};
+
+export const queryGeneralDatabaseAdHoc = (
+  projectId: string,
+  input: GeneralDatabaseAdHocQueryInput,
+  database: Database.Database = getDb(),
+): GeneralDatabaseAdHocQuery | null => {
+  const now = "1970-01-01T00:00:00.000Z";
+  const query = queryGeneralDatabaseWithView(projectId, {
+    id: `adhoc:${input.databaseBlockId}`,
+    databaseBlockId: input.databaseBlockId,
+    projectId,
+    name: "Ad hoc query",
+    kind: "list",
+    config: {
+      schemaKey: "nodex.database-view",
+      schemaVersion: 1,
+      filter: input.filter ?? { kind: "group", operator: "and", children: [] },
+      sort: input.sort ?? [],
+      group: null,
+      display: { propertyIds: [], showTitle: true },
+    },
+    isPrimary: false,
+    revision: 0,
+    rankKey: "",
+    lifecycle: "active",
+    createdAt: now,
+    updatedAt: now,
+  }, database);
+  if (!query) return null;
+  return {
+    database: query.database,
+    properties: query.properties,
+    rows: query.rows.map((row) => ({ ...row, position: null })),
   };
 };

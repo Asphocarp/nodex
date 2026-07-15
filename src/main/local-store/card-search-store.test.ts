@@ -110,13 +110,7 @@ describe("authoritative Card search", () => {
           )
           .run(card.id);
         database
-          .prepare(
-            `
-        UPDATE database_view_positions
-        SET group_key = 'done'
-        WHERE block_id = ?
-      `,
-          )
+          .prepare("DELETE FROM database_view_positions WHERE block_id = ?")
           .run(card.id);
 
         const oldResults = await searchCards({

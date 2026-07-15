@@ -140,6 +140,49 @@ const readBoardCard = async (projectId: string, cardId: string) => {
 
 describe("authoritative Card reads", () => {
   sqliteTest(
+    "reads Database members without manual View positions at the stable tail",
+    async () => {
+      closeDatabase();
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-card-read-unpositioned-"),
+      );
+      process.env.NODEX_DIR = tempDir;
+
+      try {
+        await initializeDatabase();
+        const project = createProject({ name: "Unpositioned Database rows" });
+        const positioned = await createCard(project.id, "backlog", {
+          title: "Positioned",
+        });
+        const unpositioned = await createCard(project.id, "backlog", {
+          title: "Unpositioned",
+        });
+        const database = getDb();
+        database
+          .prepare(
+            "DELETE FROM database_view_positions WHERE block_id = ? AND project_id = ?",
+          )
+          .run(unpositioned.id, project.id);
+
+        const byId = await getDatabaseRowCard(project.id, unpositioned.id);
+        const board = await getBoard(project.id);
+        const backlog = board.columns.find((column) => column.id === "backlog");
+
+        expect(byId?.status).toBe("backlog");
+        expect(byId?.order).toBe(Number.MAX_SAFE_INTEGER);
+        expect(backlog?.cards.map((card) => card.id)).toEqual([
+          positioned.id,
+          unpositioned.id,
+        ]);
+      } finally {
+        closeDatabase();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        delete process.env.NODEX_DIR;
+      }
+    },
+  );
+
+  sqliteTest(
     "assembles every full Card API from Block, Document, and relational metadata authorities",
     async () => {
       closeDatabase();

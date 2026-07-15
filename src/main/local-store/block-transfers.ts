@@ -2337,7 +2337,7 @@ const copyDatabaseCard = (
          ON view.database_block_id = membership.database_block_id
         AND view.project_id = membership.project_id
         AND view.is_primary = 1
-       JOIN database_view_positions position
+       LEFT JOIN database_view_positions position
          ON position.view_id = view.id
         AND position.block_id = membership.card_block_id
        JOIN database_properties status_property
@@ -2354,14 +2354,14 @@ const copyDatabaseCard = (
     .get(sourceCardId, request.projectId) as {
     readonly database_block_id: string;
     readonly membership_id: string;
-    readonly rank_key: string;
+    readonly rank_key: string | null;
     readonly status_json: string;
   } | undefined;
   if (!source) {
     return reject(
       request,
       "source_parent_mismatch",
-      `Card ${sourceCardId} has no complete source Database placement`,
+      `Card ${sourceCardId} has no active source Database membership and status`,
     );
   }
   const sourceStatus = JSON.parse(source.status_json) as unknown;
@@ -2392,7 +2392,7 @@ const copyDatabaseCard = (
       newCardId,
       lifecycle: "active",
       status: sourceStatus,
-      primaryViewRankKey: source.rank_key,
+      ...(source.rank_key ? { primaryViewRankKey: source.rank_key } : {}),
       operationId: deterministicSubOperationId(requestHash, "clone-card"),
       clientSessionId: request.clientSessionId,
       actor: request.actor,

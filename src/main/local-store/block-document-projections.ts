@@ -86,6 +86,11 @@ export interface SearchDocumentBlockUnitsInput {
   readonly query: string;
   readonly documentId?: DocumentId;
   readonly ownerBlockId?: BlockId;
+  readonly databaseBlockId?: BlockId;
+  readonly ownerType?: string;
+  readonly includeArchived?: boolean;
+  readonly sourceKinds?: readonly Exclude<DocumentSearchSourceKind, "document_marker">[];
+  readonly blockTypes?: readonly string[];
   readonly limit?: number;
 }
 
@@ -94,6 +99,7 @@ export interface DocumentBlockSearchHit {
   readonly ownerBlockId: BlockId;
   readonly documentId: DocumentId;
   readonly blockId: BlockId;
+  readonly blockType: string;
   readonly generation: number;
   readonly projectedSeq: number;
   readonly sourceKind: DocumentSearchSourceKind;
@@ -167,6 +173,7 @@ interface SearchRow {
   readonly owner_block_id: string;
   readonly document_id: string;
   readonly block_id: string;
+  readonly block_type: string;
   readonly document_generation: number;
   readonly projected_seq: number;
   readonly source_kind: DocumentSearchSourceKind;
@@ -1210,6 +1217,32 @@ export const searchDocumentBlockUnits = (
     conditions.push("unit.owner_block_id = ?");
     parameters.push(requireIdentity(input.ownerBlockId, "ownerBlockId"));
   }
+  if (input.databaseBlockId !== undefined) {
+    conditions.push(
+      "owner.location_kind = 'database'",
+      "owner.containing_database_id = ?",
+    );
+    parameters.push(requireIdentity(input.databaseBlockId, "databaseBlockId"));
+  }
+  if (input.ownerType !== undefined) {
+    conditions.push("owner.type = ?");
+    parameters.push(requireIdentity(input.ownerType, "ownerType"));
+  }
+  if (input.includeArchived === false) {
+    conditions.push("owner.lifecycle = 'active'");
+  }
+  if (input.sourceKinds !== undefined) {
+    const sourceKinds = [...new Set(input.sourceKinds)];
+    if (sourceKinds.length === 0) return [];
+    conditions.push(`unit.source_kind IN (${sourceKinds.map(() => "?").join(", ")})`);
+    parameters.push(...sourceKinds);
+  }
+  if (input.blockTypes !== undefined) {
+    const blockTypes = [...new Set(input.blockTypes.map((type) => requireIdentity(type, "blockType")))];
+    if (blockTypes.length === 0) return [];
+    conditions.push(`source.type IN (${blockTypes.map(() => "?").join(", ")})`);
+    parameters.push(...blockTypes);
+  }
   parameters.push(clampLimit(input.limit, 50, MAX_SEARCH_LIMIT));
 
   const rows = database
@@ -1220,6 +1253,7 @@ export const searchDocumentBlockUnits = (
         unit.owner_block_id,
         unit.document_id,
         unit.block_id,
+        source.type AS block_type,
         unit.document_generation,
         unit.projected_seq,
         unit.source_kind,
@@ -1257,6 +1291,7 @@ export const searchDocumentBlockUnits = (
     ownerBlockId: row.owner_block_id,
     documentId: row.document_id,
     blockId: row.block_id,
+    blockType: row.block_type,
     generation: row.document_generation,
     projectedSeq: row.projected_seq,
     sourceKind: row.source_kind,

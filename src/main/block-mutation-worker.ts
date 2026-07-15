@@ -111,6 +111,23 @@ import type {
   BlockMutationWorkerResponse,
   BlockMutationWorkerResult,
 } from "./block-mutation-worker-protocol";
+import { readNodexAgentTool } from "./agent-tools/read-service";
+import {
+  completeNodexAgentDocumentEdit,
+  prepareNodexAgentDocumentEdit,
+} from "./agent-tools/document-edit-service";
+import {
+  executeNodexAgentCreate,
+  prepareNodexAgentCreate,
+} from "./agent-tools/create-service";
+import {
+  executeNodexAgentTransfer,
+  prepareNodexAgentTransfer,
+} from "./agent-tools/transfer-service";
+import {
+  executeNodexAgentDatabaseEdit,
+  prepareNodexAgentDatabaseEdit,
+} from "./agent-tools/database-edit-service";
 
 const blockDocumentRuntime = new BlockDocumentRuntime(
   createSqliteBlockDocumentRuntimeAuthority(getDb),
@@ -551,6 +568,123 @@ async function runRequest(
   request: BlockMutationWorkerRequest,
 ): Promise<BlockMutationWorkerResult> {
   switch (request.type) {
+    case "readNodexAgentTool":
+      return readNodexAgentTool(getDb(), request.payload);
+    case "prepareNodexAgentDocumentEdit":
+      return prepareNodexAgentDocumentEdit(getDb(), request.payload);
+    case "completeNodexAgentDocumentEdit":
+      return completeNodexAgentDocumentEdit(getDb(), request.payload);
+    case "prepareNodexAgentCreate":
+      return prepareNodexAgentCreate(getDb(), request.payload);
+    case "executeNodexAgentCreate": {
+      const result = executeNodexAgentCreate(getDb(), request.payload);
+      if (!result.ok || result.value.output.data.receipt.duplicate) return result;
+      try {
+        publishCardTargetContentChange(
+          result.value.output.data.resource.documentId,
+        );
+        const cardId = result.value.output.data.resource.blockId;
+        const summary = readDatabaseCardSummaryById(getDb(), cardId);
+        if (summary) {
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            "create",
+            summary.status,
+            cardId,
+            { summary },
+          );
+        }
+      } catch (error) {
+        postLog("error", "Committed Nodex Agent Card create fanout failed", {
+          projectId: request.payload.projectId,
+          cardId: request.payload.cardId,
+          mutationId: request.payload.mutationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
+    case "prepareNodexAgentTransfer":
+      return prepareNodexAgentTransfer(getDb(), request.payload);
+    case "executeNodexAgentTransfer": {
+      const result = executeNodexAgentTransfer(getDb(), request.payload);
+      if (!result.ok || result.value.output.data.receipt.duplicate) return result;
+      try {
+        for (const commit of result.value.documentCommits) {
+          blockDocumentRuntime.invalidate(commit.documentId);
+          publishCardTargetContentChange(commit.documentId);
+        }
+        for (const transferred of result.value.output.data.results) {
+          publishCardTargetChange(transferred.resultBlockId, "location");
+          const summary = readDatabaseCardSummaryById(
+            getDb(),
+            transferred.resultBlockId,
+          );
+          if (!summary) continue;
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            request.payload.input.mode === "copy" ? "create" : "update",
+            summary.status,
+            transferred.resultBlockId,
+            { summary, mutationId: request.payload.mutationId },
+          );
+        }
+      } catch (error) {
+        postLog("error", "Committed Nodex Agent transfer fanout failed", {
+          projectId: request.payload.projectId,
+          mutationId: request.payload.mutationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
+    case "prepareNodexAgentDatabaseEdit":
+      return prepareNodexAgentDatabaseEdit(getDb(), request.payload);
+    case "executeNodexAgentDatabaseEdit": {
+      const result = executeNodexAgentDatabaseEdit(getDb(), request.payload);
+      if (!result.ok || result.value.output.data.receipt.duplicate) return result;
+      const cardIds = [...new Set(request.payload.mutation.operations.flatMap(
+        (operation) => {
+          if (
+            operation.kind === "set_value"
+            || operation.kind === "add_remove_value"
+            || operation.kind === "position_card"
+            || operation.kind === "transfer_membership"
+          ) {
+            return [operation.cardBlockId];
+          }
+          if (operation.kind === "set_values") {
+            return operation.entries.map((entry) => entry.cardBlockId);
+          }
+          if (operation.kind === "position_cards") {
+            return operation.cards.map((entry) => entry.cardBlockId);
+          }
+          return [];
+        },
+      ))].sort();
+      for (const cardId of cardIds) {
+        try {
+          publishCardTargetChange(cardId, "metadata");
+          const summary = readDatabaseCardSummaryById(getDb(), cardId);
+          if (!summary) continue;
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            "update",
+            summary.status,
+            cardId,
+            { summary, mutationId: request.payload.mutationId },
+          );
+        } catch (error) {
+          postLog("error", "Committed Nodex Agent Database edit fanout failed", {
+            projectId: request.payload.projectId,
+            cardId,
+            mutationId: request.payload.mutationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return result;
+    }
     case "completeCardOccurrence":
       return await cardOccurrences.completeCardOccurrence(
         request.payload.projectId,

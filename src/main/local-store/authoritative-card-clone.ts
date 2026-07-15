@@ -49,7 +49,8 @@ export interface CloneAuthoritativeCardInput {
   readonly newCardId: BlockId;
   readonly lifecycle: "active" | "archived";
   readonly status: CardStatus;
-  readonly primaryViewRankKey: string;
+  /** Required only when the source participates in its primary View. */
+  readonly primaryViewRankKey?: string;
   readonly propertyOverrides?: AuthoritativeCardClonePropertyOverrides;
   readonly operationId: string;
   readonly clientSessionId?: string;
@@ -323,6 +324,7 @@ const readViewPositions = (
       WHERE position.block_id = ?
         AND position.project_id = ?
         AND view.database_block_id = ?
+        AND view.lifecycle = 'active'
       ORDER BY view.is_primary DESC, position.view_id
     `,
     )
@@ -539,9 +541,9 @@ const persistRelationalProperties = (
   const primaryPosition = viewPositions.find(
     (position) => position.is_primary === 1,
   );
-  if (!primaryPosition) {
+  if (primaryPosition && !input.primaryViewRankKey) {
     throw new AuthoritativeCardCloneError(
-      `Card ${source.block_id} has no primary Database View position`,
+      `Card ${source.block_id} clone requires a primary View rank`,
     );
   }
   const insertPosition = database.prepare(
@@ -558,7 +560,9 @@ const persistRelationalProperties = (
       input.newCardId,
       input.projectId,
       position.is_primary === 1 ? input.status : position.group_key,
-      position.is_primary === 1 ? input.primaryViewRankKey : position.rank_key,
+      position.is_primary === 1
+        ? input.primaryViewRankKey
+        : position.rank_key,
       createdAt,
       createdAt,
     );
@@ -588,10 +592,14 @@ export const cloneAuthoritativeCardInTransaction = (
     projectId: requireIdentity(rawInput.projectId, "projectId"),
     sourceCardId: requireIdentity(rawInput.sourceCardId, "sourceCardId"),
     newCardId: requireIdentity(rawInput.newCardId, "newCardId"),
-    primaryViewRankKey: requireIdentity(
-      rawInput.primaryViewRankKey,
-      "primaryViewRankKey",
-    ),
+    ...(rawInput.primaryViewRankKey === undefined
+      ? {}
+      : {
+          primaryViewRankKey: requireIdentity(
+            rawInput.primaryViewRankKey,
+            "primaryViewRankKey",
+          ),
+        }),
   };
   assertUuidV7(input.newCardId, "new Card Block id");
   if (input.newCardId === input.sourceCardId) {
@@ -614,7 +622,9 @@ export const cloneAuthoritativeCardInTransaction = (
         newCardId: input.newCardId,
         lifecycle: input.lifecycle,
         status: input.status,
-        primaryViewRankKey: input.primaryViewRankKey,
+        ...(input.primaryViewRankKey
+          ? { primaryViewRankKey: input.primaryViewRankKey }
+          : {}),
         ...(input.propertyOverrides
           ? { propertyOverrides: input.propertyOverrides }
           : {}),

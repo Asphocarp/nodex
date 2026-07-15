@@ -23,7 +23,10 @@ export function upsertCardSummaryInBoard(board: BoardSummary, card: CardSummary)
   const targetColumn = boardWithoutCard.columns[targetColumnIndex];
   if (!targetColumn) return boardWithoutCard;
 
-  const cards = [...targetColumn.cards, card].sort((left, right) => left.order - right.order);
+  const cards = [...targetColumn.cards, card].sort(
+    (left, right) =>
+      left.order - right.order || left.id.localeCompare(right.id),
+  );
   const columns = boardWithoutCard.columns.map((column, index) =>
     index === targetColumnIndex ? { ...column, cards } : column
   );

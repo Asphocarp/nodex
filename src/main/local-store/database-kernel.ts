@@ -5,6 +5,7 @@ import {
   databaseMutationOperationPaths,
   canonicalizeDatabaseMutationIntent,
   normalizeDatabasePropertyValue,
+  databaseGroupValueFromKey,
   parseDatabaseMutationCommandError,
   parseDatabaseMutationReceipt,
   parseDatabaseMutationRequest,
@@ -1536,25 +1537,6 @@ const readTransferProperties = (
       input.projectId,
     ) as TransferPropertyRow[];
 
-const groupValueFromKey = (
-  valueType: DatabasePropertyValueType,
-  groupKey: string | null,
-): unknown => {
-  if (groupKey === null) return null;
-  if (
-    valueType === "number" ||
-    valueType === "checkbox" ||
-    valueType === "multi_select"
-  ) {
-    try {
-      return JSON.parse(groupKey) as unknown;
-    } catch {
-      return groupKey;
-    }
-  }
-  return groupKey;
-};
-
 const ensureTargetMembershipValues = (
   database: Database.Database,
   request: DatabaseMutationRequest,
@@ -1562,8 +1544,8 @@ const ensureTargetMembershipValues = (
     readonly source: MembershipRow | null;
     readonly targetMembershipId: string;
     readonly targetDatabaseBlockId: string;
-    readonly targetView: ViewRow;
-    readonly requestedGroupKey: string | null;
+    readonly targetView: ViewRow | null;
+    readonly requestedGroupKey?: string | null;
     readonly explicitlyWrittenPropertyIds: ReadonlySet<string>;
     readonly now: string;
   },
@@ -1636,6 +1618,7 @@ const ensureTargetMembershipValues = (
     );
   }
 
+  if (!input.targetView) return true;
   let viewConfig: GeneralDatabaseViewConfig;
   try {
     viewConfig = parseGeneralDatabaseViewConfig(
@@ -1668,9 +1651,9 @@ const ensureTargetMembershipValues = (
           JSON.parse(groupProperty.config_json) as unknown,
         ),
       },
-      groupValueFromKey(
+      databaseGroupValueFromKey(
         groupProperty.value_type,
-        input.requestedGroupKey,
+        input.requestedGroupKey ?? null,
       ),
     );
   } catch (error) {
@@ -1811,18 +1794,20 @@ const transferMembership = (
         );
       }
     }
-    targetView = readView(database, operation.target.viewId);
-    if (
-      !targetView ||
-      targetView.project_id !== request.projectId ||
-      targetView.database_block_id !== operation.target.databaseBlockId ||
-      targetView.lifecycle !== "active"
-    ) {
-      return reject(
-        "view_not_found",
-        `Target View is not active in Database ${operation.target.databaseBlockId}: ${operation.target.viewId}`,
-        request,
-      );
+    if (operation.target.viewId !== undefined) {
+      targetView = readView(database, operation.target.viewId);
+      if (
+        !targetView
+        || targetView.project_id !== request.projectId
+        || targetView.database_block_id !== operation.target.databaseBlockId
+        || targetView.lifecycle !== "active"
+      ) {
+        return reject(
+          "view_not_found",
+          `Target View is not active in Database ${operation.target.databaseBlockId}: ${operation.target.viewId}`,
+          request,
+        );
+      }
     }
   }
 
@@ -1830,11 +1815,11 @@ const transferMembership = (
     readonly rankKey: string;
     readonly rebalanced: number;
   } | null = null;
-  if (operation.target) {
+  if (operation.target && targetView && operation.target.viewId) {
     targetRank = allocateViewPositionRank(database, request, {
       viewId: operation.target.viewId,
       cardBlockId: operation.cardBlockId,
-      groupKey: operation.target.groupKey,
+      groupKey: operation.target.groupKey ?? null,
       ...(operation.target.beforeCardBlockId === undefined
         ? {}
         : { beforeCardBlockId: operation.target.beforeCardBlockId }),
@@ -1941,7 +1926,7 @@ const transferMembership = (
   }
   let committedTargetMembershipId: string | null = null;
   let committedTargetMembershipRevision: number | null = null;
-  if (operation.target && targetRank && targetView) {
+  if (operation.target) {
     affectedDatabases.push(operation.target.databaseBlockId);
     if (dormantTargetMembership) {
       const reactivated = database
@@ -1990,7 +1975,9 @@ const transferMembership = (
       targetMembershipId: committedTargetMembershipId,
       targetDatabaseBlockId: operation.target.databaseBlockId,
       targetView,
-      requestedGroupKey: operation.target.groupKey,
+      ...(operation.target.groupKey === undefined
+        ? {}
+        : { requestedGroupKey: operation.target.groupKey }),
       explicitlyWrittenPropertyIds: explicitlyWrittenTargetPropertyIds(
         request,
         operation.cardBlockId,
@@ -1998,33 +1985,35 @@ const transferMembership = (
       ),
       now,
     });
-    if (groupIsReady) {
+    if (groupIsReady && targetView) {
       validatePositionGroup(
         database,
         request,
         targetView,
         committedTargetMembershipId,
-        operation.target.groupKey,
+        operation.target.groupKey ?? null,
       );
     }
-    database
-      .prepare(
-        `
-        INSERT INTO database_view_positions (
-          view_id, block_id, project_id, group_key, rank_key,
-          revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-      `,
-      )
-      .run(
-        operation.target.viewId,
-        operation.cardBlockId,
-        request.projectId,
-        operation.target.groupKey,
-        targetRank.rankKey,
-        now,
-        now,
-      );
+    if (targetView && targetRank && operation.target.viewId) {
+      database
+        .prepare(
+          `
+          INSERT INTO database_view_positions (
+            view_id, block_id, project_id, group_key, rank_key,
+            revision, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        `,
+        )
+        .run(
+          operation.target.viewId,
+          operation.cardBlockId,
+          request.projectId,
+          operation.target.groupKey ?? null,
+          targetRank.rankKey,
+          now,
+          now,
+        );
+    }
   } else if (spaceRank) {
     database
       .prepare(
@@ -2058,7 +2047,7 @@ const transferMembership = (
       databaseBlockId: operation.target?.databaseBlockId ?? null,
       viewId: operation.target?.viewId ?? null,
       positionRankKey: targetRank?.rankKey ?? null,
-      positionRevision: operation.target ? 1 : null,
+      positionRevision: targetRank ? 1 : null,
       rebalancedPositions: targetRank?.rebalanced ?? 0,
       cardMetadataRevision: metadata[operation.cardBlockId] ?? 0,
     },
@@ -2066,8 +2055,8 @@ const transferMembership = (
     databaseBlockIds: uniqueSorted(affectedDatabases),
     committedRevisions: {
       cardMetadata: metadata[operation.cardBlockId] ?? 0,
-      membership: operation.target ? 1 : current ? current.revision + 1 : 0,
-      position: operation.target ? 1 : 0,
+      membership: committedTargetMembershipRevision ?? 0,
+      position: targetRank ? 1 : 0,
     },
     projectionCardIds: [operation.cardBlockId],
   };

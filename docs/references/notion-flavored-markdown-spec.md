@@ -69,6 +69,9 @@ Nodex extensions for owning Cards and Card mentions:
 <card uuid="{{CARD_BLOCK_ID}}" />
 <mention-card url="nodex://cards/{{CARD_BLOCK_ID}}" />
 An owning `card` Block is a childless shell whose `uuid` is its own stable Card Block identity. During an exact-head whole-NFM replacement, that UUID may preserve or reorder only a Card already owned by the same Document; it never creates, copies, or moves a Card implicitly. Those operations require Nodex's typed ownership commands. A `mention-card` is a childless non-owning mention. Its required URL must resolve through the `nodex://cards/<card-id>` deeplink contract and is canonicalized on serialization. Historical `<card />` and `<card-ref ... />` tags are decode-only and are never emitted by current materialization.
+
+For Agent round trips, writable NFM must be the complete canonical serialization of the selected Document or subtree. A truncated preview is not a Document and must never be accepted as replacement input. Whole-NFM replacement is exact-head and all-or-nothing; multiple text patches match against the same canonical source, must identify exact non-overlapping spans, and apply simultaneously. Bulk insertion accepts a complete NFM Block forest at the Document start/end or before/after/inside a stable Block anchor, never at a character offset or fuzzy text ellipsis. Card title is separate Document authority, and any ownership change or deletion of an owning `card` shell requires a typed host operation plus its explicit destructive gate.
+
 Nodex extension for inline date mentions:
 <mention-date start="YYYY-MM-DD" format="relative" />
 <mention-date start="YYYY-MM-DDTHH:mm:ss+08:00" tz="IANA_TIME_ZONE" format="relative" time-format="12h" reminder="minute:0" />

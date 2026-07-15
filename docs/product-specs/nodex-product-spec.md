@@ -175,6 +175,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Shift-click in Kanban toggles a temporary multi-selection from the clicked card; selection can span columns. A board drop compiles status/property changes and the selected run's manual View position from one current authority snapshot, then commits them as one all-or-nothing Database mutation.
 - Same-window cross-surface drag treats a Kanban Database View as a projection over real Card children. The explicit NFM side-menu starts one typed window-local session after BlockNote returns the exact root selection. Dragging one or more Kanban Cards into a visible NFM editor moves those same-ID childless Card shells into the host Document; dragging editor roots into a Kanban column moves them into that Database, promoting compatible text-like roots in place and wrapping non-convertible roots in a Card; dragging between different Card Documents moves the same stable roots through the same command. Holding Option/Alt at drop time copies the recursive ownership closure with fresh application IDs instead. At a nested editor boundary, only the deepest eligible surface shows an insertion indicator and handles the drop; parent and child indicators/commands never coexist. One `BlockTransfer` commits source/target Documents, exclusive parent, membership, View position, projections, history, and receipt atomically; the renderer carries no NFM/Card body snapshot, never removes the source optimistically, and suppresses BlockNote's native cross-editor slice insertion/deletion and text caret while the session is managed.
 - Same-Database Kanban reorder remains a View-position operation because it does not change the Card's parent. Cross-window native DnD is intentionally unsupported until the platform can prove a live source session and safely carry the logical transfer payload; it fails closed without mutation.
+- Database membership makes a Card eligible for every View over that Database; a manual View position is optional presentation state. In the primary Kanban View, an unpositioned Card still appears in the column selected by its status property and sorts after explicitly positioned Cards with Card ID as the stable tie-breaker. Delete/restore, transfer, search, and recurrence cloning preserve the absence of a position instead of inventing one. A persisted partial position or a position group that disagrees with status remains a typed authority error.
 - The NFM side-menu `Move to` action opens a compact destination popover with grouped `DB` and `Card` search results. DB rows disclose column/status child destinations, while card rows append blocks to an existing card. Detailed behavior lives in [NFM Editor Move-To Popover Behavior](./nfm-editor-move-to-popover-behavior.md).
 - In NFM editors, `cardToggle` property chips sit in the same inline text flow as the toggle title, so wrapped titles use the full row width like inline kanban card properties instead of a separate leading chip column
 - Visual card previews with priority badges
@@ -245,7 +246,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | `runInEnvironmentPath` | string | No | Optional repo-relative `.codex/environments/*.toml` path used when creating a new managed worktree; selected in Card Stage and edited in Settings -> Local environments |
 | `revision` | number | Yes | Compatibility read of the Card Block metadata revision; individual mutable properties carry field/path revisions |
 | `created` | datetime | Yes | Creation timestamp (ISO 8601) |
-| `order` | number | Yes | Compatibility read of the primary Database View position; durable ordering is View-specific fractional rank |
+| `order` | number | Yes | Compatibility read of the primary Database View order; an absent manual position maps to the deterministic nulls-last tail, while durable ordering remains a View-specific fractional rank |
 
 #### 6. Inline Card Creator
 - Notion-style inline form in each column
@@ -1273,9 +1274,32 @@ Detailed CI behavior, job responsibilities, secrets, artifact naming, and recove
 
 ## Agent Integration
 
+### Project-bound dynamic tools
+
+New eligible Codex tasks that start inside a Nodex Project receive the `nodex_app@1` dynamic-tool catalog. The namespace is for Nodex content and structure; Codex host controls such as task handoff, terminal access, and automations remain under `codex_app`. A task keeps the catalog revision with which it started. Resuming an older task never hot-injects a newer contract; a missing or retired catalog returns a structured response that directs the agent to start a new task.
+
+The public catalog is intentionally small and intent-first:
+
+| Tool | Intent |
+|------|--------|
+| `get_context` | Read the active Project's structure, capabilities, and NFM guidance. |
+| `get_block` | Read one Block and, when applicable, its complete canonical NFM or stable-ID tree. |
+| `search` | Find Cards or Blocks through exact identity/body evidence and typo-tolerant title/property evidence. |
+| `query_database` | Read a Database or View with typed filters, sorts, values, and opaque pagination. |
+| `create` | Atomically create one complete Card, including rich title, many-Block NFM body, location, membership values, and optional View placement. |
+| `edit_document` | Change a title and/or body through structural NFM insertion, simultaneous exact NFM patches, whole-NFM replacement, or stable-ID Block operations. |
+| `transfer_blocks` | Move or copy Blocks between Space, Document, and Database containers without encoding a Kanban-only action. |
+| `edit_database` | Change typed values, membership, schema, View configuration, grouping, or placement at the Database authority boundary. |
+
+Reads are automatic and Project-scoped. Writes are prepared against one exact store snapshot before consent, so the authorization card can show resolved semantic effects rather than raw model arguments. `Allow for task` grants only ordinary writes to the verified root task, active Project, current app session, and current store epoch; descendants may inherit that verified grant. Deletes, protected-owner changes, and other identity-destructive effects always require per-call confirmation. Denial, timeout, owner loss, archive, Project/store change, restart, or a headless task without a trusted renderer leaves the store unchanged.
+
+NFM is the primary bulk-content representation. Read results are either complete canonical NFM or a typed size error; truncated content is never writable. One `create` call can therefore build a full many-Block Card, while one `edit_document` call can append a complete Block forest or apply multiple non-overlapping exact replacements against the same source revision. Structural insertion uses Document start/end or stable Block anchors, never character offsets or fuzzy ellipses. Whole replacement cannot implicitly create, copy, move, or delete an owning Card; ownership changes use typed placement commands and protected deletion remains explicit.
+
+Opaque revisions and cursors are compare tokens, not capabilities. They bind the Project, store epoch, resource identity, and canonical state needed by that operation. Stale, tampered, cross-resource, cross-Project, and post-restore tokens fail closed. Dynamic-call receipts bind the app-server thread/call identity separately from canonical mutation receipts, so an exact retry can recover a committed result after response loss without storing NFM or hidden document history in the receipt ledger.
+
 ### Design: CLI + REST API
 
-Agents use the **`nodex` CLI** for all board operations. The CLI wraps the REST API with ergonomic commands, strict option/value validation, auto-column-resolution, and config file support. The REST API remains available for direct HTTP access.
+External agents and scripts use the **`nodex` CLI** for board operations. The CLI wraps the REST API with ergonomic commands, strict option/value validation, auto-column-resolution, and config file support. The REST API remains available for direct HTTP access, while interactive Project-bound Codex tasks use the narrower `nodex_app` contract above.
 
 ### How Agents Use the Board
 
@@ -1405,7 +1429,7 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 - **Simple rendering**: URI resolves to HTTP route in editor (`resolveFileUrl`) and read-only renderer
 - **Safer lifecycle**: Deferred cleanup avoids accidental data loss from aggressive orphan deletion
 
-### Why CLI for Agents?
+### Why CLI for External Agents and Automation?
 - **Ergonomic**: `nodex mv abc1234 5 6` vs multi-line curl commands
 - **Concurrency-safe**: Server-side column resolution means each CLI command is a single atomic HTTP request — no TOCTOU races when multiple agents operate simultaneously
 - **Auto-resolution**: Agents don't need to track card column IDs

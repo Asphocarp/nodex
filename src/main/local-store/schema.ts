@@ -30,7 +30,7 @@ import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-propert
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 63;
+export const CURRENT_SCHEMA_VERSION = 66;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -48,6 +48,9 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 60, toVersion: 61, migrate: migrateSchema60To61 },
   { fromVersion: 61, toVersion: 62, migrate: migrateSchema61To62 },
   { fromVersion: 62, toVersion: 63, migrate: migrateSchema62To63 },
+  { fromVersion: 63, toVersion: 64, migrate: migrateSchema63To64 },
+  { fromVersion: 64, toVersion: 65, migrate: migrateSchema64To65 },
+  { fromVersion: 65, toVersion: 66, migrate: migrateSchema65To66 },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
@@ -117,7 +120,10 @@ const RESETTABLE_TABLES = [
   "codex_sidebar_chat_order",
   "codex_project_thread_orders",
   "codex_unread_threads",
+  "codex_thread_dynamic_tool_catalogs",
   "codex_threads",
+  "nodex_agent_token_keys",
+  "nodex_agent_call_receipts",
   "codex_card_threads",
   "description_revisions",
   "description_blocks",
@@ -3336,6 +3342,48 @@ function createShippedV57Schema(
 
     CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
       ON codex_threads(project_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS codex_thread_dynamic_tool_catalogs (
+      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      namespace TEXT NOT NULL,
+      toolset_revision INTEGER NOT NULL,
+      PRIMARY KEY (thread_id, namespace),
+      CHECK (length(trim(namespace)) > 0),
+      CHECK (toolset_revision > 0)
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS nodex_agent_token_keys (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      key_material BLOB NOT NULL CHECK (length(key_material) = 32)
+    );
+
+    INSERT OR IGNORE INTO nodex_agent_token_keys (id, key_material)
+    VALUES (1, randomblob(32));
+
+    CREATE TABLE IF NOT EXISTS nodex_agent_call_receipts (
+      call_identity TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      call_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      tool TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      mutation_id TEXT NOT NULL UNIQUE,
+      allocations_json TEXT NOT NULL DEFAULT '[]',
+      result_metadata_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'prepared',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (thread_id, call_id),
+      CHECK (length(call_identity) = 64),
+      CHECK (length(trim(thread_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(call_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(tool)) BETWEEN 1 AND 128),
+      CHECK (length(request_hash) = 64),
+      CHECK (length(trim(mutation_id)) BETWEEN 1 AND 512),
+      CHECK (json_valid(allocations_json) AND json_type(allocations_json) = 'array'),
+      CHECK (json_valid(result_metadata_json) AND json_type(result_metadata_json) = 'object'),
+      CHECK (status IN ('prepared', 'committed'))
+    ) WITHOUT ROWID;
 
 	    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
 	      automation_id TEXT PRIMARY KEY,
@@ -6747,6 +6795,107 @@ export function migrateSchema62To63(
       );
     }
     setUserVersion(db, 63);
+  });
+  migrate.immediate();
+}
+
+export function migrateSchema63To64(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 63) {
+    throw new Error(
+      `Schema v63 to v64 migration requires v63, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS codex_thread_dynamic_tool_catalogs (
+        thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+        namespace TEXT NOT NULL,
+        toolset_revision INTEGER NOT NULL,
+        PRIMARY KEY (thread_id, namespace),
+        CHECK (length(trim(namespace)) > 0),
+        CHECK (toolset_revision > 0)
+      ) WITHOUT ROWID;
+    `);
+
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v64 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 64);
+  });
+  migrate.immediate();
+}
+
+export function migrateSchema64To65(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 64) {
+    throw new Error(
+      `Schema v64 to v65 migration requires v64, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nodex_agent_token_keys (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        key_material BLOB NOT NULL CHECK (length(key_material) = 32)
+      );
+
+      INSERT OR IGNORE INTO nodex_agent_token_keys (id, key_material)
+      VALUES (1, randomblob(32));
+    `);
+
+    const key = db.prepare(
+      "SELECT key_material FROM nodex_agent_token_keys WHERE id = 1",
+    ).get() as { readonly key_material: Buffer } | undefined;
+    if (!key || key.key_material.byteLength !== 32) {
+      throw new Error("Schema v65 migration did not create the Agent token key");
+    }
+    setUserVersion(db, 65);
+  });
+  migrate.immediate();
+}
+
+export function migrateSchema65To66(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 65) {
+    throw new Error(
+      `Schema v65 to v66 migration requires v65, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nodex_agent_call_receipts (
+        call_identity TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        tool TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        mutation_id TEXT NOT NULL UNIQUE,
+        allocations_json TEXT NOT NULL DEFAULT '[]',
+        result_metadata_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'prepared',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (thread_id, call_id),
+        CHECK (length(call_identity) = 64),
+        CHECK (length(trim(thread_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(call_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(tool)) BETWEEN 1 AND 128),
+        CHECK (length(request_hash) = 64),
+        CHECK (length(trim(mutation_id)) BETWEEN 1 AND 512),
+        CHECK (json_valid(allocations_json) AND json_type(allocations_json) = 'array'),
+        CHECK (json_valid(result_metadata_json) AND json_type(result_metadata_json) = 'object'),
+        CHECK (status IN ('prepared', 'committed'))
+      ) WITHOUT ROWID;
+    `);
+    setUserVersion(db, 66);
   });
   migrate.immediate();
 }

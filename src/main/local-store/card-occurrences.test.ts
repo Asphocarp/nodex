@@ -543,6 +543,50 @@ describe("occurrence actions", () => {
     }
   });
 
+  test("detached occurrences preserve absent manual View participation", async () => {
+    const ran = await withTempDatabase(async () => {
+      const startIso = "2026-03-01T10:00:00.000Z";
+      const endIso = "2026-03-01T11:00:00.000Z";
+      const card = await createCard(
+        projectId,
+        "in_progress",
+        recurringInput(startIso, endIso),
+      );
+      const database = getDb();
+      database
+        .prepare("DELETE FROM database_view_positions WHERE block_id = ?")
+        .run(card.id);
+      const createdCardId = createUuidV7();
+
+      const result = await updateCardOccurrence(projectId, {
+        createdCardId,
+        cardId: card.id,
+        occurrenceStart: new Date(startIso),
+        source: "calendar",
+        scope: "this",
+        updates: {
+          scheduledStart: new Date("2026-03-01T12:00:00.000Z"),
+          scheduledEnd: new Date("2026-03-01T13:00:00.000Z"),
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect((await getCard(projectId, createdCardId))?.order).toBe(
+        Number.MAX_SAFE_INTEGER,
+      );
+      expect(
+        database
+          .prepare(
+            "SELECT COUNT(*) FROM database_view_positions WHERE block_id = ?",
+          )
+          .pluck()
+          .get(createdCardId),
+      ).toBe(0);
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("calendar occurrences return explicit all-day flag", async () => {
     const ran = await withTempDatabase(async () => {
       await createCard(projectId, "in_progress", allDayInput("2026-03-10T00:00:00.000Z", "2026-03-11T00:00:00.000Z"));

@@ -50,8 +50,8 @@ const authority = (
         membership: {
           membershipId: "membership-1",
           databaseBlockId: "database-1",
-          viewId: "view-1",
           status: "draft",
+          position: { viewId: "view-1" },
         },
       }
     : null,
@@ -264,7 +264,9 @@ describe("Card lifecycle runtime", () => {
     expect(restored.operation.expectedMetadataRevision).toBe(7);
     expect(restored.operation.expectedLocationRevision).toBe(9);
     expect(restored.operation.beforeBlockId).toBe("space-anchor");
-    expect(restored.operation.membership?.beforeViewCardId).toBe("view-anchor");
+    expect(restored.operation.membership?.position?.beforeViewCardId).toBe(
+      "view-anchor",
+    );
 
     const moved = compileCardLifecycleRequest({
       intent: {

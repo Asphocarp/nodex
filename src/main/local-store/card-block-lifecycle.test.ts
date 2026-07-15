@@ -490,8 +490,8 @@ describe("authoritative Card lifecycle kernel", () => {
           membership: {
             membershipId: deleted.membershipId,
             databaseBlockId: deleted.databaseBlockId,
-            viewId: deleted.viewId,
             status: "draft",
+            position: deleted.viewId ? { viewId: deleted.viewId } : null,
           },
         });
         expect(restored.lifecycle).toBe("archived");
@@ -523,8 +523,8 @@ describe("authoritative Card lifecycle kernel", () => {
             membership: {
               membershipId: deleted.membershipId,
               databaseBlockId: deleted.databaseBlockId,
-              viewId: deleted.viewId,
               status: "draft",
+              position: deleted.viewId ? { viewId: deleted.viewId } : null,
             },
           }),
         );
@@ -588,8 +588,8 @@ describe("authoritative Card lifecycle kernel", () => {
             membership: {
               membershipId: deleted.membershipId,
               databaseBlockId: deleted.databaseBlockId,
-              viewId: deleted.viewId,
               status: "draft",
+              position: deleted.viewId ? { viewId: deleted.viewId } : null,
             },
           }),
         );
@@ -664,8 +664,10 @@ describe("authoritative Card lifecycle kernel", () => {
           membership: {
             membershipId: deleteReplay.value.membershipId,
             databaseBlockId: deleteReplay.value.databaseBlockId,
-            viewId: deleteReplay.value.viewId,
             status: "draft",
+            position: deleteReplay.value.viewId
+              ? { viewId: deleteReplay.value.viewId }
+              : null,
           },
         });
         let restoreRolledBack = false;
@@ -735,8 +737,8 @@ describe("authoritative Card lifecycle kernel", () => {
             membership: {
               membershipId: "membership:older",
               databaseBlockId: deleted.databaseBlockId,
-              viewId: deleted.viewId,
               status: "draft",
+              position: deleted.viewId ? { viewId: deleted.viewId } : null,
             },
           }),
         );
@@ -756,8 +758,8 @@ describe("authoritative Card lifecycle kernel", () => {
             membership: {
               membershipId: "membership:older",
               databaseBlockId: deleted.databaseBlockId,
-              viewId: deleted.viewId,
               status: "draft",
+              position: deleted.viewId ? { viewId: deleted.viewId } : null,
             },
           }),
         );
@@ -858,8 +860,8 @@ describe("authoritative Card lifecycle kernel", () => {
           membership: {
             membershipId: deleted.membershipId,
             databaseBlockId: deleted.databaseBlockId,
-            viewId: deleted.viewId,
             status: "draft",
+            position: deleted.viewId ? { viewId: deleted.viewId } : null,
           },
         });
 
@@ -914,6 +916,70 @@ describe("authoritative Card lifecycle kernel", () => {
   );
 
   sqliteTest(
+    "deletes and restores a Database member without inventing a View position",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const created = committed(
+          fixture,
+          "create-unpositioned-lifecycle",
+          createOperation(cardId),
+        );
+        fixture.database
+          .prepare(
+            "DELETE FROM database_view_positions WHERE block_id = ? AND project_id = ?",
+          )
+          .run(cardId, fixture.projectId);
+
+        const active = readCardLifecyclePreflightSnapshot(
+          fixture.database,
+          fixture.projectId,
+          cardId,
+        );
+        expect(active.ok).toBe(true);
+        if (!active.ok) return;
+        expect(active.value.value?.card?.membership?.position).toBe(null);
+
+        const deleted = committed(fixture, "delete-unpositioned-lifecycle", {
+          kind: "delete_card",
+          cardId,
+          expectedMetadataRevision: created.metadataRevision,
+          expectedLocationRevision: created.locationRevision,
+        });
+        expect(deleted.viewId).toBe(null);
+
+        const restored = committed(fixture, "restore-unpositioned-lifecycle", {
+          kind: "restore_card",
+          cardId,
+          deleteOperationId: "delete-unpositioned-lifecycle",
+          expectedMetadataRevision: deleted.metadataRevision,
+          expectedLocationRevision: deleted.locationRevision,
+          membership: {
+            membershipId: deleted.membershipId,
+            databaseBlockId: deleted.databaseBlockId,
+            status: "draft",
+            position: null,
+          },
+        });
+        expect(restored.membershipId).toBe(created.membershipId);
+        expect(restored.viewId).toBe(null);
+        expect(
+          fixture.database
+            .prepare(
+              "SELECT COUNT(*) FROM database_view_positions WHERE block_id = ?",
+            )
+            .pluck()
+            .get(cardId),
+        ).toBe(0);
+        expect(
+          readDatabaseCardById(fixture.database, fixture.projectId, cardId)
+            ?.order,
+        ).toBe(Number.MAX_SAFE_INTEGER);
+      });
+    },
+  );
+
+  sqliteTest(
     "reads lifecycle authority and restore evidence at one snapshot coordinate",
     async () => {
       await withFixture((fixture) => {
@@ -938,7 +1004,7 @@ describe("authoritative Card lifecycle kernel", () => {
         expect(activeCard?.membership?.membershipId).toBe(created.membershipId);
         expect(activeCard?.membership?.viewId).toBe(created.viewId);
         expect(activeCard?.membership?.status).toBe("draft");
-        expect(activeCard?.membership?.position.groupKey).toBe("draft");
+        expect(activeCard?.membership?.position?.groupKey).toBe("draft");
         expect(
           active.value.value?.primaryDatabase.query.rows.some(
             (row) => row.card.blockId === cardId,

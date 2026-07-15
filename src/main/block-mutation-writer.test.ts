@@ -120,6 +120,45 @@ function makeMetrics(mutationId: string): BlockMutationMetrics {
 }
 
 describe("BlockMutationWriter", () => {
+  test("routes Nodex Agent reads through the worker without publishing mutation events", async () => {
+    const worker = new FakeWorker();
+    const published: BoardChangeEvent[] = [];
+    const writer = new BlockMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: (event) => published.push(event),
+    });
+    const pending = writer.readNodexAgentTool({
+      tool: "get_context",
+      projectId: null,
+      access: { read: "unavailable", write: "unavailable", domains: [] },
+      input: {},
+    });
+    const command = worker.messages[0];
+    expect(command?.type).toBe("readNodexAgentTool");
+    if (!command || command.type !== "readNodexAgentTool") return;
+    worker.emitMessage({
+      id: command.id,
+      ok: true,
+      result: {
+        ok: false,
+        error: {
+          code: "project_context_required",
+          message: "Project context is required",
+          retryable: false,
+          recovery: "start_new_task",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(command.mutationId),
+    });
+
+    expect((await pending).result).toMatchObject({
+      ok: false,
+      error: { code: "project_context_required" },
+    });
+    expect(published).toEqual([]);
+  });
+
   test("keeps Canvas scene sync and mutation commands outside the Yjs command path", async () => {
     const worker = new FakeWorker();
     const writer = new BlockMutationWriter({

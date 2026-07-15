@@ -28,6 +28,25 @@ export type DatabasePropertyValueType =
   | "person";
 export type GeneralDatabaseViewKind = "kanban" | "list" | "calendar" | "canvas";
 
+export function databaseGroupValueFromKey(
+  valueType: DatabasePropertyValueType,
+  groupKey: string | null,
+): DatabaseJsonValue {
+  if (groupKey === null) return null;
+  if (
+    valueType !== "number"
+    && valueType !== "checkbox"
+    && valueType !== "multi_select"
+  ) {
+    return groupKey;
+  }
+  try {
+    return JSON.parse(groupKey) as DatabaseJsonValue;
+  } catch {
+    return groupKey;
+  }
+}
+
 export interface DatabasePropertyOption {
   readonly id: string;
   readonly name: string;
@@ -134,8 +153,9 @@ export interface ExpectedDatabaseMembership {
 export interface TargetDatabaseMembership {
   readonly databaseBlockId: string;
   readonly membershipId: string;
-  readonly viewId: string;
-  readonly groupKey: string | null;
+  /** Missing creates membership without an explicit manual View position. */
+  readonly viewId?: string;
+  readonly groupKey?: string | null;
   readonly beforeCardBlockId?: string;
 }
 
@@ -1099,9 +1119,23 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
             assertExactKeys(
               record,
               `${label}.target`,
-              ["databaseBlockId", "membershipId", "viewId", "groupKey"],
-              ["beforeCardBlockId"],
+              ["databaseBlockId", "membershipId"],
+              ["viewId", "groupKey", "beforeCardBlockId"],
             );
+            const viewId = record.viewId === undefined
+              ? undefined
+              : readString(record, "viewId", `${label}.target`);
+            if (
+              (viewId === undefined && (
+                record.groupKey !== undefined
+                || record.beforeCardBlockId !== undefined
+              ))
+              || (viewId !== undefined && record.groupKey === undefined)
+            ) {
+              throw new DatabaseMutationContractError(
+                `${label}.target View position requires viewId and groupKey together`,
+              );
+            }
             return {
               databaseBlockId: readString(
                 record,
@@ -1113,12 +1147,14 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
                 "membershipId",
                 `${label}.target`,
               ),
-              viewId: readString(record, "viewId", `${label}.target`),
-              groupKey: readNullableString(
-                record,
-                "groupKey",
-                `${label}.target`,
-              ),
+              ...(viewId === undefined ? {} : {
+                viewId,
+                groupKey: readNullableString(
+                  record,
+                  "groupKey",
+                  `${label}.target`,
+                ),
+              }),
               ...(record.beforeCardBlockId === undefined
                 ? {}
                 : {
@@ -1454,7 +1490,7 @@ const operationEntities = (
       if (operation.target) {
         add("database", operation.target.databaseBlockId);
         add("membership", operation.target.membershipId);
-        add("view", operation.target.viewId);
+        if (operation.target.viewId) add("view", operation.target.viewId);
       }
       break;
     case "put_view":
@@ -1606,6 +1642,7 @@ const validateDatabaseMutationOperations = (
         }
         if (
           target.kind === "position" &&
+          transfer.target.viewId !== undefined &&
           target.viewId === transfer.target.viewId
         ) {
           throw new DatabaseMutationContractError(

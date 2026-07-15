@@ -65,6 +65,13 @@ import type {
   CodexApprovalResponse,
 } from "./codex-approval-response";
 import type {
+  NodexAgentAuthorizationRequest,
+} from "./nodex-agent-tools";
+export type {
+  NodexAgentAuthorizationRequest,
+  NodexAgentAuthorizationResponse,
+} from "./nodex-agent-tools";
+import type {
   CodexCanonicalConversationState,
   CodexCanonicalOptionPickerRequest,
   CodexCanonicalOptionPickerResponse,
@@ -3475,6 +3482,7 @@ export type CodexConversationServerRequest =
   | CodexUserInputRequest
   | CodexMcpServerElicitationRequest
   | CodexPermissionRequest
+  | NodexAgentAuthorizationRequest
   | CodexPlanImplementationServerRequest;
 
 export type CodexConversationLiveRequest =

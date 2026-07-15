@@ -44,7 +44,7 @@ interface DbRecurrenceException {
 }
 
 interface OccurrenceClonePlacement {
-  readonly primaryRankKey: string;
+  readonly primaryRankKey?: string;
 }
 
 interface OccurrenceAuthorityScope {
@@ -414,18 +414,19 @@ const readOccurrenceClonePlacement = (
       ON view.database_block_id = membership.database_block_id
       AND view.project_id = membership.project_id
       AND view.is_primary = 1
-    INNER JOIN database_view_positions position
+      AND view.kind = 'kanban'
+      AND view.lifecycle = 'active'
+    LEFT JOIN database_view_positions position
       ON position.view_id = view.id
       AND position.block_id = card.id
       AND position.project_id = card.project_id
     WHERE card.id = ? AND card.project_id = ? AND card.type = 'card'
   `).get(cardId, projectId) as {
-    readonly primary_rank_key: string;
+    readonly primary_rank_key: string | null;
   } | undefined;
-  if (!row) throw new Error(`Card ${cardId} has no authoritative placement`);
-  return {
-    primaryRankKey: `${row.primary_rank_key}~${newCardId}`,
-  };
+  if (!row) throw new Error(`Card ${cardId} has no authoritative membership`);
+  if (!row.primary_rank_key) return {};
+  return { primaryRankKey: `${row.primary_rank_key}~${newCardId}` };
 };
 
 const normalizeOccurrenceTiming = (
@@ -829,7 +830,9 @@ export async function updateCardOccurrence(
         newCardId: detachedCardId,
         lifecycle: "active",
         status: target.status,
-        primaryViewRankKey: placement.primaryRankKey,
+        ...(placement.primaryRankKey
+          ? { primaryViewRankKey: placement.primaryRankKey }
+          : {}),
         propertyOverrides: {
           database: {
             status: target.status,
@@ -986,7 +989,9 @@ export async function updateCardOccurrence(
       newCardId: nextCardId,
       lifecycle: "active",
       status: target.status,
-      primaryViewRankKey: placement.primaryRankKey,
+      ...(placement.primaryRankKey
+        ? { primaryViewRankKey: placement.primaryRankKey }
+        : {}),
       propertyOverrides: {
         database: {
           status: target.status,

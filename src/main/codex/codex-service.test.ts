@@ -127,6 +127,7 @@ import {
   setCodexThreadPinned,
   upsertCodexThread,
 } from "./codex-link-repository";
+import { getCodexThreadDynamicToolCatalogs } from "./codex-dynamic-tool-catalog-repository";
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
 import { CodexService } from "./codex-service";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
@@ -4168,6 +4169,10 @@ describe("codex-service scheduled automations", () => {
         expect(threadStartParams?.developerInstructions?.includes("Before returning the directive, write a concise summary")).toBe(true);
         expect(threadStartParams?.developerInstructions?.includes("Output exactly ONE inbox-item directive.")).toBe(true);
         expect((threadStartParams?.dynamicTools?.length ?? 0) > 0).toBe(true);
+        expect(getCodexThreadDynamicToolCatalogs("thread-automation")).toEqual([
+          { namespace: "codex_app", toolsetRevision: 1 },
+          { namespace: "nodex_app", toolsetRevision: 1 },
+        ]);
 
         const titleRequest = requests.find((request) => request.method === "thread/name/set");
         const titleParams = titleRequest?.params as { threadId?: string; name?: string } | undefined;
@@ -21916,6 +21921,13 @@ describe("codex-service approval fallback", () => {
     };
     serviceInternals.materializeThreadDetailFromThreadPayload = (thread) => {
       materializedThreadPayload = thread as Record<string, unknown>;
+      upsertCodexThread({
+        threadId: createdThreadId,
+        serviceName: "source-service",
+        cwd,
+        projectlessOutputDirectory: outputDirectory,
+        projectlessWorkspaceBrowserRoot: workspaceRoot,
+      });
       return {
         detail: {
           ...makeThreadDetail(createdThreadId),
@@ -23087,6 +23099,48 @@ describe("codex-service approval fallback", () => {
         expect(response.success).toBe(false);
         expect(response.contentItems[0]?.text).toBe("config unavailable");
         expect(service.listPendingWorktrees().length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("does not execute a codex_app handler for a foreign namespace collision", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleDynamicToolCall: (params: {
+          threadId: string;
+          turnId: string;
+          callId: string;
+          namespace: string;
+          tool: string;
+          arguments: Record<string, unknown>;
+        }) => Promise<{ contentItems: Array<{ text?: string }>; success: boolean }>;
+      };
+
+      try {
+        const response = await serviceInternals.handleDynamicToolCall({
+          threadId: "thread-foreign-namespace",
+          turnId: "turn-foreign-namespace",
+          callId: "call-foreign-namespace",
+          namespace: "nodex_app",
+          tool: "list_projects",
+          arguments: {},
+        });
+
+        expect(response.success).toBe(false);
+        expect(JSON.parse(response.contentItems[0]?.text ?? "null")).toEqual({
+          schemaVersion: 1,
+          error: {
+            code: "tool_catalog_stale",
+            message: "This task was not launched with the Nodex agent-tool catalog",
+            retryable: false,
+            recovery: "start_new_task",
+          },
+        });
       } finally {
         await service.shutdown();
       }

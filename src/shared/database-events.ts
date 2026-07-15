@@ -4,7 +4,10 @@ export type DatabaseChangeSourceKind =
   | "database_mutation"
   | "block_transfer"
   | "card_lifecycle"
-  | "card_project_transfer";
+  | "card_project_transfer"
+  | "nodex_agent_create"
+  | "nodex_agent_transfer"
+  | "nodex_agent_database_edit";
 
 /**
  * Project-scoped invalidation after one durable mutation touches Database

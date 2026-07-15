@@ -49,6 +49,7 @@ import {
   getPort,
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
+import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
   startCodexScheduledAutomationScheduler,
   type CodexScheduledAutomationScheduler,
@@ -1279,6 +1280,9 @@ export async function runMainAppStartup(
   configureMacWindowMenus();
   registerInitializationIpcHandlers();
   rendererClientRouter = new RendererClientRouter();
+  codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
+    rendererClientRouter,
+  }));
   registerIpcHandlers({
     rendererClientRouter,
     desktopNotificationManager,

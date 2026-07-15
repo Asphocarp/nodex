@@ -698,11 +698,6 @@ const assertParentChange = (
       `${label} is for parent changes; reorder within one Database uses a View position operation`,
     );
   }
-  if (source.kind === "space" && target.kind === "space") {
-    throw new BlockTransferContractError(
-      `${label} is for parent changes; reorder within a Space uses a top-level position operation`,
-    );
-  }
 };
 
 export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent => {

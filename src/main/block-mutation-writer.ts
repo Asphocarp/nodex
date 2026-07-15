@@ -97,6 +97,26 @@ import type {
   CardOccurrenceUpdateInput,
 } from "../shared/types";
 import type {
+  CompleteNodexAgentDocumentEditRequest,
+  CompleteNodexAgentDocumentEditResult,
+  ExecuteNodexAgentCreateResult,
+  ExecuteNodexAgentDatabaseEditResult,
+  ExecuteNodexAgentTransferResult,
+  NodexAgentCreateCardCommand,
+  NodexAgentDatabaseEditCommand,
+  NodexAgentTransferCommand,
+  NodexAgentReadCommandResult,
+  NodexAgentReadRequest,
+  PrepareNodexAgentDocumentEditRequest,
+  PrepareNodexAgentDocumentEditResult,
+  PrepareNodexAgentCreateRequest,
+  PrepareNodexAgentCreateResult,
+  PrepareNodexAgentDatabaseEditRequest,
+  PrepareNodexAgentDatabaseEditResult,
+  PrepareNodexAgentTransferRequest,
+  PrepareNodexAgentTransferResult,
+} from "../shared/nodex-agent-tools";
+import type {
   BlockMutationMetrics,
   BlockMutationWorkerEvent,
   BlockMutationWorkerMessage,
@@ -182,6 +202,33 @@ export class BlockMutationWriter {
   private pending = new Map<number, PendingRequest>();
 
   constructor(private readonly options: BlockMutationWriterOptions = {}) {}
+
+  async readNodexAgentTool(
+    request: NodexAgentReadRequest,
+  ): Promise<BlockMutationEnvelope<NodexAgentReadCommandResult>> {
+    return await this.executeTyped<NodexAgentReadCommandResult>({
+      type: "readNodexAgentTool",
+      payload: request,
+    });
+  }
+
+  async prepareNodexAgentDocumentEdit(
+    request: PrepareNodexAgentDocumentEditRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentDocumentEditResult>> {
+    return await this.executeTyped<PrepareNodexAgentDocumentEditResult>({
+      type: "prepareNodexAgentDocumentEdit",
+      payload: request,
+    });
+  }
+
+  async completeNodexAgentDocumentEdit(
+    request: CompleteNodexAgentDocumentEditRequest,
+  ): Promise<BlockMutationEnvelope<CompleteNodexAgentDocumentEditResult>> {
+    return await this.executeTyped<CompleteNodexAgentDocumentEditResult>({
+      type: "completeNodexAgentDocumentEdit",
+      payload: request,
+    });
+  }
 
   async completeCardOccurrence(
     projectId: string,
@@ -297,6 +344,120 @@ export class BlockMutationWriter {
       payload: intent,
     });
     return envelope.result;
+  }
+
+  async prepareNodexAgentCreate(
+    request: PrepareNodexAgentCreateRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentCreateResult>> {
+    return await this.executeTyped<PrepareNodexAgentCreateResult>({
+      type: "prepareNodexAgentCreate",
+      payload: request,
+    });
+  }
+
+  async executeNodexAgentCreate(
+    command: NodexAgentCreateCardCommand,
+  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentCreateResult>> {
+    const envelope = await this.executeTyped<ExecuteNodexAgentCreateResult>({
+      type: "executeNodexAgentCreate",
+      payload: command,
+    });
+    if (
+      envelope.result.ok
+      && !envelope.result.value.output.data.receipt.duplicate
+      && envelope.result.value.affectedDatabaseBlockIds.length > 0
+    ) {
+      this.publishDatabaseEvent(
+        {
+          version: DATABASE_CHANGE_EVENT_VERSION,
+          projectId: command.projectId,
+          storeEpoch: command.storeEpoch,
+          operationId: command.mutationId,
+          sourceKind: "nodex_agent_create",
+          affectedDatabaseBlockIds:
+            envelope.result.value.affectedDatabaseBlockIds,
+          changeLogSeq: envelope.result.value.changeLogSeq,
+        },
+        envelope.metrics,
+      );
+    }
+    return envelope;
+  }
+
+  async prepareNodexAgentTransfer(
+    request: PrepareNodexAgentTransferRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentTransferResult>> {
+    return await this.executeTyped<PrepareNodexAgentTransferResult>({
+      type: "prepareNodexAgentTransfer",
+      payload: request,
+    });
+  }
+
+  async executeNodexAgentTransfer(
+    command: NodexAgentTransferCommand,
+  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentTransferResult>> {
+    const envelope = await this.executeTyped<ExecuteNodexAgentTransferResult>({
+      type: "executeNodexAgentTransfer",
+      payload: command,
+    });
+    if (
+      envelope.result.ok
+      && !envelope.result.value.output.data.receipt.duplicate
+      && envelope.result.value.affectedDatabaseBlockIds.length > 0
+    ) {
+      this.publishDatabaseEvent(
+        {
+          version: DATABASE_CHANGE_EVENT_VERSION,
+          projectId: command.projectId,
+          storeEpoch: command.storeEpoch,
+          operationId: command.mutationId,
+          sourceKind: "nodex_agent_transfer",
+          affectedDatabaseBlockIds:
+            envelope.result.value.affectedDatabaseBlockIds,
+          changeLogSeq: envelope.result.value.changeLogSeq,
+        },
+        envelope.metrics,
+      );
+    }
+    return envelope;
+  }
+
+  async prepareNodexAgentDatabaseEdit(
+    request: PrepareNodexAgentDatabaseEditRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentDatabaseEditResult>> {
+    return await this.executeTyped<PrepareNodexAgentDatabaseEditResult>({
+      type: "prepareNodexAgentDatabaseEdit",
+      payload: request,
+    });
+  }
+
+  async executeNodexAgentDatabaseEdit(
+    command: NodexAgentDatabaseEditCommand,
+  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentDatabaseEditResult>> {
+    const envelope = await this.executeTyped<ExecuteNodexAgentDatabaseEditResult>({
+      type: "executeNodexAgentDatabaseEdit",
+      payload: command,
+    });
+    if (
+      envelope.result.ok
+      && !envelope.result.value.output.data.receipt.duplicate
+      && envelope.result.value.affectedDatabaseBlockIds.length > 0
+    ) {
+      this.publishDatabaseEvent(
+        {
+          version: DATABASE_CHANGE_EVENT_VERSION,
+          projectId: command.projectId,
+          storeEpoch: command.storeEpoch,
+          operationId: command.mutationId,
+          sourceKind: "nodex_agent_database_edit",
+          affectedDatabaseBlockIds:
+            envelope.result.value.affectedDatabaseBlockIds,
+          changeLogSeq: envelope.result.value.changeLogSeq,
+        },
+        envelope.metrics,
+      );
+    }
+    return envelope;
   }
 
   async readCommittedBlockTransfer(

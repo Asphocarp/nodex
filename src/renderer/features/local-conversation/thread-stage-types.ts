@@ -32,6 +32,7 @@ import type {
   CodexPermissionMode,
   CodexPersonality,
   CodexPermissionRequestResponse,
+  NodexAgentAuthorizationResponse,
   CodexProtocolRequestId,
   CodexPromptInput,
   CodexSteerTurnInput,
@@ -289,6 +290,11 @@ export interface ThreadStageActions {
   onRespondPermissionRequest?: (
     requestId: CodexProtocolRequestId,
     response: CodexPermissionRequestResponse,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
+  onRespondNodexAgentAuthorization?: (
+    requestId: string,
+    response: NodexAgentAuthorizationResponse,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onRespondOptionPicker?: (
