@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { planDocumentRevisionRetention } from "../../shared/block-documents/document-revision-retention";
 import {
   BLOCK_RETENTION_GC_POLICY_VERSION,
   planBlockRetentionGc,
@@ -232,21 +233,38 @@ const readCandidate = (
 const readPrunableDocumentVersions = (
   database: Database.Database,
   candidate: BlockRetentionGcCandidate,
-): readonly string[] => {
+  now: string,
+): readonly string[] | null => {
   if (candidate.ownedDocumentIds.length === 0) return [];
-  return (
-    database
-      .prepare(
-        `SELECT version_id
-         FROM document_versions
-         WHERE project_id = ?
-           AND document_id IN (${placeholders(candidate.ownedDocumentIds.length)})
-         ORDER BY version_id`,
-      )
-      .all(candidate.projectId, ...candidate.ownedDocumentIds) as readonly {
-      readonly version_id: string;
-    }[]
-  ).map((row) => row.version_id);
+  const rows = database
+    .prepare(
+      `SELECT version_id, document_id, created_at, pinned
+       FROM document_versions
+       WHERE project_id = ?
+         AND document_id IN (${placeholders(candidate.ownedDocumentIds.length)})
+       ORDER BY document_id, version_id`,
+    )
+    .all(candidate.projectId, ...candidate.ownedDocumentIds) as readonly {
+    readonly version_id: string;
+    readonly document_id: string;
+    readonly created_at: string;
+    readonly pinned: 0 | 1;
+  }[];
+  const deletedVersionIds: string[] = [];
+  for (const documentId of candidate.ownedDocumentIds) {
+    const documentRows = rows.filter((row) => row.document_id === documentId);
+    const plan = planDocumentRevisionRetention(
+      documentRows.map((row) => ({
+        versionId: row.version_id,
+        createdAt: row.created_at,
+        pinned: row.pinned === 1,
+      })),
+      now,
+    );
+    if (plan.retainedVersionIds.length > 0) return null;
+    deletedVersionIds.push(...plan.deletedVersionIds);
+  }
+  return deletedVersionIds.sort();
 };
 
 const readPrunableRecoveryArtifacts = (
@@ -376,6 +394,7 @@ const readReleasedImmutableAttribution = (
 const readEvidencePlan = (
   database: Database.Database,
   candidate: BlockRetentionGcCandidate,
+  now: string,
 ): EvidencePlan | null => {
   const recoveryArtifactIds = readPrunableRecoveryArtifacts(
     database,
@@ -401,8 +420,14 @@ const readEvidencePlan = (
     }
     return parsed;
   });
+  const documentVersionIds = readPrunableDocumentVersions(
+    database,
+    candidate,
+    now,
+  );
+  if (!documentVersionIds) return null;
   return {
-    documentVersionIds: readPrunableDocumentVersions(database, candidate),
+    documentVersionIds,
     recoveryArtifactIds,
     mutationIds,
     changeLogSeqs,
@@ -449,6 +474,7 @@ const collectCandidateClosure = (
   database: Database.Database,
   candidate: BlockRetentionGcCandidate,
   options: MaintainBlockRetentionOptions,
+  retiredAt: string,
 ): {
   readonly retiredBlockIds: readonly string[];
   readonly deletedBlockIds: readonly string[];
@@ -459,9 +485,6 @@ const collectCandidateClosure = (
   if (blockIds.length === 0) {
     throw new Error("Retention candidate has an empty Block closure");
   }
-  const retiredAt = requireCanonicalTimestamp(
-    options.now?.() ?? new Date().toISOString(),
-  );
   const retired = database
     .prepare(
       `INSERT INTO retired_block_identities (
@@ -548,7 +571,10 @@ const maintainCandidate = (
             candidate: initial,
           };
         }
-        const evidence = readEvidencePlan(database, initial);
+        const now = requireCanonicalTimestamp(
+          options.now?.() ?? new Date().toISOString(),
+        );
+        const evidence = readEvidencePlan(database, initial, now);
         if (!evidence) {
           return {
             status: "retained",
@@ -574,7 +600,12 @@ const maintainCandidate = (
         const replanned = readCandidate(database, projectId, rootBlockId, policy);
         assertReleasedHistoryMatchesPlan(replanned, evidence);
         options.faultInjector?.("after_replan", rootBlockId);
-        const deleted = collectCandidateClosure(database, replanned, options);
+        const deleted = collectCandidateClosure(
+          database,
+          replanned,
+          options,
+          now,
+        );
         options.faultInjector?.("before_candidate_commit", rootBlockId);
         return {
           status: "collected",

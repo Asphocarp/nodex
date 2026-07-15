@@ -17,6 +17,13 @@ export const MAX_DOCUMENT_VERSION_HISTORY_LIMIT = 200;
 
 export type DocumentVersionActor = Readonly<Record<string, BlockTreeValue>>;
 
+export type DocumentRevisionKind =
+  | "automatic"
+  | "manual"
+  | "operation"
+  | "restore"
+  | "safety";
+
 export interface CreateDocumentVersionCheckpoint {
   readonly version: typeof DOCUMENT_VERSION_CONTRACT_VERSION;
   readonly projectId: string;
@@ -27,6 +34,9 @@ export interface CreateDocumentVersionCheckpoint {
   readonly cause: string;
   readonly label?: string;
   readonly actor: DocumentVersionActor;
+  readonly revisionKind?: DocumentRevisionKind;
+  readonly sourceMutationId?: string;
+  readonly sourceChangeSeq?: number;
 }
 
 interface DocumentVersionSummaryBase {
@@ -40,6 +50,10 @@ interface DocumentVersionSummaryBase {
   readonly cause: string;
   readonly label: string | null;
   readonly actor: DocumentVersionActor;
+  readonly revisionKind: DocumentRevisionKind;
+  readonly sourceMutationId: string | null;
+  readonly sourceChangeSeq: number | null;
+  readonly pinned: boolean;
   readonly checkpointHash: string;
   readonly materializationHash: string;
   readonly byteLength: number;
@@ -54,6 +68,9 @@ export type DocumentVersionCheckpointMetadata =
   | {
       readonly format: "yjs_update_v1";
       readonly stateVectorHash: string;
+    }
+  | {
+      readonly format: "block_tree_snapshot_v2";
     }
   | {
       readonly format: "canvas_scene_json_v1";
@@ -72,6 +89,17 @@ export type DocumentVersionCheckpoint =
       readonly fullUpdate: Uint8Array;
       readonly stateVector: Uint8Array;
       readonly materialization: RegisteredOwnedDocumentMaterialization;
+    })
+  | (DocumentVersionSummaryBase & {
+      readonly checkpointMetadata: Extract<
+        DocumentVersionCheckpointMetadata,
+        { readonly format: "block_tree_snapshot_v2" }
+      >;
+      readonly snapshotJson: Uint8Array;
+      readonly materialization: Exclude<
+        RegisteredOwnedDocumentMaterialization,
+        { readonly kind: "canvas_scene" }
+      >;
     })
   | (DocumentVersionSummaryBase & {
       readonly checkpointMetadata: Extract<

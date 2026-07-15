@@ -43,6 +43,23 @@ afterEach(() => {
   delete (globalThis as { __historyPanelApi?: unknown }).__historyPanelApi;
 });
 
+const selectCheckpoint = async (view: ReturnType<typeof render>) => {
+  await waitFor(() => {
+    if (!view.queryByRole("button", { name: /Manual checkpoint/ })) {
+      throw new Error("Checkpoint revision did not render");
+    }
+  });
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: /Manual checkpoint/ }));
+    await Promise.resolve();
+  });
+  await waitFor(() => {
+    if (!textContent(document.body).includes("Checkpoint body")) {
+      throw new Error("Checkpoint preview did not load");
+    }
+  });
+};
+
 describe("canonical Card history panel", () => {
   test("previews and forward-restores a Document checkpoint", async () => {
     const checkpoint = makeCheckpointEntry();
@@ -73,6 +90,7 @@ describe("canonical Card history panel", () => {
         projectId="project-1"
         cardId="card-1"
         cardTitle="Current title"
+        cardNfm="Current body"
         projectWorkspacePath="/workspace/project-1"
         open
         onClose={() => undefined}
@@ -83,16 +101,19 @@ describe("canonical Card history panel", () => {
     );
 
     await waitFor(() => {
-      if (!textContent(document.body).includes("Checkpoint body")) {
-        throw new Error("Checkpoint preview did not load");
+      if (!textContent(document.body).includes("Current body")) {
+        throw new Error("Current Card content did not render");
       }
     });
     expect(calls.includes("listCardHistory")).toBe(true);
+    expect(calls.includes("getDocumentVersion")).toBe(false);
+
+    await selectCheckpoint(view);
     expect(calls.includes("getDocumentVersion")).toBe(true);
     expect(textContent(document.body).includes("forward change")).toBe(true);
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      fireEvent.click(view.getByRole("button", { name: "Restore title & body" }));
       await Promise.resolve();
     });
     expect(textContent(document.body).includes("new forward change")).toBe(true);
@@ -140,14 +161,10 @@ describe("canonical Card history panel", () => {
         onClose={() => undefined}
       />,
     );
-    await waitFor(() => {
-      if (!textContent(document.body).includes("Checkpoint body")) {
-        throw new Error("Checkpoint preview did not load");
-      }
-    });
+    await selectCheckpoint(view);
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      fireEvent.click(view.getByRole("button", { name: "Restore title & body" }));
       await Promise.resolve();
     });
     await waitFor(() => {
@@ -208,13 +225,9 @@ describe("canonical Card history panel", () => {
         onClose={() => undefined}
       />,
     );
-    await waitFor(() => {
-      if (!textContent(document.body).includes("Checkpoint body")) {
-        throw new Error("Checkpoint preview did not load");
-      }
-    });
+    await selectCheckpoint(view);
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      fireEvent.click(view.getByRole("button", { name: "Restore title & body" }));
       await Promise.resolve();
     });
     await waitFor(() => {
@@ -291,13 +304,9 @@ describe("canonical Card history panel", () => {
         onClose={() => undefined}
       />,
     );
-    await waitFor(() => {
-      if (!textContent(document.body).includes("Checkpoint body")) {
-        throw new Error("Checkpoint preview did not load");
-      }
-    });
+    await selectCheckpoint(view);
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Restore checkpoint" }));
+      fireEvent.click(view.getByRole("button", { name: "Restore title & body" }));
       await Promise.resolve();
     });
     await waitFor(() => {
@@ -366,6 +375,10 @@ describe("canonical Card history panel", () => {
         onClose={() => undefined}
       />,
     );
+    await act(async () => {
+      fireEvent.click(await view.findByRole("button", { name: "Activity" }));
+      await Promise.resolve();
+    });
     await waitFor(() => {
       if (!textContent(document.body).includes("Changed Card properties")) {
         throw new Error("Mutation evidence did not render");
@@ -373,7 +386,7 @@ describe("canonical Card history panel", () => {
     });
 
     expect(textContent(document.body).includes("no inverse operation")).toBe(true);
-    expect(view.queryByRole("button", { name: "Restore checkpoint" }) === null).toBe(true);
+    expect(view.queryByRole("button", { name: "Restore title & body" }) === null).toBe(true);
     expect(previewCount).toBe(0);
 
     await act(async () => {
@@ -442,6 +455,10 @@ function makeCheckpointEntry(): Extract<CardHistoryEntry, { kind: "document_vers
       schemaVersion: 1,
       cause: "manual",
       label: "Before restructure",
+      revisionKind: "manual",
+      sourceMutationId: null,
+      sourceChangeSeq: null,
+      pinned: true,
       checkpointHash: HASH,
       byteLength: 1_024,
     },
@@ -522,6 +539,10 @@ function makeVersionDetail(): DocumentVersionDetail {
       cause: "manual",
       label: "Before restructure",
       actor: { kind: "renderer" },
+      revisionKind: "manual",
+      sourceMutationId: null,
+      sourceChangeSeq: null,
+      pinned: true,
       checkpointHash: HASH,
       checkpointMetadata: {
         format: "yjs_update_v1",

@@ -30,7 +30,7 @@ import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-propert
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 66;
+export const CURRENT_SCHEMA_VERSION = 67;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -51,6 +51,7 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 63, toVersion: 64, migrate: migrateSchema63To64 },
   { fromVersion: 64, toVersion: 65, migrate: migrateSchema64To65 },
   { fromVersion: 65, toVersion: 66, migrate: migrateSchema65To66 },
+  { fromVersion: 66, toVersion: 67, migrate: migrateSchema66To67 },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
@@ -64,6 +65,7 @@ const RESETTABLE_TABLES = [
   "block_search_units",
   "block_asset_refs",
   "card_read_model",
+  "document_revision_sessions",
   "document_versions",
   "block_mutations",
   "block_relocation_members",
@@ -1932,9 +1934,7 @@ function createRetiredBlockIdentitySchema(db: Database.Database): void {
  * projection may remain after its source advances, but a writer cannot publish
  * a projection from a future generation, sequence, or metadata revision.
  */
-function createBlockSecondaryAuthorityFoundationSchema(
-  db: Database.Database,
-): void {
+function createDocumentRevisionHistorySchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS document_versions (
       version_id TEXT PRIMARY KEY,
@@ -1947,6 +1947,10 @@ function createBlockSecondaryAuthorityFoundationSchema(
       cause TEXT NOT NULL,
       label TEXT,
       actor_json TEXT NOT NULL DEFAULT '{}',
+      revision_kind TEXT NOT NULL DEFAULT 'manual',
+      source_mutation_id TEXT,
+      source_change_seq INTEGER,
+      pinned INTEGER NOT NULL DEFAULT 1,
       checkpoint_format TEXT NOT NULL DEFAULT 'yjs_update_v1',
       full_update_blob BLOB NOT NULL,
       state_vector BLOB NOT NULL,
@@ -1960,9 +1964,13 @@ function createBlockSecondaryAuthorityFoundationSchema(
       CHECK (length(cause) BETWEEN 1 AND 128),
       CHECK (label IS NULL OR length(label) <= 512),
       CHECK (json_valid(actor_json) AND json_type(actor_json) = 'object'),
-      CHECK (checkpoint_format IN ('yjs_update_v1', 'canvas_scene_json_v1')),
+      CHECK (revision_kind IN ('automatic', 'manual', 'operation', 'restore', 'safety')),
+      CHECK (source_mutation_id IS NULL OR length(trim(source_mutation_id)) BETWEEN 1 AND 512),
+      CHECK (source_change_seq IS NULL OR source_change_seq >= 1),
+      CHECK (pinned IN (0, 1)),
+      CHECK (checkpoint_format IN ('yjs_update_v1', 'block_tree_snapshot_v2', 'canvas_scene_json_v1')),
       CHECK (
-        checkpoint_format <> 'canvas_scene_json_v1'
+        checkpoint_format NOT IN ('block_tree_snapshot_v2', 'canvas_scene_json_v1')
         OR (
           length(state_vector) = 0
           AND json_valid(CAST(full_update_blob AS TEXT))
@@ -1981,6 +1989,11 @@ function createBlockSecondaryAuthorityFoundationSchema(
       ON document_versions(document_id, generation, base_head_seq DESC, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_versions_project_created
       ON document_versions(project_id, created_at DESC, version_id);
+    CREATE INDEX IF NOT EXISTS idx_document_versions_source_mutation
+      ON document_versions(source_mutation_id)
+      WHERE source_mutation_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_document_versions_retention
+      ON document_versions(document_id, pinned, created_at DESC, version_id);
 
     CREATE TRIGGER IF NOT EXISTS document_versions_validate_insert
       BEFORE INSERT ON document_versions
@@ -2004,6 +2017,32 @@ function createBlockSecondaryAuthorityFoundationSchema(
       BEGIN
         SELECT RAISE(ABORT, 'document versions are immutable');
       END;
+
+    CREATE TABLE IF NOT EXISTS document_revision_sessions (
+      document_id TEXT PRIMARY KEY,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      dirty_head_seq INTEGER NOT NULL CHECK (dirty_head_seq >= 0),
+      burst_started_at TEXT NOT NULL,
+      last_edit_at TEXT NOT NULL,
+      last_checkpoint_at TEXT,
+      client_session_id TEXT NOT NULL,
+      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+      CHECK (length(burst_started_at) > 0),
+      CHECK (length(last_edit_at) > 0),
+      CHECK (last_checkpoint_at IS NULL OR length(last_checkpoint_at) > 0),
+      CHECK (length(trim(client_session_id)) BETWEEN 1 AND 512)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_document_revision_sessions_due
+      ON document_revision_sessions(last_edit_at, document_id);
+  `);
+}
+
+function createBlockSecondaryAuthorityFoundationSchema(
+  db: Database.Database,
+): void {
+  createDocumentRevisionHistorySchema(db);
+  db.exec(`
 
     CREATE TABLE IF NOT EXISTS block_mutations (
       mutation_id TEXT PRIMARY KEY,
@@ -5908,14 +5947,16 @@ function createOwnedDocumentEngineGuards(db: Database.Database): void {
     CREATE TRIGGER IF NOT EXISTS document_versions_validate_checkpoint_format
       BEFORE INSERT ON document_versions
       WHEN (
-        NEW.checkpoint_format = 'canvas_scene_json_v1'
+        NEW.checkpoint_format IN (
+          'block_tree_snapshot_v2', 'canvas_scene_json_v1'
+        )
         AND (
           length(NEW.state_vector) <> 0
           OR json_valid(CAST(NEW.full_update_blob AS TEXT)) = 0
           OR json_type(CAST(NEW.full_update_blob AS TEXT)) <> 'object'
         )
       ) OR NEW.checkpoint_format NOT IN (
-        'yjs_update_v1', 'canvas_scene_json_v1'
+        'yjs_update_v1', 'block_tree_snapshot_v2', 'canvas_scene_json_v1'
       )
       BEGIN
         SELECT RAISE(ABORT, 'Document checkpoint format does not match its payload');
@@ -6896,6 +6937,76 @@ export function migrateSchema65To66(db: Database.Database): void {
       ) WITHOUT ROWID;
     `);
     setUserVersion(db, 66);
+  });
+  migrate.immediate();
+}
+
+export function migrateSchema66To67(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 66) {
+    throw new Error(
+      `Schema v66 to v67 migration requires v66, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    if (!tableHasColumn(db, "document_versions", "revision_kind")) {
+      const before = db
+        .prepare(
+          `SELECT COUNT(*) AS count, COALESCE(SUM(byte_length), 0) AS bytes
+           FROM document_versions`,
+        )
+        .get() as { readonly count: number; readonly bytes: number };
+      db.exec(`
+        DROP TRIGGER IF EXISTS document_versions_validate_insert;
+        DROP TRIGGER IF EXISTS document_versions_are_immutable;
+        DROP TRIGGER IF EXISTS document_versions_validate_checkpoint_format;
+        DROP INDEX IF EXISTS idx_document_versions_document_head;
+        DROP INDEX IF EXISTS idx_document_versions_project_created;
+        ALTER TABLE document_versions RENAME TO document_versions_v66_source;
+      `);
+      createDocumentRevisionHistorySchema(db);
+      db.exec(`
+        INSERT INTO document_versions (
+          version_id, document_id, project_id, generation, base_head_seq,
+          schema_key, schema_version, cause, label, actor_json,
+          revision_kind, source_mutation_id, source_change_seq, pinned,
+          checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+          byte_length, created_at
+        )
+        SELECT
+          version_id, document_id, project_id, generation, base_head_seq,
+          schema_key, schema_version, cause, label, actor_json,
+          CASE WHEN cause = 'before_restore' THEN 'restore' ELSE 'manual' END,
+          NULL, NULL, 1,
+          checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+          byte_length, created_at
+        FROM document_versions_v66_source;
+
+        DROP TABLE document_versions_v66_source;
+      `);
+      createDocumentRevisionHistorySchema(db);
+      const after = db
+        .prepare(
+          `SELECT COUNT(*) AS count, COALESCE(SUM(byte_length), 0) AS bytes
+           FROM document_versions`,
+        )
+        .get() as { readonly count: number; readonly bytes: number };
+      if (after.count !== before.count || after.bytes !== before.bytes) {
+        throw new Error("Schema v67 migration changed retained checkpoint bytes");
+      }
+    } else {
+      createDocumentRevisionHistorySchema(db);
+    }
+
+    createOwnedDocumentEngineGuards(db);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v67 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 67);
   });
   migrate.immediate();
 }

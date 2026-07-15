@@ -559,6 +559,7 @@ const commitRepair = (
     expectedHeadSeq: prepared.headSeq,
     cause: "before_legacy_card_promotion_cutover",
     label: `Before semantic Card promotion repair for ${candidate.cardId}`,
+    revisionKind: "manual",
     actor,
   });
   const mutationId = repairMutationId(candidate);
@@ -577,6 +578,7 @@ const commitRepair = (
       operations: prepared.operations,
     },
     {
+      skipAutomaticRevisionCapture: true,
       writeFence: {
         leaseId: `${mutationId}:lease`,
         documentId: candidate.documentId,

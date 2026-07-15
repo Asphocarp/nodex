@@ -106,7 +106,6 @@ interface UseCardStageControllerResult {
   tagInputRef: React.RefObject<HTMLInputElement | null>;
   tagDropdownRef: React.RefObject<HTMLDivElement | null>;
   schedule: ReturnType<typeof useScheduleState>;
-  onToggleHistoryPanel?: () => void;
   onOpenNewCodexThread?: () => void;
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   setPropertiesExpanded: React.Dispatch<React.SetStateAction<boolean>>;
@@ -274,7 +273,6 @@ export function useCardStageController(
     onCompleteOccurrence,
     onSkipOccurrence,
     onColumnIdChange,
-    onToggleHistoryPanel,
     linkedCodexThreads = [],
     onOpenCodexThread,
     onOpenNewCodexThread,
@@ -1224,7 +1222,6 @@ export function useCardStageController(
     tagInputRef,
     tagDropdownRef,
     schedule,
-    onToggleHistoryPanel,
     onOpenNewCodexThread,
     onOpenCodexThread,
     setPropertiesExpanded,

@@ -15,6 +15,7 @@ import type { BlockDocumentReference } from "../../shared/block-documents/derive
 import { parseProjectSessionTabConfig } from "../../shared/schemas/project-sessions";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 import { isCanvasCardReferenceProjectionCurrent } from "./canvas-scene-projection-equivalence";
+import { decodeBlockTreeSnapshotV2 } from "./document-versions";
 
 export const BLOCK_RETENTION_GC_POLICY_VERSION = 1 as const;
 
@@ -900,6 +901,58 @@ const byteArraysEqual = (left: Uint8Array, right: Uint8Array): boolean =>
 const sha256 = (value: Uint8Array): string =>
   createHash("sha256").update(value).digest("hex");
 
+const analyzeHistoricalBlockTreeMaterialization = (
+  version: {
+    readonly version_id: string;
+    readonly document_id: string;
+  },
+  materialization: {
+    readonly blockTree: unknown;
+    readonly references: readonly BlockDocumentReference[];
+  },
+  closure: GcClosure,
+  databaseViewIds: ReadonlySet<string>,
+  collector: BlockerCollector,
+): void => {
+  for (const blockId of readBlockTreeIds(
+    materialization.blockTree,
+    `Document version ${version.version_id} Block tree`,
+  )) {
+    if (!closure.blockIds.has(blockId)) continue;
+    collector.add("retained_document_version", {
+      source: "document_versions",
+      identity: version.version_id,
+      relation: "historical_block_identity",
+      documentId: version.document_id,
+    });
+  }
+  for (const reference of materialization.references) {
+    if (
+      (reference.kind === "block" ||
+        reference.kind === "legacy_card_projection") &&
+      closure.blockIds.has(reference.targetBlockId)
+    ) {
+      collector.add("block_tree_reference", {
+        source: "document_versions",
+        identity: version.version_id,
+        relation: `historical_${reference.kind}`,
+        documentId: version.document_id,
+      });
+    }
+    if (
+      reference.kind === "database_view" &&
+      databaseViewIds.has(reference.databaseViewId)
+    ) {
+      collector.add("database_view_reference", {
+        source: "document_versions",
+        identity: version.version_id,
+        relation: "historical_database_view",
+        documentId: version.document_id,
+      });
+    }
+  }
+};
+
 const analyzeHistoricalDocumentVersionRoots = (
   database: Database.Database,
   closure: GcClosure,
@@ -936,7 +989,10 @@ const analyzeHistoricalDocumentVersionRoots = (
     readonly project_id: string;
     readonly schema_key: string;
     readonly schema_version: number;
-    readonly checkpoint_format: "yjs_update_v1" | "canvas_scene_json_v1";
+    readonly checkpoint_format:
+      | "yjs_update_v1"
+      | "block_tree_snapshot_v2"
+      | "canvas_scene_json_v1";
     readonly full_update_blob: Buffer;
     readonly state_vector: Buffer;
     readonly checkpoint_hash: string;
@@ -997,6 +1053,27 @@ const analyzeHistoricalDocumentVersionRoots = (
       }
       continue;
     }
+    if (version.checkpoint_format === "block_tree_snapshot_v2") {
+      if (
+        version.state_vector.byteLength !== 0 ||
+        registration.syncEngine !== "yjs"
+      ) {
+        corrupt("historical_checkpoint_format_corrupt");
+        continue;
+      }
+      try {
+        analyzeHistoricalBlockTreeMaterialization(
+          version,
+          decodeBlockTreeSnapshotV2(version),
+          closure,
+          databaseViewIds,
+          collector,
+        );
+      } catch {
+        corrupt("historical_checkpoint_schema_corrupt");
+      }
+      continue;
+    }
     if (registration.syncEngine !== "yjs") {
       corrupt("historical_checkpoint_format_corrupt");
       continue;
@@ -1038,43 +1115,13 @@ const analyzeHistoricalDocumentVersionRoots = (
           schemaKey: version.schema_key,
           schemaVersion: version.schema_version,
         }).materialization;
-        for (const blockId of readBlockTreeIds(
-          materialization.blockTree,
-          `Document version ${version.version_id} Block tree`,
-        )) {
-          if (!closure.blockIds.has(blockId)) continue;
-          collector.add("retained_document_version", {
-            source: "document_versions",
-            identity: version.version_id,
-            relation: "historical_block_identity",
-            documentId: version.document_id,
-          });
-        }
-        for (const reference of materialization.references) {
-          if (
-            (reference.kind === "block" ||
-              reference.kind === "legacy_card_projection") &&
-            closure.blockIds.has(reference.targetBlockId)
-          ) {
-            collector.add("block_tree_reference", {
-              source: "document_versions",
-              identity: version.version_id,
-              relation: `historical_${reference.kind}`,
-              documentId: version.document_id,
-            });
-          }
-          if (
-            reference.kind === "database_view" &&
-            databaseViewIds.has(reference.databaseViewId)
-          ) {
-            collector.add("database_view_reference", {
-              source: "document_versions",
-              identity: version.version_id,
-              relation: "historical_database_view",
-              documentId: version.document_id,
-            });
-          }
-        }
+        analyzeHistoricalBlockTreeMaterialization(
+          version,
+          materialization,
+          closure,
+          databaseViewIds,
+          collector,
+        );
       } catch {
         corrupt("historical_checkpoint_schema_corrupt");
       }

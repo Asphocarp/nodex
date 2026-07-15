@@ -294,6 +294,7 @@ describe("Synced Block document-bearing ownership", () => {
           expectedGeneration: 1,
           expectedHeadSeq: 3,
           cause: "manual",
+          revisionKind: "manual",
           actor: {},
         }).checkpoint;
         expect(checkpoint.materializationKind).toBe("synced_block");

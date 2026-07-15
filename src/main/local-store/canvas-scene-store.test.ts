@@ -159,6 +159,7 @@ describe("Canvas scene SQLite authority", () => {
       expectedGeneration: fixture.generation,
       expectedHeadSeq: first.value.headSeq,
       cause: "manual",
+      revisionKind: "manual",
       actor: { kind: "test" },
     });
     expect(checkpoint.checkpoint.checkpointMetadata).toEqual({

@@ -721,6 +721,7 @@ interface CardStageHistoryModalContext {
   projectId: string;
   cardId: string;
   cardTitle?: string;
+  cardNfm?: string;
 }
 
 interface RetainedSessionEntry {
@@ -10059,6 +10060,7 @@ export function WorkbenchShell({
                 projectId={cardStageHistoryModal?.projectId ?? activeProjectId}
                 cardId={cardStageHistoryModal?.cardId ?? null}
                 cardTitle={cardStageHistoryModal?.cardTitle}
+                cardNfm={cardStageHistoryModal?.cardNfm}
                 projectWorkspacePath={projectWorkspaceRootOrNull(cardStageHistoryModalProject)}
                 open={cardStageHistoryModal !== null}
                 onClose={closeCardStageHistoryModal}
@@ -13715,12 +13717,13 @@ function CardStageSessionTab({
             onOpenTerminalPanel={() => {
               void onOpenTerminal();
             }}
-            onToggleHistoryPanel={() => onToggleHistoryPanel({
+            onToggleHistoryPanel={(snapshot) => onToggleHistoryPanel({
               sessionId,
               tabId: tab.id,
               projectId: tab.config.projectId,
               cardId: tab.config.cardId,
-              cardTitle: card.card.title || tab.config.titleSnapshot,
+              cardTitle: snapshot.title || tab.config.titleSnapshot,
+              cardNfm: snapshot.nfm,
             })}
             historyPanelActive={historyPanelActive}
             isActivePanelTab={isActivePanelTab}

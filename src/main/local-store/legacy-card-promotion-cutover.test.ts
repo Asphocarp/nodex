@@ -518,11 +518,15 @@ describe("legacy Card promotion cutover", () => {
     });
     expect(deleted.ok).toBe(true);
 
-    const retention = maintainBlockRetention(database, {
-      projectId: project.id,
-      rootBlockIds: [card.id],
-      policy: { retainNewestDeletedBlocks: 0 },
-    });
+    const retention = maintainBlockRetention(
+      database,
+      {
+        projectId: project.id,
+        rootBlockIds: [card.id],
+        policy: { retainNewestDeletedBlocks: 0 },
+      },
+      { now: () => "2100-01-01T00:00:00.000Z" },
+    );
     expect(retention.candidates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

@@ -81,6 +81,15 @@ export interface CardDocumentVersionHistoryEntry extends CardHistoryEntryBase {
     readonly schemaVersion: number;
     readonly cause: string;
     readonly label: string | null;
+    readonly revisionKind:
+      | "automatic"
+      | "manual"
+      | "operation"
+      | "restore"
+      | "safety";
+    readonly sourceMutationId: string | null;
+    readonly sourceChangeSeq: number | null;
+    readonly pinned: boolean;
     readonly checkpointHash: string;
     readonly byteLength: number;
   };

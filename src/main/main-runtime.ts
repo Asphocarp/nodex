@@ -38,6 +38,11 @@ import {
   startBlockRetentionMaintenanceScheduler,
   type BlockRetentionMaintenanceScheduler,
 } from "./block-retention-maintenance-scheduler";
+import {
+  startDocumentRevisionMaintenanceScheduler,
+  type DocumentRevisionMaintenanceScheduler,
+} from "./document-revision-maintenance-scheduler";
+import { DOCUMENT_REVISION_MAINTENANCE_VERSION } from "../shared/block-documents/document-revision-maintenance";
 import { readBlockStoreEpoch } from "./local-store/block-store-metadata";
 import {
   getAppUpdateSettings,
@@ -141,6 +146,7 @@ let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let blockRetentionMaintenanceScheduler: BlockRetentionMaintenanceScheduler | null = null;
+let documentRevisionMaintenanceScheduler: DocumentRevisionMaintenanceScheduler | null = null;
 let mediaPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
@@ -195,6 +201,35 @@ const startBlockRetentionMaintenanceRuntime = (): void => {
       });
     },
   });
+};
+
+const startDocumentRevisionMaintenanceRuntime = (): void => {
+  if (documentRevisionMaintenanceScheduler) return;
+  documentRevisionMaintenanceScheduler =
+    startDocumentRevisionMaintenanceScheduler({
+      writer: blockMutationWriter,
+      readStoreEpoch: () => readBlockStoreEpoch(getDb()),
+      onResult: (result) => {
+        if (
+          result.finalizedDocumentCount === 0 &&
+          result.alreadyCoveredDocumentCount === 0 &&
+          result.staleSessionCount === 0 &&
+          result.failedDocumentCount === 0
+        ) {
+          return;
+        }
+        if (result.failedDocumentCount > 0) {
+          logger.warn("Document revision maintenance pass was incomplete", result);
+          return;
+        }
+        logger.info("Document revision maintenance pass completed", result);
+      },
+      onError: (error) => {
+        logger.warn("Document revision maintenance pass deferred", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    });
 };
 const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
 
@@ -946,6 +981,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   });
   blockDocumentCompactionRuntime.start();
   startBlockRetentionMaintenanceRuntime();
+  startDocumentRevisionMaintenanceRuntime();
   databaseReady = true;
   resolvePendingCardDeepLink();
   resolvePendingSessionDeepLink();
@@ -1122,6 +1158,8 @@ function beginMainRuntimeShutdown(): void {
   blockDocumentCompactionRuntime.dispose();
   blockRetentionMaintenanceScheduler?.dispose();
   blockRetentionMaintenanceScheduler = null;
+  documentRevisionMaintenanceScheduler?.dispose();
+  documentRevisionMaintenanceScheduler = null;
   stopAutoBackupScheduler();
   if (stopReminderScheduler) {
     stopReminderScheduler();
@@ -1173,17 +1211,41 @@ function shutdownMainRuntime(): Promise<void> {
     return runtimeShutdownPromise;
   }
 
-  runtimeShutdownPromise = Promise.all([
-    settleRuntimeShutdownStep(
-      "Block mutation writer",
-      () => blockMutationWriter.shutdown(),
-    ),
-    settleRuntimeShutdownStep(
-      "Codex service",
-      () => codexService.shutdown(),
+  runtimeShutdownPromise = (async () => {
+    await settleRuntimeShutdownStep(
+      "Document revision flush",
+      async () => {
+        const storeEpoch = readBlockStoreEpoch(getDb());
+        if (!storeEpoch) return;
+        while (true) {
+          const { result } =
+            await blockMutationWriter.maintainDocumentRevisionHistory({
+              version: DOCUMENT_REVISION_MAINTENANCE_VERSION,
+              storeEpoch,
+              now: new Date().toISOString(),
+              force: true,
+            });
+          if (result.failedDocumentCount > 0) {
+            throw new Error(
+              `Document revision flush left ${result.failedDocumentCount} session(s) unresolved`,
+            );
+          }
+          if (result.scannedDocumentCount === 0) return;
+        }
+      },
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    ),
-  ]).then(async () => {
+    );
+    await Promise.all([
+      settleRuntimeShutdownStep(
+        "Block mutation writer",
+        () => blockMutationWriter.shutdown(),
+      ),
+      settleRuntimeShutdownStep(
+        "Codex service",
+        () => codexService.shutdown(),
+        RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+      ),
+    ]);
     await settleRuntimeShutdownStep(
       "Main diagnostics",
       () => shutdownMainSentry(),
@@ -1195,7 +1257,7 @@ function shutdownMainRuntime(): Promise<void> {
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     runtimeShutdownCompleted = true;
-  });
+  })();
   return runtimeShutdownPromise;
 }
 

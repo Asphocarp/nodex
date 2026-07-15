@@ -1,7 +1,11 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
-import { type BlockTreeValue } from "../../shared/block-documents/block-document-codec";
+import {
+  populateBlockDocumentBodyFromBlockTree,
+  type BlockTreeNode,
+  type BlockTreeValue,
+} from "../../shared/block-documents/block-document-codec";
 import {
   getOwnedDocumentSchemaRegistrationForSchema,
   getHistoricalBlockDocumentSchemaAdapterForSchema,
@@ -48,7 +52,13 @@ import {
   loadPrimaryBlockDocument,
 } from "./block-document-store";
 import { syncCanvasScene } from "./canvas-scene-store";
-import { portableRichTextSemanticSource } from "../../shared/block-documents/portable-rich-text";
+import {
+  canonicalizePortableRichText,
+  portableRichTextSemanticSource,
+  replaceYTextWithPortableRichText,
+  type PortableRichText,
+} from "../../shared/block-documents/portable-rich-text";
+import { planDocumentRevisionRetention } from "../../shared/block-documents/document-revision-retention";
 
 const MAX_SCOPE_ID_LENGTH = 512;
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -126,7 +136,19 @@ interface StoredDocumentVersionRow {
   readonly cause: string;
   readonly label: string | null;
   readonly actor_json: string;
-  readonly checkpoint_format: "yjs_update_v1" | "canvas_scene_json_v1";
+  readonly revision_kind:
+    | "automatic"
+    | "manual"
+    | "operation"
+    | "restore"
+    | "safety";
+  readonly source_mutation_id: string | null;
+  readonly source_change_seq: number | null;
+  readonly pinned: 0 | 1;
+  readonly checkpoint_format:
+    | "yjs_update_v1"
+    | "block_tree_snapshot_v2"
+    | "canvas_scene_json_v1";
   readonly full_update_blob: Buffer;
   readonly state_vector: Buffer;
   readonly checkpoint_hash: string;
@@ -186,6 +208,136 @@ const stableStringifyTrustedValue = (value: unknown): string => {
         `${JSON.stringify(key)}:${stableStringifyTrustedValue(record[key])}`,
     )
     .join(",")}}`;
+};
+
+export type BlockTreeDocumentMaterialization = Exclude<
+  RegisteredOwnedDocumentMaterialization,
+  { readonly kind: "canvas_scene" }
+>;
+
+export interface BlockTreeSnapshotV2Record {
+  readonly version_id: string;
+  readonly document_id: string;
+  readonly schema_key: string;
+  readonly schema_version: number;
+  readonly full_update_blob: Buffer;
+}
+
+interface BlockTreeSnapshotV2Payload {
+  readonly formatVersion: 2;
+  readonly kind: BlockTreeDocumentMaterialization["kind"];
+  readonly blockTree: readonly BlockTreeNode[];
+  readonly richTitle?: PortableRichText;
+}
+
+const encodeBlockTreeSnapshotV2 = (
+  materialization: BlockTreeDocumentMaterialization,
+): Uint8Array => {
+  const payload: BlockTreeSnapshotV2Payload = {
+    formatVersion: 2,
+    kind: materialization.kind,
+    blockTree: materialization.blockTree,
+    ...(materialization.kind === "card"
+      ? { richTitle: materialization.richTitle }
+      : {}),
+  };
+  return Buffer.from(stableStringifyTrustedValue(payload), "utf8");
+};
+
+export const decodeBlockTreeSnapshotV2 = (
+  row: BlockTreeSnapshotV2Record,
+): BlockTreeDocumentMaterialization => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.full_update_blob.toString("utf8")) as unknown;
+  } catch (error) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} contains invalid snapshot JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (
+    parsed === null ||
+    Array.isArray(parsed) ||
+    typeof parsed !== "object"
+  ) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} snapshot must be an object`,
+    );
+  }
+  const record = parsed as Readonly<Record<string, unknown>>;
+  if (
+    record.formatVersion !== 2 ||
+    typeof record.kind !== "string" ||
+    !Array.isArray(record.blockTree) ||
+    stableStringifyTrustedValue(parsed) !== row.full_update_blob.toString("utf8")
+  ) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} snapshot is not canonical v2 content`,
+    );
+  }
+
+  let adapter;
+  try {
+    adapter = getBlockDocumentSchemaAdapterForSchema({
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+    });
+  } catch (error) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} has no snapshot schema adapter: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (adapter.kind !== record.kind) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} snapshot kind does not match its schema`,
+    );
+  }
+  const expectedKeys =
+    adapter.kind === "card"
+      ? ["blockTree", "formatVersion", "kind", "richTitle"]
+      : ["blockTree", "formatVersion", "kind"];
+  const actualKeys = Object.keys(record).sort();
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} snapshot contains unexpected fields`,
+    );
+  }
+
+  const envelope = adapter.create(row.document_id);
+  try {
+    populateBlockDocumentBodyFromBlockTree(
+      envelope.body,
+      record.blockTree as readonly BlockTreeNode[],
+    );
+    if (envelope.kind === "card") {
+      if (!Array.isArray(record.richTitle)) {
+        throw new TypeError("Card snapshot is missing richTitle");
+      }
+      replaceYTextWithPortableRichText(
+        envelope.title,
+        canonicalizePortableRichText(record.richTitle as PortableRichText),
+      );
+    } else if (record.richTitle !== undefined) {
+      throw new TypeError("Body-only snapshot cannot contain richTitle");
+    }
+    return adapter.inspect(envelope.document).materialization;
+  } catch (error) {
+    throw new DocumentVersionStoreError(
+      "document_version_corrupt",
+      `Document version ${row.version_id} snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    envelope.document.destroy();
+  }
 };
 
 const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
@@ -416,6 +568,41 @@ const countBlocks = (
 ): number =>
   blocks.reduce((count, block) => count + 1 + countBlocks(block.children), 0);
 
+export const pruneDocumentRevisionHistory = (
+  database: Database.Database,
+  documentId: string,
+  now: string,
+): number => {
+  const candidates = database
+    .prepare(
+      `SELECT version_id, created_at, pinned
+       FROM document_versions
+       WHERE document_id = ?`,
+    )
+    .all(documentId) as readonly {
+    readonly version_id: string;
+    readonly created_at: string;
+    readonly pinned: number;
+  }[];
+  const plan = planDocumentRevisionRetention(
+    candidates.map((candidate) => ({
+      versionId: candidate.version_id,
+      createdAt: candidate.created_at,
+      pinned: candidate.pinned === 1,
+    })),
+    now,
+  );
+  const remove = database.prepare(
+    `DELETE FROM document_versions
+     WHERE version_id = ? AND document_id = ? AND pinned = 0`,
+  );
+  let deleted = 0;
+  for (const versionId of plan.deletedVersionIds) {
+    deleted += remove.run(versionId, documentId).changes;
+  }
+  return deleted;
+};
+
 const readVersionRow = (
   database: Database.Database,
   input: {
@@ -446,7 +633,8 @@ const readVersionRowById = (
       `
       SELECT
         version_id, document_id, project_id, generation, base_head_seq,
-        schema_key, schema_version, cause, label, actor_json, checkpoint_format,
+        schema_key, schema_version, cause, label, actor_json, revision_kind,
+        source_mutation_id, source_change_seq, pinned, checkpoint_format,
         full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
       FROM document_versions
       WHERE version_id = ?
@@ -471,7 +659,19 @@ const decodeVersionRow = (
     row.byte_length < 1 ||
     row.full_update_blob.byteLength !== row.byte_length ||
     !/^[a-f0-9]{64}$/u.test(row.checkpoint_hash) ||
-    hashBytes(row.full_update_blob) !== row.checkpoint_hash
+    hashBytes(row.full_update_blob) !== row.checkpoint_hash ||
+    ![
+      "automatic",
+      "manual",
+      "operation",
+      "restore",
+      "safety",
+    ].includes(row.revision_kind) ||
+    (row.source_mutation_id !== null &&
+      (row.source_mutation_id.length < 1 || row.source_mutation_id.length > 512)) ||
+    (row.source_change_seq !== null &&
+      (!Number.isSafeInteger(row.source_change_seq) || row.source_change_seq < 1)) ||
+    (row.pinned !== 0 && row.pinned !== 1)
   ) {
     throw new DocumentVersionStoreError(
       "document_version_corrupt",
@@ -479,6 +679,12 @@ const decodeVersionRow = (
     );
   }
   const actor = parseStoredObject(row.actor_json, "Document version actor");
+  const revisionMetadata = {
+    revisionKind: row.revision_kind,
+    sourceMutationId: row.source_mutation_id,
+    sourceChangeSeq: row.source_change_seq,
+    pinned: row.pinned === 1,
+  } as const;
   if (row.checkpoint_format === "canvas_scene_json_v1") {
     if (row.state_vector.byteLength !== 0) {
       throw new DocumentVersionStoreError(
@@ -515,6 +721,7 @@ const decodeVersionRow = (
       cause: row.cause,
       label: row.label,
       actor,
+      ...revisionMetadata,
       checkpointHash: row.checkpoint_hash,
       checkpointMetadata: { format: "canvas_scene_json_v1" },
       materializationHash: materializationHash(materialization),
@@ -525,6 +732,45 @@ const decodeVersionRow = (
       blockCount: materialization.elements.length,
       createdAt: row.created_at,
       sceneJson: asBytes(row.full_update_blob),
+      materialization,
+    };
+  }
+  if (row.checkpoint_format === "block_tree_snapshot_v2") {
+    if (row.state_vector.byteLength !== 0) {
+      throw new DocumentVersionStoreError(
+        "document_version_corrupt",
+        `BlockTree Document version ${row.version_id} contains Yjs causal state`,
+      );
+    }
+    const materialization = decodeBlockTreeSnapshotV2(row);
+    if (materialization.schemaVersion !== row.schema_version) {
+      throw new DocumentVersionStoreError(
+        "document_version_corrupt",
+        `Document version ${row.version_id} schema metadata diverges from its snapshot`,
+      );
+    }
+    return {
+      versionId: row.version_id,
+      documentId: row.document_id,
+      projectId: row.project_id,
+      generation: row.generation,
+      baseHeadSeq: row.base_head_seq,
+      schemaKey: row.schema_key,
+      schemaVersion: row.schema_version,
+      cause: row.cause,
+      label: row.label,
+      actor,
+      ...revisionMetadata,
+      checkpointHash: row.checkpoint_hash,
+      checkpointMetadata: { format: "block_tree_snapshot_v2" },
+      materializationHash: materializationHash(materialization),
+      byteLength: row.byte_length,
+      materializationKind: materialization.kind,
+      title: materialization.kind === "card" ? materialization.title : null,
+      preview: materialization.preview,
+      blockCount: countBlocks(materialization.blockTree),
+      createdAt: row.created_at,
+      snapshotJson: asBytes(row.full_update_blob),
       materialization,
     };
   }
@@ -594,6 +840,7 @@ const decodeVersionRow = (
       cause: row.cause,
       label: row.label,
       actor,
+      ...revisionMetadata,
       checkpointHash: row.checkpoint_hash,
       checkpointMetadata: {
         format: "yjs_update_v1",
@@ -628,6 +875,10 @@ const toSummary = (
   cause: checkpoint.cause,
   label: checkpoint.label,
   actor: checkpoint.actor,
+  revisionKind: checkpoint.revisionKind,
+  sourceMutationId: checkpoint.sourceMutationId,
+  sourceChangeSeq: checkpoint.sourceChangeSeq,
+  pinned: checkpoint.pinned,
   checkpointHash: checkpoint.checkpointHash,
   checkpointMetadata: checkpoint.checkpointMetadata,
   materializationHash: checkpoint.materializationHash,
@@ -650,6 +901,10 @@ const createVersionId = (input: {
   readonly cause: string;
   readonly label: string | null;
   readonly actor: DocumentVersionActor;
+  readonly revisionKind: DocumentVersionCheckpoint["revisionKind"];
+  readonly sourceMutationId: string | null;
+  readonly sourceChangeSeq: number | null;
+  readonly pinned: boolean;
   readonly checkpointHash: string;
   readonly checkpointMetadata: DocumentVersionCheckpoint["checkpointMetadata"];
   readonly materializationHash: string;
@@ -671,6 +926,10 @@ const readIdempotentCheckpoint = (
     readonly label: string | null;
     readonly actor: DocumentVersionActor;
     readonly actorJson: string;
+    readonly revisionKind: DocumentVersionCheckpoint["revisionKind"];
+    readonly sourceMutationId: string | null;
+    readonly sourceChangeSeq: number | null;
+    readonly pinned: boolean;
   },
 ): DocumentVersionCheckpoint | null => {
   const rows = database
@@ -678,12 +937,15 @@ const readIdempotentCheckpoint = (
       `
       SELECT
         version_id, document_id, project_id, generation, base_head_seq,
-        schema_key, schema_version, cause, label, actor_json, checkpoint_format,
+        schema_key, schema_version, cause, label, actor_json, revision_kind,
+        source_mutation_id, source_change_seq, pinned, checkpoint_format,
         full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
       FROM document_versions
       WHERE project_id = ? AND document_id = ?
         AND generation = ? AND base_head_seq = ?
         AND cause = ? AND label IS ? AND actor_json = ?
+        AND revision_kind = ? AND source_mutation_id IS ?
+        AND source_change_seq IS ? AND pinned = ?
       ORDER BY version_id
     `,
     )
@@ -695,6 +957,10 @@ const readIdempotentCheckpoint = (
       request.cause,
       request.label,
       request.actorJson,
+      request.revisionKind,
+      request.sourceMutationId,
+      request.sourceChangeSeq,
+      request.pinned ? 1 : 0,
     ) as readonly StoredDocumentVersionRow[];
   for (const row of rows) {
     const checkpoint = decodeVersionRow(row);
@@ -709,6 +975,10 @@ const readIdempotentCheckpoint = (
       cause: request.cause,
       label: request.label,
       actor: request.actor,
+      revisionKind: request.revisionKind,
+      sourceMutationId: request.sourceMutationId,
+      sourceChangeSeq: request.sourceChangeSeq,
+      pinned: request.pinned,
       checkpointHash: checkpoint.checkpointHash,
       checkpointMetadata: checkpoint.checkpointMetadata,
       materializationHash: checkpoint.materializationHash,
@@ -736,6 +1006,10 @@ const validateCreateRequest = (
   readonly label: string | null;
   readonly actor: DocumentVersionActor;
   readonly actorJson: string;
+  readonly revisionKind: DocumentVersionCheckpoint["revisionKind"];
+  readonly sourceMutationId: string | null;
+  readonly sourceChangeSeq: number | null;
+  readonly pinned: boolean;
 } => {
   if (input.version !== DOCUMENT_VERSION_CONTRACT_VERSION) {
     throw new DocumentVersionStoreError(
@@ -762,7 +1036,62 @@ const validateCreateRequest = (
           MAX_DOCUMENT_VERSION_LABEL_LENGTH,
         );
   const actor = canonicalActor(input.actor);
-  return { cause, label, actor: actor.value, actorJson: actor.json };
+  const revisionKind = input.revisionKind ?? "manual";
+  if (
+    ![
+      "automatic",
+      "manual",
+      "operation",
+      "restore",
+      "safety",
+    ].includes(revisionKind)
+  ) {
+    throw new DocumentVersionStoreError(
+      "invalid_document_version_request",
+      "revisionKind is not supported",
+    );
+  }
+  const sourceMutationId = input.sourceMutationId === undefined
+    ? null
+    : requireBoundedString(input.sourceMutationId, "sourceMutationId");
+  const sourceChangeSeq = input.sourceChangeSeq === undefined
+    ? null
+    : requireSafeInteger(input.sourceChangeSeq, "sourceChangeSeq", 1);
+  if (sourceChangeSeq !== null && sourceMutationId === null) {
+    throw new DocumentVersionStoreError(
+      "invalid_document_version_request",
+      "sourceChangeSeq requires sourceMutationId",
+    );
+  }
+  if (
+    (revisionKind === "operation" || revisionKind === "restore") &&
+    sourceMutationId === null
+  ) {
+    throw new DocumentVersionStoreError(
+      "invalid_document_version_request",
+      `${revisionKind} revisions require sourceMutationId`,
+    );
+  }
+  if (
+    revisionKind !== "operation" &&
+    revisionKind !== "restore" &&
+    (sourceMutationId !== null || sourceChangeSeq !== null)
+  ) {
+    throw new DocumentVersionStoreError(
+      "invalid_document_version_request",
+      `${revisionKind} revisions cannot link mutation evidence`,
+    );
+  }
+  return {
+    cause,
+    label,
+    actor: actor.value,
+    actorJson: actor.json,
+    revisionKind,
+    sourceMutationId,
+    sourceChangeSeq,
+    pinned: revisionKind === "manual" || revisionKind === "restore",
+  };
 };
 
 const assertHead = (
@@ -806,6 +1135,10 @@ const assertStoredVersionMatches = (
     readonly cause: string;
     readonly label: string | null;
     readonly actorJson: string;
+    readonly revisionKind: DocumentVersionCheckpoint["revisionKind"];
+    readonly sourceMutationId: string | null;
+    readonly sourceChangeSeq: number | null;
+    readonly pinned: boolean;
     readonly checkpointFormat: StoredDocumentVersionRow["checkpoint_format"];
     readonly checkpointBytes: Uint8Array;
     readonly stateVector: Uint8Array;
@@ -823,12 +1156,18 @@ const assertStoredVersionMatches = (
     stored.cause === expected.cause &&
     stored.label === expected.label &&
     stableStringifyBlockPropertyJson(stored.actor) === expected.actorJson &&
+    stored.revisionKind === expected.revisionKind &&
+    stored.sourceMutationId === expected.sourceMutationId &&
+    stored.sourceChangeSeq === expected.sourceChangeSeq &&
+    stored.pinned === expected.pinned &&
     stored.checkpointHash === expected.checkpointHash &&
     stored.checkpointMetadata.format === expected.checkpointFormat &&
     bytesEqual(
       "fullUpdate" in stored
         ? stored.fullUpdate
-        : stored.sceneJson,
+        : "snapshotJson" in stored
+          ? stored.snapshotJson
+          : stored.sceneJson,
       expected.checkpointBytes,
     ) &&
     (!("stateVector" in stored)
@@ -912,10 +1251,8 @@ export const createDocumentVersionCheckpoint = (
         throw error;
       }
       try {
-        checkpointFormat = "yjs_update_v1";
-        checkpointBytes = Y.encodeStateAsUpdate(loaded.document);
-        stateVector = Y.encodeStateVector(loaded.document);
-        if (!bytesEqual(stateVector, loaded.head.stateVector)) {
+        const currentStateVector = Y.encodeStateVector(loaded.document);
+        if (!bytesEqual(currentStateVector, loaded.head.stateVector)) {
           throw new DocumentVersionStoreError(
             "document_version_corrupt",
             `Document ${input.documentId} state changed while checkpointing`,
@@ -929,94 +1266,112 @@ export const createDocumentVersionCheckpoint = (
             schemaVersion: loaded.head.schemaVersion,
           },
         ).materialization;
+        checkpointFormat = "block_tree_snapshot_v2";
+        checkpointBytes = encodeBlockTreeSnapshotV2(materialization);
+        stateVector = new Uint8Array();
       } finally {
         loaded.document.destroy();
       }
     }
-      const checkpointHash = hashBytes(checkpointBytes);
-      const checkpointMetadata = checkpointFormat === "yjs_update_v1"
-        ? { format: "yjs_update_v1" as const, stateVectorHash: hashBytes(stateVector) }
+    const checkpointHash = hashBytes(checkpointBytes);
+    const checkpointMetadata =
+      checkpointFormat === "block_tree_snapshot_v2"
+        ? { format: "block_tree_snapshot_v2" as const }
         : { format: "canvas_scene_json_v1" as const };
-      const semanticHash = materializationHash(materialization);
-      const versionId = createVersionId({
-        projectId: input.projectId,
-        storeEpoch: input.storeEpoch,
-        documentId: input.documentId,
-        generation: authority.generation,
-        baseHeadSeq: authority.head_seq,
-        schemaKey: authority.schema_key,
-        schemaVersion: authority.schema_version,
-        cause: request.cause,
-        label: request.label,
-        actor: request.actor,
-        checkpointHash,
-        checkpointMetadata,
-        materializationHash: semanticHash,
-      });
-      const createdAt = (options.now ?? (() => new Date().toISOString()))();
-      requireCanonicalIsoTimestamp(createdAt, "createdAt");
-      options.faultInjector?.("before_insert");
-      const inserted = database
-        .prepare(
-          `
+    const semanticHash = materializationHash(materialization);
+    const versionId = createVersionId({
+      projectId: input.projectId,
+      storeEpoch: input.storeEpoch,
+      documentId: input.documentId,
+      generation: authority.generation,
+      baseHeadSeq: authority.head_seq,
+      schemaKey: authority.schema_key,
+      schemaVersion: authority.schema_version,
+      cause: request.cause,
+      label: request.label,
+      actor: request.actor,
+      revisionKind: request.revisionKind,
+      sourceMutationId: request.sourceMutationId,
+      sourceChangeSeq: request.sourceChangeSeq,
+      pinned: request.pinned,
+      checkpointHash,
+      checkpointMetadata,
+      materializationHash: semanticHash,
+    });
+    const createdAt = (options.now ?? (() => new Date().toISOString()))();
+    requireCanonicalIsoTimestamp(createdAt, "createdAt");
+    options.faultInjector?.("before_insert");
+    const inserted = database
+      .prepare(
+        `
           INSERT INTO document_versions (
             version_id, document_id, project_id, generation, base_head_seq,
             schema_key, schema_version, cause, label, actor_json,
+            revision_kind, source_mutation_id, source_change_seq, pinned,
             checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
             byte_length, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(version_id) DO NOTHING
         `,
-        )
-        .run(
-          versionId,
-          input.documentId,
-          input.projectId,
-          authority.generation,
-          authority.head_seq,
-          authority.schema_key,
-          authority.schema_version,
-          request.cause,
-          request.label,
-          request.actorJson,
-          checkpointFormat,
-          Buffer.from(checkpointBytes),
-          Buffer.from(stateVector),
-          checkpointHash,
-          checkpointBytes.byteLength,
-          createdAt,
-        );
-      options.faultInjector?.("after_insert");
-      const storedRow = readVersionRowById(database, versionId);
-      if (
-        !storedRow ||
-        storedRow.project_id !== input.projectId ||
-        storedRow.document_id !== input.documentId
-      ) {
-        throw new DocumentVersionStoreError(
-          "document_version_collision",
-          `Document version identity ${versionId} belongs to another immutable scope`,
-        );
-      }
-      const checkpoint = decodeVersionRow(storedRow);
-      assertStoredVersionMatches(checkpoint, {
+      )
+      .run(
         versionId,
-        documentId: input.documentId,
-        projectId: input.projectId,
-        generation: authority.generation,
-        baseHeadSeq: authority.head_seq,
-        schemaKey: authority.schema_key,
-        schemaVersion: authority.schema_version,
-        cause: request.cause,
-        label: request.label,
-        actorJson: request.actorJson,
+        input.documentId,
+        input.projectId,
+        authority.generation,
+        authority.head_seq,
+        authority.schema_key,
+        authority.schema_version,
+        request.cause,
+        request.label,
+        request.actorJson,
+        request.revisionKind,
+        request.sourceMutationId,
+        request.sourceChangeSeq,
+        request.pinned ? 1 : 0,
         checkpointFormat,
-        checkpointBytes,
-        stateVector,
+        Buffer.from(checkpointBytes),
+        Buffer.from(stateVector),
         checkpointHash,
-      });
-      options.faultInjector?.("before_commit");
-      return { checkpoint, duplicate: inserted.changes === 0 };
+        checkpointBytes.byteLength,
+        createdAt,
+      );
+    options.faultInjector?.("after_insert");
+    const storedRow = readVersionRowById(database, versionId);
+    if (
+      !storedRow ||
+      storedRow.project_id !== input.projectId ||
+      storedRow.document_id !== input.documentId
+    ) {
+      throw new DocumentVersionStoreError(
+        "document_version_collision",
+        `Document version identity ${versionId} belongs to another immutable scope`,
+      );
+    }
+    const checkpoint = decodeVersionRow(storedRow);
+    assertStoredVersionMatches(checkpoint, {
+      versionId,
+      documentId: input.documentId,
+      projectId: input.projectId,
+      generation: authority.generation,
+      baseHeadSeq: authority.head_seq,
+      schemaKey: authority.schema_key,
+      schemaVersion: authority.schema_version,
+      cause: request.cause,
+      label: request.label,
+      actorJson: request.actorJson,
+      revisionKind: request.revisionKind,
+      sourceMutationId: request.sourceMutationId,
+      sourceChangeSeq: request.sourceChangeSeq,
+      pinned: request.pinned,
+      checkpointFormat,
+      checkpointBytes,
+      stateVector,
+      checkpointHash,
+    });
+    pruneDocumentRevisionHistory(database, input.documentId, createdAt);
+    options.faultInjector?.("before_commit");
+    return { checkpoint, duplicate: inserted.changes === 0 };
   });
   return create.immediate();
 };
@@ -1113,7 +1468,8 @@ export const listDocumentVersions = (
       `
       SELECT
         version_id, document_id, project_id, generation, base_head_seq,
-        schema_key, schema_version, cause, label, actor_json, checkpoint_format,
+        schema_key, schema_version, cause, label, actor_json, revision_kind,
+        source_mutation_id, source_change_seq, pinned, checkpoint_format,
         full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
       FROM document_versions
       WHERE project_id = ? AND document_id = ?

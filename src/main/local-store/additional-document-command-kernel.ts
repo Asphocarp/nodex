@@ -20,6 +20,10 @@ import {
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
 } from "../../shared/block-documents";
+import {
+  DOCUMENT_VERSION_CONTRACT_VERSION,
+  type DocumentVersionActor,
+} from "../../shared/block-documents/document-history";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import {
   AdditionalDocumentBearingBlockError,
@@ -35,6 +39,8 @@ import {
   promoteBlockToSyncedSource,
   type SyncedBlockGroupWriteFence,
 } from "./synced-block-groups";
+import { createDocumentVersionCheckpoint } from "./document-versions";
+import { markDocumentRevisionSessionCheckpoint } from "./document-revision-session-store";
 
 export type AdditionalDocumentCommandFaultPoint = "after_domain_mutation";
 
@@ -71,6 +77,13 @@ interface DurableCommandEvidence {
   readonly documentHeads: readonly AdditionalDocumentHeadRevision[];
   readonly changeLogSeq: number;
   readonly committedAt: string;
+}
+
+interface CommandDocumentAuthorityRow {
+  readonly generation: number;
+  readonly head_seq: number;
+  readonly readiness: string;
+  readonly owner_lifecycle: string;
 }
 
 const COMMAND_KINDS = new Set<AdditionalDocumentCommandKind>(
@@ -439,6 +452,74 @@ const deriveMutationEffect = (
   };
 };
 
+const captureCommandDocumentRevisions = (
+  database: Database.Database,
+  request: AdditionalDocumentCommandRequest,
+  evidence: DurableCommandEvidence,
+): void => {
+  for (const head of evidence.documentHeads) {
+    const existing = database.prepare(
+      `SELECT 1 AS present
+       FROM document_versions
+       WHERE document_id = ? AND source_mutation_id = ?
+       LIMIT 1`,
+    ).get(head.documentId, request.operationId);
+    if (existing) continue;
+
+    const authority = database.prepare(
+      `SELECT document.generation, document.head_seq, document.readiness,
+         owner.lifecycle AS owner_lifecycle
+       FROM documents document
+       INNER JOIN block_documents ownership
+         ON ownership.document_id = document.id
+         AND ownership.project_id = document.project_id
+       INNER JOIN blocks owner
+         ON owner.id = ownership.block_id
+         AND owner.project_id = ownership.project_id
+       WHERE document.id = ? AND document.project_id = ?`,
+    ).get(head.documentId, request.projectId) as
+      | CommandDocumentAuthorityRow
+      | undefined;
+    // Deletion commands intentionally leave no live, ready Document to snapshot.
+    if (
+      !authority ||
+      authority.readiness !== "ready" ||
+      authority.owner_lifecycle !== "active"
+    ) {
+      continue;
+    }
+    if (
+      authority.generation !== head.generation ||
+      authority.head_seq !== head.headSeq
+    ) {
+      throw new AdditionalDocumentCommandContractError(
+        `Operation ${request.operationId} cannot snapshot divergent Document ${head.documentId}`,
+      );
+    }
+
+    const revision = createDocumentVersionCheckpoint(database, {
+      version: DOCUMENT_VERSION_CONTRACT_VERSION,
+      projectId: request.projectId,
+      storeEpoch: request.storeEpoch,
+      documentId: head.documentId,
+      expectedGeneration: head.generation,
+      expectedHeadSeq: head.headSeq,
+      cause: request.operation.kind,
+      revisionKind: "operation",
+      sourceMutationId: request.operationId,
+      sourceChangeSeq: evidence.changeLogSeq,
+      actor: request.actor as DocumentVersionActor,
+    });
+    markDocumentRevisionSessionCheckpoint(database, {
+      documentId: head.documentId,
+      generation: head.generation,
+      checkpointHeadSeq: revision.checkpoint.baseHeadSeq,
+      createdAt: revision.checkpoint.createdAt,
+      finalize: true,
+    });
+  }
+};
+
 const executionHead = (
   request: AdditionalDocumentCommandRequest,
   revision: AdditionalDocumentRevision,
@@ -778,6 +859,10 @@ export const applyAdditionalDocumentCommand = (
       .transaction(() => {
         try {
           const result = executeDomainMutation(database, request);
+          if (!result.duplicate) {
+            const evidence = readDurableCommandEvidence(database, request);
+            captureCommandDocumentRevisions(database, request, evidence);
+          }
           options.faultInjector?.("after_domain_mutation");
           return { ok: true as const, duplicate: result.duplicate };
         } catch (error) {
@@ -788,8 +873,7 @@ export const applyAdditionalDocumentCommand = (
         }
       })
       .immediate();
-  } catch (error) {
-    void error;
+  } catch {
     return failure(
       request,
       "unknown",

@@ -151,7 +151,7 @@ export const parseCreateDocumentVersionCheckpoint = (
       "cause",
       "actor",
     ],
-    ["label"],
+    ["label", "revisionKind", "sourceMutationId", "sourceChangeSeq"],
   );
   if (record.version !== DOCUMENT_VERSION_CONTRACT_VERSION) {
     throw new DocumentHistoryContractError(
@@ -162,6 +162,25 @@ export const parseCreateDocumentVersionCheckpoint = (
     record.label === undefined
       ? undefined
       : readString(record, "label", label, MAX_DOCUMENT_VERSION_LABEL_LENGTH);
+  const revisionKind = record.revisionKind;
+  if (
+    revisionKind !== undefined &&
+    revisionKind !== "automatic" &&
+    revisionKind !== "manual" &&
+    revisionKind !== "operation" &&
+    revisionKind !== "restore" &&
+    revisionKind !== "safety"
+  ) {
+    throw new DocumentHistoryContractError(
+      `${label}.revisionKind is not supported`,
+    );
+  }
+  const sourceMutationId = record.sourceMutationId === undefined
+    ? undefined
+    : readString(record, "sourceMutationId", label);
+  const sourceChangeSeq = record.sourceChangeSeq === undefined
+    ? undefined
+    : readInteger(record, "sourceChangeSeq", label, 1);
   return {
     version: DOCUMENT_VERSION_CONTRACT_VERSION,
     projectId: readString(record, "projectId", label),
@@ -182,6 +201,9 @@ export const parseCreateDocumentVersionCheckpoint = (
     ),
     ...(optionalLabel === undefined ? {} : { label: optionalLabel }),
     actor: readActor(record.actor, `${label}.actor`),
+    ...(revisionKind === undefined ? {} : { revisionKind }),
+    ...(sourceMutationId === undefined ? {} : { sourceMutationId }),
+    ...(sourceChangeSeq === undefined ? {} : { sourceChangeSeq }),
   };
 };
 

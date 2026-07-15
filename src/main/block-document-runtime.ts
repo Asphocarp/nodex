@@ -13,6 +13,7 @@ import {
   getBlockDocumentProjectId,
   getBlockDocumentRuntimeIdentity,
   loadBlockDocument,
+  type ApplyBlockDocumentUpdateOptions,
   type BlockDocumentRuntimeIdentity,
   type LoadedBlockDocument,
 } from "./local-store/block-document-store";
@@ -93,11 +94,13 @@ interface CacheEntry {
 
 export const createSqliteBlockDocumentRuntimeAuthority = (
   getDatabase: () => Database.Database,
+  applyUpdateOptions: ApplyBlockDocumentUpdateOptions = {},
 ): BlockDocumentRuntimeAuthority => ({
   readIdentity: (documentId) =>
     getBlockDocumentRuntimeIdentity(getDatabase(), documentId),
   load: (documentId) => loadBlockDocument(getDatabase(), documentId),
-  applyUpdate: (input) => applyBlockDocumentUpdate(getDatabase(), input),
+  applyUpdate: (input) =>
+    applyBlockDocumentUpdate(getDatabase(), input, applyUpdateOptions),
   getProjectId: (documentId) =>
     getBlockDocumentProjectId(getDatabase(), documentId),
 });

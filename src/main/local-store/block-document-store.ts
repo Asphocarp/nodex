@@ -57,6 +57,7 @@ import {
 } from "./block-document-change-set";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
 import { persistCardDocumentMaterialization } from "./document-materializations";
+import { recordAcceptedDocumentRevisionEdit } from "./document-revision-session-store";
 import { persistLegacyCanvasYjsMaterialization } from "./legacy-canvas-yjs-materialization";
 import {
   inspectCanvasDocument,
@@ -2550,6 +2551,7 @@ const applyBlockDocumentUpdateForAuthority = (
   allowInactiveOwner: boolean,
   allowReservedUpdateId: boolean,
   strictCommitPolicy?: StrictDocumentUpdateCommitPolicy,
+  revisionCaptureOptions?: ApplyBlockDocumentUpdateOptions,
 ): DocumentUpdateAck => {
   if (strictCommitPolicy?.maxTrustedUpdateBytes === undefined) {
     validateIncomingUpdate(input.update);
@@ -2821,6 +2823,7 @@ const applyBlockDocumentUpdateForAuthority = (
         );
       }
       const now = new Date().toISOString();
+      revisionCaptureOptions?.beforeEffectiveUpdate?.(database, input, now);
       const derivedTouchedBlockIdsJson = JSON.stringify(derivedTouchedBlockIds);
       const blockMaterialization =
         toPersistedBlockDocumentMaterialization(materialization);
@@ -2919,6 +2922,15 @@ const applyBlockDocumentUpdateForAuthority = (
         derivedTouchedBlockIds,
         committedAt: now,
       });
+      if (revisionCaptureOptions) {
+        recordAcceptedDocumentRevisionEdit(database, {
+          documentId: input.documentId,
+          generation: input.generation,
+          headSeq: nextHeadSeq,
+          clientSessionId: input.clientSessionId,
+          committedAt: now,
+        });
+      }
 
       return {
         kind: "ack",
@@ -2946,10 +2958,19 @@ const applyBlockDocumentUpdateForAuthority = (
   return throwRecoveryOutcome(outcome);
 };
 
+export interface ApplyBlockDocumentUpdateOptions {
+  readonly beforeEffectiveUpdate?: (
+    database: Database.Database,
+    input: ApplyDocumentUpdate,
+    committedAt: string,
+  ) => void;
+}
+
 /** Renderer/provider writes are legal only after the one-way Card cutover. */
 export const applyBlockDocumentUpdate = (
   database: Database.Database,
   input: ApplyDocumentUpdate,
+  options: ApplyBlockDocumentUpdateOptions = {},
 ): DocumentUpdateAck =>
   applyBlockDocumentUpdateForAuthority(
     database,
@@ -2957,6 +2978,8 @@ export const applyBlockDocumentUpdate = (
     "ydoc_primary",
     false,
     false,
+    undefined,
+    options,
   );
 
 /** Internal current-head cleanup seam; accepts archived readable owners. */

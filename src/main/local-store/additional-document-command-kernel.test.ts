@@ -256,7 +256,7 @@ describe("additional Document authoritative command kernel", () => {
             ]),
           ),
         );
-        expect(promoted.ok).toBe(true);
+        expect(promoted.ok, JSON.stringify(promoted)).toBe(true);
         if (!promoted.ok) return;
         expect(promoted.value.effect.createdBlockIds.join(",")).toBe(
           [referenceBlockId, sourceBlockId].sort().join(","),
@@ -273,6 +273,28 @@ describe("additional Document authoritative command kernel", () => {
         expect(host?.headSeq).toBe(3);
         expect(source?.headSeq).toBe(1);
         if (!host || !source) return;
+        const promotedRevisions = database.prepare(
+          `SELECT document_id, source_change_seq, checkpoint_format
+           FROM document_versions
+           WHERE source_mutation_id = ?
+           ORDER BY document_id`,
+        ).all("command:promote") as readonly {
+          readonly document_id: string;
+          readonly source_change_seq: number;
+          readonly checkpoint_format: string;
+        }[];
+        expect(promotedRevisions).toEqual([
+          {
+            document_id: "document:sync-host",
+            source_change_seq: promoted.value.changeLogSeq,
+            checkpoint_format: "block_tree_snapshot_v2",
+          },
+          {
+            document_id: "document:sync-source",
+            source_change_seq: promoted.value.changeLogSeq,
+            checkpoint_format: "block_tree_snapshot_v2",
+          },
+        ]);
         const promotedSource = loadPrimaryBlockDocument(
           database,
           "document:sync-source",
@@ -312,7 +334,7 @@ describe("additional Document authoritative command kernel", () => {
             lease("lease:demote", [host, source]),
           ),
         );
-        expect(demoted.ok).toBe(true);
+        expect(demoted.ok, JSON.stringify(demoted)).toBe(true);
         if (!demoted.ok) return;
         expect(demoted.value.effect.deletedBlockIds.join(",")).toBe(
           [referenceBlockId, sourceBlockId].sort().join(","),

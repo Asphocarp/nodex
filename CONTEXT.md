@@ -123,7 +123,7 @@ A projection is rebuildable data derived from the authoritative Block, Document,
 
 The v58 property/projection foundation keeps Card-intrinsic agent/run/recurrence/reminder state in `block_properties`, Database membership values in typed relational records, and scheduler reads in `scheduled_card_index`. Recurrence exceptions and reminder evidence belong to the owning Card Block. Projection coordinates must match the current metadata revision or Document generation/head before a reader may use them.
 
-Durable secondary evidence is separate from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. No projection writes back into Y.Doc or property authority.
+Durable secondary evidence is separate from rebuildable projections. `document_versions` is the immutable semantic Document Revision ledger, independent of operational update compaction. A BlockTree revision retains stable Block IDs plus rich Card title; NFM and other preview fields are rederived projections, never restoration authority. `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. No projection writes back into Y.Doc or property authority.
 
 During a shipped-schema staging import, stable Block/Document identity rather than a mutable Project coordinate becomes the foreign-key edge for retained relocation, recovery, version, membership, and Canvas-reference evidence. A v26 source is first normalized semantically into the common Card-first import shape without changing its marker. The importer then drains shadow content and foreign-body references to a fixed point, repairs projections, verifies every owned Document and managed asset, and drops `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and the transfer fence before publishing v58. Current Project transfer mutates only Block/Document/Database authority and rebuildable projections.
 
@@ -189,6 +189,7 @@ The writer requires target properties to represent every source value, tombstone
 | Database definitions, membership, property values, and shared views | Database relational records |
 | Intrinsic Card behavior | generic Block properties plus typed read models |
 | NFM, preview, search, schedule, asset, and Card summary data | rebuildable projections |
+| Restorable historical Document states | immutable semantic `document_versions` revisions |
 | Cursor, presence, and relocation lease | ephemeral collaboration state |
 | Block disclosure preference | browser-profile-scoped per-user local view state |
 | Visibility, provider activation, selection, active view, and search | window-local ephemeral view state |
@@ -210,6 +211,7 @@ The writer requires target properties to represent every source value, tombstone
 12. NFM and all other projections can be rebuilt from authority. Authority is never rebuilt from an existing projection except during one-time genesis migration.
 13. A retryable logical operation ID is required at its calling boundary. Transport actor/session changes do not change semantic equality; exact retry cannot advance authority twice, and a durable rejection has no change-log cursor.
 14. Promotion/demotion of a Synced Block is fenced at every writable Document head. A source with more than one current reference cannot be demoted, and stale reference projections fail closed.
+15. A Document restore appends a forward mutation and pinned before/after revisions. NFM may display a revision but never reconstructs restoration authority.
 
 ## Operation semantics
 
@@ -226,6 +228,12 @@ Card title undo and body undo are local to the mounted surface's tracked transac
 `ReplaceDocumentFromNfm` is an import seam, not a normal update path. It requires an expected Document head or state precondition, parses and validates NFM, and generates a transaction on the existing Y.Doc. It does not create a new Y.Doc or reset causal history.
 
 Because public NFM does not encode Block IDs, replacement preserves an existing identity only when a conservative semantic/parent match is unambiguous. It allocates fresh UUID-v7 IDs for unmatched nodes, then compiles the target BlockTree into the same stable-ID Document operation engine. It never writes a materialized NFM snapshot directly into authority.
+
+### Document revision history
+
+Meaningful Card content history is retained as immutable semantic Document revisions. Human edits create a pre-burst safety revision, an active revision at least every ten minutes, and an automatic revision after two minutes idle or during shutdown. Strict semantic commands create an immediate revision linked to their mutation/change evidence. Named and restore revisions are pinned; unpinned revisions use deterministic recent/hourly/daily retention.
+
+Card History projects one content entry for a linked command and revision, while property, Database, lifecycle, and relocation evidence remains Activity. Reading a BlockTree revision recreates its registered semantic Document from stable-ID BlockTree and rich title, then derives the read-only NFM preview. Restore saves current content and applies the chosen semantic state as a new forward change; it never rewinds Yjs or deletes later history.
 
 ### Move and copy
 
@@ -249,6 +257,7 @@ Presence, cursors, selections, open toggles, search terms, focus, and relocation
 - Say **Database membership**, not row copy or embedded Card.
 - Say **reference**, not embed snapshot, when a host Block points to foreign content.
 - Say **projection** for derived NFM, preview, search, asset, schedule, and read-model data.
+- Say **revision** for an immutable restorable Document state; reserve **checkpoint** for storage/transport mechanics.
 - Do not introduce another document-like product entity alongside Card.
 
 ## Code orientation
@@ -267,3 +276,4 @@ Shared Block/Document Interfaces live under `src/shared/`, persistence Implement
 - `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Owned Documents and normalized scene-native Canvas authority.
 - `docs/adr/0006-rich-card-title-and-semantic-block-promotion.md`: rich Card-title authority and semantic Block-to-Card promotion.
 - `docs/adr/0007-card-outliner-independent-document-surface.md`: one flat Card outliner presentation over an independently synchronized target Document.
+- `docs/adr/0014-document-revision-history.md`: semantic Document revisions, automatic capture, linked Card history, forward restore, and tiered retention.

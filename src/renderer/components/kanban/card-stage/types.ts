@@ -31,6 +31,11 @@ export interface CardStageSessionSnapshot {
   titleSnapshot: string;
 }
 
+export interface CardStageHistorySnapshot {
+  readonly title: string;
+  readonly nfm: string;
+}
+
 /**
  * Makes the content authority impossible to infer from a Card read model.
  * Card Stage can only mount the owned Y.Doc identified by the prepared
@@ -70,7 +75,7 @@ export interface CardStageProps {
   onSkipOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
   onColumnIdChange?: (columnId: string) => void;
   onOpenTerminalPanel?: () => void;
-  onToggleHistoryPanel?: () => void;
+  onToggleHistoryPanel?: (snapshot: CardStageHistorySnapshot) => void;
   sessionId?: string | null;
   sessionThread?: CodexThreadSummary | null;
   canStartThreadInSession?: boolean;

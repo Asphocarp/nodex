@@ -360,10 +360,29 @@ const parseVersionEntry = (
     "schemaVersion",
     "cause",
     "label",
+    "revisionKind",
+    "sourceMutationId",
+    "sourceChangeSeq",
+    "pinned",
     "checkpointHash",
     "byteLength",
   ]);
   const base = parseEntryBase(record, label);
+  const revisionKind = metadata.revisionKind;
+  if (
+    revisionKind !== "automatic" &&
+    revisionKind !== "manual" &&
+    revisionKind !== "operation" &&
+    revisionKind !== "restore" &&
+    revisionKind !== "safety"
+  ) {
+    throw new CardHistoryContractError(
+      `${metadataLabel}.revisionKind is not supported`,
+    );
+  }
+  if (typeof metadata.pinned !== "boolean") {
+    throw new CardHistoryContractError(`${metadataLabel}.pinned must be boolean`);
+  }
   return {
     ...base,
     kind: "document_version",
@@ -398,6 +417,18 @@ const parseVersionEntry = (
         `${metadataLabel}.label`,
         512,
       ),
+      revisionKind,
+      sourceMutationId: readNullableStringValue(
+        metadata.sourceMutationId,
+        `${metadataLabel}.sourceMutationId`,
+        MAX_ID_LENGTH,
+      ),
+      sourceChangeSeq: readNullableSafeIntegerValue(
+        metadata.sourceChangeSeq,
+        `${metadataLabel}.sourceChangeSeq`,
+        1,
+      ),
+      pinned: metadata.pinned,
       checkpointHash: readHash(
         metadata.checkpointHash,
         `${metadataLabel}.checkpointHash`,

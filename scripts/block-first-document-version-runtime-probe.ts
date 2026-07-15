@@ -331,7 +331,7 @@ const main = async (): Promise<void> => {
         restored.value.coordination === "write_fence" &&
         countUpdatePayloads(descriptor.documentId) ===
           payloadsBeforeRestore + 1 &&
-        countVersionRows(descriptor.documentId) === 3,
+        countVersionRows(descriptor.documentId) === 4,
       "Restore rewound history instead of appending one forward update",
     );
     const restoreRetry = restoreDocumentVersion(getDb(), restoreRequest);
@@ -339,7 +339,7 @@ const main = async (): Promise<void> => {
       restoreRetry.ok &&
         restoreRetry.value.duplicate &&
         restoreRetry.value.headSeq === restored.value.headSeq &&
-        countVersionRows(descriptor.documentId) === 3,
+        countVersionRows(descriptor.documentId) === 4,
       "Restore lost-response retry did not replay its exact durable receipt",
     );
     const restoredDocument = loadPrimaryBlockDocument(
@@ -375,7 +375,7 @@ const main = async (): Promise<void> => {
     });
     invariant(
       compacted.snapshotSeq === restored.value.headSeq &&
-        countVersionRows(descriptor.documentId) === 3,
+        countVersionRows(descriptor.documentId) === 4,
       "Compaction pruned an independent durable Document version",
     );
     closeDatabase();

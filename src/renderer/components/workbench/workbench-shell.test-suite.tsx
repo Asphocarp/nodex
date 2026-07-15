@@ -636,7 +636,13 @@ vi.mock("./workbench-card-stage", () => ({
           onClick: () => {
             const current = (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks ?? 0;
             (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks = current + 1;
-            (props.onToggleHistoryPanel as (() => void) | undefined)?.();
+            (props.onToggleHistoryPanel as ((snapshot: {
+              readonly title: string;
+              readonly nfm: string;
+            }) => void) | undefined)?.({
+              title: `Card ${String(cardId)}`,
+              nfm: `Body ${String(cardId)}`,
+            });
           },
         },
         "History",

@@ -31,6 +31,10 @@ import type {
 } from "../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../shared/block-documents/document-history-transport";
 import type {
+  MaintainDocumentRevisionHistoryInput,
+  MaintainDocumentRevisionHistoryResult,
+} from "../shared/block-documents/document-revision-maintenance";
+import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
@@ -225,6 +229,10 @@ export type BlockMutationWorkerRequest =
       payload: MaintainStoreBlockRetentionInput;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "maintainDocumentRevisionHistory";
+      payload: MaintainDocumentRevisionHistoryInput;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "deleteProject";
       payload: { readonly projectId: string };
     })
@@ -385,6 +393,7 @@ export type BlockMutationWorkerResult =
   | CardLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult
   | MaintainStoreBlockRetentionResult
+  | MaintainDocumentRevisionHistoryResult
   | ProjectDeletionResult
   | DatabaseCatalogSnapshotCommandResult
   | DatabaseManagementSnapshotCommandResult

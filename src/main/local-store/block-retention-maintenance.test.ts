@@ -193,16 +193,21 @@ describe("Block retention count maintenance", () => {
             status: "draft",
           }),
         );
-        const checkpoint = createDocumentVersionCheckpoint(fixture.database, {
-          version: 1,
-          projectId: fixture.projectId,
-          storeEpoch: fixture.storeEpoch,
-          documentId: created.documentId,
-          expectedGeneration: created.documentGeneration,
-          expectedHeadSeq: created.documentHeadSeq,
-          cause: "retention_test",
-          actor: { kind: "test" },
-        });
+        const checkpoint = createDocumentVersionCheckpoint(
+          fixture.database,
+          {
+            version: 1,
+            projectId: fixture.projectId,
+            storeEpoch: fixture.storeEpoch,
+            documentId: created.documentId,
+            expectedGeneration: created.documentGeneration,
+            expectedHeadSeq: created.documentHeadSeq,
+            cause: "retention_test",
+            revisionKind: "automatic",
+            actor: { kind: "test" },
+          },
+          { now: () => "2025-01-01T00:00:00.000Z" },
+        );
         const deleteRequest = lifecycleRequest(fixture, "delete:atomic", {
           kind: "delete_card",
           cardId,
@@ -404,6 +409,71 @@ describe("Block retention count maintenance", () => {
         });
         expect(idempotent.selectedRootBlockIds.length).toBe(0);
         expect(idempotent.candidates.length).toBe(0);
+      });
+    },
+  );
+
+  sqliteTest(
+    "retains a deleted owner while a named revision remains pinned",
+    async () => {
+      await withFixture((fixture) => {
+        const cardId = createUuidV7();
+        const created = commitLifecycle(
+          fixture,
+          lifecycleRequest(fixture, "create:pinned-revision", {
+            kind: "create_card",
+            cardId,
+            title: "Pinned revision",
+            nfm: "Keep this recovery point",
+            status: "draft",
+          }),
+        );
+        const checkpoint = createDocumentVersionCheckpoint(fixture.database, {
+          version: 1,
+          projectId: fixture.projectId,
+          storeEpoch: fixture.storeEpoch,
+          documentId: created.documentId,
+          expectedGeneration: created.documentGeneration,
+          expectedHeadSeq: created.documentHeadSeq,
+          cause: "named_checkpoint",
+          label: "Before archive",
+          revisionKind: "manual",
+          actor: { kind: "test" },
+        });
+        commitLifecycle(
+          fixture,
+          lifecycleRequest(fixture, "delete:pinned-revision", {
+            kind: "delete_card",
+            cardId,
+            expectedMetadataRevision: created.metadataRevision,
+            expectedLocationRevision: created.locationRevision,
+          }),
+        );
+
+        const maintained = maintainBlockRetention(
+          fixture.database,
+          {
+            projectId: fixture.projectId,
+            policy: { retainNewestDeletedBlocks: 0 },
+          },
+          { now: () => "2100-01-01T00:00:00.000Z" },
+        );
+
+        expect(
+          maintained.candidates.find(
+            (candidate) => candidate.rootBlockId === cardId,
+          )?.status,
+        ).toBe("retained");
+        expect(
+          rowExists(fixture.database, "SELECT 1 FROM blocks WHERE id = ?", cardId),
+        ).toBe(true);
+        expect(
+          rowExists(
+            fixture.database,
+            "SELECT 1 FROM document_versions WHERE version_id = ?",
+            checkpoint.checkpoint.versionId,
+          ),
+        ).toBe(true);
       });
     },
   );

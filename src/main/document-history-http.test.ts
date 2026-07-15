@@ -21,6 +21,10 @@ const summary: DocumentVersionSummary = {
   cause: "manual",
   label: null,
   actor: {},
+  revisionKind: "manual",
+  sourceMutationId: null,
+  sourceChangeSeq: null,
+  pinned: true,
   checkpointHash: "b".repeat(64),
   checkpointMetadata: {
     format: "yjs_update_v1" as const,

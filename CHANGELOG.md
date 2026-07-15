@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added semantic Card revision history with exact read-only title/body previews, meaningful automatic edit checkpoints, named and operation-linked revisions, forward restore, and bounded long-term retention.
 - Added Project-bound `nodex_app` tools that let agents find and read Blocks, Cards, Databases, and Views; create complete many-Block Cards from NFM; and perform revision-safe document, ownership, and Database edits with inline write authorization.
 - Added a Hooks settings page with source/project/plugin deep links from hook feedback, app-server-backed discovery, hook review and trust controls, enable toggles, and cross-window refresh after config changes.
 - Added an optional Auto-review prompt after repeated manual approvals, with a permanent keep-manual choice and one-click switching to `Approve for me`.

@@ -22,6 +22,7 @@ import {
   migrateSchema63To64,
   migrateSchema64To65,
   migrateSchema65To66,
+  migrateSchema66To67,
 } from "./schema";
 import {
   createProjectSession,
@@ -36,7 +37,7 @@ const tempDirectories: string[] = [];
 const useTempStore = (): string => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v66-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v67-"));
   tempDirectories.push(directory);
   process.env.NODEX_DIR = directory;
   return directory;
@@ -149,10 +150,10 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v66 release boundary", () => {
+describe("schema v67 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
-    expect(releaseVersions).toEqual([58, 59, 60, 61, 62, 63, 64, 65, 66]);
+    expect(releaseVersions).toEqual([58, 59, 60, 61, 62, 63, 64, 65, 66, 67]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
         releaseVersions.slice(index + 1),
@@ -187,6 +188,8 @@ describe("schema v66 release boundary", () => {
       "database_memberships",
       "database_views",
       "card_read_model",
+      "document_versions",
+      "document_revision_sessions",
       "retired_block_identities",
       "codex_unread_threads",
       "codex_project_thread_orders",
@@ -213,7 +216,7 @@ describe("schema v66 release boundary", () => {
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
   });
 
-  test.each([58, 59, 60, 61, 62, 63, 64, 65])(
+  test.each([58, 59, 60, 61, 62, 63, 64, 65, 66])(
     "runs the ordered release chain from schema v%i",
     async (sourceVersion) => {
       useTempStore();
@@ -270,6 +273,124 @@ describe("schema v66 release boundary", () => {
 
     expect(database.pragma("user_version", { simple: true })).toBe(66);
     expect(tableNames(database).has("nodex_agent_call_receipts")).toBe(true);
+    expect(database.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  test("publishes v66 stores with Document revision sessions", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const database = getDb();
+    database.exec("DROP TABLE document_revision_sessions");
+    database.pragma("user_version = 66");
+
+    migrateSchema66To67(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(67);
+    expect(tableNames(database).has("document_revision_sessions")).toBe(true);
+    const versionColumns = database.pragma(
+      "table_info(document_versions)",
+    ) as Array<{ readonly name: string }>;
+    for (const column of [
+      "revision_kind",
+      "source_mutation_id",
+      "source_change_seq",
+      "pinned",
+    ]) {
+      expect(versionColumns.some((candidate) => candidate.name === column)).toBe(
+        true,
+      );
+    }
+    expect(database.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  test("rebuilds the shipped v66 checkpoint table without changing bytes", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const project = createProject({ name: "Revision migration" });
+    const card = await createCard(project.id, "draft", {
+      title: "Migrated Card",
+    });
+    const database = getDb();
+    const document = database.prepare(
+      `SELECT document.id, document.generation, document.head_seq,
+         document.schema_key, document.schema_version
+       FROM documents document
+       INNER JOIN block_documents ownership ON ownership.document_id = document.id
+       WHERE ownership.block_id = ?`,
+    ).get(card.id) as {
+      readonly id: string;
+      readonly generation: number;
+      readonly head_seq: number;
+      readonly schema_key: string;
+      readonly schema_version: number;
+    };
+    database.exec(`
+      DROP TABLE document_revision_sessions;
+      DROP TRIGGER document_versions_validate_insert;
+      DROP TRIGGER document_versions_are_immutable;
+      DROP TRIGGER document_versions_validate_checkpoint_format;
+      DROP TABLE document_versions;
+
+      CREATE TABLE document_versions (
+        version_id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        base_head_seq INTEGER NOT NULL,
+        schema_key TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        cause TEXT NOT NULL,
+        label TEXT,
+        actor_json TEXT NOT NULL DEFAULT '{}',
+        checkpoint_format TEXT NOT NULL DEFAULT 'yjs_update_v1',
+        full_update_blob BLOB NOT NULL,
+        state_vector BLOB NOT NULL,
+        checkpoint_hash TEXT NOT NULL,
+        byte_length INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+    `);
+    database.prepare(
+      `INSERT INTO document_versions (
+         version_id, document_id, project_id, generation, base_head_seq,
+         schema_key, schema_version, cause, label, actor_json,
+         checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+         byte_length, created_at
+       ) VALUES (
+         'version:v66', ?, ?, ?, ?, ?, ?, 'before_restore',
+         'Safety before restore', '{}', 'yjs_update_v1', X'01', X'02', ?,
+         1, '2026-07-16T00:00:00.000Z'
+       )`,
+    ).run(
+      document.id,
+      project.id,
+      document.generation,
+      document.head_seq,
+      document.schema_key,
+      document.schema_version,
+      "a".repeat(64),
+    );
+    database.pragma("user_version = 66");
+
+    migrateSchema66To67(database);
+
+    expect(database.prepare(
+      `SELECT revision_kind, source_mutation_id, source_change_seq, pinned,
+         checkpoint_format, hex(full_update_blob) AS checkpoint_bytes,
+         hex(state_vector) AS state_vector_bytes, byte_length
+       FROM document_versions
+       WHERE version_id = 'version:v66'`,
+    ).get()).toEqual({
+      revision_kind: "restore",
+      source_mutation_id: null,
+      source_change_seq: null,
+      pinned: 1,
+      checkpoint_format: "yjs_update_v1",
+      checkpoint_bytes: "01",
+      state_vector_bytes: "02",
+      byte_length: 1,
+    });
+    expect(database.pragma("user_version", { simple: true })).toBe(67);
     expect(database.pragma("foreign_key_check")).toEqual([]);
   });
 

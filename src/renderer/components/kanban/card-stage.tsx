@@ -245,6 +245,7 @@ function CardStageDocumentTitle({
 }
 
 export function CardStage(props: CardStageProps) {
+  const { onToggleHistoryPanel } = props;
   const documentRuntimeRef = useRef<BlockDocumentSurfaceRuntime | null>(null);
   const persistDocument = useCallback(async () => {
     const runtime = documentRuntimeRef.current;
@@ -259,6 +260,21 @@ export function CardStage(props: CardStageProps) {
   const controller = useCardStageController(props, {
     persistDocument,
   });
+  const handleToggleHistoryPanel = useCallback(() => {
+    void (async () => {
+      await persistDocument();
+      const runtime = documentRuntimeRef.current;
+      const nfm = runtime
+        ? materializeCardDocument(runtime.document).nfm
+        : "";
+      onToggleHistoryPanel?.({
+        title: controller.title,
+        nfm,
+      });
+    })().catch(() => {
+      toast.danger("Couldn’t prepare Card history");
+    });
+  }, [controller.title, onToggleHistoryPanel, persistDocument]);
   const [headingRailPortalElement, setHeadingRailPortalElement] =
     useState<HTMLDivElement | null>(null);
 
@@ -284,7 +300,7 @@ export function CardStage(props: CardStageProps) {
         showDelete={Boolean(props.onDelete)}
         onToggleContentWidth={controller.handleToggleContentWidth}
         onToggleShowRawContent={controller.handleToggleShowRawContent}
-        onToggleHistoryPanel={controller.onToggleHistoryPanel}
+        onToggleHistoryPanel={handleToggleHistoryPanel}
         breadcrumb={props.breadcrumb ? {
           ...props.breadcrumb,
           currentTitle: controller.title,

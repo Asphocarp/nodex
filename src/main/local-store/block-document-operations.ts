@@ -23,6 +23,7 @@ import {
   type ReplaceDocumentFromNfm,
 } from "../../shared/block-documents/document-operations";
 import type {
+  DocumentVersionActor,
   PrepareDocumentVersionRestore,
   PreparedDocumentVersionRestore,
 } from "../../shared/block-documents/document-history";
@@ -59,6 +60,7 @@ import {
   DocumentVersionStoreError,
   prepareDocumentVersionRestore,
 } from "./document-versions";
+import { markDocumentRevisionSessionCheckpoint } from "./document-revision-session-store";
 import {
   applyCanvasSceneMutation,
   syncCanvasScene,
@@ -94,6 +96,8 @@ export interface ApplyDocumentOperationOptions {
   readonly preserveRemovedBlockIds?: readonly string[];
   /** Trusted outer ownership transaction; never expose through transport input. */
   readonly allowTransientEmptyBlockTree?: boolean;
+  /** Trusted composite/migration boundary owns any resulting revision itself. */
+  readonly skipAutomaticRevisionCapture?: boolean;
 }
 
 interface StoredMutationRow {
@@ -1353,6 +1357,43 @@ const applyPreparedMutation = (
         `Mutation ${request.mutationId} committed with a rejected ledger outcome`,
       );
     }
+    const revisionCaptureDeferredToOuterCommand =
+      options.skipAutomaticRevisionCapture === true ||
+      (options.allowPendingSyncedReferenceTargetIds?.length ?? 0) > 0 ||
+      (options.allowStagedDocumentBearingBlockIds?.length ?? 0) > 0 ||
+      (options.allowStagedReparentedBlockIds?.length ?? 0) > 0;
+    if (!ack.duplicate && !revisionCaptureDeferredToOuterCommand) {
+      if (stored.change_log_seq === null) {
+        throw new BlockDocumentStoreError(
+          "document_state_corrupt",
+          `Mutation ${request.mutationId} committed without a change sequence`,
+        );
+      }
+      const isRestore = evidence.mutationKind === "document_version_restore";
+      const revision = createDocumentVersionCheckpoint(database, {
+        version: DOCUMENT_OPERATION_CONTRACT_VERSION,
+        projectId: request.projectId,
+        storeEpoch: request.storeEpoch,
+        documentId: request.documentId,
+        expectedGeneration: request.generation,
+        expectedHeadSeq: storedOutcome.value.headSeq,
+        cause: isRestore ? "after_restore" : evidence.mutationKind,
+        ...(isRestore && "versionId" in request
+          ? { label: `Restored ${request.versionId}` }
+          : {}),
+        revisionKind: isRestore ? "restore" : "operation",
+        sourceMutationId: request.mutationId,
+        sourceChangeSeq: stored.change_log_seq,
+        actor: JSON.parse(evidence.actorJson) as DocumentVersionActor,
+      });
+      markDocumentRevisionSessionCheckpoint(database, {
+        documentId: request.documentId,
+        generation: request.generation,
+        checkpointHeadSeq: revision.checkpoint.baseHeadSeq,
+        createdAt: revision.checkpoint.createdAt,
+        finalize: true,
+      });
+    }
     return {
       ok: true,
       value: { ...storedOutcome.value, duplicate: ack.duplicate },
@@ -1576,6 +1617,8 @@ const applyMutationInTransaction = (
             expectedHeadSeq: restoreRequest.expectedHeadSeq,
             cause: "before_restore",
             label: `Before restore ${restoreRequest.versionId}`,
+            revisionKind: "restore",
+            sourceMutationId: restoreRequest.mutationId,
             actor: {
               ...restoreRequest.actor,
               restoreMutationId: restoreRequest.mutationId,
@@ -1734,6 +1777,8 @@ const applyCanvasVersionRestore = (
       expectedHeadSeq: request.expectedHeadSeq,
       cause: "before_restore",
       label: `Before restore ${request.versionId}`,
+      revisionKind: "restore",
+      sourceMutationId: request.mutationId,
       actor: {
         ...request.actor,
         restoreMutationId: request.mutationId,
@@ -1825,6 +1870,20 @@ const applyCanvasVersionRestore = (
       () => undefined,
       semanticTouchedBlockIds,
     );
+    createDocumentVersionCheckpoint(database, {
+      version: DOCUMENT_OPERATION_CONTRACT_VERSION,
+      projectId: request.projectId,
+      storeEpoch: request.storeEpoch,
+      documentId: request.documentId,
+      expectedGeneration: request.generation,
+      expectedHeadSeq: restored.value.headSeq,
+      cause: "after_restore",
+      label: `Restored ${request.versionId}`,
+      revisionKind: "restore",
+      sourceMutationId: request.mutationId,
+      sourceChangeSeq: result.changeLogSeq,
+      actor: request.actor,
+    });
     return { ok: true, value: result };
   });
   const result = apply.immediate();

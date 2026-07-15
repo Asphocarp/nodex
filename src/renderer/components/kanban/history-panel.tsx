@@ -45,22 +45,21 @@ import {
   restoreDocumentVersion,
 } from "./history-panel-deps";
 
-type HistoryFilter = "all" | "checkpoint" | "change" | "relocation";
+type HistoryFilter = "revisions" | "activity";
 
 const HISTORY_FILTERS: ReadonlyArray<{
   readonly value: HistoryFilter;
   readonly label: string;
 }> = [
-  { value: "all", label: "All" },
-  { value: "checkpoint", label: "Checkpoints" },
-  { value: "change", label: "Changes" },
-  { value: "relocation", label: "Moves" },
+  { value: "revisions", label: "Revisions" },
+  { value: "activity", label: "Activity" },
 ];
 
 interface HistoryPanelProps {
   projectId: string;
   cardId: string | null;
   cardTitle?: string;
+  cardNfm?: string;
   projectWorkspacePath?: string | null;
   open: boolean;
   onClose: () => void;
@@ -71,16 +70,15 @@ const matchesFilter = (
   entry: CardHistoryEntry,
   filter: HistoryFilter,
 ): boolean => {
-  if (filter === "all") return true;
-  if (filter === "checkpoint") return entry.kind === "document_version";
-  if (filter === "relocation") return entry.kind === "block_relocation";
-  return entry.kind === "block_mutation";
+  if (filter === "revisions") return entry.kind === "document_version";
+  return entry.kind !== "document_version";
 };
 
 export function HistoryPanel({
   projectId,
   cardId,
   cardTitle,
+  cardNfm,
   projectWorkspacePath,
   open,
   onClose,
@@ -96,7 +94,7 @@ export function HistoryPanel({
   const [entries, setEntries] = useState<readonly CardHistoryEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<CardHistoryCursor | null>(null);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [filter, setFilter] = useState<HistoryFilter>("revisions");
   const [loading, setLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
@@ -139,7 +137,7 @@ export function HistoryPanel({
         if (current && result.value.entries.some((entry) => entry.id === current)) {
           return current;
         }
-        return result.value.entries[0]?.id ?? null;
+        return "current";
       });
     } catch (error) {
       if (requestSerial !== requestSerialRef.current) return;
@@ -162,7 +160,7 @@ export function HistoryPanel({
     setEntries([]);
     setNextCursor(null);
     setSelectedEntryId(null);
-    setFilter("all");
+    setFilter("revisions");
     setTimelineError(null);
     setPreviewCache(new Map());
     setPreviewError(null);
@@ -177,10 +175,15 @@ export function HistoryPanel({
   );
 
   useEffect(() => {
+    if (filter === "revisions" && selectedEntryId === "current") return;
     if (filteredEntries.some((entry) => entry.id === selectedEntryId)) return;
-    setSelectedEntryId(filteredEntries[0]?.id ?? null);
-  }, [filteredEntries, selectedEntryId]);
+    setSelectedEntryId(
+      filter === "revisions" ? "current" : filteredEntries[0]?.id ?? null,
+    );
+  }, [filter, filteredEntries, selectedEntryId]);
 
+  const selectedIsCurrent =
+    filter === "revisions" && selectedEntryId === "current";
   const selectedIndex = filteredEntries.findIndex(
     (entry) => entry.id === selectedEntryId,
   );
@@ -225,7 +228,7 @@ export function HistoryPanel({
       });
     }).catch((error: unknown) => {
       if (cancelled) return;
-      setPreviewError(toErrorMessage(error, "Checkpoint preview is unavailable."));
+      setPreviewError(toErrorMessage(error, "Revision preview is unavailable."));
     }).finally(() => {
       if (!cancelled) setPreviewLoading(false);
     });
@@ -236,18 +239,20 @@ export function HistoryPanel({
   }, [previewCache, projectId, selectedEntry]);
 
   const navigate = useCallback((direction: -1 | 1) => {
-    if (filteredEntries.length === 0) return;
-    const currentIndex = filteredEntries.findIndex(
-      (entry) => entry.id === selectedEntryId,
-    );
+    const selectableIds = [
+      ...(filter === "revisions" ? ["current"] : []),
+      ...filteredEntries.map((entry) => entry.id),
+    ];
+    if (selectableIds.length === 0) return;
+    const currentIndex = selectableIds.indexOf(selectedEntryId ?? "");
     const nextIndex = currentIndex < 0
       ? 0
       : Math.min(
-          filteredEntries.length - 1,
+          selectableIds.length - 1,
           Math.max(0, currentIndex + direction),
         );
-    setSelectedEntryId(filteredEntries[nextIndex]?.id ?? null);
-  }, [filteredEntries, selectedEntryId]);
+    setSelectedEntryId(selectableIds[nextIndex] ?? null);
+  }, [filter, filteredEntries, selectedEntryId]);
 
   const handleTimelineKeyDown = useCallback((event: ReactKeyboardEvent) => {
     if (event.key === "ArrowDown") {
@@ -309,7 +314,7 @@ export function HistoryPanel({
           throw new Error("This Card must finish syncing before it can be restored.");
         }
         if (descriptor.documentId !== selectedEntry.recovery.documentId) {
-          throw new Error("This checkpoint no longer belongs to the Card document.");
+          throw new Error("This revision no longer belongs to the Card document.");
         }
         pendingRestore = {
           entryId: selectedEntry.id,
@@ -354,7 +359,7 @@ export function HistoryPanel({
       onCardMutated?.();
       await loadFirstPage(cardId);
     } catch (error) {
-      setRestoreError(toErrorMessage(error, "Couldn’t restore this checkpoint."));
+      setRestoreError(toErrorMessage(error, "Couldn’t restore this revision."));
     } finally {
       restoreInFlightRef.current = false;
       setRestoring(false);
@@ -404,7 +409,11 @@ export function HistoryPanel({
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-token-text-secondary">
               {previewTitle ?? cardTitle ?? "Untitled Card"}
             </span>
-            {selectedEntry ? (
+            {selectedIsCurrent ? (
+              <span className="hidden shrink-0 text-xs text-token-description-foreground sm:block">
+                Current
+              </span>
+            ) : selectedEntry ? (
               <time
                 dateTime={selectedEntry.occurredAt}
                 className="hidden shrink-0 text-xs text-token-description-foreground sm:block"
@@ -419,12 +428,22 @@ export function HistoryPanel({
               <HistoryEmptyState>Loading Card history…</HistoryEmptyState>
             ) : timelineError && entries.length === 0 ? (
               <HistoryEmptyState>{timelineError}</HistoryEmptyState>
+            ) : selectedIsCurrent ? (
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+                <HistoryCurrentRevisionPreview
+                  projectId={projectId}
+                  cardId={cardId}
+                  title={cardTitle}
+                  nfm={cardNfm}
+                  projectWorkspacePath={projectWorkspacePath}
+                />
+              </div>
             ) : entries.length === 0 ? (
-              <HistoryEmptyState>No durable history for this Card yet.</HistoryEmptyState>
+              <HistoryEmptyState>No durable revisions for this Card yet.</HistoryEmptyState>
             ) : selectedEntry ? (
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
                 {selectedEntry.kind === "document_version" ? (
-                  <CheckpointPreview
+                  <HistoryRevisionPreview
                     entry={selectedEntry}
                     detail={selectedPreview}
                     loading={previewLoading}
@@ -449,7 +468,7 @@ export function HistoryPanel({
                 Card history
               </h2>
               <p className="mt-0.5 truncate text-xs text-token-description-foreground">
-                Checkpoints and committed events
+                Exact content revisions and durable activity
               </p>
             </div>
             <NodexButton
@@ -487,17 +506,37 @@ export function HistoryPanel({
             className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
             onKeyDown={handleTimelineKeyDown}
           >
-            {filteredEntries.map((entry) => (
-              <HistoryEntryRow
-                key={entry.id}
-                entry={entry}
-                selected={entry.id === selectedEntry?.id}
-                onSelect={() => setSelectedEntryId(entry.id)}
+            {filter === "revisions" ? (
+              <CurrentHistoryEntryRow
+                selected={selectedIsCurrent}
+                onSelect={() => setSelectedEntryId("current")}
               />
-            ))}
-            {filteredEntries.length === 0 ? (
+            ) : null}
+            {filteredEntries.map((entry, index) => {
+              const previous = filteredEntries[index - 1];
+              const showDate =
+                filter === "revisions" &&
+                (!previous ||
+                  formatHistoryDate(previous.occurredAt) !==
+                    formatHistoryDate(entry.occurredAt));
+              return (
+                <div key={entry.id}>
+                  {showDate ? (
+                    <p className="px-2.5 pt-3 pb-1 text-[11px] font-medium text-token-description-foreground">
+                      {formatHistoryDate(entry.occurredAt)}
+                    </p>
+                  ) : null}
+                  <HistoryEntryRow
+                    entry={entry}
+                    selected={entry.id === selectedEntry?.id}
+                    onSelect={() => setSelectedEntryId(entry.id)}
+                  />
+                </div>
+              );
+            })}
+            {filteredEntries.length === 0 && filter === "activity" ? (
               <p className="px-2 py-3 text-xs text-token-description-foreground">
-                No events in this category.
+                No non-content activity yet.
               </p>
             ) : null}
             {nextCursor ? (
@@ -519,7 +558,7 @@ export function HistoryPanel({
           </div>
 
           <HistoryRecoveryFooter
-            entry={selectedEntry}
+            entry={selectedIsCurrent ? null : selectedEntry}
             confirming={confirmingRestore}
             restoring={restoring}
             error={restoreError}
@@ -536,7 +575,50 @@ export function HistoryPanel({
   );
 }
 
-function CheckpointPreview({
+export function HistoryCurrentRevisionPreview({
+  projectId,
+  cardId,
+  title,
+  nfm = "",
+  projectWorkspacePath,
+}: {
+  projectId: string;
+  cardId: string | null;
+  title?: string;
+  nfm?: string;
+  projectWorkspacePath?: string | null;
+}) {
+  return (
+    <article className="min-w-0">
+      <p className="mb-4 text-xs font-medium text-token-description-foreground">
+        Current content
+      </p>
+      <h2 className="wrap-break-word text-xl/snug-plus font-semibold tracking-normal text-token-text-primary">
+        {title || "Untitled Card"}
+      </h2>
+      <div className="mt-5 min-h-32">
+        {cardId && nfm.trim() ? (
+          <ReadonlyNfmBlockNotePreview
+            content={nfm}
+            projectId={projectId}
+            cardId={cardId}
+            historyId="current"
+            projectWorkspacePath={projectWorkspacePath}
+            className="text-token-text-primary"
+          />
+        ) : (
+          <p className="text-sm text-token-description-foreground">Empty document</p>
+        )}
+      </div>
+      <p className="mt-5 text-xs text-token-description-foreground">
+        This is the latest committed title and body. Historical revisions below
+        can be restored without removing newer history.
+      </p>
+    </article>
+  );
+}
+
+export function HistoryRevisionPreview({
   entry,
   detail,
   loading,
@@ -552,31 +634,37 @@ function CheckpointPreview({
   projectWorkspacePath?: string | null;
 }) {
   if (loading && !detail) {
-    return <HistoryEmptyState>Loading checkpoint preview…</HistoryEmptyState>;
+    return <HistoryEmptyState>Loading revision preview…</HistoryEmptyState>;
   }
   if (error && !detail) return <HistoryEmptyState>{error}</HistoryEmptyState>;
-  if (!detail) return <HistoryEmptyState>Checkpoint preview is unavailable.</HistoryEmptyState>;
+  if (!detail) return <HistoryEmptyState>Revision preview is unavailable.</HistoryEmptyState>;
 
   const materialization = detail.materialization;
   if (materialization.kind === "canvas_scene") {
     return (
       <HistoryTimelineDetails entry={entry}>
-        Scene checkpoint · {materialization.elements.length} elements
+        Scene revision · {materialization.elements.length} elements
       </HistoryTimelineDetails>
     );
   }
 
   const title = materialization.kind === "card"
     ? materialization.title
-    : fallbackTitle ?? "Document checkpoint";
+    : fallbackTitle ?? "Document revision";
   return (
     <article className="min-w-0">
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-token-description-foreground">
-        <span>{entry.versionMetadata.label ?? entry.versionMetadata.cause}</span>
-        <span>{formatBytes(entry.versionMetadata.byteLength)}</span>
-        <span className="font-mono tabular-nums">
-          {entry.versionMetadata.checkpointHash.slice(0, 10)}
-        </span>
+        <span>{formatRevisionKind(entry.versionMetadata.revisionKind)}</span>
+        <span aria-hidden="true">·</span>
+        <time dateTime={entry.occurredAt}>
+          {formatAbsoluteTimestamp(entry.occurredAt)}
+        </time>
+        {entry.display.actorLabel ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{entry.display.actorLabel}</span>
+          </>
+        ) : null}
       </div>
       <h2 className="wrap-break-word text-xl/snug-plus font-semibold tracking-normal text-token-text-primary">
         {title || "Untitled Card"}
@@ -596,8 +684,8 @@ function CheckpointPreview({
         )}
       </div>
       <p className="mt-5 text-xs text-token-description-foreground">
-        This checkpoint contains the Card title and body. Restoring creates a new
-        forward change; it never rewinds the collaboration log.
+        This revision contains the Card title and body. Restoring saves the
+        current state first, then creates a new forward change.
       </p>
     </article>
   );
@@ -680,7 +768,8 @@ function HistoryRecoveryFooter({
       ) : null}
       {confirming && recoverable ? (
         <p className="mb-2 text-xs text-token-text-secondary">
-          Restore this checkpoint as a new forward change?
+          Nodex will save the current title and body first, then apply this
+          revision as a new forward change.
         </p>
       ) : null}
       {!recoverable ? (
@@ -710,7 +799,7 @@ function HistoryRecoveryFooter({
               ? "Restoring…"
               : confirming
                 ? "Confirm restore"
-                : "Restore checkpoint"}
+                : "Restore title & body"}
           </NodexButton>
         </div>
       )}
@@ -755,6 +844,37 @@ function HistoryEntryRow({
   );
 }
 
+function CurrentHistoryEntryRow({
+  selected,
+  onSelect,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label="Current Card content"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left",
+        selected ? "bg-token-foreground/10" : "hover:bg-token-foreground/5",
+      )}
+    >
+      <History className="icon-2xs mt-0.5 shrink-0 text-token-description-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-token-text-primary">
+          Current
+        </span>
+        <span className="mt-0.5 block text-xs text-token-description-foreground">
+          Latest title and body
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function HistoryKindIcon({
   entry,
   className,
@@ -789,10 +909,9 @@ const collectEntryMetadata = (
   if (entry.kind === "document_version") {
     return [
       ...common,
-      ["Cause", entry.versionMetadata.cause],
-      ["Head", String(entry.versionMetadata.baseHeadSeq)],
-      ["Schema", `${entry.versionMetadata.schemaKey}@${entry.versionMetadata.schemaVersion}`],
-      ["Version", entry.versionMetadata.versionId],
+      ["Revision", formatRevisionKind(entry.versionMetadata.revisionKind)],
+      ["Reason", entry.versionMetadata.label ?? entry.versionMetadata.cause],
+      ["Retention", entry.versionMetadata.pinned ? "Pinned" : "Automatic"],
     ];
   }
   if (entry.kind === "block_relocation") {
@@ -818,7 +937,7 @@ const formatRecoveryUnavailable = (entry: CardHistoryEntry): string => {
   if (entry.recovery.kind !== "unavailable") return "";
   switch (entry.recovery.reason) {
     case "document_generation_changed":
-      return "This checkpoint belongs to an earlier document generation and cannot be restored.";
+      return "This revision belongs to an earlier document generation and cannot be restored.";
     case "insufficient_evidence":
       return "There isn’t enough durable evidence to reconstruct this state.";
     case "no_inverse_contract":
@@ -846,7 +965,9 @@ const formatDirection = (
 };
 
 const formatEntryCategory = (entry: CardHistoryEntry): string => {
-  if (entry.kind === "document_version") return "Checkpoint";
+  if (entry.kind === "document_version") {
+    return formatRevisionKind(entry.versionMetadata.revisionKind);
+  }
   if (entry.kind === "block_relocation") return "Relocation";
   return entry.display.category === "unknown"
     ? "Mutation"
@@ -856,10 +977,33 @@ const formatEntryCategory = (entry: CardHistoryEntry): string => {
 const formatOptionalCount = (value: number | null): string =>
   value === null ? "Unknown" : String(value);
 
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(1)} KB`;
-  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
+const formatRevisionKind = (
+  kind: Extract<CardHistoryEntry, { kind: "document_version" }>[
+    "versionMetadata"
+  ]["revisionKind"],
+): string => {
+  switch (kind) {
+    case "automatic":
+      return "Automatic revision";
+    case "manual":
+      return "Named revision";
+    case "operation":
+      return "Command revision";
+    case "restore":
+      return "Restore revision";
+    case "safety":
+      return "Safety revision";
+  }
+};
+
+const formatHistoryDate = (value: string): string => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date);
 };
 
 const formatAbsoluteTimestamp = (value: string): string => {

@@ -37,6 +37,10 @@ import type {
 } from "../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../shared/block-documents/document-history-transport";
 import type {
+  MaintainDocumentRevisionHistoryInput,
+  MaintainDocumentRevisionHistoryResult,
+} from "../shared/block-documents/document-revision-maintenance";
+import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
@@ -522,6 +526,15 @@ export class BlockMutationWriter {
   ): Promise<BlockMutationEnvelope<MaintainStoreBlockRetentionResult>> {
     return await this.executeTyped<MaintainStoreBlockRetentionResult>({
       type: "maintainStoreBlockRetention",
+      payload: input,
+    });
+  }
+
+  async maintainDocumentRevisionHistory(
+    input: MaintainDocumentRevisionHistoryInput,
+  ): Promise<BlockMutationEnvelope<MaintainDocumentRevisionHistoryResult>> {
+    return await this.executeTyped<MaintainDocumentRevisionHistoryResult>({
+      type: "maintainDocumentRevisionHistory",
       payload: input,
     });
   }

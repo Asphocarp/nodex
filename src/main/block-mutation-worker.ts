@@ -68,6 +68,11 @@ import {
   listDocumentVersions,
 } from "./local-store/document-versions";
 import {
+  checkpointActiveDocumentRevisionIfDue,
+  maintainDocumentRevisionHistory,
+  prepareDocumentRevisionForUpdate,
+} from "./local-store/document-revision-maintenance-store";
+import {
   CardHistoryStoreError,
   listCardHistory,
 } from "./local-store/card-history";
@@ -130,7 +135,11 @@ import {
 } from "./agent-tools/database-edit-service";
 
 const blockDocumentRuntime = new BlockDocumentRuntime(
-  createSqliteBlockDocumentRuntimeAuthority(getDb),
+  createSqliteBlockDocumentRuntimeAuthority(getDb, {
+    beforeEffectiveUpdate: (database, input, committedAt) => {
+      prepareDocumentRevisionForUpdate(database, input, committedAt);
+    },
+  }),
 );
 
 
@@ -890,6 +899,8 @@ async function runRequest(
       return compactEligibleBlockDocuments(getDb(), request.payload);
     case "maintainStoreBlockRetention":
       return maintainStoreBlockRetention(getDb(), request.payload);
+    case "maintainDocumentRevisionHistory":
+      return maintainDocumentRevisionHistory(getDb(), request.payload);
     case "deleteProject":
       return deleteProjectBlockFirst(getDb(), request.payload.projectId);
     case "readDatabaseCatalog":
@@ -976,6 +987,19 @@ async function runRequest(
         blockDocumentRuntime.applyUpdate(request.payload),
       );
       if (!result.ok || result.value.duplicate) return result;
+
+      try {
+        checkpointActiveDocumentRevisionIfDue(getDb(), {
+          documentId: request.payload.documentId,
+          storeEpoch: request.payload.storeEpoch,
+        });
+      } catch (error) {
+        postLog("warn", "Active Document revision checkpoint deferred", {
+          documentId: request.payload.documentId,
+          updateId: request.payload.updateId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
 
       // applyUpdate only returns after its SQLite transaction commits. Publish
       // the Card summary from that same committed materialization so every

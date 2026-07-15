@@ -316,6 +316,7 @@ describe("additional registered document-bearing Blocks", () => {
           expectedGeneration: 1,
           expectedHeadSeq: 1,
           cause: "manual",
+          revisionKind: "manual",
           actor: {},
         }).checkpoint;
         expect(checkpoint.materializationKind).toBe("reusable_template");

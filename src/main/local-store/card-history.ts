@@ -23,7 +23,6 @@ const MAX_EVIDENCE_KEY_LENGTH = 256;
 const MAX_EVIDENCE_STRING_LENGTH = 16_384;
 const MAX_IDENTIFIER_ARRAY_LENGTH = 1_024;
 const MAX_ACTOR_LABEL_LENGTH = 120;
-const MAX_DISPLAY_DETAIL_LENGTH = 180;
 
 export type CardHistoryStoreErrorCode =
   "invalid_card_history_request" | "card_not_found" | "card_history_corrupt";
@@ -65,6 +64,10 @@ interface StoredVersionRow {
   readonly cause: string;
   readonly label: string | null;
   readonly actor_json: string | null;
+  readonly revision_kind: string;
+  readonly source_mutation_id: string | null;
+  readonly source_change_seq: number | null;
+  readonly pinned: number;
   readonly checkpoint_hash: string;
   readonly byte_length: number;
   readonly created_at: string;
@@ -419,6 +422,8 @@ const readVersionRows = (
         version.version_id, version.document_id, version.project_id,
         version.generation, version.base_head_seq, version.schema_key,
         version.schema_version, version.cause, version.label,
+        version.revision_kind, version.source_mutation_id,
+        version.source_change_seq, version.pinned,
         CASE
           WHEN length(CAST(version.actor_json AS BLOB)) <= ${MAX_EVIDENCE_JSON_BYTES}
           THEN version.actor_json
@@ -539,6 +544,13 @@ const readChangeRows = (
         AND relocation.project_id = change.project_id
       WHERE change.project_id = ?
         AND change.kind IN ('block_mutation', 'block_relocation')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM document_versions version
+          WHERE version.project_id = change.project_id
+            AND version.document_id = ?
+            AND version.source_change_seq = change.seq
+        )
         AND (
           EXISTS (
             SELECT 1 FROM json_each(${scopedBlockIds}) scoped_block
@@ -556,6 +568,7 @@ const readChangeRows = (
     )
     .all(
       scope.projectId,
+      scope.documentId,
       scope.cardBlockId,
       scope.documentId,
       ...beforeSql.parameters,
@@ -584,6 +597,19 @@ const decodeVersionEntry = (
     row.schema_version < 1 ||
     !isBoundedStoredString(row.cause, 128) ||
     (row.label !== null && row.label.length > 512) ||
+    ![
+      "automatic",
+      "manual",
+      "operation",
+      "restore",
+      "safety",
+    ].includes(row.revision_kind) ||
+    (row.source_mutation_id !== null &&
+      !isBoundedStoredString(row.source_mutation_id)) ||
+    (row.source_change_seq !== null &&
+      (!Number.isSafeInteger(row.source_change_seq) ||
+        row.source_change_seq < 1)) ||
+    (row.pinned !== 0 && row.pinned !== 1) ||
     !/^[0-9a-f]{64}$/u.test(row.checkpoint_hash) ||
     !Number.isSafeInteger(row.byte_length) ||
     row.byte_length < 1
@@ -598,9 +624,46 @@ const decodeVersionEntry = (
   const evidence: CardHistoryEvidence = actor
     ? { status: "verified" }
     : unavailableEvidence("malformed_evidence");
-  const detail = row.label
-    ? truncateDisplay(row.label, MAX_DISPLAY_DETAIL_LENGTH)
-    : `Checkpoint at Document head ${row.base_head_seq}`;
+  const revisionKind = row.revision_kind as CardDocumentVersionHistoryEntry[
+    "versionMetadata"
+  ]["revisionKind"];
+  const display = (() => {
+    if (revisionKind === "automatic") {
+      return {
+        category: "content" as const,
+        title: "Edited Card",
+        detail: "Automatic revision",
+      };
+    }
+    if (revisionKind === "operation") {
+      return {
+        category: "content" as const,
+        title: "Edited Card content",
+        detail: row.label ?? row.cause,
+      };
+    }
+    if (revisionKind === "restore") {
+      return {
+        category: "content" as const,
+        title: row.cause === "before_restore"
+          ? "Before restore"
+          : "Restored Card content",
+        detail: row.label ?? row.cause,
+      };
+    }
+    if (revisionKind === "safety") {
+      return {
+        category: "checkpoint" as const,
+        title: "Before editing",
+        detail: "Safety revision",
+      };
+    }
+    return {
+      category: "checkpoint" as const,
+      title: row.label ?? "Saved Card revision",
+      detail: row.label ? "Named revision" : "Manual revision",
+    };
+  })();
   return {
     id: `document-version:${row.version_id}`,
     kind: "document_version",
@@ -608,12 +671,7 @@ const decodeVersionEntry = (
     cardBlockId: scope.cardBlockId,
     documentId: scope.documentId,
     occurredAt,
-    display: {
-      category: "checkpoint",
-      title: "Saved Card checkpoint",
-      detail,
-      actorLabel,
-    },
+    display: { ...display, actorLabel },
     evidence,
     recovery:
       row.generation === scope.documentGeneration
@@ -634,6 +692,10 @@ const decodeVersionEntry = (
       schemaVersion: row.schema_version,
       cause: row.cause,
       label: row.label,
+      revisionKind,
+      sourceMutationId: row.source_mutation_id,
+      sourceChangeSeq: row.source_change_seq,
+      pinned: row.pinned === 1,
       checkpointHash: row.checkpoint_hash,
       byteLength: row.byte_length,
     },

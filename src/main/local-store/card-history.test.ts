@@ -55,6 +55,10 @@ const createSchema = (database: Database.Database): void => {
       cause TEXT NOT NULL,
       label TEXT,
       actor_json TEXT NOT NULL,
+      revision_kind TEXT NOT NULL DEFAULT 'manual',
+      source_mutation_id TEXT,
+      source_change_seq INTEGER,
+      pinned INTEGER NOT NULL DEFAULT 1,
       checkpoint_hash TEXT NOT NULL,
       byte_length INTEGER NOT NULL,
       created_at TEXT NOT NULL
@@ -241,6 +245,9 @@ const checkpoint = (
     readonly cause?: string;
     readonly label?: string;
     readonly actor?: Readonly<Record<string, string>>;
+    readonly revisionKind?: "automatic" | "manual" | "operation" | "restore" | "safety";
+    readonly sourceMutationId?: string;
+    readonly sourceChangeSeq?: number;
   },
 ) => {
   versionOrdinal += 1;
@@ -252,8 +259,9 @@ const checkpoint = (
       INSERT INTO document_versions (
         version_id, document_id, project_id, generation, base_head_seq,
         schema_key, schema_version, cause, label, actor_json,
+        revision_kind, source_mutation_id, source_change_seq, pinned,
         checkpoint_hash, byte_length, created_at
-      ) VALUES (?, ?, ?, 1, 1, 'nodex.card', 1, ?, ?, ?, ?, 32, ?)
+      ) VALUES (?, ?, ?, 1, 1, 'nodex.card', 1, ?, ?, ?, ?, ?, ?, ?, ?, 32, ?)
     `,
     )
     .run(
@@ -263,6 +271,14 @@ const checkpoint = (
       input.cause ?? "manual",
       input.label ?? null,
       JSON.stringify(input.actor ?? { displayName: "Checkpoint author" }),
+      input.revisionKind ?? "manual",
+      input.sourceMutationId ?? null,
+      input.sourceChangeSeq ?? null,
+      input.revisionKind === "operation" ||
+        input.revisionKind === "automatic" ||
+        input.revisionKind === "safety"
+        ? 0
+        : 1,
       checkpointHash,
       input.createdAt,
     );
@@ -405,6 +421,51 @@ describe("canonical Card history", () => {
         pageSize: 1,
       });
       expect(JSON.stringify(repeatedSecond)).toBe(JSON.stringify(second));
+    });
+  });
+
+  test("projects linked content evidence as one restorable revision", () => {
+    withFixture((fixture) => {
+      const card = createCard(fixture, "linked-revision");
+      const mutationId = "mutation:linked-content";
+      const changeSeq = insertMutation(fixture, card, {
+        mutationId,
+        committedAt: T2,
+        mutationKind: "replace_document_from_nfm",
+        actor: { displayName: "Agent" },
+      });
+      const revision = checkpoint(fixture, card, {
+        createdAt: T2,
+        cause: "replace_document_from_nfm",
+        revisionKind: "operation",
+        sourceMutationId: mutationId,
+        sourceChangeSeq: changeSeq,
+        actor: { displayName: "Agent" },
+      });
+
+      const page = listCardHistory(fixture.database, {
+        ...historyRequest(fixture, card.cardId),
+        pageSize: 20,
+      });
+      const linkedEntries = page.entries.filter(
+        (entry) =>
+          (entry.kind === "document_version" &&
+            entry.versionMetadata.sourceMutationId === mutationId) ||
+          (entry.kind === "block_mutation" && entry.mutationId === mutationId),
+      );
+      expect(linkedEntries).toHaveLength(1);
+      expect(linkedEntries[0]).toMatchObject({
+        id: `document-version:${revision.versionId}`,
+        kind: "document_version",
+        display: { category: "content", title: "Edited Card content" },
+        recovery: { kind: "restore_document_version" },
+        versionMetadata: {
+          revisionKind: "operation",
+          sourceMutationId: mutationId,
+          sourceChangeSeq: changeSeq,
+          pinned: false,
+        },
+      });
     });
   });
 

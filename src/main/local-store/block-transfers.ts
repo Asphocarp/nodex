@@ -30,6 +30,7 @@ import {
   type DocumentBlockOperation,
   type DocumentOperationResult,
 } from "../../shared/block-documents/document-operations";
+import type { DocumentVersionActor } from "../../shared/block-documents/document-history";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import type {
   BlockLocation,
@@ -88,6 +89,8 @@ import {
   type CardOffDatabaseParent,
 } from "./database-kernel";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
+import { createDocumentVersionCheckpoint } from "./document-versions";
+import { markDocumentRevisionSessionCheckpoint } from "./document-revision-session-store";
 import { cloneAuthoritativeCardInTransaction } from "./authoritative-card-clone";
 
 export type BlockTransferFaultPoint =
@@ -799,6 +802,7 @@ const runDocumentBatch = (
       operations: input.operations,
     },
     {
+      skipAutomaticRevisionCapture: true,
       ...(input.stagedOwnerIds
         ? { allowStagedDocumentBearingBlockIds: input.stagedOwnerIds }
         : {}),
@@ -3052,6 +3056,81 @@ const persistLedger = (
     );
 };
 
+const captureTransferDocumentRevisions = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  documentCommits: readonly RelocationDocumentCommit[],
+  changeLogSeq: number,
+): void => {
+  const finalCommits = new Map<string, RelocationDocumentCommit>();
+  for (const commit of documentCommits) {
+    const current = finalCommits.get(commit.documentId);
+    if (!current || current.headSeq < commit.headSeq) {
+      finalCommits.set(commit.documentId, commit);
+    }
+  }
+  const readAuthority = database.prepare(
+    `SELECT document.generation, document.head_seq, document.readiness,
+       owner.lifecycle AS owner_lifecycle
+     FROM documents document
+     INNER JOIN block_documents ownership
+       ON ownership.document_id = document.id
+       AND ownership.project_id = document.project_id
+     INNER JOIN blocks owner
+       ON owner.id = ownership.block_id
+       AND owner.project_id = ownership.project_id
+     WHERE document.id = ? AND document.project_id = ?`,
+  );
+  for (const commit of finalCommits.values()) {
+    const authority = readAuthority.get(
+      commit.documentId,
+      request.projectId,
+    ) as
+      | {
+          readonly generation: number;
+          readonly head_seq: number;
+          readonly readiness: string;
+          readonly owner_lifecycle: string;
+        }
+      | undefined;
+    if (
+      !authority ||
+      authority.readiness !== "ready" ||
+      authority.owner_lifecycle !== "active"
+    ) {
+      continue;
+    }
+    if (
+      authority.generation !== commit.generation ||
+      authority.head_seq !== commit.headSeq
+    ) {
+      throw new Error(
+        `Block transfer ${request.operationId} cannot snapshot divergent Document ${commit.documentId}`,
+      );
+    }
+    const revision = createDocumentVersionCheckpoint(database, {
+      version: DOCUMENT_OPERATION_CONTRACT_VERSION,
+      projectId: request.projectId,
+      storeEpoch: request.storeEpoch,
+      documentId: commit.documentId,
+      expectedGeneration: commit.generation,
+      expectedHeadSeq: commit.headSeq,
+      cause: MUTATION_KIND,
+      revisionKind: "operation",
+      sourceMutationId: request.operationId,
+      sourceChangeSeq: changeLogSeq,
+      actor: request.actor as DocumentVersionActor,
+    });
+    markDocumentRevisionSessionCheckpoint(database, {
+      documentId: commit.documentId,
+      generation: commit.generation,
+      checkpointHeadSeq: revision.checkpoint.baseHeadSeq,
+      createdAt: revision.checkpoint.createdAt,
+      finalize: true,
+    });
+  }
+};
+
 const materializeStoredCommit = (
   database: Database.Database,
   commit: StoredDocumentCommit,
@@ -3835,6 +3914,12 @@ export const applyBlockTransfer = (
       documentCommits,
       affectedDatabaseBlockIds,
       receipt,
+    );
+    captureTransferDocumentRevisions(
+      database,
+      request,
+      documentCommits,
+      changeLogSeq,
     );
     inject("after_ledger");
     inject("before_commit");
