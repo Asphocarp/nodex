@@ -143,6 +143,13 @@ export const Expanded: Story = {
 
 export const CollapsedEditing: Story = {
   args: { initiallyEditing: true },
+  parameters: {
+    docs: {
+      description: {
+        story: "The authoritative title stays editable while collapsed; Cmd/Ctrl+Enter toggles this occurrence's body without leaving the title surface.",
+      },
+    },
+  },
 };
 
 export const Loading: Story = {

@@ -1,4 +1,5 @@
 import type { FocusedImagePreview } from "./image-preview-shortcut";
+import { findBlockDescendantById } from "./block-dom-selectors";
 import { findToggleButtonForBlock } from "./toggle-shortcut";
 
 interface ModifyShortcutBlock {
@@ -23,16 +24,8 @@ export interface ModifyShortcutEditor {
   ) => unknown;
 }
 
-export interface OpenModifyShortcutCardInput {
-  projectId: string;
-  cardId: string;
-  titleSnapshot?: string;
-}
-
 export interface ModifyShortcutActions {
-  projectId: string;
   openImagePreview?: (preview: FocusedImagePreview) => void;
-  openCard?: (input: OpenModifyShortcutCardInput) => void | Promise<void>;
   openThread?: (threadId: string) => void | Promise<void>;
 }
 
@@ -47,11 +40,15 @@ function isToggleLikeBlock(block: ModifyShortcutBlock | undefined): boolean {
   return block.type === "heading" && block.props?.isToggleable === true;
 }
 
+function isCardOutlinerBlock(block: ModifyShortcutBlock | undefined): boolean {
+  return block?.type === "card" || block?.type === "cardRef";
+}
+
 function isModifiableBlock(block: ModifyShortcutBlock | undefined): boolean {
   if (!block) return false;
   if (block.type === "checkListItem") return true;
   if (block.type === "image") return true;
-  if (block.type === "cardRef") return true;
+  if (isCardOutlinerBlock(block)) return true;
   if (block.type === "threadSection") return true;
   return isToggleLikeBlock(block);
 }
@@ -81,24 +78,6 @@ function resolveShortcutBlock(editor: ModifyShortcutEditor): ModifyShortcutBlock
   return editor.getBlock?.(cursorBlock.id) ?? cursorBlock;
 }
 
-function readInlineText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value !== "object" || value === null) return "";
-
-  const record = value as Record<string, unknown>;
-  if (typeof record.text === "string") return record.text;
-  if (!Array.isArray(record.content)) return "";
-
-  return record.content.map(readInlineText).join("");
-}
-
-function readBlockText(block: ModifyShortcutBlock): string | undefined {
-  if (!Array.isArray(block.content)) return undefined;
-
-  const text = block.content.map(readInlineText).join("").trim();
-  return text || undefined;
-}
-
 function resolveImagePreview(block: ModifyShortcutBlock): FocusedImagePreview | null {
   const source = readStringProp(block.props, "url");
   if (!source) return null;
@@ -121,19 +100,21 @@ function handleToggleBlock(editor: ModifyShortcutEditor, block: ModifyShortcutBl
   return true;
 }
 
-function resolveCardTarget(
-  actions: ModifyShortcutActions,
+function handleCardOutlinerBlock(
+  editor: ModifyShortcutEditor,
   block: ModifyShortcutBlock,
-): OpenModifyShortcutCardInput | null {
-  if (block.type !== "cardRef") return null;
-  const cardId = readStringProp(block.props, "targetBlockId");
-  if (!cardId) return null;
+): boolean {
+  if (!block.id) return true;
 
-  return {
-    projectId: readStringProp(block.props, "sourceProjectId") || actions.projectId,
-    cardId,
-    titleSnapshot: readBlockText(block),
-  };
+  const disclosure = findBlockDescendantById<HTMLButtonElement>(
+    editor.domElement,
+    block.id,
+    "[data-card-outliner-caret]",
+  );
+  if (!disclosure || disclosure.disabled) return true;
+
+  disclosure.click();
+  return true;
 }
 
 export function modifyCurrentBlock(
@@ -153,21 +134,15 @@ export function modifyCurrentBlock(
     return handleToggleBlock(editor, block);
   }
 
+  if (isCardOutlinerBlock(block)) {
+    return handleCardOutlinerBlock(editor, block);
+  }
+
   if (block.type === "image") {
     const preview = resolveImagePreview(block);
     if (!preview || !actions.openImagePreview) return false;
     actions.openImagePreview(preview);
     return true;
-  }
-
-  if (block.type === "cardRef") {
-    const cardTarget = resolveCardTarget(actions, block);
-    if (cardTarget && actions.openCard) {
-      void actions.openCard(cardTarget);
-      return true;
-    }
-
-    return false;
   }
 
   if (block.type !== "threadSection") return false;

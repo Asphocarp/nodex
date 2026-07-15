@@ -1,4 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
@@ -19,6 +20,7 @@ function ActivationHarness({
   disclosureStore,
   activationBudget,
   renderActive,
+  titleNode,
 }: {
   readonly disclosureKey?: string;
   readonly title?: string;
@@ -26,6 +28,7 @@ function ActivationHarness({
   readonly disclosureStore: BlockDisclosureStateStore;
   readonly activationBudget: ReferenceSurfaceActivationBudget;
   readonly renderActive: () => React.ReactNode;
+  readonly titleNode?: React.ReactNode;
 }) {
   const activation = useCardOutlinerActivation({
     disclosureKey,
@@ -40,7 +43,9 @@ function ActivationHarness({
         targetBlockId="target"
         projectId="project"
         plainTitle={title}
-        title={<PortableRichTitle value={plainTextToPortableRichText(title)} />}
+        title={titleNode ?? (
+          <PortableRichTitle value={plainTextToPortableRichText(title)} />
+        )}
         expanded={activation.expanded}
         expandable={expandable}
         active={activation.active}
@@ -56,7 +61,119 @@ function ActivationHarness({
   );
 }
 
+function NestedDisclosureShortcutHarness() {
+  const [outerExpanded, setOuterExpanded] = useState(true);
+  const [innerExpanded, setInnerExpanded] = useState(false);
+
+  return (
+    <CardOutlinerRow
+      targetBlockId="outer-card"
+      plainTitle="Outer Card"
+      title={<span data-testid="outer-title">Outer Card</span>}
+      expanded={outerExpanded}
+      expandable
+      active
+      onExpandedChange={setOuterExpanded}
+    >
+      <CardOutlinerRow
+        targetBlockId="inner-card"
+        plainTitle="Inner Card"
+        title={<span data-testid="inner-title">Inner Card</span>}
+        expanded={innerExpanded}
+        expandable
+        active
+        onExpandedChange={setInnerExpanded}
+      >
+        Inner body
+      </CardOutlinerRow>
+    </CardOutlinerRow>
+  );
+}
+
 describe("CardOutlinerRow", () => {
+  test("toggles disclosure from the Card header with either platform modifier", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(1);
+    const view = render(
+      <ActivationHarness
+        disclosureStore={disclosureStore}
+        activationBudget={activationBudget}
+        renderActive={() => <div data-testid="target-runtime" />}
+        titleNode={(
+          <div
+            contentEditable
+            suppressContentEditableWarning
+            data-embedded-surface-input="card-title"
+            data-testid="live-title"
+          >
+            Rich title
+          </div>
+        )}
+      />,
+    );
+    const title = view.getByTestId("live-title");
+
+    await act(async () => {
+      fireEvent.keyDown(title, { key: "Enter", metaKey: true });
+      await Promise.resolve();
+    });
+    expect(
+      view.getByRole("button", { name: "Collapse Rich title" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.keyDown(title, { key: "Enter", ctrlKey: true });
+      await Promise.resolve();
+    });
+    expect(
+      view.getByRole("button", { name: "Expand Rich title" }),
+    ).toBeTruthy();
+  });
+
+  test("lets a nested Card header toggle without collapsing its parent", async () => {
+    const view = render(<NestedDisclosureShortcutHarness />);
+
+    await act(async () => {
+      fireEvent.keyDown(view.getByTestId("inner-title"), {
+        key: "Enter",
+        metaKey: true,
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      view.getByRole("button", { name: "Collapse Outer Card" }),
+    ).toBeTruthy();
+    expect(
+      view.getByRole("button", { name: "Collapse Inner Card" }),
+    ).toBeTruthy();
+  });
+
+  test("ignores modified Enter variants reserved for other commands", async () => {
+    const disclosureStore = new BlockDisclosureStateStore();
+    const activationBudget = new ReferenceSurfaceActivationBudget(1);
+    const view = render(
+      <ActivationHarness
+        disclosureStore={disclosureStore}
+        activationBudget={activationBudget}
+        renderActive={() => null}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(view.getByText("Rich title"), {
+        key: "Enter",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      view.getByRole("button", { name: "Expand Rich title" }),
+    ).toBeTruthy();
+  });
+
   test("admits target content only while the local row is expanded", async () => {
     const disclosureStore = new BlockDisclosureStateStore();
     const activationBudget = new ReferenceSurfaceActivationBudget(1);

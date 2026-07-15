@@ -22,7 +22,6 @@ describe("handleNfmEditorModEnterShortcut", () => {
     };
 
     const handled = handleNfmEditorModEnterShortcut(editor, {
-      projectId: "project-1",
       sendThreadSectionByBlockId: () => {
         sendCount += 1;
         return true;
@@ -32,6 +31,39 @@ describe("handleNfmEditorModEnterShortcut", () => {
 
     expect(handled).toBe(true);
     expect(checked).toBe("true");
+    expect(sendCount).toBe(0);
+  });
+
+  test("toggles a Card occurrence before the thread-section fallback", () => {
+    let clickCount = 0;
+    let sendCount = 0;
+    const button = document.createElement("button");
+    button.addEventListener("click", () => {
+      clickCount += 1;
+    });
+    const editor: ModifyShortcutEditor = {
+      domElement: {
+        querySelector: (selector: string) => (
+          selector === '.bn-block[data-id="card-1"] [data-card-outliner-caret]'
+            ? button
+            : null
+        ),
+      } as unknown as ParentNode,
+      getTextCursorPosition: () => ({
+        block: { id: "card-1", type: "card", props: {} },
+      }),
+    };
+
+    const handled = handleNfmEditorModEnterShortcut(editor, {
+      sendThreadSectionByBlockId: () => {
+        sendCount += 1;
+        return true;
+      },
+      showMissingThreadSectionHint: () => undefined,
+    });
+
+    expect(handled).toBe(true);
+    expect(clickCount).toBe(1);
     expect(sendCount).toBe(0);
   });
 
@@ -48,7 +80,6 @@ describe("handleNfmEditorModEnterShortcut", () => {
     };
 
     const handled = handleNfmEditorModEnterShortcut(editor, {
-      projectId: "project-1",
       sendThreadSectionByBlockId: (blockId) => {
         sentBlockId = blockId;
         return true;
@@ -73,7 +104,6 @@ describe("handleNfmEditorModEnterShortcut", () => {
     };
 
     const handled = handleNfmEditorModEnterShortcut(editor, {
-      projectId: "project-1",
       sendThreadSectionByBlockId: () => false,
       showMissingThreadSectionHint: () => {
         hintCount += 1;

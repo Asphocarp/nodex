@@ -95,7 +95,7 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 | Shortcut | Action | Notes |
 |----------|--------|-------|
 | `⌘/Ctrl+Alt+1`–`4` | Heading level 1–4 | |
-| `⌘/Ctrl+Enter` | Modify current block; otherwise send current thread section in Card Stage | Modifies actionable blocks first: checkbox toggle, toggle expand/collapse, image preview, card/card toggle open, or bound thread-section open. In Card Stage, unhandled blocks keep the existing thread-section send fallback and confirmation preview. |
+| `⌘/Ctrl+Enter` | Modify current block; otherwise send current thread section in Card Stage | Modifies actionable blocks first: checkbox toggle, native toggle expand/collapse, image preview, child Card/Card-reference disclosure, or bound thread-section open. The Card occurrence toggles in place even while its live title is focused; a nested body keeps the shortcut for its own editor. In Card Stage, unhandled blocks keep the existing thread-section send fallback and confirmation preview. |
 | `⌘/Ctrl+A` | Select current block content | |
 
 ### Input Rules (text triggers)

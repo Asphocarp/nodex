@@ -38,6 +38,12 @@ Expanding an engaged row reuses that same target runtime and adds the body edito
 
 This refines ADR 0007's statement that collapsed rows never mount a target boundary. The invariant is that **idle** collapsed rows never mount one. Explicit interaction may temporarily activate exactly one authoritative title surface without disclosing the body.
 
+### The disclosure owner handles the Card modify command
+
+`Cmd/Ctrl+Enter` on a selected child `card` / `cardRef` shell or anywhere in that occurrence's title header toggles the same occurrence-local disclosure preference as its permanent caret. It does not open Card Stage, mutate the target Document, or derive state from `targetBlockId`. A recognized but currently ineligible Card consumes the Card modify command without overwriting its saved preference or falling through to Card Stage section send.
+
+The disclosure wrapper is also the event-scope boundary. It ignores modified Enter events whose nearest Card body is inside that wrapper, leaving the nested `NfmEditor` or a deeper Card header to own the command. A deeper Card header therefore toggles only its own occurrence, even when it is rendered inside another disclosed Card.
+
 ### One target runtime remains the only write surface
 
 `card` and `cardRef` remain `content: "none"` custom Blocks. No title or body content is inserted into the host ProseMirror document, host Y.Doc, Block props, canonical NFM, or a shell-local editor. The projected rich title remains read-only.
@@ -88,11 +94,13 @@ No persisted-data migration, schema version change, or NFM migration is required
 3. The projected rich title is never editable and never becomes a write authority.
 4. One active target runtime supplies both the live title and, when disclosed, the body.
 5. Disclosure preference and editing engagement have different identities and lifetimes.
-6. Host and target navigation crosses through an explicit editor-scoped handle, never event bubbling or a Block-ID-global map.
-7. Arrow interception occurs only at visual boundaries and never consumes modified, composing, or range-selection movement.
-8. A pending async focus intent survives lazy loading and provider synchronization and is applied at most once.
-9. A focused editing engagement outranks visibility-only surfaces without exceeding the provider budget.
-10. Missing, deleted, archived, self-referential, and cyclic targets never activate recursive editing.
+6. Card disclosure commands resolve by shell occurrence and reuse the permanent disclosure owner; they never open or mutate the target Card.
+7. A parent disclosure wrapper never consumes a modified Enter originating in its disclosed body.
+8. Host and target navigation crosses through an explicit editor-scoped handle, never event bubbling or a Block-ID-global map.
+9. Arrow interception occurs only at visual boundaries and never consumes modified, composing, or range-selection movement.
+10. A pending async focus intent survives lazy loading and provider synchronization and is applied at most once.
+11. A focused editing engagement outranks visibility-only surfaces without exceeding the provider budget.
+12. Missing, deleted, archived, self-referential, and cyclic targets never activate recursive editing.
 
 ## Alternatives Rejected
 
@@ -115,6 +123,8 @@ Using only logical `parentOffset === 0/content.size` checks was rejected because
 Create a paragraph, a `card` or `cardRef`, and another paragraph in one NFM editor. Leave the Card collapsed. The row initially uses its portable rich-title projection and no target provider. Press ArrowDown at the previous paragraph's last visual line: after any target-loading interval, the authoritative title receives focus at its start and the body remains hidden. Edit and undo the title; another mounted Card surface converges, while the host Y.Doc and canonical NFM remain unchanged. Move focus away and observe the idle row return to projection eligibility.
 
 Click a collapsed projected title and edit it without expanding. The caret lands near the click when layout permits. Select formatting, use IME composition, and press Escape; title operations remain local to the target surface and Escape returns selection to the host shell without changing disclosure.
+
+Select the collapsed host shell and press `Cmd/Ctrl+Enter`; its body discloses through the same caret state. Repeat while editing the live title to collapse it without ending title editing. In a disclosed body, use `Cmd/Ctrl+Enter` on ordinary Blocks and nested Card headers: the body editor keeps its own commands, and only the innermost targeted Card occurrence changes disclosure.
 
 Expand the Card and traverse downward: previous host, title, first through last visible body Block, next host. Traverse upward and observe the exact reverse order. Wrapped host/title/body lines keep ordinary within-line vertical movement until their first or last visual line. Collapsed native toggle descendants are skipped. Consecutive and nested Card shells use the same order without selecting hidden content or requiring a second Arrow press on the Card shell.
 

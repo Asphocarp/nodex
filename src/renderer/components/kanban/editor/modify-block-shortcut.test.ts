@@ -22,6 +22,18 @@ function makeToggleRoot(blockId: string, button: HTMLButtonElement): ParentNode 
   } as unknown as ParentNode;
 }
 
+function makeCardRoot(
+  blockId: string,
+  button: HTMLButtonElement | null,
+): ParentNode {
+  const expectedSelector = `.bn-block[data-id="${blockId}"] [data-card-outliner-caret]`;
+  return {
+    querySelector: (selector: string) => (
+      selector === expectedSelector ? button : null
+    ),
+  } as unknown as ParentNode;
+}
+
 describe("modifyCurrentBlock", () => {
   test("toggles an unchecked checklist item", () => {
     let updateJson = "";
@@ -36,7 +48,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
+    const handled = modifyCurrentBlock(editor, {});
 
     expect(handled).toBe(true);
     expect(updateJson).toBe(
@@ -60,7 +72,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
+    const handled = modifyCurrentBlock(editor, {});
 
     expect(handled).toBe(true);
     expect(updateJson).toBe(
@@ -83,7 +95,7 @@ describe("modifyCurrentBlock", () => {
       domElement: makeToggleRoot("toggle-1", button),
     });
 
-    const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
+    const handled = modifyCurrentBlock(editor, {});
 
     expect(handled).toBe(true);
     expect(clicked).toBe(true);
@@ -101,7 +113,7 @@ describe("modifyCurrentBlock", () => {
       domElement: makeToggleRoot("heading-1", button),
     });
 
-    const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
+    const handled = modifyCurrentBlock(editor, {});
 
     expect(handled).toBe(true);
     expect(clicked).toBe(true);
@@ -116,7 +128,6 @@ describe("modifyCurrentBlock", () => {
     });
 
     const handled = modifyCurrentBlock(editor, {
-      projectId: "project-1",
       openImagePreview: (preview) => {
         previewKey = `${preview.source}|${preview.alt}`;
       },
@@ -129,33 +140,60 @@ describe("modifyCurrentBlock", () => {
   test("returns false for a paragraph block", () => {
     const handled = modifyCurrentBlock(
       makeEditor({ id: "paragraph-1", type: "paragraph", props: {} }),
-      { projectId: "project-1" },
+      {},
     );
 
     expect(handled).toBe(false);
   });
 
-  test("opens a card reference target", () => {
-    let opened = "";
-    const editor = makeEditor({
-      id: "card-ref-1",
-      type: "cardRef",
-      props: { sourceProjectId: "project-2", targetBlockId: "card-1" },
-    });
+  test.each(["card", "cardRef"])(
+    "toggles the current %s occurrence disclosure",
+    (type) => {
+      const button = document.createElement("button");
+      let clickCount = 0;
+      button.addEventListener("click", () => {
+        clickCount += 1;
+      });
+      const blockId = `${type}-1`;
+      const editor = makeEditor(
+        {
+          id: blockId,
+          type,
+          props: type === "cardRef"
+            ? { sourceProjectId: "project-2", targetBlockId: "card-1" }
+            : {},
+        },
+        { domElement: makeCardRoot(blockId, button) },
+      );
 
-    const handled = modifyCurrentBlock(editor, {
-      projectId: "project-1",
-      openCard: (input) => {
-        opened = JSON.stringify(input);
-      },
-    });
+      const handled = modifyCurrentBlock(editor, {});
 
-    expect(handled).toBe(true);
-    expect(opened).toBe(JSON.stringify({
-      projectId: "project-2",
-      cardId: "card-1",
-    }));
-  });
+      expect(handled).toBe(true);
+      expect(clickCount).toBe(1);
+    },
+  );
+
+  test.each(["card", "cardRef"])(
+    "consumes the current unavailable %s occurrence without falling through",
+    (type) => {
+      const button = document.createElement("button");
+      button.disabled = true;
+      let clickCount = 0;
+      button.addEventListener("click", () => {
+        clickCount += 1;
+      });
+      const blockId = `${type}-unavailable`;
+      const editor = makeEditor(
+        { id: blockId, type, props: {} },
+        { domElement: makeCardRoot(blockId, button) },
+      );
+
+      const handled = modifyCurrentBlock(editor, {});
+
+      expect(handled).toBe(true);
+      expect(clickCount).toBe(0);
+    },
+  );
 
   test("opens a bound thread section", () => {
     let openedThreadId = "";
@@ -166,7 +204,6 @@ describe("modifyCurrentBlock", () => {
     });
 
     const handled = modifyCurrentBlock(editor, {
-      projectId: "project-1",
       openThread: (threadId) => {
         openedThreadId = threadId;
       },
@@ -184,7 +221,6 @@ describe("modifyCurrentBlock", () => {
         props: { threadId: "" },
       }),
       {
-        projectId: "project-1",
         openThread: () => undefined,
       },
     );
@@ -206,7 +242,6 @@ describe("modifyCurrentBlock", () => {
     });
 
     const handled = modifyCurrentBlock(editor, {
-      projectId: "project-1",
       openImagePreview: (preview) => {
         previewKey = `${preview.source}|${preview.alt}`;
       },
@@ -234,7 +269,7 @@ describe("modifyCurrentBlock", () => {
       },
     });
 
-    const handled = modifyCurrentBlock(editor, { projectId: "project-1" });
+    const handled = modifyCurrentBlock(editor, {});
 
     expect(handled).toBe(false);
     expect(updateCount).toBe(0);

@@ -255,11 +255,10 @@ If the current block has a modify action:
 - `checkListItem` flips its checked state
 - `toggleListItem` and toggle headings expand or collapse through the existing toggle button path
 - `image` opens the image preview
-- `cardRef` opens the referenced card in Card Stage
-- `cardToggle` opens its card target when one is present, and only falls back to expand/collapse when it has no valid card target
+- child `card` and `cardRef` occurrences expand or collapse through their local Card outliner disclosure; the same command works while the occurrence's live title is focused
 - a bound `threadSection` opens its linked thread
 
-Handled modify actions prevent the thread-section send fallback. This keeps notebook sending from overriding block-specific actions while preserving the send shortcut for ordinary text blocks and unbound section markers.
+Handled modify actions prevent the thread-section send fallback. An unavailable Card occurrence is still a recognized modify target, so it consumes the shortcut without changing disclosure or preparing a section send. Events from a disclosed Card body stay inside that nested editor; only the Card header owns the parent occurrence's disclosure command. This keeps notebook sending from overriding block-specific actions while preserving the send shortcut for ordinary text blocks and unbound section markers.
 
 ### No explicit section
 

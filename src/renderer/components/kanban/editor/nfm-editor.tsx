@@ -1444,14 +1444,12 @@ function NfmEditorInstance({
           handleNfmEditorModEnterShortcut(
             editor as unknown as ModifyShortcutEditor,
             {
-              projectId,
               openImagePreview: (preview) => {
                 setImagePreview({
                   source: resolveAssetSourceToHttpUrl(preview.source),
                   alt: preview.alt,
                 });
               },
-              openCard: onOpenCard,
               openThread: onOpenCodexThread
                 ? handleOpenThreadSectionThread
                 : undefined,
@@ -1511,10 +1509,8 @@ function NfmEditorInstance({
     handleSendThreadSectionByBlockId,
     handleOpenThreadSectionThread,
     navigateSearch,
-    onOpenCard,
     onOpenCodexThread,
     openSearch,
-    projectId,
     searchOpen,
   ]);
 

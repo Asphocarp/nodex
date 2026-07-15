@@ -4,6 +4,7 @@ import {
   useId,
   useState,
   type FocusEventHandler,
+  type KeyboardEvent,
   type PointerEventHandler,
   type ReactNode,
   type RefCallback,
@@ -160,10 +161,28 @@ export function CardOutlinerDisclosure({
   onExpandedChange,
   children,
 }: CardOutlinerDisclosureProps) {
+  const handleKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.isDefaultPrevented() || event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter") return;
+    if (!event.metaKey && !event.ctrlKey) return;
+    if (event.altKey || event.shiftKey || !expandable) return;
+
+    const target = event.target;
+    if (target instanceof Element) {
+      const body = target.closest<HTMLElement>("[data-card-outliner-body]");
+      if (body && event.currentTarget.contains(body)) return;
+    }
+
+    onExpandedChange(!expanded);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   return (
     <div
       className="bn-toggle-wrapper group/card-outliner grid! min-h-8 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-y-1 pt-1"
       data-show-children={expanded ? "true" : "false"}
+      onKeyDownCapture={handleKeyDownCapture}
     >
       <button
         type="button"
