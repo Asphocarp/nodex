@@ -3694,6 +3694,81 @@ describe(`workbench session shell / ${scope}`, () => {
     }
   });
 
+  test("does not keep a session fork action pending on destination snapshot hydration", async () => {
+    const sourceSession = makeAttachedSession({
+      id: "session:alpha:fork-source",
+      threadId: "thread-fork-source",
+      title: "Fork source",
+      tabs: [],
+    });
+    const targetSession = makeAttachedSession({
+      id: "session:alpha:fork-target",
+      threadId: "thread-fork-target",
+      title: "Fork target",
+      tabs: [],
+    });
+    renderWorkbench({
+      sessionsByProject: { alpha: [sourceSession] },
+      initialActiveProjectSessionId: sourceSession.id,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const renderInvoke = mockInvokeImpl;
+    if (!renderInvoke) throw new Error("Expected the workbench invoke mock");
+    mockInvokeImpl = async (channel, ...args) => {
+      if (channel === "project-sessions:fork") {
+        return {
+          session: targetSession,
+          threadId: "thread-fork-target",
+          composerIntent: {
+            prompt: "",
+            focusNonce: 1,
+          },
+        };
+      }
+      return await renderInvoke(channel, ...args);
+    };
+
+    let releaseSnapshot: () => void = () => undefined;
+    requestThreadStreamSnapshotImpl = async () => {
+      await new Promise<void>((resolve) => {
+        releaseSnapshot = resolve;
+      });
+    };
+
+    const actions = getLastThreadStageActions();
+    const forkFromTurn = actions.onForkFromTurn as ((input: {
+      threadId: string;
+      turnId: string;
+      message: string;
+    }) => Promise<void>) | undefined;
+    expect(typeof forkFromTurn).toBe("function");
+
+    let forkActionResolved = false;
+    const forkAction = forkFromTurn?.({
+      threadId: "thread-fork-source",
+      turnId: "turn-fork-source",
+      message: "Fork from here",
+    }).then(() => {
+      forkActionResolved = true;
+    }) ?? Promise.resolve();
+
+    try {
+      await waitFor(() => {
+        expect(requestThreadStreamSnapshotCalls.includes("thread-fork-target")).toBe(true);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(forkActionResolved).toBe(true);
+    } finally {
+      releaseSnapshot();
+      await forkAction;
+      requestThreadStreamSnapshotImpl = null;
+    }
+  });
+
   test("sidebar archive hover action archives a session-backed chat optimistically", async () => {
     const target = makeAttachedSession({
       id: "session:alpha:archive-target",

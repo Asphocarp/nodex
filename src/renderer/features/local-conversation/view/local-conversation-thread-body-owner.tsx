@@ -380,7 +380,7 @@ export function LocalConversationThreadBodyOwner({
     turnId: string;
     message: string;
   } | null>(null);
-  const [isForkSubmitting, setIsForkSubmitting] = useState(false);
+  const forkSubmissionInFlightRef = useRef(false);
   const [isRestoringArchivedThread, setIsRestoringArchivedThread] = useState(false);
   const [isOlderHistoryLoading, setIsOlderHistoryLoading] = useState(false);
   const [isDeferredBodyReady, setIsDeferredBodyReady] = useState(
@@ -561,7 +561,6 @@ export function LocalConversationThreadBodyOwner({
       initialUiState?.collapsedAgentBodyByTurnId ?? {},
     );
     setForkDialogState(null);
-    setIsForkSubmitting(false);
   }, [body.threadId, initialUiState?.collapsedAgentBodyByTurnId]);
 
   useEffect(() => {
@@ -705,11 +704,13 @@ export function LocalConversationThreadBodyOwner({
 
   const runForkChoice = useCallback(
     async (fork: () => Promise<void>, fallbackError: string) => {
-      setIsForkSubmitting(true);
+      if (forkSubmissionInFlightRef.current) return;
+
+      forkSubmissionInFlightRef.current = true;
+      setForkDialogState(null);
       onErrorMessage(null);
       try {
         await fork();
-        setForkDialogState(null);
       } catch (error) {
         onErrorMessage(
           error instanceof Error
@@ -717,7 +718,7 @@ export function LocalConversationThreadBodyOwner({
             : fallbackError,
         );
       } finally {
-        setIsForkSubmitting(false);
+        forkSubmissionInFlightRef.current = false;
       }
     },
     [onErrorMessage],
@@ -934,7 +935,6 @@ export function LocalConversationThreadBodyOwner({
       </div>
       <LocalConversationForkFromTurnDialog
         open={forkDialogState !== null}
-        busy={isForkSubmitting}
         isWorktreeThread={isWorktreeThread}
         showWorktreeOption={onForkFromTurnIntoWorktree !== undefined}
         onOpenChange={(open) => {

@@ -837,12 +837,16 @@ describe("LocalConversationThreadBody", () => {
     expect(restoreCalls[0]?.projectId).toBe("project_1");
   });
 
-  test("offers an older-turn local fork before invoking the manager action", async () => {
+  test("closes an older-turn fork confirmation before pending navigation finishes", async () => {
     const onForkFromTurnCalls: Array<{
       threadId: string;
       turnId: string;
       message: string;
     }> = [];
+    let resolveFork: () => void = () => undefined;
+    const pendingFork = new Promise<void>((resolve) => {
+      resolveFork = resolve;
+    });
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const { getAllByLabelText, getByRole, queryByText } = render(
       <TooltipProvider>
@@ -886,6 +890,7 @@ describe("LocalConversationThreadBody", () => {
           actions={buildActions({
             onForkFromTurn: async (input) => {
               onForkFromTurnCalls.push(input);
+              await pendingFork;
             },
           })}
           onErrorMessage={() => {}}
@@ -904,6 +909,12 @@ describe("LocalConversationThreadBody", () => {
 
     expect(onForkFromTurnCalls.length).toBe(1);
     expect(onForkFromTurnCalls[0]?.turnId).toBe("turn_older");
+    expect(Boolean(queryByText("Continue from this message?"))).toBe(false);
+
+    await act(async () => {
+      resolveFork();
+      await pendingFork;
+    });
   });
 
   test("routes the older-turn worktree choice through the injected target-turn handler", async () => {

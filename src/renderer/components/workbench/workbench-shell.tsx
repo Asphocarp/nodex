@@ -7059,7 +7059,8 @@ export function WorkbenchShell({
     if (result.composerIntent) {
       workbenchCodexControl.setComposerIntent(result.threadId, result.composerIntent);
     }
-    await workbenchCodexControl.requestThreadStreamSnapshot(result.threadId);
+    // The selected task owns resume/hydration; it must not extend the source task's fork action.
+    void workbenchCodexControl.requestThreadStreamSnapshot(result.threadId).catch(() => undefined);
   }, [projectlessSessions, refreshProjectSessions, selectSession, sessionsByProject, workbenchCodexControl]);
 
   const forkSessionFromTurnIntoWorktree = useCallback(async (input: {

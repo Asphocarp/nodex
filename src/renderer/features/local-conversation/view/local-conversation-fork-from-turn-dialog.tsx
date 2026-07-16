@@ -15,7 +15,6 @@ import {
 
 interface LocalConversationForkFromTurnDialogProps {
   open: boolean;
-  busy: boolean;
   isWorktreeThread: boolean;
   showWorktreeOption: boolean;
   onOpenChange: (open: boolean) => void;
@@ -30,13 +29,11 @@ function ForkChoice({
   icon,
   title,
   description,
-  disabled,
   onClick,
 }: {
   icon: "local" | "worktree";
   title: string;
   description: string;
-  disabled: boolean;
   onClick: () => void;
 }) {
   const Icon = icon === "worktree" ? WorktreeStatusIcon : LocalStatusIcon;
@@ -45,7 +42,6 @@ function ForkChoice({
     <button
       type="button"
       className={choiceClassName}
-      disabled={disabled}
       onClick={onClick}
     >
       <Icon className="icon-xs shrink-0 opacity-75 group-hover:opacity-100 group-focus:opacity-100" />
@@ -61,7 +57,6 @@ function ForkChoice({
 
 export function LocalConversationForkFromTurnDialog({
   open,
-  busy,
   isWorktreeThread,
   showWorktreeOption,
   onOpenChange,
@@ -69,13 +64,7 @@ export function LocalConversationForkFromTurnDialog({
   onForkIntoWorktree,
 }: LocalConversationForkFromTurnDialogProps) {
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (busy && !nextOpen) return;
-        onOpenChange(nextOpen);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-[420px] gap-4 rounded-2xl p-5"
         showCloseButton={false}
@@ -100,7 +89,6 @@ export function LocalConversationForkFromTurnDialog({
             description={isWorktreeThread
               ? "Continue from this message in the same worktree"
               : "Continue from this message in a new local task"}
-            disabled={busy}
             onClick={onForkIntoLocal}
           />
           {showWorktreeOption ? (
@@ -108,7 +96,6 @@ export function LocalConversationForkFromTurnDialog({
               icon="worktree"
               title="Continue in new worktree"
               description="Continue from this message in a new worktree"
-              disabled={busy}
               onClick={onForkIntoWorktree}
             />
           ) : null}
@@ -118,7 +105,6 @@ export function LocalConversationForkFromTurnDialog({
           <NodexButton
             type="button"
             variant="secondary"
-            disabled={busy}
             onClick={() => onOpenChange(false)}
           >
             Cancel
