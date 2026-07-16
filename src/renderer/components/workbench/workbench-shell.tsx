@@ -9482,12 +9482,11 @@ export function WorkbenchShell({
                     ref={isActive ? setRightPanelComposerOverlayTarget : undefined}
                     data-right-panel-composer-overlay-host="true"
                     className={cn(
-                      "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
+                      "absolute top-0 right-0 bottom-0 min-w-0 bg-token-main-surface-primary",
                       !model.rightPanelFullWidth && "border-l border-token-border",
                     )}
                     style={{
                       width: sessionRightPanelTargetWidth,
-                      minWidth: sessionRightPanelTargetWidth,
                       "--thread-content-top-inset": "calc(var(--spacing) * 8)",
                     } as MotionStyle}
                   >

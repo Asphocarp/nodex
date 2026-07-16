@@ -7814,6 +7814,66 @@ describe(`workbench session shell / ${scope}`, () => {
     )).toBe(true);
   });
 
+  test("right panel content canvas shrinks with the sash after collapse and reopen", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            id: "session:alpha:reopen-resize",
+            title: "Reopen resize",
+            rightCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const toggleButton = screen.getByRole("button", { name: "Toggle side panel" });
+    await act(async () => {
+      fireEvent.click(toggleButton);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    await settleAsyncRender();
+    expect(screen.queryByTestId("session-right-panel")).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(toggleButton);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    await settleAsyncRender();
+
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const contentCanvas = rightPanel.querySelector<HTMLElement>(
+      '[data-right-panel-composer-overlay-host="true"]',
+    );
+    if (!contentCanvas) throw new Error("Expected right-panel content canvas");
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+    await waitFor(() => {
+      expect(rightPanel.style.width).toBe("372px");
+      expect(contentCanvas.style.width).toBe("372px");
+    });
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(separator, { button: 0, pointerId: 9, clientX: 700 });
+        fireEvent.pointerMove(window, { pointerId: 9, clientX: 750 });
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const panelWidth = Number.parseFloat(rightPanel.style.width);
+        const canvasWidth = Number.parseFloat(contentCanvas.style.width);
+        const canvasMinimumWidth = Number.parseFloat(contentCanvas.style.minWidth || "0");
+        expect(panelWidth).toBe(322);
+        expect(canvasWidth).toBe(panelWidth);
+        expect(canvasMinimumWidth).toBeLessThanOrEqual(panelWidth);
+      });
+    } finally {
+      await releasePointerDrag(9);
+    }
+  });
+
   test("right panel resize can grow well beyond the default width on wide shells", async () => {
     setWindowInnerWidthForTest(1800);
     const screen = renderWorkbench({

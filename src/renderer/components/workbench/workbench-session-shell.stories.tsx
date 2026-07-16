@@ -1050,6 +1050,21 @@ export const MixedRightTabs: Story = {
   },
 };
 
+export const CardRightPanelCollapseAnchor: Story = {
+  args: {
+    activeTab: "card",
+    thread: "attached",
+    rightPanel: "regular",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Interactive resize acceptance scene: drag the right-panel sash past its collapse threshold, reopen it, then resize it narrower. The full Card Stage canvas follows the sash with no retained minimum width, while trailing toolbar actions stay anchored to the viewport-right edge.",
+      },
+    },
+  },
+};
+
 export const EmptyRightPanelActions: Story = {
   args: {
     activeTab: "empty",
